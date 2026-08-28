@@ -31,13 +31,22 @@ project already states the answer in a file git reads.
 
 ## The other half
 
-The same key makes a cell that mounts **its own output** unstable, which no
-ignore rule can fix: mounting `.` in a document that weaves markdown beside
-itself puts that markdown inside the key of the cell that produces it. That is
-a warning at run time (`self_mounting_warnings`), not an error — a document
-measuring its own weave is doing something legitimate and merely unstable —
-and it says the fix in one line: mount what the cell reads, not the folder it
-lives in.
+The same key makes a cell that mounts **its own unstable output** unstable,
+which no ignore rule can fix: mounting `.` in a document that weaves markdown
+beside itself puts that markdown — which carries the cell's transcript —
+inside the key of the cell that produces it. That is a warning at run time
+(`self_mounting_warnings`), not an error, and it says the fix in one line:
+mount what the cell reads, not the folder it lives in.
+
+Only **unstable** outputs count, and getting that boundary right is the whole
+difficulty. A directory holding a `hick:file` the document assembles from
+literal text is not a hazard — it is the central move of literate programming,
+a cell running a script its own document wrote, and those bytes are identical
+on every run. The first version of this warning did not make the distinction
+and fired on three of the warehouse's five documents, which is how a warning
+stops being read. Two kinds are unstable: the **weave target**, because
+running the cell changes it, and a **`hick:file` fed by a cell**, because its
+bytes are a run's output.
 
 ---
 
@@ -53,8 +62,9 @@ Last LLM verification:
   disk beside a generator, `hick test .` reported three documents drifted and
   their cells never run; with the filter in place the same folder is `ok`
   across all seven.
-- Test coverage: `self_mounting_tests` (4 tests: the whole-folder archetype,
-  a written subtree, the ordinary mount-what-you-read shape staying silent,
+- Test coverage: `self_mounting_tests` (5 tests: the whole-folder archetype,
+  a `hick:file` a cell fills, a literal script the cell runs staying **silent**
+  — the case that must never warn — the ordinary mount-what-you-read shape,
   and `tools` not claiming `toolsmith.md`);
   `volume_state::tests::what_the_repository_ignores_never_reaches_the_volume`
   (ignored build output absent, hidden file present, ordinary source

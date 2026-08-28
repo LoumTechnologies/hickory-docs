@@ -1574,33 +1574,47 @@ pub fn absolute_mount_warnings(doc: &hick_lang::HickDocument) -> Vec<String> {
     out
 }
 
-/// Input volumes that carry a document's own output back into the cell.
+/// Input volumes that carry a document's own *unstable* output back into
+/// the cell.
 ///
 /// A cell's recording is keyed by the digest of what it mounts, so a volume
-/// whose directory contains a file this document WRITES puts that file inside
-/// the key of the cell that writes it. Every run changes the key, no
-/// recording of that cell is ever findable again, and the next weave writes
-/// `[never run]` over the output of a run that really happened.
+/// whose directory contains a file this document writes puts that file inside
+/// the key of the cell that writes it. When the file's bytes change on every
+/// run, the key changes on every run, no recording of the cell is ever
+/// findable again, and the next weave writes `[never run]` over the output of
+/// a run that really happened.
 ///
-/// The archetype is `input="."` in a document that weaves markdown beside
-/// itself, which is a natural thing to write for a cell that measures the
-/// project — and it worked for exactly as long as nobody had the app open.
+/// **Only unstable outputs count**, which is the whole difficulty of stating
+/// this. Mounting a directory that holds a `hick:file` the document assembles
+/// from literal text is not a hazard — it is the central move of literate
+/// programming, a cell running a script its own document wrote, and those
+/// bytes are the same on every run. Two kinds are not:
 ///
-/// A warning rather than an error: a document that mounts its own output ON
-/// PURPOSE — measuring its own weave, checking its own size — is doing
-/// something legitimate and merely unstable, and the fix (mount what you
-/// measure) is not always available.
+/// - **The weave target.** It carries the cell's own transcript, so running
+///   the cell changes it, so the next run's key differs. This is the one that
+///   was actually hit: a measurement cell mounting `.`.
+/// - **A `hick:file` fed by a cell.** Its bytes are a run's output, and a run
+///   is only as reproducible as what it ran.
+///
+/// A warning rather than an error: a document measuring its own weave is
+/// doing something legitimate and merely unstable, and the fix — mount what
+/// the cell reads, not the folder it lives in — is not always available.
 pub fn self_mounting_warnings(doc: &hick_lang::HickDocument) -> Vec<String> {
-    let mut outputs: Vec<String> = doc
+    let mut unstable: Vec<(String, &'static str)> = doc
         .tags()
         .filter(|t| t.name == "file")
+        // A file whose body is a cell's output, not literal text.
+        .filter(|t| t.child_tags().any(|c| c.name == "exec"))
         .filter_map(|t| t.get_attribute("path"))
-        .map(|p| p.trim().to_string())
+        .map(|p| (p.trim().to_string(), "which a cell in this document fills"))
         .collect();
     if let Some(weave) = doc.weave_path.as_deref()
         && weave != hick_lang::WEAVE_NONE
     {
-        outputs.push(weave.to_string());
+        unstable.push((
+            weave.to_string(),
+            "this document's own weave, which carries the cell's transcript",
+        ));
     }
 
     let mut out = Vec::new();
@@ -1617,15 +1631,15 @@ pub fn self_mounting_warnings(doc: &hick_lang::HickDocument) -> Vec<String> {
             path.strip_prefix(dir)
                 .is_some_and(|rest| rest.starts_with('/'))
         };
-        let Some(clash) = outputs.iter().find(|p| covers(p)) else {
+        let Some((clash, why)) = unstable.iter().find(|(p, _)| covers(p)) else {
             continue;
         };
         out.push(format!(
-            "line {}: the input volume `{}` carries `{clash}`, which this \
-             document writes. A cell's recording is keyed by what it mounts, \
-             so the cell's own output is inside its own cache key: every run \
-             changes the key and the next weave reports the cell as never \
-             run. Mount what the cell reads, not the folder it lives in.",
+            "line {}: the input volume `{}` carries `{clash}`, {why}. A \
+             cell's recording is keyed by what it mounts, so that output is \
+             inside the key of the cell producing it: every run changes the \
+             key and the next weave reports the cell as never run. Mount what \
+             the cell reads, not the folder it lives in.",
             tag.source_line,
             input.trim()
         ));
@@ -1979,20 +1993,46 @@ wc -l project/*
 "#));
         assert_eq!(warnings.len(), 1, "{warnings:?}");
         assert!(warnings[0].contains("report.md"), "{}", warnings[0]);
-        assert!(warnings[0].contains("cache key"), "{}", warnings[0]);
+        assert!(
+            warnings[0].contains("keyed by what it mounts"),
+            "{}",
+            warnings[0]
+        );
     }
 
     #[test]
-    fn mounting_a_subtree_the_document_writes_into_warns_too() {
+    fn a_file_a_cell_fills_is_unstable_and_warns() {
+        let warnings = self_mounting_warnings(&doc(r#"<?xml version="1.0" encoding="UTF-8"?>
+<hick:doc xmlns:hick="http://www.hickorydocs.com/1.0" weave="none">
+<hick:volume name="t" input="tools" />
+<hick:file path="tools/list.txt">
+<hick:exec container="c" show="output">
+ls
+</hick:exec>
+</hick:file>
+</hick:doc>
+"#));
+        assert_eq!(warnings.len(), 1, "{warnings:?}");
+        assert!(warnings[0].contains("tools/list.txt"), "{}", warnings[0]);
+    }
+
+    #[test]
+    fn a_script_the_document_types_and_the_cell_runs_is_the_point_of_all_this() {
+        // The central move of literate programming: a document writes a
+        // script from literal text and mounts the directory so a cell can run
+        // it. The bytes are identical on every run, the key is stable, and
+        // warning here would fire on nearly every document there is.
         let warnings = self_mounting_warnings(&doc(r#"<?xml version="1.0" encoding="UTF-8"?>
 <hick:doc xmlns:hick="http://www.hickorydocs.com/1.0" weave="none">
 <hick:volume name="t" input="tools" />
 <hick:file path="tools/gen.py">print(1)
 </hick:file>
+<hick:exec container="c" mount="t:tools">
+python3 tools/gen.py
+</hick:exec>
 </hick:doc>
 "#));
-        assert_eq!(warnings.len(), 1, "{warnings:?}");
-        assert!(warnings[0].contains("tools/gen.py"), "{}", warnings[0]);
+        assert!(warnings.is_empty(), "{warnings:?}");
     }
 
     #[test]
