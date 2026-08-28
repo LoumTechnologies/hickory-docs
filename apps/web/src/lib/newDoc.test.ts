@@ -64,15 +64,17 @@ describe("naming the untitled document", () => {
 });
 
 describe("the created document's source", () => {
-  it("is the standard wrapper with the typed prose inside", () => {
-    expect(wrapUntitled("# Hello")).toBe(
-      '<hick:doc xmlns:hick="http://www.hickorydocs.com/1.0">\n# Hello\n</hick:doc>\n',
-    );
+  // docs/specs/freeform/bare-documents.md — the root element is optional, and
+  // the new-note path is the exact case that spec was adopted for.
+  it("is the typed prose and nothing else — no wrapper", () => {
+    expect(wrapUntitled("# Hello")).toBe("# Hello\n");
   });
 
-  it("wraps an empty body without inventing content", () => {
-    expect(wrapUntitled("")).toBe(
-      '<hick:doc xmlns:hick="http://www.hickorydocs.com/1.0">\n\n</hick:doc>\n',
-    );
+  it("does not double a newline the prose already ends with", () => {
+    expect(wrapUntitled("# Hello\n")).toBe("# Hello\n");
+  });
+
+  it("creates an empty document without inventing content", () => {
+    expect(wrapUntitled("")).toBe("\n");
   });
 });

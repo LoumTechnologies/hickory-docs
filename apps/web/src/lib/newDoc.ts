@@ -3,7 +3,7 @@
 // The app never lands on a chooser: an empty folder lands in a new untitled
 // buffer, a folder with documents lands in the one touched last. The untitled
 // buffer holds only prose — the real file is created on the first edit, named
-// past whatever the folder already holds, wrapped in the standard envelope.
+// past whatever the folder already holds, and holding exactly what was typed.
 
 import type { DocSummary } from "../api/types";
 
@@ -45,7 +45,22 @@ export function untitledPath(existing: string[]): string {
   }
 }
 
-/** The created document: the standard wrapper with the typed prose inside. */
+/**
+ * The created document: the typed prose, and nothing else.
+ *
+ * A new note is **bare** (`docs/specs/freeform/bare-documents.md`): the root
+ * element is optional, the prefix defaults to `hick`, and `weave=` defaults to
+ * the document's own name — so the envelope this used to add bought nothing
+ * and cost the thing the spec exists for. Its motivating case *is* this one:
+ * "the file is a thing you open on a phone in a meeting, and the first
+ * impression of the format is the first line of the file." Typing `# Standup`
+ * and getting three lines of XML around it is the impression that spec was
+ * adopted to remove.
+ *
+ * A document that needs the wrapper still opts into it by typing it — that is
+ * rule 1 working in the only direction that matters. Prose about hick itself,
+ * which rebinds the prefix to `h:`, is the one kind that must.
+ */
 export function wrapUntitled(prose: string): string {
-  return `<hick:doc xmlns:hick="http://www.hickorydocs.com/1.0">\n${prose}\n</hick:doc>\n`;
+  return prose.endsWith("\n") ? prose : `${prose}\n`;
 }
