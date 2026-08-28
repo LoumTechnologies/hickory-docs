@@ -1261,15 +1261,41 @@ pub fn escaping_warnings(doc: &hick_lang::HickDocument) -> Vec<String> {
         ("&quot;", '"'),
         ("&apos;", '\''),
     ];
+    // Extensions where an entity is ordinary content rather than a mistake.
+    // An HTML page full of `&amp;` is correct HTML, and warning about it
+    // would teach people to ignore the warning that matters.
+    const MARKUP: &[&str] = &[
+        "html", "htm", "xml", "xhtml", "svg", "xsl", "xslt", "rss", "atom", "md", "markdown",
+        "vue", "razor", "cshtml", "xaml", "plist", "resx",
+    ];
     let mut out = Vec::new();
-    for tag in doc.tags().filter(|t| t.name == "exec") {
+    for tag in doc.tags() {
+        let (what, where_to) = match tag.name.as_str() {
+            "exec" => ("exec body", "the shell receives those characters literally"),
+            // A `hick:file` is where this mistake is worst. The shell at
+            // least fails loudly and soon; a generated source file takes the
+            // five literal characters, is written without complaint, and
+            // fails later in a compiler that has never heard of hick. That
+            // is a long way from the cause.
+            "file" => {
+                let path = tag.get_attribute("path").unwrap_or_default();
+                let ext = path.rsplit('.').next().unwrap_or("").to_ascii_lowercase();
+                if MARKUP.contains(&ext.as_str()) {
+                    continue;
+                }
+                (
+                    "file body",
+                    "the generated file receives those characters literally",
+                )
+            }
+            _ => continue,
+        };
         let body = hick_lang::tag_text(tag);
         for (entity, literal) in ENTITIES {
             if body.contains(entity) {
                 out.push(format!(
-                    "line {}: exec body contains `{entity}` — hick does not \
-                     unescape, so the shell receives those characters \
-                     literally. Write `{literal}` directly.",
+                    "line {}: {what} contains `{entity}` — hick does not \
+                     unescape, so {where_to}. Write `{literal}` directly.",
                     tag.source_line
                 ));
                 break;
