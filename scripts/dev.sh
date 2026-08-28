@@ -29,6 +29,13 @@ cd "$(dirname "$0")/.."
 RUN_DIR=.dev
 PROJECT_DIR="$RUN_DIR/project"
 
+# Dogfooding: `HICKORY_PROJECT_DIR=~/notes just dev` opens the app on a real
+# folder instead of the seeded scratch. Without this the dev environment can
+# only ever be pointed at fixtures, which is the one project whose problems
+# are already known. The seeder still owns .dev/project and still runs, so
+# `just dev` with nothing set is unchanged.
+DOGFOOD_DIR="${HICKORY_PROJECT_DIR:-}"
+
 # Per-worktree, derived, never written down: two checkouts of this repo can
 # each run `just dev` without agreeing on anything. 41000–48999 avoids the
 # ephemeral range and Vite's own 5173 default, so a stray `npm run dev`
@@ -159,7 +166,7 @@ export HICK="$PWD/target/debug/hick"
 
 PORT=$(worktree_port)
 API_PORT=$(api_port)
-export HICKORY_PROJECT_DIR="$PWD/$PROJECT_DIR"
+export HICKORY_PROJECT_DIR="${DOGFOOD_DIR:-$PWD/$PROJECT_DIR}"
 # The engine binds this instead of an ephemeral port, and the window loads
 # Vite instead of the engine. Both are read by the desktop shell at startup
 # and both are absent in a downloaded copy — see dev.rs.
@@ -169,7 +176,11 @@ export HICKORY_UI_ORIGIN="http://localhost:$PORT"
 export HICKORY_API_ORIGIN="http://127.0.0.1:$API_PORT"
 
 echo "Dev environment"
-echo "  project : $HICKORY_PROJECT_DIR"
+if [ -n "$DOGFOOD_DIR" ]; then
+  echo "  project : $HICKORY_PROJECT_DIR (yours, from HICKORY_PROJECT_DIR)"
+else
+  echo "  project : $HICKORY_PROJECT_DIR (seeded scratch)"
+fi
 echo "  ui      : http://localhost:$PORT — Vite, and what the window loads."
 echo "            Frontend changes hot-reload; open it in a browser too."
 echo "  engine  : http://127.0.0.1:$API_PORT — in the app's own process."
