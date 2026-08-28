@@ -83,6 +83,12 @@ hick-search = { path = "../hick-search" }
 # filters) hick-search indexes with, so the folder tree and search agree on
 # which files exist.
 ignore = "0.4"
+
+# Parsing a GraphQL query for `hick code-model --client`. A parser is the one
+# part of typed-client generation that is genuinely solved elsewhere, and
+# writing a second one would be the only hard thing in an otherwise small
+# feature. MIT/Apache-2.0.
+graphql-parser = "0.4"
 hickory-agent = { path = "../hickory-agent" }
 hickory-collab = { path = "../hickory-collab" }
 hickory-executor = { path = "../hickory-executor" }

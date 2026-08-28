@@ -34,6 +34,7 @@ pub mod replay;
 pub mod search_install;
 pub mod serve;
 pub mod tool_install;
+pub mod typed_client;
 pub mod up;
 
 /// `hick init` entry points: idempotent local git-repo setup.

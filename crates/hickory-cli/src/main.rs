@@ -1029,6 +1029,19 @@ struct CodeModelArgs {
     /// person — or a model writing a generator — finds out what to ask.
     #[arg(long)]
     query: Option<String>,
+    /// Generate a typed client for the queries in this file.
+    ///
+    /// The types and the query text are emitted together, so they cannot
+    /// drift the way a hand-written struct beside a hand-written query does.
+    #[arg(long)]
+    client: Option<PathBuf>,
+    /// The language to generate the client IN — which is the language the
+    /// GENERATOR is written in, not the one being modelled.
+    #[arg(long, default_value = "python")]
+    target: String,
+    /// Where to write it (default: stdout).
+    #[arg(long = "out", short)]
+    out: Option<PathBuf>,
     /// Print the schema as SDL rather than as a summary.
     ///
     /// This is the form every ecosystem's GraphQL codegen reads — `genqlient`,
@@ -3698,6 +3711,37 @@ fn cmd_code_model(args: CodeModelArgs) -> Result<ExitCode> {
 
     let root = std::env::current_dir()?;
     let mut server = ModelServer::start(&args.language, &args.source, &root)?;
+
+    if let Some(queries) = args.client.as_deref() {
+        use hickory_cli::typed_client::{Schema, emit, resolve};
+
+        let Some(target) = emit::Target::parse(&args.target) else {
+            anyhow::bail!(
+                "`{}` is not a language this can generate a client in.\n  Available: {}",
+                args.target,
+                emit::Target::names()
+            );
+        };
+        let document = std::fs::read_to_string(queries)
+            .with_context(|| format!("could not read {}", queries.display()))?;
+        let schema = Schema::from_introspection(&server.query(INTROSPECT, None)?)?;
+        let operations = resolve(&schema, &document)?;
+        let source = emit::emit(target, &operations, &args.language);
+        match args.out.as_deref() {
+            Some(path) => {
+                std::fs::write(path, &source)
+                    .with_context(|| format!("could not write {}", path.display()))?;
+                eprintln!(
+                    "wrote {} — {} operation(s), typed against the {} model",
+                    path.display(),
+                    operations.len(),
+                    args.language
+                );
+            }
+            None => print!("{source}"),
+        }
+        return Ok(ExitCode::SUCCESS);
+    }
 
     let Some(query) = args.query.as_deref() else {
         // No query: print what CAN be asked. Introspection is the whole

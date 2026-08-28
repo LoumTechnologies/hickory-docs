@@ -40,7 +40,75 @@ and the argument for keeping an equivalence gate on anything that generates.
 `Node.__eq__` compares the underlying response by identity now, and access is
 memoised.
 
-## Typed, if you want it — from your ecosystem's tool, not from us
+## Typed clients: `--client`
+
+```
+hick code-model csharp src/Domain --client queries.graphql --target python -o client.py
+```
+
+Types and the query text are generated together, so they cannot drift the way
+a hand-written struct beside a hand-written query string does.
+
+Two languages are involved and it is worth keeping them apart: `csharp` is
+what is being **modelled**, `--target python` is what the **generator** is
+written in.
+
+### Why this is written here rather than delegated
+
+Every ecosystem has a GraphQL codegen, and each is good at what it is for —
+which is building an application client. Measured before deciding:
+
+| tool | cost |
+|---|---|
+| `graphql-codegen` (TS) | 166 npm packages, 72 MB, needs Node |
+| `genqlient` (Go) | needs the Go toolchain |
+| `ariadne-codegen` (Python) | needs Python and pydantic |
+| StrawberryShake (C#) | a reactive client framework with stores and DI |
+
+Four tools, four toolchains, four config formats, and four differently-shaped
+clients for a generator author to relearn — which is the per-language expense
+this whole design exists to avoid. StrawberryShake is not even the right
+shape: it builds application clients, not "spawn a subprocess and ask three
+questions".
+
+Against that, the hard part of query codegen is **language-independent**: walk
+the query against the schema and work out what the response looks like,
+including nullability, lists, and the variants an interface selection can
+produce. That is computed once. An emitter is about a hundred lines, so
+adding a language is a file rather than a toolchain.
+
+### What the comparison actually showed
+
+Not that ours is better. `graphql-codegen` got something right that the first
+version here got wrong, and finding out cost nothing because the comparison
+was run: **an interface selection produces every possible type, not only the
+ones a fragment named.** Selecting `types { name }` returns `EnumDecl`s
+whether or not anyone wrote `... on EnumDecl`. The first resolver listed two
+of five, and the TypeScript it generated did not compile.
+
+The second bug came from the third language, as it did with the schemas. The
+fields an interface has in common are cloned into each variant, so a nested
+shape under them is reached once per variant and kept one name — five
+identical declarations. **TypeScript merges identical interfaces silently and
+Go refuses to compile**, so the language that could not hide it is the one
+that reported it.
+
+Both are fixed, and all three targets now compile: `tsc --strict`, `go build`,
+and a Python import.
+
+The lesson is not "roll your own". It is that a generated client must be
+compiled to be believed, which is cheap, and that a mature tool is worth
+diffing against even when you do not adopt it.
+
+### Limits, refused by name rather than dropped
+
+Named fragments, directives, mutations and subscriptions are not supported. A
+generator's queries are selections over a local read-only schema, and a
+feature nobody uses is a feature that rots. Anything unsupported fails with a
+message naming it, because a silently dropped selection is a field the caller
+expects and the response never carries.
+
+## Untyped, and why it is still the default
 
 The client returns responses reachable with dots, not generated types. That is
 a decision, not a limitation, and the reasoning is worth keeping:
