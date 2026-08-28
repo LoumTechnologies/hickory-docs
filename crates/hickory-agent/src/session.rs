@@ -309,7 +309,11 @@ impl SessionLog for HickSessionLog {
             match event {
                 SessionEvent::User { text } => {
                     let id = self.next_input_id();
-                    writeln!(writer, "<hick:user id=\"{id}\">{}</hick:user>", text.trim())?;
+                    writeln!(
+                        writer,
+                        "<hick:user id=\"{id}\">{}</hick:user>",
+                        safe_prose(text.trim())
+                    )?;
                 }
                 SessionEvent::UserTurn {
                     text,
@@ -325,7 +329,7 @@ impl SessionLog for HickSessionLog {
                     writeln!(
                         writer,
                         r#"<hick:user id="{id}" turn="{turn}"{parent} provider="{provider}" model="{model}">{}</hick:user>"#,
-                        text.trim()
+                        safe_prose(text.trim())
                     )?;
                 }
                 SessionEvent::Assistant {
@@ -333,7 +337,7 @@ impl SessionLog for HickSessionLog {
                     action,
                     reasoning,
                 } => {
-                    let prose = strip_protocol_tags(prose);
+                    let prose = safe_prose(&strip_protocol_tags(prose));
                     match (action, reasoning) {
                         (None, None) => {
                             writeln!(writer, "<hick:assistant>{prose}</hick:assistant>")?;
@@ -358,7 +362,7 @@ impl SessionLog for HickSessionLog {
                     xml,
                     reasoning,
                 } => {
-                    let prose = strip_protocol_tags(prose);
+                    let prose = safe_prose(&strip_protocol_tags(prose));
                     writeln!(writer, "<hick:assistant>")?;
                     write_reasoning(&mut *writer, reasoning)?;
                     if !prose.is_empty() {
@@ -444,6 +448,43 @@ impl SessionLog for HickSessionLog {
     }
 }
 
+/// Does this text quote a hick tag (or an XML comment), such that writing it
+/// straight into an element the parser does NOT capture verbatim would break
+/// the session?
+///
+/// `<!--` counts: the parser skips comments, and an unclosed one swallows the
+/// rest of the document.
+pub fn quotes_hick(text: &str) -> bool {
+    text.contains("<hick:") || text.contains("</hick:") || text.contains("<!--")
+}
+
+/// Prose for an element that is not captured verbatim, made safe to write.
+///
+/// A model explaining `<hick:exec>` — which the model of a tool for writing
+/// hick documents does constantly — used to be written straight into
+/// `<hick:assistant>`, where the parser reads it as a real opening tag that
+/// never closes. The session then failed to parse at its own
+/// `</hick:assistant>`, and the whole conversation was lost to every reader.
+/// Two of this repository's committed example sessions are already in that
+/// state.
+///
+/// The answer is the one `hick import claude-code` already uses for imported
+/// transcripts: wrap it in `hick:input`, which IS a verbatim-capture element.
+/// Both session readers walk through the wrapper, so the text still reads as
+/// the same prose. Nothing is escaped and no byte is rewritten — the
+/// no-escaping invariant is untouched.
+fn safe_prose(text: &str) -> String {
+    if quotes_hick(text) {
+        // A body quoting its own close tag would end the wrapper early; one
+        // space inside the token stops the parser's literal search and still
+        // reads correctly.
+        let body = text.replace("</hick:input>", "</hick:input >");
+        format!("<hick:input>\n{body}\n</hick:input>")
+    } else {
+        text.to_string()
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Session file naming
 // ---------------------------------------------------------------------------
@@ -486,6 +527,47 @@ fn slugify(text: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A model explaining hick syntax must not destroy the session recording
+    /// it.
+    ///
+    /// This is not hypothetical: two committed example sessions under
+    /// `examples/receipts/hick-agent/sessions/` are unparseable because the
+    /// model wrote "`<hick:exec>`" in an answer, and the parser read it as an
+    /// opening tag that never closed.
+    #[test]
+    fn an_answer_that_quotes_a_hick_tag_still_parses() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("sessions/s.hick");
+        let log = HickSessionLog::append_or_create(&path).unwrap();
+        log.record(SessionEvent::User {
+            text: "What does <hick:exec> do?",
+        });
+        log.record(SessionEvent::Assistant {
+            prose: "It runs a cell. Write it as <hick:exec container=\"x\">.",
+            action: None,
+            reasoning: None,
+        });
+        log.record(SessionEvent::End);
+        drop(log);
+
+        let source = std::fs::read_to_string(&path).unwrap();
+        let doc = hick_lang::parse_session(&source).expect("a quoted tag is prose, not structure");
+
+        let hick_lang::SessionNode::User { text } = &doc.nodes[0] else {
+            panic!("expected a user turn, got {:?}", doc.nodes[0]);
+        };
+        assert_eq!(text.trim(), "What does <hick:exec> do?");
+
+        let hick_lang::SessionNode::Assistant { text, .. } = &doc.nodes[1] else {
+            panic!("expected an assistant turn, got {:?}", doc.nodes[1]);
+        };
+        assert_eq!(
+            text.trim(),
+            "It runs a cell. Write it as <hick:exec container=\"x\">."
+        );
+    }
+
     use hick_lang::SessionNode;
     use tempfile::tempdir;
 

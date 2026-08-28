@@ -1706,7 +1706,17 @@ fn extract_session_nodes(nodes: &[HickNode]) -> Vec<SessionNode> {
                                     code: child_tag.text_content(),
                                 });
                             }
-                            _ => {}
+                            // Anything else inside an assistant turn is part
+                            // of what it said — the same rule
+                            // `session_view` applies. It matters for
+                            // `hick:input`, which is how a session records
+                            // prose that quotes a hick tag: dropping it here
+                            // meant the two readers of one session disagreed
+                            // about what the model had answered, and this one
+                            // silently lost the answer.
+                            HickNode::Tag(child_tag) => {
+                                prose.push_str(&child_tag.text_content());
+                            }
                         }
                     }
                     result.push(SessionNode::Assistant {
