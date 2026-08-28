@@ -154,8 +154,11 @@ pub struct InitReport {
     pub claude_md_changed: bool,
     /// True if `.mcp.json` was created or its `hick` entry changed.
     pub mcp_json_changed: bool,
-    /// `.gitattributes` gained `*.hick merge=hick`.
+    /// `.gitattributes` gained `*.hick merge=hick`, or its managed list of
+    /// generated paths changed.
     pub gitattributes_changed: bool,
+    /// How many generated paths are marked in `.gitattributes`.
+    pub generated_paths: usize,
     /// This clone's `merge.hick.driver` was defined or corrected. Never
     /// committed — git will not let a repository hand a clone an executable
     /// command — so every clone runs `hick init` for this half.
@@ -197,7 +200,22 @@ pub fn run_init(dir: &Path) -> Result<InitReport> {
     // `crate::merge_driver`.
     report.gitattributes_changed =
         crate::merge_driver::ensure_attributes(&crate::merge_driver::attributes_path(&root))?;
+    // Files a document writes get marked too. `linguist-generated=true`
+    // collapses them in a pull request, and `merge=hick-generated` stops git
+    // producing a conflict in derived text that no person should resolve by
+    // hand — see `merge_driver::GENERATED_DRIVER`.
+    let generated = generated_patterns(&root);
+    report.generated_paths = generated.len();
+    if crate::merge_driver::ensure_generated_attributes(
+        &crate::merge_driver::attributes_path(&root),
+        &generated,
+    )? {
+        report.gitattributes_changed = true;
+    }
     report.merge_driver_changed = crate::merge_driver::ensure_driver_config(&root)?;
+    if crate::merge_driver::ensure_generated_driver_config(&root)? {
+        report.merge_driver_changed = true;
+    }
     report.agents_md_changed = write_agents_section(&root.join("AGENTS.md"))?;
     report.claude_md_changed = ensure_claude_md_include(&root.join("CLAUDE.md"))?;
     report.mcp_json_changed = ensure_mcp_registration(&root.join(".mcp.json"))?;
@@ -493,6 +511,40 @@ fn ensure_mcp_registration(path: &Path) -> Result<bool> {
     Ok(changed)
 }
 
+/// Every path this project's documents generate, as `.gitattributes`
+/// patterns.
+///
+/// Derived by reading each document's declared outputs — never by weaving,
+/// which would run nothing but would cost a full parse of every document to
+/// answer a question about file names. A volume's output is a directory, so
+/// it becomes `dir/**`: the files inside are named by the program that wrote
+/// them, not by the document, and there is nothing else to match them with.
+fn generated_patterns(root: &Path) -> Vec<String> {
+    let mut out = Vec::new();
+    for entry in ignore::WalkBuilder::new(root).build().flatten() {
+        let path = entry.path();
+        if path.extension().is_none_or(|e| e != "hick") {
+            continue;
+        }
+        let Ok(rel) = path.strip_prefix(root) else {
+            continue;
+        };
+        let rel = rel.display().to_string().replace('\\', "/");
+        let Ok(source) = std::fs::read_to_string(path) else {
+            continue;
+        };
+        for declared in crate::serve::api::declared_outputs(&rel, &source) {
+            out.push(match declared.strip_suffix('/') {
+                Some(dir) => format!("{dir}/**"),
+                None => declared,
+            });
+        }
+    }
+    out.sort();
+    out.dedup();
+    out
+}
+
 /// The languages a `hick:file` block most often holds, for the report.
 ///
 /// Reported rather than required: a document runs and checks fine with no
@@ -539,6 +591,16 @@ pub fn print_init_report(report: &InitReport) {
         crate::merge_driver::ATTRIBUTES_LINE,
         describe(report.gitattributes_changed)
     );
+    eprintln!(
+        "  and {} generated path(s) marked `{}`",
+        report.generated_paths,
+        crate::merge_driver::GENERATED_ATTRS
+    );
+    if report.generated_paths > 0 {
+        eprintln!(
+            "  A file a document writes is not merged: the merge belongs in the document, \n                        and the output follows from running it. Re-run `hick init` after adding a \n                        document, or the new one merges the old way."
+        );
+    }
     eprintln!(
         "merge.hick.driver (this clone only): {}",
         describe(report.merge_driver_changed)

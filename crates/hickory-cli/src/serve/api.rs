@@ -547,7 +547,7 @@ pub fn generated_outputs(
 /// Which means the honest boundary is: a path built from a variable
 /// (`path="{{name}}.rs"`) is not recognised here. Such a file keeps behaving
 /// the way every generated file did before this existed.
-fn declared_outputs(doc_rel: &str, source: &str) -> Vec<String> {
+pub(crate) fn declared_outputs(doc_rel: &str, source: &str) -> Vec<String> {
     let dir = doc_rel.rsplit_once('/').map(|(d, _)| d).unwrap_or("");
     let join = |value: &str| -> Option<String> {
         let value = value.trim();
@@ -574,10 +574,31 @@ fn declared_outputs(doc_rel: &str, source: &str) -> Vec<String> {
     };
 
     let mut out = Vec::new();
+    let mut declared_weave = false;
     for capture in WEAVE_ATTR.captures_iter(source) {
+        declared_weave = true;
+        // `weave="none"` is the opt-out, not a file called `none`.
+        if capture[1].trim() == hick_lang::WEAVE_NONE {
+            continue;
+        }
         if let Some(path) = join(&capture[1]) {
             out.push(path);
         }
+    }
+    // A BARE document declares no `weave=` and still weaves: the target
+    // defaults to its own name (`bare-documents.md`). Reading only the
+    // attribute meant every bare document's markdown was invisible here — not
+    // marked generated in the file tree, and merged by git as if a person had
+    // written it, which produced a second copy of a conflict already being
+    // resolved in the document itself.
+    if !declared_weave
+        && let Some(stem) = doc_rel
+            .rsplit('/')
+            .next()
+            .and_then(|f| f.strip_suffix(".hick"))
+        && let Some(path) = join(&format!("{stem}.md"))
+    {
+        out.push(path);
     }
     for capture in FILE_PATH_ATTR.captures_iter(source) {
         if let Some(path) = join(&capture[1]) {
@@ -586,7 +607,18 @@ fn declared_outputs(doc_rel: &str, source: &str) -> Vec<String> {
     }
     // A volume's output is a directory, recorded with a trailing `/` so a
     // lookup can tell "this exact file" from "anything under here".
+    //
+    // Except once the document has INGESTED that volume. Ingest is the moment
+    // the bytes stop being a flush and start being the document's own
+    // `hick:file` blocks — which the pattern above already found, one path at
+    // a time — and the volume is no longer flushed as a pipeline output at
+    // all. Claiming the directory anyway would mark a whole tree as written
+    // by a cell that no longer writes it.
+    let ingested = source.contains("<hick:ingested");
     for capture in VOLUME_OUTPUT_ATTR.captures_iter(source) {
+        if ingested {
+            break;
+        }
         if let Some(path) = join(&capture[1])
             && !path.is_empty()
         {
@@ -1286,7 +1318,13 @@ mod tree_tests {
         );
         assert_eq!(
             outputs,
-            vec!["src/main.rs".to_string(), "Cargo.toml".to_string()]
+            vec![
+                // The default weave: this document declares no `weave=`, so
+                // it writes `app.md` beside itself.
+                "app.md".to_string(),
+                "src/main.rs".to_string(),
+                "Cargo.toml".to_string()
+            ]
         );
     }
 
@@ -1311,7 +1349,10 @@ mod tree_tests {
     fn a_dot_dot_in_a_path_is_resolved_rather_than_left_in_the_key() {
         // `notes/deep/../out.rs` would never match the tree's `notes/out.rs`.
         let outputs = declared_outputs("notes/deep/app.hick", r#"<hick:file path="../out.rs"/>"#);
-        assert_eq!(outputs, vec!["notes/out.rs".to_string()]);
+        assert_eq!(
+            outputs,
+            vec!["notes/deep/app.md".to_string(), "notes/out.rs".to_string()]
+        );
     }
 
     #[test]
@@ -1319,7 +1360,12 @@ mod tree_tests {
         // The honest boundary of reading declarations instead of weaving: an
         // interpolated path is left alone rather than recorded as the literal
         // `{{name}}.rs`, which would mark a file nobody has.
-        assert!(declared_outputs("app.hick", r#"<hick:file path="{{name}}.rs"/>"#).is_empty());
+        // The default weave is still claimed; only the interpolated path is
+        // left alone.
+        assert_eq!(
+            declared_outputs("app.hick", r#"<hick:file path="{{name}}.rs"/>"#),
+            vec!["app.md".to_string()]
+        );
     }
 
     /// A volume's `output=` directory claims everything under it.
@@ -1334,7 +1380,10 @@ mod tree_tests {
             "30-api.hick",
             r#"<hick:volume name="apiout" output="src/Api/Generated" />"#,
         );
-        assert_eq!(declared, vec!["src/Api/Generated/".to_string()]);
+        assert_eq!(
+            declared,
+            vec!["30-api.md".to_string(), "src/Api/Generated/".to_string()]
+        );
 
         let generated = HashMap::from([
             ("src/Api/Generated/".to_string(), "d1".to_string()),
@@ -1362,9 +1411,26 @@ mod tree_tests {
         );
     }
 
+    /// Only `weave="none"` generates nothing.
+    ///
+    /// A document of pure prose still writes its markdown — that is the
+    /// default `bare-documents.md` adopted, and "a note that has no readable
+    /// form is not a note". The opt-out is the one case with no outputs at
+    /// all, and it is a keyword rather than a path: before this it claimed a
+    /// file literally named `none`.
     #[test]
-    fn a_document_that_generates_nothing_claims_nothing() {
-        assert!(declared_outputs("notes.hick", "# Just prose\n").is_empty());
+    fn only_weave_none_generates_nothing() {
+        assert_eq!(
+            declared_outputs("notes.hick", "# Just prose\n"),
+            vec!["notes.md".to_string()]
+        );
+        assert!(
+            declared_outputs(
+                "gen.hick",
+                r#"<hick:doc xmlns:hick="http://www.hickorydocs.com/1.0" weave="none">"#
+            )
+            .is_empty()
+        );
     }
 
     #[test]

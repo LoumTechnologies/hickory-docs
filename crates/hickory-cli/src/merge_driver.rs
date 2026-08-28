@@ -45,6 +45,39 @@ pub const DRIVER: &str = "hick";
 /// The line `hick init` writes into `.gitattributes`.
 pub const ATTRIBUTES_LINE: &str = "*.hick merge=hick";
 
+/// The driver for files a document GENERATES, which is a different problem
+/// from merging a document.
+///
+/// A generated file is a function of its inputs, so it has no merge of its
+/// own: the merge happens in the document, and the output follows. Left to
+/// git, one edit to one record produced three conflicts in the warehouse
+/// example — the document, its woven markdown, and the C# file the document
+/// writes — carrying the same two lines each time. Two of those are not a
+/// person's to resolve: hand-editing generated text is the act this product
+/// refuses everywhere else, and a resolution typed there is discarded by the
+/// next `hick run` without saying so.
+///
+/// So this driver **does not merge**. It keeps ours, exits clean, and says
+/// the file is generated. What makes that safe rather than lossy is the drift
+/// gate that already exists: `hick test` compares every generated file
+/// against what its document produces, so a merge that left the wrong bytes
+/// there cannot reach a commit unnoticed. Take either side, re-run, and the
+/// check confirms it.
+pub const GENERATED_DRIVER: &str = "hick-generated";
+
+/// What every generated path is marked with.
+///
+/// `linguist-generated=true` is the convention GitHub reads: the file is
+/// collapsed in a pull request and left out of the repository's language
+/// statistics. `-diff` is deliberately NOT set — the diff of a generated file
+/// is worth reading when you are checking that a generator did what you
+/// meant, which is the whole review model this product is built around.
+pub const GENERATED_ATTRS: &str = "linguist-generated=true merge=hick-generated";
+
+/// Markers around the managed list of generated paths in `.gitattributes`.
+const GENERATED_BEGIN: &str = "# BEGIN HICKORY GENERATED OUTPUTS (managed by `hick init`)";
+const GENERATED_END: &str = "# END HICKORY GENERATED OUTPUTS";
+
 /// Whether this repository actually merges `.hick` documents through hick.
 #[derive(Debug, Clone, Serialize)]
 pub struct MergeDriverStatus {
@@ -166,6 +199,134 @@ pub fn ensure_attributes(path: &Path) -> Result<bool> {
     next.push('\n');
     std::fs::write(path, next).with_context(|| format!("failed to write {}", path.display()))?;
     Ok(true)
+}
+
+/// Rewrite the managed block of generated paths in `.gitattributes`.
+///
+/// The list is derived, not remembered: every `.hick` document in the tree is
+/// read for what it declares it writes — its `weave` target, each
+/// `hick:file path=`, and each `hick:volume output=` directory, which becomes
+/// a `dir/**` pattern because a volume's contents are named by the program
+/// that wrote them rather than by the document.
+///
+/// A block that has gone stale degrades safely: a generated file added since
+/// the last `hick init` merges the way it used to, which is the way
+/// everything did before this existed. That is the same bargain
+/// `declared_outputs` already makes by reading attributes instead of weaving.
+pub fn ensure_generated_attributes(path: &Path, paths: &[String]) -> Result<bool> {
+    let existing = match std::fs::read_to_string(path) {
+        Ok(s) => s,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => String::new(),
+        Err(e) => return Err(e).with_context(|| format!("failed to read {}", path.display()))?,
+    };
+
+    let mut block = String::new();
+    if !paths.is_empty() {
+        block.push_str(GENERATED_BEGIN);
+        block.push('\n');
+        for pattern in paths {
+            // A pattern with whitespace has to be quoted, which is the one
+            // piece of gitattributes syntax a generated path routinely needs.
+            if pattern.contains(char::is_whitespace) {
+                block.push_str(&format!("\"{pattern}\" {GENERATED_ATTRS}\n"));
+            } else {
+                block.push_str(&format!("{pattern} {GENERATED_ATTRS}\n"));
+            }
+        }
+        block.push_str(GENERATED_END);
+        block.push('\n');
+    }
+
+    let next = replace_block(&existing, &block);
+    if next == existing {
+        return Ok(false);
+    }
+    std::fs::write(path, next).with_context(|| format!("failed to write {}", path.display()))?;
+    Ok(true)
+}
+
+/// Swap the managed block for `block`, or append it when there is none.
+fn replace_block(existing: &str, block: &str) -> String {
+    let mut out = String::new();
+    let mut skipping = false;
+    let mut replaced = false;
+    for line in existing.lines() {
+        if line.trim() == GENERATED_BEGIN {
+            skipping = true;
+            out.push_str(block);
+            replaced = true;
+            continue;
+        }
+        if skipping {
+            if line.trim() == GENERATED_END {
+                skipping = false;
+            }
+            continue;
+        }
+        out.push_str(line);
+        out.push('\n');
+    }
+    if !replaced && !block.is_empty() {
+        if !out.is_empty() && !out.ends_with('\n') {
+            out.push('\n');
+        }
+        out.push_str(block);
+    }
+    out
+}
+
+/// Define `merge.hick-generated.*` in this clone's config.
+///
+/// Separate from the document driver for the same reason it is a separate
+/// driver: this one is told not to merge.
+pub fn ensure_generated_driver_config(root: &Path) -> Result<bool> {
+    let exe = current_exe_path();
+    let command = format!("{exe} merge-generated --path %P");
+    ensure_config(
+        root,
+        &[
+            (
+                format!("merge.{GENERATED_DRIVER}.name"),
+                "hick generated output (kept, then regenerated)".to_string(),
+            ),
+            (format!("merge.{GENERATED_DRIVER}.driver"), command),
+        ],
+    )
+}
+
+/// This binary's path, for a command git will run with git's own `PATH`.
+fn current_exe_path() -> String {
+    std::env::current_exe()
+        .ok()
+        .and_then(|p| p.to_str().map(str::to_string))
+        .unwrap_or_else(|| "hick".to_string())
+}
+
+/// Set each key that is not already the wanted value. True when any changed.
+fn ensure_config(root: &Path, want: &[(String, String)]) -> Result<bool> {
+    let mut changed = false;
+    for (key, value) in want {
+        let current = git(root, &["config", "--get", key])
+            .filter(|o| o.status.success())
+            .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string());
+        if current.as_deref() == Some(value.as_str()) {
+            continue;
+        }
+        let out = Command::new("git")
+            .arg("-C")
+            .arg(root)
+            .args(["config", key, value])
+            .output()
+            .context("failed to run git config")?;
+        if !out.status.success() {
+            anyhow::bail!(
+                "could not define {key}: {}",
+                String::from_utf8_lossy(&out.stderr).trim()
+            );
+        }
+        changed = true;
+    }
+    Ok(changed)
 }
 
 /// Define `merge.hick.*` in this clone's config. Returns true when it changed.
@@ -322,4 +483,64 @@ pub fn run(
 /// The path `hick init` writes attributes into.
 pub fn attributes_path(root: &Path) -> PathBuf {
     root.join(".gitattributes")
+}
+
+#[cfg(test)]
+mod generated_attribute_tests {
+    use super::*;
+
+    fn write(dir: &Path, body: &str) -> PathBuf {
+        let path = dir.join(".gitattributes");
+        std::fs::write(&path, body).unwrap();
+        path
+    }
+
+    #[test]
+    fn the_block_is_rewritten_in_place_and_leaves_the_rest_alone() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = write(dir.path(), "*.hick merge=hick\n*.png binary\n");
+
+        assert!(ensure_generated_attributes(&path, &["out.md".to_string()]).unwrap());
+        let first = std::fs::read_to_string(&path).unwrap();
+        assert!(first.starts_with("*.hick merge=hick\n*.png binary\n"));
+        assert!(first.contains(&format!("out.md {GENERATED_ATTRS}")));
+
+        // Re-running with the same list is a no-op, so `hick init` stays
+        // idempotent and does not churn the file.
+        assert!(!ensure_generated_attributes(&path, &["out.md".to_string()]).unwrap());
+
+        // A changed list replaces the block rather than appending a second
+        // one — the whole reason it is delimited.
+        assert!(ensure_generated_attributes(&path, &["other.md".to_string()]).unwrap());
+        let second = std::fs::read_to_string(&path).unwrap();
+        assert_eq!(second.matches(GENERATED_BEGIN).count(), 1);
+        assert!(second.contains("other.md"));
+        assert!(!second.contains("out.md"));
+        assert!(second.contains("*.png binary"));
+    }
+
+    #[test]
+    fn an_empty_list_removes_the_block_entirely() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = write(dir.path(), "*.hick merge=hick\n");
+        ensure_generated_attributes(&path, &["out.md".to_string()]).unwrap();
+        assert!(ensure_generated_attributes(&path, &[]).unwrap());
+        let body = std::fs::read_to_string(&path).unwrap();
+        assert!(!body.contains(GENERATED_BEGIN));
+        assert_eq!(body.trim(), "*.hick merge=hick");
+    }
+
+    #[test]
+    fn a_path_with_a_space_is_quoted() {
+        // gitattributes splits on whitespace, so an unquoted path with a
+        // space silently matches nothing.
+        let dir = tempfile::tempdir().unwrap();
+        let path = write(dir.path(), "");
+        ensure_generated_attributes(&path, &["my notes.md".to_string()]).unwrap();
+        let body = std::fs::read_to_string(&path).unwrap();
+        assert!(
+            body.contains(&format!("\"my notes.md\" {GENERATED_ATTRS}")),
+            "{body}"
+        );
+    }
 }

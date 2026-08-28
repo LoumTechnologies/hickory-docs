@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<hick:session xmlns:hick="http://www.hickorydocs.com/1.0" start="2026-08-25T13:41:03Z" doc="scaffolded-service.hick">
+<hick:user id="in0" turn="202c165302c2319f" provider="openrouter" model="openrouter/auto">What can you do?</hick:user>
+<hick:usage turn="0" input="2258" cache-write="0" cache-read="0" output="358"/>
+<hick:assistant>
+<hick:reasoning>
+The user asks "What can you do?" This is a simple question. I should respond with `<hick:next>done</hick:next>` and a plain text answer describing my capabilities. No code block needed.
+</hick:reasoning>
+I'm an AI coding agent that works on a document-driven project. Here's what I can do:
+
+**Core workflow**
+- Read the primary hick document and its woven output files, plus any upstream documents in the chain
+- Edit the document through its output (lineage-mapped, byte-exact) or directly on the document source
+- Run `verify` to execute the document for real: runs every exec block, evaluates every expectation, writes the output files
+
+**Document tools**
+- `read_doc` — view document source with hash-prefixed lines
+- `read_output` — view woven output with lineage annotations
+- `read_file` — inspect project files (configs, data exports, source files)
+- `edit_output` / `edit_doc` — make edits, mapped back to the document
+- `verify` — execute the document end-to-end
+
+**Code**
+- Run shell and Python scripts in a scratch workspace for computation, inspection, and testing
+- Work with the document language: containers, volumes, exec cells with expectations, fragments (copy/paste), upstream references, transforms, claims, and transcripts
+
+**What I'm good at**
+- Fixing disagreements where they're recorded (following the chain: meeting note → domain model → requirement)
+- Keeping fragments referenced rather than duplicated, so the chain stays consistent
+- Verifying documents actually run and meet their expectations before finishing
+
+What would you like to work on?
+</hick:assistant>
+<hick:usage scope="session" input="2258" cache-write="0" cache-read="0" output="358"/>
+<hick:user id="in1" turn="203f7b91c5e4319c" parent="202c165302c2319f" provider="openrouter" model="openrouter/auto">Do you know how to create diagrams in scaffolded-service.hick not using mermaid?</hick:user>

@@ -269,6 +269,13 @@ enum Command {
     /// merge.
     #[command(name = "merge-driver", hide = true)]
     MergeDriver(MergeDriverArgs),
+    /// Internal: git's merge driver for files a document GENERATES.
+    ///
+    /// Not for people. It does not merge: a generated file is a function of
+    /// its inputs, so the merge belongs in the document and the output
+    /// follows from re-running it.
+    #[command(name = "merge-generated", hide = true)]
+    MergeGenerated(MergeGeneratedArgs),
     /// Internal: run a command inside a Windows AppContainer.
     ///
     /// Not for people. On Windows the sandbox is applied by the process that
@@ -998,6 +1005,13 @@ struct MergeDriverArgs {
 }
 
 #[derive(clap::Args)]
+struct MergeGeneratedArgs {
+    /// %P — the path in the work tree, for the message.
+    #[arg(long, default_value = "(unknown path)")]
+    path: String,
+}
+
+#[derive(clap::Args)]
 struct PromoteArgs {
     /// A `hick:session` document.
     session: PathBuf,
@@ -1197,6 +1211,7 @@ fn run() -> ExitCode {
             Command::Index(command) => cmd_index(command).await,
             Command::History(args) => cmd_history(args),
             Command::MergeDriver(args) => cmd_merge_driver(args),
+            Command::MergeGenerated(args) => cmd_merge_generated(args),
             Command::SandboxRun(args) => cmd_sandbox_run(args),
             Command::Mcp(args) => {
                 hickory_cli::mcp::serve(
@@ -2898,6 +2913,23 @@ fn cmd_merge_driver(args: MergeDriverArgs) -> Result<ExitCode> {
             Ok(ExitCode::from(1))
         }
     }
+}
+
+/// `hick merge-generated` — git's driver for a file a document writes.
+///
+/// Exits clean having changed nothing, which leaves git with ours. There is
+/// no three-way merge to do: the bytes are a program's output, and the two
+/// sides disagree only because the inputs do. Resolve the document, run the
+/// document, and this file follows — `hick test` refuses a commit where it
+/// has not.
+fn cmd_merge_generated(args: MergeGeneratedArgs) -> Result<ExitCode> {
+    eprintln!(
+        "hick merge: kept your copy of {} — it is generated, so there is nothing here to \
+         merge by hand. Resolve the document it comes from, then `hick run` it; `hick test` \
+         checks that you did.",
+        args.path
+    );
+    Ok(ExitCode::SUCCESS)
 }
 
 /// `hick open [path]` — hand a folder to the desktop app and return.
