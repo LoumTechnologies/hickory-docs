@@ -10,7 +10,7 @@
 // present and silently does nothing is worse than one that is absent, and the
 // two backwards controls are the sharp case: most adapters have exactly one.
 
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import type { TranscriptEvent } from "../api/types";
 import { WatchingTerminal } from "../terminal/WatchingTerminal";
 import type { DebugCapabilities, Frame, Step } from "./client";
@@ -44,6 +44,54 @@ export function debugKeysActive(status: DebugStripProps["status"]): boolean {
   // Only while paused: that is the only time a step means anything, and it
   // keeps F5 as the browser's own reload whenever no program is stopped.
   return status === "paused";
+}
+
+/**
+ * The one debug failure a person can fix from here: no adapter for this
+ * language, and hick knows where to get one.
+ *
+ * A sentence and a button, not a wall of prose. The old strip printed the
+ * whole error — "no debug adapter for python on this machine. Install one
+ * with `hick dap install python`, or…" — truncated at the width of the
+ * strip, with the actionable half off the end of it. This says the same thing
+ * in six words and does it.
+ */
+function MissingTool({
+  offer,
+  detail,
+  onInstall,
+}: {
+  offer: { kind: string; language: string };
+  detail: string | null;
+  onInstall?: (offer: { kind: string; language: string }) => Promise<void>;
+}) {
+  const [busy, setBusy] = useState(false);
+  const [failed, setFailed] = useState<string | null>(null);
+
+  const pretty = offer.language.charAt(0).toUpperCase() + offer.language.slice(1);
+  return (
+    <span className="debug-strip__missing" role="alert">
+      <span>No {pretty} debugger on this machine.</span>
+      {onInstall && (
+        <button
+          type="button"
+          className="btn btn-primary debug-strip__install"
+          disabled={busy}
+          data-tip={detail ?? undefined}
+          onClick={() => {
+            setBusy(true);
+            setFailed(null);
+            onInstall(offer)
+              .catch((e) => setFailed(e instanceof Error ? e.message : String(e)))
+              .finally(() => setBusy(false));
+          }}
+        >
+          {busy ? "Installing…" : `Install it`}
+        </button>
+      )}
+      {failed && <span className="debug-strip__error">{failed}</span>}
+    </span>
+  );
 }
 
 /**
@@ -85,6 +133,10 @@ export interface DebugStripProps {
   /** Which generated file this session is running. */
   program?: string | null;
   message: string | null;
+  /** A tool this machine can fetch, when that is why the session failed. */
+  offerInstall?: { kind: string; language: string } | null;
+  /** Fetch it, then try again. Resolves when the attempt is over. */
+  onInstall?: (offer: { kind: string; language: string }) => Promise<void>;
   capabilities: DebugCapabilities | null;
   frames: Frame[];
   selectedFrame: number | null;
@@ -299,11 +351,23 @@ export function DebugStrip(props: DebugStripProps) {
       ))}
       {/* The failure, in the one place a session's chrome is. Its own element
           rather than appended to the status word, which read as one unbroken
-          sentence of two different weights. */}
-      {props.message && (
+          sentence of two different weights.
+
+          When the failure is a missing tool this machine can fetch, the
+          button IS the message: printing "install one with `hick dap install
+          python`" next to a control that does exactly that is telling
+          somebody to go and do by hand what is in front of them. */}
+      {props.message && !props.offerInstall && (
         <span className="debug-strip__error" role="alert" data-tip={props.message}>
           {props.message}
         </span>
+      )}
+      {props.offerInstall && (
+        <MissingTool
+          offer={props.offerInstall}
+          detail={props.message}
+          onInstall={props.onInstall}
+        />
       )}
     </div>
     {showBuild && (

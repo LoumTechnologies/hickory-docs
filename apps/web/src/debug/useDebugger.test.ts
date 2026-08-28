@@ -160,6 +160,32 @@ describe("the debugger, over the socket", () => {
     expect(hook.result.current.message).toContain("no debug adapter");
   });
 
+  it("carries a fetchable tool out of the failure, and drops it when one starts", async () => {
+    // Protects docs/guarantees/debugging/a-missing-debugger-is-a-button.md
+    //
+    // The second half is the bug this pairing exists to prevent: installing
+    // the adapter started the session successfully and left "No Python
+    // debugger on this machine" sitting beside "finished — exit code 0".
+    const { socket, hook } = open();
+    act(() => hook.result.current.start());
+    act(() =>
+      socket.deliver({
+        event: "failed",
+        message: "no debug adapter for python on this machine.",
+        offer_install: { kind: "dap", language: "python" },
+      }),
+    );
+    await waitFor(() =>
+      expect(hook.result.current.offerInstall).toEqual({ kind: "dap", language: "python" }),
+    );
+
+    act(() => hook.result.current.start());
+    act(() => socket.deliver(STARTED));
+    await waitFor(() => expect(hook.result.current.status).toBe("running"));
+    expect(hook.result.current.offerInstall).toBeNull();
+    expect(hook.result.current.message).toBeNull();
+  });
+
   it("asks only about names the frame has", async () => {
     // Hovering prose, a tag name or a comment used to send the word to the
     // debugger and get a `NameError` back — an error about our question, not

@@ -188,7 +188,26 @@ pub enum Response {
         /// breakpoint, shown on it.
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         lines: Vec<u32>,
+        /// The one failure a person can fix from here: no debug adapter for
+        /// this language, and hick knows how to fetch one.
+        ///
+        /// Carried as a FIELD rather than left in the message, because a
+        /// button is the difference between "go and type this in a terminal"
+        /// and "yes, do that". Absent when the language is one hick cannot
+        /// install — the sentence then names the ecosystem's own way and is
+        /// all there is to say.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        offer_install: Option<InstallOffer>,
     },
+}
+
+/// A missing tool the app can offer to fetch.
+#[derive(Debug, Clone, Serialize)]
+pub struct InstallOffer {
+    /// What to install — always `"dap"` today; the shape is here because
+    /// `hick lsp install` and `hick index install` are the same gesture.
+    pub kind: String,
+    pub language: String,
 }
 
 /// Handle one request and produce the responses to send back.
@@ -213,12 +232,25 @@ pub async fn handle(
     }
     match result {
         Ok(responses) => out.extend(responses),
-        Err((session, error)) => out.push(Response::Failed {
-            session,
-            message: format!("{error:#}"),
-            about: Some(about.to_string()),
-            lines,
-        }),
+        Err((session, error)) => {
+            // Typed, not string-matched: `MissingAdapter` exists so this
+            // decision is made on a fact rather than on the wording of a
+            // sentence somebody may reword.
+            let offer_install = error
+                .downcast_ref::<hick_dap::MissingAdapter>()
+                .filter(|missing| missing.installable)
+                .map(|missing| InstallOffer {
+                    kind: "dap".to_string(),
+                    language: missing.language.clone(),
+                });
+            out.push(Response::Failed {
+                session,
+                message: format!("{error:#}"),
+                about: Some(about.to_string()),
+                lines,
+                offer_install,
+            })
+        }
     }
     out
 }
@@ -492,6 +524,7 @@ async fn settle(
             message: format!("{error:#}"),
             about: None,
             lines: Vec::new(),
+            offer_install: None,
         }],
     }
 }
@@ -766,6 +799,7 @@ mod tests {
             message: "that line is prose, not code".into(),
             about: Some("breakpoints".into()),
             lines: vec![4],
+            offer_install: None,
         });
         let value: Value = serde_json::from_slice(&frame[1..]).unwrap();
         assert_eq!(value["event"], "failed");
@@ -785,6 +819,7 @@ mod tests {
             message: "no such session".into(),
             about: None,
             lines: Vec::new(),
+            offer_install: None,
         });
         let value: Value = serde_json::from_slice(&frame[1..]).unwrap();
         assert!(value.get("about").is_none(), "{value}");

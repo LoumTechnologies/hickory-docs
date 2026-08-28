@@ -36,6 +36,7 @@ pub mod find;
 pub mod formula;
 pub mod git;
 pub mod history;
+pub mod install;
 pub mod lsp_bridge;
 pub mod merged;
 pub mod plain_file;
@@ -445,6 +446,7 @@ fn router(state: LocalState) -> Router {
         .route("/docs/{id}/refactor/status", get(refactor::status))
         .route("/docs/{id}/refactor/end", post(refactor::end))
         .route("/adopt", post(refactor::adopt))
+        .route("/install", post(install::install))
         .route("/samples", post(sample::create))
         .route("/docs/{id}/run", post(api::run_doc))
         .route("/docs/{id}/check", post(api::check_doc))

@@ -20,7 +20,7 @@ pub use adapter::Adapter;
 pub use build::{BuildOutput, build, is_compiled};
 pub use capture::{CaptureSpec, Captured, Hit};
 pub use discovery::{Discovered, discover, how_to_get, known_languages, suggests_hick_install};
-pub use program::{adapter_for, entry_point, language_of, weave_into};
+pub use program::{MissingAdapter, adapter_for, entry_point, language_of, weave_into};
 pub use session::{
     BindState, Breakpoint, BreakpointStatus, Capabilities, Exit, Frame, Launch, Mapping, Session,
     Step, Stopped, Variable,

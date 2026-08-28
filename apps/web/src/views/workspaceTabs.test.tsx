@@ -66,12 +66,27 @@ function mount(session: DocSession) {
 }
 
 describe("the document tab's toolbar", () => {
-  it("renders Run and Verify at the top of the tab", () => {
-    const { getByRole } = mount(makeSession());
+  // Protects docs/guarantees/editor-intelligence/the-toolbar-uses-words-an-ide-user-knows.md
+
+  it("offers Run and Test, and nothing a traditional IDE would misread", () => {
+    const { getByRole, queryByRole } = mount(makeSession());
     const toolbar = getByRole("toolbar", { name: "Actions for notes/demo.hick" });
     expect(toolbar.className).toBe("doc-tab-toolbar");
     expect(getByRole("button", { name: "Run" })).toBeTruthy();
-    expect(getByRole("button", { name: "Verify" })).toBeTruthy();
+    // `hick test` is the command; the button says the same word, so each one
+    // is findable from the other.
+    expect(getByRole("button", { name: "Test" })).toBeTruthy();
+    expect(queryByRole("button", { name: "Verify" })).toBeNull();
+    // "Refactor" means rename/extract in every other editor. It named a mode
+    // here, and a mode belongs in a menu.
+    expect(queryByRole("button", { name: "Refactor" })).toBeNull();
+  });
+
+  it("keeps the rare document-wide action in a menu", () => {
+    const { getByRole, getByText } = mount(makeSession());
+    fireEvent.click(getByRole("button", { name: "More actions for this document" }));
+    // Named by what it produces, not by a mode nobody can search for.
+    expect(getByText("Pin outputs as a baseline")).toBeTruthy();
   });
 
   it("calls THIS session's runAll and verify", () => {
@@ -79,7 +94,7 @@ describe("the document tab's toolbar", () => {
     const { getByRole } = mount(session);
     fireEvent.click(getByRole("button", { name: "Run" }));
     expect(session.runAll).toHaveBeenCalledTimes(1);
-    fireEvent.click(getByRole("button", { name: "Verify" }));
+    fireEvent.click(getByRole("button", { name: "Test" }));
     expect(session.verify).toHaveBeenCalledTimes(1);
   });
 
@@ -87,11 +102,11 @@ describe("the document tab's toolbar", () => {
     const session = makeSession({ runningCells: new Set(["cell-1"]) });
     const { getByRole } = mount(session);
     const run = getByRole("button", { name: "Running…" }) as HTMLButtonElement;
-    const verify = getByRole("button", { name: "Verify" }) as HTMLButtonElement;
+    const test = getByRole("button", { name: "Test" }) as HTMLButtonElement;
     expect(run.disabled).toBe(true);
-    expect(verify.disabled).toBe(true);
+    expect(test.disabled).toBe(true);
     fireEvent.click(run);
-    fireEvent.click(verify);
+    fireEvent.click(test);
     expect(session.runAll).not.toHaveBeenCalled();
     expect(session.verify).not.toHaveBeenCalled();
   });

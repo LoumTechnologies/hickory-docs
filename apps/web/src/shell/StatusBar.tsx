@@ -84,7 +84,9 @@ export function StatusBar({
           className={`status-bar__item${clean ? "" : " status-bar__item--loud"}`}
           onClick={onProblems}
           data-tip={
-            clean ? "Nothing is wrong right now" : "Go to the next problem"
+            clean
+              ? "Nothing is wrong right now"
+              : "Show every problem. F8 goes to the next one."
           }
           aria-label={problemsLabel(problems)}
         >

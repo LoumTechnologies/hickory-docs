@@ -299,6 +299,26 @@ a breakpoint has **three** states, not two — netcoredbg reports `pending` at
 set time and binds on module load, so `verified: false` means "not yet", never
 "never", and the only certain refusal is the one hick makes itself.
 
+What the app does when a tool is missing, and what its toolbar is allowed to
+say, are `docs/guarantees/debugging/a-missing-debugger-is-a-button.md` and
+`docs/guarantees/editor-intelligence/the-toolbar-uses-words-an-ide-user-knows.md`
+(both 2026-08-28). **A fixable failure is a button, never a command to go and
+type**: a missing debug adapter offers to install itself through the same
+catalogue and confinement `hick dap install` uses, and the decision is made by
+downcasting `hick_dap::MissingAdapter` — a **type**, so a reworded sentence
+cannot silently take the button away — and only when `installable` says a
+catalogue can serve it. The offer is cleared whenever a session starts, or an
+install that worked leaves "No Python debugger on this machine" beside
+"finished — exit code 0". Say `POST /api/install` **adds an affordance, never
+a second mechanism**. On vocabulary: **never use a word another editor has
+already given a different meaning to.** The toolbar's `Verify` is now `Test`,
+matching `hick test` so the button and the command find each other, and
+`Refactor` — which named a *mode* while meaning rename/extract everywhere else
+— is `Pin outputs as a baseline` in an overflow menu, named for what it
+produces. A **count must be expandable**: the status bar's problem count opens
+a list (F8 keeps the jump), because clicking it used to reach only the focused
+document and could do nothing at all.
+
 Showing what a generator makes, without storing it, is
 `<hick:sample path from to caption>` — a window inside the `hick:exec` that
 produces the file, whose lines appear **only in the weave**

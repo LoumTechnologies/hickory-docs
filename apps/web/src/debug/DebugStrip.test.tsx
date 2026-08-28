@@ -166,6 +166,46 @@ describe("the strip on the debugged block", () => {
     expect(screen.getByRole("alert").textContent).toContain("no debug adapter");
   });
 
+  it("offers to install a missing debugger instead of printing the command", () => {
+    // Protects docs/guarantees/debugging/a-missing-debugger-is-a-button.md
+    //
+    // The failure a person CAN fix from here. The old strip printed the whole
+    // sentence — "…Install one with `hick dap install python`, or…" — and
+    // truncated it at the strip's width, so the actionable half was off the
+    // end of the control that could have done it.
+    const onInstall = vi.fn().mockResolvedValue(undefined);
+    render(
+      <DebugStrip
+        {...base({
+          status: "failed",
+          message: "no debug adapter for python on this machine. Install one with…",
+          offerInstall: { kind: "dap", language: "python" },
+          onInstall,
+        })}
+      />,
+    );
+    expect(screen.getByRole("alert").textContent).toContain("No Python debugger");
+    // And NOT the command: a button beside a command telling you to run the
+    // command is the thing this replaces.
+    expect(screen.getByRole("alert").textContent).not.toContain("hick dap install");
+    fireEvent.click(screen.getByRole("button", { name: "Install it" }));
+    expect(onInstall).toHaveBeenCalledWith({ kind: "dap", language: "python" });
+  });
+
+  it("still says the whole sentence when nothing here can install it", () => {
+    // Go's adapter comes from `go install`. There is no button to offer, so
+    // the prose is all there is — and it must not be swallowed.
+    render(
+      <DebugStrip
+        {...base({
+          status: "failed",
+          message: "no debug adapter for go on this machine. delve is the Go debugger: …",
+        })}
+      />,
+    );
+    expect(screen.getByRole("alert").textContent).toContain("delve");
+  });
+
   it("says how a finished program ended, and offers the way back in", () => {
     // The session behind a finished strip no longer exists — the server
     // reaped it with the program — so the strip's job is the exit info, a

@@ -42,6 +42,8 @@ import { PlainFilePane } from "../components/PlainFilePane";
 import { ScratchpadPane } from "../components/ScratchpadPane";
 import { SearchPanel } from "../components/SearchPanel";
 import { ReferencesPanel } from "../components/ReferencesPanel";
+import { ProblemsPanel, problemRows } from "../components/ProblemsPanel";
+import type { ProblemRow } from "../components/ProblemsPanel";
 import { PromptPanel, usePrompt } from "../components/PromptPanel";
 import {
   resolveSearchHit,
@@ -279,6 +281,11 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
   );
 
   /** Put the caret on the next error or warning in the focused document. */
+  // The list behind the status bar's count. Open/closed is all that is held;
+  // the rows are read from the sessions when it draws, so a diagnostic that
+  // arrives while it is open appears without a subscription of its own.
+  const [problemsOpen, setProblemsOpen] = useState(false);
+
   const goToNextProblem = useCallback(() => {
     const session = registry.get(focusedIdRef.current);
     const view = session?.docEditor;
@@ -302,6 +309,20 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
     });
     view.focus();
   }, [registry]);
+
+  // F8 — "go to the next problem" in every editor that has the idea, and the
+  // verb the status-bar click used to be. Keeping it as a key rather than
+  // dropping it is the point: the click now answers "what is wrong", and this
+  // still answers "take me to the next one".
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key !== "F8" || event.metaKey || event.ctrlKey || event.altKey) return;
+      event.preventDefault();
+      goToNextProblem();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [goToNextProblem]);
 
   // The branch, for the status bar. Refetched when files change — a commit,
   // a checkout, or a save can all move it.
@@ -1833,6 +1854,32 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
           onClose={() => setSearchOpen(false)}
         />
       )}
+      {problemsOpen && (
+        <ProblemsPanel
+          rows={problemRows(
+            registry.all().map((open) => ({
+              docId: open.docId,
+              path: open.doc?.path ?? open.docId,
+              diagnostics: open.lspDiagnostics ?? [],
+            })),
+          )}
+          onPick={(row: ProblemRow) => {
+            setProblemsOpen(false);
+            ensureDocOpen(row.docId);
+            navigate(`/docs/${row.docId}`);
+            // After the tab exists: a document opened by this click has no
+            // editor to reveal into until it mounts.
+            window.setTimeout(
+              () =>
+                registry
+                  .get(row.docId)
+                  ?.revealDocLine(row.diagnostic.range.start.line),
+              0,
+            );
+          }}
+          onClose={() => setProblemsOpen(false)}
+        />
+      )}
       {focused?.references && (
         <ReferencesPanel
           locations={focused.references.locations}
@@ -1904,7 +1951,7 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
             )}
           </>
         }
-        onProblems={goToNextProblem}
+        onProblems={() => setProblemsOpen((open) => !open)}
         onAttention={nextAttention}
       />
     </div>

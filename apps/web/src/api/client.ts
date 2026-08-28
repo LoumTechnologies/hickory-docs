@@ -172,6 +172,15 @@ export const api = {
       ...(into !== undefined ? { into } : {}),
     }),
 
+  /** Fetch a tool the project needs — today a debug adapter — through the
+   * same catalogue and the same confinement `hick dap install` uses. See
+   * crates/hickory-cli/src/serve/install.rs. */
+  installTool: (kind: string, language: string) =>
+    request<{ installed: string; path: string }>("POST", "/api/install", {
+      kind,
+      language,
+    }),
+
   /** Put a `<hick:sample>` under the cell that generated this file: a window
    * onto a few of its lines, shown in the weave and never stored in the
    * document. `path` is root-relative; the server finds the owning cell.

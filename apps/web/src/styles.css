@@ -4658,6 +4658,29 @@ button.fleet-grant {
   font-size: 0.85rem;
 }
 
+/* The problems list: the references panel's shape, because it answers the
+   same kind of question — a list of places, clicked to go there. */
+.problems-panel__glyph { flex: none; }
+.problems-panel__glyph--error { color: var(--danger); }
+.problems-panel__glyph--warn { color: var(--warn); }
+.problems-panel__message {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The one debug failure a person can fix from here. A sentence and a button,
+   sitting where the wall of error text used to be truncated. */
+.debug-strip__missing {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  color: var(--fg);
+}
+.debug-strip__install { white-space: nowrap; }
+
 /* Picking a sample: a strip under a generated file, present only while lines
    are selected. Deliberately not a floating bubble over the selection — the
    caption is typed here, and a popover that moves when the selection changes

@@ -28,6 +28,9 @@ export interface Watch {
 }
 
 export interface DebugSession {
+  /** A tool this machine can fetch, when a missing one is why the last
+   * attempt failed. Null the rest of the time. */
+  offerInstall: { kind: string; language: string } | null;
   status: DebugStatus;
   message: string | null;
   /** The generated file being debugged, when one was named. */
@@ -93,6 +96,22 @@ function followMoves(statuses: BreakpointStatus[]): BreakpointStatus[] {
 export function useDebugger(realtime: Realtime, docPath: string): DebugSession {
   const [status, setStatus] = useState<DebugStatus>("idle");
   const [message, setMessage] = useState<string | null>(null);
+  // A missing tool this machine can fetch, carried out of the failure so the
+  // strip can offer a button instead of a command to go and type somewhere
+  // else.
+  //
+  // It belongs to `message` and is cleared with it — `clearFailure` exists so
+  // the two cannot come apart. They did once: installing the adapter started
+  // the session successfully and left "No Python debugger on this machine"
+  // sitting beside "finished — exit code 0".
+  const [offerInstall, setOfferInstall] = useState<{
+    kind: string;
+    language: string;
+  } | null>(null);
+  const clearFailure = useCallback(() => {
+    setMessage(null);
+    setOfferInstall(null);
+  }, []);
   const [capabilities, setCapabilities] = useState<DebugCapabilities | null>(null);
   const [pausedLine, setPausedLine] = useState<number | null>(null);
   const [frames, setFrames] = useState<Frame[]>([]);
@@ -148,7 +167,7 @@ export function useDebugger(realtime: Realtime, docPath: string): DebugSession {
           setCapabilities(event.capabilities);
           setBreakpoints(followMoves(event.breakpoints));
           setStatus("running");
-          setMessage(null);
+          clearFailure();
           setExitCode(null);
           break;
         case "stopped":
@@ -157,7 +176,7 @@ export function useDebugger(realtime: Realtime, docPath: string): DebugSession {
           setFrames(event.frames);
           setVariables(event.variables);
           setSelectedFrame(event.frames[0]?.id ?? null);
-          setMessage(null);
+          clearFailure();
           break;
         case "breakpoints":
           setBreakpoints(followMoves(event.breakpoints));
@@ -198,6 +217,7 @@ export function useDebugger(realtime: Realtime, docPath: string): DebugSession {
         case "ended":
           sessionRef.current = null;
           setStatus("idle");
+          clearFailure();
           setPausedLine(null);
           setFrames([]);
           setVariables([]);
@@ -229,7 +249,10 @@ export function useDebugger(realtime: Realtime, docPath: string): DebugSession {
           // nothing and the tooltip shows the type alone; putting the
           // adapter's `NameError` in the panel would report our own question
           // back to the person as if their program were wrong.
-          if (stillWaiting.length === 0) setMessage(event.message);
+          if (stillWaiting.length === 0) {
+            setMessage(event.message);
+            setOfferInstall(event.offer_install ?? null);
+          }
           // A failed STEP leaves the program where it was — still paused —
           // so only a failure with no session at all is fatal to the UI.
           // "Finished" already IS a terminal state: a stray failure arriving
@@ -269,7 +292,7 @@ export function useDebugger(realtime: Realtime, docPath: string): DebugSession {
         // breakpoint is for the NEXT run, and it is kept here until then.
         const session = sessionRef.current;
         if (client && session && (statusRef.current === "paused" || statusRef.current === "running")) {
-          setMessage(null);
+          clearFailure();
           client.setBreakpoints(
             session,
             next.map((breakpoint) => ({ line: breakpoint.line })),
@@ -285,7 +308,7 @@ export function useDebugger(realtime: Realtime, docPath: string): DebugSession {
     (program?: string) => {
       if (!client) return;
       setStatus("starting");
-      setMessage(null);
+      clearFailure();
       setProgram(program ?? null);
       client.start(
         uri,
@@ -293,7 +316,7 @@ export function useDebugger(realtime: Realtime, docPath: string): DebugSession {
         program,
       );
     },
-    [client, uri, breakpoints],
+    [client, uri, breakpoints, clearFailure],
   );
 
   const stop = useCallback(() => {
@@ -305,7 +328,7 @@ export function useDebugger(realtime: Realtime, docPath: string): DebugSession {
     // finished (or the start failed). Stop is then only a dismissal: clear
     // the strip's chrome locally, sending nothing to a session that is gone.
     setStatus("idle");
-    setMessage(null);
+    clearFailure();
     setCapabilities(null);
     setExitCode(null);
   }, [client]);
@@ -442,6 +465,7 @@ export function useDebugger(realtime: Realtime, docPath: string): DebugSession {
     () => ({
       status,
       message,
+      offerInstall,
       program,
       capabilities,
       pausedLine,
@@ -469,6 +493,7 @@ export function useDebugger(realtime: Realtime, docPath: string): DebugSession {
     [
       status,
       message,
+      offerInstall,
       program,
       capabilities,
       pausedLine,

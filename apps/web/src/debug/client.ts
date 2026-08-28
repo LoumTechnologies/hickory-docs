@@ -117,6 +117,13 @@ export type DebugEvent =
       about?: string;
       /** The document lines it was about, for a breakpoint failure. */
       lines?: number[];
+      /**
+       * A missing tool this machine can fetch — the one debug failure a
+       * person can fix from here. Present only when a catalogue can serve it,
+       * so the app never offers a button for a language whose adapter comes
+       * from its own ecosystem.
+       */
+      offer_install?: { kind: string; language: string };
     };
 
 /**

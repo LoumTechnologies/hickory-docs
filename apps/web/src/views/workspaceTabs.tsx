@@ -14,10 +14,124 @@ import { LocalRealtime } from "../api/realtime";
 import { DocumentEditor } from "../editor/DocumentEditor";
 import type { TableLayout } from "../components/TablePanel";
 import { DebugStrip } from "../debug/DebugStrip";
-import { RefactorBadge } from "../components/RefactorBadge";
+import { ContextMenu } from "../components/ContextMenu";
+import type { ContextMenuItem } from "../components/ContextMenu";
+import { RefactorBadge, useBaseline } from "../components/RefactorBadge";
+import type { Baseline } from "../components/RefactorBadge";
 import { GeneratedFileView } from "../shell/views";
 import { untitledPath, wrapUntitled } from "../lib/newDoc";
 import { useDocSession, type SessionRegistry } from "./documentSession";
+
+/**
+ * A document's own actions, at the top of its tab.
+ *
+ * Two buttons and a menu, and the split is deliberate. The toolbar used to
+ * read `Run · Verify · Refactor`, with **Verify** as the primary — and to
+ * anyone arriving from a traditional IDE, two of those three were wrong.
+ *
+ * - `Run` is the everyday verb and is now the primary one, because it is what
+ *   a person presses fifty times a day.
+ * - `Verify` is what `hick test` does, so it says **Test**. Matching the CLI
+ *   verb is worth more than a word of our own: somebody who reads the toolbar
+ *   can type the command, and somebody who reads the command can find the
+ *   button.
+ * - `Refactor` named a *mode*, and in every other editor that word opens
+ *   rename / extract / inline. It is now an item in the overflow menu that
+ *   says what it produces — a baseline — and the toolbar shows the verdict
+ *   only once there is one.
+ *
+ * The menu is where a document-wide action goes when it is real but rare. A
+ * toolbar is read every time the tab is opened; anything on it is being
+ * charged to every reader forever.
+ */
+function DocToolbar({
+  path,
+  running,
+  onRun,
+  onTest,
+  baseline,
+  syncState,
+}: {
+  path: string;
+  running: boolean;
+  onRun: () => void;
+  onTest: () => void;
+  baseline: Baseline;
+  syncState: string;
+}) {
+  const [menuAt, setMenuAt] = useState<{ x: number; y: number } | null>(null);
+
+  const items: ContextMenuItem[] = [
+    baseline.active
+      ? {
+          id: "baseline-off",
+          label: "Stop comparing to the baseline",
+          tip: "The outputs as they stand become the new truth.",
+        }
+      : {
+          id: "baseline-on",
+          label: "Pin outputs as a baseline",
+          tip:
+            "Restructure freely; a badge reports the moment a generated " +
+            "byte would change. The same check as `hick equiv`.",
+        },
+  ];
+
+  return (
+    <div className="doc-tab-toolbar" role="toolbar" aria-label={`Actions for ${path}`}>
+      <button
+        className="btn btn-primary"
+        disabled={running}
+        onClick={onRun}
+        data-tip="Run every cell in this document and rewrite the files it generates"
+      >
+        {running ? "Running…" : "Run"}
+      </button>
+      <button
+        className="btn"
+        disabled={running}
+        onClick={onTest}
+        data-tip="Re-run this document and check it against its own expectations, the way `hick test` does. Fails if a claim stopped being true or a committed output drifted."
+      >
+        Test
+      </button>
+      <button
+        className="btn doc-tab-toolbar__more"
+        aria-label="More actions for this document"
+        aria-haspopup="menu"
+        data-tip="More actions for this document"
+        onClick={(e) => {
+          const box = (e.currentTarget as HTMLElement).getBoundingClientRect();
+          setMenuAt({ x: box.left, y: box.bottom + 2 });
+        }}
+      >
+        ⋯
+      </button>
+      {menuAt && (
+        <ContextMenu
+          x={menuAt.x}
+          y={menuAt.y}
+          items={items}
+          subject={path}
+          onPick={(id) => {
+            setMenuAt(null);
+            if (id === "baseline-on") baseline.begin();
+            if (id === "baseline-off") baseline.end();
+          }}
+          onClose={() => setMenuAt(null)}
+        />
+      )}
+      {/* Only once there is a verdict: an idle mode advertising itself in a
+          toolbar is a slot spent on a constant. */}
+      <RefactorBadge baseline={baseline} />
+      {syncState !== "idle" && (
+        <span className={`save-state save-state-${syncState}`} role="status">
+          {syncState === "editing" ? "Saving…" : "Saved"}
+        </span>
+      )}
+    </div>
+  );
+}
 
 /** The document itself: debugger chrome on top, the collaborative editor
  * under it. One per "document" tab; the session it draws survives the tab. */
@@ -40,6 +154,9 @@ export function DocTabBody({
   onTableLayout?: (key: string, size: TableLayout) => void;
 }) {
   const session = useDocSession(registry, docId);
+  // Before the early returns: hooks may not be conditional, and the baseline
+  // outlives whatever the session is doing.
+  const baseline = useBaseline(docId);
   if (!session) return <p className="muted">Loading document…</p>;
   if (session.fatalError) return <p className="error">{session.fatalError}</p>;
   const { doc, blocks, debug } = session;
@@ -48,49 +165,28 @@ export function DocTabBody({
 
   return (
     <div className="debug-block">
-      {/* This document's own actions, at the top of its tab: run and verify
-          act on THIS document, whichever tab has the focus. A slim strip,
-          like the debug strip below it. */}
-      <div
-        className="doc-tab-toolbar"
-        role="toolbar"
-        aria-label={`Actions for ${doc.path}`}
-      >
-        <button
-          className="btn"
-          disabled={running}
-          onClick={session.runAll}
-          data-tip="Run every cell in this document"
-        >
-          {running ? "Running…" : "Run"}
-        </button>
-        <button
-          className="btn btn-primary"
-          disabled={running}
-          onClick={session.verify}
-          data-tip="Re-run this document and verify it against its expectations"
-        >
-          Verify
-        </button>
-        {/* The equivalence gate for restructuring: pin a baseline, edit
-            freely, and this badge reports the moment a woven byte would
-            move. See serve/refactor.rs. */}
-        <RefactorBadge docId={docId} />
-        {session.syncState !== "idle" && (
-          <span
-            className={`save-state save-state-${session.syncState}`}
-            role="status"
-          >
-            {session.syncState === "editing" ? "Saving…" : "Saved"}
-          </span>
-        )}
-      </div>
+      <DocToolbar
+        path={doc.path}
+        running={running}
+        onRun={session.runAll}
+        onTest={session.verify}
+        baseline={baseline}
+        syncState={session.syncState}
+      />
       {/* The debugger's chrome, on the block being debugged. Nothing while
           idle: the file chip's Debug button is the way in. */}
       <DebugStrip
         status={debug.status}
         program={debug.program}
         message={debug.message}
+        offerInstall={debug.offerInstall}
+        onInstall={async (offer) => {
+          await api.installTool(offer.kind, offer.language);
+          // Straight back into the session that failed: installing and then
+          // asking somebody to press Debug again is the same missing step
+          // this button exists to remove.
+          debug.start(debug.program ?? undefined);
+        }}
         capabilities={debug.capabilities}
         frames={debug.frames}
         selectedFrame={debug.selectedFrame}
