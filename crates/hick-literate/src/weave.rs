@@ -324,6 +324,24 @@ fn process_weave_tag(
             );
             weave_ip.add(Arc::new(StringNode::new("$$\n".to_string())));
         }
+        // A window onto what a cell just generated.
+        //
+        // The point of generating code is not reading it, so a document that
+        // pasted the output back in would undo the thing it exists for. But a
+        // reader still needs to see WHAT the generator makes, once, to believe
+        // the rules — so this shows a few lines and says where they came from.
+        //
+        // **The bytes live only in the weave.** Nothing is written into the
+        // `.hick`, which is why a sample cannot go stale and why it costs the
+        // document nothing to keep: the woven markdown is drift-checked, so a
+        // sample that stopped matching its file fails `hick test` the same way
+        // a changed transcript does.
+        //
+        // Read from disk rather than from the pipeline's produced files,
+        // because the interesting case is a VOLUME output — a program wrote
+        // it, and it is on disk beside the document rather than in a
+        // `hick:file` the weave holds.
+        "sample" => weave_sample(tag, weave_ip, state, doc_path),
         // A claim is somebody's assertion about an assertion. It weaves an
         // attribution line — who, on what standing, about what scope — and
         // then the prose UNCHANGED.
@@ -489,6 +507,12 @@ fn process_weave_tag(
             // `exec > ingested > file`, so this is the only place it weaves.
             if tag.name == "exec" {
                 for child in tag.child_tags() {
+                    // A sample sits under the cell that generated the file it
+                    // shows, which is the whole point of it — so this is the
+                    // only place it weaves.
+                    if child.name == "sample" {
+                        weave_sample(child, weave_ip, state, doc_path);
+                    }
                     if child.name == "ingested" {
                         weave_ingested_block(
                             child,
@@ -505,6 +529,74 @@ fn process_weave_tag(
             // Skip declaration-phase tags (var, copy, cut, substitute, etc.)
         }
     }
+}
+
+/// Weave one `<hick:sample>`: a window onto a few lines of what a cell
+/// generated.
+fn weave_sample(
+    tag: &hick_lang::HickTag,
+    weave_ip: &Arc<InsertionPoint>,
+    state: &Arc<MultiDocumentState>,
+    doc_path: &str,
+) {
+    let raw_path = tag_attr(tag, "path").unwrap_or_default();
+    let path = interpolate_path(&raw_path, state);
+    let caption = tag_attr(tag, "caption").unwrap_or_default();
+    let from: usize = tag_attr(tag, "from")
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(1);
+    let to: usize = tag_attr(tag, "to")
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(usize::MAX);
+
+    let base = std::path::Path::new(doc_path)
+        .parent()
+        .unwrap_or(std::path::Path::new("."));
+    let full = base.join(&path);
+    let language = extension_to_language(&path);
+
+    // This run's own bytes first: an output volume is not on disk
+    // until after the weave, so reading the file would show the
+    // PREVIOUS run's output — and, on a first run, nothing at all.
+    let produced = state.produced_file(&path);
+
+    let mut block = String::new();
+    if !caption.is_empty() {
+        block.push_str(&format!("\n*{caption}*\n"));
+    }
+    match produced
+        .ok_or(())
+        .or_else(|()| std::fs::read_to_string(&full))
+    {
+        Ok(text) => {
+            let lines: Vec<&str> = text.lines().collect();
+            let last = to.min(lines.len());
+            let first = from.max(1);
+            if first > last {
+                // Named rather than shown empty: a sample whose range
+                // has slid off the end of a file it no longer matches
+                // is exactly the stale illustration this element
+                // exists to make impossible.
+                block.push_str(&format!(
+                    "\n> `{path}` has {} line(s), so lines {from}–{to} are not there \
+                             any more. Re-pick the sample.\n\n",
+                    lines.len()
+                ));
+            } else {
+                block.push_str(&format!("\n```{language}\n"));
+                block.push_str(&lines[first - 1..last].join("\n"));
+                block.push_str(&format!(
+                    "\n```\n\n<sub>{path} lines {first}–{last}, generated — \
+                             shown here, not stored here.</sub>\n\n"
+                ));
+            }
+        }
+        Err(_) => block.push_str(&format!(
+            "\n> `{path}` has not been generated yet, so there is nothing to show. \
+                     Run the document.\n\n"
+        )),
+    }
+    weave_ip.add(Arc::new(StringNode::new(block)));
 }
 
 /// Weave one `<hick:ingested>` block: an attribution line naming the run,

@@ -4658,6 +4658,34 @@ button.fleet-grant {
   font-size: 0.85rem;
 }
 
+/* Picking a sample: a strip under a generated file, present only while lines
+   are selected. Deliberately not a floating bubble over the selection — the
+   caption is typed here, and a popover that moves when the selection changes
+   loses what was half-written into it. */
+.sample-picker {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  padding: 0.35rem 0.75rem;
+  border-top: 1px solid var(--border);
+  background: var(--bg-subtle, var(--bg));
+  font-size: 0.85rem;
+}
+.sample-picker__range { color: var(--fg-muted); font-variant-numeric: tabular-nums; }
+.sample-picker__caption {
+  flex: 1;
+  min-width: 12rem;
+  background: var(--bg);
+  color: var(--fg);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  padding: 0.15rem 0.35rem;
+  font-size: 0.85rem;
+}
+.sample-picker__landed { color: var(--fg-muted); }
+.sample-picker__error { color: var(--danger); }
+
 /* The outputs tool: a list, in a pane, not a dock. */
 .outputs-tool { list-style: none; margin: 0; padding: 0.4rem; }
 .outputs-tool__file {

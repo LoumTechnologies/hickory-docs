@@ -2046,6 +2046,15 @@ pub async fn run_pipeline_live(
         }
     }
 
+    // Before the weave, not after: a `<hick:sample>` shows bytes from the run
+    // that is happening, and these are not on disk until this function
+    // returns.
+    for (path, content) in &volume_files {
+        if let Some(text) = content.as_text() {
+            state.register_produced_file(path, text);
+        }
+    }
+
     let transcripts = assign_source_lines(executor.transcripts(), &exec_lines);
     let resource_stats = executor.resource_stats();
     executor.shutdown().await?;

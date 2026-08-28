@@ -41,6 +41,7 @@ pub mod merged;
 pub mod plain_file;
 pub mod refactor;
 pub mod reveal;
+pub mod sample;
 pub mod socket;
 pub mod store;
 pub mod terminal;
@@ -444,6 +445,7 @@ fn router(state: LocalState) -> Router {
         .route("/docs/{id}/refactor/status", get(refactor::status))
         .route("/docs/{id}/refactor/end", post(refactor::end))
         .route("/adopt", post(refactor::adopt))
+        .route("/samples", post(sample::create))
         .route("/docs/{id}/run", post(api::run_doc))
         .route("/docs/{id}/check", post(api::check_doc))
         .route("/docs/{id}/agent", post(agent::start_turn))

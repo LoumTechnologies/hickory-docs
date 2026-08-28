@@ -118,6 +118,14 @@ pub struct MultiDocumentState {
     exclusion_patterns: Mutex<Vec<String>>,
     /// Counter for generating unique container IDs.
     container_id_counter: std::sync::atomic::AtomicU64,
+    /// Output-volume files, as this run produced them, keyed by the path they
+    /// will be written to.
+    ///
+    /// Registered before the weave so a `<hick:sample>` can show bytes from
+    /// the run that is happening rather than the one before it. Reading them
+    /// from disk instead would make the first run of a document show
+    /// "not generated yet" for a file it had just generated.
+    produced_files: Mutex<HashMap<String, String>>,
 }
 
 impl Default for MultiDocumentState {
@@ -136,11 +144,25 @@ impl Default for MultiDocumentState {
             enabled_features: Mutex::new(std::collections::HashSet::new()),
             exclusion_patterns: Mutex::new(Vec::new()),
             container_id_counter: std::sync::atomic::AtomicU64::new(0),
+            produced_files: Mutex::new(HashMap::new()),
         }
     }
 }
 
 impl MultiDocumentState {
+    /// Record a file this run produced, so the weave can show part of it.
+    pub fn register_produced_file(&self, path: &str, text: &str) {
+        self.produced_files
+            .lock()
+            .unwrap()
+            .insert(path.to_string(), text.to_string());
+    }
+
+    /// A file this run produced, if it produced one by that name.
+    pub fn produced_file(&self, path: &str) -> Option<String> {
+        self.produced_files.lock().unwrap().get(path).cloned()
+    }
+
     pub fn add_file_output(&self, path: String, value: Arc<InsertionPoint>) {
         self.file_outputs.lock().unwrap().insert(path, value);
     }

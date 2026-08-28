@@ -547,31 +547,38 @@ pub fn generated_outputs(
 /// Which means the honest boundary is: a path built from a variable
 /// (`path="{{name}}.rs"`) is not recognised here. Such a file keeps behaving
 /// the way every generated file did before this existed.
+/// One declared path, joined onto the document's directory and normalised
+/// into a tree key.
+///
+/// `None` for a path built from a variable: the tree cannot know what it will
+/// be, and neither can anything reading the source instead of weaving it.
+pub(crate) fn join_under(dir: &str, value: &str) -> Option<String> {
+    let value = value.trim();
+    if value.is_empty() || value.contains("{{") {
+        return None;
+    }
+    let joined = if dir.is_empty() {
+        value.to_string()
+    } else {
+        format!("{dir}/{value}")
+    };
+    // Normalise `a/./b` and `a/b/../c` so the key matches a tree path.
+    let mut parts: Vec<&str> = Vec::new();
+    for part in joined.split('/') {
+        match part {
+            "" | "." => {}
+            ".." => {
+                parts.pop();
+            }
+            other => parts.push(other),
+        }
+    }
+    Some(parts.join("/"))
+}
+
 pub(crate) fn declared_outputs(doc_rel: &str, source: &str) -> Vec<String> {
     let dir = doc_rel.rsplit_once('/').map(|(d, _)| d).unwrap_or("");
-    let join = |value: &str| -> Option<String> {
-        let value = value.trim();
-        if value.is_empty() || value.contains("{{") {
-            return None;
-        }
-        let joined = if dir.is_empty() {
-            value.to_string()
-        } else {
-            format!("{dir}/{value}")
-        };
-        // Normalise `a/./b` and `a/b/../c` so the key matches a tree path.
-        let mut parts: Vec<&str> = Vec::new();
-        for part in joined.split('/') {
-            match part {
-                "" | "." => {}
-                ".." => {
-                    parts.pop();
-                }
-                other => parts.push(other),
-            }
-        }
-        Some(parts.join("/"))
-    };
+    let join = |value: &str| -> Option<String> { join_under(dir, value) };
 
     let mut out = Vec::new();
     let mut declared_weave = false;

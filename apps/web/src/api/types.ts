@@ -180,6 +180,16 @@ export interface ScratchpadSaved {
   path: string;
 }
 
+/** Where a picked sample landed. */
+export interface SampleCreated {
+  doc_id: string;
+  doc_path: string;
+  /** The path as the document names it — relative to the document. */
+  path: string;
+  from: number;
+  to: number;
+}
+
 export interface AdoptResponse {
   doc_id: string;
   doc_path: string;

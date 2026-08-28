@@ -8,12 +8,13 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Extension } from "@codemirror/state";
-import type { EditorView } from "@codemirror/view";
+import { EditorView } from "@codemirror/view";
 
 import { api } from "../api/client";
 import type { OutputFile, SourceEdit } from "../api/types";
 import { OutputEditorPane, provToChars, type ProvChar } from "../components/OutputEditorPane";
 import { createOutputSaver } from "../lib/outputSave";
+import { SamplePicker, selectedLines, type LineRange } from "./SamplePicker";
 
 /** One generated file, live, with its provenance carried into the LSP. */
 export function GeneratedFileView({
@@ -70,9 +71,27 @@ export function GeneratedFileView({
     };
   }, [docId, path]);
 
+  // Which lines are selected, for the sample picker. Watched here rather
+  // than asked for on click, because the offer has to APPEAR when there is
+  // something to sample — a button that is always there, and usually
+  // complains, teaches people to ignore it.
+  const [range, setRange] = useState<LineRange | null>(null);
+  const watchSelection = useMemo(
+    () =>
+      EditorView.updateListener.of((update) => {
+        if (update.selectionSet || update.docChanged) {
+          setRange(selectedLines(update.state));
+        }
+      }),
+    [],
+  );
+
   const extensions = useMemo(
-    () => (makeOutputLsp && file ? makeOutputLsp(provToChars(file)) : []),
-    [makeOutputLsp, file],
+    () => [
+      ...(makeOutputLsp && file ? makeOutputLsp(provToChars(file)) : []),
+      watchSelection,
+    ],
+    [makeOutputLsp, file, watchSelection],
   );
 
   // Edits land in the DOCUMENT, which is the whole point of a generated file
@@ -133,6 +152,7 @@ export function GeneratedFileView({
         onLocalEdit={save}
         onViewReady={(view) => onReady?.(view ? { view, file } : null)}
       />
+      {range && <SamplePicker path={path} range={range} />}
       {saveError && (
         <p className="generated-view__error" role="alert">
           That edit could not be resolved into the document: {saveError}

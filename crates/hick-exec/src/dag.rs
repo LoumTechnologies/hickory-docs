@@ -760,6 +760,10 @@ fn extract_exec_info(tag: &HickTag, index: usize) -> Result<ExecInfo, DagValidat
                     && t.name != "cut"
                     && t.name != "expect"
                     && t.name != "capture"
+                    // A window on what this cell produced, rendered by the
+                    // weave. Never stdin — feeding a cell its own output back
+                    // in is the opposite of what it is for.
+                    && t.name != "sample"
                     // Output, not input: an ingested scaffold is never stdin.
                     && t.name != "ingested")
         })
@@ -940,7 +944,10 @@ fn command_text(tag: &HickTag) -> String {
                 // shell. See
                 // `docs/specs/freeform/owning-what-a-scaffolder-wrote.md`.
                 HickNode::Tag(t)
-                    if t.name == "expect" || t.name == "capture" || t.name == "ingested" => {}
+                    if t.name == "expect"
+                        || t.name == "capture"
+                        || t.name == "ingested"
+                        || t.name == "sample" => {}
                 HickNode::Tag(t) => collect(&t.children, out),
             }
         }

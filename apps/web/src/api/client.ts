@@ -14,6 +14,7 @@ import type {
   Project,
   RefactorStatus,
   RenderResponse,
+  SampleCreated,
   SavedAsset,
   Run,
   ScratchpadSaved,
@@ -169,6 +170,18 @@ export const api = {
     request<AdoptResponse>("POST", "/api/adopt", {
       path,
       ...(into !== undefined ? { into } : {}),
+    }),
+
+  /** Put a `<hick:sample>` under the cell that generated this file: a window
+   * onto a few of its lines, shown in the weave and never stored in the
+   * document. `path` is root-relative; the server finds the owning cell.
+   * See crates/hickory-cli/src/serve/sample.rs. */
+  createSample: (path: string, from: number, to: number, caption?: string) =>
+    request<SampleCreated>("POST", "/api/samples", {
+      path,
+      from,
+      to,
+      ...(caption ? { caption } : {}),
     }),
 
   /** Write an image dropped or pasted into a note to disk, into an `assets/`
