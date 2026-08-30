@@ -52,13 +52,23 @@ impl Target {
     /// tool is a hundred lines of a document nobody reads, and it drifts.
     /// `None` for a target whose runtime does not exist yet — the emitted
     /// types stand alone, they just have nothing to send themselves with.
+    ///
+    /// Both runtimes that exist are written for the way a generator is
+    /// actually run in that ecosystem — a script for Python, a **file-based
+    /// app** (`dotnet run gen.cs`) for C# — and neither takes a dependency
+    /// beyond its standard library, because a package in a generator means a
+    /// restore, a lock file and a network hole in a cell that needs none.
     pub fn runtime(self) -> Option<(&'static str, &'static str)> {
         match self {
             Target::Python => Some((
                 "hick_model.py",
                 include_str!("../../../../code-models/clients/python/hick_model.py"),
             )),
-            Target::TypeScript | Target::Go | Target::CSharp => None,
+            Target::CSharp => Some((
+                "HickModel.cs",
+                include_str!("../../../../code-models/clients/csharp/HickModel.cs"),
+            )),
+            Target::TypeScript | Target::Go => None,
         }
     }
 
@@ -511,7 +521,7 @@ fn csharp(operations: &[Operation], language: &str) -> String {
         "#nullable enable
 using System.Text.Json.Serialization;
 
-         namespace Hick.Model.Client;
+namespace Hick.Model.Client;
 
 ",
     );
@@ -688,4 +698,39 @@ fn snake(name: &str) -> String {
 
 fn screaming(name: &str) -> String {
     snake(name).to_uppercase()
+}
+
+#[cfg(test)]
+mod runtime_tests {
+    use super::Target;
+
+    #[test]
+    fn every_runtime_is_the_language_it_claims_to_be() {
+        // A runtime is `include_str!`'d from `code-models/clients/`, so the
+        // only way this goes wrong is a path pointing at the wrong file — and
+        // it would go wrong silently, emitting Python where C# was asked for.
+        let (name, source) = Target::Python.runtime().expect("python ships one");
+        assert_eq!(name, "hick_model.py");
+        assert!(source.contains("class Model:"), "not the python runtime");
+
+        let (name, source) = Target::CSharp.runtime().expect("csharp ships one");
+        assert_eq!(name, "HickModel.cs");
+        assert!(
+            source.contains("public sealed class Model"),
+            "not the C# runtime"
+        );
+        // The one line the whole file exists for: GraphQL reports failure
+        // inside a successful-looking body, and a client that does not check
+        // generates nothing and says nothing.
+        assert!(
+            source.contains("the model refused the query"),
+            "no error check"
+        );
+    }
+
+    #[test]
+    fn a_target_with_no_runtime_says_so_rather_than_serving_another_languages() {
+        assert!(Target::Go.runtime().is_none());
+        assert!(Target::TypeScript.runtime().is_none());
+    }
 }

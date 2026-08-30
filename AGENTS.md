@@ -319,6 +319,21 @@ produces. A **count must be expandable**: the status bar's problem count opens
 a list (F8 keeps the jump), because clicking it used to reach only the focused
 document and could do nothing at all.
 
+A generator is written in **the team's language, not the model server's**
+(`docs/guarantees/languages/a-generator-is-written-in-the-team-s-language.md`,
+2026-08-30). A code model server speaks GraphQL over a pipe and has no opinion
+about what is on the other end, so `--client --target <lang>` emits the types
+and `--runtime --target <lang>` emits the transport; **python and csharp ship
+a runtime, go and typescript do not and say so**. The warehouse demo used to
+make a virtue of the generator being Python while the code it modelled was C#
+— a true capability and a bad default, because a C# shop maintains C#. It is
+now a C# generator beside a **Python** layering check against one C# server,
+which demonstrates the same thing honestly. The rewrite is also the best
+evidence available that the rules and not the implementation are what matter:
+the C# generator emits both files **byte-for-byte identically** to the Python
+one. It costs 22 lines (163 → 185) and moves the demo's break-even from eight
+endpoints to nine — worth paying, not worth paying unknowingly.
+
 Showing what a generator makes, without storing it, is
 `<hick:sample path from to caption>` — a window inside the `hick:exec` that
 produces the file, whose lines appear **only in the weave**

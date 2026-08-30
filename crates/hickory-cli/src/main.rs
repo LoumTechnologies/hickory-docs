@@ -3733,7 +3733,7 @@ fn cmd_code_model(args: CodeModelArgs) -> Result<ExitCode> {
                 "there is no client runtime for {} yet.\n  \
                  `--client` still emits types for it; sending them is your \
                  ecosystem's GraphQL client's job.\n  \
-                 Runtimes ship for: python",
+                 Runtimes ship for: python, csharp",
                 args.target
             );
         };
