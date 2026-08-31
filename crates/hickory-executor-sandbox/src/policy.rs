@@ -424,16 +424,11 @@ pub fn wrap(sandbox: Sandbox, c: &Confinement<'_>) -> Option<(String, Vec<String
 /// takes a random scratch directory), in which case the cell gets the empty
 /// tmpfs home it always had.
 fn persistent_cell_home(workdir: &Path) -> Option<String> {
-    let key = workdir
-        .parent()?
-        .file_name()?
-        .to_str()?
-        .strip_prefix("hickory-local-")?;
     // A random tempdir's suffix is not a project key, and reusing one as a
-    // home would give unrelated runs a shared directory by accident.
-    if key.len() != 12 || !key.chars().all(|c| c.is_ascii_hexdigit()) {
-        return None;
-    }
+    // home would give unrelated runs a shared directory by accident. The same
+    // rule decides what the stale-root sweep may delete, so it lives in one
+    // place: two copies of a safety rule is how they stop agreeing.
+    let key = hickory_executor::derived_root_key(workdir.parent()?.file_name()?.to_str()?)?;
     let home = std::env::temp_dir().join(format!("hickory-home-{key}"));
     std::fs::create_dir_all(&home).ok()?;
     Some(home.to_string_lossy().to_string())

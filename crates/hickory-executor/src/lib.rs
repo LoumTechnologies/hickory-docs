@@ -631,6 +631,12 @@ impl LocalExecutor {
     }
 
     fn scratch_root(project: Option<&Path>) -> Result<ScratchRoot> {
+        // Once per process, before this run takes a lock of its own: a run
+        // that crashed leaves its directory behind, and nothing else ever
+        // removes it.
+        static SWEEP: std::sync::Once = std::sync::Once::new();
+        SWEEP.call_once(|| sweep_stale_roots(&std::env::temp_dir()));
+
         let ephemeral = || -> Result<ScratchRoot> {
             Ok(ScratchRoot::Ephemeral(
                 tempfile::Builder::new()
@@ -1537,6 +1543,61 @@ fn short_key(path: &Path) -> String {
 ///
 /// Unix only in the strict sense; elsewhere the lock is treated as live,
 /// which costs a run its stable path and never costs it correctness.
+/// The project key in a derived scratch-root name, if the name is one of ours.
+///
+/// [`short_key`] makes exactly 12 hex characters so a derived root can be
+/// recognised by shape. That matters because the ephemeral fallback asks
+/// `tempfile` for the SAME `hickory-local-` prefix, so the prefix alone does
+/// not tell a derived root from a random directory that a live run is using —
+/// and anything that deletes by name has to know the difference.
+pub fn derived_root_key(name: &str) -> Option<&str> {
+    let key = name.strip_prefix("hickory-local-")?;
+    (key.len() == 12 && key.chars().all(|c| c.is_ascii_hexdigit())).then_some(key)
+}
+
+/// Remove derived scratch roots whose owning run is gone.
+///
+/// These accumulate: a run that does not exit cleanly never drops its
+/// `ScratchRoot`, so the directory and its lock stay behind. 42 were present
+/// in the temp directory during one test run, and nothing had ever removed
+/// one.
+///
+/// Only a root whose lock says its holder is gone is touched, which is the
+/// same question the takeover path asks and is answered by the same function.
+/// Two things are deliberately left alone:
+///
+/// * A directory with **no lock**, because the ephemeral fallback is a
+///   `tempfile` with our own prefix and deleting one would pull the ground
+///   out from under a live run.
+/// * `hickory-home-*`, the persistent cell homes, which exist precisely to
+///   outlive a run and are not leftovers.
+fn sweep_stale_roots(temp: &Path) {
+    let Ok(entries) = std::fs::read_dir(temp) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let name = entry.file_name();
+        let Some(name) = name.to_str() else { continue };
+        // Walk the LOCKS, not the directories: a lock is the only evidence
+        // that a directory was ever claimed, and a lockless one is either in
+        // use or not ours to judge.
+        let Some(stem) = name.strip_suffix(".lock") else {
+            continue;
+        };
+        if derived_root_key(stem).is_none() {
+            continue;
+        }
+        let lock = entry.path();
+        if holder_is_alive(&lock) {
+            continue;
+        }
+        let root = temp.join(stem);
+        log::debug!("sweeping scratch root {} of a run that is gone", root.display());
+        let _ = std::fs::remove_dir_all(&root);
+        let _ = std::fs::remove_file(&lock);
+    }
+}
+
 /// How long a lock with no readable pid is assumed to belong to whoever is
 /// still writing it.
 ///
@@ -1762,6 +1823,110 @@ mod tests {
             "a crashed run's half-written lock wedged the directory forever"
         );
         assert!(!path.join("leftover.txt").exists());
+    }
+
+    /// A crashed run's scratch root is removed, and a live one is not.
+    ///
+    /// These accumulate — 42 were in the temp directory during one test run —
+    /// and nothing had ever removed one. The sweep asks the same question the
+    /// takeover path asks, so the two cannot disagree about who is gone.
+    #[test]
+    fn the_sweep_removes_only_roots_whose_run_is_gone() {
+        let temp = tempfile::tempdir().expect("a temp directory of our own");
+        let temp = temp.path();
+
+        // A derived root whose owner is gone.
+        let dead = temp.join("hickory-local-0123456789ab");
+        std::fs::create_dir_all(&dead).expect("dead root");
+        std::fs::write(dead.join("leftover.txt"), "x").expect("leftover");
+        std::fs::write(
+            temp.join("hickory-local-0123456789ab.lock"),
+            format!("{}\n", a_dead_pid()),
+        )
+        .expect("dead lock");
+
+        // A derived root whose owner is running.
+        let live = temp.join("hickory-local-ffffffffffff");
+        std::fs::create_dir_all(&live).expect("live root");
+        std::fs::write(live.join("in-use.txt"), "x").expect("marker");
+        std::fs::write(
+            temp.join("hickory-local-ffffffffffff.lock"),
+            format!("{}\n", std::process::id()),
+        )
+        .expect("live lock");
+
+        // The ephemeral fallback: OUR prefix, a random suffix, and no lock.
+        // Deleting one of these pulls the ground out from under a live run,
+        // which is why the sweep walks locks rather than directories.
+        let ephemeral = temp.join("hickory-local-Ab3Xy9");
+        std::fs::create_dir_all(&ephemeral).expect("ephemeral root");
+        std::fs::write(ephemeral.join("in-use.txt"), "x").expect("marker");
+
+        // A persistent cell home, which exists to outlive a run.
+        let home = temp.join("hickory-home-0123456789ab");
+        std::fs::create_dir_all(&home).expect("home");
+        std::fs::write(home.join("kept.txt"), "x").expect("marker");
+
+        // Somebody else's directory entirely.
+        let stranger = temp.join("not-ours");
+        std::fs::create_dir_all(&stranger).expect("stranger");
+
+        super::sweep_stale_roots(temp);
+
+        assert!(!dead.exists(), "a crashed run's scratch root was left behind");
+        assert!(
+            !temp.join("hickory-local-0123456789ab.lock").exists(),
+            "the lock outlived the root it named"
+        );
+        assert!(live.exists(), "a live run's scratch root was swept");
+        assert!(
+            temp.join("hickory-local-ffffffffffff.lock").exists(),
+            "a live run's lock was removed, so the next run will take its root"
+        );
+        assert!(
+            ephemeral.exists(),
+            "an ephemeral fallback was swept — it shares our prefix and has no lock"
+        );
+        assert!(home.exists(), "a persistent cell home was swept");
+        assert!(stranger.exists(), "the sweep reached outside its own naming");
+    }
+
+    /// A lock whose root is already gone is removed too.
+    ///
+    /// `ScratchRoot::drop` removes the directory before the lock, so a crash
+    /// between them leaves exactly this. Left alone it is harmless but
+    /// permanent, and it makes the temp directory unreadable to a person.
+    #[test]
+    fn the_sweep_removes_an_orphaned_lock() {
+        let temp = tempfile::tempdir().expect("temp");
+        let temp = temp.path();
+        let lock = temp.join("hickory-local-abcdefabcdef.lock");
+        std::fs::write(&lock, format!("{}\n", a_dead_pid())).expect("orphan lock");
+
+        super::sweep_stale_roots(temp);
+
+        assert!(!lock.exists(), "an orphaned lock was left behind");
+    }
+
+    /// A lock caught mid-creation is not swept.
+    ///
+    /// The same gap that made the takeover destructive: an empty lock means a
+    /// run is a microsecond from using that directory, and the sweep must read
+    /// it the way the takeover now does.
+    #[test]
+    fn the_sweep_leaves_a_lock_that_has_no_pid_yet() {
+        let temp = tempfile::tempdir().expect("temp");
+        let temp = temp.path();
+        let root = temp.join("hickory-local-000000000001");
+        std::fs::create_dir_all(&root).expect("root");
+        std::fs::write(temp.join("hickory-local-000000000001.lock"), "").expect("unwritten lock");
+
+        super::sweep_stale_roots(temp);
+
+        assert!(
+            root.exists(),
+            "a root whose owner was still writing its lock was swept"
+        );
     }
 
     /// A document named without a directory is still a project of its own.

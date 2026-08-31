@@ -79,6 +79,28 @@ The lesson is narrower than "check for empty strings". It is that
 `Path::parent()` has a third case between "a directory" and "nothing", and
 `unwrap_or` reads as though it does not.
 
+## Leftovers are swept, by lock and never by name
+
+A run that does not exit cleanly never drops its `ScratchRoot`, so its
+directory and lock stay in the temp directory forever. Nothing had ever removed
+one; 42 were present during a single test run. A local executor now sweeps them
+once per process, before taking a lock of its own.
+
+What it may delete is decided by **the lock, never the directory name**, and
+that is the whole safety argument. The ephemeral fallback asks `tempfile` for
+the same `hickory-local-` prefix, so a directory with our prefix and no lock is
+very likely a *live* run's — deleting by name would reintroduce the bug this
+guarantee is about, from the other end. So the sweep walks `*.lock` files,
+requires the derived shape (`hickory-local-` plus exactly twelve hex
+characters, which is what `short_key` produces and what a random tempdir does
+not), and asks `holder_is_alive` — the same question the takeover asks, so the
+two cannot disagree about who is gone. `hickory-home-*`, the persistent cell
+homes, exist to outlive a run and are not touched.
+
+That shape rule now lives in one place, `derived_root_key`, because the
+sandbox's persistent-home lookup applies the same test and two copies of a
+safety rule is how they stop agreeing.
+
 ## What this is not
 
 It is **not** a claim that concurrent runs of the same project are
@@ -125,9 +147,18 @@ Last LLM verification:
     `a_live_holders_directory_is_not_touched`,
     `a_lock_with_no_pid_yet_is_not_free_to_take` (which fails against the old
     `holder_is_alive` and passes with it) and `an_old_lock_with_no_pid_is_a_leftover`.
-- Caveat: stale `hickory-local-*` directories and their locks accumulate in the
-  temp directory when a run does not exit cleanly — 42 were present during one
-  test run. Nothing sweeps them. A stale lock whose pid has since been reused
-  by an unrelated process still reads as live, which wedges that project on the
-  ephemeral fallback until the file is removed by hand; the age rule above
-  covers only the empty-lock case, not this one.
+  - `sweep_stale_roots`, called once per process from `scratch_root`, with
+    `the_sweep_removes_only_roots_whose_run_is_gone` (which plants a dead
+    root, a live one, an ephemeral fallback, a cell home and an unrelated
+    directory, and asserts only the first goes), `the_sweep_removes_an_orphaned_lock`
+    and `the_sweep_leaves_a_lock_that_has_no_pid_yet`. Verified end to end by
+    planting three roots with a reaped pid: all three went on the next
+    `hick run`, and a lockless one with our prefix stayed.
+- Caveat: a stale lock whose pid has since been reused by an unrelated process
+  reads as live, so neither the takeover nor the sweep will reclaim it — that
+  project stays on the ephemeral fallback until the file is removed by hand.
+  The age rule covers the empty lock, not this. Fixing it needs something
+  stronger than a pid, such as the holder's start time.
+- Caveat: `hick weave` and `hick lineage` never build an executor, so they
+  never sweep. That is the right place for the work and not a gap, but it does
+  mean a machine that only ever weaves keeps whatever it has.
