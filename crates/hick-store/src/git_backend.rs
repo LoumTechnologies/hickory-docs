@@ -352,30 +352,39 @@ impl VersionStore for GitVersionStore {
 mod tests {
     use super::*;
 
-    async fn temp_git_store() -> (GitVersionStore, PathBuf) {
-        let dir = std::env::temp_dir().join(format!(
-            "hick-git-store-test-{}",
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
-        ));
-        let store = GitVersionStore::new(&dir).await.unwrap();
+    /// A store in a directory of its own, removed when the test ends.
+    ///
+    /// The name used to be a nanosecond timestamp, which is unique only if
+    /// the clock has nanosecond resolution — macOS reports microseconds here,
+    /// so two of these tests running in parallel got the SAME directory and
+    /// the second `git init` failed with "cannot mkdir: File exists". It
+    /// reproduced 18 times in 25 runs, and it looked like a flake in whichever
+    /// test happened to lose.
+    ///
+    /// `TempDir` is unique by construction and cleans up on drop, including
+    /// when a test panics — which the manual `remove_dir_all` at the end of
+    /// each test did not.
+    async fn temp_git_store() -> (GitVersionStore, tempfile::TempDir) {
+        let dir = tempfile::tempdir().unwrap();
+        // `git init` wants to create the leaf itself on some versions, and a
+        // path inside the TempDir keeps that true while the TempDir still
+        // owns the cleanup.
+        let root = dir.path().join("store");
+        let store = GitVersionStore::new(&root).await.unwrap();
         (store, dir)
     }
 
     #[tokio::test]
     async fn git_blob_roundtrip() {
-        let (store, dir) = temp_git_store().await;
+        let (store, _dir) = temp_git_store().await;
         let hash = store.put_blob(b"hello git").await.unwrap();
         let data = store.get_blob(&hash).await.unwrap();
         assert_eq!(data, b"hello git");
-        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[tokio::test]
     async fn git_snapshot_roundtrip() {
-        let (store, dir) = temp_git_store().await;
+        let (store, _dir) = temp_git_store().await;
 
         // Store blob first
         let blob_hash = store.put_blob(b"file content").await.unwrap();
@@ -401,12 +410,11 @@ mod tests {
         assert!(retrieved.files.contains_key("test.txt"));
         assert_eq!(retrieved.parents.len(), 0);
 
-        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[tokio::test]
     async fn git_branch_operations() {
-        let (store, dir) = temp_git_store().await;
+        let (store, _dir) = temp_git_store().await;
 
         // Create a snapshot to point the branch at
         let blob_hash = store.put_blob(b"data").await.unwrap();
@@ -432,12 +440,11 @@ mod tests {
         let branches = store.list_branches().await.unwrap();
         assert!(branches.contains(&"main".to_string()));
 
-        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[tokio::test]
     async fn git_common_ancestor() {
-        let (store, dir) = temp_git_store().await;
+        let (store, _dir) = temp_git_store().await;
 
         // Create root
         let h1 = store.put_blob(b"root").await.unwrap();
@@ -478,6 +485,5 @@ mod tests {
         let ancestor = store.common_ancestor(&id_a, &id_b).await.unwrap();
         assert_eq!(ancestor, Some(root_id));
 
-        let _ = std::fs::remove_dir_all(&dir);
     }
 }

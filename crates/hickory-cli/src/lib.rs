@@ -439,7 +439,7 @@ pub fn stale_transforms(doc_path: &Path, source: &str) -> Result<Vec<CheckFailur
 pub fn transform_document(doc_path: &Path, source: &str) -> Result<hick_lang::HickDocument> {
     let mut doc = hick_lang::parse(source)
         .map_err(|e| anyhow::anyhow!("parse error in {}: {e}", doc_path.display()))?;
-    let base_dir = doc_path.parent().unwrap_or(Path::new("."));
+    let base_dir = project_dir_of(doc_path);
     let mut seen = std::collections::HashSet::new();
     if let Ok(canonical) = std::fs::canonicalize(doc_path) {
         seen.insert(canonical);
@@ -788,6 +788,19 @@ pub async fn run_doc(
     run_doc_cached(doc_path, params, mode, executor_choice, CacheMode::Off).await
 }
 
+/// The directory a document lives in, never the empty path.
+///
+/// `Path::new("d.hick").parent()` is `Some("")`, not `None`, so
+/// `parent().unwrap_or(".")` silently yields an empty path for every document
+/// named without a directory — which is how every `hick run <bare-filename>`
+/// on this machine came to share one scratch directory.
+fn project_dir_of(doc_path: &Path) -> &Path {
+    match doc_path.parent() {
+        Some(dir) if !dir.as_os_str().is_empty() => dir,
+        _ => Path::new("."),
+    }
+}
+
 /// Run one document. Each document gets its own executor instance so
 /// container namespaces never collide across documents.
 pub async fn run_doc_cached(
@@ -843,7 +856,7 @@ pub async fn run_doc_cached(
     let doc_name = doc_path.display().to_string();
     let sources = vec![(doc_name.as_str(), source.as_str())];
 
-    let project_dir = doc_path.parent().unwrap_or(Path::new("."));
+    let project_dir = project_dir_of(doc_path);
 
     let result = match mode {
         RunMode::Execute | RunMode::Verify => {
@@ -964,7 +977,7 @@ pub async fn run_doc_cached(
 /// a moment later with a better message, so a staging error is swallowed
 /// rather than pre-empting it.
 async fn stage_woven_files(doc_path: &Path, sources: &[(&str, &str)], params: &[(String, String)]) {
-    let project_dir = doc_path.parent().unwrap_or(Path::new("."));
+    let project_dir = project_dir_of(doc_path);
     let cc = cache::CacheConfig::new(project_dir, cache::CacheMode::Reuse);
     let cache_config = cc.cache_dir.is_dir().then_some(&cc);
     let Ok(result) = run_pipeline_weave(sources, params, cache_config).await else {
@@ -2086,5 +2099,31 @@ echo hi
 </hick:doc>
 "#));
         assert!(warnings.is_empty(), "{warnings:?}");
+    }
+}
+
+#[cfg(test)]
+mod project_dir_tests {
+    use super::project_dir_of;
+    use std::path::Path;
+
+    /// `parent()` of a bare filename is `Some("")`, not `None`.
+    ///
+    /// The trap that made every `hick run <bare-filename>` on the machine
+    /// share one scratch directory: `unwrap_or(".")` never fires for
+    /// `Some("")`, so the empty path went straight through to a hash that is
+    /// the same constant for everybody.
+    #[test]
+    fn a_document_named_without_a_directory_lives_in_the_current_one() {
+        assert_eq!(project_dir_of(Path::new("d.hick")), Path::new("."));
+        assert_eq!(project_dir_of(Path::new("notes/d.hick")), Path::new("notes"));
+        assert_eq!(project_dir_of(Path::new("/tmp/d.hick")), Path::new("/tmp"));
+        // Never the empty path, whatever it is handed.
+        for name in ["d.hick", "notes/d.hick", "/tmp/d.hick", ""] {
+            assert!(
+                !project_dir_of(Path::new(name)).as_os_str().is_empty(),
+                "{name} produced an empty project directory"
+            );
+        }
     }
 }

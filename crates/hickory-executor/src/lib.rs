@@ -642,13 +642,28 @@ impl LocalExecutor {
         // Canonicalised so `.`, `../proj` and an absolute path all name one
         // root. A path that cannot be canonicalised is used as given rather
         // than rejected: a worse name is still better than the wrong one.
-        let key = match project {
+        //
+        // The EMPTY path is the exception, and it was a real bug rather than a
+        // theoretical one. `Path::new("d.hick").parent()` is `Some("")`, not
+        // `None`, so a caller writing `parent().unwrap_or(".")` handed an
+        // empty path straight through — and `short_key("")` mixes in no bytes
+        // and returns the FNV basis, the same twelve characters every time. So
+        // every `hick run <bare-filename>` on the machine, in any project,
+        // shared ONE scratch root: they raced for the lock, and a run that
+        // took over a lock whose holder looked gone wiped a live run's
+        // workdir, which surfaced as `failed to spawn sh -c: No such file or
+        // directory`. Falling back to the working directory gives each project
+        // its own key again.
+        let key = match project.filter(|dir| !dir.as_os_str().is_empty()) {
             Some(dir) => std::fs::canonicalize(dir).unwrap_or_else(|_| dir.to_path_buf()),
             None => match std::env::current_dir() {
                 Ok(cwd) => cwd,
                 Err(_) => return ephemeral(),
             },
         };
+        if key.as_os_str().is_empty() {
+            return ephemeral();
+        }
         let path = std::env::temp_dir().join(format!("hickory-local-{}", short_key(&key)));
         let lock = path.with_extension("lock");
 
@@ -1572,6 +1587,35 @@ mod tests {
         // otherwise this would pass while proving nothing.
         assert!(matches!(one.root, ScratchRoot::Stable { .. }));
         assert!(matches!(two.root, ScratchRoot::Stable { .. }));
+    }
+
+    /// A document named without a directory is still a project of its own.
+    ///
+    /// The same class as the test above, through a different door and found
+    /// the same way — a parallel run failing where a serial one passed.
+    /// `Path::new("d.hick").parent()` is `Some("")`, not `None`, so a caller
+    /// writing `parent().unwrap_or(".")` handed an empty path through; and
+    /// `short_key("")` mixes in no bytes, so it returns the FNV basis — the
+    /// same twelve characters for every caller. Every `hick run
+    /// <bare-filename>` on the machine therefore contended for one scratch
+    /// root, and a run that took over a lock whose holder looked gone deleted
+    /// a live run's workdir mid-cell.
+    #[test]
+    fn an_empty_project_path_is_not_everybodys_scratch_root() {
+        let shared = format!("hickory-local-{}", super::short_key(std::path::Path::new("")));
+        let executor =
+            LocalExecutor::new_stable_for(Some(std::path::Path::new(""))).expect("empty path");
+        let name = executor
+            .root
+            .path()
+            .file_name()
+            .expect("a named root")
+            .to_string_lossy()
+            .to_string();
+        assert_ne!(
+            name, shared,
+            "an empty project path fell through to the basis key every caller shares"
+        );
     }
 
     /// The name follows the project, not the shell it was launched from.
