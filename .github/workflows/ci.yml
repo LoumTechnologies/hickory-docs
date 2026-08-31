@@ -100,6 +100,22 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends r-base r-cran-ggplot2
+      # `architecture-that-draws-itself.hick` runs `hick diagram` from inside a
+      # cell — the tool describing its own repository. Cells run CONFINED, and
+      # the sandbox replaces $HOME with a tmpfs and binds back only a short
+      # list of tool directories (`HOME_TOOL_DIRS`), so a binary sitting in
+      # `target/debug` is invisible no matter what PATH says. Installing it
+      # where a person installs one is what makes the cell able to run it, and
+      # it is the same path the uv step above already put on PATH.
+      #
+      # Without this the document fails with `exit 127: hick: command not
+      # found`, which reads like a broken example and is a missing install.
+      - name: Put `hick` where a confined cell can find it
+        run: |
+          cargo build -p hickory-cli --bin hick
+          mkdir -p "$HOME/.local/bin"
+          install -m 0755 target/debug/hick "$HOME/.local/bin/hick"
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
       - name: Verify the shipped example documents (docs drift is a build failure)
         run: cargo run -p hickory-cli -- test examples/
       - name: Verify the documentation chain (meeting -> domain -> requirements -> code)

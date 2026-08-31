@@ -50,10 +50,10 @@ $ hick diagram demo --group dir --format scene
 {
   "nodes": [
     {
-      "id": "lib"
+      "id": "app"
     },
     {
-      "id": "app"
+      "id": "lib"
     }
   ],
   "edges": [

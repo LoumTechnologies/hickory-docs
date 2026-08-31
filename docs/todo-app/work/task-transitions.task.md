@@ -1,4 +1,3 @@
-
 ---
 slug: task-transitions
 title: Complete and drop tasks

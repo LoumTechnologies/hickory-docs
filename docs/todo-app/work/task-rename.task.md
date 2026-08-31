@@ -1,4 +1,3 @@
-
 ---
 slug: task-rename
 title: Rename a task

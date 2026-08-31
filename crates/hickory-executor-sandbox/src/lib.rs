@@ -54,17 +54,27 @@ pub use policy::Sandbox;
 
 /// Directories of project-installed tools to bind read-only into a cell.
 ///
-/// Derived from the working directory, the same way the scratch root is: for
-/// `hick` that is the project, and there is one executor per process. A
-/// directory that does not exist is left out rather than bound empty, because
-/// `bwrap` fails outright on a missing source.
-fn project_tools() -> Vec<std::path::PathBuf> {
-    let Ok(cwd) = std::env::current_dir() else {
-        return Vec::new();
+/// Resolved against the project, the same way the scratch root is — and, like
+/// it, this used to be resolved against the process's working directory on the
+/// assumption that the two are the same. They are the same only when the
+/// command was run from inside the project, so `hick run ../proj/doc.hick`
+/// looked for the project's installed tools next to whatever shell the person
+/// happened to be in and quietly found none. `None` keeps the old behaviour
+/// for a caller that genuinely has no document in hand.
+///
+/// A directory that does not exist is left out rather than bound empty,
+/// because `bwrap` fails outright on a missing source.
+fn project_tools(project: Option<&std::path::Path>) -> Vec<std::path::PathBuf> {
+    let root = match project {
+        Some(dir) => dir.to_path_buf(),
+        None => match std::env::current_dir() {
+            Ok(cwd) => cwd,
+            Err(_) => return Vec::new(),
+        },
     };
     [".hick-cache/models"]
         .iter()
-        .map(|relative| cwd.join(relative))
+        .map(|relative| root.join(relative))
         .filter(|path| path.is_dir())
         .collect()
 }
@@ -92,22 +102,27 @@ pub struct SandboxedExecutor {
 impl SandboxedExecutor {
     /// Build one, or explain why this machine cannot.
     pub fn new() -> Result<Self> {
-        Self::build(LocalExecutor::new()?)
+        Self::build(LocalExecutor::new()?, None)
     }
 
     /// Like [`new`](Self::new), with the derived scratch directory that makes
-    /// a cell's own path stable across runs.
+    /// a cell's own path stable across runs, named after `project`.
     ///
-    /// Opt-in for the reason [`LocalExecutor::new_stable`] is: the derived
-    /// name is shared by everything running from one working directory and
+    /// Opt-in for the reason [`LocalExecutor::new_stable_for`] is: the
+    /// derived name is shared by everything running against one project and
     /// only one holder can have it. Right for `hick`, which builds one
     /// executor per process; wrong for a test binary that builds several at
     /// once and would have them delete each other's workdirs.
-    pub fn new_stable() -> Result<Self> {
-        Self::build(LocalExecutor::new_stable()?)
+    pub fn new_stable_for(project: Option<&std::path::Path>) -> Result<Self> {
+        Self::build(LocalExecutor::new_stable_for(project)?, project)
     }
 
-    fn build(inner: LocalExecutor) -> Result<Self> {
+    /// [`new_stable_for`](Self::new_stable_for) with no project.
+    pub fn new_stable() -> Result<Self> {
+        Self::new_stable_for(None)
+    }
+
+    fn build(inner: LocalExecutor, project: Option<&std::path::Path>) -> Result<Self> {
         let sandbox = Sandbox::detect();
         if sandbox == Sandbox::None {
             bail!(
@@ -131,7 +146,7 @@ impl SandboxedExecutor {
             inner,
             sandbox,
             capabilities: Mutex::new(HashMap::new()),
-            project_tools: project_tools(),
+            project_tools: project_tools(project),
         })
     }
 

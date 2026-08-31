@@ -5,7 +5,10 @@ terminal, in CI, or inside a `hick:exec` cell, which is the intended home —
 then a scene topology is deduced deterministically —
 no model, no API key, no toolchain: tree-sitter compiled into the binary,
 walking gitignore-aware — as nodes per file or per top-level directory and
-edges from name-resolved references, **never** carrying a `layout`; and when
+edges from name-resolved references, **never** carrying a `layout`. Node
+order is **path order, not walk order**: the same folder yields the same
+topology on every machine, which is what makes an `<hick:expect>` around it a
+pin rather than a record of one filesystem. And when
 `hick diagram <path> --refresh <doc> --fragment <id>` runs, exactly that
 `<hick:copy>` fragment's content is rewritten with the fresh topology, so a
 derived diagram pasting it updates while the layout in the diagram's own body
@@ -27,6 +30,27 @@ derived diagram consumes either.
 ---
 
 Last LLM verification:
+- Date: 2026-08-31
+- Reviewer: Claude (Opus 5)
+- Result: verified, after fixing the half of "deterministically" that was not
+- What changed: the node order was the **walker's**, and
+  `ignore::WalkBuilder` yields entries in whatever order the directory hands
+  back — so the topology differed between machines and filesystems. The
+  guarantee's own worked example pinned `lib` before `app`, which is what the
+  author's machine produced and not what anything else did, so
+  `examples/architecture-that-draws-itself.hick` failed its own
+  `<hick:expect>` with a diff that was correct about the shape and wrong only
+  about the order. A generator a document is invited to freeze cannot be one
+  entry ahead of readdir. `generate_topology` now sorts by path before
+  resolving links (`crates/hickory-cli/src/diagram.rs`), and the example's pin
+  and woven `.md` were regenerated to the stable order.
+- Caveat: this had never been caught because the example reached CI only
+  after a long red streak, and until now no green run had executed it. See
+  also `docs/guarantees/execution/a-cells-own-path-belongs-to-its-project.md`
+  for the other half of why it could not run there — `hick diagram` is invoked
+  from inside a confined cell, which cannot see a binary in `target/debug`.
+
+Previous verification:
 - Date: 2026-08-25
 - Reviewer: Claude (Fable 5)
 - Result: verified

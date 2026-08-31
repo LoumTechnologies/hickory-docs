@@ -67,7 +67,6 @@ bytes, so they cannot drift. Editing the requirement IS editing the ticket.
 ### `work/task-rename.task.md`
 
 ```markdown
-
 ---
 slug: task-rename
 title: Rename a task
@@ -87,7 +86,6 @@ nonzero, like the other commands that take one.
 ### `work/task-add.task.md`
 
 ```markdown
-
 ---
 slug: task-add
 title: Create a task
@@ -105,7 +103,6 @@ opaque, and assigned at creation; it is never derived from the title.
 ### `work/task-list.task.md`
 
 ```markdown
-
 ---
 slug: task-list
 title: List tasks
@@ -124,7 +121,6 @@ default view hides them. `--state open|blocked|done|dropped` filters.
 ### `work/task-transitions.task.md`
 
 ```markdown
-
 ---
 slug: task-transitions
 title: Complete and drop tasks
@@ -144,7 +140,6 @@ command is never an error.
 ### `work/task-storage.task.md`
 
 ```markdown
-
 ---
 slug: task-storage
 title: Persist tasks to disk

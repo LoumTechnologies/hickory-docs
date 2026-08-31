@@ -62,6 +62,15 @@ pub fn generate_topology(root: &Path, group: Grouping) -> std::io::Result<Topolo
             files.push(structure);
         }
     }
+    // Sorted by path, because the walker's order is the FILESYSTEM's and a
+    // topology is meant to be pinned. `ignore::WalkBuilder` yields entries in
+    // whatever order the directory hands back, which differs between machines
+    // and between filesystems — so `examples/architecture-that-draws-itself`
+    // pinned `lib` before `app` on the author's machine and produced `app`
+    // before `lib` everywhere else, failing an expectation that was correct
+    // about the shape and wrong about the order. A generator whose output a
+    // document is invited to freeze cannot be one entry ahead of readdir.
+    files.sort_by(|a, b| a.path.cmp(&b.path));
     let links = hick_structure::resolve(&files);
 
     let node_of = |path: &str| -> String {
@@ -74,7 +83,8 @@ pub fn generate_topology(root: &Path, group: Grouping) -> std::io::Result<Topolo
         }
     };
 
-    // Nodes in walk order (stable for a given tree), edges counted.
+    // Nodes in path order (the sort above makes it the same everywhere),
+    // edges counted.
     let mut order: Vec<String> = Vec::new();
     let mut seen = std::collections::BTreeSet::new();
     for file in &files {

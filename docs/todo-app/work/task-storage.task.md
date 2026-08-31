@@ -1,4 +1,3 @@
-
 ---
 slug: task-storage
 title: Persist tasks to disk

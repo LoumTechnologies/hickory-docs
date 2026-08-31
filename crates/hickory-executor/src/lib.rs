@@ -597,22 +597,40 @@ impl LocalExecutor {
     }
 
     /// Like [`new`](Self::new), but with the derived scratch directory
-    /// described above.
+    /// described above, named after `project`.
+    ///
+    /// **`project` is the directory the work belongs to** — for `hick run
+    /// <path>` that is the document's own directory, not wherever the person
+    /// was standing when they typed it. Those two are the same only when the
+    /// command is run from the project, and keying on the second is a bug in
+    /// both directions: two unrelated documents run from one shell share a
+    /// name and fight over it, while one document run from two different
+    /// shells gets two, which defeats the reproducibility this exists for.
+    ///
+    /// Passing `None` falls back to the process's working directory. It is
+    /// for a caller that genuinely has no document in hand — `hick up`
+    /// serving a folder, the MCP server — where the cwd IS the project.
     ///
     /// Opt-in rather than the default because the stable name is shared by
-    /// everything running from one working directory, and only one holder can
-    /// have it at a time. That is exactly right for `hick`, which builds one
+    /// everything running against one project, and only one holder can have
+    /// it at a time. That is exactly right for `hick`, which builds one
     /// executor per process — and wrong for a test binary or an embedder that
     /// builds several at once, where each wants its own scratch and none
     /// wants a path a sibling might remove.
-    pub fn new_stable() -> Result<Self> {
+    pub fn new_stable_for(project: Option<&Path>) -> Result<Self> {
         Ok(Self {
-            root: Self::scratch_root()?,
+            root: Self::scratch_root(project)?,
             state: Mutex::new(LocalState::default()),
         })
     }
 
-    fn scratch_root() -> Result<ScratchRoot> {
+    /// [`new_stable_for`](Self::new_stable_for) with no project, so the name
+    /// comes from the working directory.
+    pub fn new_stable() -> Result<Self> {
+        Self::new_stable_for(None)
+    }
+
+    fn scratch_root(project: Option<&Path>) -> Result<ScratchRoot> {
         let ephemeral = || -> Result<ScratchRoot> {
             Ok(ScratchRoot::Ephemeral(
                 tempfile::Builder::new()
@@ -621,10 +639,17 @@ impl LocalExecutor {
                     .context("failed to create LocalExecutor temp root")?,
             ))
         };
-        let Ok(cwd) = std::env::current_dir() else {
-            return ephemeral();
+        // Canonicalised so `.`, `../proj` and an absolute path all name one
+        // root. A path that cannot be canonicalised is used as given rather
+        // than rejected: a worse name is still better than the wrong one.
+        let key = match project {
+            Some(dir) => std::fs::canonicalize(dir).unwrap_or_else(|_| dir.to_path_buf()),
+            None => match std::env::current_dir() {
+                Ok(cwd) => cwd,
+                Err(_) => return ephemeral(),
+            },
         };
-        let path = std::env::temp_dir().join(format!("hickory-local-{}", short_key(&cwd)));
+        let path = std::env::temp_dir().join(format!("hickory-local-{}", short_key(&key)));
         let lock = path.with_extension("lock");
 
         // Take the lock, or take over one whose process is gone: a run killed
@@ -1521,6 +1546,57 @@ fn holder_is_alive(lock: &Path) -> bool {
 
 #[cfg(test)]
 mod tests {
+
+    /// Two projects, two scratch roots — even from one working directory.
+    ///
+    /// This is the regression for a flake that read as a caching bug. The
+    /// root used to be named after the PROCESS's working directory, so every
+    /// test binary that spawned `hick` without setting one inherited the
+    /// harness's cwd, derived a single name, and contended for its one lock.
+    /// The loser silently fell back to a random directory; a process that
+    /// exited released the lock while its files were still there, so one
+    /// run read another's inputs. Run serially it always passed, and in
+    /// parallel `cache_inputs` failed 6 times in 6.
+    #[test]
+    fn two_projects_do_not_share_a_scratch_root() {
+        let a = tempfile::tempdir().expect("a");
+        let b = tempfile::tempdir().expect("b");
+        let one = LocalExecutor::new_stable_for(Some(a.path())).expect("one");
+        let two = LocalExecutor::new_stable_for(Some(b.path())).expect("two");
+        assert_ne!(
+            one.root.path(),
+            two.root.path(),
+            "two projects were given one scratch root, so their cells share a workdir"
+        );
+        // And both really got the derived root, not the ephemeral fallback —
+        // otherwise this would pass while proving nothing.
+        assert!(matches!(one.root, ScratchRoot::Stable { .. }));
+        assert!(matches!(two.root, ScratchRoot::Stable { .. }));
+    }
+
+    /// The name follows the project, not the shell it was launched from.
+    ///
+    /// The reproducibility this exists for is a property of the document: a
+    /// cell that prints its own path must print the same one whether the
+    /// person typed `hick run doc.hick` from inside the project or
+    /// `hick run ../proj/doc.hick` from outside it.
+    #[test]
+    fn one_project_keeps_its_name_from_anywhere() {
+        let project = tempfile::tempdir().expect("project");
+        let first = LocalExecutor::new_stable_for(Some(project.path()))
+            .expect("first")
+            .root
+            .path()
+            .to_path_buf();
+        // Dropped, so the lock is free and the same name is available again.
+        let second = LocalExecutor::new_stable_for(Some(project.path()))
+            .expect("second")
+            .root
+            .path()
+            .to_path_buf();
+        assert_eq!(first, second);
+    }
+
     use super::*;
 
     /// Protects

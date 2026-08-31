@@ -335,4 +335,14 @@ jobs:
           tar -xzf "hick-${{ inputs.version }}-x86_64-unknown-linux-gnu.tar.gz"
           cd "hick-${{ inputs.version }}-x86_64-unknown-linux-gnu"
           ./hick --version
+          # One shipped document runs `hick` from inside a cell, and cells run
+          # confined: the sandbox gives them a tmpfs $HOME and binds back only
+          # the directories a person installs tools into, so `./hick` in the
+          # unpacked archive is not reachable from inside one however PATH is
+          # set. Installing it is also what this job is really testing — a
+          # stranger who downloads the archive puts the binary somewhere, and
+          # `~/.local/bin` is where `scripts/install.sh` puts it.
+          mkdir -p "$HOME/.local/bin"
+          install -m 0755 ./hick "$HOME/.local/bin/hick"
+          export PATH="$HOME/.local/bin:$PATH"
           ./hick test examples/

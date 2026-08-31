@@ -1,4 +1,3 @@
-
 ---
 slug: task-add
 title: Create a task

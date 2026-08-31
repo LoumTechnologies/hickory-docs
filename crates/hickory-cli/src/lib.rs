@@ -114,12 +114,23 @@ impl ExecutorChoice {
     /// startup error rather than a cell that fails halfway through a run —
     /// which means this is `async`.
     pub async fn build(self) -> Result<Arc<dyn Executor>> {
+        self.build_for(None).await
+    }
+
+    /// [`build`](Self::build), naming the project the run belongs to.
+    ///
+    /// The local executors derive a scratch directory from this so a cell
+    /// that prints its own path reproduces. `None` means "use the working
+    /// directory", which is right for a caller serving a folder and wrong for
+    /// one that was handed a document elsewhere — see
+    /// [`LocalExecutor::new_stable_for`].
+    pub async fn build_for(self, project: Option<&Path>) -> Result<Arc<dyn Executor>> {
         match self {
             // The derived scratch directory: `hick` is one executor in one
             // process, which is the case it is safe and useful for.
-            ExecutorChoice::Local => Ok(Arc::new(LocalExecutor::new_stable()?)),
+            ExecutorChoice::Local => Ok(Arc::new(LocalExecutor::new_stable_for(project)?)),
             ExecutorChoice::Sandbox => Ok(Arc::new(
-                hickory_executor_sandbox::SandboxedExecutor::new_stable()?,
+                hickory_executor_sandbox::SandboxedExecutor::new_stable_for(project)?,
             )),
             ExecutorChoice::Docker => Ok(Arc::new(
                 hickory_executor_docker::DockerExecutor::new().await?,
@@ -852,7 +863,11 @@ pub async fn run_doc_cached(
             // docs/guarantees/execution/first-run-behaves-like-every-later-run.md
             stage_woven_files(doc_path, &sources, params).await;
 
-            let executor = executor_choice.build().await?;
+            // The document's own directory, not the shell's. `hick run
+            // ../other/doc.hick` is an ordinary thing to type, and keying the
+            // scratch root on where the person was standing gave two
+            // unrelated documents one name to fight over.
+            let executor = executor_choice.build_for(doc_path.parent()).await?;
             // An agent cell needs a model, and only `hick run` may buy one.
             //
             // `hick test` deliberately gets NO runner even on a machine

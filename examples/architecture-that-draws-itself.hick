@@ -47,10 +47,10 @@ hick diagram demo --group dir --format scene
 <h:expect match="exact">{
   "nodes": [
     {
-      "id": "lib"
+      "id": "app"
     },
     {
-      "id": "app"
+      "id": "lib"
     }
   ],
   "edges": [

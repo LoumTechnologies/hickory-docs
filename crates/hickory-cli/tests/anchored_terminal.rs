@@ -208,17 +208,39 @@ const HOOKED: &[&str] = &["bash", "zsh"];
 
 /// The installed hooked shells, saying which are missing rather than
 /// quietly testing one and reporting a pass for both.
+///
+/// Installed is not the same as hookable, and the difference is not exotic:
+/// the `/bin/bash` macOS ships is 3.2, and the command hook rides on `PS0`,
+/// which arrived in bash 4.4. Every test in this file anchors a terminal, and
+/// anchoring such a shell is *refused* — correctly — so without this the
+/// whole file fails on any Mac with a message that is the product working as
+/// designed.
+///
+/// The question is put to the product rather than re-derived here, so this
+/// and `POST /api/terminals/{id}/anchor` can never disagree about which
+/// shells are hookable.
 fn hooked_shells() -> Vec<(&'static str, String)> {
-    let found: Vec<(&'static str, String)> = HOOKED
-        .iter()
-        .filter_map(|name| have(name).map(|path| (*name, path)))
-        .collect();
+    let mut found: Vec<(&'static str, String)> = Vec::new();
     for name in HOOKED {
-        if !found.iter().any(|(n, _)| n == name) {
+        let Some(path) = have(name) else {
             eprintln!("SKIPPED {name}: not installed on this machine");
+            continue;
+        };
+        let reports = hick_term::shell_integration::Integration::install(&path)
+            .is_some_and(|i| i.reports_commands());
+        if !reports {
+            eprintln!(
+                "SKIPPED {name} ({path}): installed, but hick has no command hook for it \
+                 — for bash that means older than 4.4, which has no PS0."
+            );
+            continue;
         }
+        found.push((*name, path));
     }
-    assert!(!found.is_empty(), "no hooked shell is installed");
+    assert!(
+        !found.is_empty(),
+        "no shell on this machine can report its commands, so this tested nothing"
+    );
     found
 }
 

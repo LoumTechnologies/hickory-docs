@@ -369,6 +369,14 @@ edited note.hick and re-wove.
         let writes = context_for_document(&doc, &std::fs::read_to_string(&doc).unwrap());
         assert_eq!(writes.len(), 1, "{writes:?}");
         assert_eq!(writes[0].current_lines, Some((2, 2)));
-        assert!(writes[0].write.session.ends_with("sessions/one.hick"));
+        // Compared as a PATH, not as a string: `session` is a native display
+        // path, so it is `sessions\\one.hick` on Windows. `Path::ends_with`
+        // matches whole components and is right on both, where a string
+        // `ends_with` silently asserts "this test ran on Unix".
+        assert!(
+            Path::new(&writes[0].write.session).ends_with("sessions/one.hick"),
+            "{}",
+            writes[0].write.session
+        );
     }
 }
