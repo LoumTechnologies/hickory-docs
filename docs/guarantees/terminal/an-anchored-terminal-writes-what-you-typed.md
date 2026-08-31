@@ -27,7 +27,9 @@ the cell is always **a prefix of the session that reproduces**:
 - **Never anchor silently.** A terminal that is writing says which document
   and which container for as long as it is doing so, and a shell hick has no
   hook for is **refused by name** rather than left looking anchored while
-  recording nothing.
+  recording nothing. *Having a hook is a property of the binary, not of the
+  shell's name*: bash reports commands only from **4.4**, the version that
+  added `PS0`, and the `/bin/bash` macOS ships is 3.2.
 - **A leading space means do not record**, in every shell hick anchors. That
   convention is honoured by hick rather than left to the shell, because the
   shells disagree about it completely — see the verification notes.
@@ -40,6 +42,50 @@ password, and this product does not say things it cannot prove.
 ---
 
 Last LLM verification:
+- Date: 2026-08-31
+- Reviewer: Claude (Opus 5)
+- Result: verified, after two defects that both hid behind a common default
+- What changed:
+  - **A bash too old for `PS0` no longer looks anchorable.**
+    `Integration::reports_commands` splits the two halves of the shell
+    integration, which had been conflated: reporting the working directory
+    (OSC 7, `PROMPT_COMMAND`) works on every bash ever shipped, while
+    reporting the command (OSC 633, `PS0`) needs 4.4+. On a stock Mac the
+    rcfile installed cleanly, the prompt and directory worked, and `PS0` sat
+    there as an ordinary variable bash 3.2 never expands — so the terminal
+    offered to anchor and would have recorded nothing. `has_ps0` now asks the
+    binary that will actually be spawned (`shell -c 'printf … $BASH_VERSINFO'`)
+    rather than assuming, so a Homebrew bash 5 works on the same Mac where
+    `/bin/bash` does not, and a probe that cannot be run answers *false* —
+    a maybe is treated as a no, because the other failure is a terminal that
+    says it is recording and is not. `POST /api/terminals/{id}/anchor` names
+    the version and `brew install bash` rather than repeating "bash and zsh
+    only", which was true by name and false in fact.
+  - **The leading space now survives the hook.** `history 1` prints
+    `<padding><number><2 chars><command verbatim>`; the hook stripped *all*
+    leading whitespace after the number, which got a plain command right and
+    silently ate the user's own leading space. That space is the whole input
+    to `Suspension::HiddenByLeadingSpace`, so the rule this guarantee states
+    — a leading space means do not record — could not fire in bash at all.
+    The separator is now cut by length (`${body:2}`), measured on bash 5.3.9.
+    It survived because `HISTCONTROL=ignorespace` is a common distro default
+    and hides the line entirely; CI's Linux image sets it, this developer's
+    Mac does not, and the assertion had been passing vacuously.
+- Evidence:
+  - `crates/hick-term/src/shell_integration.rs` — `has_ps0`,
+    `BASH_PS0_SINCE`, the `${body:2}` separator cut, and two unit tests
+    (`a_shell_that_cannot_say_its_version_does_not_claim_to_report_commands`,
+    `an_old_bash_still_integrates_but_reports_no_commands`).
+  - `crates/hick-term/src/session.rs` — `Session::reports_commands` asks the
+    integration instead of testing it for presence.
+  - `crates/hick-term/tests/typed_commands.rs` — `for_each_shell` skips a
+    shell the *product* says cannot report, so the test and the anchor
+    endpoint can never disagree about which shells are hookable.
+- Caveat: no bash 3.2 runs in CI. The gate is covered by unit tests that
+  substitute a program printing no version; the real 3.2 path was measured by
+  hand on macOS 15.7.7 (`/bin/bash` 3.2.57) on 2026-08-31.
+
+Previous verification:
 - Date: 2026-08-27
 - Reviewer: Claude (Opus 5)
 - Result: verified against real bash **and real zsh**, which turned out to

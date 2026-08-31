@@ -218,11 +218,14 @@ pub async fn anchor(
     // record nothing while the window said it was recording.
     if !session.reports_commands() {
         anyhow::bail!(
-            "this terminal cannot be anchored: recording needs a shell hook, and hick has one \
-             for bash and zsh only.\n\
-             The terminal still works — nothing about using it changes. To anchor one, open a \
-             terminal running bash or zsh (`HICKORY_SHELL` chooses), and check \
-             HICKORY_SHELL_INTEGRATION is not set to 0."
+            "this terminal cannot be anchored: recording needs a shell hook that reports each \
+             command as it is submitted, and this shell has none.\n\
+             hick hooks zsh, and bash from version 4.4 — the version that added `PS0`. The \
+             `/bin/bash` macOS ships is 3.2, so it is the common case here: `bash --version` \
+             says which one you have, and `brew install bash` provides a current one.\n\
+             The terminal still works and still tracks its working directory — nothing about \
+             using it changes. To anchor one, open a terminal running zsh or a bash 4.4+ \
+             (`HICKORY_SHELL` chooses), and check HICKORY_SHELL_INTEGRATION is not set to 0."
         );
     }
     if state.index.absolute(&body.doc).is_none() {

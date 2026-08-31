@@ -68,6 +68,15 @@ async fn a_weave_without_a_recording_keeps_the_artifact_and_still_writes_the_rep
 
     // Now weave with no recording anywhere — the state of a fresh clone,
     // since `.hick-cache/` is gitignored.
+    //
+    // The removal is the whole setup, and it has to be explicit: `hick run`
+    // records whatever it executes, whatever the cache mode says
+    // (`CacheMode::records()` is unconditionally true, and its doc comment
+    // argues why). So the run above leaves a recording beside the document,
+    // and without this the weave would find it, replay the real bytes, and
+    // report nothing preserved — which is what a fresh clone precisely does
+    // not do.
+    std::fs::remove_dir_all(dir.path().join(".hick-cache")).expect("run wrote a recording");
     let outputs = weave(&doc_path).await;
 
     assert_eq!(

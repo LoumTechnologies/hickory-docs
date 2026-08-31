@@ -297,12 +297,19 @@ impl Session {
 
     /// Whether this session's shell reports what it runs.
     ///
-    /// False for a shell hick has no hook for (fish, nu, a bare `sh`) and for
-    /// `HICKORY_SHELL_INTEGRATION=0`. A terminal that cannot report its
-    /// commands cannot be anchored to a document, and saying so is the whole
-    /// of "never anchor silently".
+    /// False for a shell hick has no hook for (fish, nu, a bare `sh`), for
+    /// `HICKORY_SHELL_INTEGRATION=0`, and for a **bash too old for `PS0`** —
+    /// which is the `/bin/bash` every Mac ships. A terminal that cannot
+    /// report its commands cannot be anchored to a document, and saying so is
+    /// the whole of "never anchor silently".
+    ///
+    /// Note this is narrower than "has an integration": a bash 3.2 session
+    /// still reports its working directory, so it gets an integration and
+    /// answers `false` here. The two halves are separate promises.
     pub fn reports_commands(&self) -> bool {
-        self._integration.is_some()
+        self._integration
+            .as_ref()
+            .is_some_and(|i| i.reports_commands())
     }
 
     /// Attach: everything said so far, then everything said from now on.

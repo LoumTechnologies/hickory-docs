@@ -36,6 +36,21 @@ use std::path::Path;
 pub struct Integration {
     env: Vec<(String, String)>,
     args: Vec<String>,
+    /// Whether the hook this shell got can report the commands it runs.
+    ///
+    /// The two halves of the integration are not the same promise, and until
+    /// this field existed they were conflated. Reporting the working
+    /// directory (OSC 7) is a `precmd`/`PROMPT_COMMAND` hook that every
+    /// version of both shells has had for decades. Reporting the *command*
+    /// (OSC 633) rides on `PS0` in bash, which arrived in **bash 4.4** — and
+    /// the bash Apple ships is 3.2, because 4.0 changed licence to GPLv3.
+    ///
+    /// So on a stock Mac the rcfile installed cleanly, the prompt worked, the
+    /// directory updated, and `PS0` sat there as an ordinary unused variable
+    /// that bash 3.2 never expands. The terminal looked anchorable and
+    /// recorded nothing — exactly the silent anchor
+    /// `a-terminal-that-writes-the-document.md` forbids.
+    reports_commands: bool,
     /// The generated scripts. Dropped with the session, which is why the
     /// session holds this rather than the spawn function.
     _dir: tempfile::TempDir,
@@ -52,6 +67,16 @@ impl Integration {
         &self.args
     }
 
+    /// Whether this shell reports the commands it runs, not just its
+    /// directory.
+    ///
+    /// False for a bash too old for `PS0`. The session is fully usable and
+    /// still reports its directory; what it cannot do is be anchored to a
+    /// document, and the anchor endpoint says so by name.
+    pub fn reports_commands(&self) -> bool {
+        self.reports_commands
+    }
+
     /// Build the integration for `shell`, or `None` when there is none to
     /// build.
     ///
@@ -61,7 +86,7 @@ impl Integration {
     pub fn install(shell: &str) -> Option<Self> {
         match family(shell)? {
             Family::Zsh => zsh(),
-            Family::Bash => bash(),
+            Family::Bash => bash(shell),
         }
     }
 }
@@ -214,15 +239,26 @@ __hickory_report_cmd() {
 __hickory_ps0() {
   local raw n body
   raw="$(HISTTIMEFORMAT= history 1)"
-  # `history 1` prints "  <number>  <command>", with leading padding that
-  # widens as the number does. Strip the padding, the number, and then ALL of
-  # the space between it and the command — one `${body# }` leaves a space on
-  # the front of every command, which is invisible in a terminal and is a
-  # byte in somebody's document.
+  # `history 1` prints "<padding><number><SEP><command>", where SEP is
+  # EXACTLY two characters and the command follows verbatim. Measured on
+  # bash 5.3.9 by printing three entries and looking at the bytes:
+  #
+  #     "    1  echo plain"      -> "echo plain"
+  #     "    2   echo hidden"    -> " echo hidden"
+  #     "    3    echo two"      -> "  echo two"
+  #
+  # so the separator must be cut by LENGTH, not by "strip whitespace". This
+  # used to strip all leading whitespace, which got the plain case right and
+  # silently ate the user's own leading space in the other two. That space is
+  # the "do not record this" gesture every shell with a history honours, and
+  # hick honours it in Rust for both shells (`anchor::Suspension::
+  # HiddenByLeadingSpace`) — which it cannot do if the space never arrives.
+  # Where HISTCONTROL is `ignorespace` the line is never reported at all and
+  # the bug is invisible; that is a common default, which is how it survived.
   n="${raw#"${raw%%[![:space:]]*}"}"
   n="${n%%[[:space:]]*}"
   body="${raw#*"$n"}"
-  body="${body#"${body%%[![:space:]]*}"}"
+  body="${body:2}"
   # HISTCONTROL (ignorespace, ignoredups — both common defaults) can keep a
   # line out of history, and then `history 1` still shows the PREVIOUS one.
   # Sending it would record a command that did not run. The number is what
@@ -318,6 +354,9 @@ fi
     Some(Integration {
         env,
         args: Vec::new(),
+        // zsh's `preexec` receives the typed line directly and has been in
+        // every zsh anyone can install, so there is no version to probe.
+        reports_commands: true,
         _dir: dir,
     })
 }
@@ -329,7 +368,7 @@ fi
 /// `~/.bashrc` and adds the hook. `--rcfile` is ignored by a login shell, which
 /// is a gap this does not close — a session started as `bash -l` reports its
 /// start directory, as before.
-fn bash() -> Option<Integration> {
+fn bash(shell: &str) -> Option<Integration> {
     let dir = tempfile::Builder::new()
         .prefix("hickory-bashrc-")
         .tempdir()
@@ -348,8 +387,49 @@ fi
     Some(Integration {
         env: Vec::new(),
         args: vec!["--rcfile".to_string(), rcfile.to_string_lossy().to_string()],
+        reports_commands: has_ps0(shell),
         _dir: dir,
     })
+}
+
+/// The oldest bash whose `PS0` is expanded before each command.
+///
+/// bash 4.4 (2016). Apple ships 3.2 and will not move, so this is not an
+/// exotic case to guard against — it is what `/bin/bash` is on every Mac.
+const BASH_PS0_SINCE: (u32, u32) = (4, 4);
+
+/// Whether this bash expands `PS0`, asked of the binary rather than assumed.
+///
+/// The shell is run once, non-interactively, to print its own version. That
+/// is cheaper and more honest than parsing `bash --version`'s prose, and it
+/// asks the executable that will actually be spawned — a user whose
+/// `HICKORY_SHELL` points at a Homebrew bash 5 gets command reporting on the
+/// same Mac where `/bin/bash` does not.
+///
+/// A probe that cannot be run at all answers **false**: an integration that
+/// might not report is treated as one that does not, because the failure of
+/// the other choice is a terminal that says it is recording and is not.
+fn has_ps0(shell: &str) -> bool {
+    let Ok(out) = std::process::Command::new(shell)
+        .arg("-c")
+        .arg(r#"printf '%s.%s' "${BASH_VERSINFO[0]}" "${BASH_VERSINFO[1]}""#)
+        .output()
+    else {
+        return false;
+    };
+    if !out.status.success() {
+        return false;
+    }
+    let text = String::from_utf8_lossy(&out.stdout);
+    let mut parts = text.trim().split('.');
+    let Some(major) = parts.next().and_then(|v| v.parse::<u32>().ok()) else {
+        return false;
+    };
+    let minor = parts
+        .next()
+        .and_then(|v| v.parse::<u32>().ok())
+        .unwrap_or(0);
+    (major, minor) >= BASH_PS0_SINCE
 }
 
 #[cfg(test)]
@@ -416,7 +496,7 @@ mod tests {
 
     #[test]
     fn bash_keeps_whatever_prompt_command_the_user_had() {
-        let integration = bash().expect("a temp dir");
+        let integration = bash("bash").expect("a temp dir");
         let rcfile = integration
             .args()
             .iter()
@@ -427,6 +507,35 @@ mod tests {
         assert!(
             text.contains("${PROMPT_COMMAND:+; $PROMPT_COMMAND}"),
             "the user's PROMPT_COMMAND is discarded:\n{text}"
+        );
+    }
+
+    /// The version gate, asked of a program that is definitely not bash.
+    ///
+    /// `has_ps0` runs the binary and reads what it prints; `true(1)` prints
+    /// nothing, so this covers the "probe produced no version" branch, which
+    /// must answer false rather than assume the good case. A shell that is
+    /// not there at all is the same branch one level up (`Command::output`
+    /// fails), and both mean the same thing: do not claim to record.
+    #[test]
+    fn a_shell_that_cannot_say_its_version_does_not_claim_to_report_commands() {
+        assert!(!has_ps0("/usr/bin/true"));
+        assert!(!has_ps0("/nonexistent/bash"));
+    }
+
+    /// The whole point of the split: a bash too old for `PS0` still gets an
+    /// integration — its prompt and its directory work exactly as before —
+    /// and simply does not claim to report commands.
+    #[test]
+    fn an_old_bash_still_integrates_but_reports_no_commands() {
+        let integration = bash("/usr/bin/true").expect("a temp dir");
+        assert!(!integration.reports_commands());
+        assert!(
+            integration
+                .args()
+                .iter()
+                .any(|arg| arg.contains("hickory-bashrc")),
+            "the rcfile is still installed, so OSC 7 still works"
         );
     }
 }

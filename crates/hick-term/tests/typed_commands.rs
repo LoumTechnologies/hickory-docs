@@ -43,8 +43,24 @@ fn for_each_shell(body: impl Fn(&str, Shell)) {
     for name in HOOKED {
         match have(name) {
             Some(path) => {
+                let shell = start(&path);
+                // Installed is not the same as hookable. macOS ships bash
+                // 3.2 as `/bin/bash` (4.0 went GPLv3 and Apple stopped
+                // following), and `PS0` — the whole mechanism below — arrived
+                // in 4.4. Asking the SESSION rather than re-deriving a
+                // version here keeps the test and the product on one answer:
+                // whatever `reports_commands()` says is what the anchor
+                // endpoint will say, so this can never pass against a shell
+                // a user would be refused on.
+                if !shell.session.reports_commands() {
+                    eprintln!(
+                        "SKIPPED {name} ({path}): installed, but hick has no command hook for \
+                         it — for bash that means older than 4.4, which has no PS0."
+                    );
+                    continue;
+                }
                 eprintln!("--- {name} ---");
-                body(name, start(&path));
+                body(name, shell);
                 ran += 1;
             }
             None => eprintln!("SKIPPED {name}: not installed on this machine"),

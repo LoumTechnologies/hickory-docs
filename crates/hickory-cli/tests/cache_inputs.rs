@@ -47,6 +47,20 @@ fn run_cached(dir: &Path) -> usize {
         .arg("run")
         .arg(dir.join("report.hick"))
         .arg("--cache")
+        // Run FROM the project, the way a person does. Not cosmetic: the
+        // local executor names its scratch root after the process's working
+        // directory (`LocalExecutor::scratch_root`, which exists so a cell
+        // that prints its own cwd reproduces). Without this every test in
+        // this file inherits the harness's cwd, so the two below derive the
+        // SAME root, contend for its one lock, and whichever loses silently
+        // falls back to a random directory — a different input digest, a
+        // cache miss, and an assertion that fails on `hits: 0`. Worse, a
+        // process that exits releases the lock while its files are still
+        // there, so the other test's `count.py` gets read: this file's
+        // sharpest symptom was `total: 10` in the document that says
+        // `[1, 2, 3]`. Serially it always passed; in parallel it always
+        // failed.
+        .current_dir(dir)
         .env("RUST_LOG", "info")
         .output()
         .expect("run hick");

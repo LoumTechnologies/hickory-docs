@@ -512,9 +512,16 @@ async fn a_shell_with_no_hook_is_refused_by_name_rather_than_recording_nothing()
         .as_str()
         .or_else(|| body["message"].as_str())
         .unwrap_or_default();
+    // Both shells by name, and for bash the VERSION — "bash" alone is what
+    // the message used to say, and it was true by name and false in fact on
+    // every Mac, where `/bin/bash` is 3.2 and has no `PS0` to hook.
     assert!(
-        message.contains("bash and zsh"),
+        message.contains("zsh") && message.contains("bash"),
         "the refusal does not say which shells work: {body}"
+    );
+    assert!(
+        message.contains("4.4"),
+        "the refusal names bash without naming the version that works: {body}"
     );
     assert!(
         message.contains("still works"),

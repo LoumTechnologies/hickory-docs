@@ -7,6 +7,11 @@
 //! whole contract worth testing here: which path is passed, in what form, and
 //! whether the terminal comes back.
 
+// Every use of `Path` here is inside a `#[cfg(unix)]` item: the stub app is a
+// `#!/bin/sh` script with a mode bit, which is not a thing on Windows. An
+// unconditional import is therefore an unused import there, and CI builds with
+// `-D warnings`.
+#[cfg(unix)]
 use std::path::Path;
 use std::process::Command;
 
