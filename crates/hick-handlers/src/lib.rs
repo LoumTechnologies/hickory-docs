@@ -284,6 +284,52 @@ pub fn tag_attr(tag: &HickTag, name: &str) -> Option<String> {
         .map(|(_, v)| v.clone())
 }
 
+/// Where a tag was declared, as a key that is stable across passes.
+///
+/// `(file, byte offset)` addresses one declaration exactly. The file has to be
+/// RESOLVED, not the raw `span.file_id`: `None` there means "the document
+/// being parsed", which is a different document for each source in a
+/// multi-document pipeline — so two copies at the same offset in two files
+/// shared one key and the second silently replaced the first.
+///
+/// A tag with no span (one a handler synthesised) has no identity to key on
+/// and returns `None`, which registers it the old way: always pushed, never
+/// replaced.
+pub fn origin_key_in(tag: &HickTag, file: &str) -> Option<String> {
+    let span = tag.source_span?;
+    Some(format!("{file}:{}", span.start))
+}
+
+/// [`origin_key_in`] for a tag being processed by a handler, whose context
+/// knows which file the span's offsets index.
+pub fn origin_key(tag: &HickTag, ctx: &ProcessingContext) -> Option<String> {
+    let span = tag.source_span?;
+    let file = ctx
+        .file_of_span(&span)
+        .map(|f| f.to_string())
+        .unwrap_or_default();
+    Some(format!("{file}:{}", span.start))
+}
+
+/// Whether a boolean attribute is set on a tag.
+///
+/// True for the bare flag (`distinct`), for `distinct=""`, and for the
+/// spellings a person reaches for anyway (`"true"`, `"yes"`, the attribute's
+/// own name). `distinct="false"` is respected rather than read as presence,
+/// because a flag that ignores the word `false` is a trap.
+pub fn has_flag(tag: &HickTag, name: &str) -> bool {
+    match tag_attr(tag, name) {
+        None => false,
+        Some(value) => {
+            let value = value.trim();
+            value.is_empty()
+                || value.eq_ignore_ascii_case("true")
+                || value.eq_ignore_ascii_case("yes")
+                || value.eq_ignore_ascii_case(name)
+        }
+    }
+}
+
 /// Collect text content from a tag's children into a single string.
 pub fn collect_text_children(tag: &HickTag) -> String {
     use hick_lang::HickNode;

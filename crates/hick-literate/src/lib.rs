@@ -303,6 +303,94 @@ struct PreparedPipeline<'a> {
     volumes: HashMap<String, hick_exec::volume::VolumeDeclaration>,
 }
 
+/// Whether a document keeps its fragments to itself.
+///
+/// `<hick:private />` is the opt-out from ambient contribution. The default
+/// is the other way round — a fragment is offered to the folder — because the
+/// case this exists for is many documents feeding one shared file, and making
+/// each of them announce itself puts the coupling straight back.
+fn declares_private(nodes: &[HickNode]) -> bool {
+    nodes
+        .iter()
+        .any(|node| matches!(node, HickNode::Tag(tag) if tag.name == "private"))
+}
+
+/// Append a `hick:upstream` edge for every other `.hick` beside this one.
+///
+/// Directory-scoped and not recursive: a folder is the unit a person can hold
+/// in their head, and walking a whole repository would let a fragment in some
+/// unrelated corner change this document's output.
+///
+/// A sibling that cannot be read or does not PARSE is skipped rather than
+/// failing this run: that is the other document's error, reported when it is
+/// run, and it must not stop an unrelated document from weaving.
+fn attach_ambient_contributors(
+    doc: &mut HickDocument,
+    name: &str,
+    base_dir: &std::path::Path,
+) -> std::io::Result<()> {
+    // Every file already spliced into this document, by include or by
+    // upstream, at any depth. `span_files` is the right record because both
+    // branches stamp it; the resolver's `seen` set is a cycle-detection
+    // STACK and is popped on the way back out, so by the time it returns it
+    // holds nothing but the document itself.
+    let already_merged: std::collections::HashSet<std::path::PathBuf> = doc
+        .span_files
+        .iter()
+        .filter_map(|f| std::fs::canonicalize(f).ok())
+        .collect();
+    // A document named without a directory has `""` as its parent, and
+    // `read_dir("")` is an error rather than the current directory.
+    let dir = if base_dir.as_os_str().is_empty() {
+        std::path::Path::new(".")
+    } else {
+        base_dir
+    };
+    let self_path = std::fs::canonicalize(name).ok();
+    let mut siblings: Vec<std::path::PathBuf> = Vec::new();
+    for entry in std::fs::read_dir(dir)? {
+        let path = entry?.path();
+        if path.extension().and_then(|e| e.to_str()) != Some("hick") {
+            continue;
+        }
+        let canonical = std::fs::canonicalize(&path).ok();
+        if canonical == self_path {
+            continue;
+        }
+        // Already reachable through an `include` or `upstream` the author
+        // wrote — possibly several hops away, which is why this asks the
+        // resolver's own record rather than re-reading the tags. Splicing it
+        // a second time is a duplicate-id error, not a no-op.
+        if let Some(canonical) = &canonical
+            && already_merged.contains(canonical)
+        {
+            continue;
+        }
+        siblings.push(path);
+    }
+    // Directory read order is not stable across filesystems, and a `.class`
+    // paste concatenates in document order — so without this the same folder
+    // could weave two different files on two machines.
+    siblings.sort();
+
+    for path in siblings {
+        let Ok(source) = std::fs::read_to_string(&path) else {
+            continue;
+        };
+        let Ok(sibling) = hick_lang::parse(&source) else {
+            continue;
+        };
+        if declares_private(&sibling.nodes) {
+            debug!("{}: private, not contributing to {name}", path.display());
+            continue;
+        }
+        if let Err(e) = hick_lang::attach_contribution(doc, &path, &source, 0) {
+            debug!("{}: not contributing to {name}: {e}", path.display());
+        }
+    }
+    Ok(())
+}
+
 /// Shared prologue: parse sources, resolve includes, set up state, process
 /// features, filter conditionals, collect containers and forks, mint tokens.
 fn prepare_pipeline<'a>(
@@ -329,6 +417,19 @@ fn prepare_pipeline<'a>(
         }
         hick_lang::resolve_includes(&mut doc, base_dir, &mut seen)
             .map_err(|e| anyhow::anyhow!("include error in {name}: {e}"))?;
+
+        // Every other document in this folder contributes its fragments,
+        // without this one naming any of them. That is the point: a document
+        // that owns a shared file should not have to be edited every time
+        // somebody has a line to add to it.
+        //
+        // Synthesised as `hick:upstream` edges rather than as a second
+        // mechanism, so an ambient contributor gets exactly what a declared
+        // one already gets — fragments selectable, nothing of the contributor
+        // rendered, and spans stamped to the CONTRIBUTOR's file so lineage
+        // and the reverse edit land there rather than here.
+        attach_ambient_contributors(&mut doc, name, base_dir)
+            .map_err(|e| anyhow::anyhow!("reading contributors beside {name}: {e}"))?;
 
         // Derive speaker turns from every `hick:transcript`, AFTER includes so
         // that a transcript spliced in from another file is derived too. The
@@ -357,8 +458,8 @@ fn prepare_pipeline<'a>(
     // `<hick:paste>` used as a cell's stdin can resolve one. Without this the
     // copy handler registers them during the render pass — which runs AFTER
     // every cell — and a stdin paste silently produced an empty string.
-    for (_, doc) in &documents {
-        register_literal_copies(&doc.nodes, &state);
+    for (name, doc) in &documents {
+        register_literal_copies(&doc.nodes, &state, name, &doc.span_files);
     }
 
     // Process features BEFORE conditional filtering (so features work in conditions)
@@ -533,6 +634,26 @@ fn convert_transcripts(
 
 /// Shared epilogue: register copy/cut/substitute/exclude blocks, process
 /// file outputs, weave output, and converge files with exclusion filtering.
+/// Refuse the run if any `<hick:paste min=/max=>` gate went unmet.
+///
+/// A cardinality gate exists precisely to catch a caret that collected
+/// nothing. Reporting it as a warning and weaving the empty file anyway made
+/// `hick run` and `hick test` both exit 0 on a document that had asked to be
+/// told — the same silence `resolve_paste_node` was fixed for, one layer up.
+///
+/// Checked against a RUN, never against a weave. A fragment a cell writes
+/// does not exist until that cell has run, so enforcing this in `hick weave`
+/// or `hick lineage` — which execute nothing on purpose — would report every
+/// such document as broken. That is the same reason a cell with no
+/// transcript weaves as `[never run]` instead of failing.
+fn refuse_on_paste_failures(state: &MultiDocumentState) -> Result<()> {
+    let failures = state.paste_failures();
+    if failures.is_empty() {
+        return Ok(());
+    }
+    anyhow::bail!("{}", failures.join("\n"));
+}
+
 async fn process_pipeline_outputs(
     documents: &[(&str, HickDocument)],
     state: &Arc<MultiDocumentState>,
@@ -543,6 +664,7 @@ async fn process_pipeline_outputs(
     let handler_transcripts = convert_transcripts(transcripts);
 
     // --- Round 0: process the original documents (identical to previous behavior) ---
+    state.clear_paste_failures();
     process_documents_round(documents, state, &handler_transcripts, &registry);
 
     // Process weave output if enabled
@@ -556,8 +678,11 @@ async fn process_pipeline_outputs(
         for round in 1..max_rounds {
             let files = state.get_files().await;
 
-            // Find new .hick files in output
-            let hick_sources: Vec<(String, String)> = files
+            // Find new .hick files in output — from `<hick:file>` blocks and
+            // from output VOLUMES both, since a generator writes into a
+            // volume and those bytes are merged into `files` only after this
+            // whole function has returned.
+            let mut hick_sources: Vec<(String, String)> = files
                 .iter()
                 .filter(|(path, _)| path.ends_with(".hick"))
                 .filter_map(|(path, content)| {
@@ -568,6 +693,9 @@ async fn process_pipeline_outputs(
                     }
                 })
                 .collect();
+            hick_sources.extend(state.produced_hick_files());
+            hick_sources.sort();
+            hick_sources.dedup();
 
             // Check convergence: no new .hick files
             let current_paths: std::collections::HashSet<String> =
@@ -602,6 +730,19 @@ async fn process_pipeline_outputs(
 
             // Process the new documents through declaration + content phases
             process_documents_round(&new_documents, state, &handler_transcripts, &registry);
+
+            // Then the ORIGINAL documents again, so a `<hick:paste>` that was
+            // written before the generator ran can now see what it emitted.
+            // Without this a cell could write fragments nothing was able to
+            // read, which is the whole point of letting it write them.
+            //
+            // Safe to repeat only because registration is keyed by where a
+            // block was declared (`ContentBlock::origin_key`) and a file
+            // output is stored by path — so a second pass replaces what the
+            // first produced instead of appending to it.
+            state.clear_paste_failures();
+            process_documents_round(documents, state, &handler_transcripts, &registry);
+            weave::process_weave_output(documents, &handler_transcripts, state, &registry);
         }
     }
 
@@ -2064,6 +2205,7 @@ pub async fn run_pipeline_live(
         documents.iter().map(|(n, d)| (*n, d.clone())).collect();
     let (mut files, provenance_maps) =
         process_pipeline_outputs(&documents_ref, &state, &transcripts, config.max_rounds).await;
+    refuse_on_paste_failures(&state)?;
 
     // Merge volume output files into the result
     files.extend(volume_files);
@@ -2232,22 +2374,48 @@ pub async fn run_pipeline_weave(
 /// Recursively scan nodes for `<hick:var>` declarations and register them.
 /// This runs before conditional filtering so that vars inside `<hick:when>`
 /// blocks are available for condition evaluation.
-/// Pre-register every `<hick:copy id=…>` whose body is plain text.
+/// Pre-register every `<hick:copy>` whose body is plain text.
 ///
 /// Only plain-text bodies: a copy whose content comes from a cell cannot be
 /// known before that cell runs, and guessing would be worse than the empty
 /// string this replaces. Those still resolve the way they always did, in the
 /// render pass.
-fn register_literal_copies(nodes: &[HickNode], state: &MultiDocumentState) {
+///
+/// This recurses, and the copy HANDLER does not — `declare_nodes` walks top
+/// level only. So for a copy nested inside anything (a cell's script, a
+/// `hick:file`, a `hick:when`) this pass is the ONLY one that ever sees it,
+/// and while it registered `id` alone such a copy resolved by `#id` and was
+/// invisible to `.class`. Registering both here is what removes that
+/// asymmetry; `origin_key` is what stops the two passes counting one block
+/// twice.
+fn register_literal_copies(
+    nodes: &[HickNode],
+    state: &MultiDocumentState,
+    doc_name: &str,
+    span_files: &[String],
+) {
     for node in nodes {
         let HickNode::Tag(tag) = node else { continue };
-        if tag.name == "copy"
-            && let Some(id) = tag.get_attribute("id")
-            && tag.children.iter().all(|c| matches!(c, HickNode::Text(..)))
-        {
-            state.pre_register_copy_text(id, &hick_lang::tag_text(tag));
+        if tag.name == "copy" && tag.children.iter().all(|c| matches!(c, HickNode::Text(..))) {
+            let id = tag.get_attribute("id").unwrap_or("");
+            let class = tag.get_attribute("class");
+            // The same file the copy HANDLER will resolve, so the two passes
+            // agree on this block's identity and the second replaces the
+            // first instead of adding a duplicate.
+            let file = tag
+                .source_span
+                .and_then(|s| s.file_id)
+                .and_then(|id| span_files.get(usize::from(id)))
+                .map(|f| f.as_str())
+                .unwrap_or(doc_name);
+            state.pre_register_copy_text(
+                id,
+                class,
+                &hick_lang::tag_text(tag),
+                hick_handlers::origin_key_in(tag, file),
+            );
         }
-        register_literal_copies(&tag.children, state);
+        register_literal_copies(&tag.children, state, doc_name, span_files);
     }
 }
 
@@ -2588,7 +2756,15 @@ fn process_file_children(
                         }
                         Ok(TagResult::Declaration) => {}
                         Err(e) => {
-                            warn!("Handler error for <{}>: {}", child_tag.name, e);
+                            // A paste reports its own cardinality failures on
+                            // the state and the pipeline refuses on them, so
+                            // warning here only prints the same paragraph
+                            // twice above the error that stops the run.
+                            if child_tag.name == "paste" {
+                                debug!("Handler error for <paste>: {e}");
+                            } else {
+                                warn!("Handler error for <{}>: {}", child_tag.name, e);
+                            }
                         }
                     }
                 }

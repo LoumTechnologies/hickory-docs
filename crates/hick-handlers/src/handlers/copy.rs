@@ -87,8 +87,13 @@ impl TagHandler for CopyHandler {
         let class = tag_attr(tag, "class");
 
         let (node, string_fallback) = resolve_content_node(tag, ctx);
-        ctx.state
-            .register_copy_node(id, class.as_deref(), node, string_fallback);
+        ctx.state.register_copy_node_keyed(
+            id,
+            class.as_deref(),
+            node,
+            string_fallback,
+            crate::origin_key(tag, ctx),
+        );
 
         Ok(TagResult::Declaration)
     }
@@ -114,8 +119,13 @@ impl TagHandler for CutHandler {
         let class = tag_attr(tag, "class");
 
         let (node, string_fallback) = resolve_content_node(tag, ctx);
-        ctx.state
-            .register_cut_node(id, class.as_deref(), node, string_fallback);
+        ctx.state.register_cut_node_keyed(
+            id,
+            class.as_deref(),
+            node,
+            string_fallback,
+            crate::origin_key(tag, ctx),
+        );
 
         Ok(TagResult::Declaration)
     }
@@ -152,8 +162,13 @@ impl TagHandler for TranscriptHandler {
             let class = tag_attr(turn, "class");
             let (node, text) = resolve_content_node(turn, ctx);
             whole.push(text.clone());
-            ctx.state
-                .register_copy_node(id, class.as_deref(), node, text);
+            ctx.state.register_copy_node_keyed(
+                id,
+                class.as_deref(),
+                node,
+                text,
+                crate::origin_key(turn, ctx),
+            );
         }
         // The transcript itself, by its id: the turns' text, one per line —
         // what a summary or a whole-meeting quote wants, without the cue
@@ -242,7 +257,7 @@ mod tests {
         let result = handler.process(&tag, &ctx).unwrap();
         assert!(matches!(result, TagResult::Declaration));
 
-        assert_eq!(state.resolve_paste("#ver", None), Some("1.0.0".to_string()));
+        assert_eq!(state.resolve_paste("#ver", None, false), Some("1.0.0".to_string()));
     }
 
     #[test]
@@ -261,7 +276,7 @@ mod tests {
         handler.process(&tag, &ctx).unwrap();
 
         assert_eq!(
-            state.resolve_paste(".imports", None),
+            state.resolve_paste(".imports", None, false),
             Some("import foo;".to_string())
         );
     }
@@ -310,7 +325,7 @@ mod tests {
         handler.process(&tag, &ctx).unwrap();
 
         assert_eq!(
-            state.resolve_paste("#setup-output", None),
+            state.resolve_paste("#setup-output", None, false),
             Some("hello\n".to_string()),
         );
     }
@@ -348,7 +363,7 @@ mod tests {
         let handler = CopyHandler;
         handler.process(&tag, &ctx).unwrap();
 
-        assert_eq!(state.resolve_paste("#ver", None), Some("3.0.0".to_string()));
+        assert_eq!(state.resolve_paste("#ver", None, false), Some("3.0.0".to_string()));
     }
 
     #[test]
@@ -373,7 +388,7 @@ mod tests {
         handler.process(&tag, &ctx).unwrap();
 
         assert_eq!(
-            state.resolve_paste("#greeting", None),
+            state.resolve_paste("#greeting", None, false),
             Some("Hello literal".to_string())
         );
     }
@@ -419,7 +434,7 @@ mod tests {
         handler.process(&tag, &ctx).unwrap();
 
         assert_eq!(
-            state.resolve_paste("#date-output", None),
+            state.resolve_paste("#date-output", None, false),
             Some("2024-01-01\n".to_string()),
         );
     }

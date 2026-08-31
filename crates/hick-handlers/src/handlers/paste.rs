@@ -7,7 +7,7 @@ use hick_exec::node::{BoxStream, Context, Node, NodeTrace, NodeValue, SourceOrig
 use hick_lang::{HickTag, dedent};
 use log::warn;
 
-use crate::{ProcessingContext, ProcessingPhase, TagHandler, TagResult, tag_attr};
+use crate::{ProcessingContext, ProcessingPhase, TagHandler, TagResult, has_flag, tag_attr};
 
 // ---------------------------------------------------------------------------
 // PasteNode — provenance wrapper
@@ -110,34 +110,45 @@ impl TagHandler for PasteHandler {
         let separator = tag_attr(tag, "separator");
         let min: Option<usize> = tag_attr(tag, "min").and_then(|v| v.parse().ok());
         let max: Option<usize> = tag_attr(tag, "max").and_then(|v| v.parse().ok());
+        // Dedup is the COLLECTOR's policy, not the contributor's: several
+        // documents independently asking for `bin/` is the normal shape of a
+        // shared file, and none of them should have to know about the others.
+        let distinct = has_flag(tag, "distinct");
 
-        // Validate min/max constraints
-        let count = ctx.state.count_paste_matches(&selector);
+        // Validate min/max constraints. Recorded on the state as well as
+        // returned: the caller that renders a `<hick:file>` body logs a
+        // handler error and carries on, which used to weave an EMPTY file and
+        // exit 0 — the exact silence `resolve_paste_node` was fixed for.
+        let count = ctx.state.count_paste_matches(&selector, distinct);
         if let Some(min_val) = min
             && count < min_val
         {
-            anyhow::bail!(
-                "Paste selector '{}' matched {} block(s), but min={} required",
-                selector,
-                count,
-                min_val,
+            let msg = format!(
+                "paste selector '{selector}' matched {count} block(s), but min={min_val} is \
+                 required.\n  Nothing carries that id or class, or the document that does is not \
+                 part of this run.\n  Check the spelling of the selector, and that the \
+                 contributing document is public (a `<hick:private />` document's fragments are \
+                 its own)."
             );
+            ctx.state.record_paste_failure(msg.clone());
+            anyhow::bail!("{msg}");
         }
         if let Some(max_val) = max
             && count > max_val
         {
-            anyhow::bail!(
-                "Paste selector '{}' matched {} block(s), but max={} allowed",
-                selector,
-                count,
-                max_val,
+            let msg = format!(
+                "paste selector '{selector}' matched {count} block(s), but max={max_val} is \
+                 allowed.\n  Narrow the selector, or add `distinct` if the extra matches are \
+                 repeats of the same text."
             );
+            ctx.state.record_paste_failure(msg.clone());
+            anyhow::bail!("{msg}");
         }
 
         let sep = separator.as_deref();
 
         // Try node-based resolution first (supports reactive streaming)
-        if let Some(node) = ctx.state.resolve_paste_node(&selector, sep) {
+        if let Some(node) = ctx.state.resolve_paste_node(&selector, sep, distinct) {
             // Direct string values are wrapped in a PasteNode (dedented as
             // needed). When the pasted bytes are byte-identical to the copy
             // block's source bytes, propagate the source span so output edits
@@ -164,7 +175,7 @@ impl TagHandler for PasteHandler {
         }
 
         // Fallback to string-based resolution (backward compat)
-        if let Some(content) = ctx.state.resolve_paste(&selector, sep) {
+        if let Some(content) = ctx.state.resolve_paste(&selector, sep, distinct) {
             let dedented = dedent(&content, ctx.indent);
             Ok(TagResult::Node(Arc::new(PasteNode::new(
                 dedented, &selector,

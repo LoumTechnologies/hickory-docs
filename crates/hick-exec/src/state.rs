@@ -33,6 +33,14 @@ pub struct ContentBlock {
     pub order: usize,
     /// Whether this is a cut block (conceptually consumed but still available).
     pub is_cut: bool,
+    /// Where in the source this block was declared, as `file:offset`.
+    ///
+    /// The identity that lets the early registration and the render pass
+    /// register the SAME block without it counting twice. Two genuinely
+    /// separate copies with identical text keep separate keys and stay two —
+    /// collapsing those is what `distinct` is for, and it is the collector's
+    /// call, not this one's.
+    pub origin_key: Option<String>,
 }
 
 // ---------------------------------------------------------------------------
@@ -54,6 +62,8 @@ pub struct NodeContentBlock {
     pub order: usize,
     /// Whether this is a cut block.
     pub is_cut: bool,
+    /// Where in the source this block was declared — see [`ContentBlock`].
+    pub origin_key: Option<String>,
 }
 
 // ---------------------------------------------------------------------------
@@ -84,6 +94,32 @@ pub struct FeatureInfo {
     pub description: String,
     /// Names of features this feature requires (space-separated in XML).
     pub requires: Vec<String>,
+}
+
+// ---------------------------------------------------------------------------
+// Class selectors
+// ---------------------------------------------------------------------------
+
+/// The class names a class selector requires — ALL of them.
+///
+/// CSS has always read `.a.b` as "carries both", and hick's selectors are
+/// CSS-shaped, so this is the compound form rather than a new grammar. It is
+/// what replaces CodegenBot's name/value caret tags: matching on two
+/// properties at once is the load-bearing half, and bare names carry it.
+///
+/// Returns `None` for anything that is not a class selector, and for a bare
+/// `.` — which names no class and must match nothing rather than everything.
+pub(crate) fn required_classes(selector: &str) -> Option<Vec<&str>> {
+    let rest = selector.trim().strip_prefix('.')?;
+    let names: Vec<&str> = rest.split('.').filter(|s| !s.is_empty()).collect();
+    if names.is_empty() { None } else { Some(names) }
+}
+
+/// Whether a block carries every class a selector requires.
+pub(crate) fn has_all_classes(classes: &[String], required: &[&str]) -> bool {
+    required
+        .iter()
+        .all(|need| classes.iter().any(|have| have == need))
 }
 
 // ---------------------------------------------------------------------------
@@ -126,6 +162,13 @@ pub struct MultiDocumentState {
     /// from disk instead would make the first run of a document show
     /// "not generated yet" for a file it had just generated.
     produced_files: Mutex<HashMap<String, String>>,
+    /// Cardinality violations a `<hick:paste min=/max=>` found.
+    ///
+    /// Collected rather than returned because the caller that renders a
+    /// `<hick:file>` body logs a handler error and carries on — so the
+    /// document that asked to be told wove an empty file and exited 0. The
+    /// pipeline reads these at the end and refuses.
+    paste_failures: Mutex<Vec<String>>,
 }
 
 impl Default for MultiDocumentState {
@@ -145,11 +188,53 @@ impl Default for MultiDocumentState {
             exclusion_patterns: Mutex::new(Vec::new()),
             container_id_counter: std::sync::atomic::AtomicU64::new(0),
             produced_files: Mutex::new(HashMap::new()),
+            paste_failures: Mutex::new(Vec::new()),
         }
     }
 }
 
 impl MultiDocumentState {
+    /// Record a `min=`/`max=` violation for the pipeline to refuse on.
+    pub fn record_paste_failure(&self, message: String) {
+        let mut failures = self.paste_failures.lock().unwrap();
+        // The same paste is processed on more than one pass, and one mistake
+        // should be reported once.
+        if !failures.contains(&message) {
+            failures.push(message);
+        }
+    }
+
+    /// Every cardinality violation this run found.
+    pub fn paste_failures(&self) -> Vec<String> {
+        self.paste_failures.lock().unwrap().clone()
+    }
+
+    /// Forget the violations found so far.
+    ///
+    /// Called before each pass over the documents, because a later round may
+    /// satisfy a gate an earlier one could not: a cell that writes fragments
+    /// has not run yet when the first pass reads them. Only the last pass's
+    /// failures are real.
+    pub fn clear_paste_failures(&self) {
+        self.paste_failures.lock().unwrap().clear();
+    }
+
+    /// Files this run produced whose name ends in `.hick`.
+    ///
+    /// The rounds loop reads these so a cell can write fragments into an
+    /// output VOLUME, which is where a generator's files actually land —
+    /// `get_files` sees only `<hick:file>` outputs, and volume bytes are
+    /// merged in after the weave has already happened.
+    pub fn produced_hick_files(&self) -> Vec<(String, String)> {
+        self.produced_files
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|(path, _)| path.ends_with(".hick"))
+            .map(|(path, text)| (path.clone(), text.clone()))
+            .collect()
+    }
+
     /// Record a file this run produced, so the weave can show part of it.
     pub fn register_produced_file(&self, path: &str, text: &str) {
         self.produced_files
@@ -186,6 +271,21 @@ impl MultiDocumentState {
 
     /// Register a `<hick:copy>` block with class support.
     pub fn register_copy_with_class(&self, id: String, class: Option<&str>, content: String) {
+        self.register_copy_keyed(id, class, content, None);
+    }
+
+    /// Register a `<hick:copy>` block, identified by where it was declared.
+    ///
+    /// `origin_key` is what makes registering the same block twice idempotent
+    /// — see [`ContentBlock::origin_key`]. `None` always pushes, which is what
+    /// a caller with no source position (a test, a synthesised fragment) wants.
+    pub fn register_copy_keyed(
+        &self,
+        id: String,
+        class: Option<&str>,
+        content: String,
+        origin_key: Option<String>,
+    ) {
         // Legacy storage for backwards compatibility
         if !id.is_empty() {
             self.copy_blocks
@@ -194,23 +294,38 @@ impl MultiDocumentState {
                 .insert(id.clone(), content.clone());
         }
 
-        // New unified storage with class support
-        let order = self
-            .content_order_counter
-            .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         let classes: Vec<String> = class
             .map(|c| c.split_whitespace().map(|s| s.to_string()).collect())
             .unwrap_or_default();
 
-        let block = ContentBlock {
+        let mut blocks = self.content_blocks.lock().unwrap();
+
+        // Same declaration, registered again: replace in place and keep the
+        // original order, so early registration does not push a block to the
+        // front and the render pass a duplicate to the back.
+        if let Some(key) = &origin_key
+            && let Some(existing) = blocks
+                .iter_mut()
+                .find(|b| b.origin_key.as_deref() == Some(key.as_str()))
+        {
+            existing.id = if id.is_empty() { None } else { Some(id) };
+            existing.classes = classes;
+            existing.content = content;
+            existing.is_cut = false;
+            return;
+        }
+
+        let order = self
+            .content_order_counter
+            .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        blocks.push(ContentBlock {
             id: if id.is_empty() { None } else { Some(id) },
             classes,
             content,
             order,
             is_cut: false,
-        };
-
-        self.content_blocks.lock().unwrap().push(block);
+            origin_key,
+        });
     }
 
     /// Make a literal copy block resolvable **before** the render pass runs.
@@ -221,19 +336,31 @@ impl MultiDocumentState {
     /// an empty registry, and resolved to nothing: the cell ran with empty
     /// input and no error, which is the worst way for anything to fail.
     ///
-    /// This fills only the id map, never `content_blocks`, because the render
-    /// pass will register the same block properly a moment later and
-    /// `content_blocks` is a list — pushing twice would make one copy block
-    /// count as two for a `.class` selector and for `min=`/`max=`.
-    pub fn pre_register_copy_text(&self, id: &str, content: &str) {
-        if id.is_empty() {
+    /// This used to fill only the id map, because `content_blocks` is a list
+    /// and pushing twice made one copy count as two for `.class` and for
+    /// `min=`/`max=`. The cost was an asymmetry nobody could have guessed:
+    /// a copy nested inside another tag — the copy handler only reaches
+    /// top-level ones — resolved by `#id` and was invisible to `.class`.
+    /// `origin_key` removes the reason for the asymmetry, so classes are
+    /// registered here too.
+    pub fn pre_register_copy_text(
+        &self,
+        id: &str,
+        class: Option<&str>,
+        content: &str,
+        origin_key: Option<String>,
+    ) {
+        if id.is_empty() && class.is_none() {
             return;
         }
-        self.copy_blocks
-            .lock()
-            .unwrap()
-            .entry(id.to_string())
-            .or_insert_with(|| content.to_string());
+        if !id.is_empty() {
+            self.copy_blocks
+                .lock()
+                .unwrap()
+                .entry(id.to_string())
+                .or_insert_with(|| content.to_string());
+        }
+        self.register_copy_keyed(id.to_string(), class, content.to_string(), origin_key);
     }
 
     /// Register a `<hick:cut>` block.
@@ -265,6 +392,7 @@ impl MultiDocumentState {
             content,
             order,
             is_cut: true,
+            origin_key: None,
         };
 
         self.content_blocks.lock().unwrap().push(block);
@@ -277,12 +405,18 @@ impl MultiDocumentState {
     /// - `.class` - CSS class selector, concatenates all matching blocks in document order
     ///
     /// An optional `separator` is inserted between blocks for class selectors.
-    pub fn resolve_paste(&self, selector: &str, separator: Option<&str>) -> Option<String> {
+    /// `distinct` collapses matches whose text is identical, keeping the first.
+    pub fn resolve_paste(
+        &self,
+        selector: &str,
+        separator: Option<&str>,
+        distinct: bool,
+    ) -> Option<String> {
         let selector = selector.trim();
 
-        // Handle class selector (.classname)
-        if let Some(class_name) = selector.strip_prefix('.') {
-            return self.resolve_class_selector(class_name, separator);
+        // Handle class selector (.classname, or .a.b for all of them)
+        if selector.starts_with('.') {
+            return self.resolve_class_selector(selector, separator, distinct);
         }
 
         // Handle ID selector (#id) - legacy path
@@ -304,13 +438,19 @@ impl MultiDocumentState {
     /// Resolve a class selector, concatenating all matching blocks in document order.
     ///
     /// An optional `separator` is inserted between blocks.
-    fn resolve_class_selector(&self, class_name: &str, separator: Option<&str>) -> Option<String> {
+    fn resolve_class_selector(
+        &self,
+        selector: &str,
+        separator: Option<&str>,
+        distinct: bool,
+    ) -> Option<String> {
+        let required = required_classes(selector)?;
         let blocks = self.content_blocks.lock().unwrap();
 
-        // Find all blocks that have this class
+        // Find all blocks that have EVERY class the selector requires
         let mut matching: Vec<&ContentBlock> = blocks
             .iter()
-            .filter(|b| b.classes.iter().any(|c| c == class_name))
+            .filter(|b| has_all_classes(&b.classes, &required))
             .collect();
 
         if matching.is_empty() {
@@ -319,6 +459,11 @@ impl MultiDocumentState {
 
         // Sort by document order
         matching.sort_by_key(|b| b.order);
+
+        if distinct {
+            let mut seen = std::collections::HashSet::new();
+            matching.retain(|b| seen.insert(b.content.clone()));
+        }
 
         // Concatenate content with optional separator
         let result = if let Some(sep) = separator {
@@ -348,7 +493,22 @@ impl MultiDocumentState {
         node: Arc<dyn Node>,
         string_fallback: String,
     ) {
-        self.register_node_block(id, class, node, string_fallback, false);
+        self.register_node_block(id, class, node, string_fallback, false, None);
+    }
+
+    /// Register a copy block as a node, identified by where it was declared.
+    ///
+    /// See [`ContentBlock::origin_key`]: this is what lets the early pass and
+    /// the render pass register one declaration without it counting twice.
+    pub fn register_copy_node_keyed(
+        &self,
+        id: String,
+        class: Option<&str>,
+        node: Arc<dyn Node>,
+        string_fallback: String,
+        origin_key: Option<String>,
+    ) {
+        self.register_node_block(id, class, node, string_fallback, false, origin_key);
     }
 
     /// Register a cut block as a node (for reactive paste).
@@ -359,7 +519,19 @@ impl MultiDocumentState {
         node: Arc<dyn Node>,
         string_fallback: String,
     ) {
-        self.register_node_block(id, class, node, string_fallback, true);
+        self.register_node_block(id, class, node, string_fallback, true, None);
+    }
+
+    /// Register a cut block as a node, identified by where it was declared.
+    pub fn register_cut_node_keyed(
+        &self,
+        id: String,
+        class: Option<&str>,
+        node: Arc<dyn Node>,
+        string_fallback: String,
+        origin_key: Option<String>,
+    ) {
+        self.register_node_block(id, class, node, string_fallback, true, origin_key);
     }
 
     /// Internal helper for registering both node-based and string-based storage.
@@ -370,13 +542,27 @@ impl MultiDocumentState {
         node: Arc<dyn Node>,
         string_fallback: String,
         is_cut: bool,
+        origin_key: Option<String>,
     ) {
-        let order = self
-            .content_order_counter
-            .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         let classes: Vec<String> = class
             .map(|c| c.split_whitespace().map(|s| s.to_string()).collect())
             .unwrap_or_default();
+
+        // The order this block already holds if it has been registered
+        // before, so re-registering a declaration keeps its place in the
+        // document rather than jumping to the end.
+        let existing_order = origin_key.as_deref().and_then(|key| {
+            self.node_content_blocks
+                .lock()
+                .unwrap()
+                .iter()
+                .find(|b| b.origin_key.as_deref() == Some(key))
+                .map(|b| b.order)
+        });
+        let order = existing_order.unwrap_or_else(|| {
+            self.content_order_counter
+                .fetch_add(1, std::sync::atomic::Ordering::SeqCst)
+        });
 
         // Store in node-based storage
         let node_block = NodeContentBlock {
@@ -389,8 +575,18 @@ impl MultiDocumentState {
             node,
             order,
             is_cut,
+            origin_key: origin_key.clone(),
         };
-        self.node_content_blocks.lock().unwrap().push(node_block);
+        {
+            let mut blocks = self.node_content_blocks.lock().unwrap();
+            match origin_key
+                .as_deref()
+                .and_then(|key| blocks.iter().position(|b| b.origin_key.as_deref() == Some(key)))
+            {
+                Some(at) => blocks[at] = node_block,
+                None => blocks.push(node_block),
+            }
+        }
 
         // Also populate string-based storage for backward compat
         if !id.is_empty() {
@@ -412,8 +608,18 @@ impl MultiDocumentState {
             content: string_fallback,
             order,
             is_cut,
+            origin_key: origin_key.clone(),
         };
-        self.content_blocks.lock().unwrap().push(block);
+        {
+            let mut blocks = self.content_blocks.lock().unwrap();
+            match origin_key
+                .as_deref()
+                .and_then(|key| blocks.iter().position(|b| b.origin_key.as_deref() == Some(key)))
+            {
+                Some(at) => blocks[at] = block,
+                None => blocks.push(block),
+            }
+        }
     }
 
     /// Resolve a paste selector to a node.
@@ -426,6 +632,7 @@ impl MultiDocumentState {
         &self,
         selector: &str,
         separator: Option<&str>,
+        distinct: bool,
     ) -> Option<Arc<dyn Node>> {
         // A comma-separated list is one paste of several fragments, in the
         // order written. This used to be treated as a single id — so
@@ -445,34 +652,46 @@ impl MultiDocumentState {
         if parts.len() > 1 {
             let ip = Arc::new(InsertionPoint::new());
             let mut any = false;
+            // `distinct` spans the whole paste, not each comma part: two
+            // selectors that both match the same fragment are exactly the
+            // overlap somebody wrote `distinct` to collapse.
+            let mut seen = std::collections::HashSet::new();
             for part in parts {
-                let Some(node) = self.resolve_single_selector(part, separator) else {
+                let Some(node) = self.resolve_single_selector(part, separator, distinct) else {
                     continue;
                 };
+                if distinct
+                    && let Some(text) = node.as_string_value()
+                    && !seen.insert(text.to_string())
+                {
+                    continue;
+                }
                 if any && let Some(sep) = separator {
                     ip.add(Arc::new(StringNode::new(sep)) as Arc<dyn Node>);
                 }
                 ip.add(node);
                 any = true;
             }
+            ip.close();
             // None, not an empty node: the caller reports "selector not
             // found", which is the whole point of noticing.
             return any.then_some(ip as Arc<dyn Node>);
         }
 
-        self.resolve_single_selector(selector.trim(), separator)
+        self.resolve_single_selector(selector.trim(), separator, distinct)
     }
 
-    /// One `#id` or `.class` selector.
+    /// One `#id` or `.class` (or `.a.b`) selector.
     fn resolve_single_selector(
         &self,
         selector: &str,
         separator: Option<&str>,
+        distinct: bool,
     ) -> Option<Arc<dyn Node>> {
         let selector = selector.trim();
 
-        if let Some(class_name) = selector.strip_prefix('.') {
-            return self.resolve_class_node_selector(class_name, separator);
+        if selector.starts_with('.') {
+            return self.resolve_class_node_selector(selector, separator, distinct);
         }
 
         let id = selector.trim_start_matches('#');
@@ -488,14 +707,16 @@ impl MultiDocumentState {
     /// An optional `separator` is inserted between blocks.
     fn resolve_class_node_selector(
         &self,
-        class_name: &str,
+        selector: &str,
         separator: Option<&str>,
+        distinct: bool,
     ) -> Option<Arc<dyn Node>> {
+        let required = required_classes(selector)?;
         let blocks = self.node_content_blocks.lock().unwrap();
 
         let mut matching: Vec<&NodeContentBlock> = blocks
             .iter()
-            .filter(|b| b.classes.iter().any(|c| c == class_name))
+            .filter(|b| has_all_classes(&b.classes, &required))
             .collect();
 
         if matching.is_empty() {
@@ -503,6 +724,18 @@ impl MultiDocumentState {
         }
 
         matching.sort_by_key(|b| b.order);
+
+        if distinct {
+            // First wins, so the surviving bytes belong to the earliest
+            // contributor and the ribbon points somewhere stable. A node with
+            // no settled text yet cannot be compared, so it is kept: dropping
+            // it would be guessing.
+            let mut seen = std::collections::HashSet::new();
+            matching.retain(|b| match b.node.as_string_value() {
+                Some(text) => seen.insert(text.to_string()),
+                None => true,
+            });
+        }
 
         if matching.len() == 1 {
             return Some(matching[0].node.clone());
@@ -524,8 +757,11 @@ impl MultiDocumentState {
     /// Count the number of blocks matching a paste selector.
     ///
     /// For `#id` selectors, returns 0 or 1.
-    /// For `.class` selectors, returns the count of blocks with that class.
-    pub fn count_paste_matches(&self, selector: &str) -> usize {
+    /// For `.class` selectors, returns the count of blocks carrying every
+    /// class the selector names. `distinct` counts what survives the collapse,
+    /// because `min`/`max` gate what the paste EMITS — a `min="2"` satisfied
+    /// by the same line contributed twice was never satisfied.
+    pub fn count_paste_matches(&self, selector: &str, distinct: bool) -> usize {
         // Same list semantics as `resolve_paste_node`, so `min`/`max` count
         // what the paste will actually emit rather than what one selector
         // would have.
@@ -535,22 +771,67 @@ impl MultiDocumentState {
             .filter(|s| !s.is_empty())
             .collect();
         if parts.len() > 1 {
-            return parts.iter().map(|p| self.count_paste_matches(p)).sum();
+            if !distinct {
+                return parts
+                    .iter()
+                    .map(|p| self.count_paste_matches(p, false))
+                    .sum();
+            }
+            // Distinct spans the whole paste, so the parts have to be counted
+            // together rather than summed.
+            let mut seen = std::collections::HashSet::new();
+            for part in &parts {
+                self.collect_match_texts(part, &mut seen);
+            }
+            return seen.len();
         }
 
         let selector = selector.trim();
 
-        if let Some(class_name) = selector.strip_prefix('.') {
+        if selector.starts_with('.') {
+            let Some(required) = required_classes(selector) else {
+                return 0;
+            };
             let blocks = self.content_blocks.lock().unwrap();
-            blocks
+            let matching = blocks
                 .iter()
-                .filter(|b| b.classes.iter().any(|c| c == class_name))
-                .count()
+                .filter(|b| has_all_classes(&b.classes, &required));
+            if distinct {
+                let mut seen = std::collections::HashSet::new();
+                return matching.filter(|b| seen.insert(b.content.clone())).count();
+            }
+            matching.count()
         } else {
             let id = selector.trim_start_matches('#');
             let has_cut = self.cut_blocks.lock().unwrap().contains_key(id);
             let has_copy = self.copy_blocks.lock().unwrap().contains_key(id);
             if has_cut || has_copy { 1 } else { 0 }
+        }
+    }
+
+    /// The distinct texts one selector part contributes, added to `seen`.
+    fn collect_match_texts(&self, selector: &str, seen: &mut std::collections::HashSet<String>) {
+        let selector = selector.trim();
+        if selector.starts_with('.') {
+            let Some(required) = required_classes(selector) else {
+                return;
+            };
+            let blocks = self.content_blocks.lock().unwrap();
+            for block in blocks
+                .iter()
+                .filter(|b| has_all_classes(&b.classes, &required))
+            {
+                seen.insert(block.content.clone());
+            }
+            return;
+        }
+        let id = selector.trim_start_matches('#');
+        if let Some(content) = self.cut_blocks.lock().unwrap().get(id) {
+            seen.insert(content.clone());
+            return;
+        }
+        if let Some(content) = self.copy_blocks.lock().unwrap().get(id) {
+            seen.insert(content.clone());
         }
     }
 
@@ -706,7 +987,7 @@ mod tests {
         let state = MultiDocumentState::default();
         state.register_copy("version".to_string(), "3.12.0".to_string());
 
-        let resolved = state.resolve_paste("#version", None);
+        let resolved = state.resolve_paste("#version", None, false);
         assert_eq!(resolved, Some("3.12.0".to_string()));
     }
 
@@ -715,14 +996,14 @@ mod tests {
         let state = MultiDocumentState::default();
         state.register_cut("secret".to_string(), "hidden data".to_string());
 
-        let resolved = state.resolve_paste("#secret", None);
+        let resolved = state.resolve_paste("#secret", None, false);
         assert_eq!(resolved, Some("hidden data".to_string()));
     }
 
     #[test]
     fn paste_returns_none_for_missing() {
         let state = MultiDocumentState::default();
-        assert_eq!(state.resolve_paste("#nonexistent", None), None);
+        assert_eq!(state.resolve_paste("#nonexistent", None, false), None);
     }
 
     #[tokio::test]
@@ -773,7 +1054,7 @@ mod tests {
         let state = MultiDocumentState::default();
         state.register_copy_with_class("".to_string(), Some("imports"), "import foo;".to_string());
 
-        let resolved = state.resolve_paste(".imports", None);
+        let resolved = state.resolve_paste(".imports", None, false);
         assert_eq!(resolved, Some("import foo;".to_string()));
     }
 
@@ -784,7 +1065,7 @@ mod tests {
         state.register_copy_with_class("".to_string(), Some("imports"), "import bar;".to_string());
         state.register_copy_with_class("".to_string(), Some("imports"), "import baz;".to_string());
 
-        let resolved = state.resolve_paste(".imports", None);
+        let resolved = state.resolve_paste(".imports", None, false);
         assert_eq!(
             resolved,
             Some("import foo;import bar;import baz;".to_string())
@@ -798,7 +1079,7 @@ mod tests {
         state.register_copy_with_class("".to_string(), Some("other"), "other".to_string());
         state.register_copy_with_class("".to_string(), Some("items"), "second".to_string());
 
-        let resolved = state.resolve_paste(".items", None);
+        let resolved = state.resolve_paste(".items", None, false);
         assert_eq!(resolved, Some("firstsecond".to_string()));
     }
 
@@ -817,10 +1098,10 @@ mod tests {
         );
 
         // Both selectors should find the shared import
-        let imports = state.resolve_paste(".imports", None);
+        let imports = state.resolve_paste(".imports", None, false);
         assert_eq!(imports, Some("import shared;import local;".to_string()));
 
-        let deps = state.resolve_paste(".deps", None);
+        let deps = state.resolve_paste(".deps", None, false);
         assert_eq!(deps, Some("import shared;".to_string()));
     }
 
@@ -834,10 +1115,10 @@ mod tests {
         );
 
         // Should be accessible by both ID and class
-        let by_id = state.resolve_paste("#header", None);
+        let by_id = state.resolve_paste("#header", None, false);
         assert_eq!(by_id, Some("# Header".to_string()));
 
-        let by_class = state.resolve_paste(".sections", None);
+        let by_class = state.resolve_paste(".sections", None, false);
         assert_eq!(by_class, Some("# Header".to_string()));
     }
 
@@ -847,7 +1128,7 @@ mod tests {
         state.register_cut_with_class("".to_string(), Some("secrets"), "secret1;".to_string());
         state.register_cut_with_class("".to_string(), Some("secrets"), "secret2;".to_string());
 
-        let resolved = state.resolve_paste(".secrets", None);
+        let resolved = state.resolve_paste(".secrets", None, false);
         assert_eq!(resolved, Some("secret1;secret2;".to_string()));
     }
 
@@ -856,7 +1137,7 @@ mod tests {
         let state = MultiDocumentState::default();
         state.register_copy_with_class("".to_string(), Some("imports"), "import foo;".to_string());
 
-        let resolved = state.resolve_paste(".nonexistent", None);
+        let resolved = state.resolve_paste(".nonexistent", None, false);
         assert_eq!(resolved, None);
     }
 
@@ -865,7 +1146,7 @@ mod tests {
         let state = MultiDocumentState::default();
         state.register_copy("version".to_string(), "1.0.0".to_string());
 
-        let resolved = state.resolve_paste("#version", None);
+        let resolved = state.resolve_paste("#version", None, false);
         assert_eq!(resolved, Some("1.0.0".to_string()));
     }
 
@@ -880,7 +1161,7 @@ mod tests {
         state.register_copy_with_class("".to_string(), Some("items"), "b".to_string());
         state.register_copy_with_class("".to_string(), Some("items"), "c".to_string());
 
-        let resolved = state.resolve_paste(".items", Some(", "));
+        let resolved = state.resolve_paste(".items", Some(", "), false);
         assert_eq!(resolved, Some("a, b, c".to_string()));
     }
 
@@ -890,7 +1171,7 @@ mod tests {
         state.register_copy_with_class("".to_string(), Some("deps"), "serde".to_string());
         state.register_copy_with_class("".to_string(), Some("deps"), "tokio".to_string());
 
-        let resolved = state.resolve_paste(".deps", Some("\n"));
+        let resolved = state.resolve_paste(".deps", Some("\n"), false);
         assert_eq!(resolved, Some("serde\ntokio".to_string()));
     }
 
@@ -899,7 +1180,7 @@ mod tests {
         let state = MultiDocumentState::default();
         state.register_copy_with_class("".to_string(), Some("solo"), "only".to_string());
 
-        let resolved = state.resolve_paste(".solo", Some(", "));
+        let resolved = state.resolve_paste(".solo", Some(", "), false);
         assert_eq!(resolved, Some("only".to_string()));
     }
 
@@ -909,7 +1190,7 @@ mod tests {
         state.register_copy("ver".to_string(), "1.0".to_string());
 
         // Separator has no effect on ID selectors
-        let resolved = state.resolve_paste("#ver", Some(", "));
+        let resolved = state.resolve_paste("#ver", Some(", "), false);
         assert_eq!(resolved, Some("1.0".to_string()));
     }
 
@@ -924,9 +1205,9 @@ mod tests {
         state.register_copy_with_class("".to_string(), Some("items"), "b".to_string());
         state.register_copy_with_class("".to_string(), Some("other"), "c".to_string());
 
-        assert_eq!(state.count_paste_matches(".items"), 2);
-        assert_eq!(state.count_paste_matches(".other"), 1);
-        assert_eq!(state.count_paste_matches(".missing"), 0);
+        assert_eq!(state.count_paste_matches(".items", false), 2);
+        assert_eq!(state.count_paste_matches(".other", false), 1);
+        assert_eq!(state.count_paste_matches(".missing", false), 0);
     }
 
     #[test]
@@ -934,8 +1215,8 @@ mod tests {
         let state = MultiDocumentState::default();
         state.register_copy("ver".to_string(), "1.0".to_string());
 
-        assert_eq!(state.count_paste_matches("#ver"), 1);
-        assert_eq!(state.count_paste_matches("#missing"), 0);
+        assert_eq!(state.count_paste_matches("#ver", false), 1);
+        assert_eq!(state.count_paste_matches("#missing", false), 0);
     }
 
     #[test]
@@ -948,12 +1229,12 @@ mod tests {
         state.register_copy("b".to_string(), "BETA".to_string());
         state.register_copy_with_class("".to_string(), Some("extra"), "GAMMA".to_string());
 
-        assert_eq!(state.count_paste_matches("#a,#b"), 2);
-        assert_eq!(state.count_paste_matches("#a, #b"), 2, "spaces are allowed");
-        assert_eq!(state.count_paste_matches("#a,#missing"), 1);
-        assert_eq!(state.count_paste_matches("#a,.extra"), 2, "mixed kinds");
+        assert_eq!(state.count_paste_matches("#a,#b", false), 2);
+        assert_eq!(state.count_paste_matches("#a, #b", false), 2, "spaces are allowed");
+        assert_eq!(state.count_paste_matches("#a,#missing", false), 1);
+        assert_eq!(state.count_paste_matches("#a,.extra", false), 2, "mixed kinds");
         assert_eq!(
-            state.count_paste_matches("#a"),
+            state.count_paste_matches("#a", false),
             1,
             "a single selector is unchanged"
         );
@@ -964,6 +1245,6 @@ mod tests {
         let state = MultiDocumentState::default();
         state.register_cut("secret".to_string(), "hidden".to_string());
 
-        assert_eq!(state.count_paste_matches("#secret"), 1);
+        assert_eq!(state.count_paste_matches("#secret", false), 1);
     }
 }

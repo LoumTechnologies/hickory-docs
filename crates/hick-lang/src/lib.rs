@@ -775,6 +775,52 @@ fn check_unique_ids(nodes: &[HickNode]) -> Result<(), ParseError> {
 }
 
 /// Every fragment block in `nodes`, in document order, and nothing else.
+/// Splice another document's OWN fragments in as an ambient contribution.
+///
+/// Non-recursive on purpose. An ambient edge means "this folder's documents
+/// offer their fragments", and what a document offers is what it declares —
+/// following its upstreams as well would make every document upstream of
+/// every other, which is a cycle the moment any explicit chain exists.
+/// Whatever the contributor itself upstreams is either in this folder and
+/// contributing on its own account, or deliberately out of scope.
+///
+/// Appended, never prepended, so a local fragment keeps its place: `#id`
+/// resolution takes the first match, and a document's own declaration must
+/// win over one it never asked for. For `.class` both are collected, which is
+/// the additive behaviour the whole feature exists for.
+///
+/// Spans are stamped with the contributor's file, so lineage and the reverse
+/// edit land in the document that wrote the bytes.
+pub fn attach_contribution(
+    doc: &mut HickDocument,
+    contributor: &std::path::Path,
+    source: &str,
+    line: usize,
+) -> Result<(), ParseError> {
+    let contributed = parse(source)?;
+    let mut fragments = fragments_of(contributed.nodes);
+    if fragments.is_empty() {
+        return Ok(());
+    }
+    let mut span_files: Vec<String> = std::mem::take(&mut doc.span_files);
+    let file_id = span_file_id(&mut span_files, contributor, line)?;
+    stamp_span_file(&mut fragments, file_id);
+    doc.span_files = span_files;
+    doc.nodes.push(HickNode::Tag(HickTag {
+        name: "upstream".to_string(),
+        attributes: vec![(
+            "file".to_string(),
+            contributor.display().to_string(),
+        )],
+        children: fragments,
+        self_closing: false,
+        source_line: line,
+        source_column: 0,
+        source_span: None,
+    }));
+    Ok(())
+}
+
 fn fragments_of(nodes: Vec<HickNode>) -> Vec<HickNode> {
     let mut out = Vec::new();
     collect_fragments_any(&nodes, &mut out);
@@ -1520,15 +1566,30 @@ impl<'a> Parser<'a> {
                 });
             }
 
-            // Parse attribute: name="value"
+            // Parse attribute: `name="value"`, or bare `name` for a flag.
             let attr_name = self.read_attr_name(tag_line)?;
-            self.skip_ws();
-
-            if self.is_eof() || self.input.as_bytes()[self.pos] != b'=' {
+            // A name that read as nothing means the byte here starts no
+            // attribute at all. Without this the loop makes no progress and
+            // a malformed tag hangs the parser instead of failing.
+            if attr_name.is_empty() {
                 return Err(ParseError::Syntax {
                     line: self.line,
-                    message: format!("expected '=' after attribute '{attr_name}'"),
+                    message: format!(
+                        "unexpected '{}' where an attribute name was expected in <{}:{name}>",
+                        self.input[self.pos..].chars().next().unwrap_or('?'),
+                        self.prefix,
+                    ),
                 });
+            }
+            self.skip_ws();
+
+            // A valueless attribute is a flag — `<hick:paste … distinct />`.
+            // Additive: this spelling used to be a syntax error, so no
+            // document that parsed before parses differently now. Flags read
+            // as the empty string, which `has_flag` treats as "present".
+            if self.is_eof() || self.input.as_bytes()[self.pos] != b'=' {
+                attributes.push((attr_name, String::new()));
+                continue;
             }
             self.advance(1); // skip =
             self.skip_ws();

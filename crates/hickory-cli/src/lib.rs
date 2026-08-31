@@ -886,7 +886,18 @@ pub async fn run_doc_cached(
                 .map(|r| Arc::new(r) as Arc<dyn hick_literate::agent_cell::AgentRunner>);
             let config = PipelineConfig {
                 working_dir: Some(project_dir.to_path_buf()),
-                max_rounds: 1,
+                // A cell may write a `.hick` file, and its fragments become
+                // available to the documents in this run — the way a
+                // generator contributes a `using` line to a file somebody
+                // else owns. Only `.hick` outputs are read this way: a
+                // generator's ordinary output is bytes, and scanning it for
+                // markup would make `<hick:` unwritable by any program.
+                //
+                // Bounded rather than run to a fixed point: a document that
+                // writes a document that writes a document is a pipeline, and
+                // four rounds is enough of one to be useful without letting a
+                // mistake spin.
+                max_rounds: 4,
                 on_exec: None,
                 agent_runner,
                 max_agent_reprepares: 0,

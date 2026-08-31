@@ -773,7 +773,7 @@ fn resolved_scene_body(tag: &hick_lang::HickTag, state: &Arc<MultiDocumentState>
             HickNode::Text(text, _) => body.push_str(&dedent(text, tag.source_column)),
             HickNode::Tag(child_tag) if child_tag.name == "paste" => {
                 if let Some(select) = tag_attr(child_tag, "select")
-                    && let Some(resolved) = state.resolve_paste(&select, None)
+                    && let Some(resolved) = state.resolve_paste(&select, None, false)
                 {
                     body.push_str(&resolved);
                 }
