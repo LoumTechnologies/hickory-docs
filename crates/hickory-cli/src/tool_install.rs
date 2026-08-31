@@ -443,7 +443,21 @@ mod tests {
                     plan.language
                 );
                 if let Some(blocked) = &plan.blocked {
-                    assert!(blocked.contains(&plan.tool), "{blocked}");
+                    // Either the missing TOOL (the fetcher or the unpacker),
+                    // or the PACKAGE — because a catalogue that publishes no
+                    // build for this platform is blocked with nothing missing
+                    // on the machine at all, and naming a tool there would be
+                    // a lie. Found on macos-x86_64, where netcoredbg has no
+                    // asset: the old assertion demanded a tool name and got
+                    // the package name, correctly.
+                    assert!(
+                        blocked.contains(&plan.tool) || blocked.contains(&plan.package),
+                        "a blocked plan for {} names neither its tool ({}) nor its package \
+                         ({}): {blocked}",
+                        plan.language,
+                        plan.tool,
+                        plan.package,
+                    );
                 }
             }
         }

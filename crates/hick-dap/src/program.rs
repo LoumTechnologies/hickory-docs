@@ -132,19 +132,47 @@ mod tests {
     #[test]
     fn a_missing_adapter_is_a_type_the_app_can_act_on() {
         // The whole point: the app must be able to tell "install this" from
-        // "something else went wrong" without reading English.
-        let error = adapter_for(Path::new("app.py"), Path::new("/nonexistent-project"))
-            .expect_err("no adapter is discoverable for a project that does not exist");
-        let missing = error
-            .downcast_ref::<MissingAdapter>()
-            .expect("the failure is the typed one");
-        assert_eq!(missing.language, "python");
+        // "something else went wrong" without reading English — so the type
+        // is asserted directly, on every machine, rather than through a
+        // discovery call whose answer depends on what is installed here.
+        let missing = MissingAdapter {
+            language: "python".to_string(),
+            how: crate::discovery::how_to_get("python"),
+            installable: crate::discovery::suggests_hick_install("python"),
+        };
         assert!(missing.installable, "hick dap install python exists");
+        let error = anyhow::Error::new(missing);
+        assert_eq!(
+            error
+                .downcast_ref::<MissingAdapter>()
+                .expect("the failure is the typed one")
+                .language,
+            "python"
+        );
         // The sentence a terminal shows is unchanged.
         assert!(
             format!("{error}").starts_with("no debug adapter for python on this machine."),
             "{error}"
         );
+    }
+
+    #[test]
+    fn adapter_for_wraps_a_failed_discovery_in_that_type() {
+        // The wiring half. Only meaningful on a machine with no python
+        // adapter — this one may have debugpy, and a test that demanded its
+        // absence failed here while passing in CI, which is the wrong way
+        // round for a check meant to protect a promise.
+        let found = adapter_for(Path::new("app.py"), Path::new("/nonexistent-project"));
+        match found {
+            Err(error) => assert!(
+                error.downcast_ref::<MissingAdapter>().is_some(),
+                "a failed discovery produced an untyped error: {error}"
+            ),
+            Ok(discovered) => assert!(
+                !discovered.command.is_empty(),
+                "discovery succeeded with no command to run"
+            ),
+        }
     }
 
     #[test]
