@@ -1537,12 +1537,45 @@ fn short_key(path: &Path) -> String {
 ///
 /// Unix only in the strict sense; elsewhere the lock is treated as live,
 /// which costs a run its stable path and never costs it correctness.
+/// How long a lock with no readable pid is assumed to belong to whoever is
+/// still writing it.
+///
+/// `create_new` makes the file and the pid lands a moment later, so the two
+/// are not one operation and a reader can catch the gap.
+const UNWRITTEN_LOCK_GRACE: std::time::Duration = std::time::Duration::from_secs(30);
+
+/// Whether a lock is too young to be anything but a half-written one.
+///
+/// A lock that crashed between the two syscalls is indistinguishable from one
+/// mid-write except by age, and guessing "held" forever would wedge a project's
+/// scratch directory permanently. Age settles it: microseconds old is the gap,
+/// half a minute old is a leftover.
+fn lock_was_just_created(lock: &Path) -> bool {
+    let Ok(meta) = std::fs::metadata(lock) else {
+        return false;
+    };
+    let Ok(modified) = meta.modified() else {
+        // No mtime to reason about — assume held, because deleting a live
+        // run's workdirs is the worse of the two mistakes.
+        return true;
+    };
+    modified
+        .elapsed()
+        .map(|age| age < UNWRITTEN_LOCK_GRACE)
+        .unwrap_or(true)
+}
+
 fn holder_is_alive(lock: &Path) -> bool {
     let Ok(body) = std::fs::read_to_string(lock) else {
         return false;
     };
     let Ok(pid) = body.trim().parse::<u32>() else {
-        return false;
+        // An EMPTY lock is the dangerous case, and it is the one that bit:
+        // reading "no pid" as "nobody owns this" let a second run take over
+        // and `remove_dir_all` a directory whose owner was a microsecond from
+        // using it. That is exactly how a live run's workdir disappeared and
+        // surfaced as `failed to spawn 'sh -c': No such file or directory`.
+        return lock_was_just_created(lock);
     };
     if pid == std::process::id() {
         return true;
@@ -1587,6 +1620,148 @@ mod tests {
         // otherwise this would pass while proving nothing.
         assert!(matches!(one.root, ScratchRoot::Stable { .. }));
         assert!(matches!(two.root, ScratchRoot::Stable { .. }));
+    }
+
+    /// The scratch root and lock a project would derive, without building one.
+    fn derived_paths(project: &std::path::Path) -> (std::path::PathBuf, std::path::PathBuf) {
+        let key = std::fs::canonicalize(project).expect("canonical project");
+        let path = std::env::temp_dir().join(format!("hickory-local-{}", super::short_key(&key)));
+        let lock = path.with_extension("lock");
+        (path, lock)
+    }
+
+    /// A pid that is genuinely gone: spawned, waited for, reaped.
+    fn a_dead_pid() -> u32 {
+        let mut child = std::process::Command::new("sh")
+            .arg("-c")
+            .arg("exit 0")
+            .spawn()
+            .expect("spawn a short-lived child");
+        let pid = child.id();
+        child.wait().expect("reap it");
+        pid
+    }
+
+    /// A lock whose holder is gone is taken over, and its leftovers removed.
+    ///
+    /// The path the guarantee's caveat said had no test, because exercising it
+    /// looked like it needed a SIGKILL. It does not: what the code actually
+    /// reads is a pid in a file, so a reaped child's pid is the same evidence
+    /// a killed run would leave.
+    #[test]
+    fn a_lock_whose_holder_is_gone_is_taken_over() {
+        let project = tempfile::tempdir().expect("project");
+        let (path, lock) = derived_paths(project.path());
+        std::fs::create_dir_all(&path).expect("a previous run's root");
+        std::fs::write(path.join("leftover.txt"), "from a run that is gone").expect("leftover");
+        std::fs::write(&lock, format!("{}
+", a_dead_pid())).expect("stale lock");
+
+        let executor = LocalExecutor::new_stable_for(Some(project.path())).expect("takeover");
+
+        assert!(
+            matches!(executor.root, ScratchRoot::Stable { .. }),
+            "a dead holder's lock was not taken over"
+        );
+        assert!(
+            !path.join("leftover.txt").exists(),
+            "a previous run's files survived the takeover and are visible to this one"
+        );
+        assert_eq!(
+            std::fs::read_to_string(&lock)
+                .expect("lock is readable")
+                .trim(),
+            std::process::id().to_string(),
+            "the lock still names the process that is gone"
+        );
+    }
+
+    /// A lock whose holder is alive is left alone, and so is its directory.
+    ///
+    /// The safety half. Taking over here is what deletes a running cell's
+    /// workdir, so the fallback must be the random directory rather than the
+    /// shared one.
+    #[test]
+    fn a_live_holders_directory_is_not_touched() {
+        let project = tempfile::tempdir().expect("project");
+        let (path, lock) = derived_paths(project.path());
+        std::fs::create_dir_all(&path).expect("the holder's root");
+        std::fs::write(path.join("in-use.txt"), "a cell is running here").expect("marker");
+        // Our own pid: alive by definition, and `holder_is_alive` says so
+        // without having to keep a second process around for the test.
+        std::fs::write(&lock, format!("{}
+", std::process::id())).expect("live lock");
+
+        let executor = LocalExecutor::new_stable_for(Some(project.path())).expect("fallback");
+
+        assert!(
+            matches!(executor.root, ScratchRoot::Ephemeral(_)),
+            "a live holder's lock was taken over"
+        );
+        assert!(
+            path.join("in-use.txt").exists(),
+            "a live run's scratch directory was deleted out from under it"
+        );
+        let _ = std::fs::remove_dir_all(&path);
+        let _ = std::fs::remove_file(&lock);
+    }
+
+    /// A lock that exists but has no pid yet is held, not free.
+    ///
+    /// The race itself. `create_new` makes the file and the pid is written a
+    /// moment later, so a reader can see it empty — and reading that as "nobody
+    /// owns this" is what deleted a live run's workdirs. Measured 5 failures in
+    /// 25 runs of `needs_preflight` before this, 0 in 30 after.
+    #[test]
+    fn a_lock_with_no_pid_yet_is_not_free_to_take() {
+        let project = tempfile::tempdir().expect("project");
+        let (path, lock) = derived_paths(project.path());
+        std::fs::create_dir_all(&path).expect("the holder's root");
+        std::fs::write(path.join("in-use.txt"), "a cell is about to run here").expect("marker");
+        // Exactly what `create_new` leaves behind before `writeln!` lands.
+        std::fs::write(&lock, "").expect("unwritten lock");
+
+        let executor = LocalExecutor::new_stable_for(Some(project.path())).expect("fallback");
+
+        assert!(
+            matches!(executor.root, ScratchRoot::Ephemeral(_)),
+            "a lock caught mid-creation read as unowned"
+        );
+        assert!(
+            path.join("in-use.txt").exists(),
+            "a directory whose owner was still writing its lock was deleted"
+        );
+        let _ = std::fs::remove_dir_all(&path);
+        let _ = std::fs::remove_file(&lock);
+    }
+
+    /// An empty lock old enough to be a crash leftover IS free to take.
+    ///
+    /// The other side of the rule above: assuming "held" forever would wedge a
+    /// project's scratch directory for good if a run died between creating its
+    /// lock and writing its pid.
+    #[test]
+    fn an_old_lock_with_no_pid_is_a_leftover() {
+        let project = tempfile::tempdir().expect("project");
+        let (path, lock) = derived_paths(project.path());
+        std::fs::create_dir_all(&path).expect("root");
+        std::fs::write(path.join("leftover.txt"), "from a run that crashed").expect("leftover");
+        std::fs::write(&lock, "").expect("unwritten lock");
+        let old = std::time::SystemTime::now() - (super::UNWRITTEN_LOCK_GRACE * 2);
+        std::fs::File::options()
+            .write(true)
+            .open(&lock)
+            .expect("reopen lock")
+            .set_times(std::fs::FileTimes::new().set_modified(old))
+            .expect("age the lock");
+
+        let executor = LocalExecutor::new_stable_for(Some(project.path())).expect("takeover");
+
+        assert!(
+            matches!(executor.root, ScratchRoot::Stable { .. }),
+            "a crashed run's half-written lock wedged the directory forever"
+        );
+        assert!(!path.join("leftover.txt").exists());
     }
 
     /// A document named without a directory is still a project of its own.

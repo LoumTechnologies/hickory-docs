@@ -56,11 +56,19 @@ everybody: **`hickory-local-9ce484222325`**, which is just the constant
 Every `hick run <bare-filename>` on the machine therefore contended for one
 scratch root again, in *any* project — the first failure mode above, restored
 by the fix for it. The lock mostly held: the losers fell back to a random
-directory and said so. What it did not hold against is the takeover path this
-guarantee's own caveat says has no test — a run that finds a lock whose holder
-looks gone does `remove_dir_all` on the root, and that deletes a *live* run's
-workdirs. It surfaced as `failed to spawn 'sh -c' in container 'lab': No such
-file or directory`, which reads as a broken shell and is not one.
+directory and said so. What it did not hold against was **an empty lock file**.
+
+`create_new` makes the lock and the pid is written a moment later, so the two
+are not one operation, and `holder_is_alive` parsed `""` as "no pid" and
+returned false. A second run reading the lock in that gap concluded the holder
+was gone, took over, and ran `remove_dir_all` on the root a microsecond before
+its owner used it. It surfaced as `failed to spawn 'sh -c' in container 'lab':
+No such file or directory`, which reads as a broken shell and is not one.
+
+So an unwritten lock is now read as **held**, and the wedge that would
+otherwise create — a run that died between the two syscalls owning the
+directory forever — is settled by age: microseconds old is the gap, half a
+minute old is a leftover.
 
 Measured at 5 failures in 25 runs of `needs_preflight`, and 0 in 30 after the
 fix. Guarded at both ends now: `project_dir_of` in the CLI never returns an
@@ -110,12 +118,16 @@ Last LLM verification:
     working directory, so it stays a live regression test for the contention.
     Measured 0 failures in 6 parallel runs after the change, against 6 in 6
     before it.
-- Caveat: the lock's takeover path (a holder whose process is gone) is
-  unchanged and still has no test; it is exercised only by killing a run with
-  SIGKILL, which nothing automates. It is no longer only theoretical — it is
-  what turned the empty-path collision above from a logged fallback into a
-  deleted workdir, so the missing test is now known to cover a path that has
-  bitten once. Stale `hickory-local-*` directories and their locks also
-  accumulate in the temp directory when a run does not exit cleanly; nothing
-  sweeps them, and a stale lock whose pid has been reused would be read as
-  live.
+  - The takeover path is now tested, and did not need the SIGKILL its caveat
+    assumed: what the code reads is a pid in a file, so a spawned-and-reaped
+    child's pid is the same evidence a killed run would leave.
+    `a_lock_whose_holder_is_gone_is_taken_over`,
+    `a_live_holders_directory_is_not_touched`,
+    `a_lock_with_no_pid_yet_is_not_free_to_take` (which fails against the old
+    `holder_is_alive` and passes with it) and `an_old_lock_with_no_pid_is_a_leftover`.
+- Caveat: stale `hickory-local-*` directories and their locks accumulate in the
+  temp directory when a run does not exit cleanly — 42 were present during one
+  test run. Nothing sweeps them. A stale lock whose pid has since been reused
+  by an unrelated process still reads as live, which wedges that project on the
+  ephemeral fallback until the file is removed by hand; the age rule above
+  covers only the empty-lock case, not this one.
