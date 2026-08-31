@@ -3471,8 +3471,12 @@ async fn cmd_agent(args: AgentArgs) -> Result<ExitCode> {
     let store = KeyStore::desktop();
     let provider = resolve_selector_with_store(args.provider.as_deref(), &store)?;
     let llm = client_for_with_store(&provider, args.model.as_deref(), &store)?;
-    // Executor selection follows HICKORY_EXECUTOR, same as run/test.
-    let executor = ExecutorChoice::from_env()?.build().await?;
+    // Executor selection follows HICKORY_EXECUTOR, same as run/test — and so
+    // does the project it names its scratch directory after, which is the
+    // agent's project rather than whatever directory the person typed from.
+    let executor = ExecutorChoice::from_env()?
+        .build_for(Some(&project_dir))
+        .await?;
 
     let mut config = AgentConfig::new(args.prompt, &project_dir);
     // `--doc` is the session's primary document: it enables the edit tool

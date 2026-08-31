@@ -12,7 +12,13 @@ dist-site/
 *.tsbuildinfo
 .dev/
 .dev-env.local
-data/
+# A local scratch directory, anchored to the repository root. It used to be
+# the unanchored `data/`, which matches at ANY depth — and so silently
+# swallowed `examples/receipts/*/data/`, the export two shipped example
+# documents read. The result was an example that could not run on any clone:
+# the same mistake `from=` made by building a durable claim on a gitignored
+# artifact. Anchor the rule, or it ignores files you did not mean.
+/data/
 
 .claude/worktrees/
 

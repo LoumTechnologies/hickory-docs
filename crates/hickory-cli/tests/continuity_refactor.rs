@@ -41,15 +41,37 @@ Some prose that did not exist before, so every byte after it has moved.
 </hick:doc>
 "##;
 
+/// Serialises the tests in this file, because `start` below has to publish
+/// its state directory through the PROCESS environment.
+///
+/// `HICKORY_STATE_DIR` is global to the process and cargo runs a test binary's
+/// tests as threads inside one, so three tests each pointing it at their own
+/// tempdir is a data race — that is exactly why `set_var` is `unsafe` in
+/// edition 2024. The losing test's server then read a sibling's state
+/// directory, found continuity off there, and failed with
+/// `nothing recorded: {"active":false,"recorded":0}` — which reads as a
+/// broken feature and is a broken test. Alone the file passed, so it only
+/// ever showed up in a full `cargo test --workspace`.
+///
+/// A tokio mutex rather than a `std` one: the guard is held across `.await`
+/// inside the test, which a `std::sync::MutexGuard` is not `Send` enough for.
+static ENV_LOCK: std::sync::LazyLock<std::sync::Arc<tokio::sync::Mutex<()>>> =
+    std::sync::LazyLock::new(|| std::sync::Arc::new(tokio::sync::Mutex::new(())));
+
 struct Session {
     base: String,
     doc_id: String,
     root: PathBuf,
     _dir: tempfile::TempDir,
     _state: tempfile::TempDir,
+    /// Held for the life of the session: the server keeps resolving state
+    /// against the environment, so releasing this at the end of `start`
+    /// would let the next test move the directory out from under it.
+    _env: tokio::sync::OwnedMutexGuard<()>,
 }
 
 async fn start(continuity: bool) -> Session {
+    let env = ENV_LOCK.clone().lock_owned().await;
     let dir = tempfile::tempdir().unwrap();
     let state_dir = tempfile::tempdir().unwrap();
     std::fs::write(dir.path().join("demo.hick"), BEFORE).unwrap();
@@ -89,6 +111,7 @@ async fn start(continuity: bool) -> Session {
         root,
         _dir: dir,
         _state: state_dir,
+        _env: env,
     }
 }
 

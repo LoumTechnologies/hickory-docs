@@ -106,22 +106,37 @@ fn a_flagless_check_is_never_answered_from_a_recording() {
     //
     // Proven with a cell whose output cannot repeat: if the check replayed
     // the recording it would pass, and it must not.
+    //
+    // The command differs by platform because a cell is `sh -c` on Unix and
+    // `cmd.exe /C` on Windows, and nothing nondeterministic is spelled the
+    // same in both. This used to be the Unix one unconditionally, so the
+    // `hick run` below failed on Windows with `exit 1` and the test panicked
+    // on the assertion beneath it rather than on anything it was testing —
+    // the guarantee is not Unix-only and neither should its coverage be.
+    // `%TIME%` is centisecond-resolution and the two invocations are seconds
+    // apart, so it changes as reliably as urandom does.
+    #[cfg(unix)]
+    const NONDETERMINISTIC: &str = "head -c 8 /dev/urandom | od -An -tx1 | tr -d ' \n'";
+    #[cfg(windows)]
+    const NONDETERMINISTIC: &str = "echo %TIME%";
+
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("live.hick");
     std::fs::write(
         &path,
-        r#"<?xml version="1.0" encoding="UTF-8"?>
+        format!(
+            r#"<?xml version="1.0" encoding="UTF-8"?>
 <hick:doc xmlns:hick="http://www.hickorydocs.com/1.0" weave="live.md">
 # Live
 
 <hick:container name="c" image="alpine:3.20" />
 
 <hick:file path="v.txt"><hick:exec container="c">
-<hick:copy id="c1">head -c 8 /dev/urandom | od -An -tx1 | tr -d ' 
-'</hick:copy>
+<hick:copy id="c1">{NONDETERMINISTIC}</hick:copy>
 </hick:exec></hick:file>
 </hick:doc>
-"#,
+"#
+        ),
     )
     .unwrap();
 
