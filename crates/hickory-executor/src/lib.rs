@@ -1592,7 +1592,10 @@ fn sweep_stale_roots(temp: &Path) {
             continue;
         }
         let root = temp.join(stem);
-        log::debug!("sweeping scratch root {} of a run that is gone", root.display());
+        log::debug!(
+            "sweeping scratch root {} of a run that is gone",
+            root.display()
+        );
         let _ = std::fs::remove_dir_all(&root);
         let _ = std::fs::remove_file(&lock);
     }
@@ -1715,8 +1718,15 @@ mod tests {
         let (path, lock) = derived_paths(project.path());
         std::fs::create_dir_all(&path).expect("a previous run's root");
         std::fs::write(path.join("leftover.txt"), "from a run that is gone").expect("leftover");
-        std::fs::write(&lock, format!("{}
-", a_dead_pid())).expect("stale lock");
+        std::fs::write(
+            &lock,
+            format!(
+                "{}
+",
+                a_dead_pid()
+            ),
+        )
+        .expect("stale lock");
 
         let executor = LocalExecutor::new_stable_for(Some(project.path())).expect("takeover");
 
@@ -1750,8 +1760,15 @@ mod tests {
         std::fs::write(path.join("in-use.txt"), "a cell is running here").expect("marker");
         // Our own pid: alive by definition, and `holder_is_alive` says so
         // without having to keep a second process around for the test.
-        std::fs::write(&lock, format!("{}
-", std::process::id())).expect("live lock");
+        std::fs::write(
+            &lock,
+            format!(
+                "{}
+",
+                std::process::id()
+            ),
+        )
+        .expect("live lock");
 
         let executor = LocalExecutor::new_stable_for(Some(project.path())).expect("fallback");
 
@@ -1873,7 +1890,10 @@ mod tests {
 
         super::sweep_stale_roots(temp);
 
-        assert!(!dead.exists(), "a crashed run's scratch root was left behind");
+        assert!(
+            !dead.exists(),
+            "a crashed run's scratch root was left behind"
+        );
         assert!(
             !temp.join("hickory-local-0123456789ab.lock").exists(),
             "the lock outlived the root it named"
@@ -1888,7 +1908,10 @@ mod tests {
             "an ephemeral fallback was swept — it shares our prefix and has no lock"
         );
         assert!(home.exists(), "a persistent cell home was swept");
-        assert!(stranger.exists(), "the sweep reached outside its own naming");
+        assert!(
+            stranger.exists(),
+            "the sweep reached outside its own naming"
+        );
     }
 
     /// A lock whose root is already gone is removed too.
@@ -1942,7 +1965,10 @@ mod tests {
     /// a live run's workdir mid-cell.
     #[test]
     fn an_empty_project_path_is_not_everybodys_scratch_root() {
-        let shared = format!("hickory-local-{}", super::short_key(std::path::Path::new("")));
+        let shared = format!(
+            "hickory-local-{}",
+            super::short_key(std::path::Path::new(""))
+        );
         let executor =
             LocalExecutor::new_stable_for(Some(std::path::Path::new(""))).expect("empty path");
         let name = executor

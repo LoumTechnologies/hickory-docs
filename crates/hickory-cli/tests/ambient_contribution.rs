@@ -137,10 +137,7 @@ fn a_contributor_does_not_drag_in_its_own_upstreams() {
     for doc in ["owner.hick", "middle.hick", "base.hick"] {
         let out = weave(&dir, doc);
         let stderr = String::from_utf8_lossy(&out.stderr);
-        assert!(
-            out.status.success(),
-            "weaving {doc} failed:\n{stderr}"
-        );
+        assert!(out.status.success(), "weaving {doc} failed:\n{stderr}");
         assert!(
             !stderr.contains("circular"),
             "ambient contribution created a cycle weaving {doc}:\n{stderr}"

@@ -2116,7 +2116,10 @@ mod project_dir_tests {
     #[test]
     fn a_document_named_without_a_directory_lives_in_the_current_one() {
         assert_eq!(project_dir_of(Path::new("d.hick")), Path::new("."));
-        assert_eq!(project_dir_of(Path::new("notes/d.hick")), Path::new("notes"));
+        assert_eq!(
+            project_dir_of(Path::new("notes/d.hick")),
+            Path::new("notes")
+        );
         assert_eq!(project_dir_of(Path::new("/tmp/d.hick")), Path::new("/tmp"));
         // Never the empty path, whatever it is handed.
         for name in ["d.hick", "notes/d.hick", "/tmp/d.hick", ""] {

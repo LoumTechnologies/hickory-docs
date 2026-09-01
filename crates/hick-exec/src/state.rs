@@ -579,10 +579,11 @@ impl MultiDocumentState {
         };
         {
             let mut blocks = self.node_content_blocks.lock().unwrap();
-            match origin_key
-                .as_deref()
-                .and_then(|key| blocks.iter().position(|b| b.origin_key.as_deref() == Some(key)))
-            {
+            match origin_key.as_deref().and_then(|key| {
+                blocks
+                    .iter()
+                    .position(|b| b.origin_key.as_deref() == Some(key))
+            }) {
                 Some(at) => blocks[at] = node_block,
                 None => blocks.push(node_block),
             }
@@ -612,10 +613,11 @@ impl MultiDocumentState {
         };
         {
             let mut blocks = self.content_blocks.lock().unwrap();
-            match origin_key
-                .as_deref()
-                .and_then(|key| blocks.iter().position(|b| b.origin_key.as_deref() == Some(key)))
-            {
+            match origin_key.as_deref().and_then(|key| {
+                blocks
+                    .iter()
+                    .position(|b| b.origin_key.as_deref() == Some(key))
+            }) {
                 Some(at) => blocks[at] = block,
                 None => blocks.push(block),
             }
@@ -1230,9 +1232,17 @@ mod tests {
         state.register_copy_with_class("".to_string(), Some("extra"), "GAMMA".to_string());
 
         assert_eq!(state.count_paste_matches("#a,#b", false), 2);
-        assert_eq!(state.count_paste_matches("#a, #b", false), 2, "spaces are allowed");
+        assert_eq!(
+            state.count_paste_matches("#a, #b", false),
+            2,
+            "spaces are allowed"
+        );
         assert_eq!(state.count_paste_matches("#a,#missing", false), 1);
-        assert_eq!(state.count_paste_matches("#a,.extra", false), 2, "mixed kinds");
+        assert_eq!(
+            state.count_paste_matches("#a,.extra", false),
+            2,
+            "mixed kinds"
+        );
         assert_eq!(
             state.count_paste_matches("#a", false),
             1,

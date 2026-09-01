@@ -409,7 +409,6 @@ mod tests {
         assert_eq!(retrieved.files.len(), 1);
         assert!(retrieved.files.contains_key("test.txt"));
         assert_eq!(retrieved.parents.len(), 0);
-
     }
 
     #[tokio::test]
@@ -439,7 +438,6 @@ mod tests {
         // List
         let branches = store.list_branches().await.unwrap();
         assert!(branches.contains(&"main".to_string()));
-
     }
 
     #[tokio::test]
@@ -484,6 +482,5 @@ mod tests {
         // Common ancestor should be root
         let ancestor = store.common_ancestor(&id_a, &id_b).await.unwrap();
         assert_eq!(ancestor, Some(root_id));
-
     }
 }

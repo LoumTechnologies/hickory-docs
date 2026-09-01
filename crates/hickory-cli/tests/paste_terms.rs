@@ -138,7 +138,10 @@ fn min_counts_what_distinct_will_actually_emit() {
     // Two blocks match, but they collapse to one line — so a gate asking for
     // two was never satisfied, and counting matches rather than output would
     // have said it was.
-    let out = hick().args(["run", path.to_str().unwrap()]).output().unwrap();
+    let out = hick()
+        .args(["run", path.to_str().unwrap()])
+        .output()
+        .unwrap();
     assert!(!out.status.success(), "min= counted matches, not output");
 }
 

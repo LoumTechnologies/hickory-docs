@@ -808,10 +808,7 @@ pub fn attach_contribution(
     doc.span_files = span_files;
     doc.nodes.push(HickNode::Tag(HickTag {
         name: "upstream".to_string(),
-        attributes: vec![(
-            "file".to_string(),
-            contributor.display().to_string(),
-        )],
+        attributes: vec![("file".to_string(), contributor.display().to_string())],
         children: fragments,
         self_closing: false,
         source_line: line,

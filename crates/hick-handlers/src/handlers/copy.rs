@@ -257,7 +257,10 @@ mod tests {
         let result = handler.process(&tag, &ctx).unwrap();
         assert!(matches!(result, TagResult::Declaration));
 
-        assert_eq!(state.resolve_paste("#ver", None, false), Some("1.0.0".to_string()));
+        assert_eq!(
+            state.resolve_paste("#ver", None, false),
+            Some("1.0.0".to_string())
+        );
     }
 
     #[test]
@@ -363,7 +366,10 @@ mod tests {
         let handler = CopyHandler;
         handler.process(&tag, &ctx).unwrap();
 
-        assert_eq!(state.resolve_paste("#ver", None, false), Some("3.0.0".to_string()));
+        assert_eq!(
+            state.resolve_paste("#ver", None, false),
+            Some("3.0.0".to_string())
+        );
     }
 
     #[test]
