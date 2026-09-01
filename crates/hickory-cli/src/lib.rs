@@ -1430,10 +1430,10 @@ pub fn check_failures(run: &DocRun, out_dir: Option<&Path>) -> Result<Vec<CheckF
         };
         match std::fs::read(&full) {
             Ok(existing) if existing == produced => {}
-            Ok(_) => failures.push(CheckFailure::Drift {
+            Ok(existing) => failures.push(CheckFailure::Drift {
                 doc: run.doc_path.clone(),
                 output_path: full,
-                detail: "committed file differs from freshly produced output".to_string(),
+                detail: describe_drift(&existing, &produced),
             }),
             Err(_) => failures.push(CheckFailure::Drift {
                 doc: run.doc_path.clone(),
@@ -1443,6 +1443,73 @@ pub fn check_failures(run: &DocRun, out_dir: Option<&Path>) -> Result<Vec<CheckF
         }
     }
     Ok(failures)
+}
+
+/// What specifically differs between the committed bytes and the freshly
+/// produced ones — where the mismatch starts and how the lengths compare —
+/// rather than only the fact that they differ.
+///
+/// Before this, `hick test`'s `DRIFTED` verdict named the file and nothing
+/// else, which left an author with no way to see what it thought differed
+/// short of diffing the files by hand outside the tool. Found wanting while
+/// root-causing a real `DRIFTED` report against a tree that turned out to be
+/// byte-identical across runs — the actual cause was cache-key instability
+/// (`docs/guarantees/execution/a-volume-carries-what-the-repository-carries.md`),
+/// not a bug in this comparison, but nothing in the message said so, and
+/// `hick test --json`'s per-cell `status: "ok"` gave no reason to suspect the
+/// comparison itself either.
+fn describe_drift(existing: &[u8], produced: &[u8]) -> String {
+    let common = existing
+        .iter()
+        .zip(produced.iter())
+        .take_while(|(a, b)| a == b)
+        .count();
+    let len_note = match existing.len().cmp(&produced.len()) {
+        std::cmp::Ordering::Equal => format!("both {} bytes", existing.len()),
+        std::cmp::Ordering::Less => format!(
+            "on disk is {} bytes, freshly produced is {} bytes ({} more)",
+            existing.len(),
+            produced.len(),
+            produced.len() - existing.len()
+        ),
+        std::cmp::Ordering::Greater => format!(
+            "on disk is {} bytes, freshly produced is {} bytes ({} fewer)",
+            existing.len(),
+            produced.len(),
+            existing.len() - produced.len()
+        ),
+    };
+    if common == existing.len().min(produced.len()) {
+        // One is an exact byte-for-byte prefix of the other — there is no
+        // "first differing byte" to report, only where they stop agreeing.
+        return format!(
+            "committed file differs from freshly produced output — identical for the \
+             first {common} bytes, then one simply ends ({len_note})"
+        );
+    }
+    // A line number, when both sides are valid UTF-8 — the common,
+    // human-legible case (source, markdown, config) — is more useful than a
+    // byte offset alone, but the offset is kept either way.
+    let line = match (std::str::from_utf8(existing), std::str::from_utf8(produced)) {
+        (Ok(e), Ok(_)) => Some(
+            e.as_bytes()[..common]
+                .iter()
+                .filter(|&&b| b == b'\n')
+                .count()
+                + 1,
+        ),
+        _ => None,
+    };
+    match line {
+        Some(n) => format!(
+            "committed file differs from freshly produced output — first difference at \
+             byte {common} (line {n}), {len_note}"
+        ),
+        None => format!(
+            "committed file differs from freshly produced output — first difference at \
+             byte {common}, {len_note}"
+        ),
+    }
 }
 
 /// XML entities that reached a command verbatim.
@@ -2259,6 +2326,45 @@ echo hi
 </hick:doc>
 "#));
         assert!(warnings.is_empty(), "{warnings:?}");
+    }
+}
+
+// Protects docs/guarantees/verification/a-drift-report-names-what-differs.md
+#[cfg(test)]
+mod describe_drift_tests {
+    use super::describe_drift;
+
+    #[test]
+    fn a_middle_byte_difference_names_the_offset_and_line() {
+        let existing = b"line one\nline two\nline three\n";
+        let produced = b"line one\nline TWO\nline three\n";
+        let detail = describe_drift(existing, produced);
+        assert!(detail.contains("byte 14"), "{detail}");
+        assert!(detail.contains("line 2"), "{detail}");
+        assert!(detail.contains("both 29 bytes"), "{detail}");
+    }
+
+    #[test]
+    fn one_side_ending_early_is_reported_as_a_prefix_not_a_byte_offset() {
+        let existing = b"line one\nline two\n";
+        let produced = b"line one\nline two\nline three\n";
+        let detail = describe_drift(existing, produced);
+        assert!(
+            detail.contains("identical for the first 18 bytes"),
+            "{detail}"
+        );
+        assert!(detail.contains("11 more"), "{detail}");
+        // Not a byte-offset claim: there is no differing byte, only an end.
+        assert!(!detail.contains("first difference at byte"), "{detail}");
+    }
+
+    #[test]
+    fn non_utf8_content_still_reports_a_byte_offset_with_no_line_number() {
+        let existing = [0u8, 1, 2, 255];
+        let produced = [0u8, 1, 9, 255];
+        let detail = describe_drift(&existing, &produced);
+        assert!(detail.contains("byte 2"), "{detail}");
+        assert!(!detail.contains("line"), "{detail}");
     }
 }
 
