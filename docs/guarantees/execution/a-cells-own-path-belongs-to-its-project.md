@@ -101,6 +101,27 @@ That shape rule now lives in one place, `derived_root_key`, because the
 sandbox's persistent-home lookup applies the same test and two copies of a
 safety rule is how they stop agreeing.
 
+## The third time, through the tools bound beside it
+
+The same project path decides one other thing, and it was left behind by the
+move off `current_dir()`: `project_tools`, which finds `.hick-cache/models` so
+a cell can run a code model server the project installed for it. That path is
+not hashed — it becomes a `bwrap --ro-bind-try <src> <dst>` pair and a `PATH`
+prefix inside the cell — and both of those need a **real location**. A relative
+one binds nothing and puts a directory that resolves from `/` onto the cell's
+`PATH`.
+
+`current_dir()` was always absolute, so nothing about the change looked like it
+mattered. The failure it produced said the opposite of what was wrong:
+`hick run doc.hick` in a project holding a perfectly good
+`.hick-cache/models/hick-model-csharp` reported that the tool **is not
+installed here**, and the message went on to explain confinement — correctly,
+in general, and misleadingly here, because the directory was one hick had
+decided to bind and then named relatively.
+
+So `project_tools` resolves the project the way `scratch_root` does, empty path
+included, and returns absolute paths or nothing.
+
 ## What this is not
 
 It is **not** a claim that concurrent runs of the same project are
@@ -113,7 +134,7 @@ comparison needs.
 ---
 
 Last LLM verification:
-- Date: 2026-08-31
+- Date: 2026-09-01
 - Reviewer: Claude (Opus 5)
 - Result: verified
 - Evidence:
@@ -123,6 +144,14 @@ Last LLM verification:
     working directory only for a caller that has no document in hand.
   - `crates/hickory-executor-sandbox/src/lib.rs` —
     `SandboxedExecutor::new_stable_for`, passing it through unchanged.
+  - `project_tools` in the same file canonicalises that project path before
+    joining `.hick-cache/models`, because the result is bound by `bwrap` and
+    put on the cell's `PATH` rather than hashed. Tests:
+    `project_tools_tests::a_relative_project_resolves_to_an_absolute_tool_directory`
+    and `an_empty_project_means_the_working_directory`. Verified end to end in
+    the `warehouse` project, where `hick run` had begun reporting
+    `hick-model-csharp` missing with the server present in
+    `.hick-cache/models`.
   - `crates/hickory-cli/src/lib.rs` — `ExecutorChoice::build_for`, called from
     `run_doc_cached` with `project_dir_of(doc_path)`, which maps both `None`
     and `Some("")` to `.`; `doc_path.parent()` alone yields `Some("")` for a

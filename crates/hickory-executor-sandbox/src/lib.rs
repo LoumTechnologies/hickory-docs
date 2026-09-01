@@ -64,9 +64,25 @@ pub use policy::Sandbox;
 ///
 /// A directory that does not exist is left out rather than bound empty,
 /// because `bwrap` fails outright on a missing source.
+///
+/// The result is ABSOLUTE, and that is not cosmetic. These paths become
+/// `bwrap --ro-bind-try <src> <dst>` and a `PATH` prefix inside the cell, both
+/// of which need a real location: a relative one binds nothing and puts a
+/// directory that does not exist from `/` onto the cell's `PATH`. The project
+/// arrives relative in the ordinary case — `hick run doc.hick` gives
+/// `Path::new("doc.hick").parent()`, which is `Some("")`, not `None` — so the
+/// empty path is resolved the same way [`LocalExecutor::new_stable_for`]
+/// resolves it, to the working directory.
 fn project_tools(project: Option<&std::path::Path>) -> Vec<std::path::PathBuf> {
-    let root = match project {
-        Some(dir) => dir.to_path_buf(),
+    let root = match project.filter(|dir| !dir.as_os_str().is_empty()) {
+        Some(dir) => match std::fs::canonicalize(dir) {
+            Ok(absolute) => absolute,
+            // A path that cannot be canonicalised is no use here: an
+            // un-resolvable relative path is exactly what this exists to
+            // avoid handing to bwrap.
+            Err(_) if dir.is_absolute() => dir.to_path_buf(),
+            Err(_) => return Vec::new(),
+        },
         None => match std::env::current_dir() {
             Ok(cwd) => cwd,
             Err(_) => return Vec::new(),
@@ -491,5 +507,56 @@ mod explain_tests {
             "Temporary failure in name resolution"
         ));
         assert!(!looks_like_a_denied_network("CSSM_ModuleLoad(): invalid"));
+    }
+}
+
+#[cfg(test)]
+mod project_tools_tests {
+    //! A tool directory handed to `bwrap` has to be a real location.
+    //! Guarantee: docs/guarantees/execution/a-cells-own-path-belongs-to-its-project.md
+    use super::*;
+
+    /// Both tests move the working directory, which is per-process.
+    static CWD: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    fn with_models(dir: &std::path::Path) {
+        std::fs::create_dir_all(dir.join(".hick-cache/models")).unwrap();
+    }
+
+    #[test]
+    fn a_relative_project_resolves_to_an_absolute_tool_directory() {
+        let project = tempfile::tempdir().unwrap();
+        with_models(project.path());
+        // A relative parent is the ordinary case, not an odd one: `hick run
+        // doc.hick` and `hick run ../proj/doc.hick` both hand one over.
+        // Binding it verbatim gave the cell a path that resolves from `/`.
+        let _serial = CWD.lock().unwrap_or_else(|e| e.into_inner());
+        let previous = std::env::current_dir().unwrap();
+        std::env::set_current_dir(project.path()).unwrap();
+        let found = project_tools(Some(std::path::Path::new(".")));
+        std::env::set_current_dir(previous).unwrap();
+
+        assert_eq!(found.len(), 1, "the models directory was not found");
+        assert!(
+            found[0].is_absolute(),
+            "a relative tool directory reaches bwrap as one: {}",
+            found[0].display()
+        );
+    }
+
+    #[test]
+    fn an_empty_project_means_the_working_directory() {
+        // `Path::new("doc.hick").parent()` is `Some("")`, not `None`, so this
+        // is the ordinary `hick run doc.hick` case rather than an odd one.
+        let project = tempfile::tempdir().unwrap();
+        with_models(project.path());
+        let _serial = CWD.lock().unwrap_or_else(|e| e.into_inner());
+        let previous = std::env::current_dir().unwrap();
+        std::env::set_current_dir(project.path()).unwrap();
+        let found = project_tools(Some(std::path::Path::new("")));
+        std::env::set_current_dir(previous).unwrap();
+
+        assert_eq!(found.len(), 1, "an empty project found no models directory");
+        assert!(found[0].is_absolute());
     }
 }
