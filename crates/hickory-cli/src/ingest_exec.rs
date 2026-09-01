@@ -45,7 +45,7 @@ use anyhow::{Context as _, Result, bail};
 use hick_lang::{HickDocument, HickNode, HickTag};
 use sha2::{Digest, Sha256};
 
-use crate::{ExecutorChoice, RunMode, run_doc};
+use crate::{CacheMode, ExecutorChoice, RunMode, run_doc, run_doc_subset};
 
 /// What one ingest produced.
 pub struct IngestExecOutcome {
@@ -133,6 +133,26 @@ fn locate_exec<'a>(doc: &'a HickDocument, selector: &str) -> Result<(&'a HickTag
             p = doc.prefix,
         ),
     }
+}
+
+/// `target`, and every exec cell it transitively depends on — the subgraph
+/// `hick ingest --from` needs to run to read `target`'s output, and no more.
+///
+/// `FlowDag::predecessors` returns only DIRECT predecessors, so this walks
+/// them to a fixpoint. The result always includes `target` itself.
+fn transitive_predecessors(
+    dag: &hick_exec::dag::FlowDag,
+    target: hick_exec::dag::ExecId,
+) -> std::collections::HashSet<hick_exec::dag::ExecId> {
+    let mut seen = std::collections::HashSet::new();
+    let mut stack = vec![target];
+    while let Some(id) = stack.pop() {
+        if !seen.insert(id) {
+            continue;
+        }
+        stack.extend(dag.predecessors(id));
+    }
+    seen
 }
 
 /// The output volume the cell writes, and the prefix its files appear under
@@ -637,12 +657,42 @@ pub async fn ingest_from_exec(
         )
     })?;
 
-    // Run the document. The volume is extracted, unpacked and merged into the
-    // pipeline result by the pipeline itself; ingest reads that, and nothing
-    // watches a directory and nothing is moved.
-    let run = run_doc(doc_path, &[], RunMode::Execute, executor)
-        .await
-        .with_context(|| format!("running {} failed", doc_path.display()))?;
+    // Run only the target cell and its real dependencies, not the whole
+    // document — a cell being authored BEFORE the rest of the document that
+    // will depend on it is the ordinary order to write one in, and a
+    // document with other, unrelated cells that do not yet pass must not
+    // block ingesting this one. The subset is the target's transitive
+    // predecessors in the DAG, plus the target itself; anything outside it
+    // is never visited, so it is neither run nor required to succeed.
+    let flow_dag = hick_exec::dag::build_dag(&doc)
+        .map_err(|e| anyhow::anyhow!("DAG validation failed in {}: {e}", doc_path.display()))?;
+    let target_container = exec.get_attribute("container").unwrap_or_default();
+    let target_id = flow_dag
+        .execs
+        .iter()
+        .find(|e| e.container == target_container && e.source_line == exec.source_line)
+        .map(|e| e.id)
+        .with_context(|| {
+            format!(
+                "could not find the cell at line {} in the document's DAG",
+                exec.source_line
+            )
+        })?;
+    let subset = transitive_predecessors(&flow_dag, target_id);
+
+    // The volume is extracted, unpacked and merged into the pipeline result
+    // by the pipeline itself; ingest reads that, and nothing watches a
+    // directory and nothing is moved.
+    let run = run_doc_subset(
+        doc_path,
+        &[],
+        RunMode::Execute,
+        executor,
+        CacheMode::Off,
+        Some(subset),
+    )
+    .await
+    .with_context(|| format!("running {} failed", doc_path.display()))?;
 
     let mut text: BTreeMap<String, String> = BTreeMap::new();
     let mut binary: Vec<String> = Vec::new();

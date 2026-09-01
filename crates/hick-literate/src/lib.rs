@@ -1417,6 +1417,14 @@ pub struct PipelineConfig {
     pub on_exec: Option<ExecEventHook>,
     /// Optional per-volume incremental flush hook — see [`VolumeFlushHook`].
     pub on_volume_flush: Option<VolumeFlushHook>,
+    /// Restrict execution to this subgraph of the document's own DAG, when
+    /// set. A cell whose [`hick_exec::dag::ExecId`] is not in the set is
+    /// treated as absent — not run, not required to succeed, and not a
+    /// dependency failure for anything inside the set. `None` (the default)
+    /// is the ordinary, unchanged whole-document run. See
+    /// `crate::run_pipeline_live`'s exec loop, and `hickory_cli::run_doc_subset`
+    /// for the one caller that sets this (`hick ingest --from`).
+    pub subset: Option<std::collections::HashSet<hick_exec::dag::ExecId>>,
     /// Collect cells with no baseline into [`PipelineResult::never_run`]
     /// instead of aborting the run (default: abort).
     ///
@@ -1606,6 +1614,20 @@ pub async fn run_pipeline_live(
         while cursor < order.len() {
             let exec_id = order[cursor];
             cursor += 1;
+
+            // A cell outside the requested subgraph is treated as absent:
+            // not run, not required to succeed, and — because it is simply
+            // never visited — never looked up by a downstream cell's
+            // `upstream_keys`. Safe because the caller (`hickory_cli::run_doc_subset`)
+            // is required to pass the FULL transitive closure of predecessors,
+            // never a partial one: every cell that survives this check has
+            // all of its own predecessors surviving it too.
+            if let Some(subset) = &config.subset
+                && !subset.contains(&exec_id)
+            {
+                continue;
+            }
+
             // Cloned because an agent cell may replace `flow_dag` underneath
             // us when it re-prepares the document.
             let exec_info = flow_dag

@@ -810,6 +810,30 @@ pub async fn run_doc_cached(
     executor_choice: ExecutorChoice,
     cache_mode: CacheMode,
 ) -> Result<DocRun> {
+    run_doc_subset(doc_path, params, mode, executor_choice, cache_mode, None).await
+}
+
+/// [`run_doc_cached`], narrowed to a subgraph of the document's own DAG.
+///
+/// `subset: None` (what `run_doc_cached` always passes) is the ordinary,
+/// unchanged whole-document run. `subset: Some(ids)` treats every exec cell
+/// OUTSIDE that set as absent — not run, not required to succeed, and not a
+/// dependency failure for anything inside the set. This exists for `hick
+/// ingest --from`: computing a target cell's transitive predecessors and
+/// passing that closure here lets ingest run just enough of the document to
+/// read the target cell's output, without requiring cells the target does
+/// not depend on to already be correct — a genuine chicken-and-egg problem
+/// for a cell being authored before the rest of the document that will
+/// depend on it exists. See
+/// docs/guarantees/authoring/ingest-does-not-require-the-rest-of-the-document-to-already-pass.md.
+pub async fn run_doc_subset(
+    doc_path: &Path,
+    params: &[(String, String)],
+    mode: RunMode,
+    executor_choice: ExecutorChoice,
+    cache_mode: CacheMode,
+    subset: Option<std::collections::HashSet<hick_exec::dag::ExecId>>,
+) -> Result<DocRun> {
     let source = std::fs::read_to_string(doc_path)
         .with_context(|| format!("failed to read {}", doc_path.display()))?;
     // `parse_from_path`: this document is about to have its outputs written,
@@ -928,6 +952,7 @@ pub async fn run_doc_cached(
                 // `write_outputs_detailed` owns for the real write. See
                 // docs/guarantees/execution/an-earlier-cells-output-survives-a-later-cells-failure.md.
                 on_volume_flush: Some(volume_flush_mirror(project_dir.to_path_buf())),
+                subset,
                 agent_runner,
                 max_agent_reprepares: 0,
                 // `check` wants every cell with no baseline reported as

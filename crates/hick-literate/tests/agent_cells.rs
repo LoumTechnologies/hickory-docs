@@ -97,6 +97,7 @@ async fn run(
         max_rounds: 1,
         on_exec: None,
         on_volume_flush: None,
+        subset: None,
         collect_unverifiable,
         agent_runner: runner,
         max_agent_reprepares: 0,
