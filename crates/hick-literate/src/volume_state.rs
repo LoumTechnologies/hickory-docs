@@ -294,6 +294,71 @@ pub fn decode_base64(encoded: &str) -> Result<Vec<u8>> {
         .context("failed to decode base64")
 }
 
+/// The subset of `paths` the repository at `dir` would ignore.
+///
+/// The repository's own `.gitignore` is the filter, which needs no new
+/// configuration and is what the user already means. A directory that is not
+/// a repository (or a machine with no `git`) filters nothing and says so —
+/// never silently, because "no files were skipped" and "nothing could be
+/// checked" are different facts.
+///
+/// Moved here from `hickory-cli`'s ingest path (2026-09-01) so
+/// `mounted_inputs_digest`'s cache-key computation could reuse the exact
+/// same, git-authoritative filter that `seed_from_directory` and `hick
+/// ingest` already use, rather than a third reimplementation of gitignore
+/// matching. `hickory-cli` depends on `hick-literate`, not the other way
+/// around, so this is the lower crate the logic can live in for both to
+/// share.
+pub fn gitignored(dir: &Path, paths: &[String]) -> Result<Option<Vec<String>>> {
+    use std::process::Command;
+
+    let inside = Command::new("git")
+        .arg("-C")
+        .arg(dir)
+        .args(["rev-parse", "--is-inside-work-tree"])
+        .output();
+    match inside {
+        Ok(out) if out.status.success() => {}
+        _ => return Ok(None),
+    }
+
+    // `--no-index` so a path that is already tracked is still tested against
+    // the ignore rules: the question is "would this repository ignore these
+    // bytes", not "is this file staged".
+    let mut child = Command::new("git")
+        .arg("-C")
+        .arg(dir)
+        .args(["check-ignore", "--stdin", "--no-index"])
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .context("failed to run `git check-ignore`")?;
+    {
+        use std::io::Write as _;
+        let stdin = child.stdin.as_mut().expect("stdin was piped");
+        for path in paths {
+            writeln!(stdin, "{path}")?;
+        }
+    }
+    let out = child
+        .wait_with_output()
+        .context("failed to read `git check-ignore`")?;
+    // Exit 0 = some paths matched, 1 = none matched, anything else is real.
+    match out.status.code() {
+        Some(0) | Some(1) => {}
+        _ => return Ok(None),
+    }
+    Ok(Some(
+        String::from_utf8_lossy(&out.stdout)
+            .lines()
+            .map(str::trim)
+            .filter(|l| !l.is_empty())
+            .map(str::to_string)
+            .collect(),
+    ))
+}
+
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------

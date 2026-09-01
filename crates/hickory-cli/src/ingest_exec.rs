@@ -196,65 +196,6 @@ fn output_volume(doc: &HickDocument, exec: &HickTag) -> Result<(String, String)>
 }
 
 // ---------------------------------------------------------------------------
-// The gitignore filter
-// ---------------------------------------------------------------------------
-
-/// The subset of `paths` the repository at `dir` would ignore.
-///
-/// The repository's own `.gitignore` is the filter, which needs no new
-/// configuration and is what the user already means. A directory that is not
-/// a repository (or a machine with no `git`) filters nothing and says so —
-/// never silently, because "no files were skipped" and "nothing could be
-/// checked" are different facts.
-pub fn gitignored(dir: &Path, paths: &[String]) -> Result<Option<Vec<String>>> {
-    let inside = Command::new("git")
-        .arg("-C")
-        .arg(dir)
-        .args(["rev-parse", "--is-inside-work-tree"])
-        .output();
-    match inside {
-        Ok(out) if out.status.success() => {}
-        _ => return Ok(None),
-    }
-
-    // `--no-index` so a path that is already tracked is still tested against
-    // the ignore rules: the question is "would this repository ignore these
-    // bytes", not "is this file staged".
-    let mut child = Command::new("git")
-        .arg("-C")
-        .arg(dir)
-        .args(["check-ignore", "--stdin", "--no-index"])
-        .stdin(std::process::Stdio::piped())
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::null())
-        .spawn()
-        .context("failed to run `git check-ignore`")?;
-    {
-        use std::io::Write as _;
-        let stdin = child.stdin.as_mut().expect("stdin was piped");
-        for path in paths {
-            writeln!(stdin, "{path}")?;
-        }
-    }
-    let out = child
-        .wait_with_output()
-        .context("failed to read `git check-ignore`")?;
-    // Exit 0 = some paths matched, 1 = none matched, anything else is real.
-    match out.status.code() {
-        Some(0) | Some(1) => {}
-        _ => return Ok(None),
-    }
-    Ok(Some(
-        String::from_utf8_lossy(&out.stdout)
-            .lines()
-            .map(str::trim)
-            .filter(|l| !l.is_empty())
-            .map(str::to_string)
-            .collect(),
-    ))
-}
-
-// ---------------------------------------------------------------------------
 // The element
 // ---------------------------------------------------------------------------
 
@@ -740,7 +681,7 @@ pub async fn ingest_from_exec(
     // the one that cannot be represented and has to be named.
     let doc_dir = doc_path.parent().unwrap_or(Path::new("."));
     let candidates: Vec<String> = text.keys().chain(binary.iter()).cloned().collect();
-    let ignored = gitignored(doc_dir, &candidates)?;
+    let ignored = hick_literate::volume_state::gitignored(doc_dir, &candidates)?;
     let mut skipped: Vec<String> = Vec::new();
     match &ignored {
         Some(ignored) => {

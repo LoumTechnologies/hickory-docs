@@ -29,7 +29,7 @@ mod weave;
 /// Image used when neither the exec nor its container declares one.
 const DEFAULT_IMAGE: &str = "alpine";
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
@@ -1044,9 +1044,24 @@ fn is_run_artifact(path: &str) -> bool {
 /// A volume that is not in the store yet contributes its name and nothing
 /// else. That is the honest digest of "declared but empty", and it differs
 /// from the same volume once seeded, which is what matters.
+///
+/// `project_dir` is consulted against the SAME `.gitignore` filter
+/// `seed_from_directory` already applies when an input volume is first
+/// seeded from a host directory
+/// (`docs/guarantees/execution/a-volume-carries-what-the-repository-carries.md`).
+/// Without it, a prior cell's own build output — `bin/`, `obj/`,
+/// `__pycache__` — sitting in a volume this cell also mounts destabilizes
+/// the digest for every cell sharing that mount, even though the same
+/// `.gitignore` correctly keeps that output out of the host write. Paths are
+/// checked as they appear WITHIN the volume (not reconstructed to their true
+/// path relative to `project_dir`), which is an approximation — see the
+/// caveat on the guarantee above — but it is exact for the unanchored
+/// patterns (`bin/`, `obj/`, `__pycache__`) that are the actual, observed
+/// failure mode.
 fn mounted_inputs_digest(
     volume_store: &volume_state::VolumeStore,
     mounts: &[(String, String)],
+    project_dir: &Path,
 ) -> String {
     let mut entries: Vec<(String, Vec<u8>)> = Vec::new();
     for (vol_name, mount_path) in mounts {
@@ -1059,8 +1074,36 @@ fn mounted_inputs_digest(
         // run and nothing would ever hit its recording.
         match volume_state::read_tar_files(tar) {
             Ok(files) => {
+                let candidates: Vec<String> = files
+                    .iter()
+                    .map(|(path, _)| path.clone())
+                    .filter(|path| !is_run_artifact(path))
+                    .collect();
+                // A failure to check (no `git`, no repository) folds into
+                // the digest rather than being silently treated as "nothing
+                // is ignored" — matching the unreadable-volume branch below,
+                // and `gitignored`'s own contract of never staying quiet
+                // about "could not check" versus "checked, found nothing".
+                let ignored: Option<HashSet<String>> =
+                    match volume_state::gitignored(project_dir, &candidates) {
+                        Ok(set) => set.map(|v| v.into_iter().collect()),
+                        Err(e) => {
+                            warn!(
+                                "could not check volume '{vol_name}' against \
+                                 .gitignore to key the cache: {e}"
+                            );
+                            entries.push((
+                                format!("{vol_name}@{mount_path}/<gitignore check failed>"),
+                                e.to_string().into_bytes(),
+                            ));
+                            None
+                        }
+                    };
                 for (path, body) in files {
                     if is_run_artifact(&path) {
+                        continue;
+                    }
+                    if ignored.as_ref().is_some_and(|set| set.contains(&path)) {
                         continue;
                     }
                     entries.push((format!("{vol_name}@{mount_path}/{path}"), body));
@@ -1773,7 +1816,8 @@ pub async fn run_pipeline_live(
                 let caps_canonical = cache::canonical_caps(&container_defs, &exec_info.container);
                 let secret_names = cache::secret_names_for(&container_defs, &exec_info.container);
                 let secret_refs: Vec<&str> = secret_names.iter().map(|s| s.as_str()).collect();
-                let input_digest = mounted_inputs_digest(&volume_store, &exec_info.mounts);
+                let input_digest =
+                    mounted_inputs_digest(&volume_store, &exec_info.mounts, &working_dir);
                 let upstream = upstream_keys(&flow_dag, exec_id, &keys_by_exec);
                 let upstream_refs: Vec<&str> = upstream.iter().map(String::as_str).collect();
                 cache::exec_cache_key(
@@ -2305,7 +2349,8 @@ pub async fn run_pipeline_weave(
                     let caps_canonical = cache::canonical_caps(&container_defs, &info.container);
                     let secret_names = cache::secret_names_for(&container_defs, &info.container);
                     let secret_refs: Vec<&str> = secret_names.iter().map(|s| s.as_str()).collect();
-                    let input_digest = mounted_inputs_digest(&volume_store, &info.mounts);
+                    let input_digest =
+                        mounted_inputs_digest(&volume_store, &info.mounts, &cc.project_dir);
                     let upstream = upstream_keys(&flow_dag, exec_id, &keys_by_exec);
                     let upstream_refs: Vec<&str> = upstream.iter().map(String::as_str).collect();
                     let key = cache::exec_cache_key(
@@ -3673,6 +3718,76 @@ async fn pipeline_session_replay(file_path: &Path, source: &str, verbose: bool) 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // Protects docs/guarantees/execution/a-volume-carries-what-the-repository-carries.md
+    // (the cache-digest half — `mounted_inputs_digest` must apply the same
+    // `.gitignore` filter `seed_from_directory` already applies at seed time).
+    #[test]
+    fn mounted_inputs_digest_excludes_gitignored_paths() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let git = |args: &[&str]| {
+            std::process::Command::new("git")
+                .arg("-C")
+                .arg(dir.path())
+                .args(args)
+                .output()
+                .expect("run git");
+        };
+        git(&["init", "-q"]);
+        git(&["config", "user.email", "t@example.com"]);
+        git(&["config", "user.name", "T"]);
+        std::fs::write(dir.path().join(".gitignore"), "build/\n").expect("write .gitignore");
+
+        let mounts = vec![("v".to_string(), "proj".to_string())];
+        let digest_of = |stable: &[u8], junk: &[u8]| {
+            let mut store = volume_state::VolumeStore::new();
+            let tar = volume_state::pack_tar_files(&[
+                ("stable.txt".to_string(), stable.to_vec()),
+                ("build/junk.txt".to_string(), junk.to_vec()),
+            ])
+            .unwrap();
+            store.update("v", tar);
+            mounted_inputs_digest(&store, &mounts, dir.path())
+        };
+
+        assert_eq!(
+            digest_of(b"stable", b"one"),
+            digest_of(b"stable", b"two"),
+            "a gitignored path's content changing must not move the digest — \
+             this is the exact instability that made a build cell's own \
+             bin/obj destabilize every cell sharing its volume"
+        );
+        assert_ne!(
+            digest_of(b"stable", b"one"),
+            digest_of(b"changed", b"one"),
+            "a real, non-ignored input changing must still move the digest — \
+             otherwise this test would pass by digesting nothing at all"
+        );
+    }
+
+    // Sibling: outside a repository, `gitignored` returns `None` and nothing
+    // is filtered — matching `seed_from_directory`'s own "no repository, keep
+    // everything" rule (`a-volume-carries-what-the-repository-carries.md`) —
+    // so the digest still moves. Not a regression: `is_run_artifact`'s fixed
+    // `.hick-cache`/`.git` exclusions apply regardless of a repository.
+    #[test]
+    fn mounted_inputs_digest_outside_a_repository_falls_back_to_the_fixed_exclusions() {
+        let dir = tempfile::tempdir().expect("tempdir"); // deliberately NOT a git repo
+        let mounts = vec![("v".to_string(), "proj".to_string())];
+        let digest_of = |junk: &[u8]| {
+            let mut store = volume_state::VolumeStore::new();
+            let tar =
+                volume_state::pack_tar_files(&[("build/junk.txt".to_string(), junk.to_vec())])
+                    .unwrap();
+            store.update("v", tar);
+            mounted_inputs_digest(&store, &mounts, dir.path())
+        };
+        assert_ne!(
+            digest_of(b"one"),
+            digest_of(b"two"),
+            "without a repository nothing is filtered beyond .hick-cache/.git"
+        );
+    }
 
     // Protects the "key does not assume a container" clause of
     // docs/guarantees/verification/test-separates-unverifiable-from-drifted.md.

@@ -1176,7 +1176,7 @@ fn volume_paths_to_skip(run: &DocRun, base: &Path) -> std::collections::HashSet<
     }
     from_volumes.sort();
     from_volumes.dedup();
-    match crate::ingest_exec::gitignored(base, &from_volumes) {
+    match hick_literate::volume_state::gitignored(base, &from_volumes) {
         Ok(Some(ignored)) => ignored.into_iter().collect(),
         // Not a repository, or no git: nothing is filtered, which is what
         // happened before this existed.

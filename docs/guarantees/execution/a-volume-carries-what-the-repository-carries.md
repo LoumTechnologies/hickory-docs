@@ -48,30 +48,68 @@ stops being read. Two kinds are unstable: the **weave target**, because
 running the cell changes it, and a **`hick:file` fed by a cell**, because its
 bytes are a run's output.
 
+## The digest half
+
+The rule above covers what a volume holds when it is **seeded** from a host
+directory. It says nothing about the SEPARATE moment a cell's cache-key
+**digest** is computed over whatever a volume currently holds — and until
+2026-09-01, that computation used a hardcoded two-name allowlist
+(`.hick-cache`, `.git`) with no `.gitignore` awareness at all. The gap showed
+up specifically when a cell's own real, in-memory output (extracted after it
+runs — not read from host disk, and not covered by `seed_from_directory`'s
+filter at all) entered a volume another cell shares: a `dotnet build` cell's
+`obj/` — full of non-deterministic timestamps and absolute paths in its
+`*.json` files — destabilized the digest, and therefore the cache key, of
+every cell sharing that mount, even though the same `.gitignore` was already
+correctly keeping `obj/` off host disk.
+
+The fix applies the exact same filter to the digest computation:
+`mounted_inputs_digest` (`crates/hick-literate/src/lib.rs`) now checks each
+candidate path against `volume_state::gitignored` — the same
+git-authoritative function `seed_from_directory`'s sibling `hick ingest` path
+uses (moved into `hick-literate` so both could share it rather than
+reimplementing gitignore matching a third time) — before folding it into the
+digest. Paths are checked as they appear WITHIN the volume, not reconstructed
+to their true path relative to the project root; this is an approximation,
+exact for the unanchored patterns (`bin/`, `obj/`, `__pycache__`) that are
+the actual, observed failure mode, but not necessarily precise for a
+gitignore rule anchored to the true repository root. A failure to check (no
+`git`, no repository) folds into the digest rather than silently meaning
+"nothing is ignored" — matching the existing unreadable-volume branch, and
+`gitignored`'s own contract of never staying quiet about "could not check"
+versus "checked, found nothing".
+
 ---
 
 Last LLM verification:
-- Date: 2026-08-28
-- Reviewer: Claude (Opus 5)
-- Result: verified
-- Evidence: `crates/hick-literate/src/volume_state.rs::seed_from_directory`
-  walks with `ignore::WalkBuilder` (`hidden(false)`, `git_ignore(true)`,
-  `git_exclude(true)`, `require_git(false)`, `parents(true)`) instead of
-  `tar::Builder::append_dir_all`, which took the directory whole.
-  Reproduced end to end in the `warehouse` project: with `__pycache__` on
-  disk beside a generator, `hick test .` reported three documents drifted and
-  their cells never run; with the filter in place the same folder is `ok`
-  across all seven.
-- Test coverage: `self_mounting_tests` (5 tests: the whole-folder archetype,
-  a `hick:file` a cell fills, a literal script the cell runs staying **silent**
-  — the case that must never warn — the ordinary mount-what-you-read shape,
-  and `tools` not claiming `toolsmith.md`);
-  `volume_state::tests::what_the_repository_ignores_never_reaches_the_volume`
-  (ignored build output absent, hidden file present, ordinary source
-  present); `volume_state::tests::seed_from_directory` still covers the
-  no-`.gitignore` case, where everything is carried.
-- Caveat requiring LLM review: `require_git(false)` means the rules apply
-  even outside a git repository, which is what makes a `.gitignore` in a
-  bare directory work — but it also means a project that deliberately
-  gitignores a generated file it then mounts as input will find it missing.
-  Nothing warns about that case yet.
+- Date: 2026-09-01
+- Reviewer: Claude (Sonnet 5)
+- Result: verified (digest half); the 2026-08-28 verification below still
+  stands for the seed half
+- Evidence: `crates/hick-literate/src/lib.rs`'s `mounted_inputs_digest`,
+  consulting `volume_state::gitignored` inside its per-volume loop before
+  folding each candidate path into the digest.
+- Test coverage: `mounted_inputs_digest_excludes_gitignored_paths` and
+  `mounted_inputs_digest_outside_a_repository_falls_back_to_the_fixed_exclusions`
+  in `crates/hick-literate/src/lib.rs` — a real git repository with a
+  `build/` `.gitignore` rule; the digest of two volume states differing only
+  in a gitignored path's content is identical, while the digest of two
+  states differing in a non-ignored path still differs (the sanity check
+  that rules out "this test passes by digesting nothing"). Verified the fix
+  is load-bearing by temporarily disabling the filter and confirming the
+  first test fails with two different digests, then restoring it. Outside a
+  repository, nothing beyond `.hick-cache`/`.git` is filtered, matching the
+  seed-time fallback.
+- Caveat requiring LLM review: an EARLIER attempt at an end-to-end
+  integration test (two cells sharing a volume across separate `hick run`
+  invocations) gave a false failure unrelated to this fix — it tripped
+  `self_mounting_warnings`' own hazard (`input="." output="."` sweeping up
+  the document's own weave target) and separately ran into the DAG's
+  upstream-key propagation, where a cell that depends on another correctly
+  re-keys when its predecessor's key changes, for reasons that have nothing
+  to do with gitignore filtering. Both are real, separate mechanisms; the
+  unit-level test above isolates the one property this fix actually changed.
+  Nobody has yet reproduced the ORIGINAL fork's exact `dotnet build`
+  scenario as an automated test — that finding remains dogfooding evidence
+  (`.../scratchpad/tutorial-hick/friction-notes.md`, point 6), not CI
+  coverage.
