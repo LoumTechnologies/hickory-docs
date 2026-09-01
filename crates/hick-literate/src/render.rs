@@ -22,6 +22,21 @@ pub struct ExpectInfo {
     pub body: String,
 }
 
+/// A `<hick:ingested>` child's own attributes, when an exec cell owns one —
+/// the same fingerprint `weave_ingested_block` reads to write the woven
+/// markdown's "Ingested from …" caption, surfaced here so the Document
+/// view's live card can show the same fact instead of only the raw
+/// `<hick:ingested>` tag sitting as unstyled text after the card.
+/// See docs/guarantees/editor-intelligence/an-ingested-cell-names-itself-in-the-document-view.md
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct IngestedInfo {
+    pub from: String,
+    pub at: String,
+    pub sha256: String,
+    pub files: String,
+    pub skipped: String,
+}
+
 /// One block of the document, per the v0 API contract.
 #[derive(Debug, Clone, Serialize)]
 #[serde(tag = "kind", rename_all = "kebab-case")]
@@ -41,6 +56,11 @@ pub enum Block {
         transcript: Option<Vec<TranscriptEvent>>,
         #[serde(skip_serializing_if = "Option::is_none")]
         expect: Option<ExpectInfo>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        // Boxed: `IngestedInfo`'s five `String` fields would otherwise make
+        // this variant the largest in `Block` by a wide margin for the
+        // common (no ingest) case every OTHER exec cell hits.
+        ingested: Option<Box<IngestedInfo>>,
         status: String,
     },
     File {
@@ -285,6 +305,18 @@ fn exec_block(
             body: t.text_content(),
         });
 
+    // Same attributes `weave_ingested_block` reads to write the woven
+    // markdown's caption — only surfaced here for the live card instead.
+    let ingested = tag.child_tags().find(|t| t.name == "ingested").map(|t| {
+        Box::new(IngestedInfo {
+            from: tag_attr(t, "from").unwrap_or_default(),
+            at: tag_attr(t, "at").unwrap_or_default(),
+            sha256: tag_attr(t, "sha256").unwrap_or_default(),
+            files: tag_attr(t, "files").unwrap_or_default(),
+            skipped: tag_attr(t, "skipped").unwrap_or_default(),
+        })
+    });
+
     let entry = input
         .transcripts
         .get(&container)
@@ -318,6 +350,7 @@ fn exec_block(
         span: span_of_tag(tag),
         transcript,
         expect,
+        ingested,
         status: status.to_string(),
     }
 }
@@ -372,6 +405,50 @@ mod tests {
         );
         assert!(!diagram.1.contains("hick:paste"));
         assert_eq!(diagram.2, &["row-count", "edge-count"]);
+    }
+
+    // Protects docs/guarantees/editor-intelligence/an-ingested-cell-names-itself-in-the-document-view.md
+    #[test]
+    fn an_exec_owning_an_ingested_block_carries_its_fingerprint() {
+        let source = r##"<hick:doc xmlns:hick="http://www.hickorydocs.com/1.0">
+<hick:exec container="c">
+scaffold
+<hick:ingested from="#scaffold" sha256="abc123def456" at="2026-09-01" files="2" skipped="5">
+<hick:file path="app/Program.cs">content</hick:file>
+</hick:ingested>
+</hick:exec>
+</hick:doc>
+"##;
+        let blocks = model_of(source);
+        let ingested = blocks
+            .iter()
+            .find_map(|b| match b {
+                Block::Exec { ingested, .. } => ingested.as_ref(),
+                _ => None,
+            })
+            .expect("the exec block carries ingested info");
+        assert_eq!(ingested.from, "#scaffold");
+        assert_eq!(ingested.sha256, "abc123def456");
+        assert_eq!(ingested.at, "2026-09-01");
+        assert_eq!(ingested.files, "2");
+        assert_eq!(ingested.skipped, "5");
+    }
+
+    #[test]
+    fn an_ordinary_exec_carries_no_ingested_info() {
+        let source = "<hick:doc xmlns:hick=\"http://www.hickorydocs.com/1.0\">\n\
+             <hick:exec container=\"c\">\necho hi\n</hick:exec>\n\
+             </hick:doc>\n";
+        let blocks = model_of(source);
+        let ingested = blocks.iter().find_map(|b| match b {
+            Block::Exec { ingested, .. } => Some(ingested.clone()),
+            _ => None,
+        });
+        assert_eq!(
+            ingested,
+            Some(None),
+            "a plain exec block has no ingested info"
+        );
     }
 
     #[test]

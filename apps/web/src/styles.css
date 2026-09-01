@@ -1493,6 +1493,14 @@ textarea:focus {
   color: var(--ok);
   white-space: nowrap;
 }
+/* Same accent as the Output pane's `.cm-prov-ingested` lineage highlight —
+   one visual language for "these bytes came from a run, not this
+   document's author" across both views. */
+.cell-ingested {
+  font-size: 0.75rem;
+  color: var(--accent-3, var(--accent-2));
+  white-space: nowrap;
+}
 .cell-panel .transcript { margin-top: 0.5rem; }
 
 /* Failed expectation: compact line diff of actual output vs the expect body

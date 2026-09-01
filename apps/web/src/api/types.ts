@@ -38,6 +38,19 @@ export type Block =
       span: [number, number];
       transcript?: TranscriptEvent[];
       expect?: { match: "exact" | "regex-lines"; body: string };
+      /** Present when this cell owns a `<hick:ingested>` child — the same
+       * fingerprint the woven markdown's "Ingested from …" caption reads,
+       * surfaced here so the Document view's card can say it too instead of
+       * only the raw tag sitting as unstyled text after the card (the exec
+       * card's own rendering stops before ingested content on purpose — see
+       * apps/web/src/editor/rendered.ts). */
+      ingested?: {
+        from: string;
+        at: string;
+        sha256: string;
+        files: string;
+        skipped: string;
+      };
       status?: ExecStatus;
     }
   | {

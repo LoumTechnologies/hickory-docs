@@ -11,6 +11,31 @@ function looksLikeSvg(s: string): boolean {
   return t.startsWith("<svg") && t.endsWith("</svg>");
 }
 
+/**
+ * The fact the woven markdown's "Ingested from …" caption already states,
+ * said here too: the exec card's own rendering stops before an
+ * `<hick:ingested>` child begins (`editor/rendered.ts`), so without this a
+ * reader scrolling the live Document view saw a status chip and then plain,
+ * unmarked text — no signal at all that what follows arrived from a real
+ * run rather than from the document's author.
+ */
+function IngestedChip({ ingested }: { ingested: NonNullable<ExecBlock["ingested"]> }) {
+  const short = ingested.sha256.slice(0, 12);
+  const fileCount = Number.parseInt(ingested.files, 10);
+  const fileWord =
+    Number.isFinite(fileCount) && fileCount === 1 ? "file" : "files";
+  const skippedNote =
+    ingested.skipped && ingested.skipped !== "0" ? `, ${ingested.skipped} skipped` : "";
+  return (
+    <span
+      className="cell-ingested"
+      data-tip={`ingested${ingested.at ? ` on ${ingested.at}` : ""} · run ${short}${skippedNote} — these bytes came from that run, not from this document's author`}
+    >
+      ⎘ ingested{ingested.files ? ` · ${ingested.files} ${fileWord}` : ""}
+    </span>
+  );
+}
+
 export interface CellPanelProps {
   /** The rendered exec block backing this cell (undefined until the server's
    * render catches up with a freshly typed cell). */
@@ -96,6 +121,7 @@ export function CellPanel({
             ✓ output verified
           </span>
         )}
+        {block.ingested && <IngestedChip ingested={block.ingested} />}
       </div>
       {diff && (
         <div className="cell-diff" data-testid="cell-diff">

@@ -86,3 +86,55 @@ describe("CellPanel de-duplication", () => {
     expect(container.querySelector("[data-testid='watch-terminal']")).toBeTruthy();
   });
 });
+
+// Protects docs/guarantees/editor-intelligence/an-ingested-cell-names-itself-in-the-document-view.md
+describe("CellPanel ingested provenance", () => {
+  it("shows a chip naming the run when the cell owns a hick:ingested child", () => {
+    const { container } = render(
+      <CellPanel
+        block={cell({
+          status: "ok",
+          ingested: {
+            from: "#scaffold",
+            at: "2026-09-01",
+            sha256: "85fd490b43d487c91da6c62753723a71a7c04d0",
+            files: "2",
+            skipped: "5",
+          },
+        })}
+      />,
+    );
+    expect(screen.getByText(/ingested · 2 files/)).toBeTruthy();
+    const chip = container.querySelector(".cell-ingested");
+    expect(chip).toBeTruthy();
+    expect(chip?.getAttribute("data-tip")).toContain("2026-09-01");
+    expect(chip?.getAttribute("data-tip")).toContain("85fd490b43d4");
+    expect(chip?.getAttribute("data-tip")).toContain("5 skipped");
+  });
+
+  it("says nothing about skipping when nothing was skipped", () => {
+    const { container } = render(
+      <CellPanel
+        block={cell({
+          status: "ok",
+          ingested: {
+            from: "#scaffold",
+            at: "2026-09-01",
+            sha256: "abc123",
+            files: "1",
+            skipped: "0",
+          },
+        })}
+      />,
+    );
+    expect(screen.getByText(/ingested · 1 file(?!s)/)).toBeTruthy();
+    expect(container.querySelector(".cell-ingested")?.getAttribute("data-tip")).not.toContain(
+      "skipped",
+    );
+  });
+
+  it("shows no chip at all for an ordinary cell", () => {
+    const { container } = render(<CellPanel block={cell({ status: "ok" })} />);
+    expect(container.querySelector(".cell-ingested")).toBeNull();
+  });
+});
