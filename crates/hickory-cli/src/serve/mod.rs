@@ -43,6 +43,7 @@ pub mod plain_file;
 pub mod refactor;
 pub mod reveal;
 pub mod sample;
+pub mod scaffold;
 pub mod socket;
 pub mod store;
 pub mod terminal;
@@ -448,6 +449,10 @@ fn router(state: LocalState) -> Router {
         .route("/adopt", post(refactor::adopt))
         .route("/install", post(install::install))
         .route("/samples", post(sample::create))
+        .route("/scaffold", post(scaffold::create))
+        .route("/scaffold/templates", get(scaffold::templates))
+        .route("/scaffold/options", get(scaffold::options))
+        .route("/scaffold/preview", post(scaffold::preview))
         .route("/docs/{id}/run", post(api::run_doc))
         .route("/docs/{id}/check", post(api::check_doc))
         .route("/docs/{id}/agent", post(agent::start_turn))

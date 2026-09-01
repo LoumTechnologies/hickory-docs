@@ -49,7 +49,7 @@ import {
   resolveSearchHit,
   type SearchNavigation,
 } from "../lib/searchNavigation";
-import { insertTarget, type MenuAction } from "../lib/menuBridge";
+import { insertTarget, requestMenuAction, type MenuAction } from "../lib/menuBridge";
 import { insertElement } from "../editor/insertElement";
 import { loadRibbonStyle, type RibbonStyle } from "../lib/ribbonStyle";
 import { loadTabStyle, type TabStyle } from "../lib/tabStyle";
@@ -376,6 +376,12 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
         label: "New document…",
         hint: "An untitled buffer, adopted into a document on its first save",
         run: () => navigate("/new"),
+      },
+      {
+        id: "new-project",
+        label: "New project…",
+        hint: "Scaffold from `dotnet new`, and own every byte it writes",
+        run: () => requestMenuAction("new-project"),
       },
       {
         id: "scratchpad",

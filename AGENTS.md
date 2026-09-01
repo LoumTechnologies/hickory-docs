@@ -57,7 +57,29 @@ a hash verifies rather than reconstructs — so **the base is this document at
 the commit that introduced that fingerprint**, recovered from git. Volatile
 regions are deliberately not built until the merge has produced enough false
 conflicts to show what they look like; note `volatile` is already a reserved
-frontmatter key.
+frontmatter key. **File → New Project is built (2026-09-01)**: a door onto that
+same verb rather than a second mechanism — it writes the document, then calls
+the same `ingest_from_exec`. Its templates and its form fields are **the
+scaffolder's own**, read from `dotnet new list` and `dotnet new <t> --help`, so
+a template from a package this product never heard of gets a form too. The
+structured source is a trap: the template engine's `templatecache.json` holds
+every symbol and default but names them by **symbol**, and `--ExcludeLaunchSettings`
+is rejected — the CLI spelling exists only in the help text. Parsing that
+hard-wrapped text has exactly one rule, and it is in the bytes: **a line broken
+at a space keeps the space, a line broken mid-token does not**, so concatenating
+is the whole join. Two things cost real bugs and are worth remembering: the
+footer's indented example command (`   dotnet new winformslib -h --language VB`)
+sits in the continued-name column and turned `--nullable` into `--language`, and
+`dotnet new <unknown> --help` **exits zero** — the `Usage:` line, not the exit
+code, is what says a template exists. The command written carries **only what
+was changed from the default**, `--no-restore` starts **on** (a restore fills
+`obj/` inside the volume the ingest reads, and not generating it beats relying
+on a `.gitignore` being right), and the preview is `POST /api/scaffold/preview`
+— the same renderer, over the wire, so no second implementation can show a
+document different from the one written. A run that fails **still leaves the
+document**; no SDK is a `NoDotnetSdk` **type** answered as `missing: "dotnet"`,
+and unlike a debug adapter it is **a sentence and a link, never a button** —
+this product has no catalogue for a platform install.
 
 How one engineer's several machines see each other's IDE sessions — remote
 view and remote control, one identity, no relay and no account — is

@@ -966,3 +966,103 @@ export interface FleetResponse {
   reach_note: string;
   note: string;
 }
+
+// ---- New Project ---------------------------------------------------------
+
+/** One row of `dotnet new list`.
+ * crates/hickory-cli/src/scaffold.rs */
+export interface ScaffoldTemplate {
+  /** Every short name the row lists; the first is what commands use. */
+  short_names: string[];
+  name: string;
+  languages: string[];
+  /** The language `dotnet` picks when none is given. `null` for a template
+   * that takes no `--language` at all (`gitignore`, `editorconfig`) — which
+   * is not the same as a template with exactly one. */
+  default_language: string | null;
+  tags: string[];
+}
+
+export interface ScaffoldCatalog {
+  /** `dotnet` today. Named so a second scaffolder is a variant of this
+   * screen rather than a rewrite of it. */
+  kind: string;
+  sdk_version: string;
+  /** The SDK image matching that version, for the document's container. */
+  image: string;
+  templates: ScaffoldTemplate[];
+}
+
+export interface ScaffoldChoice {
+  value: string;
+  description: string;
+}
+
+/** One template option, as a form field. */
+export interface TemplateOption {
+  /** Every spelling, as help prints them (`["-au", "--auth"]`). */
+  names: string[];
+  /** The one a generated command uses: the longest. */
+  flag: string;
+  kind: "bool" | "choice" | "integer" | "float" | "text";
+  choices: ScaffoldChoice[];
+  /** What `dotnet` uses when the flag is absent; `null` when it has no
+   * default at all, which is a different answer from the empty string. */
+  default: string | null;
+  description: string;
+  /** The template engine's own condition for this option mattering, verbatim.
+   * Shown, never evaluated — a form that greys out the wrong field is worse
+   * than one that says what the condition is. */
+  enabled_if: string | null;
+}
+
+export interface ScaffoldTemplateDetail {
+  title: string;
+  author: string;
+  description: string;
+  options: TemplateOption[];
+  /** Languages the help footer says to ask for separately. */
+  other_languages: string[];
+}
+
+/** One `--flag value` the form decided on. `value` absent is a bare switch. */
+export interface ChosenOption {
+  flag: string;
+  value?: string;
+}
+
+/** What the dialog is asking to be scaffolded. */
+export interface ScaffoldSpec {
+  template: string;
+  title: string;
+  language: string | null;
+  name: string;
+  output: string;
+  image: string;
+  options: ChosenOption[];
+}
+
+export interface ScaffoldPreview {
+  path: string;
+  command: string;
+  source: string;
+}
+
+/** What the run put into the document. `null` when the scaffold did not run —
+ * the document exists either way, and `note` says what happened. */
+export interface ScaffoldIngest {
+  from: string;
+  fingerprint: string;
+  files: string[];
+  /** Paths the project's `.gitignore` kept out of the document. */
+  skipped: string[];
+}
+
+export interface ScaffoldCreated {
+  id: string;
+  path: string;
+  source: string;
+  ingested: ScaffoldIngest | null;
+  executor: string;
+  note: string | null;
+}

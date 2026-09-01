@@ -74,6 +74,13 @@ fn app_menu(handle: &AppHandle) -> tauri::Result<Menu<Wry>> {
                 .build(handle)?,
         )
         .item(
+            // Not a mode of New Document: this one writes a real file and
+            // runs a generator, and the page answers it with its own dialog.
+            &MenuItemBuilder::with_id("new-project", "New Project…")
+                .accelerator("CmdOrCtrl+Shift+N")
+                .build(handle)?,
+        )
+        .item(
             &MenuItemBuilder::with_id("open-file", "Open File…")
                 .accelerator("CmdOrCtrl+O")
                 .build(handle)?,
@@ -308,8 +315,8 @@ fn insert_menu(handle: &AppHandle) -> tauri::Result<tauri::menu::Submenu<Wry>> {
 /// and the file watcher are per-process, so a new session is a restart).
 fn on_menu(app: &AppHandle, id: &str) {
     match id {
-        "new" | "save" | "save-as" | "save-all" | "print" | "settings" | "files" | "terminal"
-        | "attention" => dispatch_to_ui(app, id),
+        "new" | "new-project" | "save" | "save-as" | "save-all" | "print" | "settings"
+        | "files" | "terminal" | "attention" => dispatch_to_ui(app, id),
         // Zoom, both scopes. Handled by the page rather than by the webview's
         // own zoom: this app sizes in `rem`, so moving the root font size
         // RE-LAYS-OUT at the new size, where a webview zoom scales rendered

@@ -7,6 +7,8 @@ import { api } from "./api/client";
 import { insertTarget, onMenuAction } from "./lib/menuBridge";
 import { landingTarget } from "./lib/newDoc";
 import { TooltipLayer } from "./components/TooltipLayer";
+import { NewProjectDialog } from "./components/NewProjectDialog";
+import { FILES_CHANGED_EVENT } from "./shell/FolderTreePane";
 
 /// The desktop app's shell.
 ///
@@ -24,6 +26,11 @@ export function App() {
   // read through a ref rather than re-subscribing (which would reset the
   // bridge's duplicate-keypress guard).
   const [notice, setNotice] = useState<string | null>(null);
+  // New Project lives here rather than in the workspace: it needs no buffer,
+  // no focused document and no layout — it writes a file into the folder —
+  // so hanging it off the workspace would have made it unreachable from
+  // Settings and from the landing redirect for no reason.
+  const [newProject, setNewProject] = useState(false);
   const routeRef = useRef(route);
   routeRef.current = route;
   useEffect(() => {
@@ -42,6 +49,9 @@ export function App() {
       switch (action) {
         case "new":
           navigate("/new");
+          return;
+        case "new-project":
+          setNewProject(true);
           return;
         case "files":
           window.dispatchEvent(new CustomEvent("hickory-show-files"));
@@ -103,6 +113,27 @@ export function App() {
         <div className="menu-notice" role="status">
           {notice}
         </div>
+      )}
+      {newProject && (
+        <NewProjectDialog
+          onCreated={(created) => {
+            // The tree has a new document and, when the scaffold ran, a new
+            // directory of files beside it.
+            window.dispatchEvent(new Event(FILES_CHANGED_EVENT));
+            navigate(`/docs/${created.id}`);
+            setNotice(
+              created.ingested
+                ? `${created.path} — ${created.ingested.files.length} file(s) ingested` +
+                  (created.ingested.skipped.length > 0
+                    ? `, ${created.ingested.skipped.length} skipped by .gitignore`
+                    : "")
+                : created.note
+                  ? `${created.path} written; the scaffold did not run — ${created.note}`
+                  : `${created.path} written`,
+            );
+          }}
+          onClose={() => setNewProject(false)}
+        />
       )}
       {/* One tooltip for the whole app; every `data-tip` in it lands here. */}
       <TooltipLayer />

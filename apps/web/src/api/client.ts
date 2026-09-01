@@ -50,6 +50,11 @@ import type {
   FleetResponse,
   FleetMachine,
   TerminalAnchor,
+  ScaffoldCatalog,
+  ScaffoldCreated,
+  ScaffoldPreview,
+  ScaffoldSpec,
+  ScaffoldTemplateDetail,
 } from "./types";
 
 export const MOCK = import.meta.env.VITE_MOCK === "1";
@@ -180,6 +185,37 @@ export const api = {
       kind,
       language,
     }),
+
+  /** What this machine can scaffold: every `dotnet new` template its SDK
+   * has. 422 with `{missing: "dotnet"}` when there is no SDK at all — the
+   * dialog keys off that field, never off the sentence.
+   * See crates/hickory-cli/src/serve/scaffold.rs. */
+  scaffoldTemplates: () =>
+    request<ScaffoldCatalog>("GET", "/api/scaffold/templates"),
+
+  /** One template's options, as fields. A second `dotnet` process, so it is
+   * asked for only once a template is chosen. */
+  scaffoldOptions: (template: string, language?: string | null) =>
+    request<ScaffoldTemplateDetail>(
+      "GET",
+      `/api/scaffold/options?template=${encodeURIComponent(template)}` +
+        (language ? `&language=${encodeURIComponent(language)}` : ""),
+    ),
+
+  /** The exact bytes New Project would write, without writing them. The same
+   * function that writes them, called over the wire rather than reimplemented
+   * here — a preview free to disagree with the file is worse than none. */
+  scaffoldPreview: (path: string, spec: ScaffoldSpec) =>
+    request<ScaffoldPreview>("POST", "/api/scaffold/preview", {
+      path,
+      run: false,
+      ...spec,
+    }),
+
+  /** Write the document, run the generator, and ingest what it wrote. The
+   * document is created even when the run fails; `note` says so. */
+  scaffoldCreate: (path: string, spec: ScaffoldSpec, run: boolean) =>
+    request<ScaffoldCreated>("POST", "/api/scaffold", { path, run, ...spec }),
 
   /** Put a `<hick:sample>` under the cell that generated this file: a window
    * onto a few of its lines, shown in the weave and never stored in the

@@ -8071,3 +8071,68 @@ button.status-bar__item:hover { background: var(--bg-sunken); color: var(--fg); 
 .anchor-bar-foreign {
   background: color-mix(in srgb, var(--fg-muted) 12%, var(--bg-raised));
 }
+
+/* New Project — File → New Project.
+   Shares the Insert panel's furniture on purpose: the list/form/preview shape
+   is the same gesture, and a second visual language for it would be a second
+   thing to learn. Only the frame differs, because a template's options are
+   taller than an element's attributes. */
+.new-project {
+  display: flex;
+  flex-direction: column;
+  width: min(64rem, 100%);
+  max-height: min(46rem, calc(100vh - 5rem));
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-raised);
+  box-shadow: 0 12px 40px rgb(0 0 0 / 0.3);
+}
+.new-project__body {
+  display: grid;
+  grid-template-columns: minmax(15rem, 22rem) minmax(22rem, 1fr);
+  grid-template-rows: minmax(0, 1fr);
+  min-height: 0;
+}
+@media (max-width: 52rem) {
+  .new-project__body {
+    grid-template-columns: 1fr;
+    grid-template-rows: minmax(0, 12rem) minmax(0, 1fr);
+  }
+}
+.new-project__message {
+  padding: 1.25rem;
+}
+.new-project__message h2 {
+  margin: 0 0 0.5rem;
+  font-size: 1rem;
+}
+.new-project__error {
+  color: var(--fg-muted);
+  font-size: 0.82rem;
+  white-space: pre-wrap;
+}
+/* Which SDK is being offered, pinned under the list: the answer to "why is
+   this template here and that one not" is the version, and it should not
+   need looking for. */
+.new-project__sdk {
+  margin: 0;
+  padding: 0.4rem 0.75rem;
+  border-top: 1px solid var(--border);
+  color: var(--fg-muted);
+  font-size: 0.72rem;
+}
+.new-project__run {
+  padding: 0.6rem 0.9rem;
+  border-top: 1px solid var(--border);
+}
+.new-project__check {
+  display: flex;
+  gap: 0.45rem;
+  align-items: flex-start;
+  font-size: 0.82rem;
+  line-height: 1.35;
+}
+.new-project__check input {
+  margin-top: 0.15rem;
+}

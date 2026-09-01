@@ -8,6 +8,10 @@
 
 export type MenuAction =
   | "new"
+  /** File → New Project: scaffold a document from `dotnet new`. Its own
+   * action rather than a mode of "new", because it writes a real file and
+   * runs a generator — an untitled buffer does neither. */
+  | "new-project"
   | "save"
   | "save-as"
   | "save-all"
@@ -39,6 +43,7 @@ export const DEDUPE_MS = 100;
 
 const ACTIONS: ReadonlySet<string> = new Set([
   "new",
+  "new-project",
   "save",
   "save-as",
   "save-all",
@@ -73,6 +78,18 @@ export function insertTarget(action: MenuAction): string | null {
  * {@link DEDUPE_MS} is handled once — the guard against an accelerator that
  * reaches the page by two routes.
  */
+/**
+ * Ask for a menu action from inside the page.
+ *
+ * The browser build has no native menu, and the welcome pane offers some of
+ * the same verbs. Dispatching the bridge's own event rather than inventing a
+ * second channel means there is one handler per action, not two that can
+ * drift — and the desktop and browser builds take the identical path.
+ */
+export function requestMenuAction(action: MenuAction) {
+  window.dispatchEvent(new CustomEvent(MENU_EVENT, { detail: action }));
+}
+
 export function onMenuAction(
   handler: (action: MenuAction) => void,
   now: () => number = Date.now,

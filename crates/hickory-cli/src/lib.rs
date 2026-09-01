@@ -31,6 +31,7 @@ pub mod mcp;
 pub mod merge_driver;
 pub mod open_app;
 pub mod replay;
+pub mod scaffold;
 pub mod search_install;
 pub mod serve;
 pub mod tool_install;
