@@ -1158,6 +1158,17 @@ struct Parser<'a> {
 /// Found by running the real binary on a real Windows machine, 2026-08-20.
 const BOM: &str = "\u{feff}";
 
+/// Appended to a tag/attribute parse failure that a plausible-looking piece
+/// of prose can trigger — e.g. a sentence or code span that quotes hick's own
+/// syntax, `` `<hick:paste select="…" />` ``. The no-escaping invariant means
+/// there is no such thing as "just talking about" a tag: any `<prefix:name`
+/// found anywhere is parsed as markup. Without this, the error names only the
+/// unexpected token, never why prose that reads as plainly not-code became a
+/// syntax error.
+const NO_ESCAPING_HINT: &str = "hick has no escaping — text that looks like <prefix:name> is \
+    always parsed as a tag, even inside a sentence or a code span. To write about hick's own \
+    syntax as prose, see the `h:`-prefix convention in docs/specs/freeform/bare-documents.md.";
+
 impl<'a> Parser<'a> {
     fn new(input: &'a str) -> Self {
         let input = input.strip_prefix(BOM).unwrap_or(input);
@@ -1572,7 +1583,7 @@ impl<'a> Parser<'a> {
                 return Err(ParseError::Syntax {
                     line: self.line,
                     message: format!(
-                        "unexpected '{}' where an attribute name was expected in <{}:{name}>",
+                        "unexpected '{}' where an attribute name was expected in <{}:{name}>\n\n{NO_ESCAPING_HINT}",
                         self.input[self.pos..].chars().next().unwrap_or('?'),
                         self.prefix,
                     ),
@@ -1674,7 +1685,7 @@ impl<'a> Parser<'a> {
         if name.is_empty() {
             return Err(ParseError::Syntax {
                 line: self.line,
-                message: "empty attribute name".to_string(),
+                message: format!("empty attribute name\n\n{NO_ESCAPING_HINT}"),
             });
         }
         Ok(name.to_string())
@@ -1692,7 +1703,7 @@ impl<'a> Parser<'a> {
         if quote != b'"' && quote != b'\'' {
             return Err(ParseError::Syntax {
                 line: self.line,
-                message: "attribute value must be quoted".to_string(),
+                message: format!("attribute value must be quoted\n\n{NO_ESCAPING_HINT}"),
             });
         }
         self.advance(1); // skip opening quote
@@ -1708,7 +1719,7 @@ impl<'a> Parser<'a> {
         if self.is_eof() {
             return Err(ParseError::Syntax {
                 line: context_line,
-                message: "unterminated attribute value".to_string(),
+                message: format!("unterminated attribute value\n\n{NO_ESCAPING_HINT}"),
             });
         }
 
@@ -2484,6 +2495,33 @@ echo hello
     fn an_unclosed_tag_in_a_bare_document_still_errors() {
         let err = parse("# Notes\n\n<hick:copy id=\"n\">42\n").unwrap_err();
         assert!(matches!(err, ParseError::UnclosedTag { .. }));
+    }
+
+    /// Protects `docs/guarantees/authoring/a-syntax-error-names-the-invariant-it-hit.md`
+    ///
+    /// Prose that quotes hick's own tag syntax — the exact situation a
+    /// tutorial documenting hick would hit — parses as a real tag, because
+    /// the no-escaping invariant applies everywhere. The three call sites
+    /// below are what a plausible piece of such prose actually reaches.
+    #[test]
+    fn a_malformed_tag_in_prose_names_the_no_escaping_invariant() {
+        let cases = [
+            "See `<hick:x =bad>` for details.",
+            "Write `<hick:x y=unquoted>` like so.",
+            "It looks like `<hick:x y=\"never closed",
+        ];
+        for src in cases {
+            let err = parse(src).unwrap_err();
+            let text = err.to_string();
+            assert!(
+                text.contains("hick has no escaping"),
+                "error for {src:?} did not explain the invariant: {text}"
+            );
+            assert!(
+                text.contains("bare-documents.md"),
+                "error for {src:?} did not point at the fix: {text}"
+            );
+        }
     }
 
     #[test]

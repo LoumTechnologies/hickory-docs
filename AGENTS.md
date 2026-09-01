@@ -297,7 +297,12 @@ cost nothing to find and would have cost a lot to ship: **`lang_detect` had no
 `cs` row**, so the C# language server had never been reachable at all. Another:
 a breakpoint has **three** states, not two — netcoredbg reports `pending` at
 set time and binds on module load, so `verified: false` means "not yet", never
-"never", and the only certain refusal is the one hick makes itself.
+"never", and the only certain refusal is the one hick makes itself. **The
+default sandbox cannot run `dotnet` at all**, on any platform an `hick:exec`
+cell might use it from — its crypto/certificate stack needs a system-service
+call the sandbox denies by design, and there is no per-document way to grant
+it. `HICKORY_EXECUTOR=local` is required on every `hick run`/`hick
+ingest`/`hick test` invocation that touches a C# cell.
 
 What the app does when a tool is missing, and what its toolbar is allowed to
 say, are `docs/guarantees/debugging/a-missing-debugger-is-a-button.md` and

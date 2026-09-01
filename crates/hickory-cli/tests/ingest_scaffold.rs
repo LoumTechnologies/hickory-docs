@@ -109,6 +109,40 @@ fn an_ingest_writes_the_runs_files_into_the_document_and_skips_what_git_ignores(
     assert!(stdout.contains("obj/build.log"), "{stdout}");
 }
 
+// Protects docs/guarantees/authoring/an-ingest-says-when-it-could-not-check-gitignore.md
+#[test]
+fn ingesting_outside_a_git_repository_warns_that_gitignore_was_never_consulted() {
+    // No `repo()` call: this directory is deliberately not a git repository,
+    // which is exactly the case `gitignored()` returns `None` for — "could
+    // not check" rather than "checked, found nothing to skip".
+    let dir = tempfile::tempdir().unwrap();
+    let doc = dir.path().join("app.hick");
+    std::fs::write(&doc, doc_source()).unwrap();
+
+    let out = hick()
+        .args(["ingest", "--from", "#scaffold"])
+        .arg(&doc)
+        .output()
+        .expect("run hick");
+    let stdout = String::from_utf8_lossy(&out.stdout).to_string();
+    let stderr = String::from_utf8_lossy(&out.stderr).to_string();
+    assert!(out.status.success(), "ingest failed: {stderr}\n{stdout}");
+
+    // Filtering never ran, so `obj/build.log` — which a real project would
+    // gitignore — is ingested unfiltered rather than silently dropped.
+    let source = std::fs::read_to_string(&doc).unwrap();
+    assert!(source.contains("skipped=\"0\""), "{source}");
+    assert!(source.contains("path=\"app/obj/build.log\""), "{source}");
+
+    // And the reason `skipped="0"` means "never checked" here, not "checked,
+    // found nothing" — which the document's own attributes cannot
+    // distinguish — is on stderr instead.
+    assert!(
+        stderr.contains("not a git repository") && stderr.contains(".gitignore filtering"),
+        "{stderr}"
+    );
+}
+
 #[test]
 fn the_ingested_document_produces_the_scaffold_from_a_clone() {
     // The whole point of ingest over a `from=` into the transcript cache:

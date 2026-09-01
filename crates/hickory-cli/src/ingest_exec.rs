@@ -742,11 +742,27 @@ pub async fn ingest_from_exec(
     let candidates: Vec<String> = text.keys().chain(binary.iter()).cloned().collect();
     let ignored = gitignored(doc_dir, &candidates)?;
     let mut skipped: Vec<String> = Vec::new();
-    if let Some(ignored) = &ignored {
-        for path in ignored {
-            text.remove(path);
-            binary.retain(|b| b != path);
-            skipped.push(path.clone());
+    match &ignored {
+        Some(ignored) => {
+            for path in ignored {
+                text.remove(path);
+                binary.retain(|b| b != path);
+                skipped.push(path.clone());
+            }
+        }
+        // `gitignored` distinguishes "checked, nothing to skip" (`Some([])`)
+        // from "could not check at all" (`None`) for exactly this reason —
+        // silently treating them alike would report `skipped="0"` on an
+        // ingest that never consulted `.gitignore`, which reads as "every
+        // produced file was reviewed" when in fact the filter never ran.
+        None => {
+            log::warn!(
+                "not a git repository at {}: .gitignore filtering was skipped, \
+                 all {} produced file(s) were ingested unfiltered. Run `hick \
+                 init` for a real repository, or `git init` directly.",
+                doc_dir.display(),
+                candidates.len(),
+            );
         }
     }
     skipped.sort();

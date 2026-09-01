@@ -51,7 +51,7 @@ pub use agent_lineage::{AgentLineage, Authorship, Reasoning};
 /// provider key is available so the cell is unverifiable rather than fatal.
 pub use agent_cell_runner::LlmAgentRunner;
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -837,6 +837,11 @@ pub async fn run_doc_cached(
     // makes, and the symptom (`[never run]` over a real run) points nowhere
     // near the cause.
     for warning in self_mounting_warnings(&doc) {
+        log::warn!("{}: {warning}", doc_path.display());
+    }
+    // A silent clobber or an unrelated exit code, either far from the
+    // second declaration that actually caused it.
+    for warning in output_collision_warnings(&doc) {
         log::warn!("{}: {warning}", doc_path.display());
     }
     // A drawing nobody checks is the thing this feature exists to prevent.
@@ -1686,6 +1691,65 @@ pub fn self_mounting_warnings(doc: &hick_lang::HickDocument) -> Vec<String> {
     out
 }
 
+/// A path this document has already ingested (a `hick:ingested` block's
+/// child `hick:file` elements — the record of what a run actually produced)
+/// that a SEPARATE, top-level `<hick:file path="…">` also declares.
+///
+/// `hick:file` content is written to host disk in one upfront pass before
+/// any `hick:exec` cell runs, with no regard for document order. Once a path
+/// is recorded inside `hick:ingested`, a second top-level declaration of the
+/// exact same path either gets silently reverted (if the scaffolder cell
+/// that produced it runs again with `--force`) or leaves the author with two
+/// declarations disagreeing about what the file contains — the shape hit
+/// authoring a tutorial that tried to give an ingested file an earlier,
+/// smaller "stub" version via a second `hick:file`.
+///
+/// Deliberately an EXACT path match, not a directory/prefix match: an output
+/// volume's prefix is an ordinary directory that legitimately holds many
+/// hand-authored files alongside the ingested ones (this is the normal
+/// shape, not a hazard — an earlier, prefix-based version of this check
+/// warned on every one of them and was corrected after running it against a
+/// real ingest-based document). A bare scaffolder cell that has not been
+/// ingested yet cannot be checked this way either: its future output
+/// filenames are not known until it runs, which is exactly the run this
+/// check happens before.
+///
+/// A warning rather than a hard error, matching `self_mounting_warnings`:
+/// the author may already know which declaration should win.
+pub fn output_collision_warnings(doc: &hick_lang::HickDocument) -> Vec<String> {
+    let ingested: HashMap<&str, usize> = doc
+        .tags()
+        .filter(|t| t.name == "exec")
+        .flat_map(|t| t.child_tags())
+        .filter(|t| t.name == "ingested")
+        .flat_map(|t| t.child_tags())
+        .filter(|t| t.name == "file")
+        .filter_map(|t| t.get_attribute("path").map(|p| (p.trim(), t.source_line)))
+        .collect();
+    if ingested.is_empty() {
+        return Vec::new();
+    }
+
+    doc.tags()
+        .filter(|t| t.name == "file")
+        .filter_map(|t| t.get_attribute("path").map(|p| (p.trim(), t.source_line)))
+        .filter_map(|(path, line)| {
+            let ingested_line = *ingested.get(path)?;
+            Some(format!(
+                "line {line}: `<hick:file path=\"{path}\">` declares a path \
+                 already ingested at line {ingested_line}. `hick:file` content \
+                 is written to disk before any cell runs, so this second \
+                 declaration either gets silently reverted the next time the \
+                 scaffolder cell runs with `--force`, or leaves the two \
+                 declarations disagreeing about what the file contains. Drop \
+                 this declaration and let the ingested content own the path, \
+                 or re-ingest to bring it up to date instead of hand-editing \
+                 a competing copy."
+            ))
+        })
+        .collect()
+}
+
 /// Containers declaring an image the local executor will not honour.
 ///
 /// `LocalExecutor` records `image=` and ignores it: cells run against the
@@ -2098,6 +2162,96 @@ echo hi
 <hick:volume name="t" input="tools" />
 </hick:doc>
 "#));
+        assert!(warnings.is_empty(), "{warnings:?}");
+    }
+}
+
+// Protects docs/guarantees/execution/an-output-path-declared-twice-warns-before-it-runs.md
+#[cfg(test)]
+mod output_collision_tests {
+    use super::output_collision_warnings;
+
+    fn doc(source: &str) -> hick_lang::HickDocument {
+        hick_lang::parse(source).expect("the document parses")
+    }
+
+    #[test]
+    fn a_second_hick_file_at_an_already_ingested_path_warns() {
+        // The exact shape that bit the ingest-based tutorial: an author
+        // tries to give an ingested file an earlier "stub" version via a
+        // second, top-level `hick:file` at the same path.
+        let warnings = output_collision_warnings(&doc(r##"<?xml version="1.0" encoding="UTF-8"?>
+<hick:doc xmlns:hick="http://www.hickorydocs.com/1.0" weave="none">
+<hick:volume name="project" output="app" />
+<hick:exec container="c" mount="project:out">
+dotnet new console -o out
+<hick:ingested from="#x" sha256="abc" at="2026-08-24" files="1" skipped="0">
+<hick:file path="app/Program.cs">real content</hick:file>
+</hick:ingested>
+</hick:exec>
+<hick:file path="app/Program.cs">stub</hick:file>
+</hick:doc>
+"##));
+        assert_eq!(warnings.len(), 1, "{warnings:?}");
+        assert!(warnings[0].contains("app/Program.cs"), "{}", warnings[0]);
+        assert!(warnings[0].contains("already ingested"), "{}", warnings[0]);
+    }
+
+    #[test]
+    fn hand_authored_files_beside_an_ingested_one_are_silent() {
+        // The false positive an earlier, prefix-based version of this check
+        // produced on the real ingest-based tutorial: hand-authored files
+        // living in the SAME output directory as an ingested scaffold, at
+        // DIFFERENT paths, are the ordinary shape and must never warn.
+        let warnings = output_collision_warnings(&doc(r##"<?xml version="1.0" encoding="UTF-8"?>
+<hick:doc xmlns:hick="http://www.hickorydocs.com/1.0" weave="none">
+<hick:volume name="project" output="app" />
+<hick:exec container="c" mount="project:out">
+dotnet new console -o out
+<hick:ingested from="#x" sha256="abc" at="2026-08-24" files="1" skipped="0">
+<hick:file path="app/Program.cs">real content</hick:file>
+</hick:ingested>
+</hick:exec>
+<hick:file path="app/Todo.cs">class Todo {}</hick:file>
+<hick:file path="app/TodoStore.cs">class TodoStore {}</hick:file>
+</hick:doc>
+"##));
+        assert!(warnings.is_empty(), "{warnings:?}");
+    }
+
+    #[test]
+    fn a_document_with_no_ingest_at_all_is_silent() {
+        // A bare scaffolder cell that has not been ingested yet cannot be
+        // checked this way — its future output filenames are not known
+        // until it runs, which is exactly the run this check happens before.
+        let warnings = output_collision_warnings(&doc(r#"<?xml version="1.0" encoding="UTF-8"?>
+<hick:doc xmlns:hick="http://www.hickorydocs.com/1.0" weave="none">
+<hick:volume name="project" output="app" />
+<hick:file path="app/Program.cs">stub</hick:file>
+<hick:exec container="c" mount="project:out">
+dotnet new console -o out
+</hick:exec>
+</hick:doc>
+"#));
+        assert!(warnings.is_empty(), "{warnings:?}");
+    }
+
+    #[test]
+    fn an_ingested_files_own_child_path_does_not_self_collide() {
+        // The ingested `hick:file` is the one and only declaration of its
+        // path — nothing else in the document repeats it — so there is
+        // nothing to warn about by itself.
+        let warnings = output_collision_warnings(&doc(r##"<?xml version="1.0" encoding="UTF-8"?>
+<hick:doc xmlns:hick="http://www.hickorydocs.com/1.0" weave="none">
+<hick:volume name="project" output="app" />
+<hick:exec container="c" mount="project:out">
+dotnet new console -o out
+<hick:ingested from="#x" sha256="abc" at="2026-08-24" files="1" skipped="0">
+<hick:file path="app/Program.cs">real content</hick:file>
+</hick:ingested>
+</hick:exec>
+</hick:doc>
+"##));
         assert!(warnings.is_empty(), "{warnings:?}");
     }
 }

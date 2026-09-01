@@ -170,22 +170,37 @@ impl SandboxedExecutor {
     /// failing cell would train people to ignore it.
     fn explain(&self, container: &str, error: anyhow::Error) -> anyhow::Error {
         let text = format!("{error:#}");
-        if self.allows_network(container) || !looks_like_a_denied_network(&text) {
-            return error;
+        if !self.allows_network(container) && looks_like_a_denied_network(&text) {
+            return error.context(format!(
+                "This container has NO network: `HICKORY_EXECUTOR=sandbox` denies it unless the \n\
+                 document asks. The error above is what the command says when it cannot reach \n\
+                 anything, not a problem with your connection.\n\
+                 \n\
+                 To let this container out, declare what it may reach:\n\
+                 \n\
+                     <hick:allow container=\"{container}\" host=\"example.com\" port=\"443\" />\n\
+                 \n\
+                 A document that says which hosts it needs is one a reader can check. To run \n\
+                 everything unconfined instead, set HICKORY_EXECUTOR=local — that gives the cell \n\
+                 your whole machine, which is the trade this executor exists to avoid."
+            ));
         }
-        error.context(format!(
-            "This container has NO network: `HICKORY_EXECUTOR=sandbox` denies it unless the \n\
-             document asks. The error above is what the command says when it cannot reach \n\
-             anything, not a problem with your connection.\n\
-             \n\
-             To let this container out, declare what it may reach:\n\
-             \n\
-                 <hick:allow container=\"{container}\" host=\"example.com\" port=\"443\" />\n\
-             \n\
-             A document that says which hosts it needs is one a reader can check. To run \n\
-             everything unconfined instead, set HICKORY_EXECUTOR=local — that gives the cell \n\
-             your whole machine, which is the trade this executor exists to avoid."
-        ))
+        if looks_like_a_denied_mach_lookup(&text) {
+            return error.context(
+                "This sandbox denies Mach lookups by default — its Seatbelt profile grants no \n\
+                 `(allow mach-lookup)` — so a program that reaches a macOS system service over \n\
+                 Mach IPC fails with that service's own cryptic error instead of a hickory one. \n\
+                 `dotnet` hits this on every run: its crypto/certificate stack calls \n\
+                 `securityd`/`trustd`, and the denial surfaces as the line above, not as anything \n\
+                 naming `dotnet` or hickory.\n\
+                 \n\
+                 This is not a network problem, and there is no per-document way to grant it: \n\
+                 mach-lookup stays denied by design, the same as for every other cell. To run \n\
+                 this cell unconfined instead, set HICKORY_EXECUTOR=local — that gives the cell \n\
+                 your whole machine, which is the trade this executor exists to avoid."
+            );
+        }
+        error
     }
 
     /// The program and arguments that run `command` confined.
@@ -256,6 +271,21 @@ fn looks_like_a_denied_network(error: &str) -> bool {
         "ENOTFOUND",
         "EAI_AGAIN",
     ];
+    SIGNS.iter().any(|sign| error.contains(sign))
+}
+
+/// What a denied Mach lookup looks like from the outside, and why.
+///
+/// The macOS Seatbelt `Profile::Cell` policy grants no `(allow mach-lookup)`,
+/// so a program that talks to a system service over Mach IPC — `dotnet`
+/// calling into `securityd`/`trustd` for `CSSM_ModuleLoad` is the confirmed
+/// case — is refused at the kernel level. What reaches the user is that
+/// service's own error, not a hickory string and not anything naming
+/// `dotnet` or the sandbox, so it reads as an unrelated crash rather than a
+/// missing grant. This list is one confirmed signature; extend it as more
+/// are found rather than guessing ahead of evidence.
+fn looks_like_a_denied_mach_lookup(error: &str) -> bool {
+    const SIGNS: &[&str] = &["CSSM_ModuleLoad"];
     SIGNS.iter().any(|sign| error.contains(sign))
 }
 
@@ -430,5 +460,36 @@ impl Executor for SandboxedExecutor {
 
     async fn shutdown(&self) -> Result<()> {
         self.inner.shutdown().await
+    }
+}
+
+#[cfg(test)]
+mod explain_tests {
+    // Guarantee: docs/guarantees/execution/a-denied-mach-lookup-explains-itself.md
+    use super::*;
+
+    #[test]
+    fn recognizes_the_confirmed_dotnet_signature() {
+        assert!(looks_like_a_denied_mach_lookup(
+            "CSSM_ModuleLoad(): One or more parameters passed to a function were not valid."
+        ));
+    }
+
+    #[test]
+    fn does_not_mistake_an_unrelated_failure_for_a_denied_mach_lookup() {
+        assert!(!looks_like_a_denied_mach_lookup(
+            "No such file or directory (os error 2)"
+        ));
+        assert!(!looks_like_a_denied_mach_lookup(
+            "Temporary failure in name resolution"
+        ));
+    }
+
+    #[test]
+    fn still_recognizes_denied_network_signatures() {
+        assert!(looks_like_a_denied_network(
+            "Temporary failure in name resolution"
+        ));
+        assert!(!looks_like_a_denied_network("CSSM_ModuleLoad(): invalid"));
     }
 }
