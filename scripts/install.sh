@@ -107,7 +107,7 @@ fi
 tmp="$(mktemp -d 2>/dev/null || mktemp -d -t hick)"
 trap 'rm -rf "$tmp"' EXIT INT TERM
 
-echo "Looking up $what for $TARGET…"
+echo "Looking up $what for ${TARGET}…"
 if ! fetch "$release_url" "application/vnd.github+json" "$tmp/release.json"; then
   if [ "$CHANNEL" = "stable" ] && [ -z "${HICKORY_VERSION:-}" ]; then
     # Pre-1.0 there may be no stable release at all: /releases/latest
@@ -184,7 +184,7 @@ fi
 
 # --- download and verify ----------------------------------------------------
 
-echo "Downloading $file…"
+echo "Downloading ${file}…"
 fetch "$url" "$accept" "$tmp/$file" || die \
   "download failed: $url" \
   "Check your network, then retry. The archive can also be fetched by hand" \

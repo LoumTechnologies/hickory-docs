@@ -473,7 +473,7 @@ fi
 
 if [ -n "$HICK" ]; then
   echo
-  echo "Weaving the seed with $HICK…"
+  echo "Weaving the seed with ${HICK}…"
   "$HICK" run "$PROJECT_DIR" >/dev/null 2>&1 || echo "  (weave skipped — the app will do it on open)"
 fi
 
