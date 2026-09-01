@@ -917,6 +917,17 @@ pub async fn run_doc_cached(
                 // mistake spin.
                 max_rounds: 4,
                 on_exec: None,
+                // Best-effort visibility into a cell's real output while a
+                // LATER cell in the same run is still broken — the flush into
+                // `PipelineResult::files` this run will make on success, if
+                // it succeeds, is unaffected either way. Never the final
+                // destination: writes an intermediate mirror under
+                // `.hick-cache/`, not the real output tree, so it never
+                // needs the local-history stop, the missing-recording
+                // preservation check, or the read-only clearing that
+                // `write_outputs_detailed` owns for the real write. See
+                // docs/guarantees/execution/an-earlier-cells-output-survives-a-later-cells-failure.md.
+                on_volume_flush: Some(volume_flush_mirror(project_dir.to_path_buf())),
                 agent_runner,
                 max_agent_reprepares: 0,
                 // `check` wants every cell with no baseline reported as
@@ -1057,6 +1068,66 @@ pub struct WrittenOutputs {
     /// ignore, and which were therefore not written, sorted. See
     /// [`volume_paths_to_skip`].
     pub ignored: Vec<String>,
+}
+
+/// A [`hick_literate::VolumeFlushHook`] that mirrors each cell's newly-known
+/// output volume files under `.hick-cache/last-run/`, as they become known —
+/// not the real output tree, and never the run's authoritative write.
+///
+/// The friction this answers: without it, a cell's real, already-succeeded
+/// output volume is invisible on disk if a LATER cell in the same run then
+/// fails — `write_outputs_detailed` never runs, because `run_pipeline_live`
+/// never returns `Ok`. Writing straight to the real output tree here instead
+/// was considered and rejected: `write_outputs_detailed` owns real
+/// correctness properties an incremental, best-effort hook has no business
+/// reimplementing in parallel — the local-history "before" snapshot
+/// (`record_generated_writes`, which must run before ANY write reaches the
+/// real tree, or its own before/after diff is corrupted by our own earlier
+/// write), the missing-recording preservation check, and read-only clearing.
+/// A scratch mirror under `.hick-cache/` — already gitignored by `hick
+/// init`, already this tool's own bookkeeping location — sidesteps all of
+/// that by never touching the real tree at all.
+///
+/// Best-effort: an I/O failure here is logged and otherwise ignored. It must
+/// never abort a run over a debugging convenience.
+fn volume_flush_mirror(project_dir: PathBuf) -> hick_literate::VolumeFlushHook {
+    let base = project_dir.join(".hick-cache").join("last-run");
+    Arc::new(move |vol_name, files| {
+        for (rel_path, content) in files {
+            let full = match contained_output_path(&base, rel_path) {
+                Ok(p) => p,
+                Err(e) => {
+                    log::warn!("volume '{vol_name}': not mirroring '{rel_path}': {e}");
+                    continue;
+                }
+            };
+            if let Some(parent) = full.parent()
+                && let Err(e) = std::fs::create_dir_all(parent)
+            {
+                log::warn!(
+                    "volume '{vol_name}': could not create '{}' to mirror '{rel_path}': {e}",
+                    parent.display()
+                );
+                continue;
+            }
+            let written = match content {
+                FileContent::Text(s) => std::fs::write(&full, s),
+                FileContent::Binary(data) => match data.to_bytes() {
+                    Ok(bytes) => std::fs::write(&full, bytes),
+                    Err(e) => {
+                        log::warn!("volume '{vol_name}': not mirroring '{rel_path}': {e}");
+                        continue;
+                    }
+                },
+            };
+            if let Err(e) = written {
+                log::warn!(
+                    "volume '{vol_name}': could not mirror '{rel_path}' to '{}': {e}",
+                    full.display()
+                );
+            }
+        }
+    })
 }
 
 /// Write a run's output files under `out_dir` (default: the document's

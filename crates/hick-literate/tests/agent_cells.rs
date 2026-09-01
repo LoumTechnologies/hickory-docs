@@ -96,6 +96,7 @@ async fn run(
         working_dir: Some(dir),
         max_rounds: 1,
         on_exec: None,
+        on_volume_flush: None,
         collect_unverifiable,
         agent_runner: runner,
         max_agent_reprepares: 0,

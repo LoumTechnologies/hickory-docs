@@ -893,6 +893,58 @@ fn ingested_volume_names<'a>(
     out
 }
 
+/// The files ONE output (or input-output) volume's CURRENT in-memory state
+/// would flush into pipeline result files, prefixed under its declared
+/// `output=` path.
+///
+/// Shared between the per-cell incremental flush hook and the post-loop
+/// consolidated pass so the unpack-and-prefix logic has exactly one
+/// implementation. An input-only or ephemeral volume, or one not yet in the
+/// store, flushes nothing — that is the honest answer for "declared but not
+/// an output" and "declared but not yet written", not an error.
+fn flushable_volume_files(
+    vol_decl: &hick_exec::volume::VolumeDeclaration,
+    tar: Option<&[u8]>,
+) -> Result<HashMap<String, FileContent>> {
+    let output_prefix = match &vol_decl.kind {
+        hick_exec::volume::VolumeKind::Output { path } => Some(path.as_str()),
+        hick_exec::volume::VolumeKind::InputOutput { output, .. } => Some(output.as_str()),
+        _ => None,
+    };
+    let (Some(prefix), Some(tar)) = (output_prefix, tar) else {
+        return Ok(HashMap::new());
+    };
+    // Bytes, not strings. A scaffolder writes binaries alongside source
+    // (`dotnet new` alone leaves an `obj/` full of them), and reading every
+    // entry as UTF-8 used to fail the whole run on the first one — an
+    // obscure "failed to read tar entry" for something entirely normal. A
+    // binary becomes `FileContent::Binary`, which is also what lets `hick
+    // ingest` name it rather than mangle it.
+    let unpacked = volume_state::read_tar_files(tar)?;
+    let mut out = HashMap::new();
+    for (file_path, bytes) in unpacked {
+        let output_path = if prefix.is_empty() || prefix == "." {
+            file_path
+        } else {
+            format!(
+                "{}{}",
+                prefix.trim_end_matches('/'),
+                if file_path.starts_with('/') {
+                    file_path
+                } else {
+                    format!("/{file_path}")
+                }
+            )
+        };
+        let content = match String::from_utf8(bytes) {
+            Ok(text) => FileContent::Text(text),
+            Err(e) => FileContent::Binary(hick_exec::node::BinaryData::Inline(e.into_bytes())),
+        };
+        out.insert(output_path, content);
+    }
+    Ok(out)
+}
+
 /// Every `<hick:file>` inside a `<hick:ingested>` block, paired with the run
 /// fingerprint the block records.
 ///
@@ -1335,6 +1387,23 @@ pub async fn run_pipeline_with_authority(
 /// streamed events exactly like `render` does.
 pub type ExecEventHook = Arc<dyn Fn(&str, usize, &ExecTranscriptEntry) + Send + Sync>;
 
+/// Callback fired after EACH cell's own output-volume writes are known —
+/// not only once, for all volumes, after the whole run succeeds:
+/// `(volume name, that volume's current flushable files)`.
+///
+/// The post-loop consolidated pass (`PipelineResult::files`) is still the
+/// authoritative account of a fully successful run, and still runs
+/// regardless of whether this hook is set. This hook exists so a caller
+/// (`hick run`/`hick up`) can write a cell's real, already-succeeded output
+/// to host disk as it becomes available, instead of only after every LATER
+/// cell in the same run also succeeds — see
+/// `docs/guarantees/execution/an-earlier-cells-output-survives-a-later-cells-failure.md`.
+/// Fired once per output volume a cell's mounts touch, with that volume's
+/// CURRENT state (which may include earlier cells' contributions too, for a
+/// volume several cells share) — never fired for a volume this document has
+/// already ingested, matching the consolidated pass's own exclusion.
+pub type VolumeFlushHook = Arc<dyn Fn(&str, &HashMap<String, FileContent>) + Send + Sync>;
+
 /// Configuration for live pipeline execution.
 #[derive(Default)]
 pub struct PipelineConfig {
@@ -1346,6 +1415,8 @@ pub struct PipelineConfig {
     pub max_rounds: usize,
     /// Optional per-exec live event hook (server run streaming).
     pub on_exec: Option<ExecEventHook>,
+    /// Optional per-volume incremental flush hook — see [`VolumeFlushHook`].
+    pub on_volume_flush: Option<VolumeFlushHook>,
     /// Collect cells with no baseline into [`PipelineResult::never_run`]
     /// instead of aborting the run (default: abort).
     ///
@@ -1425,6 +1496,14 @@ pub async fn run_pipeline_live(
         fork_registrations,
         volumes: mut all_volume_decls,
     } = prepared;
+
+    // Computed once, up front, and reused both by the per-cell incremental
+    // flush hook (below) and the post-loop consolidated pass: a volume this
+    // document has ingested is excluded from BOTH, for the same reason —
+    // the document owns those bytes, and a fresh flush over the top of them
+    // (partial or complete) would silently overwrite the scaffolder's
+    // originals back over the author's edits.
+    let ingested_volumes = ingested_volume_names(documents.iter().map(|(_, d)| d));
 
     // Register fork definitions with the executor
     for (from, to, additional_caps) in &fork_registrations {
@@ -2157,6 +2236,22 @@ pub async fn run_pipeline_live(
                         .entry(vol_name.clone())
                         .or_default()
                         .push(exec_info.container.clone());
+
+                    // Best-effort, incremental — fired as soon as THIS
+                    // cell's contribution to the volume is known, not only
+                    // once for every volume after the whole run succeeds.
+                    // Never fired for an already-ingested volume: the
+                    // document owns those bytes, matching the consolidated
+                    // pass's own exclusion below.
+                    if let Some(hook) = &config.on_volume_flush
+                        && !ingested_volumes.contains(vol_name)
+                        && let Some(vol_decl) = all_volume_decls.get(vol_name)
+                    {
+                        let files = flushable_volume_files(vol_decl, volume_store.get(vol_name))?;
+                        if !files.is_empty() {
+                            hook(vol_name, &files);
+                        }
+                    }
                 }
             }
         }
@@ -2171,7 +2266,8 @@ pub async fn run_pipeline_live(
     // scaffolder's originals on every `hick run`, silently. Comparing the two
     // is a three-way merge, and it is deliberately a later step
     // (`docs/specs/freeform/owning-what-a-scaffolder-wrote.md`, sequence 3).
-    let ingested_volumes = ingested_volume_names(documents.iter().map(|(_, d)| d));
+    // `ingested_volumes` was computed once, up front, before the exec loop —
+    // see its binding near the top of this function.
     let mut volume_files: HashMap<String, FileContent> = HashMap::new();
     let mut volume_outputs: HashMap<String, HashMap<String, FileContent>> = HashMap::new();
     for (vol_name, vol_decl) in &all_volume_decls {
@@ -2181,52 +2277,16 @@ pub async fn run_pipeline_live(
                 "Volume '{vol_name}' is ingested into a document, which now owns its bytes; keeping the fresh run aside rather than over them"
             );
         }
-        let output_prefix = match &vol_decl.kind {
-            hick_exec::volume::VolumeKind::Output { path } => Some(path.as_str()),
-            hick_exec::volume::VolumeKind::InputOutput { output, .. } => Some(output.as_str()),
-            _ => None,
-        };
-
-        if let Some(prefix) = output_prefix
-            && volume_store.contains(vol_name)
-        {
-            // Bytes, not strings. A scaffolder writes binaries alongside
-            // source (`dotnet new` alone leaves an `obj/` full of them), and
-            // reading every entry as UTF-8 used to fail the whole run on the
-            // first one — an obscure "failed to read tar entry" for something
-            // entirely normal. A binary becomes `FileContent::Binary`, which
-            // is also what lets `hick ingest` name it rather than mangle it.
-            let unpacked =
-                volume_state::read_tar_files(volume_store.get(vol_name).unwrap_or_default())?;
-            for (file_path, bytes) in unpacked {
-                let output_path = if prefix.is_empty() || prefix == "." {
-                    file_path
-                } else {
-                    format!(
-                        "{}{}",
-                        prefix.trim_end_matches('/'),
-                        if file_path.starts_with('/') {
-                            file_path
-                        } else {
-                            format!("/{file_path}")
-                        }
-                    )
-                };
-                let content = match String::from_utf8(bytes) {
-                    Ok(text) => FileContent::Text(text),
-                    Err(e) => {
-                        FileContent::Binary(hick_exec::node::BinaryData::Inline(e.into_bytes()))
-                    }
-                };
-                // Every output volume is recorded here under its own name;
-                // only a NOT-yet-ingested one is also flushed into `files`.
-                volume_outputs
-                    .entry(vol_name.clone())
-                    .or_default()
-                    .insert(output_path.clone(), content.clone());
-                if !ingested {
-                    volume_files.insert(output_path, content);
-                }
+        let files = flushable_volume_files(vol_decl, volume_store.get(vol_name))?;
+        for (output_path, content) in files {
+            // Every output volume is recorded here under its own name; only
+            // a NOT-yet-ingested one is also flushed into `files`.
+            volume_outputs
+                .entry(vol_name.clone())
+                .or_default()
+                .insert(output_path.clone(), content.clone());
+            if !ingested {
+                volume_files.insert(output_path, content);
             }
         }
     }
