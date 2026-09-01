@@ -8,8 +8,6 @@ computed when the document is built, from a fixed seed.
 
 ## The sample
 
-
-
 $ python3 - <<'EOF'
   import random
   random.seed(42)

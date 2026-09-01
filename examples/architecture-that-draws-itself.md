@@ -43,9 +43,6 @@ The expect below pins the whole topology. The day someone adds an import that
 changes the shape, this cell — and therefore `hick test`, and therefore the
 pre-commit hook — fails.
 
-
-
-
 $ hick diagram demo --group dir --format scene
 {
   "nodes": [
@@ -74,8 +71,6 @@ changes shape, refresh it deterministically with:
 ```
 hick diagram demo --refresh architecture-that-draws-itself.hick --fragment arch-topology
 ```
-
-
 
 ## The picture
 

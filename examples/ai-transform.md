@@ -17,10 +17,6 @@ drift from the facts it summarizes.
 
 ## The facts (the transform's only inputs)
 
-
-
-
-
 ## The summary (written by a model, pinned to the facts)
 
 The release pipeline failed due to three separate issues: the macOS packaging script broke on bash 3.2 with an unbound array, the Windows bundle was missing icon.ico, and the release smoke test couldn't run without bubblewrap. As a result, no release was published for two days, hickorydocs.com's apex served HTTP 522 throughout, and the advertised curl installer failed for every visitor. All three faults were fixed on 2026-08-16, the apex domain was re-attached, and the installer now falls back to the unstable channel.

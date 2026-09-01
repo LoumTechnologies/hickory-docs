@@ -16,8 +16,6 @@ recorded provenance, not an enforced sandbox; on Cloud Canopy the image
 ref maps to a Nix-defined cell image declared in `flake.nix`, and the
 card shows the resolved store path (or warns when the ref is unmapped).
 
-
-
 ## Setting the stage
 
 We create a small data file that the rest of the document uses.

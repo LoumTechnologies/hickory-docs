@@ -2797,6 +2797,35 @@ pub(crate) fn strip_opening_break<'a>(
     (rest, moved)
 }
 
+/// Drop a leading UTF-8 byte-order mark, keeping the text's span in step —
+/// the same shape as [`strip_opening_break`], for the same reason.
+///
+/// `dotnet new` (and other .NET tooling) writes a BOM at the start of every
+/// generated source file. `hick ingest` correctly keeps it: the document's
+/// own `<hick:ingested>` bytes must be byte-exact
+/// (`docs/guarantees/authoring/ingest-keeps-the-original-bytes.md`), and
+/// stripping it there would make a re-ingest's hash never match. This is
+/// purely a WEAVE-time display concern — the fenced code block a reader
+/// sees should not show three invisible-but-copy-pasteable bytes before the
+/// first real character of a file nobody wrote by hand with a BOM in it.
+pub(crate) fn strip_leading_bom<'a>(
+    text: &'a str,
+    span: Option<&hick_lang::SourceSpan>,
+) -> (&'a str, Option<hick_lang::SourceSpan>) {
+    const BOM: &str = "\u{feff}";
+    let Some(rest) = text.strip_prefix(BOM) else {
+        return (text, span.copied());
+    };
+    let moved = span.map(|s| hick_lang::SourceSpan {
+        start: s.start + BOM.len(),
+        end: s.end,
+        start_line: s.start_line,
+        start_col: s.start_col + 1,
+        file_id: s.file_id,
+    });
+    (rest, moved)
+}
+
 // The `span_files` threading (include splicing) pushed these over the
 // clippy arg limit; a param-struct refactor belongs to that change, not here.
 #[allow(clippy::too_many_arguments)]
@@ -3869,6 +3898,41 @@ mod tests {
             digest_of(b"two"),
             "without a repository nothing is filtered beyond .hick-cache/.git"
         );
+    }
+
+    // Protects docs/guarantees/verification/a-woven-fenced-block-has-no-leading-bom.md
+    #[test]
+    fn strip_leading_bom_removes_the_bom_and_advances_the_span() {
+        let span = hick_lang::SourceSpan {
+            start: 50,
+            end: 90,
+            start_line: 3,
+            start_col: 0,
+            file_id: None,
+        };
+        let (text, moved) = strip_leading_bom("\u{feff}// real content", Some(&span));
+        assert_eq!(text, "// real content");
+        let moved = moved.expect("a span in must be a span out");
+        // The BOM is 3 UTF-8 bytes (U+FEFF), never 1.
+        assert_eq!(moved.start, 53);
+        assert_eq!(moved.end, 90);
+        assert_eq!(moved.start_line, 3, "no newline was crossed");
+        assert_eq!(moved.start_col, 1);
+    }
+
+    #[test]
+    fn strip_leading_bom_leaves_ordinary_text_untouched() {
+        let (text, span) = strip_leading_bom("// real content", None);
+        assert_eq!(text, "// real content");
+        assert!(span.is_none());
+    }
+
+    #[test]
+    fn strip_leading_bom_only_strips_a_leading_bom_never_one_mid_file() {
+        // A BOM is a file-start marker. One sitting mid-content (however it
+        // got there) is real content this function has no business touching.
+        let (text, _) = strip_leading_bom("line one\n\u{feff}line two", None);
+        assert_eq!(text, "line one\n\u{feff}line two");
     }
 
     // Protects the "key does not assume a container" clause of

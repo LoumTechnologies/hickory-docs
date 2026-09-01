@@ -87,6 +87,25 @@ fn origin_file(doc_path: &str, span_files: &[Arc<str>], span: &hick_lang::Source
         .unwrap_or_else(|| Arc::from(doc_path))
 }
 
+/// Tags that never contribute a single byte to the weave — every one either
+/// has no registered weave handler at all (`container`, `volume`, `feature`,
+/// `needs`, `allow`: pipeline/DAG declarations with nothing to render) or a
+/// handler whose only job is registering content for a LATER `hick:paste`
+/// (`copy`, `cut`: `TagResult::Declaration`, verified by reading
+/// `hick-handlers/src/handlers/copy.rs` directly). A closed, verified list
+/// rather than a general "did this add anything" check — `InsertionPoint`
+/// exposes no count to test that against from outside, and this covers every
+/// tag actually observed to cause the problem below.
+const SILENT_DECLARATION_TAGS: [&str; 7] = [
+    "copy",
+    "cut",
+    "container",
+    "volume",
+    "feature",
+    "needs",
+    "allow",
+];
+
 /// Process document nodes for weave output.
 ///
 /// Iterates through nodes and emits:
@@ -114,9 +133,27 @@ fn process_weave_content(
     doc_path: &str,
     span_files: &[Arc<str>],
 ) {
+    // Set when the PREVIOUS node was a silent declaration tag: the next Text
+    // node strips up to one blank line's worth of ITS OWN leading newlines
+    // before being added. A silent tag contributes zero bytes but the prose
+    // around it still carries the paragraph break on both sides — "prose
+    // A.\n\n<hick:copy…/>\n\nprose B" weaves as "prose A.\n\n\n\nprose B"
+    // (three blank lines) where a human who left the tag out entirely would
+    // have written "prose A.\n\nprose B" (one). Stripping is applied to the
+    // FOLLOWING text only — the node already added for the PRECEDING text
+    // can't be edited after the fact — which is sufficient: one side owning
+    // the single blank line the pair should have is enough to remove the
+    // redundant three.
+    let mut pending_blank_strip = false;
     for node in nodes {
         match node {
             HickNode::Text(text, span) => {
+                let (text, span): (&str, Option<hick_lang::SourceSpan>) = if pending_blank_strip {
+                    strip_up_to_one_blank_line(text, span.as_ref())
+                } else {
+                    (text.as_str(), *span)
+                };
+                pending_blank_strip = false;
                 let dedented = dedent(text, indent);
                 // Prose in the weave IS the document's prose, so it carries
                 // the span it came from — which is what makes the woven file
@@ -133,8 +170,8 @@ fn process_weave_content(
                     Some(span) => weave_ip.add(Arc::new(SpanNode::new(
                         dedented,
                         SourceOrigin::Literal {
-                            file: origin_file(doc_path, span_files, span),
-                            span: *span,
+                            file: origin_file(doc_path, span_files, &span),
+                            span,
                         },
                     ))),
                     None => weave_ip.add(Arc::new(StringNode::new(dedented))),
@@ -150,9 +187,45 @@ fn process_weave_content(
                     doc_path,
                     span_files,
                 );
+                pending_blank_strip = SILENT_DECLARATION_TAGS.contains(&tag.name.as_str());
             }
         }
     }
+}
+
+/// Strip up to one blank line's worth of LEADING newlines from `text` — at
+/// most `"\n\n"`, never more, and never a `"\n"` that would remove a real
+/// paragraph break rather than a redundant extra one. Same span-adjustment
+/// shape as [`crate::strip_opening_break`]; unlike it, this only ever takes
+/// from the front, never crosses a `\r\n`, and stops as soon as there is
+/// nothing left to take or two newlines have been removed.
+fn strip_up_to_one_blank_line<'a>(
+    text: &'a str,
+    span: Option<&hick_lang::SourceSpan>,
+) -> (&'a str, Option<hick_lang::SourceSpan>) {
+    let mut rest = text;
+    let mut taken = 0usize;
+    let mut lines_taken = 0usize;
+    while taken < 2 {
+        if let Some(r) = rest.strip_prefix('\n') {
+            rest = r;
+            taken += 1;
+            lines_taken += 1;
+        } else {
+            break;
+        }
+    }
+    if taken == 0 {
+        return (text, span.copied());
+    }
+    let moved = span.map(|s| hick_lang::SourceSpan {
+        start: s.start + taken,
+        end: s.end,
+        start_line: s.start_line + lines_taken,
+        start_col: 0,
+        file_id: s.file_id,
+    });
+    (rest, moved)
 }
 
 /// Process a single tag for weave output.
@@ -711,6 +784,10 @@ fn process_file_children_to_weave(
                     0 => crate::strip_opening_break(text, span.as_ref()),
                     _ => (text.as_str(), *span),
                 };
+                let (text, span) = match position {
+                    0 => crate::strip_leading_bom(text, span.as_ref()),
+                    _ => (text, span),
+                };
                 let dedented = dedent(text, indent);
                 // The fenced copy of a `hick:file` block in the woven markdown
                 // is the same text as the block, so it carries the same span.
@@ -845,5 +922,60 @@ pub(crate) fn process_weave_output(
         weave_ip.add(transform);
         weave_ip.close();
         state.add_file_output(weave_path.clone(), weave_ip);
+    }
+}
+
+// Protects docs/guarantees/authoring/a-silent-tag-does-not-double-a-blank-line.md
+#[cfg(test)]
+mod strip_up_to_one_blank_line_tests {
+    use super::strip_up_to_one_blank_line;
+
+    #[test]
+    fn two_leading_newlines_are_fully_removed() {
+        let (text, span) = strip_up_to_one_blank_line("\n\nBetween those…", None);
+        assert_eq!(text, "Between those…");
+        assert!(span.is_none());
+    }
+
+    #[test]
+    fn a_single_leading_newline_is_fully_removed_not_left_dangling() {
+        // The text between two ADJACENT silent tags is often just one "\n" —
+        // there is no real content there to protect.
+        let (text, _) = strip_up_to_one_blank_line("\n", None);
+        assert_eq!(text, "");
+    }
+
+    #[test]
+    fn three_or_more_leading_newlines_keep_the_real_paragraph_break() {
+        // Never taken: a genuine blank line PLUS whatever came before it in
+        // the prose is not this function's to remove — only the redundant
+        // pair a silent tag leaves behind.
+        let (text, _) = strip_up_to_one_blank_line("\n\n\nreal content", None);
+        assert_eq!(text, "\nreal content");
+    }
+
+    #[test]
+    fn text_with_no_leading_newline_is_untouched() {
+        let (text, span) = strip_up_to_one_blank_line("no leading newline", None);
+        assert_eq!(text, "no leading newline");
+        assert!(span.is_none());
+    }
+
+    #[test]
+    fn a_span_moves_by_exactly_the_bytes_taken() {
+        let span = hick_lang::SourceSpan {
+            start: 100,
+            end: 120,
+            start_line: 5,
+            start_col: 0,
+            file_id: None,
+        };
+        let (text, moved) = strip_up_to_one_blank_line("\n\ncontent", Some(&span));
+        assert_eq!(text, "content");
+        let moved = moved.expect("a span in must be a span out");
+        assert_eq!(moved.start, 102);
+        assert_eq!(moved.end, 120);
+        assert_eq!(moved.start_line, 7);
+        assert_eq!(moved.start_col, 0);
     }
 }

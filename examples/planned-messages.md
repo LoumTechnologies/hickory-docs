@@ -18,12 +18,6 @@ prefix is yours.
 Each block records where the information came from in its own text, so the
 receipt travels with the fact.
 
-
-
-
-
-
-
 ## The message to paste into #eng-standup
 
 
