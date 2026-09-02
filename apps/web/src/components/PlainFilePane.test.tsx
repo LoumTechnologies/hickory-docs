@@ -220,3 +220,19 @@ describe("a plain file and the language server", () => {
     });
   });
 });
+
+// Protects docs/guarantees/authoring/unsaved-work-survives-closing-the-app.md
+describe("closing the pane", () => {
+  it("never writes a draft of nothing for a buffer that was never edited", async () => {
+    // The final flush runs after the view is destroyed. Reading "" from the
+    // dead view used to record an empty draft, which the next mount restored
+    // and saved — a 159-line file emptied on disk by switching tabs.
+    serve({ content: ON_DISK, drafts: [] });
+    const saveDraft = vi.spyOn(api, "saveDraft").mockResolvedValue({ ok: true });
+    const view = render(<PlainFilePane path="notes.md" />);
+    await waitFor(() => expect(document.querySelector(".cm-content")?.textContent).toContain("two"));
+    view.unmount();
+    expect(saveDraft).not.toHaveBeenCalled();
+    expect(saveDraft.mock.calls.every((call) => call[0].contents !== "")).toBe(true);
+  });
+});

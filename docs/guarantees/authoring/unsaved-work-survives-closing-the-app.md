@@ -82,6 +82,17 @@ worse: every differing run is a conflict, because without a base there is no
 way to tell an addition on one side from a deletion on the other, and a tool
 that guessed would silently throw away work.
 
+
+> **Amended 2026-09-02.** Found by dogfooding on this repository: switching
+> away from a plain file's tab **emptied the file on disk**. The draft
+> keeper's final flush runs during unmount, after the effect that destroys
+> the editor view (React runs cleanups in declaration order), and reading the
+> buffer through the dead view gave `""` — recorded as a draft of nothing,
+> restored "silently" on the next mount because the disk still matched the
+> base, and then autosaved. The pane now keeps the buffer's last text in a
+> ref and reads that when the view is gone; an absent view is not an empty
+> buffer. `PlainFilePane.test.tsx` ("closing the pane") fails on the old code.
+
 ---
 
 Last LLM verification:

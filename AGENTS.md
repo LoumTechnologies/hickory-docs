@@ -494,6 +494,21 @@ Found without being configured; there is no `launch.json` and there must not
 be. In jsdom a gutter's `domEventHandlers` cannot resolve a line from a
 pointer's height, so **the mark answers its own click**.
 
+**Dogfooded on this repository (2026-09-02)** with the app opened on
+hickory-docs itself, and three things came out of it. **Switching tabs
+emptied a 159-line Rust file on disk**: the draft keeper's unmount flush ran
+after the view was destroyed, read `""`, and the next mount restored and
+saved it — fixed by never reading the buffer through the view alone
+(`unsaved-work-survives-closing-the-app.md`). **The up-loop fights git in a
+checkout whose transcript cache is gitignored**: opening the repo re-wove
+fifteen committed outputs to `[never run]`, and a `git checkout` of one of
+them was seen as an external edit, refused, and re-woven over — so the Git
+pane's Discard "worked" and the file stayed modified; this is a design
+question about committed woven outputs versus gitignored transcripts, not a
+pane bug. **The command bar ranks a typed full path below a fuzzier hit**
+(`crates/hick-lsp/src/lang_detect.rs` opened `default.json`), and the LSP
+hover tooltip shows raw markdown fences and overflows the window.
+
 ## Stack (settled — do not relitigate)
 
 - CLI + language + local server: Rust (edition 2024), axum, tokio. No database.

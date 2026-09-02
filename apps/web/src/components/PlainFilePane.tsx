@@ -124,6 +124,14 @@ export function PlainFilePane({
   // only once the file has loaded, so the server never sees an empty file
   // stand in for a real one.
   const [liveText, setLiveText] = useState<string | null>(null);
+  // The buffer's last text, readable after the view is gone. The draft
+  // keeper's final flush runs during unmount, AFTER the effect that destroys
+  // the view — React runs cleanups in declaration order — and reading an
+  // empty string from a dead view wrote a draft of nothing, which the next
+  // mount restored "silently" and then saved: a file emptied on disk by
+  // switching tabs. Found by dogfooding on this repository, on a file with
+  // 159 lines. Never read the buffer through the view alone.
+  const lastTextRef = useRef<string>("");
   const lsp = useWorkspaceLsp(liveText === null ? "" : path, liveText ?? "");
   const lspRef = useRef(lsp);
   lspRef.current = lsp;
@@ -152,6 +160,7 @@ export function PlainFilePane({
         setFile(loaded);
         setLoadError(null);
         setLiveText(loaded.content);
+        lastTextRef.current = loaded.content;
         saver.load(loaded.content, loaded.hash);
         void api.files().then(
           (files) => {
@@ -358,7 +367,11 @@ export function PlainFilePane({
           EditorView.updateListener.of((u) => {
             // Every change reaches the language server — a reload from disk
             // included, since the server should see what the screen shows.
-            if (u.docChanged) setLiveText(u.state.doc.toString());
+            if (u.docChanged) {
+              const text = u.state.doc.toString();
+              lastTextRef.current = text;
+              setLiveText(text);
+            }
             // Only edits a person made: a programmatic reload is this pane
             // catching up with the disk, and saving it back would write
             // bytes nobody typed.
@@ -417,7 +430,9 @@ export function PlainFilePane({
     path,
     enabled: loaded,
     read: () => ({
-      contents: viewRef.current?.state.doc.toString() ?? "",
+      // The view when it exists; what it last held when it does not. An
+      // absent view is not an empty buffer.
+      contents: viewRef.current ? viewRef.current.state.doc.toString() : lastTextRef.current,
       base: saver.baseContent(),
     }),
   });
