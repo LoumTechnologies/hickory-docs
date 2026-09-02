@@ -7,7 +7,7 @@
 // engine reads, not in any account.
 //
 // Appearance holds the display preferences that used to sit in the document
-// toolbar: lineage style, tab placement, channel width (localStorage, per
+// toolbar: lineage style and visibility, tab placement, channel width (localStorage, per
 // browser — lib/ribbonStyle.ts and friends) and the custom window title
 // (persisted server-side as ui.json so the desktop shell can read it at
 // launch). The workspace re-reads all of them when it remounts, which
@@ -23,6 +23,11 @@ import {
   saveRibbonStyle,
   type RibbonStyle,
 } from "../lib/ribbonStyle";
+import {
+  loadRibbonVisibility,
+  saveRibbonVisibility,
+  type RibbonVisibility,
+} from "../lib/ribbonVisibility";
 import { loadTabStyle, saveTabStyle, type TabStyle } from "../lib/tabStyle";
 import {
   CHANNEL_WIDTH_PRESETS,
@@ -131,7 +136,7 @@ function ChoiceRow<T extends string | number>({
 }
 
 /**
- * The display preferences. The three toggles write localStorage on the spot
+ * The display preferences. The toggles write localStorage on the spot
  * (the same libs the workspace reads at mount); the window title round-trips
  * through GET/PUT /api/settings/ui so the desktop shell can also read it at
  * launch for the native title bar.
@@ -139,6 +144,9 @@ function ChoiceRow<T extends string | number>({
 function AppearanceSection() {
   const [theme, setTheme] = useState<Theme>(() => loadTheme());
   const [ribbonStyle, setRibbonStyle] = useState<RibbonStyle>(() => loadRibbonStyle());
+  const [ribbonVisibility, setRibbonVisibility] = useState<RibbonVisibility>(
+    () => loadRibbonVisibility(),
+  );
   const [tabStyle, setTabStyle] = useState<TabStyle>(() => loadTabStyle());
   const [channelWidth, setChannelWidth] = useState<number>(() => loadChannelWidth());
 
@@ -209,6 +217,27 @@ function AppearanceSection() {
               value: "braces",
               label: "Braces",
               title: "Draw lineage as curly braces joined by a thin line",
+            },
+          ]}
+        />
+        <ChoiceRow
+          label="Lineage visibility"
+          value={ribbonVisibility}
+          onPick={(next) => {
+            setRibbonVisibility(next);
+            saveRibbonVisibility(next);
+          }}
+          choices={[
+            {
+              value: "caret",
+              label: "With the caret",
+              title:
+                "Draw a connection only while the caret is in one of the blocks it joins",
+            },
+            {
+              value: "always",
+              label: "Always",
+              title: "Draw every connection all the time",
             },
           ]}
         />

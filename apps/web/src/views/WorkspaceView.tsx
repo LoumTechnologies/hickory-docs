@@ -52,6 +52,10 @@ import {
 import { insertTarget, requestMenuAction, type MenuAction } from "../lib/menuBridge";
 import { insertElement } from "../editor/insertElement";
 import { loadRibbonStyle, type RibbonStyle } from "../lib/ribbonStyle";
+import {
+  loadRibbonVisibility,
+  type RibbonVisibility,
+} from "../lib/ribbonVisibility";
 import { loadTabStyle, type TabStyle } from "../lib/tabStyle";
 import { loadChannelWidth } from "../lib/channelWidth";
 import { windowTitle } from "../lib/windowTitle";
@@ -237,13 +241,17 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
   const [insertNotice, setInsertNotice] = useState<string | null>(null);
   // The dock is part of the workspace, not a mode: it is always mounted and
   // remembers whether the log is expanded.
-  // The presentation preferences: how lineage draws (bands or braces), where
-  // tabs live, how wide the inter-pane channel is. All EDITED on the Settings
+  // The presentation preferences: how lineage draws (bands or braces), when
+  // it draws (with the caret, or always), where tabs live, how wide the
+  // inter-pane channel is. All EDITED on the Settings
   // page ("#/settings" — see SettingsView's Appearance section) and only READ
   // here. Reading once at mount is enough: App swaps this view out for
   // SettingsView while settings are open, so coming back remounts the
   // workspace and re-reads whatever was just saved to localStorage.
   const [ribbonStyle] = useState<RibbonStyle>(() => loadRibbonStyle());
+  const [ribbonVisibility] = useState<RibbonVisibility>(() =>
+    loadRibbonVisibility(),
+  );
   // The folder's project id — what the zoomed-out lineage graph is keyed by.
   const [projectId, setProjectId] = useState<string | null>(null);
   // Which provenances the overlay draws — a live choice, remembered.
@@ -1810,6 +1818,7 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
             // `RibbonFamily` to a kind nothing emits.
             layers={drawnLayers}
             ribbonStyle={ribbonStyle}
+            visibility={ribbonVisibility}
             onNavigate={(target) => {
               const session = registry.get(focusedIdRef.current);
               if (!session) return;

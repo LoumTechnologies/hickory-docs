@@ -4,6 +4,10 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { installMockHandler } from "../api/client";
 import type { ProviderKey, SettingsKeysPatch, UiSettings } from "../api/types";
 import { RIBBON_STYLE_KEY, loadRibbonStyle } from "../lib/ribbonStyle";
+import {
+  RIBBON_VISIBILITY_KEY,
+  loadRibbonVisibility,
+} from "../lib/ribbonVisibility";
 import { TAB_STYLE_KEY, loadTabStyle } from "../lib/tabStyle";
 import { CHANNEL_WIDTH_KEY, loadChannelWidth } from "../lib/channelWidth";
 import { THEME_KEY, loadTheme } from "../lib/theme";
@@ -178,6 +182,22 @@ describe("the appearance section", () => {
     expect(localStorage.getItem(RIBBON_STYLE_KEY)).toBe("bands");
     expect(localStorage.getItem(TAB_STYLE_KEY)).toBe("side");
     expect(localStorage.getItem(CHANNEL_WIDTH_KEY)).toBe("72");
+  });
+
+  it("offers a lineage-visibility choice, defaulting to the caret", async () => {
+    render(<SettingsView />);
+    expect(
+      await screen.findByRole("group", { name: "Lineage visibility" }),
+    ).toBeTruthy();
+    expect(
+      screen
+        .getByRole("button", { name: "With the caret" })
+        .getAttribute("aria-pressed"),
+    ).toBe("true");
+    // The old always-on reading is a setting, not a thing that was removed.
+    fireEvent.click(screen.getByRole("button", { name: "Always" }));
+    expect(loadRibbonVisibility()).toBe("always");
+    expect(localStorage.getItem(RIBBON_VISIBILITY_KEY)).toBe("always");
   });
 
   it("offers a word-navigation choice, defaulting to whole words", async () => {

@@ -26,6 +26,11 @@
 // numbers beside it. Hovering tints those numbers in the ribbon's colour on
 // both rails (editor/lineHighlight.ts).
 //
+// A connection is painted where it is being ASKED about: by default only
+// while the caret is in one of the blocks it joins (lib/ribbonVisibility.ts).
+// Every one is still measured, still hover-revealed, and the old always-on
+// reading of a whole document is a setting away.
+//
 // Two renderings of the same geometry: filled Sankey **bands** (default) or
 // **braces** — a curly brace per side spanning exactly the involved lines,
 // joined nub-to-nub by a thin line (lib/ribbonStyle.ts persists the choice).
@@ -61,6 +66,7 @@ import {
 } from "../lib/ribbonGeometry";
 import { pickTerminal } from "../lib/terminalPriority";
 import type { RibbonStyle } from "../lib/ribbonStyle";
+import { caretTouches, type RibbonVisibility } from "../lib/ribbonVisibility";
 import {
   deriveRibbons,
   drawnRange,
@@ -172,6 +178,11 @@ interface Shape {
   connector?: { x: number; y: number; width: number; height: number };
   /** The line ranges to tint while hovered, one entry per anchored editor. */
   hl: HlSide[];
+  /** Whether the caret is in one of this connection's involved blocks, in the
+   * editor that has focus. Measured with the geometry — it moves for the same
+   * reasons and is compared the same way — and read at render time by the
+   * "caret" visibility, which paints nothing else. */
+  caret: boolean;
   target: RibbonTarget;
   /** Whitespace-only attribution: drawn only while the pointer is over the
    * involved lines (see `hoverZones`), never by default. */
@@ -183,6 +194,13 @@ interface Shape {
    * there. */
   hoverZones?: { x: number; y: number; width: number; height: number }[];
 }
+
+/**
+ * A shape as the geometry pass builds it: everything except whether the caret
+ * is in it, which is one predicate over the finished list rather than a line
+ * repeated at all four places a shape is made.
+ */
+type Draft = Omit<Shape, "caret">;
 
 /** Thickness of the connector bar on a tab terminal's attached edge. */
 const CONNECTOR = 3;
@@ -210,6 +228,7 @@ function sameShapes(a: readonly Shape[], b: readonly Shape[]): boolean {
       x.ends !== y.ends ||
       x.band !== y.band ||
       x.whitespaceOnly !== y.whitespaceOnly ||
+      x.caret !== y.caret ||
       x.brace?.hit !== y.brace?.hit ||
       !sameBox(x.reveal, y.reveal) ||
       !sameBox(x.connector, y.connector) ||
@@ -468,6 +487,7 @@ export function RibbonOverlay({
   links = [],
   layers,
   ribbonStyle = "bands",
+  visibility = "caret",
   onNavigate,
 }: {
   container: HTMLElement | null;
@@ -487,6 +507,11 @@ export function RibbonOverlay({
   layers?: ReadonlySet<RibbonFamily>;
   /** Bands (filled Sankey) or braces (curly braces joined by a thin line). */
   ribbonStyle?: RibbonStyle;
+  /**
+   * Whether a connection is painted only while the caret is in one of its
+   * blocks (the default) or all the time (lib/ribbonVisibility.ts).
+   */
+  visibility?: RibbonVisibility;
   onNavigate?: (target: RibbonTarget) => void;
 }) {
   const [shapes, setShapes] = useState<Shape[]>([]);
@@ -597,6 +622,9 @@ export function RibbonOverlay({
   // not state: hover changes tint OTHER components' DOM (via dispatches at
   // the editors); this overlay itself renders the same either way.
   const hovered = useRef<Shape | null>(null);
+  // The editor that had focus most recently, so the caret still has a home
+  // while the pointer is off in the chrome.
+  const lastFocused = useRef<EditorView | null>(null);
 
   const setHovered = useCallback((shape: Shape | null) => {
     const previous = hovered.current;
@@ -627,7 +655,7 @@ export function RibbonOverlay({
     }
     const box = container.getBoundingClientRect();
     const braces = ribbonStyle === "braces";
-    const out: Shape[] = [];
+    const out: Draft[] = [];
     const colours = new Map<string, number>();
     const colourFor = (fragment: string) => {
       let assigned = colours.get(fragment);
@@ -723,7 +751,7 @@ export function RibbonOverlay({
               { view: documentView, from: range[0], to: range[1] },
               { view: entry.view, from: outFrom, to: outTo },
             ];
-            const shape: Shape = {
+            const shape: Draft = {
               key: `${entry.file.path}:${ribbon.key}`,
 
               family: "lineage",
@@ -864,7 +892,7 @@ export function RibbonOverlay({
             nub,
             dir,
           );
-          const shape: Shape = {
+          const shape: Draft = {
             key: `${source.docPath}:${entry.file.path}:${terminal.ends}:${key}`,
 
             family: "lineage",
@@ -956,7 +984,7 @@ export function RibbonOverlay({
               nub,
               dir,
             );
-            const shape: Shape = {
+            const shape: Draft = {
               key: `${source.docPath}:${entry.file.path}:back:${key}`,
 
               family: "lineage",
@@ -1046,7 +1074,7 @@ export function RibbonOverlay({
         nub,
         dir,
       );
-      const shape: Shape = {
+      const shape: Draft = {
         key: `${link.family}:${link.key}:${terminal.ends}`,
         family: link.family,
         color: link.family === "context" ? 0 : 1,
@@ -1083,9 +1111,31 @@ export function RibbonOverlay({
       out.push(shape);
     }
 
+    // Whose caret counts: the editor that has focus, and when focus has gone
+    // to something that is not an editor — a menu, the tree, the toolbar —
+    // the last editor that had it. Ribbons that vanish because you reached
+    // for a button are ribbons you cannot click.
+    const views = [...sources.map((s) => s.view), ...files.map((f) => f.view)];
+    const focusedNow = views.find((view) => view?.hasFocus) ?? null;
+    if (focusedNow) lastFocused.current = focusedNow;
+    const caretIn = lastFocused.current;
+    const shaped: Shape[] = out.map((shape) => ({
+      ...shape,
+      caret:
+        caretIn !== null &&
+        shape.hl.some(
+          (side) =>
+            side.view === caretIn &&
+            caretTouches(
+              { from: side.from, to: side.to },
+              caretIn.state.selection.main,
+            ),
+        ),
+    }));
+
     // Measured twice a second whether or not anything moved; commit only a
     // real change, or the SVG re-renders on every tick.
-    setShapes((current) => (sameShapes(current, out) ? current : out));
+    setShapes((current) => (sameShapes(current, shaped) ? current : shaped));
   }, [container, sources, files, links, layers, ribbonStyle]);
 
   // Measurement follows the things that move: scrolling either pane, editing
@@ -1110,6 +1160,11 @@ export function RibbonOverlay({
       scroller.addEventListener("scroll", schedule, { passive: true });
     }
     window.addEventListener("resize", schedule);
+    // The caret is a thing that moves, so it belongs on this list. One
+    // document-level listener catches every way of moving it in every pane —
+    // typing, arrows, a click, a drag — where per-view key handlers would
+    // catch some of them.
+    document.addEventListener("selectionchange", schedule);
     const observer = new ResizeObserver(schedule);
     if (container) observer.observe(container);
     const timer = window.setInterval(schedule, 500);
@@ -1118,6 +1173,7 @@ export function RibbonOverlay({
       for (const scroller of scrollers)
         scroller.removeEventListener("scroll", schedule);
       window.removeEventListener("resize", schedule);
+      document.removeEventListener("selectionchange", schedule);
       observer.disconnect();
       window.clearInterval(timer);
       if (frame.current !== null) cancelAnimationFrame(frame.current);
@@ -1159,7 +1215,15 @@ export function RibbonOverlay({
         // noise until someone is working exactly there.
         const chrome = shape.ends !== "text";
         const hoverOnly = chrome || shape.whitespaceOnly === true;
-        const shown = !hoverOnly || revealedKeys.has(shape.key);
+        // And under the default visibility, every connection is drawn only
+        // where it is being asked about: the caret in one of its blocks. A
+        // hover still reveals whatever it lands on, so nothing this overlay
+        // knows becomes unreachable — it just stops painting a dozen answers
+        // over the text of a question nobody asked.
+        const shown =
+          visibility === "caret"
+            ? shape.caret || revealedKeys.has(shape.key)
+            : !hoverOnly || revealedKeys.has(shape.key);
         return (
           <g
             key={shape.key}
