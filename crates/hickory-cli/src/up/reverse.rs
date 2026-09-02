@@ -182,12 +182,29 @@ pub fn refusal_message(path: &Path, doc: &Path, woven: &str, error: &LineageErro
 
     format!(
         "refused an edit to {}\n  {}\n  \
-         The file has been restored. To make this change, edit\n  {}\n  \
-         directly — the document is where generated text comes from.",
+         The file is left as it is and marked held. To make this change, edit\n  {}\n  \
+         directly — the document is where generated text comes from — or regenerate \
+         the file from it.",
         path.display(),
         where_,
         doc.display()
     )
+}
+
+/// One line saying why an edit could not be carried back, for the hold the
+/// tree and the pane show. The full message is `refusal_message`.
+pub fn refusal_reason(error: &LineageError) -> String {
+    match error {
+        LineageError::SyntheticOverlap { .. } => {
+            "an edit to generated text — command output, a transcript, an interpolated value — \
+             has no source to carry back to"
+                .to_string()
+        }
+        LineageError::Conflict(detail) => {
+            format!("the edit maps onto the document in more than one place ({detail})")
+        }
+        LineageError::InvalidEdit(detail) => format!("the edit could not be read ({detail})"),
+    }
 }
 
 /// 1-based line and column of a byte offset.

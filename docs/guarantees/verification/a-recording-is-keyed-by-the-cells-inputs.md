@@ -60,6 +60,20 @@ change seeds the volume from the previous version on disk. The cell still
 executes against the correct current code — staging happens before execution —
 but the *key* stabilises one run later.
 
+
+> **Amended 2026-09-02.** A third term is *excluded*: the documents' own
+> unstable products. The weave target carries the cell's transcript and a
+> `hick:file` a cell fills carries a run's output, so a cell that mounted the
+> directory holding them keyed its recording on bytes its own run changes.
+> Every run changed the key, no recording was ever found again, and the next
+> weave wrote `[never run]` over recorded output. Those paths are now skipped
+> in `mounted_inputs_digest` (`unstable_outputs`, matched exactly and by
+> tail for a volume seeded from a subdirectory). A `hick:file` assembled from
+> literal text is still in the key, which is this guarantee's whole point;
+> `a_documents_own_unstable_products_are_not_in_the_key` covers both halves.
+> Proven on `examples/grand-tour.hick`: one `hick run`, then two weaves in a
+> row found the recording, and `git status` stayed clean.
+
 ---
 
 Last LLM verification:

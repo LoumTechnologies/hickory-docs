@@ -79,6 +79,17 @@ gitignore rule anchored to the true repository root. A failure to check (no
 `gitignored`'s own contract of never staying quiet about "could not check"
 versus "checked, found nothing".
 
+
+> **Amended 2026-09-02.** The warning about mounting a document's own unstable
+> output (`self_mounting_warnings`) is gone, because the hazard it warned
+> about is gone: a cell's input digest now leaves out the documents' own
+> unstable products — every weave target and every `hick:file` a cell fills
+> (`hick_literate::unstable_outputs`). A cell that mounts `.` no longer keys
+> its recording on its own transcript, so the recording is findable on the
+> next weave, which is what the warning was trying to get the author to
+> arrange by hand. The `.gitignore` filter this guarantee is about is
+> unchanged and still does the other half of the job.
+
 ---
 
 Last LLM verification:

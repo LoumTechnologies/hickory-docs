@@ -509,6 +509,33 @@ pane bug. **The command bar ranks a typed full path below a fuzzier hit**
 (`crates/hick-lsp/src/lang_detect.rs` opened `default.json`), and the LSP
 hover tooltip shows raw markdown fences and overflows the window.
 
+**The round trip must never undo work or leave two things disagreeing**, and
+2026-09-02's dogfooding found three ways it did. Each is now a rule with a
+guarantee. (1) **A document's own unstable products are not in its cells'
+cache key** (`a-recording-is-keyed-by-the-cells-inputs.md`, amended): a cell
+mounting `.` keyed its recording on its own weave, so no recording was ever
+found again and the next weave wrote `[never run]` over recorded output; the
+old warning telling authors to mount narrower is deleted, since the hazard is
+gone. (2) **A weave never writes `[never run]` over a rendering that exists**
+(`a-weave-without-a-recording-keeps-the-artifact.md`, amended): the weave
+target is no longer exempt as "the weave's own report". (3) **An output that
+cannot be carried back is held, never restored**
+(`an-output-that-cannot-be-carried-back-is-held.md`): the loop used to put
+the file back a second after git or a person wrote it; now the bytes stay,
+the tree and pane say *held* and why, and the hold lifts when the document
+catches up or on an explicit *Regenerate from document*. And **transcripts
+are committed** (`a-recording-travels-with-its-outputs.md`): `hick init`
+writes `.hick-cache/*` and `!.hick-cache/transcripts/` — a bare
+`.hick-cache/` cannot be re-included under, which is why the older line is
+widened rather than kept. A recording stored under an older key formula is
+simply not found; one `hick run` re-records it. A fourth, found while
+writing the round-trip test: **an output volume flushes only what the run
+changed** (`an-output-volume-flushes-only-what-the-run-changed.md`) — a
+volume seeded from `.` with `output="."` used to flush every seeded file
+back, the document included, and a placeholder staged before the run for a
+file a cell fills then overwrote the cell's real product, with the run
+reporting nothing failed.
+
 ## Stack (settled — do not relitigate)
 
 - CLI + language + local server: Rust (edition 2024), axum, tokio. No database.

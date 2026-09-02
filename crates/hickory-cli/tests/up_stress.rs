@@ -265,9 +265,14 @@ fn rapid_document_edits_converge_into_the_output() {
 /// Edits arriving from both directions at once must not corrupt the document.
 ///
 /// This does not assert which side wins — with two writers and no ordering
-/// between them, "the document still parses and the two sides agree" is the
-/// strongest honest claim. A test that demanded a particular winner would be
-/// asserting a scheduling accident.
+/// between them, "the document still parses" is the strongest honest claim.
+/// The two sides either agree, or an output edit that was computed against
+/// a document that had already moved is HELD: the file keeps what was typed
+/// into it, the loop says so, and nothing is undone. A test that demanded a
+/// particular winner would be asserting a scheduling accident; one that
+/// demanded agreement after a hold would be asking for the destruction the
+/// hold exists to prevent
+/// (docs/guarantees/authoring/an-output-that-cannot-be-carried-back-is-held.md).
 #[test]
 fn interleaved_document_and_output_edits_never_corrupt() {
     let up = Loop::start("notes.hick", DOC, false);
@@ -285,17 +290,35 @@ fn interleaved_document_and_output_edits_never_corrupt() {
         assert_parses(&doc);
     }
 
-    // Let it quiesce, then require the two sides to agree.
+    // Let it quiesce. Then either the two sides agree, or the output is
+    // held with an edit typed into it and the loop said so.
     std::thread::sleep(Duration::from_secs(2));
     let doc_text = std::fs::read_to_string(&doc).expect("read doc");
     let out_text = std::fs::read_to_string(&output).expect("read output");
     let doc_marker = marker_of(&doc_text).expect("document has a marker");
     let out_marker = marker_of(&out_text).expect("output has a marker");
-    assert_eq!(
-        doc_marker, out_marker,
-        "document and output disagree after quiescing:\ndoc={doc_marker}\nout={out_marker}"
-    );
+    if doc_marker != out_marker {
+        let log = up.log();
+        assert!(
+            log.contains("marked held"),
+            "document and output disagree and the loop never said it was holding the \
+             file:\ndoc={doc_marker}\nout={out_marker}\n{log}"
+        );
+        assert!(
+            marker_value(&out_text).is_some_and(|v| v.starts_with('o')),
+            "a held file must hold what was typed into it, not a weave: {out_marker}"
+        );
+    }
     assert_parses(&doc);
+}
+
+/// The marker's value alone: `MARKER = "x"` → `x`.
+fn marker_value(text: &str) -> Option<String> {
+    marker_of(text).map(|line| {
+        line.trim_start_matches("MARKER = ")
+            .trim_matches('"')
+            .to_string()
+    })
 }
 
 fn marker_of(text: &str) -> Option<String> {
@@ -347,15 +370,17 @@ fn an_edit_during_a_run_is_not_lost() {
 }
 
 /// An output edit made while the *document* is also changing is refused — the
-/// spans it was computed against no longer describe the document — but the
-/// file must never be left disagreeing with its source.
+/// spans it was computed against no longer describe the document — and the
+/// file is HELD with the edit in it, never put back.
 ///
-/// A refusal that forks the file from the document is worse than the refusal
-/// itself: the document is not dirty, so nothing re-weaves, and no further
-/// event arrives to reconcile them. The divergence would be permanent and
-/// silent.
+/// It used to be restored to agree with the document, on the argument that
+/// a silent fork is worse than a refusal. The fork is now loud instead of
+/// silent — the loop names the file and why, the tree and the pane show it —
+/// and what was typed stays, because the loop has nothing truer to put in
+/// its place. Guarantee:
+/// docs/guarantees/authoring/an-output-that-cannot-be-carried-back-is-held.md
 #[test]
-fn a_refused_edit_leaves_the_file_agreeing_with_its_document() {
+fn a_refused_edit_holds_the_file_with_the_edit_in_it() {
     let up = Loop::start("notes.hick", DOC, false);
     let doc = up.path("notes.hick");
     let output = up.path("notes.py");
@@ -370,11 +395,27 @@ fn a_refused_edit_leaves_the_file_agreeing_with_its_document() {
 
     let doc_text = std::fs::read_to_string(&doc).expect("read doc");
     let out_text = std::fs::read_to_string(&output).expect("read output");
-    assert_eq!(
-        marker_of(&doc_text),
-        marker_of(&out_text),
-        "document and output must agree even when an edit is refused"
-    );
+    let log = up.log();
+    match (
+        marker_value(&doc_text).as_deref(),
+        marker_value(&out_text).as_deref(),
+    ) {
+        // The output edit won the race and was carried back: both agree.
+        (Some("from-output"), Some("from-output")) => {}
+        // The document edit won and the output edit was refused: the file
+        // keeps what was typed, the document keeps its own, and the loop
+        // said it was holding the file.
+        (Some("from-document"), Some("from-output")) => {
+            assert!(
+                log.contains("marked held"),
+                "a refused edit was not reported as held:\n{log}"
+            );
+        }
+        // The document edit landed and its weave reached the file before the
+        // output edit was even seen: agreement, nothing refused.
+        (Some("from-document"), Some("from-document")) => {}
+        other => panic!("an outcome that undid somebody's typing: {other:?}\n{log}"),
+    }
     assert_parses(&doc);
 }
 

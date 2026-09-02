@@ -92,6 +92,22 @@ impl Loop {
 
     /// Wait for `path` to satisfy `pred`, failing with the child's own
     /// output rather than a bare timeout message.
+    /// Wait until the loop's own stderr contains `needle`.
+    fn wait_for_log(&mut self, needle: &str, what: &str) {
+        let deadline = Instant::now() + Duration::from_secs(30);
+        loop {
+            let log = std::fs::read_to_string(self.log.path()).unwrap_or_default();
+            if log.contains(needle) {
+                return;
+            }
+            assert!(
+                Instant::now() < deadline,
+                "{what}\n--- hick up stderr ---\n{log}"
+            );
+            std::thread::sleep(Duration::from_millis(100));
+        }
+    }
+
     fn wait_for(&mut self, path: &Path, pred: impl Fn(&str) -> bool, what: &str) -> String {
         match wait_until(path, pred) {
             Some(content) => content,
@@ -256,7 +272,8 @@ fn a_file_mixing_prose_with_generated_text_stays_writable() {
 
 /// Guarantee: `docs/guarantees/authoring/a-generated-file-refuses-an-edit.md`
 #[test]
-fn a_fully_generated_file_is_read_only_and_restores_a_forced_edit() {
+/// Guarantee: `docs/guarantees/authoring/an-output-that-cannot-be-carried-back-is-held.md`
+fn a_fully_generated_file_is_read_only_and_a_forced_edit_is_held_not_undone() {
     let mut up = Loop::start(GENERATED_ONLY);
     let woven_markdown = up.path("greeter.md");
 
@@ -291,19 +308,34 @@ fn a_fully_generated_file_is_read_only_and_restores_a_forced_edit() {
         &before.replace("greeter.py", "tampered.py"),
     );
 
-    let restored = up.wait_for(
-        &woven_markdown,
-        |c| !c.contains("tampered.py"),
-        "the forced edit to a fully generated file was never restored",
-    );
-    assert_eq!(
-        restored, before,
-        "file should be byte-identical to the weave"
+    // The loop says why it is holding the file — and then leaves it alone.
+    // It used to put the file back, and that undid what a person (or
+    // `git checkout`) had just written, a second after they wrote it.
+    up.wait_for_log("marked held", "the loop never said it was holding the file");
+    std::thread::sleep(Duration::from_millis(1500));
+    let held = std::fs::read_to_string(&woven_markdown).expect("read");
+    assert!(
+        held.contains("tampered.py"),
+        "the forced edit was undone; the bytes on disk are somebody's and must stay"
     );
 
     // The document is untouched: a refusal must not half-apply.
     let doc = std::fs::read_to_string(up.path("greeter.hick")).expect("read doc");
     assert!(!doc.contains("tampered"), "{doc}");
+
+    // The hold lifts when the document catches up: an edit to the document
+    // that makes the weave produce exactly the held bytes.
+    let source = std::fs::read_to_string(up.path("greeter.hick")).expect("read doc");
+    save_atomically(
+        &up.path("greeter.hick"),
+        &source.replace("greeter.py", "tampered.py"),
+    );
+    let after = up.wait_for(
+        &woven_markdown,
+        |c| c.contains("tampered.py"),
+        "the document's edit never reached the file",
+    );
+    assert!(after.contains("tampered.py"));
 }
 
 /// Guarantee: `docs/guarantees/authoring/one-loop-owns-a-directory.md`

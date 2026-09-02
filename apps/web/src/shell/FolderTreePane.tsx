@@ -748,6 +748,14 @@ function TreeRow({
         onContextMenu={(event) => onRowMenu(event, node.path, false)}
       >
         {node.name}
+        {node.held && (
+          // The loop is leaving this file as it is on disk — somebody's
+          // bytes, not the document's — and says so here rather than
+          // silently. The pane says why; this says that.
+          <span className="folder-tree__held" data-tip={`Held: ${node.held}`}>
+            held
+          </span>
+        )}
       </button>
     </li>
   );

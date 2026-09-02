@@ -46,6 +46,14 @@ pub struct WovenState {
     outputs: HashMap<PathBuf, OutputState>,
     /// Absolute `.hick` path → its source when we last wove it.
     docs: HashMap<PathBuf, String>,
+    /// Output files whose bytes on disk are NOT what the document produces,
+    /// and why. A held file is never rewritten by the loop: the bytes came
+    /// from a person or from git, and the loop has nothing truer to put in
+    /// their place. The hold lifts the moment the document catches up —
+    /// when a weave produces exactly the held bytes — or when somebody asks
+    /// for the file to be regenerated. See
+    /// docs/guarantees/authoring/an-output-that-cannot-be-carried-back-is-held.md
+    held: HashMap<PathBuf, String>,
 }
 
 impl WovenState {
@@ -97,6 +105,18 @@ impl WovenState {
     pub fn write_output(&mut self, root: &Path, path: &Path, state: OutputState) -> Result<bool> {
         let on_disk = std::fs::read_to_string(path).ok();
 
+        // A held file stays held until the document produces exactly what
+        // is on disk. Overwriting it here would be the same destruction the
+        // hold exists to prevent, one weave later.
+        if self.held.contains_key(path) {
+            if on_disk.as_deref() == Some(state.content.as_str()) {
+                self.held.remove(path);
+            } else {
+                self.outputs.insert(path.to_path_buf(), state);
+                return Ok(false);
+            }
+        }
+
         // Never overwrite an edit we have not consumed yet.
         //
         // A weave can take seconds — a `--run` waits for real commands — and a
@@ -134,10 +154,23 @@ impl WovenState {
         Ok(!unchanged)
     }
 
-    /// Put an output file back to the bytes we last wrote, after refusing an
-    /// edit. The recorded content is unchanged, so the write this causes is
-    /// recognised as an echo and consumes itself.
-    pub fn restore_output(&self, path: &Path) -> Result<()> {
+    /// Keep an output file as it is on disk, and remember why the loop is
+    /// not touching it.
+    pub fn hold_output(&mut self, path: &Path, reason: String) {
+        self.held.insert(path.to_path_buf(), reason);
+    }
+
+    /// Every held output, with its reason.
+    pub fn held(&self) -> &HashMap<PathBuf, String> {
+        &self.held
+    }
+
+    /// Put an output file back to the bytes the document produces — the
+    /// explicit way out of a hold, asked for by name, never done on the
+    /// loop's own initiative. The recorded content is unchanged, so the
+    /// write this causes is recognised as an echo and consumes itself.
+    pub fn restore_output(&mut self, path: &Path) -> Result<()> {
+        self.held.remove(path);
         let Some(state) = self.outputs.get(path) else {
             return Ok(());
         };

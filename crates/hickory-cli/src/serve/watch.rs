@@ -25,7 +25,7 @@ use notify::{EventKind, RecursiveMode, Watcher as _};
 
 use super::LocalState;
 use crate::up::state::WovenState;
-use crate::up::{UpConfig, handle_batch, weave_document};
+use crate::up::{UpCommand, UpConfig, handle_batch, weave_document};
 
 /// How long the directory must stay quiet before a burst of events is one
 /// batch. Matches the headless loop's weave debounce.
@@ -98,7 +98,9 @@ pub fn spawn(state: LocalState) -> Result<WatchGuard> {
         .with_context(|| format!("failed to watch {}", root.display()))?;
 
     let (stop_tx, stop_rx) = tokio::sync::oneshot::channel::<()>();
-    let task = tokio::spawn(run_loop(state, root, watcher, rx, stop_rx));
+    let (command_tx, command_rx) = tokio::sync::mpsc::unbounded_channel::<UpCommand>();
+    *state.up_commands.lock().expect("up command inbox") = Some(command_tx);
+    let task = tokio::spawn(run_loop(state, root, watcher, rx, command_rx, stop_rx));
     Ok(WatchGuard {
         stop: Some(stop_tx),
         task: Some(task),
@@ -111,6 +113,7 @@ async fn run_loop(
     // Owned here so the OS watch lives exactly as long as the loop.
     _watcher: notify::RecommendedWatcher,
     mut rx: tokio::sync::mpsc::UnboundedReceiver<PathBuf>,
+    mut commands: tokio::sync::mpsc::UnboundedReceiver<UpCommand>,
     mut stop: tokio::sync::oneshot::Receiver<()>,
 ) {
     let config = UpConfig {
@@ -134,12 +137,23 @@ async fn run_loop(
         }
     }
     reconcile_rooms(&state, &root, &woven).await;
+    publish_held(&state, &root, &woven);
 
     loop {
         let first = tokio::select! {
             received = rx.recv() => match received {
                 Some(path) => path,
                 None => break,
+            },
+            command = commands.recv() => {
+                if let Some(UpCommand::Regenerate(path)) = command {
+                    if let Err(e) = woven.restore_output(&path) {
+                        log::warn!("could not regenerate {}: {e:#}", path.display());
+                    }
+                    publish_held(&state, &root, &woven);
+                    notify_files_changed(&state, &root, &woven, &mut output_marks).await;
+                }
+                continue;
             },
             _ = &mut stop => break,
         };
@@ -176,12 +190,25 @@ async fn run_loop(
             log::warn!("up-loop batch failed: {e:#}");
         }
         reconcile_rooms(&state, &root, &woven).await;
+        publish_held(&state, &root, &woven);
         notify_files_changed(&state, &root, &woven, &mut output_marks).await;
     }
 
     // However the loop ends, the marks come off: `hick run`, git, and every
     // other tool must find ordinary files afterwards.
     woven.release_read_only();
+}
+
+/// Copy the loop's held set where the routes can read it, as root-relative
+/// paths.
+fn publish_held(state: &LocalState, root: &PathBuf, woven: &WovenState) {
+    let mut held = HashMap::new();
+    for (path, reason) in woven.held() {
+        if let Ok(rel) = path.strip_prefix(root) {
+            held.insert(rel.to_string_lossy().replace('\\', "/"), reason.clone());
+        }
+    }
+    *state.held.lock().expect("held outputs") = held;
 }
 
 /// Tell every open window that this batch may have rewritten output files.

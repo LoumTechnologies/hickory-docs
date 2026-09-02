@@ -18,6 +18,14 @@ use anyhow::{Context, Result};
 pub struct VolumeStore {
     /// Volume name → tar archive bytes.
     archives: HashMap<String, Vec<u8>>,
+    /// Volume name → the archive as it was SEEDED, before any cell ran.
+    ///
+    /// Kept so a flush can tell what a run changed from what it merely read.
+    /// An output volume seeded from `.` used to flush every file back —
+    /// the document itself, and a placeholder staged before the run for a
+    /// file a cell was about to fill, which then overwrote the cell's real
+    /// product. A file a cell did not touch is not that cell's output.
+    seeded: HashMap<String, Vec<u8>>,
 }
 
 impl Default for VolumeStore {
@@ -30,6 +38,7 @@ impl VolumeStore {
     pub fn new() -> Self {
         Self {
             archives: HashMap::new(),
+            seeded: HashMap::new(),
         }
     }
 
@@ -81,13 +90,20 @@ impl VolumeStore {
         let data = builder
             .into_inner()
             .context("failed to finalize tar archive")?;
+        self.seeded.insert(name.to_string(), data.clone());
         self.archives.insert(name.to_string(), data);
         Ok(())
     }
 
     /// Seed a volume with raw tar data.
     pub fn seed_tar(&mut self, name: &str, data: Vec<u8>) {
+        self.seeded.insert(name.to_string(), data.clone());
         self.archives.insert(name.to_string(), data);
+    }
+
+    /// The archive a volume was seeded with, before any cell ran.
+    pub fn seeded(&self, name: &str) -> Option<&[u8]> {
+        self.seeded.get(name).map(|v| v.as_slice())
     }
 
     /// Get the tar archive for a volume, if it exists.

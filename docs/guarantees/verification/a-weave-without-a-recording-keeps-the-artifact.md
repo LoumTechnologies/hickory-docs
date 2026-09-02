@@ -8,10 +8,14 @@ name. The file is still created when it is not there yet — there is nothing to
 destroy, and the `[never run]` marker is then the honest content of a document
 that has never run.
 
-The **weave target is exempt and is always written.** It is not an artifact of
-a run; it is this weave's own report, and a report that says `[never run]` is
-telling the truth about the recordings it found. Keeping it stale would be the
-lie.
+**The weave target is kept too**, whenever it already exists and any cell has
+no recording. It used to be exempt as "this weave's own report", and the
+report it wrote over a committed rendering was `[never run]` in place of the
+recorded output that rendering held: true about the recordings the weave
+found, and a destruction of the ones the file had. A rendering that lags is
+consistent with itself, the writer says it kept the file and why, and a run
+brings it forward. (Amended 2026-09-02, after opening the app on this
+repository re-wove fifteen committed renderings to `[never run]`.)
 
 ## Why
 

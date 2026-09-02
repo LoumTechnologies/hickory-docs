@@ -90,7 +90,10 @@ async fn a_saved_window_title_is_live_and_survives_a_restart() {
 
     let (status, body) = get(&session, "/api/settings/ui").await;
     assert_eq!(status, 200);
-    assert_eq!(body, json!({ "window_title": null }));
+    assert_eq!(
+        body,
+        json!({ "window_title": null, "format_on_save": false })
+    );
 
     let (status, body) = put(
         &session,
@@ -99,12 +102,18 @@ async fn a_saved_window_title_is_live_and_survives_a_restart() {
     )
     .await;
     assert_eq!(status, 200);
-    assert_eq!(body, json!({ "window_title": "My Lab Notebook" }));
+    assert_eq!(
+        body,
+        json!({ "window_title": "My Lab Notebook", "format_on_save": false })
+    );
 
     // Live immediately, no restart.
     let (status, body) = get(&session, "/api/settings/ui").await;
     assert_eq!(status, 200);
-    assert_eq!(body, json!({ "window_title": "My Lab Notebook" }));
+    assert_eq!(
+        body,
+        json!({ "window_title": "My Lab Notebook", "format_on_save": false })
+    );
 
     // Persisted where the desktop shell reads it at launch.
     let on_disk = UiStore::load(&session.ui_path).expect("ui.json parses");
@@ -144,7 +153,10 @@ async fn null_or_blank_clears_the_custom_title() {
     )
     .await;
     assert_eq!(status, 200);
-    assert_eq!(body, json!({ "window_title": null }));
+    assert_eq!(
+        body,
+        json!({ "window_title": null, "format_on_save": false })
+    );
 
     let (_, _) = put(
         &session,
@@ -159,7 +171,10 @@ async fn null_or_blank_clears_the_custom_title() {
     )
     .await;
     assert_eq!(status, 200);
-    assert_eq!(body, json!({ "window_title": null }));
+    assert_eq!(
+        body,
+        json!({ "window_title": null, "format_on_save": false })
+    );
 
     let on_disk = UiStore::load(&session.ui_path).expect("ui.json parses");
     assert_eq!(on_disk.window_title, None);
@@ -186,7 +201,10 @@ async fn a_bad_put_changes_nothing() {
         let (status, _) = put(&session, "/api/settings/ui", bad).await;
         assert_eq!(status, 400);
         let (_, body) = get(&session, "/api/settings/ui").await;
-        assert_eq!(body, json!({ "window_title": "Keep me" }));
+        assert_eq!(
+            body,
+            json!({ "window_title": "Keep me", "format_on_save": false })
+        );
     }
 }
 
@@ -227,7 +245,10 @@ async fn without_a_path_the_routes_answer_in_memory() {
     )
     .await;
     assert_eq!(status, 200);
-    assert_eq!(body, json!({ "window_title": "Ephemeral" }));
+    assert_eq!(
+        body,
+        json!({ "window_title": "Ephemeral", "format_on_save": false })
+    );
     assert!(
         !session.ui_path.exists(),
         "no file may appear without a path"

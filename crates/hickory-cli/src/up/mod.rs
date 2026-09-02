@@ -44,6 +44,14 @@ use state::{OutputState, WovenState};
 /// disk. Neither is guessable from the message, both are one `sysctl` away,
 /// and someone hitting either one is on their own machine with nobody to
 /// debug it for them.
+/// What a window can ask a running loop to do, besides react to files.
+#[derive(Debug)]
+pub enum UpCommand {
+    /// Overwrite a held output with what its document produces — the one
+    /// path that writes over held bytes, taken only when asked by name.
+    Regenerate(PathBuf),
+}
+
 pub(crate) fn watch_error(err: notify::Error) -> anyhow::Error {
     let raw = err.to_string();
     let io_kind = match &err.kind {
@@ -523,10 +531,23 @@ async fn weave_document_as(
         let full = crate::contained_output_path(&base, rel_path)?;
         // Not tracked either: these bytes are not ours. `up` re-adopts the
         // file the moment a run gives it something real to say.
-        if missing_recording.contains(rel_path.as_str())
-            && Some(rel_path.as_str()) != weave_target
-            && full.exists()
+        if missing_recording.contains(rel_path.as_str()) && full.exists() {
+            continue;
+        }
+        // The weave target too. It used to be exempt as "this weave's own
+        // report", and the report it wrote over a committed rendering was
+        // `[never run]` in place of recorded output — the truth about the
+        // recordings the weave found, and a destruction of the ones the file
+        // held. A rendering that lags is consistent with itself; a run brings
+        // it forward. Only when it already exists: a first weave has nothing
+        // to keep.
+        if Some(rel_path.as_str()) == weave_target && !missing_recording.is_empty() && full.exists()
         {
+            eprintln!(
+                "  kept {}: {} cell(s) have no recording; run the document to bring it forward",
+                full.display(),
+                run.result.never_run.len()
+            );
             continue;
         }
         let provenance = output_lineage(&run, rel_path).unwrap_or_default();
@@ -679,28 +700,33 @@ fn consume_output_save(path: &Path, state: &mut WovenState) -> Result<Option<Pat
             // spans that no longer describe it, so applying it could put the
             // bytes anywhere.
             //
-            // Restoring is not optional here. Leaving the file as the user
-            // typed it would strand the two sides disagreeing *permanently*:
-            // the document is not dirty, so nothing re-weaves, and no further
-            // event ever arrives to reconcile them. A refused edit that
-            // silently forks the file from its source is worse than a refused
-            // edit, so the file goes back to matching the document and the
-            // user is told which change was dropped.
+            // The file is HELD, not restored. This used to put the file back
+            // to match the document, on the argument that a silent fork is
+            // worse than a refused edit. The argument was right about
+            // "silent" and wrong about the remedy: restoring destroyed what
+            // a person typed, and what `git checkout` and `git pull` wrote,
+            // a second after they wrote it. The bytes on disk came from
+            // somebody; the loop has nothing truer to put in their place. So
+            // they stay, the file is marked held — the tree and the pane say
+            // so, loudly — and the hold lifts when the document catches up
+            // or when the person asks for the file to be regenerated.
             Err(e) => {
+                let reason = format!("{e:#}");
                 eprintln!(
-                    "refused an edit to {}\n  {e:#}\n  \
-                     The file has been restored to match {}.",
+                    "holding {}: the edit could not be carried into {}\n  {reason}\n  \
+                     The file is left as it is and marked held; edit the document, or \
+                     regenerate the file from it.",
                     path.display(),
                     doc.display()
                 );
-                state.restore_output(path)?;
+                state.hold_output(path, reason);
                 Ok(None)
             }
         },
         Err(e) => {
             let message = reverse::refusal_message(path, &doc, &output.content, &e);
-            state.restore_output(path)?;
             eprintln!("{message}");
+            state.hold_output(path, reverse::refusal_reason(&e));
             Ok(None)
         }
     }

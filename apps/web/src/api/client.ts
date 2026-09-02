@@ -56,6 +56,7 @@ import type {
   ScaffoldSpec,
   ScaffoldTemplateDetail,
   GitChanges,
+  HeldOutputs,
   GitDiff,
   GitSaid,
   GitBranch,
@@ -374,6 +375,11 @@ export const api = {
 
   // The git pane's verbs — each one git command, run as itself, with git's
   // own words when it refuses. See crates/hickory-cli/src/serve/git_ops.rs.
+  /** Generated files the loop is holding, and why. */
+  heldOutputs: () => request<HeldOutputs>("GET", "/api/outputs/held"),
+  /** Overwrite a held file with what its document produces. */
+  regenerateOutput: (path: string) =>
+    request<{ ok: boolean; path: string }>("POST", "/api/outputs/regenerate", { path }),
   gitChanges: () => request<GitChanges>("GET", "/api/git/changes"),
   gitDiff: (path: string, staged = false) =>
     request<GitDiff>(

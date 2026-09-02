@@ -1,0 +1,5 @@
+{
+  "commands": [],
+  "output": "| hit | `quantity` | `unit_price` |\n|-----|------|------|\n| 1 | `2` | `9.99` |\n| 2 | `1` | `24.5` |\n",
+  "output_hash": "2bfc410c08cd8f26fa8aa71dcfa0a5be0b4d43d2968db230f4bfe3d32c7c0852"
+}

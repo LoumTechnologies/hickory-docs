@@ -1,0 +1,7 @@
+{
+  "commands": [
+    "duckdb -markdown tour.db -c \"\nSELECT region, round(avg(unit_price), 2) AS avg_price\nFROM sales\nGROUP BY region\nORDER BY region;\n\""
+  ],
+  "output": "| region | avg_price |\n|--------|----------:|\n| east   | 50.8      |\n| north  | 51.78     |\n| south  | 51.32     |\n| west   | 50.28     |\n",
+  "output_hash": "6f95209daef4af7a23a130145be342152914cd87b5100a5201192b011a22e8e9"
+}

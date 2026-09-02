@@ -11,6 +11,7 @@ import type { Extension } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
 
 import { api } from "../api/client";
+import { FILES_CHANGED_EVENT } from "./FolderTreePane";
 import type { OutputFile, SourceEdit } from "../api/types";
 import { OutputEditorPane, provToChars, type ProvChar } from "../components/OutputEditorPane";
 import { createOutputSaver } from "../lib/outputSave";
@@ -140,11 +141,51 @@ export function GeneratedFileView({
     });
   }, [liveFile, saver]);
 
+  // Whether the loop is holding this file, and why: bytes on disk that are
+  // not the document's and could not be carried back. Read on mount and
+  // whenever files change, since a hold begins and ends with a batch.
+  const [held, setHeld] = useState<string | null>(null);
+  const [regenerateError, setRegenerateError] = useState<string | null>(null);
+  useEffect(() => {
+    let live = true;
+    const read = () =>
+      void api.heldOutputs().then(
+        (answer) => live && setHeld(answer.held[path] ?? null),
+        () => {},
+      );
+    read();
+    window.addEventListener(FILES_CHANGED_EVENT, read);
+    return () => {
+      live = false;
+      window.removeEventListener(FILES_CHANGED_EVENT, read);
+    };
+  }, [path]);
+
   if (error) return <p className="error">{error}</p>;
   if (!file) return <p className="muted">Loading {path}…</p>;
 
   return (
     <div className="generated-view">
+      {held && (
+        <div className="banner banner-warn generated-view__held" role="status">
+          This file is held: what is on disk is not what {path}'s document produces, and the
+          difference could not be carried back — {held}. The loop is leaving it as it is.
+          Edit the document to match, or{" "}
+          <button
+            type="button"
+            className="btn btn-small"
+            onClick={() =>
+              void api.regenerateOutput(path).then(
+                () => setRegenerateError(null),
+                (e) => setRegenerateError(e instanceof Error ? e.message : String(e)),
+              )
+            }
+          >
+            Regenerate from document
+          </button>
+          {regenerateError && <span className="error"> {regenerateError}</span>}
+        </div>
+      )}
       <OutputEditorPane
         key={path}
         file={file}

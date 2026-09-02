@@ -61,6 +61,8 @@ async fn a_weave_without_a_recording_keeps_the_artifact_and_still_writes_the_rep
     write_outputs_detailed(&run, None).expect("write outputs");
     let chart = dir.path().join("chart.svg");
     let real_bytes = std::fs::read_to_string(&chart).expect("chart written");
+    let committed_report =
+        std::fs::read_to_string(dir.path().join("report.md")).expect("report written");
     assert!(
         real_bytes.contains("real bytes"),
         "the run must produce the artifact for this test to mean anything: {real_bytes:?}"
@@ -93,21 +95,25 @@ async fn a_weave_without_a_recording_keeps_the_artifact_and_still_writes_the_rep
         "the artifact must not be counted as written: {outputs:?}"
     );
 
-    // The weave target is this weave's own report, so it IS written, and it
-    // says plainly that the cell has no recording.
+    // The weave target is kept too. It used to be written as "this weave's
+    // own report", and the report put `[never run]` over the recorded
+    // output the committed file held. A rendering that lags is consistent
+    // with itself; writing four words over recorded output is not a report,
+    // it is a loss.
     let report = dir.path().join("report.md");
     assert!(
-        outputs.written.iter().any(|p| p == &report),
-        "the woven report must still be written: {outputs:?}"
+        outputs.preserved.iter().any(|p| p == &report),
+        "the woven report must be kept, and reported as kept: {outputs:?}"
     );
-    let woven = std::fs::read_to_string(&report).unwrap();
     assert!(
-        woven.contains("[never run]"),
-        "the report must say the cell never ran rather than pretending otherwise: {woven}"
+        !outputs.written.iter().any(|p| p == &report),
+        "the woven report must not be rewritten: {outputs:?}"
     );
-    // The picture is referenced rather than inlined, which is why the marker
-    // above is checked through the text file instead.
-    assert!(woven.contains("![chart.svg](chart.svg)"), "{woven}");
+    assert_eq!(
+        std::fs::read_to_string(&report).unwrap(),
+        committed_report,
+        "the committed rendering must be byte-identical afterwards"
+    );
 }
 
 #[tokio::test(flavor = "multi_thread")]

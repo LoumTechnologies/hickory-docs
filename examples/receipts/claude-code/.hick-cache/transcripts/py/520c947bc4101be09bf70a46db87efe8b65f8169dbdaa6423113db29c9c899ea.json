@@ -1,0 +1,7 @@
+{
+  "commands": [
+    "cd project/fix && python3 -c 'import pool; print(pool.pool_settings({}))' && CHECKOUT_POOL_FIX=1 python3 -c 'import pool; print(pool.pool_settings())'"
+  ],
+  "output": "{'size': 10, 'acquire_timeout': None}\n{'size': 40, 'acquire_timeout': 2.0}\n",
+  "output_hash": "cf2706682adde03d90616e2ba42f51c942a3ec825a77fe5ddb0b2dcfa41d8858"
+}

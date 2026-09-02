@@ -1,0 +1,7 @@
+{
+  "commands": [
+    "cat out/package.json"
+  ],
+  "output": "{\n  \"name\": \"greeter\",\n  \"version\": \"0.1.0\",\n  \"main\": \"src/index.js\"\n}\n",
+  "output_hash": "cd91811ea65e567c6367fd0690c7d011060b07e42dd2bbb0fe5b13cd5f597bfc"
+}

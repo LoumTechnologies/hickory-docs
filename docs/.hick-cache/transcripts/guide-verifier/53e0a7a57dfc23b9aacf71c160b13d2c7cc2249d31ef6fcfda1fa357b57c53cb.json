@@ -1,0 +1,7 @@
+{
+  "commands": [
+    "cat out/stamp.txt"
+  ],
+  "output": "Built by hick\n",
+  "output_hash": "82b822b27165b0f7445360ab303dddeb4169a4d55a4bee0f8f46709b553eb95e"
+}

@@ -1,0 +1,7 @@
+{
+  "commands": [
+    "hick diagram demo --group dir --format scene"
+  ],
+  "output": "{\n  \"nodes\": [\n    {\n      \"id\": \"app\"\n    },\n    {\n      \"id\": \"lib\"\n    }\n  ],\n  \"edges\": [\n    {\n      \"from\": \"app\",\n      \"to\": \"lib\"\n    }\n  ]\n}\n",
+  "output_hash": "78960896db0869a02a5ff35fb767ecf67868a75d401e1eabbb58b44998b270b9"
+}

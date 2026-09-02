@@ -35,7 +35,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::{Context as _, Result};
-use log::{debug, info, warn};
+use log::{debug, info, trace, warn};
 use rand::RngCore;
 
 use hick_exec::dag;
@@ -905,6 +905,7 @@ fn ingested_volume_names<'a>(
 fn flushable_volume_files(
     vol_decl: &hick_exec::volume::VolumeDeclaration,
     tar: Option<&[u8]>,
+    seeded: Option<&[u8]>,
 ) -> Result<HashMap<String, FileContent>> {
     let output_prefix = match &vol_decl.kind {
         hick_exec::volume::VolumeKind::Output { path } => Some(path.as_str()),
@@ -921,8 +922,24 @@ fn flushable_volume_files(
     // binary becomes `FileContent::Binary`, which is also what lets `hick
     // ingest` name it rather than mangle it.
     let unpacked = volume_state::read_tar_files(tar)?;
+    // What the run changed, not what it read. A file identical to its seeded
+    // bytes is an input that came along for the ride — the document itself,
+    // when a volume is seeded from `.`, or a placeholder staged for a file a
+    // cell fills — and flushing it back would write it over the cell's real
+    // product, or over an edit made while the run was going.
+    // docs/guarantees/execution/an-output-volume-flushes-only-what-the-run-changed.md
+    let unchanged: HashMap<String, Vec<u8>> = match seeded {
+        Some(seeded) => volume_state::read_tar_files(seeded)?.into_iter().collect(),
+        None => HashMap::new(),
+    };
     let mut out = HashMap::new();
     for (file_path, bytes) in unpacked {
+        if unchanged
+            .get(&file_path)
+            .is_some_and(|before| *before == bytes)
+        {
+            continue;
+        }
         let output_path = if prefix.is_empty() || prefix == "." {
             file_path
         } else {
@@ -1110,10 +1127,142 @@ fn is_run_artifact(path: &str) -> bool {
 /// caveat on the guarantee above — but it is exact for the unanchored
 /// patterns (`bin/`, `obj/`, `__pycache__`) that are the actual, observed
 /// failure mode.
+/// Every `hick:file` a cell fills, keyed by the cell: (container, source
+/// line) → (the file's document-relative path, how its transcript renders).
+///
+/// A cell's product is what the weave puts in the file — `show="output"`
+/// gives the bytes alone, the default gives the command line first — so the
+/// same renderer decides both, and what a later cell reads from a volume is
+/// exactly what the file will hold.
+pub(crate) fn cell_filled_files<'a>(
+    documents: impl Iterator<Item = &'a hick_lang::HickDocument>,
+) -> HashMap<(String, usize), (String, hick_handlers::ExecShow)> {
+    let mut out = HashMap::new();
+    for doc in documents {
+        for tag in doc.tags().filter(|t| t.name == "file") {
+            let Some(path) = tag.get_attribute("path") else {
+                continue;
+            };
+            for exec in tag.child_tags().filter(|c| c.name == "exec") {
+                let Some(container) = exec.get_attribute("container") else {
+                    continue;
+                };
+                out.insert(
+                    (container.trim().to_string(), exec.source_line),
+                    (
+                        path.trim().trim_start_matches("./").to_string(),
+                        hick_handlers::parse_exec_show(exec),
+                    ),
+                );
+            }
+        }
+    }
+    out
+}
+
+/// Put a cell's product into every input volume that covers its path, so
+/// the next cell that mounts that volume reads what this one just made.
+///
+/// This is the chain the documents are for — a program writes
+/// `openapi.json`, a generator reads it and writes the client — and it has
+/// to work inside ONE run. Without this, a cell-filled file reached the
+/// volume only through the next run's seeding from disk, so the generator
+/// read either nothing or the previous run's spec, and the run reported
+/// nothing wrong. The volume's seeded record is left alone: the product is
+/// something the run changed, and the flush must treat it as such.
+fn inject_products_into_volumes(
+    volume_store: &mut volume_state::VolumeStore,
+    volumes: &HashMap<String, hick_exec::volume::VolumeDeclaration>,
+    products: &[(String, Vec<u8>)],
+) -> Result<()> {
+    for (vol_name, vol_decl) in volumes {
+        let input = match &vol_decl.kind {
+            hick_exec::volume::VolumeKind::Input { path }
+            | hick_exec::volume::VolumeKind::InputOutput { input: path, .. } => path,
+            _ => continue,
+        };
+        let input = input.trim().trim_start_matches("./").trim_end_matches('/');
+        let mut entries: Vec<(String, Vec<u8>)> = match volume_store.get(vol_name) {
+            Some(tar) => volume_state::read_tar_files(tar)?,
+            None => Vec::new(),
+        };
+        let mut changed = false;
+        for (rel_path, bytes) in products {
+            let inside = if input.is_empty() || input == "." {
+                Some(rel_path.as_str())
+            } else {
+                rel_path
+                    .strip_prefix(input)
+                    .and_then(|r| r.strip_prefix('/'))
+            };
+            let Some(inside) = inside else {
+                continue;
+            };
+            match entries.iter_mut().find(|(path, _)| path == inside) {
+                Some((_, existing)) => *existing = bytes.clone(),
+                None => entries.push((inside.to_string(), bytes.clone())),
+            }
+            changed = true;
+        }
+        if changed {
+            volume_store.update(vol_name, volume_state::pack_tar_files(&entries)?);
+        }
+    }
+    Ok(())
+}
+
+/// The files a pipeline's documents produce whose bytes change from run to
+/// run: every weave target, and every `hick:file` a cell fills.
+///
+/// These are kept OUT of a cell's input digest. A cell that mounts the
+/// folder it lives in mounts its own weave, which carries its own transcript;
+/// keying the recording on that made the key change on every run, so no
+/// recording of such a cell was ever findable again, and the next weave wrote
+/// `[never run]` over the output of a run that really happened. That used to
+/// be a warning telling the author to mount something narrower. It is now
+/// simply not in the key: a document's own unstable products are not inputs
+/// to the run that produces them, whatever directory a cell mounts.
+///
+/// Only the UNSTABLE products. A `hick:file` assembled from literal text is
+/// the central move of literate programming — a cell running a script its
+/// own document wrote — and its bytes are exactly the input the author means
+/// them to be (`a-recording-is-keyed-by-the-cells-inputs.md`).
+pub(crate) fn unstable_outputs<'a>(
+    documents: impl Iterator<Item = &'a hick_lang::HickDocument>,
+) -> HashSet<String> {
+    let mut out = HashSet::new();
+    for doc in documents {
+        for tag in doc.tags().filter(|t| t.name == "file") {
+            if tag.child_tags().any(|c| c.name == "exec")
+                && let Some(path) = tag.get_attribute("path")
+            {
+                out.insert(path.trim().trim_start_matches("./").to_string());
+            }
+        }
+        if let Some(weave) = doc.weave_path.as_deref()
+            && weave != hick_lang::WEAVE_NONE
+        {
+            out.insert(weave.trim().trim_start_matches("./").to_string());
+        }
+    }
+    out
+}
+
+/// Whether a path inside a mounted volume is one of the documents' unstable
+/// products. Matched by suffix as well as exactly, because a volume seeded
+/// from `project/` names `project/x.svg` as `x.svg`.
+fn is_unstable_output(path: &str, unstable: &HashSet<String>) -> bool {
+    unstable.contains(path)
+        || unstable
+            .iter()
+            .any(|u| u.ends_with(path) && u[..u.len() - path.len()].ends_with('/'))
+}
+
 fn mounted_inputs_digest(
     volume_store: &volume_state::VolumeStore,
     mounts: &[(String, String)],
     project_dir: &Path,
+    unstable: &HashSet<String>,
 ) -> String {
     let mut entries: Vec<(String, Vec<u8>)> = Vec::new();
     for (vol_name, mount_path) in mounts {
@@ -1129,7 +1278,7 @@ fn mounted_inputs_digest(
                 let candidates: Vec<String> = files
                     .iter()
                     .map(|(path, _)| path.clone())
-                    .filter(|path| !is_run_artifact(path))
+                    .filter(|path| !is_run_artifact(path) && !is_unstable_output(path, unstable))
                     .collect();
                 // A failure to check (no `git`, no repository) folds into
                 // the digest rather than being silently treated as "nothing
@@ -1152,9 +1301,16 @@ fn mounted_inputs_digest(
                         }
                     };
                 for (path, body) in files {
-                    if is_run_artifact(&path) {
+                    if is_run_artifact(&path) || is_unstable_output(&path, unstable) {
                         continue;
                     }
+                    // At trace level, so a key that differs between a run and
+                    // its weave can be explained by the entries rather than
+                    // guessed at from the hash.
+                    trace!(
+                        "key term: {vol_name}@{mount_path}/{path} ({} bytes)",
+                        body.len()
+                    );
                     if ignored.as_ref().is_some_and(|set| set.contains(&path)) {
                         continue;
                     }
@@ -1495,6 +1651,11 @@ pub async fn run_pipeline_live(
     let authority = Arc::new(TokenAuthority::new(&root_key));
 
     let prepared = prepare_pipeline(sources, &authority, params)?;
+    let unstable_products = unstable_outputs(prepared.documents.iter().map(|(_, d)| d));
+    let filled_files = cell_filled_files(prepared.documents.iter().map(|(_, d)| d));
+    // Products of cells that filled a `hick:file`, waiting to be put into
+    // the volumes the next cell mounts. See `inject_products_into_volumes`.
+    let mut pending_products: Vec<(String, Vec<u8>)> = Vec::new();
     let PreparedPipeline {
         mut documents,
         state,
@@ -1917,8 +2078,12 @@ pub async fn run_pipeline_live(
                 let caps_canonical = cache::canonical_caps(&container_defs, &exec_info.container);
                 let secret_names = cache::secret_names_for(&container_defs, &exec_info.container);
                 let secret_refs: Vec<&str> = secret_names.iter().map(|s| s.as_str()).collect();
-                let input_digest =
-                    mounted_inputs_digest(&volume_store, &exec_info.mounts, &working_dir);
+                let input_digest = mounted_inputs_digest(
+                    &volume_store,
+                    &exec_info.mounts,
+                    &working_dir,
+                    &unstable_products,
+                );
                 let upstream = upstream_keys(&flow_dag, exec_id, &keys_by_exec);
                 let upstream_refs: Vec<&str> = upstream.iter().map(String::as_str).collect();
                 cache::exec_cache_key(
@@ -1948,6 +2113,19 @@ pub async fn run_pipeline_live(
                         expect_specs.get(&CellId::exec(&exec_info.container, exec_info.source_line))
                     {
                         expectations.push(expect::evaluate(spec, doc_name, &cached.output));
+                    }
+                    if let Some((rel_path, show)) =
+                        filled_files.get(&(exec_info.container.clone(), exec_info.source_line))
+                    {
+                        let rendered = hick_handlers::render_transcript(
+                            &[TranscriptEntry {
+                                commands: cached.commands.clone(),
+                                output: cached.output.clone(),
+                                source_line: Some(exec_info.source_line),
+                            }],
+                            *show,
+                        );
+                        pending_products.push((rel_path.clone(), rendered.into_bytes()));
                     }
                     executor.inject_transcript_entry(
                         &exec_info.container,
@@ -2009,6 +2187,22 @@ pub async fn run_pipeline_live(
             } else {
                 // Container-based execution
                 executor.ensure_started(&exec_info.container, image).await?;
+
+                // What earlier cells produced into `hick:file`s goes into the
+                // volumes first, so this cell reads this run's products.
+                if !pending_products.is_empty() {
+                    debug!(
+                        "injecting {} product(s) into volumes before the cell at line {}",
+                        pending_products.len(),
+                        exec_info.source_line
+                    );
+                    inject_products_into_volumes(
+                        &mut volume_store,
+                        &all_volume_decls,
+                        &pending_products,
+                    )?;
+                    pending_products.clear();
+                }
 
                 // Inject volumes before exec (or just create the mount point
                 // for the first writer when the volume is still empty).
@@ -2168,6 +2362,31 @@ pub async fn run_pipeline_live(
                     .or_default()
                     .push(exec_info.source_line);
 
+                // A cell that fills a file has a product: what the weave will
+                // put in that file, rendered the same way.
+                if let Some((rel_path, show)) =
+                    filled_files.get(&(exec_info.container.clone(), exec_info.source_line))
+                    && let Some(entry) = executor
+                        .transcripts()
+                        .get(&exec_info.container)
+                        .and_then(|v| v.last())
+                {
+                    let rendered = hick_handlers::render_transcript(
+                        &[TranscriptEntry {
+                            commands: entry.commands.clone(),
+                            output: entry.output.clone(),
+                            source_line: Some(exec_info.source_line),
+                        }],
+                        *show,
+                    );
+                    debug!(
+                        "cell at line {} filled {rel_path} ({} bytes), pending for the next cell",
+                        exec_info.source_line,
+                        rendered.len()
+                    );
+                    pending_products.push((rel_path.clone(), rendered.into_bytes()));
+                }
+
                 // Evaluate the block's <hick:expect> expectation, if any.
                 // Failures are recorded, never fatal here — `check` decides.
                 if let Some((doc_name, spec)) =
@@ -2269,7 +2488,11 @@ pub async fn run_pipeline_live(
                         && !ingested_volumes.contains(vol_name)
                         && let Some(vol_decl) = all_volume_decls.get(vol_name)
                     {
-                        let files = flushable_volume_files(vol_decl, volume_store.get(vol_name))?;
+                        let files = flushable_volume_files(
+                            vol_decl,
+                            volume_store.get(vol_name),
+                            volume_store.seeded(vol_name),
+                        )?;
                         if !files.is_empty() {
                             hook(vol_name, &files);
                         }
@@ -2299,7 +2522,11 @@ pub async fn run_pipeline_live(
                 "Volume '{vol_name}' is ingested into a document, which now owns its bytes; keeping the fresh run aside rather than over them"
             );
         }
-        let files = flushable_volume_files(vol_decl, volume_store.get(vol_name))?;
+        let files = flushable_volume_files(
+            vol_decl,
+            volume_store.get(vol_name),
+            volume_store.seeded(vol_name),
+        )?;
         for (output_path, content) in files {
             // Every output volume is recorded here under its own name; only
             // a NOT-yet-ingested one is also flushed into `files`.
@@ -2379,6 +2606,7 @@ pub async fn run_pipeline_weave(
     let authority = Arc::new(TokenAuthority::new(&root_key));
 
     let prepared = prepare_pipeline(sources, &authority, params)?;
+    let unstable_products = unstable_outputs(prepared.documents.iter().map(|(_, d)| d));
     let PreparedPipeline {
         documents,
         state,
@@ -2431,8 +2659,12 @@ pub async fn run_pipeline_weave(
                     let caps_canonical = cache::canonical_caps(&container_defs, &info.container);
                     let secret_names = cache::secret_names_for(&container_defs, &info.container);
                     let secret_refs: Vec<&str> = secret_names.iter().map(|s| s.as_str()).collect();
-                    let input_digest =
-                        mounted_inputs_digest(&volume_store, &info.mounts, &cc.project_dir);
+                    let input_digest = mounted_inputs_digest(
+                        &volume_store,
+                        &info.mounts,
+                        &cc.project_dir,
+                        &unstable_products,
+                    );
                     let upstream = upstream_keys(&flow_dag, exec_id, &keys_by_exec);
                     let upstream_refs: Vec<&str> = upstream.iter().map(String::as_str).collect();
                     let key = cache::exec_cache_key(
@@ -3833,6 +4065,93 @@ mod tests {
     // Protects docs/guarantees/execution/a-volume-carries-what-the-repository-carries.md
     // (the cache-digest half — `mounted_inputs_digest` must apply the same
     // `.gitignore` filter `seed_from_directory` already applies at seed time).
+    /// Protects docs/guarantees/execution/an-output-volume-flushes-only-what-the-run-changed.md
+    #[test]
+    fn a_flush_writes_only_what_the_run_changed() {
+        let decl = hick_exec::volume::VolumeDeclaration {
+            name: "work".to_string(),
+            kind: hick_exec::volume::VolumeKind::InputOutput {
+                input: ".".to_string(),
+                output: ".".to_string(),
+            },
+            access_rules: Vec::new(),
+        };
+        let seeded = volume_state::pack_tar_files(&[
+            ("doc.hick".to_string(), b"<doc/>".to_vec()),
+            ("out/a.txt".to_string(), b"[never run]".to_vec()),
+        ])
+        .unwrap();
+        let after = volume_state::pack_tar_files(&[
+            ("doc.hick".to_string(), b"<doc/>".to_vec()),
+            ("out/a.txt".to_string(), b"[never run]".to_vec()),
+            ("out/b.txt".to_string(), b"made by a cell".to_vec()),
+        ])
+        .unwrap();
+        let files = flushable_volume_files(&decl, Some(&after), Some(&seeded)).unwrap();
+        // The document and the staged placeholder came along for the ride;
+        // only the cell's own product is an output.
+        assert_eq!(files.len(), 1, "{files:?}");
+        assert!(files.contains_key("out/b.txt"));
+        // With no record of the seed, everything flushes, as before.
+        let files = flushable_volume_files(&decl, Some(&after), None).unwrap();
+        assert_eq!(files.len(), 3);
+    }
+
+    /// Protects docs/guarantees/verification/a-recording-is-keyed-by-the-cells-inputs.md
+    #[test]
+    fn a_documents_own_unstable_products_are_not_in_the_key() {
+        // A cell mounting `.` mounts its own weave and the file it fills.
+        // Those bytes change on every run, so a key that counted them was
+        // never findable again; the recorded output of a real run then read
+        // `[never run]` on the next weave. They are not inputs.
+        let dir = tempfile::tempdir().unwrap();
+        let mut store = volume_state::VolumeStore::new();
+        let before = vec![
+            ("analysis.py".to_string(), b"print(1)".to_vec()),
+            ("report.md".to_string(), b"old weave".to_vec()),
+            ("chart.svg".to_string(), b"<svg>old</svg>".to_vec()),
+        ];
+        let after = vec![
+            ("analysis.py".to_string(), b"print(1)".to_vec()),
+            ("report.md".to_string(), b"new weave".to_vec()),
+            ("chart.svg".to_string(), b"<svg>new</svg>".to_vec()),
+        ];
+        let mounts = vec![("src".to_string(), "/work".to_string())];
+        let unstable: HashSet<String> = ["report.md".to_string(), "chart.svg".to_string()]
+            .into_iter()
+            .collect();
+        store.seed_tar("src", volume_state::pack_tar_files(&before).unwrap());
+        let key_before = mounted_inputs_digest(&store, &mounts, dir.path(), &unstable);
+        store.seed_tar("src", volume_state::pack_tar_files(&after).unwrap());
+        let key_after = mounted_inputs_digest(&store, &mounts, dir.path(), &unstable);
+        assert_eq!(
+            key_before, key_after,
+            "the run's own products moved the key"
+        );
+
+        // The script the document assembles IS an input: change it and the
+        // key changes, which is the guarantee's whole point.
+        let edited = vec![
+            ("analysis.py".to_string(), b"print(2)".to_vec()),
+            ("report.md".to_string(), b"new weave".to_vec()),
+            ("chart.svg".to_string(), b"<svg>new</svg>".to_vec()),
+        ];
+        store.seed_tar("src", volume_state::pack_tar_files(&edited).unwrap());
+        assert_ne!(
+            key_after,
+            mounted_inputs_digest(&store, &mounts, dir.path(), &unstable)
+        );
+        // And a product under a subdirectory is matched by its tail.
+        assert!(is_unstable_output(
+            "chart.svg",
+            &["project/chart.svg".to_string()].into_iter().collect()
+        ));
+        assert!(!is_unstable_output(
+            "art.svg",
+            &["project/chart.svg".to_string()].into_iter().collect()
+        ));
+    }
+
     #[test]
     fn mounted_inputs_digest_excludes_gitignored_paths() {
         let dir = tempfile::tempdir().expect("tempdir");
@@ -3858,7 +4177,7 @@ mod tests {
             ])
             .unwrap();
             store.update("v", tar);
-            mounted_inputs_digest(&store, &mounts, dir.path())
+            mounted_inputs_digest(&store, &mounts, dir.path(), &HashSet::new())
         };
 
         assert_eq!(
@@ -3891,7 +4210,7 @@ mod tests {
                 volume_state::pack_tar_files(&[("build/junk.txt".to_string(), junk.to_vec())])
                     .unwrap();
             store.update("v", tar);
-            mounted_inputs_digest(&store, &mounts, dir.path())
+            mounted_inputs_digest(&store, &mounts, dir.path(), &HashSet::new())
         };
         assert_ne!(
             digest_of(b"one"),

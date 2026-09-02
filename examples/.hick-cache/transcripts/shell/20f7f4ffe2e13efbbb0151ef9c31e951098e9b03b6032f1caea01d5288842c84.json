@@ -1,0 +1,7 @@
+{
+  "commands": [
+    "printf 'cherry,7\\napple,3\\nbanana,5\\napple,9\\n' > fruit.csv\ncat fruit.csv"
+  ],
+  "output": "cherry,7\napple,3\nbanana,5\napple,9\n",
+  "output_hash": "c671c0546676748666eff9dceeb796e3e75c9f633366aadc9c712165c92c414b"
+}

@@ -238,6 +238,10 @@ export interface FileNode {
   /** The id of the document that generates this file, when one does. Absent
    * on documents themselves, on directories, and on files nobody writes. */
   generated_by?: string;
+  /** Why the loop is leaving this generated file as it is on disk rather
+   * than rewriting it from its document. See
+   * docs/guarantees/authoring/an-output-that-cannot-be-carried-back-is-held.md */
+  held?: string;
 }
 
 export interface FilesResponse {
@@ -261,6 +265,12 @@ export interface FilesResponse {
 export interface OutputFileMeta {
   path: string;
   language: string;
+}
+
+/** GET /api/outputs/held — generated files the loop is leaving as they are
+ * on disk, root-relative path → why. */
+export interface HeldOutputs {
+  held: Record<string, string>;
 }
 
 /** One input that was in front of the model when it wrote (context provenance). */

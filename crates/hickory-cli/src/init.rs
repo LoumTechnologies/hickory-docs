@@ -146,7 +146,7 @@ pub struct InitReport {
     pub hook_path: PathBuf,
     /// True if the hook file was created or its managed block changed.
     pub hook_changed: bool,
-    /// True if `.hick-cache/` was appended to .gitignore.
+    /// True if the `.hick-cache` lines were added to or changed in .gitignore.
     pub gitignore_changed: bool,
     /// True if AGENTS.md was created or its managed section changed.
     pub agents_md_changed: bool,
@@ -177,7 +177,17 @@ pub fn run_init(dir: &Path) -> Result<InitReport> {
     let hooks_dir = hooks_dir(&root)?;
     report.hook_path = hooks_dir.join("pre-commit");
     report.hook_changed = install_hook_block(&report.hook_path)?;
-    report.gitignore_changed = ensure_gitignore_line(&root.join(".gitignore"), ".hick-cache/")?;
+    // The cache is private, EXCEPT the transcripts: a recording is what lets
+    // a clone weave the same bytes it has in git, so it travels with them.
+    // Everything else under `.hick-cache/` — installed tools, indexes, the
+    // CRDT store — is this machine's. A bare `.hick-cache/` line from an
+    // older init is replaced, because git cannot re-include a file under an
+    // excluded directory; the `/*` form is what makes the exception work.
+    report.gitignore_changed =
+        replace_gitignore_line(&root.join(".gitignore"), ".hick-cache/", ".hick-cache/*")?;
+    report.gitignore_changed |= ensure_gitignore_line(&root.join(".gitignore"), ".hick-cache/*")?;
+    report.gitignore_changed |=
+        ensure_gitignore_line(&root.join(".gitignore"), "!.hick-cache/transcripts/")?;
     // Sessions are the user's own record — every prompt, every tool result,
     // every file the model was shown. They are read locally (context
     // provenance derives from them) and are not for the shared repository.
@@ -369,6 +379,26 @@ pub(crate) fn replace_between(
 
 /// Append `line` to the file if no line equals it yet. Returns true if the
 /// file changed.
+/// Replace an exact line, when present. Returns whether anything changed.
+fn replace_gitignore_line(path: &Path, from: &str, to: &str) -> Result<bool> {
+    let existing = match std::fs::read_to_string(path) {
+        Ok(s) => s,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(false),
+        Err(e) => return Err(e).with_context(|| format!("failed to read {}", path.display())),
+    };
+    if !existing.lines().any(|l| l.trim() == from) {
+        return Ok(false);
+    }
+    let out: Vec<&str> = existing
+        .lines()
+        .map(|l| if l.trim() == from { to } else { l })
+        .collect();
+    let mut text = out.join("\n");
+    text.push('\n');
+    std::fs::write(path, text).with_context(|| format!("failed to write {}", path.display()))?;
+    Ok(true)
+}
+
 fn ensure_gitignore_line(path: &Path, line: &str) -> Result<bool> {
     let existing = match std::fs::read_to_string(path) {
         Ok(s) => s,
@@ -583,7 +613,7 @@ pub fn print_init_report(report: &InitReport) {
         describe(report.hook_changed)
     );
     eprintln!(
-        ".gitignore (.hick-cache/, sessions/, .hick-journal/): {}",
+        ".gitignore (.hick-cache/* except transcripts, sessions/, .hick-journal/): {}",
         describe(report.gitignore_changed)
     );
     eprintln!(
@@ -831,7 +861,22 @@ mod tests {
         // off by default; a project deletes the line to opt in.
         assert_eq!(
             content,
-            "target/\n.hick-cache/\nsessions/\n.hick-journal/\n"
+            "target/\n.hick-cache/*\n!.hick-cache/transcripts/\nsessions/\n.hick-journal/\n"
+        );
+    }
+
+    /// Protects docs/guarantees/verification/a-recording-travels-with-its-outputs.md
+    #[test]
+    fn an_older_cache_ignore_is_widened_to_let_transcripts_through() {
+        let repo = init_repo();
+        // The line an earlier init wrote. Git cannot re-include a file under
+        // an excluded directory, so it has to become `.hick-cache/*`.
+        std::fs::write(repo.path().join(".gitignore"), ".hick-cache/\n").unwrap();
+        run_init(repo.path()).unwrap();
+        let content = std::fs::read_to_string(repo.path().join(".gitignore")).unwrap();
+        assert_eq!(
+            content,
+            ".hick-cache/*\n!.hick-cache/transcripts/\nsessions/\n.hick-journal/\n"
         );
     }
 

@@ -8284,3 +8284,16 @@ button.status-bar__item:hover { background: var(--bg-sunken); color: var(--fg); 
 .diff-line--hunk { color: var(--accent-2); background: color-mix(in srgb, var(--accent-2) 8%, transparent); }
 .diff-line--add { color: var(--ok); background: color-mix(in srgb, var(--ok) 10%, transparent); }
 .diff-line--del { color: var(--fail); background: color-mix(in srgb, var(--fail) 10%, transparent); }
+
+/* --- a held generated file --------------------------------------------- */
+.folder-tree__held {
+  margin-left: 0.4rem;
+  padding: 0 0.3rem;
+  border-radius: 3px;
+  font-size: 0.65rem;
+  font-family: system-ui, sans-serif;
+  background: color-mix(in srgb, var(--warn) 22%, transparent);
+  color: var(--warn);
+}
+.banner-warn { background: color-mix(in srgb, var(--warn) 14%, transparent); }
+.generated-view__held { margin: 0 0 0.4rem; font-size: 0.8rem; }

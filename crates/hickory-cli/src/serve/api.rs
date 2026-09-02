@@ -381,6 +381,11 @@ struct TreeNode {
     /// happens to be overwritten from time to time.
     #[serde(skip_serializing_if = "Option::is_none")]
     generated_by: Option<String>,
+    /// Why the loop is leaving this generated file as it is on disk rather
+    /// than rewriting it from its document. Absent for every file the
+    /// document and the disk agree about.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    held: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     children: Option<Vec<TreeNode>>,
 }
@@ -428,9 +433,15 @@ pub async fn files(State(state): State<LocalState>) -> ApiResult<Json<Value>> {
     let root_path = root.canonicalize().unwrap_or_else(|_| root.clone());
     let index = state.index.clone();
     // Walking a working tree is filesystem work; keep it off the runtime.
-    let (tree, truncated) = tokio::task::spawn_blocking(move || file_tree(&root, &index))
+    let (mut tree, truncated) = tokio::task::spawn_blocking(move || file_tree(&root, &index))
         .await
         .map_err(|e| ApiError::internal(format!("file listing task failed: {e}")))?;
+    {
+        let held = state.held.lock().expect("held outputs").clone();
+        if !held.is_empty() {
+            mark_held(&mut tree, &held);
+        }
+    }
     Ok(Json(json!({
         "root": root_name,
         // The absolute path, the separator that joins it to a node's path,
@@ -676,6 +687,77 @@ pub fn generated_by(generated: &HashMap<String, String>, path: &str) -> Option<S
     best.map(|(_, doc)| doc.clone())
 }
 
+/// Stamp `held` onto every node the loop is holding.
+fn mark_held(nodes: &mut [TreeNode], held: &HashMap<String, String>) {
+    for node in nodes {
+        if !node.dir
+            && let Some(reason) = held.get(&node.path)
+        {
+            node.held = Some(reason.clone());
+        }
+        if let Some(children) = node.children.as_mut() {
+            mark_held(children, held);
+        }
+    }
+}
+
+/// `GET /api/outputs/held` — every generated file the loop is holding, with
+/// why. See `docs/guarantees/authoring/an-output-that-cannot-be-carried-back-is-held.md`.
+pub async fn held_outputs(State(state): State<LocalState>) -> Json<Value> {
+    let held = state.held.lock().expect("held outputs").clone();
+    Json(json!({ "held": held }))
+}
+
+#[derive(serde::Deserialize)]
+pub struct RegenerateBody {
+    pub path: String,
+}
+
+/// `POST /api/outputs/regenerate` — overwrite a held file with what its
+/// document produces. The one write over held bytes, taken only when asked.
+pub async fn regenerate_output(
+    State(state): State<LocalState>,
+    Json(body): Json<RegenerateBody>,
+) -> ApiResult<Json<Value>> {
+    if body.path.is_empty()
+        || std::path::Path::new(&body.path).is_absolute()
+        || body.path.split('/').any(|p| p == "..")
+    {
+        return Err(ApiError::bad_request(format!(
+            "{:?} is not a path inside the open folder",
+            body.path
+        )));
+    }
+    let held = state
+        .held
+        .lock()
+        .expect("held outputs")
+        .contains_key(&body.path);
+    if !held {
+        return Err(ApiError::unprocessable(format!(
+            "{} is not held: the document and the disk already agree, so there is nothing to \
+             regenerate",
+            body.path
+        )));
+    }
+    let root = state
+        .index
+        .root()
+        .canonicalize()
+        .unwrap_or_else(|_| state.index.root().to_path_buf());
+    let sender = state.up_commands.lock().expect("up command inbox").clone();
+    let Some(sender) = sender else {
+        return Err(ApiError::unavailable(
+            "the folder is not being watched, so nothing can regenerate the file; run \
+             `hick weave` on the document instead",
+        ));
+    };
+    sender
+        .send(crate::up::UpCommand::Regenerate(root.join(&body.path)))
+        .map_err(|_| ApiError::unavailable("the watch loop has stopped"))?;
+    Ok(Json(json!({ "ok": true, "path": body.path })))
+}
+
 /// Stamp `generated_by` onto every node whose path a document writes.
 fn mark_generated(nodes: &mut [TreeNode], generated: &HashMap<String, String>) {
     for node in nodes {
@@ -711,6 +793,7 @@ fn insert_tree_node(top: &mut Vec<TreeNode>, rel: &str, dir: bool, index: &super
                 dir,
                 doc_id,
                 generated_by: None,
+                held: None,
                 children: dir.then(Vec::new),
             });
             return;
@@ -725,6 +808,7 @@ fn insert_tree_node(top: &mut Vec<TreeNode>, rel: &str, dir: bool, index: &super
                     dir: true,
                     doc_id: None,
                     generated_by: None,
+                    held: None,
                     children: Some(Vec::new()),
                 });
                 siblings.len() - 1
@@ -1481,6 +1565,7 @@ mod tree_tests {
                 dir: false,
                 doc_id: None,
                 generated_by: None,
+                held: None,
                 children: None,
             },
             TreeNode {
@@ -1489,6 +1574,7 @@ mod tree_tests {
                 dir: false,
                 doc_id: Some("d2".into()),
                 generated_by: None,
+                held: None,
                 children: None,
             },
             TreeNode {
@@ -1497,12 +1583,14 @@ mod tree_tests {
                 dir: true,
                 doc_id: None,
                 generated_by: None,
+                held: None,
                 children: Some(vec![TreeNode {
                     name: "main.rs".into(),
                     path: "src/main.rs".into(),
                     dir: false,
                     doc_id: None,
                     generated_by: None,
+                    held: None,
                     children: None,
                 }]),
             },
