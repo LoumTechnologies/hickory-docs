@@ -85,6 +85,12 @@ export interface CodeAction {
   command?: { title: string; command: string; arguments?: unknown[] };
 }
 
+/** One replacement in one document. */
+export interface TextEdit {
+  range: LspRange;
+  newText: string;
+}
+
 export interface WorkspaceEdit {
   changes?: Record<string, { range: LspRange; newText: string }[]>;
   documentChanges?: {
@@ -346,6 +352,18 @@ export class LspClient {
       newName,
     });
     return (result as WorkspaceEdit) ?? null;
+  }
+
+  /** The edits that format the whole document, in document coordinates. */
+  async formatting(
+    uri: string,
+    options: { tabSize: number; insertSpaces: boolean } = { tabSize: 4, insertSpaces: true },
+  ): Promise<TextEdit[]> {
+    const result = await this.request("textDocument/formatting", {
+      textDocument: { uri },
+      options,
+    });
+    return Array.isArray(result) ? (result as TextEdit[]) : [];
   }
 
   async typeDefinition(uri: string, position: LspPosition): Promise<LspLocation[]> {

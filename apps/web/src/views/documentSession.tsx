@@ -109,6 +109,8 @@ export interface DocSession {
   askText: ReturnType<typeof usePrompt>["askText"];
   lspDiagnostics: ReturnType<typeof useLsp>["diagnostics"];
   lspExtensions: Extension[];
+  /** The session's client and URI, for the editor's completion source. */
+  lspCompletion: { client: import("../lsp/client").LspClient; uri: string } | null;
 
   refresh: () => void;
   runCell: (execId: string) => void;
@@ -836,6 +838,7 @@ function useDocumentSession(
     askText,
     lspDiagnostics: lsp.diagnostics,
     lspExtensions,
+    lspCompletion: lsp.client ? { client: lsp.client, uri: lsp.uri } : null,
     refresh,
     runCell,
     runAll,

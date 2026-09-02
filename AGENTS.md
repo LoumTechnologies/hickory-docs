@@ -443,6 +443,20 @@ runs the last build's `hick-lsp` and answers nothing; and two `LspClient`s on
 one channel each take the other's replies, which is why plain files share
 one client.
 
+**Format on save** (`save-can-format-first.md`, 2026-09-02) is a per-user
+setting, off by default, persisted in `ui.json` beside the window title;
+Shift+Alt+F formats at any time. The edits come from **the file's own
+formatter through its language server** — rustfmt via rust-analyzer — and a
+`hick:file` block is formatted in the block's own indentation:
+`translate_edits` maps the ranges and puts the indentation back after every
+inserted newline, bare only for a trailing newline at column 0. rustfmt
+answers with the **smallest edits that get there**, not a whole-file
+replacement, so a test that greps one edit's text proves nothing; apply them.
+**Several cursors** (`several-cursors-edit-at-once.md`) needed three parts
+at once — allow many, draw them, rectangular selection — and the document
+editor had been getting **no language-server completions at all**
+(`completions({ project })` alone); it does now.
+
 ## Stack (settled — do not relitigate)
 
 - CLI + language + local server: Rust (edition 2024), axum, tokio. No database.

@@ -31,7 +31,7 @@ beforeEach(() => {
     { id: "xai", label: "xAI", configured: false, masked: null },
   ];
   puts = [];
-  uiSettings = { window_title: null };
+  uiSettings = { window_title: null, format_on_save: false };
   uiPuts = [];
   localStorage.removeItem(RIBBON_STYLE_KEY);
   localStorage.removeItem(TAB_STYLE_KEY);
@@ -43,7 +43,7 @@ beforeEach(() => {
       if (method === "PUT") {
         const next = body as UiSettings;
         uiPuts.push(next);
-        uiSettings = { window_title: next.window_title };
+        uiSettings = { ...uiSettings, ...next };
       }
       return uiSettings;
     }
@@ -222,7 +222,7 @@ describe("the appearance section", () => {
   });
 
   it("clears the custom title by PUTting null", async () => {
-    uiSettings = { window_title: "Old title" };
+    uiSettings = { window_title: "Old title", format_on_save: false };
     render(<SettingsView />);
     // The saved title arrives in the input, and a Clear button with it. The
     // configured key row has its own Clear, so scope to the title's form.
@@ -235,7 +235,7 @@ describe("the appearance section", () => {
   });
 
   it("treats a blanked-out field as clearing, not a title of nothing", async () => {
-    uiSettings = { window_title: "Old title" };
+    uiSettings = { window_title: "Old title", format_on_save: false };
     render(<SettingsView />);
     const input = await screen.findByLabelText("Window title");
     await waitFor(() => expect((input as HTMLInputElement).value).toBe("Old title"));
@@ -243,5 +243,15 @@ describe("the appearance section", () => {
     fireEvent.submit(input.closest("form")!);
     await waitFor(() => expect(uiPuts).toHaveLength(1));
     expect(uiPuts[0]).toEqual({ window_title: null });
+  });
+
+  // Protects docs/guarantees/editor-intelligence/save-can-format-first.md
+  it("turns format-on-save on through PUT /api/settings/ui", async () => {
+    render(<SettingsView />);
+    const box = (await screen.findByLabelText("Format on save")) as HTMLInputElement;
+    expect(box.checked).toBe(false);
+    fireEvent.click(box);
+    await waitFor(() => expect(uiPuts.at(-1)).toEqual({ format_on_save: true }));
+    await waitFor(() => expect(box.checked).toBe(true));
   });
 });

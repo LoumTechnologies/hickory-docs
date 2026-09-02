@@ -446,6 +446,7 @@ fn initialize_request(root_uri: &str) -> Value {
                         }
                     },
                     "codeLens": {},
+                    "formatting": {},
                     "rename": { "prepareSupport": true },
                 },
                 "workspace": { "symbol": {} },

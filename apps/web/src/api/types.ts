@@ -511,6 +511,8 @@ export type SettingsKeysPatch = Partial<Record<ProviderId, string | null>>;
 export interface UiSettings {
   /** Custom window title, or null for the default (folder / file name). */
   window_title: string | null;
+  /** Run the file's formatter when Save is chosen. */
+  format_on_save: boolean;
 }
 
 // --- terminals ---------------------------------------------------------------

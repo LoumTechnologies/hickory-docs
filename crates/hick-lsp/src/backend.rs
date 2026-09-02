@@ -1397,6 +1397,7 @@ impl LanguageServer for HickBackend {
                 folding_range_provider: Some(FoldingRangeProviderCapability::Simple(true)),
                 selection_range_provider: Some(SelectionRangeProviderCapability::Simple(true)),
                 inlay_hint_provider: Some(OneOf::Left(true)),
+                document_formatting_provider: Some(OneOf::Left(true)),
                 signature_help_provider: Some(SignatureHelpOptions {
                     trigger_characters: Some(vec!["(".into(), ",".into()]),
                     retrigger_characters: Some(vec![")".into()]),
@@ -2024,6 +2025,39 @@ impl LanguageServer for HickBackend {
         Ok(serde_json::from_value(result).ok())
     }
 
+    async fn formatting(&self, params: DocumentFormattingParams) -> Result<Option<Vec<TextEdit>>> {
+        // Each block is formatted by its own language's formatter — the one
+        // rust-analyzer or pyright delegates to — and the edits come back in
+        // the virtual file's coordinates and indentation. `translate_edits`
+        // maps the ranges and puts the block's indentation back into the
+        // inserted text; a block whose edits cannot be mapped is left alone
+        // rather than half-formatted, because an edit at the wrong offset is
+        // corruption with a formatter's name on it.
+        let uri = params.text_document.uri;
+        let options = serde_json::to_value(&params.options).unwrap_or_default();
+        let mut out = Vec::new();
+        for (vf_uri, language, map) in self.virtual_files_of(&uri).await {
+            let Some(result) = self
+                .child_document_request(
+                    "textDocument/formatting",
+                    &vf_uri,
+                    &language,
+                    Some(serde_json::json!({ "options": options })),
+                )
+                .await
+            else {
+                continue;
+            };
+            if let Some(edits) = translate_edits(&result, &map) {
+                out.extend(edits);
+            }
+        }
+        if out.is_empty() {
+            return Ok(None);
+        }
+        Ok(Some(out))
+    }
+
     async fn code_lens(&self, params: CodeLensParams) -> Result<Option<Vec<CodeLens>>> {
         let items = self
             .fan_out_array("textDocument/codeLens", &params.text_document.uri, None)
@@ -2081,6 +2115,75 @@ impl LanguageServer for HickBackend {
             Ok(Some(out))
         }
     }
+}
+
+/// A child's formatting edits, in document coordinates and indentation.
+///
+/// A `hick:file` block's code is dedented into the virtual file, so a
+/// formatter's edit is in dedented columns and its inserted text has no
+/// block indentation. Both are put back: ranges through the position map,
+/// and the block's indentation after every newline the text inserts — except
+/// a trailing newline at column 0, where the indentation of the line that
+/// follows is outside the edit's range and already there.
+///
+/// `None` when any edit cannot be mapped (a synthetic line, or a range past
+/// the block), because applying the others would format half a block.
+pub(crate) fn translate_edits(
+    value: &serde_json::Value,
+    map: &PositionMap,
+) -> Option<Vec<TextEdit>> {
+    let items = value.as_array()?;
+    let mut out = Vec::with_capacity(items.len());
+    for item in items {
+        let sl = item.pointer("/range/start/line")?.as_u64()? as u32;
+        let sc = item.pointer("/range/start/character")?.as_u64()? as u32;
+        let el = item.pointer("/range/end/line")?.as_u64()? as u32;
+        let ec = item.pointer("/range/end/character")?.as_u64()? as u32;
+        let text = item.get("newText")?.as_str()?;
+        let (ssl, ssc) = map.to_source(sl, sc)?;
+        // A whole-file edit ends one line PAST the last, at column 0, which
+        // no line mapping covers: it is the start of the line after the
+        // block, which is where the block's last newline ends.
+        let (sel, sec) = match map.to_source(el, ec) {
+            Some(end) => end,
+            None if ec == 0 && el > 0 => {
+                let (line, _) = map.to_source(el - 1, 0)?;
+                (line + 1, 0)
+            }
+            None => return None,
+        };
+        let indent = if map.is_identity() {
+            0
+        } else {
+            map.mappings
+                .iter()
+                .find(|m| m.virtual_line == sl)
+                .map(|m| m.column_offset.max(0) as usize)
+                .unwrap_or(0)
+        };
+        let new_text = reindent(text, indent, ec == 0);
+        out.push(TextEdit {
+            range: Range::new(Position::new(ssl, ssc), Position::new(sel, sec)),
+            new_text,
+        });
+    }
+    Some(out)
+}
+
+/// `text` with `indent` spaces after every newline, leaving a trailing
+/// newline bare when the edit ends at column 0.
+fn reindent(text: &str, indent: usize, ends_at_column_zero: bool) -> String {
+    if indent == 0 || !text.contains('\n') {
+        return text.to_string();
+    }
+    let pad = " ".repeat(indent);
+    let (body, trailing) = match text.strip_suffix('\n') {
+        Some(body) if ends_at_column_zero => (body, "\n"),
+        _ => (text, ""),
+    };
+    let mut out = body.replace('\n', &format!("\n{pad}"));
+    out.push_str(trailing);
+    out
 }
 
 /// Whether a URI names a `.hick` document — the thing this server weaves —
@@ -2308,5 +2411,47 @@ mod tests {
         // have, and answers nothing.
         let map = PositionMap::build(&[seg("a\nb\nc\n", 3, 0)]);
         assert_eq!(map.virtual_lines(), 3);
+    }
+
+    #[test]
+    fn a_formatting_edit_gets_the_blocks_indentation_back() {
+        // The block sits four columns in; the formatter saw it dedented and
+        // answers in those coordinates, with no indentation in its text.
+        let map = PositionMap::build(&[seg("fn a(){\n}\n", 10, 4)]);
+        let edits = serde_json::json!([{
+            "range": { "start": { "line": 0, "character": 0 }, "end": { "line": 2, "character": 0 } },
+            "newText": "fn a() {\n    x\n}\n",
+        }]);
+        let out = translate_edits(&edits, &map).expect("mapped");
+        assert_eq!(out.len(), 1);
+        assert_eq!(out[0].range.start, Position::new(9, 4));
+        // One past the block's last line, column 0: the closing tag's line.
+        assert_eq!(out[0].range.end, Position::new(11, 0));
+        // Every inserted line indented; the trailing newline left bare, since
+        // the closing tag's own indentation is outside the range.
+        assert_eq!(out[0].new_text, "fn a() {\n        x\n    }\n");
+    }
+
+    #[test]
+    fn a_plain_files_formatting_edit_is_untouched() {
+        let map = PositionMap::identity(3);
+        let edits = serde_json::json!([{
+            "range": { "start": { "line": 0, "character": 0 }, "end": { "line": 3, "character": 0 } },
+            "newText": "a\nb\n",
+        }]);
+        let out = translate_edits(&edits, &map).expect("mapped");
+        assert_eq!(out[0].new_text, "a\nb\n");
+        assert_eq!(out[0].range.end, Position::new(3, 0));
+    }
+
+    #[test]
+    fn an_edit_that_cannot_be_mapped_withholds_the_whole_answer() {
+        // Half a block formatted is corruption with a formatter's name on it.
+        let map = PositionMap::build(&[seg("x\n", 2, 0)]);
+        let edits = serde_json::json!([
+            { "range": { "start": { "line": 0, "character": 0 }, "end": { "line": 0, "character": 1 } }, "newText": "y" },
+            { "range": { "start": { "line": 7, "character": 0 }, "end": { "line": 7, "character": 1 } }, "newText": "z" },
+        ]);
+        assert!(translate_edits(&edits, &map).is_none());
     }
 }

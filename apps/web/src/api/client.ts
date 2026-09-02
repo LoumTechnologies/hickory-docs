@@ -315,7 +315,7 @@ export const api = {
 
   /** UI settings the server persists (ui.json): the custom window title. */
   settingsUi: () => request<UiSettings>("GET", "/api/settings/ui"),
-  saveSettingsUi: (settings: UiSettings) =>
+  saveSettingsUi: (settings: Partial<UiSettings>) =>
     request<UiSettings>("PUT", "/api/settings/ui", settings),
 
   /** Definitions and references across this session's generated files. */

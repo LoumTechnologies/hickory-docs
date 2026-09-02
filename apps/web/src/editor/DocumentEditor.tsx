@@ -26,10 +26,12 @@ import { useBlame } from "./useBlame";
 import { mathSpans } from "../lib/math";
 import {
   diagnosticRanges,
+  offsetToPosition,
   positionToOffset,
   setLspDiagnostics,
 } from "../lsp/cmLsp";
-import type { LspDiagnostic } from "../lsp/client";
+import type { LspClient, LspDiagnostic } from "../lsp/client";
+import { multipleCursors } from "./multiCursor";
 import { hickoryFolding, ingestedFolds, sessionWorkFolds } from "./folding";
 import {
   forgetEditor,
@@ -108,6 +110,10 @@ export interface DocumentEditorProps {
   lspExtensions?: Extension[];
   /** Diagnostics for this document, in document coordinates. */
   lspDiagnostics?: LspDiagnostic[];
+  /** The language session to ask completions of, alongside the project's
+   * own text. Read once, when the editor is built: a session's client is
+   * stable for the session's life. */
+  lspCompletion?: { client: LspClient; uri: string } | null;
   /** Dim hint shown while the buffer is empty (the untitled document). */
   placeholderText?: string;
   /** Where PROSE wraps, in columns. Owned by the tab (so it is per-document
@@ -233,6 +239,7 @@ export function DocumentEditor({
   onViewReady,
   lspExtensions,
   lspDiagnostics,
+  lspCompletion,
   onDebugFile,
   placeholderText,
   wrapColumn = WRAP_DEFAULT,
@@ -475,9 +482,17 @@ export function DocumentEditor({
           // what is in scope; the project index knows what this codebase
           // calls things. Neither subsumes the other — see lsp/completion.ts.
           completions({
+            lsp: lspCompletion
+              ? {
+                  client: lspCompletion.client,
+                  uri: lspCompletion.uri,
+                  positionAt: (offset, state) => offsetToPosition(state.doc, offset),
+                }
+              : undefined,
             project: (prefix, around) =>
               api.complete(prefix, around).then((answer) => answer.suggestions),
           }),
+          ...multipleCursors(),
           // Inline and display maths written in PROSE. The verbatim ranges of
           // the document are excluded, so `$PATH` in a shell cell stays a
           // shell variable and `$` in a generated file stays a byte of that

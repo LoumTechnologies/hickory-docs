@@ -167,6 +167,11 @@ pub struct UiStore {
     /// Custom window title; `None` means the default (the folder's name).
     #[serde(default)]
     pub window_title: Option<String>,
+    /// Run the file's formatter when Save is chosen. Off by default: a
+    /// formatter rewriting a document nobody asked it to is a surprise, and
+    /// this product's documents are prose as much as code.
+    #[serde(default)]
+    pub format_on_save: bool,
 }
 
 impl UiStore {

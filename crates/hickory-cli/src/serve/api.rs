@@ -1239,7 +1239,10 @@ pub async fn put_settings_keys(
 
 /// What GET and PUT `/api/settings/ui` both answer.
 fn ui_listing(store: &crate::serve::UiStore) -> Value {
-    json!({ "window_title": store.window_title })
+    json!({
+        "window_title": store.window_title,
+        "format_on_save": store.format_on_save,
+    })
 }
 
 /// `GET /api/settings/ui` — the UI settings: the custom window title, or
@@ -1287,9 +1290,16 @@ pub async fn put_settings_ui(
                     "window_title must be a string, or null to clear it",
                 ));
             }
+            ("format_on_save", Value::Bool(on)) => staged.format_on_save = *on,
+            ("format_on_save", _) => {
+                return Err(ApiError::bad_request(
+                    "format_on_save must be true or false",
+                ));
+            }
             (other, _) => {
                 return Err(ApiError::bad_request(format!(
-                    "unknown UI setting {other:?}; the only setting is \"window_title\""
+                    "unknown UI setting {other:?}; the settings are \"window_title\" \
+                     and \"format_on_save\""
                 )));
             }
         }

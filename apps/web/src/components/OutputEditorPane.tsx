@@ -15,6 +15,7 @@ import { ChangeDesc, EditorState, StateEffect, StateField, RangeSetBuilder } fro
 import type { Extension } from "@codemirror/state";
 import { Decoration, EditorView, keymap, lineNumbers } from "@codemirror/view";
 import type { DecorationSet } from "@codemirror/view";
+import { multipleCursors } from "../editor/multiCursor";
 import { defaultKeymap, history, historyKeymap, indentWithTab } from "@codemirror/commands";
 import { search, searchKeymap } from "@codemirror/search";
 import { wordMotionBindings } from "../editor/wordMotion";
@@ -196,6 +197,7 @@ export function OutputEditorPane({
           // gutter — the number renders once, the rest of the tall cell
           // says "still that line".
           wrapGutterMarkers(),
+          ...multipleCursors(),
           // The hovered-ribbon line tint, shared with the right rail.
           lineHighlightField,
           ...languageExtensions(initial.language),

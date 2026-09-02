@@ -27,6 +27,7 @@ import { taskCheckboxes } from "../editor/taskList";
 import { renderedMath } from "../editor/mathRender";
 import { proseWrap } from "../editor/wrapColumn";
 import { editorChrome } from "../editor/chrome";
+import { multipleCursors } from "../editor/multiCursor";
 import { completions } from "../lsp/completion";
 import { useWorkspaceLsp } from "../lsp/useLsp";
 import {
@@ -251,6 +252,7 @@ export function PlainFilePane({
           // `hick:file` body has inside a document, so opening the file and
           // reading the block that writes it are not two different programs.
           editorChrome("code"),
+          ...multipleCursors(),
           changeFlashField,
           // Before lineNumbers, which is what puts it to their LEFT:
           // CodeMirror lays gutters out in the order they are declared, and

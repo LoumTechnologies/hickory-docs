@@ -1,10 +1,19 @@
 import { EditorState } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
 import { describe, expect, it } from "vitest";
-import { diagnosticRanges, diagnosticsAt, lspDiagnosticField, setLspDiagnostics } from "./cmLsp";
+import {
+  diagnosticRanges,
+  diagnosticsAt,
+  lspDiagnosticField,
+  offsetToPosition,
+  positionToOffset,
+  setLspDiagnostics,
+} from "./cmLsp";
 import {
   editsForUri,
+  formatView,
   inlayHintField,
+  lspFeatures,
   inlayText,
   semanticTokenField,
   setInlayHints,
@@ -172,3 +181,56 @@ describe("signature help", () => {
 function r(sl: number, sc: number, el: number, ec: number) {
   return { start: { line: sl, character: sc }, end: { line: el, character: ec } };
 }
+
+// Protects docs/guarantees/editor-intelligence/save-can-format-first.md
+describe("formatting", () => {
+  /** A client that answers formatting and nothing else, with the rest of the
+   * bundle's requests quietly empty. */
+  function clientWith(edits: { range: { start: { line: number; character: number }; end: { line: number; character: number } }; newText: string }[]) {
+    return {
+      serverCapabilities: null,
+      formatting: async () => edits,
+      semanticTokens: async () => null,
+      inlayHints: async () => [],
+      documentHighlight: async () => [],
+      foldingRanges: async () => [],
+      signatureHelp: async () => null,
+    } as unknown as import("./client").LspClient;
+  }
+
+  function editorWith(doc: string, client: import("./client").LspClient) {
+    return new EditorView({
+      state: EditorState.create({
+        doc,
+        extensions: lspFeatures({
+          client,
+          uri: "hick:///a.rs",
+          positionAt: (offset, view) => offsetToPosition(view.state.doc, offset),
+          offsetAt: (position, view) => positionToOffset(view.state.doc, position),
+        }),
+      }),
+    });
+  }
+
+  it("applies the server's edits back to front, as one user edit", async () => {
+    // Two edits in server order. Applied forwards, the first would shift
+    // the second onto the wrong bytes.
+    const view = editorWith("a  b  c", clientWith([
+      { range: { start: { line: 0, character: 1 }, end: { line: 0, character: 3 } }, newText: " " },
+      { range: { start: { line: 0, character: 4 }, end: { line: 0, character: 6 } }, newText: " " },
+    ]));
+    expect(await formatView(view)).toBe(true);
+    expect(view.state.doc.toString()).toBe("a b c");
+  });
+
+  it("says so, and changes nothing, when the server has no edits", async () => {
+    const view = editorWith("fine", clientWith([]));
+    expect(await formatView(view)).toBe(false);
+    expect(view.state.doc.toString()).toBe("fine");
+  });
+
+  it("is not offered by an editor without a language client", async () => {
+    const view = new EditorView({ state: EditorState.create({ doc: "x" }) });
+    expect(await formatView(view)).toBe(false);
+  });
+});

@@ -18,7 +18,7 @@
 // Rust blocks routinely have different capabilities.
 
 import { foldService } from "@codemirror/language";
-import { RangeSetBuilder, StateEffect, StateField } from "@codemirror/state";
+import { Facet, RangeSetBuilder, StateEffect, StateField } from "@codemirror/state";
 import type { Extension } from "@codemirror/state";
 import { Decoration, EditorView, ViewPlugin, WidgetType, keymap } from "@codemirror/view";
 import type { DecorationSet, ViewUpdate } from "@codemirror/view";
@@ -209,7 +209,15 @@ export function lspFeatures(opts: LspFeatureOptions): Extension[] {
     keymap.of([
       { key: "F2", run: (view) => renameAt(view, opts) },
       { key: "Mod-.", run: (view) => codeActionAt(view, opts) },
+      {
+        key: "Shift-Alt-f",
+        run: (view) => {
+          void formatDocument(view, opts);
+          return true;
+        },
+      },
     ]),
+    formatter.of((view) => formatDocument(view, opts)),
     EditorView.theme({
       ".cm-lsp-inlay": {
         opacity: "0.6",
@@ -507,6 +515,52 @@ function codeActionAt(view: EditorView, opts: LspFeatureOptions): boolean {
     if (chosen?.edit) applyEdit(view, chosen.edit, opts);
     else if (chosen?.command) onMessage?.(`"${chosen.title}" needs a command this editor cannot run yet.`);
   })();
+  return true;
+}
+
+// --- formatting -------------------------------------------------------------
+
+/**
+ * How to format the buffer this extension is in, for a caller outside the
+ * editor — the workspace's Save, when format-on-save is on. A facet rather
+ * than an exported function because the caller has the view and not the
+ * options the view was built with.
+ */
+export const formatter = Facet.define<(view: EditorView) => Promise<boolean>>();
+
+/** Format `view` through whatever formatter its extensions provide. Resolves
+ * false when there is none, or the server had nothing to say. */
+export function formatView(view: EditorView): Promise<boolean> {
+  const format = view.state.facet(formatter)[0];
+  return format ? format(view) : Promise.resolve(false);
+}
+
+/**
+ * Ask the server for the document's formatting and apply it, back to front.
+ *
+ * Back to front for the reason `applyEdit` gives below. Marked as a user
+ * event so a pane that saves only what a person did saves this too: the
+ * person asked for it.
+ */
+export async function formatDocument(view: EditorView, opts: LspFeatureOptions): Promise<boolean> {
+  const { client, uri, offsetAt, onMessage } = opts;
+  if (!client) return false;
+  const edits = await client.formatting(uri).catch(() => []);
+  if (edits.length === 0) {
+    onMessage?.("Nothing to format — either the file is already formatted or no formatter answers for it.");
+    return false;
+  }
+  const changes = edits
+    .map((edit) => {
+      const from = offsetAt(edit.range.start, view);
+      const to = offsetAt(edit.range.end, view);
+      if (from === null || to === null) return null;
+      return { from, to, insert: edit.newText };
+    })
+    .filter((change): change is { from: number; to: number; insert: string } => change !== null)
+    .sort((a, b) => b.from - a.from);
+  if (changes.length === 0) return false;
+  view.dispatch({ changes, userEvent: "input.format" });
   return true;
 }
 

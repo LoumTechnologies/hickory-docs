@@ -16,6 +16,7 @@
 import { useEffect, useState } from "react";
 
 import { api } from "../api/client";
+import { setFormatOnSave } from "../lib/formatOnSave";
 import { navigate } from "../router";
 import type { ProviderId, ProviderKey } from "../api/types";
 import {
@@ -325,6 +326,40 @@ function AppearanceSection() {
  */
 function EditingSection() {
   const [wordMotion, setWordMotion] = useState<WordMotion>(() => loadWordMotion());
+  // Format on save, as the server knows it. Off until the read lands: the
+  // default, and the honest answer while nothing is known.
+  const [formatSave, setFormatSave] = useState(false);
+  const [formatError, setFormatError] = useState<string | null>(null);
+  useEffect(() => {
+    let live = true;
+    api.settingsUi().then(
+      (ui) => {
+        if (!live) return;
+        setFormatSave(ui.format_on_save === true);
+        setFormatOnSave(ui.format_on_save === true);
+      },
+      (e) => {
+        if (live) setFormatError(e instanceof Error ? e.message : String(e));
+      },
+    );
+    return () => {
+      live = false;
+    };
+  }, []);
+  const applyFormatSave = (on: boolean) => {
+    setFormatError(null);
+    setFormatSave(on);
+    api.saveSettingsUi({ format_on_save: on }).then(
+      (ui) => {
+        setFormatSave(ui.format_on_save === true);
+        setFormatOnSave(ui.format_on_save === true);
+      },
+      (e) => {
+        setFormatSave(!on);
+        setFormatError(e instanceof Error ? e.message : String(e));
+      },
+    );
+  };
 
   return (
     <section className="settings__appearance" aria-label="Editing">
@@ -351,6 +386,31 @@ function EditingSection() {
             },
           ]}
         />
+        <div className="settings-row settings-row--appearance">
+          <div className="settings-row__who">
+            <label className="settings-row__label" htmlFor="format-on-save">
+              Format on save
+            </label>
+          </div>
+          <div className="settings-row__actions">
+            <input
+              id="format-on-save"
+              type="checkbox"
+              checked={formatSave}
+              onChange={(event) => applyFormatSave(event.target.checked)}
+            />
+            <span className="muted">
+              Run the file’s formatter — rustfmt, black, prettier, whichever its
+              language server offers — when you choose Save. Shift+Alt+F
+              formats at any time.
+            </span>
+            {formatError && (
+              <span className="error" role="alert">
+                {formatError}
+              </span>
+            )}
+          </div>
+        </div>
       </div>
       <p className="muted settings__note">
         Subwords is what a code editor calls CamelHumps: <code>Ctrl+→</code> from

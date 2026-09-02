@@ -165,6 +165,8 @@ import { TAB_ZOOM_VAR } from "../lib/zoom";
 import { requestFlushSaves } from "../lib/flushSaves";
 import { onOpenLocation, pathOfDocUri, revealLine } from "../lib/revealLine";
 import { allFileProblems, useFileProblemsVersion } from "../lib/fileProblems";
+import { formatOnSave, loadFormatOnSave } from "../lib/formatOnSave";
+import { formatView } from "../lsp/cmLspFeatures";
 import type { LspLocation } from "../lsp/client";
 import { printText, printTitleFor } from "../lib/printing";
 
@@ -687,6 +689,11 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
     [ensureDocOpen, openGeneratedFor, openPlainFile],
   );
   openHitRef.current = openHit;
+
+  // Whether Save formats first, read once; Settings keeps it current.
+  useEffect(() => {
+    void loadFormatOnSave();
+  }, []);
 
   // A definition that landed in another file, asked from an editor that
   // cannot open tabs. The workspace can. See lib/revealLine.ts.
@@ -1305,9 +1312,20 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
       // it saves itself. The panes are reached by an event rather than by a
       // registry because a plain file has no session — it owns its own saver,
       // and only it knows whether anything is pending.
+      // Format first, when asked to: the focused buffer, through whatever
+      // formatter its language server offers. Then the save — every save,
+      // since a plain file's autosave and a document's room both answer
+      // to the flush, and the formatted text must be what lands on disk.
+      const formatFirst = async () => {
+        if (!formatOnSave()) return;
+        const view = focusedEditor();
+        if (view) await formatView(view).catch(() => false);
+      };
       if (detail === "save-all") {
-        for (const open of registry.all()) open.menuSave();
-        requestFlushSaves();
+        void formatFirst().then(() => {
+          for (const open of registry.all()) open.menuSave();
+          requestFlushSaves();
+        });
         return;
       }
       if (detail === "print") {
@@ -1316,8 +1334,12 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
       }
       const session = registry.get(focusedIdRef.current);
       if (!session) return;
-      if (detail === "save") session.menuSave();
-      else if (detail === "save-as") session.menuSaveAs();
+      if (detail === "save") {
+        void formatFirst().then(() => {
+          session.menuSave();
+          requestFlushSaves();
+        });
+      } else if (detail === "save-as") session.menuSaveAs();
     };
     // The tree pane's reopen affordances, now that there is no toolbar:
     // File > Show Files in the native menu, and the explorer key everywhere.

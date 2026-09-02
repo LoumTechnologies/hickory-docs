@@ -644,6 +644,116 @@ fn drive_one_plain_file(language: &Language) -> bool {
     true
 }
 
+/// Protects docs/guarantees/editor-intelligence/save-can-format-first.md
+#[test]
+fn a_plain_rust_file_formats_with_rustfmt_through_the_language_server() {
+    if cfg!(windows) {
+        return;
+    }
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(dir.path().join(".git")).unwrap();
+    std::fs::write(
+        dir.path().join("Cargo.toml"),
+        "[package]\nname = \"fixture\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+    )
+    .unwrap();
+    std::fs::create_dir_all(dir.path().join("src")).unwrap();
+    let file = dir.path().join("src/main.rs");
+    let ugly = "fn main(){println!(\"x\");}\n";
+    std::fs::write(&file, ugly).unwrap();
+    if !server_available("rust", dir.path())
+        || binary("rustfmt").is_none() && which("rustfmt").is_none()
+    {
+        skip(
+            "rust",
+            "rust-analyzer or rustfmt is not installed on this machine",
+        );
+        return;
+    }
+    let Some(mut client) = StdioClient::start(dir.path()) else {
+        skip("rust", "hick-lsp has not been built into this target dir");
+        return;
+    };
+    let root_uri = format!("file://{}", dir.path().display());
+    let uri = format!("file://{}", file.display());
+    let id = client.request(
+        "initialize",
+        json!({ "processId": std::process::id(), "rootUri": root_uri, "capabilities": {} }),
+    );
+    let capabilities = client
+        .wait_for(id, Duration::from_secs(20))
+        .expect("initialize");
+    assert!(
+        capabilities["capabilities"]["documentFormattingProvider"] != Value::Null,
+        "formatting was not advertised: {capabilities}"
+    );
+    client.notify("initialized", json!({}));
+    client.notify(
+        "textDocument/didOpen",
+        json!({"textDocument": {"uri": uri, "languageId": "rust", "version": 1, "text": ugly}}),
+    );
+    let edits = client.request_until(
+        "textDocument/formatting",
+        json!({"textDocument": {"uri": uri}, "options": {"tabSize": 4, "insertSpaces": true}}),
+        Duration::from_secs(60),
+    );
+    // rustfmt answers with the smallest edits that get there, so the proof
+    // is the text they produce rather than any one of them.
+    let edits = edits.expect("formatting is answered");
+    let formatted = apply_edits(ugly, &edits);
+    assert_eq!(
+        formatted, "fn main() {\n    println!(\"x\");\n}\n",
+        "rustfmt's edits did not come back through the server: {edits}"
+    );
+    eprintln!("OK rust: a plain file formats with rustfmt");
+}
+
+/// `edits` (LSP `TextEdit`s, in any order) applied to `text`.
+fn apply_edits(text: &str, edits: &Value) -> String {
+    let lines: Vec<&str> = text.split('\n').collect();
+    let offset = |line: u64, character: u64| -> usize {
+        lines[..line as usize]
+            .iter()
+            .map(|l| l.len() + 1)
+            .sum::<usize>()
+            + character as usize
+    };
+    let mut ordered: Vec<(usize, usize, String)> = edits
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|e| {
+            let r = &e["range"];
+            (
+                offset(
+                    r["start"]["line"].as_u64().unwrap(),
+                    r["start"]["character"].as_u64().unwrap(),
+                ),
+                offset(
+                    r["end"]["line"].as_u64().unwrap(),
+                    r["end"]["character"].as_u64().unwrap(),
+                ),
+                e["newText"].as_str().unwrap().to_string(),
+            )
+        })
+        .collect();
+    ordered.sort_by_key(|edit| std::cmp::Reverse(edit.0));
+    let mut out = text.to_string();
+    for (from, to, new_text) in ordered {
+        out.replace_range(from..to, &new_text);
+    }
+    out
+}
+
+/// `name` on PATH, or none.
+fn which(name: &str) -> Option<PathBuf> {
+    std::env::var_os("PATH").and_then(|paths| {
+        std::env::split_paths(&paths)
+            .map(|dir| dir.join(name))
+            .find(|candidate| candidate.is_file())
+    })
+}
+
 #[test]
 fn every_installed_language_answers_about_a_plain_file() {
     let mut covered = Vec::new();
