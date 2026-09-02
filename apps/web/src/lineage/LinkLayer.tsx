@@ -15,6 +15,7 @@
 
 import { useEffect, useState, type RefObject } from "react";
 
+import { attrValue } from "../lib/attrSelector";
 import type { LineageModel, LinkKind } from "./model";
 
 const BRACE = 7;
@@ -123,14 +124,14 @@ function columnFor(rail: Element, file: string, after = -1): number | null {
   for (const col of columns) {
     const index = Number(col.getAttribute("data-column"));
     if (index <= after) continue;
-    if (col.querySelector(`[data-treepath="${cssEscape(file)}"].open`)) return index;
+    if (col.querySelector(`[data-treepath=${attrValue(file)}].open`)) return index;
   }
   // Not open anywhere after `after`: the column whose stage owns it, so the
   // link can still dock to the closed file's row.
   for (const col of columns) {
     const index = Number(col.getAttribute("data-column"));
     if (index <= after) continue;
-    if (col.querySelector(`[data-treepath="${cssEscape(file)}"]`)) return index;
+    if (col.querySelector(`[data-treepath=${attrValue(file)}]`)) return index;
   }
   return null;
 }
@@ -160,7 +161,7 @@ function endpoint(
     };
   };
 
-  const rows = [...body.querySelectorAll(`[data-blockid="${cssEscape(node.id)}"]`)];
+  const rows = [...body.querySelectorAll(`[data-blockid=${attrValue(node.id)}]`)];
   if (rows.length) {
     const first = rows[0].getBoundingClientRect();
     const last = rows[rows.length - 1].getBoundingClientRect();
@@ -177,7 +178,7 @@ function endpoint(
     return frame(box.top, box.bottom, hole);
   }
 
-  const row = body.querySelector(`[data-treepath="${cssEscape(node.file)}"]`);
+  const row = body.querySelector(`[data-treepath=${attrValue(node.file)}]`);
   if (row) {
     const box = row.getBoundingClientRect();
     return frame(box.top, box.bottom, row);
@@ -226,6 +227,3 @@ function brace(end: End, side: "left" | "right"): string {
   ].join(" ");
 }
 
-function cssEscape(value: string): string {
-  return value.replace(/["\\]/g, "\\$&");
-}

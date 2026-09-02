@@ -6,6 +6,7 @@ import { DocumentEditor, assertionStates, matchExecBlock } from "./DocumentEdito
 import { LocalRealtime } from "../api/realtime";
 import { CLI_BLOCKS } from "../mock/mockData";
 import { parseHickDoc } from "./hickDoc";
+import { ICON_SIZE } from "../lib/cardRail";
 import type { ExecBlock } from "../api/types";
 
 // The real engine wants a live browser; these tests are about what the editor
@@ -47,8 +48,56 @@ describe("DocumentEditor (WYSIWYG over raw source)", () => {
     expect(content!.textContent).toContain("# Title");
     // The exec cell got a rail icon, NOT a card in the text.
     await waitFor(() => expect(container.querySelector(".cm-card-rail__icon")).toBeTruthy());
+    // …and the rail actually PLACED it. This assertion is the reason the
+    // rail's `place()` is reachable at all in a test: it used to throw on
+    // `CSS.escape`, which jsdom does not ship, from inside a measure
+    // callback — an unhandled error printed beside a green suite, so the
+    // whole placement path ran nowhere. See lib/attrSelector.ts.
+    await waitFor(() =>
+      expect(
+        container.querySelector<HTMLElement>(".cm-card-rail__icon")!.style.top,
+      ).not.toBe(""),
+    );
     // The file block got its path chip, inline on the line it opens.
     expect(container.querySelector(".cm-file-chip")?.textContent).toContain("a.py");
+    realtime.close();
+  });
+
+  it("stacks two crowded icons rather than drawing them on top of each other", async () => {
+    const realtime = new LocalRealtime();
+    // Two cells on adjacent lines want the same pixels — in jsdom every line
+    // measures zero, so they want *exactly* the same pixel, which is the
+    // crowding case `stackIcons` exists for.
+    const source =
+      '<hick:exec container="shell">\nls\n</hick:exec>\n' +
+      '<hick:exec container="shell">\npwd\n</hick:exec>\n';
+    const { container } = render(
+      <DocumentEditor
+        docId="rail"
+        initialSource={source}
+        realtime={realtime}
+        execBlocks={[]}
+        runningCells={new Set()}
+        onRunCell={() => undefined}
+      />,
+    );
+    // Each cell carries several verbs, so the rail holds more icons than
+    // cells — every one of them wants the same pixel here.
+    await waitFor(() =>
+      expect(
+        container.querySelectorAll(".cm-card-rail__icon").length,
+      ).toBeGreaterThan(1),
+    );
+    await waitFor(() => {
+      const tops = [
+        ...container.querySelectorAll<HTMLElement>(".cm-card-rail__icon"),
+      ].map((el) => Number.parseFloat(el.style.top));
+      expect(tops.every((t) => Number.isFinite(t))).toBe(true);
+      // Monotonic and non-overlapping: an icon is pushed DOWN, never up.
+      for (let i = 1; i < tops.length; i++) {
+        expect(tops[i] - tops[i - 1]).toBeGreaterThanOrEqual(ICON_SIZE);
+      }
+    });
     realtime.close();
   });
 

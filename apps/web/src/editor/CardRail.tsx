@@ -21,6 +21,7 @@ import { useEffect, useMemo, useRef } from "react";
 import type { EditorView } from "@codemirror/view";
 
 import { ICON_SIZE, iconVisible, stackIcons } from "../lib/cardRail";
+import { attrValue } from "../lib/attrSelector";
 import type { RailAction } from "../lib/railActions";
 import type { DocCard } from "./cards";
 
@@ -207,7 +208,9 @@ export function CardRail({
       const band = { top: 0, bottom: scroller.clientHeight };
       const map = new Map<string, number>();
       icons.forEach((icon, i) => {
-        const el = rail.querySelector<HTMLElement>(`[data-card="${CSS.escape(icon.key)}"]`);
+        const el = rail.querySelector<HTMLElement>(
+          `[data-card=${attrValue(icon.key)}]`,
+        );
         map.set(icon.key, tops[i]);
         if (!el) return;
         el.style.top = `${tops[i]}px`;

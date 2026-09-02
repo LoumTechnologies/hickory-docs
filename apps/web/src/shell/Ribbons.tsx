@@ -77,6 +77,7 @@ import {
 } from "../lib/ribbons";
 import type { OutputFile } from "../api/types";
 import { samePath } from "../lib/paths";
+import { attrValue as attr } from "../lib/attrSelector";
 
 /**
  * The document side.
@@ -261,10 +262,6 @@ function terminalEl(
   return el instanceof HTMLElement ? el : null;
 }
 
-/** A value quoted into an attribute selector. Paths may hold anything. */
-function attr(value: string): string {
-  return `"${value.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`;
-}
 
 interface Terminal {
   rect: DOMRect;
