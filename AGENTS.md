@@ -424,6 +424,25 @@ number dropped reported rather than swallowed. Every answer says when the
 index was built and how many covered files have changed since. Not built: any
 use of it inside the app.
 
+A plain file in the repository — `src/main.rs`, `app.py` — has **the same
+language server a document has**
+(`docs/guarantees/editor-intelligence/a-plain-file-has-the-same-language-server.md`,
+2026-09-02): `hick-lsp` hands a file that is not a `.hick` document to its
+child **as itself**, at its real path, with `PositionMap::identity`, rooted at
+the folder the app opened. Until then the app was an editor for documents and
+a viewer for the repository around them, and the whole language server sat
+one pane over. What it forced: **one language-server session per workspace**
+(`one-language-server-per-workspace.md`), because the session used to be per
+WebSocket and a document has a socket each — invisible while only staged code
+asked, a machine on its knees the moment three plain files each got their
+own rust-analyzer. `LspHub` remaps request ids per connection, broadcasts
+notifications, reference-counts open files, and `?doc=workspace` is a socket
+with no room, carrying only the language channel. Two things worth
+remembering: the system test spawns the **binary**, so `cargo test` alone
+runs the last build's `hick-lsp` and answers nothing; and two `LspClient`s on
+one channel each take the other's replies, which is why plain files share
+one client.
+
 ## Stack (settled — do not relitigate)
 
 - CLI + language + local server: Rust (edition 2024), axum, tokio. No database.

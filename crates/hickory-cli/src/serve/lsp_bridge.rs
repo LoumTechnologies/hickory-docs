@@ -1,9 +1,9 @@
 //! Channel `0x02`: the notebook's language-server bridge.
 //!
 //! The editor in `apps/web` already speaks LSP — it just had nothing to speak
-//! to. This is the other half: one `hick-lsp` session per WebSocket
-//! connection, driven **in-process** rather than by spawning the `hick-lsp`
-//! binary, so the desktop app needs nothing on the user's `PATH` to give a
+//! to. This is the other half: one `hick-lsp` session per **workspace**,
+//! shared by every WebSocket connection (see [`LspHub`]), driven
+//! **in-process** rather than by spawning the `hick-lsp` binary, so the desktop app needs nothing on the user's `PATH` to give a
 //! document real diagnostics. The child language servers it delegates to
 //! (rust-analyzer, pyright, whatever `.hick-lsp.json` names) are the user's,
 //! and a missing one degrades exactly as it does in an editor —
@@ -25,7 +25,9 @@
 //! otherwise have to make a round trip through the network before the first
 //! keystroke could be answered.
 
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex};
 
 use anyhow::{Context as _, Result};
 use serde_json::Value;
@@ -40,14 +42,55 @@ const DOC_SCHEME: &str = "hick:///";
 /// The scheme the notebook uses for a generated file it can open.
 const OUTPUT_SCHEME: &str = "hick-output:///";
 
-/// A live `hick-lsp` session for one connection.
-pub struct LspBridge {
-    /// JSON-RPC messages headed for the language server.
+/// One `hick-lsp` session for the whole workspace, shared by every socket.
+///
+/// Per workspace, not per connection, for the reason every IDE has one
+/// rust-analyzer rather than one per tab: the child language servers behind
+/// `hick-lsp` index the project, and a project indexed once per open file is
+/// a machine brought to its knees by opening three files. So the session is
+/// started on the first language question anybody asks and kept for the life
+/// of the server; each socket **subscribes** and gets its own view of it.
+///
+/// Three things make sharing honest rather than merely cheaper:
+///
+/// * **Request ids are per connection.** Every client counts from 1, so two
+///   windows' ids collide. Each request is given a fresh server-side id on
+///   the way in and its reply is returned under the original id to the one
+///   connection that asked. Notifications — diagnostics, the capabilities
+///   announcement — go to everybody, and each client already filters by URI.
+/// * **An open file is reference-counted.** Two panes on one path are one
+///   `didOpen` to the server and one `didClose`, when the last of them goes;
+///   a second opener's text arrives as a change instead. Without this the
+///   second pane's `didOpen` is a protocol violation and the first pane's
+///   `didClose` takes the file away from the other.
+/// * **A connection that drops closes what it opened**, and only what it was
+///   the last to hold. A window closed mid-session must not leave a language
+///   server believing a file is still open.
+pub struct LspHub {
+    root: PathBuf,
+    state: Arc<Mutex<HubState>>,
+}
+
+struct HubState {
+    session: Option<Session>,
+    subscribers: HashMap<u64, mpsc::UnboundedSender<Vec<u8>>>,
+    /// Server-side request id → (connection, the client's own id).
+    pending: HashMap<i64, (u64, Value)>,
+    next_id: i64,
+    /// Open document URI (client scheme) → the connections holding it open.
+    open: HashMap<String, HashSet<u64>>,
+    /// The server's capabilities, replayed to every later subscriber: the
+    /// editor cannot decode a semantic token without the legend in here.
+    capabilities: Option<Value>,
+}
+
+/// The live session: the in-process server and the tasks that feed it.
+struct Session {
     to_server: mpsc::UnboundedSender<Value>,
     tasks: Vec<JoinHandle<()>>,
 }
 
-impl Drop for LspBridge {
+impl Drop for Session {
     fn drop(&mut self) {
         for task in &self.tasks {
             task.abort();
@@ -55,13 +98,199 @@ impl Drop for LspBridge {
     }
 }
 
-impl LspBridge {
-    /// Start a session rooted at `root`, sending framed replies to `to_client`.
-    ///
-    /// Started lazily, on the connection's first `0x02` frame: a session that
-    /// never asks a language question must never spawn a language server.
-    pub fn start(root: &Path, to_client: mpsc::UnboundedSender<Vec<u8>>) -> Result<Self> {
+impl LspHub {
+    /// A hub for the workspace at `root`. Nothing is started until the first
+    /// subscriber sends something: a session that never asks a language
+    /// question must never spawn a language server.
+    pub fn new(root: &Path) -> Self {
         let root = root.canonicalize().unwrap_or_else(|_| root.to_path_buf());
+        Self {
+            root,
+            state: Arc::new(Mutex::new(HubState {
+                session: None,
+                subscribers: HashMap::new(),
+                pending: HashMap::new(),
+                next_id: 1,
+                open: HashMap::new(),
+                capabilities: None,
+            })),
+        }
+    }
+
+    /// Attach a connection. Its replies and every notification arrive as
+    /// framed `0x02` messages on `to_client`.
+    pub fn subscribe(&self, conn: u64, to_client: mpsc::UnboundedSender<Vec<u8>>) -> Result<()> {
+        let mut state = self.state.lock().expect("hub state");
+        if state.session.is_none() {
+            state.session = Some(Session::start(&self.root, Arc::clone(&self.state))?);
+        }
+        if let Some(capabilities) = &state.capabilities {
+            let _ = to_client.send(frame(&capabilities_announcement(capabilities)));
+        }
+        state.subscribers.insert(conn, to_client);
+        Ok(())
+    }
+
+    /// Detach a connection, closing whatever it was the last to hold open.
+    pub fn unsubscribe(&self, conn: u64) {
+        let mut state = self.state.lock().expect("hub state");
+        state.subscribers.remove(&conn);
+        state.pending.retain(|_, (owner, _)| *owner != conn);
+        let mut orphaned = Vec::new();
+        state.open.retain(|uri, holders| {
+            holders.remove(&conn);
+            if holders.is_empty() {
+                orphaned.push(uri.clone());
+                false
+            } else {
+                true
+            }
+        });
+        if let Some(session) = &state.session {
+            for uri in orphaned {
+                let _ = session.to_server.send(serde_json::json!({
+                    "jsonrpc": "2.0",
+                    "method": "textDocument/didClose",
+                    "params": { "textDocument": { "uri": uri } },
+                }));
+            }
+        }
+    }
+
+    /// Forward one client message from `conn` to the language server.
+    ///
+    /// Queued behind the handshake rather than raced against it, so a client
+    /// that opens a document the instant the socket is up is answered rather
+    /// than ignored.
+    pub fn send(&self, conn: u64, mut message: Value) -> Result<()> {
+        let mut state = self.state.lock().expect("hub state");
+        if !state.subscribers.contains_key(&conn) {
+            anyhow::bail!("connection {conn} is not subscribed to the language server");
+        }
+        let method = message
+            .get("method")
+            .and_then(Value::as_str)
+            .map(str::to_string);
+        let uri = message
+            .pointer("/params/textDocument/uri")
+            .and_then(Value::as_str)
+            .map(str::to_string);
+        match (method.as_deref(), uri) {
+            (Some("textDocument/didOpen"), Some(uri)) => {
+                let holders = state.open.entry(uri).or_default();
+                let first = holders.is_empty();
+                holders.insert(conn);
+                if !first {
+                    // Somebody else already opened it: this pane's text is a
+                    // change to the open file, not a second opening.
+                    message = did_open_as_change(message);
+                }
+            }
+            (Some("textDocument/didClose"), Some(uri)) => {
+                let still_open = match state.open.get_mut(&uri) {
+                    Some(holders) => {
+                        holders.remove(&conn);
+                        !holders.is_empty()
+                    }
+                    None => false,
+                };
+                if still_open {
+                    return Ok(());
+                }
+                state.open.remove(&uri);
+            }
+            _ => {}
+        }
+        if let Some(client_id) = message.get("id").cloned()
+            && method.is_some()
+        {
+            let server_id = state.next_id;
+            state.next_id += 1;
+            state.pending.insert(server_id, (conn, client_id));
+            message["id"] = Value::from(server_id);
+        }
+        let Some(session) = &state.session else {
+            anyhow::bail!("the language server session has not started");
+        };
+        session
+            .to_server
+            .send(message)
+            .context("the language server session has ended")
+    }
+}
+
+/// A `didOpen` re-expressed as the full-text `didChange` the server's FULL
+/// sync accepts, for a file it already has open.
+fn did_open_as_change(mut message: Value) -> Value {
+    let uri = message
+        .pointer("/params/textDocument/uri")
+        .cloned()
+        .unwrap_or(Value::Null);
+    let version = message
+        .pointer("/params/textDocument/version")
+        .cloned()
+        .unwrap_or(Value::from(1));
+    let text = message
+        .pointer("/params/textDocument/text")
+        .cloned()
+        .unwrap_or(Value::from(""));
+    message["method"] = Value::from("textDocument/didChange");
+    message["params"] = serde_json::json!({
+        "textDocument": { "uri": uri, "version": version },
+        "contentChanges": [{ "text": text }],
+    });
+    message
+}
+
+fn capabilities_announcement(capabilities: &Value) -> Value {
+    serde_json::json!({
+        "jsonrpc": "2.0",
+        "method": "hick/serverCapabilities",
+        "params": { "capabilities": capabilities },
+    })
+}
+
+/// One JSON-RPC message as a `0x02` frame.
+fn frame(message: &Value) -> Vec<u8> {
+    let mut frame = Vec::with_capacity(64);
+    frame.push(CHANNEL_LSP);
+    if let Ok(json) = serde_json::to_vec(message) {
+        frame.extend_from_slice(&json);
+    }
+    frame
+}
+
+impl HubState {
+    /// Deliver one message from the server: a reply to the connection that
+    /// asked, anything else to everybody.
+    fn dispatch(&mut self, mut message: Value) {
+        let is_reply = message.get("id").is_some() && message.get("method").is_none();
+        if is_reply {
+            let Some(server_id) = message.get("id").and_then(Value::as_i64) else {
+                return;
+            };
+            let Some((conn, client_id)) = self.pending.remove(&server_id) else {
+                return;
+            };
+            message["id"] = client_id;
+            if let Some(tx) = self.subscribers.get(&conn)
+                && tx.send(frame(&message)).is_err()
+            {
+                self.subscribers.remove(&conn);
+            }
+            return;
+        }
+        let bytes = frame(&message);
+        self.subscribers
+            .retain(|_, tx| tx.send(bytes.clone()).is_ok());
+    }
+}
+
+impl Session {
+    /// Start the in-process server rooted at `root`, delivering what it says
+    /// through `hub`.
+    fn start(root: &Path, hub: Arc<Mutex<HubState>>) -> Result<Self> {
+        let root = root.to_path_buf();
         let root_uri = path_to_file_uri(&root);
 
         // 64 KiB each way: a completion response over a large file is the
@@ -138,33 +367,15 @@ impl LspBridge {
                         .and_then(|result| result.get("capabilities"))
                         .cloned()
                         .unwrap_or(Value::Null);
-                    let announcement = serde_json::json!({
-                        "jsonrpc": "2.0",
-                        "method": "hick/serverCapabilities",
-                        "params": { "capabilities": capabilities },
-                    });
-                    let mut frame = Vec::with_capacity(64);
-                    frame.push(CHANNEL_LSP);
-                    if let Ok(json) = serde_json::to_vec(&announcement) {
-                        frame.extend_from_slice(&json);
-                        if to_client.send(frame).is_err() {
-                            break;
-                        }
-                    }
+                    let mut state = hub.lock().expect("hub state");
+                    state.dispatch(capabilities_announcement(&capabilities));
+                    state.capabilities = Some(capabilities);
                     continue;
                 }
                 rewrite_uris(&mut message, &|uri| {
                     server_uri_to_client(uri, &root_for_reader)
                 });
-                let mut frame = Vec::with_capacity(64);
-                frame.push(CHANNEL_LSP);
-                match serde_json::to_vec(&message) {
-                    Ok(json) => frame.extend_from_slice(&json),
-                    Err(_) => continue,
-                }
-                if to_client.send(frame).is_err() {
-                    break;
-                }
+                hub.lock().expect("hub state").dispatch(message);
             }
         });
 
@@ -172,17 +383,6 @@ impl LspBridge {
             to_server,
             tasks: vec![server, writer, reader],
         })
-    }
-
-    /// Forward one client message to the language server.
-    ///
-    /// Queued behind the handshake rather than raced against it, so a client
-    /// that opens a document the instant the socket is up is answered rather
-    /// than ignored.
-    pub fn send(&self, message: Value) -> Result<()> {
-        self.to_server
-            .send(message)
-            .context("the language server session has ended")
     }
 }
 
@@ -509,16 +709,19 @@ mod tests {
         std::fs::write(dir.path().join("a.hick"), doc).unwrap();
 
         let (to_client, mut from_server) = mpsc::unbounded_channel();
-        let bridge = LspBridge::start(dir.path(), to_client).unwrap();
-        bridge
-            .send(serde_json::json!({
+        let hub = LspHub::new(dir.path());
+        hub.subscribe(1, to_client).unwrap();
+        hub.send(
+            1,
+            serde_json::json!({
                 "jsonrpc": "2.0",
                 "method": "textDocument/didOpen",
                 "params": { "textDocument": {
                     "uri": "hick:///a.hick", "languageId": "hick", "version": 1, "text": doc,
                 }},
-            }))
-            .unwrap();
+            }),
+        )
+        .unwrap();
 
         // A well-formed document still publishes — an empty diagnostic list is
         // the answer that clears the editor's gutter. The server's own
@@ -561,5 +764,88 @@ mod tests {
         assert!(capabilities["__id"].is_null());
         // Named in the client's scheme, never in the user's filesystem.
         assert_eq!(message["params"]["uri"], "hick:///a.hick");
+    }
+
+    /// Protects docs/guarantees/editor-intelligence/one-language-server-per-workspace.md
+    #[tokio::test]
+    async fn two_windows_share_one_session_and_each_gets_its_own_replies() {
+        let dir = tempfile::tempdir().unwrap();
+        let doc = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n\
+                   <hick:doc xmlns:hick=\"http://www.hickorydocs.com/1.0\" weave=\"out.md\">\n\
+                   # Title\n\
+                   </hick:doc>\n";
+        std::fs::write(dir.path().join("a.hick"), doc).unwrap();
+        let hub = LspHub::new(dir.path());
+
+        let (to_one, mut one) = mpsc::unbounded_channel();
+        let (to_two, mut two) = mpsc::unbounded_channel();
+        hub.subscribe(1, to_one).unwrap();
+        let open = serde_json::json!({
+            "jsonrpc": "2.0",
+            "method": "textDocument/didOpen",
+            "params": { "textDocument": {
+                "uri": "hick:///a.hick", "languageId": "hick", "version": 1, "text": doc,
+            }},
+        });
+        hub.send(1, open.clone()).unwrap();
+        // Both windows ask with id 7, as every client counting from 1 will
+        // eventually collide. Each must get ITS answer back under ITS id.
+        let symbols = |id: i64| {
+            serde_json::json!({
+                "jsonrpc": "2.0", "id": id, "method": "textDocument/documentSymbol",
+                "params": { "textDocument": { "uri": "hick:///a.hick" } },
+            })
+        };
+        async fn wait_reply(rx: &mut mpsc::UnboundedReceiver<Vec<u8>>) -> Value {
+            tokio::time::timeout(std::time::Duration::from_secs(10), async {
+                loop {
+                    let frame = rx.recv().await.expect("channel open");
+                    let message: Value = serde_json::from_slice(&frame[1..]).unwrap();
+                    if message.get("id").is_some() && message.get("method").is_none() {
+                        return message;
+                    }
+                }
+            })
+            .await
+            .expect("a reply")
+        }
+        hub.send(1, symbols(7)).unwrap();
+        let reply = wait_reply(&mut one).await;
+        assert_eq!(
+            reply["id"], 7,
+            "the reply carries the client's own id: {reply}"
+        );
+
+        // The second window arrives after the handshake: it still learns the
+        // capabilities, because the editor cannot colour without the legend.
+        hub.subscribe(2, to_two).unwrap();
+        let first = two.recv().await.unwrap();
+        let announced: Value = serde_json::from_slice(&first[1..]).unwrap();
+        assert_eq!(announced["method"], "hick/serverCapabilities");
+        // Its didOpen of the same file is a change, not a second opening —
+        // and its own request with the same id is answered to it alone.
+        hub.send(2, open).unwrap();
+        hub.send(2, symbols(7)).unwrap();
+        let reply = wait_reply(&mut two).await;
+        assert_eq!(reply["id"], 7);
+        assert!(
+            one.try_recv().is_err()
+                || serde_json::from_slice::<Value>(&one.try_recv().unwrap()[1..])
+                    .unwrap()
+                    .get("method")
+                    .is_some(),
+            "window one must not receive window two's reply"
+        );
+
+        // Window one closing does not take the file away from window two:
+        // its didClose is held until the last holder goes.
+        hub.unsubscribe(1);
+        {
+            let state = hub.state.lock().unwrap();
+            assert!(state.open.contains_key("hick:///a.hick"));
+            assert_eq!(state.open["hick:///a.hick"].len(), 1);
+        }
+        hub.unsubscribe(2);
+        assert!(hub.state.lock().unwrap().open.is_empty());
     }
 }

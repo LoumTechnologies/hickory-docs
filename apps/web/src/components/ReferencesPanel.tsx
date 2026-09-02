@@ -16,12 +16,14 @@ export interface ReferencesPanelProps {
   onClose: () => void;
 }
 
-function label(uri: string): { where: string; kind: "doc" | "output" } {
+function label(uri: string): { where: string; kind: "doc" | "output" | "file" } {
   if (uri.startsWith("hick-output:///")) {
     return { where: uri.slice("hick-output:///".length), kind: "output" };
   }
   if (uri.startsWith("hick:///")) {
-    return { where: uri.slice("hick:///".length), kind: "doc" };
+    const where = uri.slice("hick:///".length);
+    // A document, or a plain file the language server also knows about.
+    return { where, kind: where.endsWith(".hick") ? "doc" : "file" };
   }
   return { where: uri, kind: "output" };
 }
@@ -51,7 +53,7 @@ export function ReferencesPanel({ locations, query, onPick, onClose }: Reference
               <li key={i}>
                 <button className="refs-item" onClick={() => onPick(loc)}>
                   <span className={`refs-kind refs-kind-${kind}`}>
-                    {kind === "doc" ? "document" : "output"}
+                    {kind === "doc" ? "document" : kind === "file" ? "file" : "output"}
                   </span>
                   <span className="mono refs-where">{where}</span>
                   <span className="refs-pos">

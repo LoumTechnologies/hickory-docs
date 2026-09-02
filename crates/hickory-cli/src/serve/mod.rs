@@ -137,6 +137,9 @@ pub struct LocalState {
     /// empty is the normal state, because a terminal writes nothing until
     /// somebody anchors it.
     pub anchors: Arc<anchored::Anchors>,
+    /// The workspace's one language-server session, shared by every socket.
+    /// See [`lsp_bridge::LspHub`].
+    pub lsp: Arc<lsp_bridge::LspHub>,
 }
 
 /// The session's provider-key settings: the live store the agent route reads
@@ -639,6 +642,7 @@ pub async fn prepare(opts: ServeOptions) -> Result<Prepared> {
         refactors: Arc::new(Mutex::new(HashMap::new())),
         terminals: Arc::new(hick_term::Terminals::new(term_config)),
         anchors: Arc::new(anchored::Anchors::default()),
+        lsp: Arc::new(lsp_bridge::LspHub::new(index.root())),
     };
 
     Ok(Prepared {

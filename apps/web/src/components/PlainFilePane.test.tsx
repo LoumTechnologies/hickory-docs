@@ -13,6 +13,10 @@ import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import { PlainFilePane } from "./PlainFilePane";
 import { api } from "../api/client";
 import type { WorkspaceDraft } from "../api/types";
+import { setSharedRealtime, type Realtime } from "../api/realtime";
+import { createLspChannel, encodeLspFrame, type JsonRpcMessage } from "../lsp/channel";
+import { resetWorkspaceLsp } from "../lsp/useLsp";
+import { allFileProblems, resetFileProblems } from "../lib/fileProblems";
 
 const ON_DISK = "one\ntwo\nthree\n";
 
@@ -43,6 +47,8 @@ const draft = (over: Partial<WorkspaceDraft> = {}): WorkspaceDraft => ({
 
 beforeEach(() => {
   vi.restoreAllMocks();
+  resetWorkspaceLsp();
+  resetFileProblems();
 });
 
 afterEach(() => {
@@ -137,5 +143,80 @@ describe("a file that is already the output of a document", () => {
     return waitFor(() =>
       expect(screen.getByRole("button", { name: /make literate/i })).toBeTruthy(),
     );
+  });
+});
+
+// Protects docs/guarantees/editor-intelligence/a-plain-file-has-the-same-language-server.md
+describe("a plain file and the language server", () => {
+  /** A realtime whose language channel is a loopback wire this test holds
+   * both ends of. Not server-authoritative, which is how the workspace
+   * connection is told to reuse it rather than open a socket. */
+  function wire() {
+    const outbound: JsonRpcMessage[] = [];
+    const channel = createLspChannel({
+      send: (frame) => {
+        outbound.push(JSON.parse(new TextDecoder().decode(frame.subarray(1))));
+      },
+    });
+    const realtime: Realtime = {
+      serverAuthoritative: false,
+      whenSynced: () => Promise.resolve(),
+      bindDoc: () => {},
+      onRunEvent: () => () => {},
+      lsp: () => channel,
+      close: () => {},
+      reopen: () => {},
+    };
+    setSharedRealtime(realtime);
+    const inject = (msg: JsonRpcMessage) => channel.handleFrame(encodeLspFrame(msg));
+    return { outbound, inject };
+  }
+
+  it("opens the file with the language server at its own path, once loaded", async () => {
+    const { outbound } = wire();
+    serve({ content: ON_DISK, drafts: [] });
+    render(<PlainFilePane path="notes.md" />);
+    await waitFor(() => {
+      const opened = outbound.find((m) => "method" in m && m.method === "textDocument/didOpen");
+      expect(opened).toBeDefined();
+      // The file's own path, and the text the screen shows — never an empty
+      // stand-in sent before the load landed.
+      expect(opened).toMatchObject({
+        params: { textDocument: { uri: "hick:///notes.md", text: ON_DISK } },
+      });
+    });
+  });
+
+  it("puts what the server says is wrong into the file-problems store", async () => {
+    const { outbound, inject } = wire();
+    serve({ content: ON_DISK, drafts: [] });
+    render(<PlainFilePane path="notes.md" />);
+    await waitFor(() =>
+      expect(outbound.some((m) => "method" in m && m.method === "textDocument/didOpen")).toBe(true),
+    );
+    inject({
+      jsonrpc: "2.0",
+      method: "textDocument/publishDiagnostics",
+      params: {
+        uri: "hick:///notes.md",
+        diagnostics: [
+          {
+            range: { start: { line: 1, character: 0 }, end: { line: 1, character: 3 } },
+            severity: 1,
+            message: "two is not a number",
+          },
+        ],
+      },
+    });
+    await waitFor(() => {
+      expect(allFileProblems()).toEqual([
+        expect.objectContaining({
+          path: "notes.md",
+          diagnostics: [expect.objectContaining({ message: "two is not a number" })],
+        }),
+      ]);
+      // And drawn in the buffer, where the reader is.
+      expect(document.querySelector(".cm-lsp-diagnostic, .cm-lsp-error, [class*=\"cm-lsp\"]")).not.toBeNull();
+    });
   });
 });

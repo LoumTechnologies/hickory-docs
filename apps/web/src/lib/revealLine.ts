@@ -46,6 +46,42 @@ export function onRevealLine(handler: (path: string) => void): () => void {
   return () => window.removeEventListener(REVEAL_LINE_EVENT, listener);
 }
 
+// "Open that file, at that line" — from somewhere that cannot open a tab.
+//
+// A definition can land in another file, and the editor that asked has no
+// way to open one: tabs belong to the workspace. So the request is announced,
+// the workspace opens (or raises) the tab, and the reveal above does the
+// rest. Paths are workspace-relative, as everywhere else; `line` is 1-based.
+
+export const OPEN_LOCATION_EVENT = "hickory:open-location";
+
+export interface OpenLocation {
+  path: string;
+  line: number;
+}
+
+/** Ask the workspace to open `path` and put the caret on `line`. */
+export function openLocation(path: string, line: number): void {
+  window.dispatchEvent(
+    new CustomEvent<OpenLocation>(OPEN_LOCATION_EVENT, { detail: { path, line } }),
+  );
+}
+
+/** The workspace's side. Returns the unsubscribe. */
+export function onOpenLocation(handler: (location: OpenLocation) => void): () => void {
+  const listener = (event: Event) => {
+    const detail = (event as CustomEvent<OpenLocation>).detail;
+    if (detail && typeof detail.path === "string") handler(detail);
+  };
+  window.addEventListener(OPEN_LOCATION_EVENT, listener);
+  return () => window.removeEventListener(OPEN_LOCATION_EVENT, listener);
+}
+
+/** A `hick:///<path>` URI's path, or null for any other scheme. */
+export function pathOfDocUri(uri: string): string | null {
+  return uri.startsWith("hick:///") ? uri.slice("hick:///".length) : null;
+}
+
 /** Test seam: forget every outstanding request. */
 export function resetReveals(): void {
   pending.clear();

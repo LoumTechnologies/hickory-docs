@@ -47,6 +47,7 @@ import { positionToUtf16 } from "../lsp/positions";
 import { sourcePositionAt, type OutputProvenance } from "../lsp/outputMapping";
 import type { LspLocation } from "../lsp/client";
 import { FILES_CHANGED_EVENT } from "../shell/FolderTreePane";
+import { openLocation, pathOfDocUri } from "../lib/revealLine";
 import { navigate } from "../router";
 
 export type Banner = { kind: "pending" | "pass" | "fail"; text: string } | null;
@@ -694,6 +695,15 @@ function useDocumentSession(
         // generated file itself, positioned on the hit.
         const path = target.uri.slice("hick-output:///".length);
         openGenerated(path);
+        return;
+      }
+      // Another file altogether — a definition in the repository's own
+      // `src/lib.rs`, or in another document. This session cannot open a
+      // tab; the workspace can, and its pane takes the line from there.
+      const targetPath = pathOfDocUri(target.uri);
+      const ownPath = (docPathRef.current ?? "").replace(/^\/+/, "");
+      if (targetPath !== null && targetPath.replace(/^\/+/, "") !== ownPath) {
+        openLocation(targetPath, target.range.start.line + 1);
         return;
       }
       const text = liveSourceRef.current;

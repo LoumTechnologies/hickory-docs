@@ -1,7 +1,13 @@
 //! Request routing for child LSP servers.
 //!
-//! The [`Dispatcher`] manages a pool of child LSP processes, one per language,
-//! and provides access to them by language ID.
+//! The [`Dispatcher`] manages a pool of child LSP processes, one per language
+//! **per root**, and provides access to them by language ID and root URI.
+//!
+//! Per root, not per language, because a project-aware server answers for the
+//! workspace it was initialised against and no other: rust-analyzer started
+//! on one document's staging directory does not own `src/main.rs` in the
+//! repository the app has open, and a plain file handed to it there would
+//! get syntax-only answers that read like a forwarding bug.
 
 use std::collections::HashMap;
 
@@ -11,11 +17,11 @@ use crate::child_lsp::{ChildLspError, ChildLspHandle, ChildNotification};
 
 /// Routes LSP requests to the appropriate child server by language.
 ///
-/// Each language gets at most one child LSP process. Processes are spawned
-/// lazily on first access and initialized with the workspace root.
+/// Each (language, root) pair gets at most one child LSP process. Processes
+/// are spawned lazily on first access and initialized with that root.
 pub struct Dispatcher {
-    /// Map from language_id to child LSP handle.
-    children: HashMap<String, ChildLspHandle>,
+    /// Map from (language_id, root_uri) to child LSP handle.
+    children: HashMap<(String, String), ChildLspHandle>,
     /// Shared sender for all child notifications.
     notification_tx: mpsc::UnboundedSender<ChildNotification>,
     /// Each child's semantic-token legend, captured from its initialize
@@ -25,7 +31,11 @@ pub struct Dispatcher {
     /// disagree about which integer means `function`, so decoding one child's
     /// tokens with another's legend colours the code wrongly rather than
     /// failing visibly.
-    legends: HashMap<String, (Vec<String>, Vec<String>)>,
+    legends: HashMap<(String, String), (Vec<String>, Vec<String>)>,
+}
+
+fn key(language_id: &str, root_uri: &str) -> (String, String) {
+    (language_id.to_string(), root_uri.to_string())
 }
 
 impl Dispatcher {
@@ -41,9 +51,9 @@ impl Dispatcher {
         }
     }
 
-    /// Get or spawn a child LSP for the given language.
+    /// Get or spawn a child LSP for the given language and root.
     ///
-    /// If a child already exists for the language, returns a reference to it.
+    /// If a child already exists for the pair, returns a reference to it.
     /// Otherwise spawns a new child, initializes it with the given `root_uri`,
     /// and stores it for future requests.
     pub async fn get_or_spawn(
@@ -51,43 +61,53 @@ impl Dispatcher {
         language_id: &str,
         root_uri: &str,
     ) -> Result<&ChildLspHandle, ChildLspError> {
-        if !self.children.contains_key(language_id) {
+        let k = key(language_id, root_uri);
+        if !self.children.contains_key(&k) {
             let handle = ChildLspHandle::spawn(language_id, self.notification_tx.clone()).await?;
             let result = handle.initialize(root_uri).await?;
             if let Some(legend) = semantic_legend(&result) {
-                self.legends.insert(language_id.to_string(), legend);
+                self.legends.insert(k.clone(), legend);
             }
-            self.children.insert(language_id.to_string(), handle);
+            self.children.insert(k.clone(), handle);
         }
 
         Ok(self
             .children
-            .get(language_id)
+            .get(&k)
             .expect("just inserted or already present"))
     }
 
     /// Get an existing child LSP handle without spawning.
     ///
-    /// Returns `Err` if no child exists for the given language.
-    pub fn get_child(&self, language_id: &str) -> Result<&ChildLspHandle, ChildLspError> {
+    /// Returns `Err` if no child exists for the given language and root.
+    pub fn get_child(
+        &self,
+        language_id: &str,
+        root_uri: &str,
+    ) -> Result<&ChildLspHandle, ChildLspError> {
         self.children
-            .get(language_id)
+            .get(&key(language_id, root_uri))
             .ok_or_else(|| ChildLspError::UnknownLanguage {
                 language_id: language_id.to_string(),
             })
     }
 
     /// The semantic-token legend a child declared, if it supports them.
-    pub fn token_legend(&self, language_id: &str) -> Option<(Vec<String>, Vec<String>)> {
-        self.legends.get(language_id).cloned()
+    pub fn token_legend(
+        &self,
+        language_id: &str,
+        root_uri: &str,
+    ) -> Option<(Vec<String>, Vec<String>)> {
+        self.legends.get(&key(language_id, root_uri)).cloned()
     }
 
     /// Shut down all child LSP servers.
     pub async fn shutdown_all(&mut self) {
-        for (language_id, handle) in self.children.drain() {
+        for ((language_id, root_uri), handle) in self.children.drain() {
             if let Err(e) = handle.shutdown().await {
                 tracing::warn!(
                     language_id,
+                    root_uri,
                     error = %e,
                     "error shutting down child LSP server"
                 );

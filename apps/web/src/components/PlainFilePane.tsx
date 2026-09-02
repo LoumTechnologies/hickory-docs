@@ -28,6 +28,20 @@ import { renderedMath } from "../editor/mathRender";
 import { proseWrap } from "../editor/wrapColumn";
 import { editorChrome } from "../editor/chrome";
 import { completions } from "../lsp/completion";
+import { useWorkspaceLsp } from "../lsp/useLsp";
+import {
+  diagnosticRanges,
+  identifierAt,
+  lspSupport,
+  offsetToPosition,
+  positionToOffset,
+  setLspDiagnostics,
+  type LspNavigationTarget,
+} from "../lsp/cmLsp";
+import { lspFeatures } from "../lsp/cmLspFeatures";
+import type { CodeAction, LspLocation } from "../lsp/client";
+import { openLocation, pathOfDocUri } from "../lib/revealLine";
+import { forgetFileProblems, setFileProblems } from "../lib/fileProblems";
 import { blameGutter } from "../editor/blameGutter";
 import { useBlame } from "../editor/useBlame";
 import { claimReveal, onRevealLine } from "../lib/revealLine";
@@ -41,11 +55,20 @@ import { MergeView } from "./MergeView";
 export function PlainFilePane({
   path,
   onAdopted,
+  onReferences,
+  askText,
+  askChoice,
 }: {
   path: string;
   /** Adoption succeeded: the file now has an owning document. The workspace
    * converts this very tab into a generated tab and opens the document. */
   onAdopted?: (adopted: AdoptResponse) => void;
+  /** Find References asked from this file: the workspace shows the list. */
+  onReferences?: (references: { locations: LspLocation[]; query: string }) => void;
+  /** The window's prompt, for a rename's new name. */
+  askText?: (title: string, initial: string) => Promise<string | null>;
+  /** The window's prompt, for choosing a code action. */
+  askChoice?: <T>(title: string, options: { label: string; value: T }[]) => Promise<T | null>;
 }) {
   const hostRef = useRef<HTMLDivElement>(null);
   const viewRef = useRef<EditorView | null>(null);
@@ -81,6 +104,26 @@ export function PlainFilePane({
   } | null>(null);
   const onAdoptedRef = useRef(onAdopted);
   onAdoptedRef.current = onAdopted;
+  const onReferencesRef = useRef(onReferences);
+  onReferencesRef.current = onReferences;
+  const askTextRef = useRef(askText);
+  askTextRef.current = askText;
+  const askChoiceRef = useRef(askChoice);
+  askChoiceRef.current = askChoice;
+  // What the language server was last told — a refused rename, a code action
+  // this editor cannot run — shown in the toolbar until the next one.
+  const [notice, setNotice] = useState<string | null>(null);
+
+  // ---- editor intelligence ------------------------------------------------
+  //
+  // The same language server the documents have, asked about this file at
+  // its own path. Fed the LIVE text so positions match the screen; opened
+  // only once the file has loaded, so the server never sees an empty file
+  // stand in for a real one.
+  const [liveText, setLiveText] = useState<string | null>(null);
+  const lsp = useWorkspaceLsp(liveText === null ? "" : path, liveText ?? "");
+  const lspRef = useRef(lsp);
+  lspRef.current = lsp;
 
   const saver = useMemo(
     () =>
@@ -105,6 +148,7 @@ export function PlainFilePane({
         if (!live) return;
         setFile(loaded);
         setLoadError(null);
+        setLiveText(loaded.content);
         saver.load(loaded.content, loaded.hash);
         void api.files().then(
           (files) => {
@@ -178,6 +222,26 @@ export function PlainFilePane({
     const initial = fileRef.current;
     if (!host || !initial) return;
 
+    // Where a definition landed. This file: select it. Another: the
+    // workspace opens that tab, and its pane does the rest.
+    const goTo = (target: LspNavigationTarget | LspLocation) => {
+      const live = viewRef.current;
+      if (target.uri === lspRef.current.uri && live) {
+        const from = positionToOffset(live.state.doc, target.range.start);
+        const to = positionToOffset(live.state.doc, target.range.end);
+        live.dispatch({
+          selection: { anchor: from, head: Math.max(to, from) },
+          effects: EditorView.scrollIntoView(from, { y: "center" }),
+        });
+        live.focus();
+        return;
+      }
+      const other = pathOfDocUri(target.uri) ?? target.uri.replace(/^hick-output:\/\/\//, "");
+      openLocation(other, target.range.start.line + 1);
+    };
+    const lspClient = lspRef.current.client;
+    const lspUri = lspRef.current.uri;
+
     const view = new EditorView({
       parent: host,
       state: EditorState.create({
@@ -198,12 +262,53 @@ export function PlainFilePane({
           ...languageExtensions(initial.language),
           ...(isMarkdownPath(initial.path) ? [markdownStyling(), taskCheckboxes(), renderedMath()] : []),
           history(),
-          // Completions from this project's own text. The language server's
-          // half is wired per document (see editor/DocumentEditor.tsx); a
-          // plain file has no room yet, and one honest source beats none.
+          // Both kinds of completion: what is in scope here, from the
+          // language server, and what this project calls things, from its
+          // own text. The popup says which is which.
           completions({
+            lsp: lspClient
+              ? {
+                  client: lspClient,
+                  uri: lspUri,
+                  positionAt: (offset, state) => offsetToPosition(state.doc, offset),
+                }
+              : undefined,
             project: (prefix, around) =>
               api.complete(prefix, around).then((answer) => answer.suggestions),
+          }),
+          // Diagnostics, hover, definition, references — and the rest of the
+          // server: colouring, inlay hints, signature help, folding, rename,
+          // code actions. The same bundle a document's editor wears.
+          ...lspSupport({
+            client: lspClient,
+            uri: lspUri,
+            positionAt: (offset, view) => offsetToPosition(view.state.doc, offset),
+            onNavigate: goTo,
+            onReferences: (locations, from) => {
+              const live = viewRef.current;
+              const at = live ? positionToOffset(live.state.doc, from.range.start) : 0;
+              const query = live ? (identifierAt(live.state.doc.toString(), at) ?? "") : "";
+              onReferencesRef.current?.({ locations, query });
+            },
+          }),
+          ...lspFeatures({
+            client: lspClient,
+            uri: lspUri,
+            positionAt: (offset, view) => offsetToPosition(view.state.doc, offset),
+            offsetAt: (position, view) => positionToOffset(view.state.doc, position),
+            inlayHints: true,
+            onRename: (current) =>
+              askTextRef.current
+                ? askTextRef.current(`Rename "${current}" to:`, current)
+                : null,
+            onCodeActions: (actions: CodeAction[]) =>
+              askChoiceRef.current
+                ? askChoiceRef.current(
+                    "Code actions",
+                    actions.map((action) => ({ label: action.title, value: action })),
+                  )
+                : null,
+            onMessage: setNotice,
           }),
           search({ top: true }),
           // Word motion first: bindings for one key run in registration
@@ -235,6 +340,9 @@ export function PlainFilePane({
             return null;
           }),
           EditorView.updateListener.of((u) => {
+            // Every change reaches the language server — a reload from disk
+            // included, since the server should see what the screen shows.
+            if (u.docChanged) setLiveText(u.state.doc.toString());
             // Only edits a person made: a programmatic reload is this pane
             // catching up with the disk, and saving it back would write
             // bytes nobody typed.
@@ -300,6 +408,21 @@ export function PlainFilePane({
 
   // Who last touched each line, when the column is on.
   useBlame(railView, path);
+
+  // Diagnostics arrive in LSP line/character coordinates; translate against
+  // the live buffer so they stay put while the user types. The workspace's
+  // count and list read the same diagnostics from the file-problems store.
+  useEffect(() => {
+    setFileProblems(path, lsp.diagnostics);
+    const view = viewRef.current;
+    if (!view) return;
+    view.dispatch({
+      effects: setLspDiagnostics.of(
+        diagnosticRanges(lsp.diagnostics, (p) => positionToOffset(view.state.doc, p)),
+      ),
+    });
+  }, [lsp.diagnostics, path]);
+  useEffect(() => () => forgetFileProblems(path), [path]);
 
   // A find hit asked for this file at a line. Claimed on mount as well as on
   // the event, because the request is usually made before this pane exists.
@@ -454,6 +577,11 @@ export function PlainFilePane({
         >
           {adopting ? "Adopting…" : "Make literate"}
         </button>
+        )}
+        {notice && (
+          <span className="muted plain-file__notice" role="status">
+            {notice}
+          </span>
         )}
         {(saveState.kind === "saving" || saveState.kind === "saved") && (
           <span

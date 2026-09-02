@@ -42,7 +42,14 @@ pub struct HickBackend {
     /// only be resolved by the server that produced it, and this is how we
     /// remember which one that was. An editor resolves the item it is showing,
     /// which is always from the completion it just asked for.
-    last_completion_language: Arc<RwLock<Option<String>>>,
+    last_completion_language: Arc<RwLock<Option<(String, String)>>>,
+    /// The folder the editor opened, from `initialize`.
+    ///
+    /// A `.hick` document's code is staged and its children rooted there; a
+    /// plain file is handed to its language server AS ITSELF, rooted at the
+    /// project it belongs to — which is this folder when the file is under
+    /// it, and the nearest enclosing repository otherwise.
+    workspace_root: Arc<RwLock<Option<Url>>>,
     /// Where this run stages the code a child language server reads.
     ///
     /// Owned here, and deleted when this backend drops — see
@@ -72,6 +79,8 @@ struct VFileMapping {
     hick_uri: Url,
     /// The language ID of this virtual file (for routing to child LSPs).
     language_id: String,
+    /// The root the child that owns this file was initialised against.
+    root_uri: String,
     /// Position map for translating coordinates.
     position_map: PositionMap,
 }
@@ -90,6 +99,7 @@ impl HickBackend {
             last_completion_language: Arc::new(RwLock::new(None)),
             staging: StagingArea::new(),
             staging_failure_shown: Arc::new(RwLock::new(false)),
+            workspace_root: Arc::new(RwLock::new(None)),
         }
     }
 
@@ -130,6 +140,13 @@ impl HickBackend {
     /// child LSPs.
     async fn process_document(&self, hick_uri: &Url, source: &str) {
         tracing::debug!(%hick_uri, source_len = source.len(), "process_document called");
+
+        // A file that is not a document is not woven: it is its own virtual
+        // file, and its language server is asked about it by its real name.
+        if !is_hick_document(hick_uri) {
+            self.process_plain_file(hick_uri, source).await;
+            return;
+        }
 
         // 1. Try to parse the hick document.
         let state = match HickDocumentState::from_source(source) {
@@ -280,6 +297,7 @@ impl HickBackend {
                     VFileMapping {
                         hick_uri: hick_uri.clone(),
                         language_id: lang_id.to_string(),
+                        root_uri: root_uri.clone(),
                         position_map,
                     },
                 );
@@ -332,6 +350,127 @@ impl HickBackend {
             .await;
     }
 
+    /// A plain file — `src/main.rs`, `app.py`, a `justfile` — opened in the
+    /// app. There is nothing to weave: the file is handed to its language
+    /// server as itself, at its real path, with the project it belongs to as
+    /// the root, and every position maps to itself.
+    ///
+    /// This is the path an ordinary editor takes for every file, and it is
+    /// what makes the app an editor for a repository rather than only for the
+    /// documents in it. A file whose language has no server, or whose
+    /// language nothing recognises, is left alone: no diagnostics, no
+    /// answers, and no error — a justfile with no language server is not a
+    /// problem to report.
+    async fn process_plain_file(&self, uri: &Url, source: &str) {
+        let Some(language_id) = plain_language(uri) else {
+            return;
+        };
+        if lsp_command(language_id).is_err() {
+            tracing::debug!(
+                language_id,
+                "no LSP command for language, skipping plain file"
+            );
+            return;
+        }
+        let root_uri = self.plain_root_uri(uri).await;
+        let lines = source.split('\n').count() as u32;
+
+        // Already open with this child: a change, not a reopen. Sending
+        // didOpen twice for one URI is a protocol violation some servers
+        // answer by dropping the file.
+        let (version, already_open) = {
+            let docs = self.documents.read().await;
+            match docs.get(uri) {
+                Some(entry) => (entry.vfile_version + 1, entry.open_vfiles.contains(uri)),
+                None => (1, false),
+            }
+        };
+        {
+            let mut index = self.vfile_index.write().await;
+            index.insert(
+                uri.clone(),
+                VFileMapping {
+                    hick_uri: uri.clone(),
+                    language_id: language_id.to_string(),
+                    root_uri: root_uri.clone(),
+                    position_map: PositionMap::identity(lines),
+                },
+            );
+        }
+
+        let mut dispatcher = self.dispatcher.lock().await;
+        let handle = match dispatcher.get_or_spawn(language_id, &root_uri).await {
+            Ok(handle) => handle,
+            Err(e) => {
+                tracing::warn!(language_id, error = %e, "failed to spawn child LSP for plain file");
+                return;
+            }
+        };
+        let result = if already_open {
+            handle
+                .notify(
+                    "textDocument/didChange",
+                    serde_json::json!({
+                        "textDocument": { "uri": uri.as_str(), "version": version },
+                        "contentChanges": [{ "text": source }],
+                    }),
+                )
+                .await
+        } else {
+            handle
+                .notify(
+                    "textDocument/didOpen",
+                    serde_json::json!({
+                        "textDocument": {
+                            "uri": uri.as_str(),
+                            "languageId": language_id,
+                            "version": version,
+                            "text": source,
+                        }
+                    }),
+                )
+                .await
+        };
+        if let Err(e) = result {
+            tracing::warn!(language_id, %uri, error = %e, "failed to sync plain file to child LSP");
+        }
+        drop(dispatcher);
+
+        let mut docs = self.documents.write().await;
+        let entry = docs.entry(uri.clone()).or_insert_with(|| DocEntry {
+            state: None,
+            open_vfiles: Vec::new(),
+            vfile_version: 0,
+        });
+        entry.state = None;
+        entry.open_vfiles = vec![uri.clone()];
+        entry.vfile_version = version;
+    }
+
+    /// The root a plain file's language server is initialised against.
+    ///
+    /// The folder the app opened, when the file is inside it — that is the
+    /// project, the same way it is in any IDE. A file from outside it (an
+    /// editor pointing hick-lsp at a stray file) gets the nearest enclosing
+    /// repository, and failing that its own directory.
+    async fn plain_root_uri(&self, uri: &Url) -> String {
+        let workspace = self.workspace_root.read().await.clone();
+        let Ok(path) = uri.to_file_path() else {
+            // Not a file URI at all: the root is wherever this server was
+            // pointed, and the child is told the same.
+            return workspace.map(|u| u.to_string()).unwrap_or_default();
+        };
+        let root = match workspace.and_then(|w| w.to_file_path().ok()) {
+            Some(workspace) if path.starts_with(&workspace) => workspace,
+            _ => enclosing_repository(&path)
+                .or_else(|| path.parent().map(std::path::Path::to_path_buf))
+                .unwrap_or(path),
+        };
+        Url::from_directory_path(&root)
+            .map(|u| u.to_string())
+            .unwrap_or_default()
+    }
+
     /// Record what this document parsed to, and which virtual files are open.
     async fn store_document(
         &self,
@@ -366,15 +505,15 @@ impl HickBackend {
             }
         };
 
-        // Collect (uri, language_id) pairs before sending didClose.
-        let to_close: Vec<(Url, String)> = {
+        // Collect (uri, language_id, root) triples before sending didClose.
+        let to_close: Vec<(Url, String, String)> = {
             let mut index = self.vfile_index.write().await;
             old_vfiles
                 .iter()
                 .filter_map(|vf_uri| {
                     index
                         .remove(vf_uri)
-                        .map(|m| (vf_uri.clone(), m.language_id))
+                        .map(|m| (vf_uri.clone(), m.language_id, m.root_uri))
                 })
                 .collect()
         };
@@ -403,8 +542,8 @@ impl HickBackend {
             .await;
 
         let dispatcher = self.dispatcher.lock().await;
-        for (vf_uri, language_id) in &to_close {
-            if let Ok(handle) = dispatcher.get_child(language_id) {
+        for (vf_uri, language_id, root_uri) in &to_close {
+            if let Ok(handle) = dispatcher.get_child(language_id, root_uri) {
                 let _ = handle
                     .notify(
                         "textDocument/didClose",
@@ -467,9 +606,10 @@ impl HickBackend {
         language_id: &str,
         extra: Option<serde_json::Value>,
     ) -> Option<serde_json::Value> {
+        let root_uri = self.root_of(vf_uri).await?;
         let handle = {
             let dispatcher = self.dispatcher.lock().await;
-            dispatcher.get_child(language_id).ok()?.clone()
+            dispatcher.get_child(language_id, &root_uri).ok()?.clone()
         };
         let mut params = serde_json::json!({ "textDocument": { "uri": vf_uri.as_str() } });
         if let Some(serde_json::Value::Object(extra)) = extra
@@ -583,9 +723,10 @@ impl HickBackend {
         pos: Position,
         extra: Option<serde_json::Value>,
     ) -> Option<serde_json::Value> {
+        let root_uri = self.root_of(vf_uri).await?;
         let handle = {
             let dispatcher = self.dispatcher.lock().await;
-            dispatcher.get_child(language_id).ok()?.clone()
+            dispatcher.get_child(language_id, &root_uri).ok()?.clone()
         };
         let mut params = serde_json::json!({
             "textDocument": { "uri": vf_uri.as_str() },
@@ -606,6 +747,12 @@ impl HickBackend {
                 None
             }
         }
+    }
+
+    /// The root the child owning `vf_uri` was initialised against.
+    async fn root_of(&self, vf_uri: &Url) -> Option<String> {
+        let index = self.vfile_index.read().await;
+        index.get(vf_uri).map(|m| m.root_uri.clone())
     }
 
     /// Snapshot of the vfile index for pure result translation.
@@ -1201,7 +1348,14 @@ async fn handle_child_diagnostics(
 
 #[tower_lsp::async_trait]
 impl LanguageServer for HickBackend {
-    async fn initialize(&self, _: InitializeParams) -> Result<InitializeResult> {
+    async fn initialize(&self, params: InitializeParams) -> Result<InitializeResult> {
+        #[allow(deprecated)]
+        let root = params
+            .workspace_folders
+            .as_ref()
+            .and_then(|folders| folders.first().map(|f| f.uri.clone()))
+            .or(params.root_uri);
+        *self.workspace_root.write().await = root;
         Ok(InitializeResult {
             capabilities: ServerCapabilities {
                 text_document_sync: Some(TextDocumentSyncCapability::Kind(
@@ -1352,7 +1506,8 @@ impl LanguageServer for HickBackend {
         };
         // Remember who answered, so `completionItem/resolve` can go back to
         // the same server — see `last_completion_language`.
-        *self.last_completion_language.write().await = Some(lang.clone());
+        *self.last_completion_language.write().await =
+            self.root_of(&vf_uri).await.map(|root| (lang.clone(), root));
         // Completion ranges (textEdit etc.) are in virtual-file coordinates.
         let map = {
             let index = self.vfile_index.read().await;
@@ -1370,12 +1525,12 @@ impl LanguageServer for HickBackend {
         // text edit; without it, an editor shows a bare identifier with no
         // signature and no docs — the difference between a list of names and
         // a language server.
-        let Some(language) = self.last_completion_language.read().await.clone() else {
+        let Some((language, root_uri)) = self.last_completion_language.read().await.clone() else {
             return Ok(item);
         };
         let handle = {
             let dispatcher = self.dispatcher.lock().await;
-            match dispatcher.get_child(&language) {
+            match dispatcher.get_child(&language, &root_uri) {
                 Ok(handle) => handle.clone(),
                 Err(_) => return Ok(item),
             }
@@ -1550,8 +1705,11 @@ impl LanguageServer for HickBackend {
         let mut tokens = Vec::new();
         for (vf_uri, language, map) in self.virtual_files_of(&params.text_document.uri).await {
             let (child_types, child_modifiers) = {
+                let root_uri = self.root_of(&vf_uri).await.unwrap_or_default();
                 let dispatcher = self.dispatcher.lock().await;
-                dispatcher.token_legend(&language).unwrap_or_default()
+                dispatcher
+                    .token_legend(&language, &root_uri)
+                    .unwrap_or_default()
             };
             if child_types.is_empty() {
                 continue;
@@ -1883,17 +2041,20 @@ impl LanguageServer for HickBackend {
         // Workspace symbols name locations in virtual files; translated, they
         // point at the documents those blocks live in.
         let mut out: Vec<SymbolInformation> = Vec::new();
-        let languages: Vec<String> = {
+        let children: Vec<(String, String)> = {
             let index = self.vfile_index.read().await;
-            let mut seen: Vec<String> = index.values().map(|m| m.language_id.clone()).collect();
+            let mut seen: Vec<(String, String)> = index
+                .values()
+                .map(|m| (m.language_id.clone(), m.root_uri.clone()))
+                .collect();
             seen.sort();
             seen.dedup();
             seen
         };
-        for language in languages {
+        for (language, root_uri) in children {
             let handle = {
                 let dispatcher = self.dispatcher.lock().await;
-                match dispatcher.get_child(&language) {
+                match dispatcher.get_child(&language, &root_uri) {
                     Ok(handle) => handle.clone(),
                     Err(_) => continue,
                 }
@@ -1920,6 +2081,27 @@ impl LanguageServer for HickBackend {
             Ok(Some(out))
         }
     }
+}
+
+/// Whether a URI names a `.hick` document — the thing this server weaves —
+/// rather than a plain file it forwards whole.
+fn is_hick_document(uri: &Url) -> bool {
+    uri.path().ends_with(".hick")
+}
+
+/// The language a plain file is in, by its name.
+fn plain_language(uri: &Url) -> Option<&'static str> {
+    let name = uri.path().rsplit('/').next()?;
+    crate::lang_detect::language_id(name)
+}
+
+/// The nearest ancestor holding a `.git`, which is the project a stray file
+/// most plausibly belongs to.
+fn enclosing_repository(path: &std::path::Path) -> Option<std::path::PathBuf> {
+    path.ancestors()
+        .skip(1)
+        .find(|dir| dir.join(".git").exists())
+        .map(std::path::Path::to_path_buf)
 }
 
 /// Extract a line number and user-friendly message from a [`hick_lang::ParseError`].

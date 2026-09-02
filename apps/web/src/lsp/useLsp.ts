@@ -11,7 +11,7 @@
 // byte offset via provenance first (see lspPositionForOutput).
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { Realtime } from "../api/realtime";
+import { getWorkspaceRealtime, resetWorkspaceRealtime, type Realtime } from "../api/realtime";
 import { LspClient, type LspDiagnostic } from "./client";
 
 export interface LspSession {
@@ -27,19 +27,56 @@ export interface LspSession {
 const SYNC_DEBOUNCE_MS = 300;
 
 export function useLsp(realtime: Realtime, docPath: string, text: string): LspSession {
-  const uri = useMemo(() => `hick:///${docPath.replace(/^\/+/, "")}`, [docPath]);
-  const [diagnostics, setDiagnostics] = useState<LspDiagnostic[]>([]);
-  const [ready, setReady] = useState(false);
-  const clientRef = useRef<LspClient | null>(null);
-  const versionRef = useRef(1);
-  const textRef = useRef(text);
-  textRef.current = text;
-
   const client = useMemo(() => {
     const channel = realtime.lsp();
     return channel ? new LspClient(channel) : null;
   }, [realtime]);
-  clientRef.current = client;
+  // This session owns its client: the document's socket goes with the
+  // document, and so does everything asked over it.
+  useEffect(() => () => client?.dispose(), [client]);
+  return useLspOver(client, docPath, text);
+}
+
+// The workspace's one client, shared by every plain file.
+//
+// One, not one per pane, for a reason that is not thrift: every client counts
+// its request ids from 1, and two clients on ONE channel would each take the
+// other's replies. Documents avoid this by each having a socket; plain files
+// have no room and share the workspace socket, so they share the client too.
+let workspaceClient: LspClient | null = null;
+function workspaceLspClient(): LspClient | null {
+  if (workspaceClient) return workspaceClient;
+  const channel = getWorkspaceRealtime()?.lsp() ?? null;
+  if (!channel) return null;
+  workspaceClient = new LspClient(channel);
+  return workspaceClient;
+}
+
+/** Test seam: forget the workspace client and the connection under it. */
+export function resetWorkspaceLsp(): void {
+  workspaceClient?.dispose();
+  workspaceClient = null;
+  resetWorkspaceRealtime();
+}
+
+/**
+ * A language session for a plain file — `src/main.rs`, `app.py` — over the
+ * workspace connection. The same questions, the same answers, at the file's
+ * own path; the server treats a file that is not a document as its own
+ * virtual file.
+ */
+export function useWorkspaceLsp(path: string, text: string): LspSession {
+  const client = useMemo(() => workspaceLspClient(), []);
+  return useLspOver(client, path, text);
+}
+
+function useLspOver(client: LspClient | null, docPath: string, text: string): LspSession {
+  const uri = useMemo(() => `hick:///${docPath.replace(/^\/+/, "")}`, [docPath]);
+  const [diagnostics, setDiagnostics] = useState<LspDiagnostic[]>([]);
+  const [ready, setReady] = useState(false);
+  const versionRef = useRef(1);
+  const textRef = useRef(text);
+  textRef.current = text;
 
   useEffect(() => {
     // No document path yet (the view is still loading): nothing to open.
@@ -66,8 +103,6 @@ export function useLsp(realtime: Realtime, docPath: string, text: string): LspSe
     }, SYNC_DEBOUNCE_MS);
     return () => clearTimeout(timer);
   }, [client, ready, uri, text]);
-
-  useEffect(() => () => client?.dispose(), [client]);
 
   return { client, uri, diagnostics, ready };
 }

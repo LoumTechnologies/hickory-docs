@@ -7,9 +7,14 @@
 //! had no per-project checkout to start child language servers against. That
 //! stopped being true when the desktop app began opening a folder: the served
 //! directory IS the checkout. It is now bridged to an in-process `hick-lsp`
-//! (see [`super::lsp_bridge`]), started on the connection's first `0x02`
-//! frame so a session that never asks a language question never spawns a
-//! language server.
+//! (see [`super::lsp_bridge`]) — one per workspace, shared by every socket,
+//! and started on the first `0x02` frame anybody sends, so a session that
+//! never asks a language question never spawns a language server.
+//!
+//! `?doc=workspace` opens a socket with no document room at all: only the
+//! language channel. That is how a plain file — `src/main.rs`, with no
+//! document and so no room — gets the same language server the documents
+//! have.
 //!
 //! The room machinery is `hickory-collab`, shared with the hosted server. What
 //! differs is only the gate in front of it.
@@ -26,7 +31,6 @@ use tokio::sync::mpsc;
 
 use super::LocalState;
 use super::api::ApiError;
-use super::lsp_bridge::LspBridge;
 
 static NEXT_CLIENT_ID: AtomicU64 = AtomicU64::new(1);
 
@@ -35,12 +39,20 @@ pub struct WsParams {
     doc: String,
 }
 
-/// `WS /api/ws?doc=doc:<id>`.
+/// `WS /api/ws?doc=doc:<id>`, or `?doc=workspace` for the language channel
+/// alone.
 pub async fn ws_handler(
     State(state): State<LocalState>,
     Query(params): Query<WsParams>,
     upgrade: WebSocketUpgrade,
 ) -> Response {
+    if params.doc == WORKSPACE_ROOM {
+        return upgrade.on_upgrade(move |socket| async move {
+            if let Err(e) = run_workspace_socket(state, socket).await {
+                log::debug!("local workspace socket ended: {e:#}");
+            }
+        });
+    }
     // Output rooms (`output:<id>:<path>`) are a hosted feature: locally the
     // generated files are on disk, and the editor edits them through
     // `/outputs/edit`, which resolves into the document.
@@ -64,6 +76,82 @@ pub async fn ws_handler(
     })
 }
 
+/// The room name for a socket that carries no document: the language channel
+/// for plain files, which have no room of their own.
+const WORKSPACE_ROOM: &str = "workspace";
+
+/// A socket with no document: the language channel, and nothing else.
+async fn run_workspace_socket(state: LocalState, socket: WebSocket) -> anyhow::Result<()> {
+    let client_id = NEXT_CLIENT_ID.fetch_add(1, Ordering::Relaxed);
+    let (tx, mut rx) = mpsc::unbounded_channel::<Vec<u8>>();
+    let (mut sink, mut stream) = socket.split();
+    let writer = tokio::spawn(async move {
+        while let Some(frame) = rx.recv().await {
+            if sink.send(WsMessage::Binary(frame.into())).await.is_err() {
+                break;
+            }
+        }
+    });
+    let mut subscribed = false;
+    while let Some(msg) = stream.next().await {
+        let data = match msg {
+            Ok(WsMessage::Binary(b)) => b.to_vec(),
+            Ok(WsMessage::Text(t)) => t.as_bytes().to_vec(),
+            Ok(WsMessage::Close(_)) | Err(_) => break,
+            Ok(_) => continue,
+        };
+        if data.first() != Some(&CHANNEL_LSP) {
+            continue;
+        }
+        forward_lsp(
+            &state,
+            client_id,
+            &tx,
+            &mut subscribed,
+            &data[1..],
+            WORKSPACE_ROOM,
+        );
+    }
+    if subscribed {
+        state.lsp.unsubscribe(client_id);
+    }
+    writer.abort();
+    Ok(())
+}
+
+/// One `0x02` frame from `client_id`, into the shared session — subscribing
+/// on the first one, so a window that never asks a language question never
+/// starts a language server.
+fn forward_lsp(
+    state: &LocalState,
+    client_id: u64,
+    tx: &mpsc::UnboundedSender<Vec<u8>>,
+    subscribed: &mut bool,
+    payload: &[u8],
+    key: &str,
+) {
+    if !*subscribed {
+        match state.lsp.subscribe(client_id, tx.clone()) {
+            Ok(()) => *subscribed = true,
+            Err(e) => {
+                // The editor degrades without the bridge, so a failure here
+                // ends the language channel, never the session that carries
+                // the user's edits.
+                log::warn!("no language server session for {key}: {e:#}");
+                return;
+            }
+        }
+    }
+    match serde_json::from_slice(payload) {
+        Ok(message) => {
+            if let Err(e) = state.lsp.send(client_id, message) {
+                log::debug!("language server session ended on {key}: {e:#}");
+            }
+        }
+        Err(e) => log::debug!("unparseable lsp frame on {key}: {e}"),
+    }
+}
+
 async fn run_socket(state: LocalState, key: String, socket: WebSocket) -> anyhow::Result<()> {
     let room = state.rooms.get_or_create(&key).await?;
     let client_id = NEXT_CLIENT_ID.fetch_add(1, Ordering::Relaxed);
@@ -81,9 +169,10 @@ async fn run_socket(state: LocalState, key: String, socket: WebSocket) -> anyhow
 
     room.handshake(&tx).await;
 
-    // Started on demand and dropped with the connection, which takes the
-    // child language servers with it.
-    let mut lsp: Option<LspBridge> = None;
+    // Subscribed on demand to the workspace's shared language session, and
+    // unsubscribed with the connection — which closes what this window was
+    // the last to hold open, and nothing else.
+    let mut lsp_subscribed = false;
     // The same rule for debuggers, and it matters more: a debug session holds
     // a running program and a scratch directory, so one that outlived the
     // window would leak both.
@@ -114,28 +203,14 @@ async fn run_socket(state: LocalState, key: String, socket: WebSocket) -> anyhow
                 }
             }
             CHANNEL_LSP => {
-                let bridge = match lsp.as_ref() {
-                    Some(bridge) => bridge,
-                    None => match LspBridge::start(state.index.root(), tx.clone()) {
-                        Ok(started) => lsp.insert(started),
-                        Err(e) => {
-                            // The editor degrades without the bridge, so a
-                            // failure here ends the language channel, never
-                            // the session that carries the user's edits.
-                            log::warn!("no language server session for {key}: {e:#}");
-                            continue;
-                        }
-                    },
-                };
-                match serde_json::from_slice(&data[1..]) {
-                    Ok(message) => {
-                        if let Err(e) = bridge.send(message) {
-                            log::debug!("language server session ended on {key}: {e:#}");
-                            lsp = None;
-                        }
-                    }
-                    Err(e) => log::debug!("unparseable lsp frame on {key}: {e}"),
-                }
+                forward_lsp(
+                    &state,
+                    client_id,
+                    &tx,
+                    &mut lsp_subscribed,
+                    &data[1..],
+                    &key,
+                );
             }
             CHANNEL_DEBUG => {
                 // One registry per connection: a debug session belongs to the
@@ -168,6 +243,9 @@ async fn run_socket(state: LocalState, key: String, socket: WebSocket) -> anyhow
     }
 
     room.detach(client_id);
+    if lsp_subscribed {
+        state.lsp.unsubscribe(client_id);
+    }
     writer.abort();
     // The window is gone, so its debuggers go with it. Each holds a running
     // program and a scratch directory; leaking either would mean a process

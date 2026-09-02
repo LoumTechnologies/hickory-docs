@@ -545,6 +545,123 @@ fn every_installed_language_answers_in_document_coordinates() {
     );
 }
 
+/// A plain file — no document, no `hick:file` block — gets the same answers,
+/// at its own path, with the project as the root.
+///
+/// Protects docs/guarantees/editor-intelligence/a-plain-file-has-the-same-language-server.md
+fn drive_one_plain_file(language: &Language) -> bool {
+    let dir = tempfile::tempdir().expect("a temp project");
+    std::fs::create_dir_all(dir.path().join(".git")).unwrap();
+    for (path, contents) in language.scaffold {
+        let full = dir.path().join(path);
+        if let Some(parent) = full.parent() {
+            std::fs::create_dir_all(parent).unwrap();
+        }
+        std::fs::write(full, contents).unwrap();
+    }
+    let file = dir.path().join(language.file);
+    if let Some(parent) = file.parent() {
+        std::fs::create_dir_all(parent).unwrap();
+    }
+    std::fs::write(&file, language.code).unwrap();
+
+    if !server_available(language.id, dir.path()) {
+        skip(
+            language.id,
+            "no language server for it is installed on this machine",
+        );
+        return false;
+    }
+    let Some(mut client) = StdioClient::start(dir.path()) else {
+        skip(
+            language.id,
+            "hick-lsp has not been built into this target dir",
+        );
+        return false;
+    };
+    let root_uri = format!("file://{}", dir.path().display());
+    let uri = format!("file://{}", file.display());
+    let id = client.request(
+        "initialize",
+        json!({ "processId": std::process::id(), "rootUri": root_uri, "capabilities": {} }),
+    );
+    client
+        .wait_for(id, Duration::from_secs(20))
+        .expect("the server answers initialize");
+    client.notify("initialized", json!({}));
+    client.notify(
+        "textDocument/didOpen",
+        json!({"textDocument": {"uri": uri, "languageId": language.id, "version": 1, "text": language.code}}),
+    );
+
+    let budget = Duration::from_secs(60);
+    let (line, character) = definition_site(language, 0);
+    let hover = client.request_until(
+        "textDocument/hover",
+        json!({"textDocument": {"uri": uri}, "position": {"line": line, "character": character}}),
+        budget,
+    );
+    let hover_text = hover.map(|v| v.to_string()).unwrap_or_default();
+    assert!(
+        hover_text.contains(language.symbol),
+        "{}: hover in a plain file did not mention {}: {hover_text}",
+        language.id,
+        language.symbol
+    );
+
+    let use_site = language
+        .code
+        .lines()
+        .enumerate()
+        .filter(|(_, text)| text.contains(language.symbol))
+        .nth(1)
+        .map(|(offset, text)| (offset as u32, text.find(language.symbol).unwrap() as u32));
+    if let Some((use_line, use_column)) = use_site {
+        let found = client.request_until(
+            "textDocument/definition",
+            json!({"textDocument": {"uri": uri}, "position": {"line": use_line, "character": use_column}}),
+            budget,
+        );
+        let (target_uri, target_line) = found
+            .as_ref()
+            .and_then(first_location)
+            .expect("definition in a plain file is answered");
+        assert!(
+            target_uri.ends_with(language.file),
+            "{}: definition pointed away from the file itself: {target_uri}",
+            language.id
+        );
+        assert_eq!(
+            target_line, line,
+            "{}: definition landed on the wrong line",
+            language.id
+        );
+    }
+    eprintln!(
+        "OK {}: hover and definition in a plain file, at its own path",
+        language.id
+    );
+    true
+}
+
+#[test]
+fn every_installed_language_answers_about_a_plain_file() {
+    let mut covered = Vec::new();
+    for language in LANGUAGES {
+        if cfg!(windows) && language.id == "rust" {
+            continue;
+        }
+        if drive_one_plain_file(language) {
+            covered.push(language.id);
+        }
+    }
+    eprintln!("plain-file languages covered on this machine: {covered:?}");
+    assert!(
+        !covered.is_empty(),
+        "no language server is installed on this machine"
+    );
+}
+
 #[test]
 fn a_server_that_cannot_work_is_passed_over_rather_than_spawned() {
     // `typescript` on npm is 7.x now — the native port, which ships no

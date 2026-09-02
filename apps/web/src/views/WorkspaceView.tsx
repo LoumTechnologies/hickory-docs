@@ -163,7 +163,9 @@ import { positionToUtf16 } from "../lsp/positions";
 import { EditorView } from "@codemirror/view";
 import { TAB_ZOOM_VAR } from "../lib/zoom";
 import { requestFlushSaves } from "../lib/flushSaves";
-import { revealLine } from "../lib/revealLine";
+import { onOpenLocation, pathOfDocUri, revealLine } from "../lib/revealLine";
+import { allFileProblems, useFileProblemsVersion } from "../lib/fileProblems";
+import type { LspLocation } from "../lsp/client";
 import { printText, printTitleFor } from "../lib/printing";
 
 /** The routes the workspace answers. Everything else is App's. */
@@ -280,13 +282,25 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
   // How much is wrong, across every open document. Recomputed from the
   // sessions' own diagnostics rather than kept as a second copy: two counts
   // that can disagree is worse than no count at all.
+  // Plain files have no session; their panes report into a store, and the
+  // count adds them in. See lib/fileProblems.ts.
+  const fileProblemsVersion = useFileProblemsVersion();
   const problems = useMemo(
     () =>
-      totalProblems(registry.all().map((open) => open.lspDiagnostics ?? [])),
+      totalProblems([
+        ...registry.all().map((open) => open.lspDiagnostics ?? []),
+        ...allFileProblems().map((file) => file.diagnostics),
+      ]),
     // registry.version (via useSessionVersion) is what actually changes.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [registry, registry.version],
+    [registry, registry.version, fileProblemsVersion],
   );
+  // Find References asked from a plain file. A document keeps its own list
+  // on its session; a file has no session, so the workspace holds it.
+  const [fileReferences, setFileReferences] = useState<{
+    locations: LspLocation[];
+    query: string;
+  } | null>(null);
 
   /** Put the caret on the next error or warning in the focused document. */
   // The list behind the status bar's count. Open/closed is all that is held;
@@ -673,6 +687,13 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
     [ensureDocOpen, openGeneratedFor, openPlainFile],
   );
   openHitRef.current = openHit;
+
+  // A definition that landed in another file, asked from an editor that
+  // cannot open tabs. The workspace can. See lib/revealLine.ts.
+  useEffect(
+    () => onOpenLocation(({ path, line }) => openHitRef.current?.(path, line)),
+    [],
+  );
 
   // The route is a REQUEST against the workspace, not its owner:
   // `#/docs/<id>` means "make sure this document is open and frontmost",
@@ -1582,6 +1603,9 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
         <PlainFilePane
           key={tab.id}
           path={tab.target}
+          onReferences={setFileReferences}
+          askText={shellPrompt.askText}
+          askChoice={shellPrompt.askChoice}
           onAdopted={(adopted) => {
             // The file gained an owner: this tab becomes a
             // generated tab in place, and the owning document
@@ -1871,15 +1895,25 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
       )}
       {problemsOpen && (
         <ProblemsPanel
-          rows={problemRows(
-            registry.all().map((open) => ({
+          rows={problemRows([
+            ...registry.all().map((open) => ({
               docId: open.docId,
               path: open.doc?.path ?? open.docId,
               diagnostics: open.lspDiagnostics ?? [],
             })),
-          )}
+            ...allFileProblems().map((file) => ({
+              docId: `file:${file.path}`,
+              path: file.path,
+              diagnostics: file.diagnostics,
+            })),
+          ])}
           onPick={(row: ProblemRow) => {
             setProblemsOpen(false);
+            if (row.docId.startsWith("file:")) {
+              // A plain file: open (or raise) its tab and go to the line.
+              openHit(row.path, row.diagnostic.range.start.line + 1);
+              return;
+            }
             ensureDocOpen(row.docId);
             navigate(`/docs/${row.docId}`);
             // After the tab exists: a document opened by this click has no
@@ -1895,13 +1929,28 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
           onClose={() => setProblemsOpen(false)}
         />
       )}
-      {focused?.references && (
+      {fileReferences ? (
         <ReferencesPanel
-          locations={focused.references.locations}
-          query={focused.references.query}
-          onPick={focused.openTarget}
-          onClose={focused.clearReferences}
+          locations={fileReferences.locations}
+          query={fileReferences.query}
+          onPick={(location) => {
+            setFileReferences(null);
+            const target =
+              pathOfDocUri(location.uri) ??
+              location.uri.replace(/^hick-output:\/\/\//, "");
+            openHit(target, location.range.start.line + 1);
+          }}
+          onClose={() => setFileReferences(null)}
         />
+      ) : (
+        focused?.references && (
+          <ReferencesPanel
+            locations={focused.references.locations}
+            query={focused.references.query}
+            onPick={focused.openTarget}
+            onClose={focused.clearReferences}
+          />
+        )
       )}
       {focused && (
         <PromptPanel prompt={focused.prompt} onSettle={focused.settle} />

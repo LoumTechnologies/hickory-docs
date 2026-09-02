@@ -259,6 +259,27 @@ export function getSharedRealtime(): Realtime | null {
   return sharedRealtime;
 }
 
+// The workspace's own connection: no document room, only the language
+// channel. One per window, made on first use, never closed — it is what a
+// plain file (which has no room of its own) asks language questions over,
+// and the server behind it is the same shared session the documents use.
+let workspaceRealtime: Realtime | null = null;
+export function getWorkspaceRealtime(): Realtime | null {
+  if (workspaceRealtime) return workspaceRealtime;
+  // Mock mode has no server: the shared local bus answers with no language
+  // channel, and the editor degrades to its project completions.
+  if (sharedRealtime && !sharedRealtime.serverAuthoritative) return sharedRealtime;
+  if (typeof WebSocket === "undefined") return null;
+  workspaceRealtime = new WsRealtime("workspace");
+  return workspaceRealtime;
+}
+
+/** Test seam: forget the workspace connection. */
+export function resetWorkspaceRealtime(): void {
+  workspaceRealtime?.close();
+  workspaceRealtime = null;
+}
+
 /** In-browser realtime for VITE_MOCK=1: no network; run events are pushed locally. */
 export class LocalRealtime implements Realtime {
   /** Nothing to reopen: there is no socket, and the local bus outlives every
