@@ -84,6 +84,12 @@ pub struct Asset {
     /// signatures, so this is the strongest available statement and it is
     /// worth being precise about which one it is.
     pub sha256: &'static str,
+    /// The directory under the prefix to unpack into, or empty for the
+    /// prefix itself. An archive that carries a top-level directory of its
+    /// own (netcoredbg's `netcoredbg/`) needs nothing; one that does not
+    /// (a `.vsix` is a zip of `extension/…`) would otherwise scatter its
+    /// contents across every other adapter's home.
+    pub into: &'static str,
     /// The program that unpacks it — `tar` or `unzip`.
     pub unpack: &'static str,
 }
@@ -103,9 +109,14 @@ impl Asset {
         } else {
             "sha256sum -c -"
         };
+        let dest = if self.into.is_empty() {
+            "{prefix}".to_string()
+        } else {
+            format!("{{prefix}}/{}", self.into)
+        };
         let unpack = match self.unpack {
-            "unzip" => "unzip -q {prefix}/download.archive -d {prefix}",
-            _ => "tar -xzf {prefix}/download.archive -C {prefix}",
+            "unzip" => format!("mkdir -p {dest} && unzip -q {{prefix}}/download.archive -d {dest}"),
+            _ => format!("mkdir -p {dest} && tar -xzf {{prefix}}/download.archive -C {dest}"),
         };
         format!(
             "curl -fsSL {url} -o {{prefix}}/download.archive && \

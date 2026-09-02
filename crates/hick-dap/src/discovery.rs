@@ -150,9 +150,14 @@ pub fn how_to_get(language: &str) -> String {
         "go" => "delve is the Go debugger: `go install \
                  github.com/go-delve/delve/cmd/dlv@latest`, and hick will find `dlv` on PATH."
             .to_string(),
-        "rust" | "c" | "cpp" => "hick uses LLVM's own adapter here. `lldb-dap` ships with LLVM \
-                                 (`apt install lldb`, `brew install llvm`); codelldb is the \
-                                 other one hick looks for. Either on PATH is enough."
+        "rust" => "Install one with `hick dap install rust` (codelldb, which bundles its own \
+                   lldb), or install it the way that ecosystem does — `lldb-dap` ships with \
+                   LLVM (`apt install lldb`, `brew install llvm`). hick prefers whatever is \
+                   already there."
+            .to_string(),
+        "c" | "cpp" => "hick uses LLVM's own adapter here. `lldb-dap` ships with LLVM \
+                        (`apt install lldb`, `brew install llvm`); codelldb is the other one \
+                        hick looks for. Either on PATH is enough."
             .to_string(),
         "ruby" => "rdbg comes from Ruby's debug gem: `gem install debug`, and hick will find \
                    `rdbg` on PATH."
@@ -338,6 +343,9 @@ fn project_dirs(root: &Path) -> Vec<PathBuf> {
         // binary beside its managed DLLs, so the binary IS the directory's
         // name — there is no `bin/` to point at.
         dirs.push(ancestor.join(".hick-cache/adapters/netcoredbg"));
+        // codelldb ships as a VS Code extension archive, unpacked whole so
+        // the lldb it bundles stays beside the adapter that loads it.
+        dirs.push(ancestor.join(".hick-cache/adapters/codelldb/extension/adapter"));
         for layout in [
             "node_modules/.bin",
             ".venv/bin",

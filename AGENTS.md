@@ -469,6 +469,17 @@ is refused below the publication floor** — the same line `hick emit` draws.
 credential **fails saying so** instead of hanging a request on a password
 nobody can type.
 
+**Rust debugging is proven end to end (2026-09-02)**: `hick dap install rust`
+fetches **codelldb** (MIT, bundles its own lldb, DAP over stdio) through the
+archive shape — a `.vsix` is a zip with no top-level directory, so an asset
+now says what it unpacks `into` — and the `Build` table gained a `cargo
+build` row **without a fourth field**: where the artifact lands
+(`artifact_root`, the app's own `.hick-cache/cargo-target` so a session's
+build outlives the scratch copy) and what it is called (`artifact_stem`,
+read from `[package] name`) are both answered from the project file the table
+already has. The spec's stop signal has not fired. cargo's `.d` notes share
+the binary's stem and are not programs.
+
 ## Stack (settled — do not relitigate)
 
 - CLI + language + local server: Rust (edition 2024), axum, tokio. No database.

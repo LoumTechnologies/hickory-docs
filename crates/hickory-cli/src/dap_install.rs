@@ -66,6 +66,68 @@ const INSTALLERS: &[Installer] = &[
         // it unavailable to this product rather than merely unchosen.
         reason: "the only MIT-licensed .NET debugger, and the one hick's C# support was built against",
     },
+    Installer {
+        language: "rust",
+        tool: "curl",
+        package: "codelldb",
+        command: "",
+        assets: CODELLDB,
+        // MIT, ships its own lldb, and speaks DAP over stdio when started
+        // with no arguments. `lldb-dap` from LLVM is the other adapter
+        // discovery looks for, and one the user installed is still preferred.
+        reason: "the LLDB-based debugger VS Code's Rust users run, usable outside it",
+    },
+];
+
+/// codelldb v1.12.3, pinned per platform.
+///
+/// Published as a VS Code extension archive (`.vsix`, which is a zip of
+/// `extension/…`), so each one unpacks INTO `codelldb/` and the adapter is
+/// `.hick-cache/adapters/codelldb/extension/adapter/codelldb`, with the lldb
+/// it bundles beside it. The checksums were taken from the five assets on
+/// 2026-09-02 by fetching each one. Only `linux-x86_64` has been unpacked and
+/// run; the other four are pinned bytes nobody here has executed.
+const CODELLDB: &[Asset] = &[
+    Asset {
+        os: "linux",
+        arch: "x86_64",
+        url: "https://github.com/vadimcn/codelldb/releases/download/v1.12.3/codelldb-linux-x64.vsix",
+        sha256: "1cd7f386598022b51a5b93b9ffa23e812b23f519cfe1833384ec4bef4bfd1be1",
+        unpack: "unzip",
+        into: "codelldb",
+    },
+    Asset {
+        os: "linux",
+        arch: "aarch64",
+        url: "https://github.com/vadimcn/codelldb/releases/download/v1.12.3/codelldb-linux-arm64.vsix",
+        sha256: "0887f67d440554617894266f80706b700907c36b95e6e49d23b95a0e05318101",
+        unpack: "unzip",
+        into: "codelldb",
+    },
+    Asset {
+        os: "macos",
+        arch: "aarch64",
+        url: "https://github.com/vadimcn/codelldb/releases/download/v1.12.3/codelldb-darwin-arm64.vsix",
+        sha256: "2f114a990e1b368dd1dbd33c80c0e719767af2d228391ec0df0571c957f9ac91",
+        unpack: "unzip",
+        into: "codelldb",
+    },
+    Asset {
+        os: "macos",
+        arch: "x86_64",
+        url: "https://github.com/vadimcn/codelldb/releases/download/v1.12.3/codelldb-darwin-x64.vsix",
+        sha256: "e25cc716b94c62c07fec268ff2785d2b797245b160502baef8b9c970a0c4d8e8",
+        unpack: "unzip",
+        into: "codelldb",
+    },
+    Asset {
+        os: "windows",
+        arch: "x86_64",
+        url: "https://github.com/vadimcn/codelldb/releases/download/v1.12.3/codelldb-win32-x64.vsix",
+        sha256: "a916e509308dac817732f63ca604a8b93ed29cd16f38a2fa9f0b64ed58e8f51a",
+        unpack: "unzip",
+        into: "codelldb",
+    },
 ];
 
 /// netcoredbg 3.2.0-1092, pinned per platform.
@@ -88,6 +150,7 @@ const NETCOREDBG: &[Asset] = &[
         url: "https://github.com/Samsung/netcoredbg/releases/download/3.2.0-1092/netcoredbg-linux-amd64.tar.gz",
         sha256: "080eb3b2d2152465f599d3b33d1ee6e747794e11cc0a3773ec689f5e5f2c5afa",
         unpack: "tar",
+        into: "",
     },
     Asset {
         os: "linux",
@@ -95,6 +158,7 @@ const NETCOREDBG: &[Asset] = &[
         url: "https://github.com/Samsung/netcoredbg/releases/download/3.2.0-1092/netcoredbg-linux-arm64.tar.gz",
         sha256: "065ff49badec8a695dbea2de6ab6a330c774a191e426a217ab8cc05250627ccb",
         unpack: "tar",
+        into: "",
     },
     Asset {
         os: "macos",
@@ -102,6 +166,7 @@ const NETCOREDBG: &[Asset] = &[
         url: "https://github.com/Samsung/netcoredbg/releases/download/3.2.0-1092/netcoredbg-osx-arm64.zip",
         sha256: "f4fa33b3ff874910cc184b4bb3b9c56d0abdf5c6521cee0b144d7c6e4a6e59ea",
         unpack: "unzip",
+        into: "",
     },
     Asset {
         os: "windows",
@@ -109,6 +174,7 @@ const NETCOREDBG: &[Asset] = &[
         url: "https://github.com/Samsung/netcoredbg/releases/download/3.2.0-1092/netcoredbg-win64.zip",
         sha256: "3c410a45fa502415203a94fcb88654af65bf8e3dac158a5527a722e7a6b9274a",
         unpack: "unzip",
+        into: "",
     },
 ];
 

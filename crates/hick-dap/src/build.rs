@@ -77,8 +77,70 @@ fn build_for(language: &str) -> Build {
             needs: "a `hick:file path=\"app/app.csproj\"` block, or `hick ingest` the one \
                     `dotnet new` writes",
         },
+        // The second compiled language, and it did NOT need a fourth field:
+        // where the artifact lands is `artifact_root`, and what it is named
+        // is `artifact_stem` — both answered from the project file, which
+        // the table already has. The spec's signal to stop extending the
+        // table has not fired; it is worth saying so where it would.
+        "rust" => Build::Command {
+            project: "Cargo.toml",
+            argv: &["cargo", "build"],
+            artifact: "debug/*",
+            needs: "a `hick:file path=\"app/Cargo.toml\"` block with a `[package]`, beside a \
+                    `src/main.rs`",
+        },
         _ => Build::None,
     }
+}
+
+/// Where a build's artifact lands, for `artifact` to be read relative to.
+///
+/// `dotnet build` writes under the project; `cargo build` writes to a target
+/// directory this app points OUTSIDE the scratch tree, so a session's build
+/// survives the session — a scratch copy is deleted with it, and rebuilding
+/// every dependency on every debug session is a way to lose ten minutes.
+fn artifact_root(language: &str, project_dir: &Path, cache_root: &Path) -> PathBuf {
+    match language {
+        "rust" => cache_root.join(".hick-cache/cargo-target"),
+        _ => project_dir.to_path_buf(),
+    }
+}
+
+/// What the program is called, from the project file that names it.
+///
+/// A .NET assembly is named after its project file; a cargo binary is named
+/// after the package, which is inside `Cargo.toml` rather than on it.
+fn artifact_stem(project_file: &Path) -> std::ffi::OsString {
+    if project_file.file_name().is_some_and(|n| n == "Cargo.toml")
+        && let Ok(text) = std::fs::read_to_string(project_file)
+        && let Some(name) = cargo_package_name(&text)
+    {
+        return name.into();
+    }
+    project_file.file_stem().unwrap_or_default().to_owned()
+}
+
+/// `name = "…"` under `[package]`, by a line scan.
+///
+/// A scan and not a TOML parser, deliberately: this crate takes no TOML
+/// dependency for one key, and a manifest that fools a line scan — a
+/// `name` inside a multi-line string — is a manifest nobody has written.
+fn cargo_package_name(text: &str) -> Option<String> {
+    let mut in_package = false;
+    for line in text.lines() {
+        let line = line.trim();
+        if line.starts_with('[') {
+            in_package = line == "[package]";
+            continue;
+        }
+        if in_package
+            && let Some(rest) = line.strip_prefix("name")
+            && let Some(value) = rest.trim_start().strip_prefix('=')
+        {
+            return Some(value.trim().trim_matches('"').to_string());
+        }
+    }
+    None
 }
 
 /// Whether a language needs a build before it has a program.
@@ -163,8 +225,17 @@ pub async fn build(
         std::fs::create_dir_all(&packages)
             .with_context(|| format!("creating {}", packages.display()))?;
     }
+    let out_dir = artifact_root(language, &dir, cache_root);
+    if language == "rust" && !out_dir.exists() {
+        // cargo's registry cache is the user's own (`~/.cargo`); what this
+        // app redirects is only where the build lands.
+        on_output(BuildOutput::Note(format!(
+            "cargo builds into {}; the first build of a project may fetch crates from the network",
+            display_relative(&out_dir, cache_root)
+        )));
+    }
 
-    let code = run(argv, &dir, &packages, cache_root, on_output).await?;
+    let code = run(argv, &dir, &packages, cache_root, &out_dir, on_output).await?;
     on_output(BuildOutput::Exit(code));
     if code != 0 {
         // Deliberately neutral about WHERE the output is: this same error
@@ -178,7 +249,7 @@ pub async fn build(
         );
     }
 
-    locate_artifact(&dir, artifact, &project_file)
+    locate_artifact(&out_dir, artifact, &project_file)
 }
 
 /// Run the build, streaming both streams as they arrive.
@@ -187,6 +258,7 @@ async fn run(
     dir: &Path,
     packages: &Path,
     cache_root: &Path,
+    out_dir: &Path,
     on_output: &mut (dyn FnMut(BuildOutput) + Send),
 ) -> Result<i32> {
     use tokio::io::{AsyncBufReadExt, BufReader};
@@ -202,6 +274,8 @@ async fn run(
         .env("NUGET_PACKAGES", packages)
         .env("DOTNET_CLI_HOME", cache_root.join(".hick-cache/dotnet"))
         .env("DOTNET_CLI_TELEMETRY_OPTOUT", "1")
+        // Harmless to dotnet; the whole point for cargo. See `artifact_root`.
+        .env("CARGO_TARGET_DIR", out_dir)
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
         .stdin(std::process::Stdio::null());
@@ -249,8 +323,13 @@ async fn run(
 /// project that DID override it, with several candidates and no stem match,
 /// is a refusal that lists them rather than a guess.
 fn locate_artifact(dir: &Path, pattern: &str, project_file: &Path) -> Result<PathBuf> {
-    let stem = project_file.file_stem().unwrap_or_default().to_owned();
-    let mut found = glob(dir, pattern);
+    let stem = artifact_stem(project_file);
+    let mut found: Vec<PathBuf> = glob(dir, pattern)
+        .into_iter()
+        // Files, and not cargo's `.d` dependency notes beside them, which
+        // share the binary's stem and are not programs.
+        .filter(|p| p.is_file() && p.extension().is_none_or(|e| e != "d"))
+        .collect();
     found.sort();
     if let Some(exact) = found.iter().find(|p| p.file_stem() == Some(&stem)) {
         return Ok(exact.clone());
@@ -611,5 +690,17 @@ mod csharp {
             words.contains("error CS"),
             "no compiler error surfaced:\n{words}"
         );
+    }
+
+    #[test]
+    fn a_cargo_package_is_named_by_its_manifest() {
+        assert_eq!(
+            cargo_package_name(
+                "[package]\nname = \"pricing\"\nversion = \"0.1.0\"\n[dependencies]\nname = \"not-this\"\n"
+            ),
+            Some("pricing".to_string())
+        );
+        assert_eq!(cargo_package_name("[workspace]\nmembers = []\n"), None);
+        assert!(is_compiled("rust"));
     }
 }

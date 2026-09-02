@@ -45,6 +45,20 @@ isolation on this path is the scratch copy, not the executor that confines
 cells; a build step is no *less* confined than the debuggee it feeds, but it
 does run a build tool the document's own content chose.
 
+> **Amended 2026-09-02.** Rust is the second compiled language, and it did
+> **not** need a fourth field — the spec's signal to stop extending the table
+> has not fired. `cargo build` runs in the `Cargo.toml`'s own directory; the
+> artifact lands in the app's own target directory (`.hick-cache/cargo-target`,
+> outside the scratch copy so a session's build survives the session); and
+> the program is the binary named by the package's `[package] name`, which
+> `artifact_stem` reads from the manifest — the answer that used to be the
+> project file's stem is now a question the project file answers either way.
+> cargo's `.d` notes beside the binary are not programs and are skipped. The
+> adapter is codelldb (MIT, bundles its own lldb, DAP over stdio), installed
+> by `hick dap install rust` through the archive shape, or `lldb-dap` if the
+> machine has it. **Verified end to end** (`live_session_rust.rs`): built,
+> stopped on the document line inside `line_total`, `quantity` read as `3`.
+
 > **Amended 2026-08-27.** This document used to close by saying there is no
 > `hick dap install csharp`. There is one now — netcoredbg still ships as
 > release archives rather than as one installable command, so the catalogue
@@ -57,8 +71,11 @@ does run a build tool the document's own content chose.
 Last LLM verification:
 - Date: 2026-08-27
 - Reviewer: Claude (Opus 5)
-- Result: verified for the build and for the gutter; the launch is
-  **unverified** — see caveats
+- Result: verified for the build and for the gutter; the C# launch is
+  covered by `live_session_csharp.rs`; the Rust launch is covered by
+  `crates/hick-dap/tests/live_session_rust.rs` (2026-09-02, codelldb 1.12.3,
+  real `cargo build`, breakpoint on the document line, value read from the
+  frame)
 - Evidence:
   - `apps/web/src/debug/languages.ts` — `DEBUGGABLE_LANGUAGES` gains
     `"csharp"` (2026-08-27). Confirmed in the running app against

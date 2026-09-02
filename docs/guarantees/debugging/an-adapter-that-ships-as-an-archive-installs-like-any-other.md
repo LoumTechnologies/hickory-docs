@@ -23,6 +23,15 @@ then it installs the same way every other adapter does — confined, into
 The first adapter to need this is **netcoredbg**, which is why C# had no
 install command until now.
 
+> **Amended 2026-09-02.** The second is **codelldb**, for Rust, published as a
+> `.vsix` — a zip of `extension/…` with no top-level directory of its own. So
+> an asset now names the directory it unpacks **into** (`into: "codelldb"`),
+> and the adapter is found at
+> `.hick-cache/adapters/codelldb/extension/adapter/codelldb` with the lldb it
+> bundles beside it. `unzip` keeps the executable bit the archive carries,
+> which was checked rather than assumed. Five platforms are pinned; only
+> `linux-x86_64` has been run.
+
 ---
 
 Last LLM verification:
