@@ -551,3 +551,87 @@ describe("undo safety", () => {
     realtime.close();
   });
 });
+
+// Protects docs/guarantees/authoring/an-ingested-scaffold-opens-as-a-tree.md
+describe("an ingested scaffold, mounted", () => {
+  const SOURCE = [
+    "# Owning what a scaffolder wrote",
+    "",
+    '<hick:exec container="sdk" mount="project:out">',
+    '<hick:copy id="scaffold">dotnet new webapi -o out</hick:copy>',
+    '<hick:ingested from="#scaffold" sha256="9f2c" at="2026-09-01" files="3" skipped="6">',
+    '<hick:file path="service/Controllers/HomeController.cs">using Microsoft.AspNetCore.Mvc;',
+    "",
+    "public class HomeController : ControllerBase { }",
+    "</hick:file>",
+    '<hick:file path="service/Controllers/WeatherController.cs">using Microsoft.AspNetCore.Mvc;',
+    "",
+    "public class WeatherController : ControllerBase { }",
+    "</hick:file>",
+    '<hick:file path="service/Program.cs">var builder = WebApplication.CreateBuilder(args);',
+    "builder.Build().Run();",
+    "</hick:file>",
+    "</hick:ingested>",
+    "</hick:exec>",
+    "",
+    "And now your four lines.",
+    "",
+  ].join("\n");
+
+  const mount = () => {
+    const realtime = new LocalRealtime();
+    const rendered = render(
+      <DocumentEditor
+        docId="ingest"
+        initialSource={SOURCE}
+        realtime={realtime}
+        execBlocks={[]}
+        runningCells={new Set()}
+        onRunCell={() => undefined}
+      />,
+    );
+    return { realtime, ...rendered };
+  };
+
+  it("opens with each file folded to its own tag line and a counted placeholder", async () => {
+    const { container, realtime } = mount();
+    const content = container.querySelector(".cm-content")!;
+    await waitFor(() =>
+      expect(content.textContent).toContain("Owning what a scaffolder wrote"),
+    );
+    // The folds land in a microtask after the first non-empty document.
+    await waitFor(() =>
+      expect(container.querySelectorAll(".cm-hick-fold-counted").length).toBe(3),
+    );
+    const labels = [...container.querySelectorAll(".cm-hick-fold-counted")].map(
+      (el) => el.textContent,
+    );
+    expect(labels).toEqual(["3 lines", "3 lines", "2 lines"]);
+
+    // Every path is still on screen — that visible line per file IS the tree.
+    for (const path of [
+      "service/Controllers/HomeController.cs",
+      "service/Controllers/WeatherController.cs",
+      "service/Program.cs",
+    ]) {
+      expect(content.textContent).toContain(path);
+    }
+    // …and the bodies are not.
+    expect(content.textContent).not.toContain("public class HomeController");
+    expect(content.textContent).not.toContain("builder.Build().Run();");
+    // The prose on the other side of the scaffold is where it always was.
+    expect(content.textContent).toContain("And now your four lines.");
+    realtime.close();
+  });
+
+  it("leaves the bytes exactly as they were — a fold is not an edit", async () => {
+    const { container, realtime } = mount();
+    await waitFor(() =>
+      expect(container.querySelectorAll(".cm-hick-fold-counted").length).toBe(3),
+    );
+    const view = (window as unknown as { __hickoryView?: EditorViewType })
+      .__hickoryView!;
+    expect(view.state.doc.toString()).toBe(SOURCE);
+    realtime.close();
+  });
+});

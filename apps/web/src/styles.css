@@ -2463,6 +2463,17 @@ button.fleet-grant {
   cursor: pointer;
 }
 .cm-hick-fold-placeholder:hover { color: var(--fg); }
+/* A counted placeholder — "22 lines", "Controllers/ · 4 files, 96 lines" —
+   stands for ingested bytes, so it wears the same hue as `.cm-prov-ingested`
+   and the cell bar's ingest chip. One visual language for "this came from a
+   run", whether the bytes are on screen or folded away. */
+.cm-hick-fold-counted {
+  border-color: color-mix(in srgb, var(--accent-3, var(--accent-2)) 45%, var(--border));
+  background: color-mix(in srgb, var(--accent-3, var(--accent-2)) 14%, var(--neutral-bg));
+  color: var(--accent-3, var(--accent-2));
+  font-variant-numeric: tabular-nums;
+}
+.cm-hick-fold-counted:hover { color: var(--fg); }
 
 /* --- split (lineage) view --- */
 
