@@ -48,6 +48,7 @@ pub mod scaffold;
 pub mod socket;
 pub mod store;
 pub mod terminal;
+pub mod test_run;
 pub mod watch;
 pub mod workspace;
 
@@ -561,6 +562,7 @@ fn router(state: LocalState) -> Router {
                 .delete(workspace::discard_draft),
         )
         .route("/terminals", get(terminal::list).post(terminal::open))
+        .route("/tests/run", post(test_run::run))
         .route("/terminals/turbo", put(terminal::set_turbo))
         .route("/terminals/anchors", get(terminal::anchors))
         .route("/terminals/ws", get(terminal::ws_handler))

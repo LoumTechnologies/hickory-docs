@@ -82,6 +82,24 @@ export function pathOfDocUri(uri: string): string | null {
   return uri.startsWith("hick:///") ? uri.slice("hick:///".length) : null;
 }
 
+// "Show that terminal" — from a pane that started a session and cannot open
+// a tab. A test run, say.
+
+export const SHOW_TERMINAL_EVENT = "hickory:show-terminal";
+
+export function showTerminalRequest(id: string, title: string): void {
+  window.dispatchEvent(new CustomEvent(SHOW_TERMINAL_EVENT, { detail: { id, title } }));
+}
+
+export function onShowTerminal(handler: (session: { id: string; title: string }) => void): () => void {
+  const listener = (event: Event) => {
+    const detail = (event as CustomEvent<{ id: string; title: string }>).detail;
+    if (detail && typeof detail.id === "string") handler(detail);
+  };
+  window.addEventListener(SHOW_TERMINAL_EVENT, listener);
+  return () => window.removeEventListener(SHOW_TERMINAL_EVENT, listener);
+}
+
 /** Test seam: forget every outstanding request. */
 export function resetReveals(): void {
   pending.clear();

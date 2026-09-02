@@ -480,6 +480,20 @@ read from `[package] name`) are both answered from the project file the table
 already has. The spec's stop signal has not fired. cargo's `.d` notes share
 the binary's stem and are not programs.
 
+**A test runs from the line it is written on**
+(`docs/guarantees/execution/a-test-runs-from-the-line-it-is-written-on.md`,
+2026-09-02): a run mark beside every `#[test]`, `it("…")`, `def test_…`,
+`[Fact]` and `func TestX`, found **by shape, textually** — a language server
+has no opinion about what is a test, and a runner's own discovery would mean
+running it to draw a gutter. A click runs that one test in **the ecosystem's
+own runner, in the nearest directory that owns the file** (the closest
+`Cargo.toml`, `package.json`, `pyproject.toml`, `.csproj`, `go.mod`), as a
+**terminal session named after the test** — a terminal, not a summary, for
+the reason a build is watched: a failing test says why in its own words.
+Found without being configured; there is no `launch.json` and there must not
+be. In jsdom a gutter's `domEventHandlers` cannot resolve a line from a
+pointer's height, so **the mark answers its own click**.
+
 ## Stack (settled — do not relitigate)
 
 - CLI + language + local server: Rust (edition 2024), axum, tokio. No database.

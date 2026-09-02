@@ -28,6 +28,8 @@ import { renderedMath } from "../editor/mathRender";
 import { proseWrap } from "../editor/wrapColumn";
 import { editorChrome } from "../editor/chrome";
 import { multipleCursors } from "../editor/multiCursor";
+import { testGutter } from "../editor/testGutter";
+import { showTerminalRequest } from "../lib/revealLine";
 import { completions } from "../lsp/completion";
 import { useWorkspaceLsp } from "../lsp/useLsp";
 import {
@@ -262,6 +264,18 @@ export function PlainFilePane({
           lineNumbers(),
           wrapGutterMarkers(),
           ...languageExtensions(initial.language),
+          // A run mark beside every test the file's language has a shape
+          // for; a click runs that test in a terminal named after it.
+          ...testGutter({
+            language: initial.language,
+            onRun: (mark) =>
+              void api
+                .runTest({ path: initial.path, name: mark.name, language: initial.language })
+                .then(
+                  (session) => showTerminalRequest(session.id, session.title),
+                  (e) => setNotice(e instanceof Error ? e.message : String(e)),
+                ),
+          }),
           ...(isMarkdownPath(initial.path) ? [markdownStyling(), taskCheckboxes(), renderedMath()] : []),
           history(),
           // Both kinds of completion: what is in scope here, from the

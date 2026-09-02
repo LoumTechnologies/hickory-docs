@@ -579,6 +579,10 @@ export const api = {
    * order of `attention` is the server's — see hick_term::attention — so the
    * queue, the session tree, and ⌘J cannot disagree about what is next. */
   terminals: () => request<TerminalsResponse>("GET", "/api/terminals"),
+  /** Run one test (or a file's tests) in a terminal session named after it.
+   * See crates/hickory-cli/src/serve/test_run.rs. */
+  runTest: (body: { path: string; name: string; language: string }) =>
+    request<TerminalSession>("POST", "/api/tests/run", body),
   openTerminal: (spec: OpenTerminal = {}) =>
     request<TerminalSession>("POST", "/api/terminals", spec),
   closeTerminal: (id: string) =>

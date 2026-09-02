@@ -163,7 +163,7 @@ import { positionToUtf16 } from "../lsp/positions";
 import { EditorView } from "@codemirror/view";
 import { TAB_ZOOM_VAR } from "../lib/zoom";
 import { requestFlushSaves } from "../lib/flushSaves";
-import { onOpenLocation, pathOfDocUri, revealLine } from "../lib/revealLine";
+import { onOpenLocation, onShowTerminal, pathOfDocUri, revealLine } from "../lib/revealLine";
 import { allFileProblems, useFileProblemsVersion } from "../lib/fileProblems";
 import { formatOnSave, loadFormatOnSave } from "../lib/formatOnSave";
 import { formatView } from "../lsp/cmLspFeatures";
@@ -1393,6 +1393,19 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
   // it. A pane SHOWS a session; the session lives on the server, which is why
   // closing a terminal tab here never stops the work inside it.
   const terminals = useTerminals();
+  // A terminal a pane started — a test run from the gutter — shown here,
+  // because only the workspace can open a tab.
+  useEffect(
+    () =>
+      onShowTerminal(({ id, title }) => {
+        terminals.refresh();
+        setLayout((current) => openTerminalTab(current, id, title));
+      }),
+    // `terminals` is a stable hook result; the setter is stable too.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [],
+  );
+
   const [attentionAt, setAttentionAt] = useState<string | null>(null);
   const [nothingWaiting, setNothingWaiting] = useState(false);
   // The queue and the sessions change on every poll; the handlers below must

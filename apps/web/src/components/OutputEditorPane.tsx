@@ -16,6 +16,8 @@ import type { Extension } from "@codemirror/state";
 import { Decoration, EditorView, keymap, lineNumbers } from "@codemirror/view";
 import type { DecorationSet } from "@codemirror/view";
 import { multipleCursors } from "../editor/multiCursor";
+import { testGutter } from "../editor/testGutter";
+import { showTerminalRequest } from "../lib/revealLine";
 import { defaultKeymap, history, historyKeymap, indentWithTab } from "@codemirror/commands";
 import { search, searchKeymap } from "@codemirror/search";
 import { wordMotionBindings } from "../editor/wordMotion";
@@ -111,6 +113,8 @@ export function OutputEditorPane({
   // The live view AS STATE, for the right rail: a ref never re-renders, and
   // the rail must mount its sync against the view that actually exists.
   const [railView, setRailView] = useState<EditorView | null>(null);
+  // Why a test could not be run, from the gutter's click.
+  const [testNotice, setTestNotice] = useState<string | null>(null);
   const provRef = useRef<ProvChar[]>([]);
   // Every change since this buffer was loaded — local OR a remote
   // collaborator's, now that this is a live room — so provenance offsets
@@ -201,6 +205,18 @@ export function OutputEditorPane({
           // The hovered-ribbon line tint, shared with the right rail.
           lineHighlightField,
           ...languageExtensions(initial.language),
+          // A run mark beside every test the file's language has a shape
+          // for; a click runs that test in a terminal named after it.
+          ...testGutter({
+            language: initial.language,
+            onRun: (mark) =>
+              void api
+                .runTest({ path: initial.path, name: mark.name, language: initial.language })
+                .then(
+                  (session) => showTerminalRequest(session.id, session.title),
+                  (e) => setTestNotice(e instanceof Error ? e.message : String(e)),
+                ),
+          }),
           // A generated .md file gets the document editor's Typora-style
           // markdown look (big headings, styled bold/em/code). Display-only
           // decorations — the buffer's text is untouched, and they compose
@@ -338,6 +354,11 @@ export function OutputEditorPane({
           right rail sit side by side inside it. The ribbon overlay finds the
           rail through `.with-right-rail` to anchor on its outer edge. */}
       <div className={`${className} with-right-rail`} data-testid={testId}>
+        {testNotice && (
+          <div className="banner banner-fail" role="alert">
+            {testNotice}
+          </div>
+        )}
         <div ref={hostRef} className="editor-cm-host" />
         <RightRail view={railView} />
       </div>
