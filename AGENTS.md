@@ -457,6 +457,18 @@ at once — allow many, draw them, rectangular selection — and the document
 editor had been getting **no language-server completions at all**
 (`completions({ project })` alone); it does now.
 
+**The Git pane does the daily loop** (`the-git-pane-does-the-daily-loop.md`,
+2026-09-02): stage, unstage, discard (two clicks), diff, commit, amend, push,
+pull, branch switch and create, stash and pop — each **one git command run as
+itself**, with git's own words shown when it refuses. It had been read-only on
+the argument that a *half*-built git UI teaches a workflow it cannot finish;
+the answer was to finish the loop, not to keep the refusal. Three lines it
+does not cross: **pull is `--ff-only`**, nothing is ever forced, and **amend
+is refused below the publication floor** — the same line `hick emit` draws.
+`GIT_TERMINAL_PROMPT=0` and a batch-mode ssh mean a push that needs a
+credential **fails saying so** instead of hanging a request on a password
+nobody can type.
+
 ## Stack (settled — do not relitigate)
 
 - CLI + language + local server: Rust (edition 2024), axum, tokio. No database.

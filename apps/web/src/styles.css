@@ -8155,3 +8155,132 @@ button.status-bar__item:hover { background: var(--bg-sunken); color: var(--fg); 
 .new-project__check input {
   margin-top: 0.15rem;
 }
+
+/* --- the git pane's working tree ----------------------------------------- */
+.git-work {
+  border-bottom: 1px solid var(--border);
+  padding: 0.6rem 0.9rem 0.8rem;
+  font-size: 0.82rem;
+}
+.git-work__head {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+  margin-bottom: 0.5rem;
+}
+.git-branch {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.2rem 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-raised);
+  color: var(--fg);
+  font: inherit;
+  cursor: pointer;
+}
+.git-branch:hover { background: var(--bg-sunken); }
+.git-branch__icon { opacity: 0.7; }
+.git-work__upstream { display: inline-flex; gap: 0.4rem; align-items: center; font-size: 0.76rem; }
+.git-count { font-variant-numeric: tabular-nums; color: var(--fg); }
+.git-work__actions { margin-left: auto; display: inline-flex; gap: 0.35rem; }
+.git-branches {
+  margin: 0 0 0.6rem;
+  padding: 0.5rem 0.6rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-raised);
+}
+.git-branches__list { list-style: none; margin: 0 0 0.4rem; padding: 0; max-height: 12rem; overflow: auto; }
+.git-branches__item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 0.2rem 0.4rem;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--fg);
+  font: inherit;
+  cursor: pointer;
+}
+.git-branches__item:hover:not(:disabled) { background: var(--bg-sunken); }
+.git-branches__item.is-current { font-weight: 600; cursor: default; }
+.git-branches__new { display: flex; gap: 0.4rem; }
+.git-branches__input {
+  flex: 1;
+  min-width: 0;
+  padding: 0.2rem 0.4rem;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg);
+  color: var(--fg);
+  font-size: 0.8rem;
+}
+.git-notice {
+  margin: 0 0 0.5rem;
+  padding: 0.35rem 0.5rem;
+  border-radius: 4px;
+  font-size: 0.78rem;
+  white-space: pre-wrap;
+}
+.git-notice--ok { background: color-mix(in srgb, var(--ok) 14%, transparent); }
+.git-notice--fail { background: color-mix(in srgb, var(--fail) 14%, transparent); }
+.git-work__lists { display: grid; grid-template-columns: 1fr 1fr; gap: 0.8rem; }
+@media (max-width: 720px) { .git-work__lists { grid-template-columns: 1fr; } }
+.git-side__head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  margin-bottom: 0.25rem;
+}
+.git-side__title { font-weight: 600; font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.04em; }
+.git-side__empty { margin: 0.2rem 0 0.4rem; font-size: 0.76rem; }
+.git-side__row { display: flex; align-items: center; gap: 0.3rem; border-radius: 4px; }
+.git-side__row.is-selected { background: var(--bg-sunken); }
+.git-side__row .git-file { flex: 1; min-width: 0; }
+.git-side__verbs { display: inline-flex; gap: 0.5rem; padding-right: 0.4rem; font-size: 0.74rem; white-space: nowrap; }
+.git-side__discard.is-armed { color: var(--fail); font-weight: 600; }
+.git-commit-form { margin-top: 0.7rem; display: flex; flex-direction: column; gap: 0.4rem; }
+.git-commit-form__message {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 0.4rem 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--fg);
+  font: inherit;
+  font-size: 0.82rem;
+  resize: vertical;
+}
+.git-commit-form__row { display: flex; align-items: center; justify-content: space-between; gap: 0.6rem; }
+.git-commit-form__amend { font-size: 0.76rem; color: var(--fg-muted); }
+
+/* --- a diff, as git prints it -------------------------------------------- */
+.diff-view { margin-top: 0.8rem; border: 1px solid var(--border); border-radius: 6px; overflow: hidden; }
+.diff-view__head {
+  display: flex;
+  justify-content: space-between;
+  padding: 0.3rem 0.6rem;
+  background: var(--bg-raised);
+  border-bottom: 1px solid var(--border);
+  font-size: 0.76rem;
+}
+.diff-view__binary { margin: 0; padding: 0.5rem 0.6rem; font-size: 0.78rem; }
+.diff-view__body {
+  margin: 0;
+  padding: 0.4rem 0;
+  max-height: 60vh;
+  overflow: auto;
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 0.76rem;
+  line-height: 1.45;
+}
+.diff-line { display: block; padding: 0 0.6rem; white-space: pre; }
+.diff-line--meta { color: var(--fg-muted); }
+.diff-line--hunk { color: var(--accent-2); background: color-mix(in srgb, var(--accent-2) 8%, transparent); }
+.diff-line--add { color: var(--ok); background: color-mix(in srgb, var(--ok) 10%, transparent); }
+.diff-line--del { color: var(--fail); background: color-mix(in srgb, var(--fail) 10%, transparent); }

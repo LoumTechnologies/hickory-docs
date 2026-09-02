@@ -35,6 +35,7 @@ pub mod debug_bridge;
 pub mod find;
 pub mod formula;
 pub mod git;
+pub mod git_ops;
 pub mod history;
 pub mod install;
 pub mod lsp_bridge;
@@ -503,6 +504,17 @@ fn router(state: LocalState) -> Router {
         // a terminal on every row of the tree. See serve/git.rs.
         .route("/git/log", get(git::log))
         .route("/git/status", get(git::status))
+        .route("/git/changes", get(git_ops::changes))
+        .route("/git/diff", get(git_ops::diff))
+        .route("/git/stage", post(git_ops::stage))
+        .route("/git/unstage", post(git_ops::unstage))
+        .route("/git/discard", post(git_ops::discard))
+        .route("/git/commit", post(git_ops::commit))
+        .route("/git/push", post(git_ops::push))
+        .route("/git/pull", post(git_ops::pull))
+        .route("/git/branches", get(git_ops::branches))
+        .route("/git/checkout", post(git_ops::checkout))
+        .route("/git/stash", post(git_ops::stash))
         // The publication floor and the merge-driver check: two facts about
         // the repository that the document panes need at open, and that no
         // amount of reading the log can answer.

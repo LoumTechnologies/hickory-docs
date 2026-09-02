@@ -853,6 +853,52 @@ export interface GitStatus {
   untracked?: number;
 }
 
+/** One changed file in the working tree: what the index says of it and what
+ * the tree says, as git's two porcelain columns (` `, `M`, `A`, `D`, `R`,
+ * `?`). A file can be on both sides at once. */
+export interface GitChangeFile {
+  path: string;
+  from?: string;
+  index: string;
+  tree: string;
+}
+
+/** GET /api/git/changes. */
+export interface GitChanges {
+  repository: boolean;
+  branch?: string;
+  upstream?: string | null;
+  ahead?: number;
+  behind?: number;
+  files: GitChangeFile[];
+}
+
+/** GET /api/git/diff — one file's diff, as git prints it. */
+export interface GitDiff {
+  path: string;
+  diff: string;
+  binary: boolean;
+}
+
+export interface GitBranch {
+  name: string;
+  upstream: string | null;
+  current: boolean;
+}
+
+/** What a git verb answered: `ok`, and what git said on the way. */
+export interface GitSaid {
+  ok: boolean;
+  said?: string;
+  branch?: string;
+}
+
+export interface GitCommitResult {
+  sha: string;
+  short: string;
+  subject: string;
+}
+
 /** Where an image dropped into a note was written (POST /api/asset). */
 export interface SavedAsset {
   /** Root-relative — what the tree calls it, and what `GET /api/asset` takes. */

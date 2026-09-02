@@ -55,6 +55,11 @@ import type {
   ScaffoldPreview,
   ScaffoldSpec,
   ScaffoldTemplateDetail,
+  GitChanges,
+  GitDiff,
+  GitSaid,
+  GitBranch,
+  GitCommitResult,
 } from "./types";
 
 export const MOCK = import.meta.env.VITE_MOCK === "1";
@@ -355,9 +360,8 @@ export const api = {
     request<{ languages: string[] }>("GET", "/api/formula/languages"),
 
   /** The commit graph, with every commit's files and line counts — one git
-   * invocation, so expanding a row costs nothing. Read-only: changing a
-   * repository is a thing people rightly do deliberately, and there is a
-   * terminal on every row of the tree. */
+   * invocation, so expanding a row costs nothing. The verbs that change the
+   * repository are below, each one git command run as itself. */
   gitLog: (limit = 120, path?: string) =>
     request<GitLog>(
       "GET",
@@ -367,6 +371,28 @@ export const api = {
 
   /** The branch, and whether anything is uncommitted. */
   gitStatus: () => request<GitStatus>("GET", "/api/git/status"),
+
+  // The git pane's verbs — each one git command, run as itself, with git's
+  // own words when it refuses. See crates/hickory-cli/src/serve/git_ops.rs.
+  gitChanges: () => request<GitChanges>("GET", "/api/git/changes"),
+  gitDiff: (path: string, staged = false) =>
+    request<GitDiff>(
+      "GET",
+      `/api/git/diff?path=${encodeURIComponent(path)}&staged=${staged ? "true" : "false"}`,
+    ),
+  gitStage: (body: { paths?: string[]; all?: boolean }) =>
+    request<GitSaid>("POST", "/api/git/stage", body),
+  gitUnstage: (body: { paths?: string[]; all?: boolean }) =>
+    request<GitSaid>("POST", "/api/git/unstage", body),
+  gitDiscard: (paths: string[]) => request<GitSaid>("POST", "/api/git/discard", { paths }),
+  gitCommit: (message: string, amend = false) =>
+    request<GitCommitResult>("POST", "/api/git/commit", { message, amend }),
+  gitPush: () => request<GitSaid>("POST", "/api/git/push", {}),
+  gitPull: () => request<GitSaid>("POST", "/api/git/pull", {}),
+  gitBranches: () => request<{ branches: GitBranch[] }>("GET", "/api/git/branches"),
+  gitCheckout: (branch: string, create = false) =>
+    request<GitSaid>("POST", "/api/git/checkout", { branch, create }),
+  gitStash: (action: "push" | "pop") => request<GitSaid>("POST", "/api/git/stash", { action }),
 
   /** Which commits on this branch are still drafts. */
   gitFloor: () =>

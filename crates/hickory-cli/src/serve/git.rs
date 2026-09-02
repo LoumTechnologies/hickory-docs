@@ -7,11 +7,9 @@
 //! with any history. `--numstat` costs almost nothing on top of the log walk,
 //! so expanding a row is free and stays free.
 //!
-//! What is NOT here is any way to change the repository. No commit, no
-//! checkout, no stage, no discard. Reading history is a thing an editor can
-//! do well and safely; writing it is a thing people rightly want to do
-//! deliberately, in a place where the exact command is visible — and there is
-//! a terminal on every row of the tree, in the directory the work is in.
+//! Changing the repository — stage, commit, push, and the rest of the daily
+//! loop — is `git_ops.rs`, kept apart so this file stays what it says: the
+//! repository as something to read.
 
 use std::process::Command;
 

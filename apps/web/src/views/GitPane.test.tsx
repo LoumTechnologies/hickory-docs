@@ -1,12 +1,22 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 
-import { GitPane, when } from "./GitPane";
+import { GitPane, sides, when } from "./GitPane";
 import { api } from "../api/client";
-import type { GitCommit, GitLog } from "../api/types";
+import type { GitChanges, GitCommit, GitLog } from "../api/types";
 
 beforeEach(() => {
   vi.restoreAllMocks();
+  // The working tree is read beside the log; the history tests are about the
+  // graph, so they see a repository with nothing to commit.
+  vi.spyOn(api, "gitChanges").mockResolvedValue({
+    repository: true,
+    branch: "master",
+    upstream: null,
+    ahead: 0,
+    behind: 0,
+    files: [],
+  });
 });
 afterEach(() => {
   cleanup();
@@ -94,7 +104,7 @@ describe("expanding a commit", () => {
     const gitLog = serve({});
     render(<GitPane />);
     await waitFor(() => expect(screen.getByText("Add the thing")).toBeTruthy());
-    fireEvent.click(screen.getByRole("button", { expanded: false }));
+    fireEvent.click(screen.getByRole("button", { expanded: false, name: /Add the thing/ }));
     expect(screen.getByText("src/main.rs")).toBeTruthy();
     expect(gitLog).toHaveBeenCalledTimes(1);
   });
@@ -107,7 +117,7 @@ describe("expanding a commit", () => {
     });
     render(<GitPane />);
     await waitFor(() => expect(screen.getByText("Add the thing")).toBeTruthy());
-    fireEvent.click(screen.getByRole("button", { expanded: false }));
+    fireEvent.click(screen.getByRole("button", { expanded: false, name: /Add the thing/ }));
     const row = screen.getByText("new.rs").closest("button")!;
     expect(within(row).getByText(/old\.rs/)).toBeTruthy();
     expect(within(row).getByText("R")).toBeTruthy();
@@ -118,7 +128,7 @@ describe("expanding a commit", () => {
     serve({ commits: [commit({ files: [{ path: "logo.png", status: "M" }] })] });
     render(<GitPane />);
     await waitFor(() => expect(screen.getByText("Add the thing")).toBeTruthy());
-    fireEvent.click(screen.getByRole("button", { expanded: false }));
+    fireEvent.click(screen.getByRole("button", { expanded: false, name: /Add the thing/ }));
     expect(screen.getByText("binary")).toBeTruthy();
   });
 
@@ -126,7 +136,7 @@ describe("expanding a commit", () => {
     serve({ commits: [commit({ parents: ["a", "b"], files: [], added: 0, removed: 0 })] });
     render(<GitPane />);
     await waitFor(() => expect(screen.getByText("Add the thing")).toBeTruthy());
-    fireEvent.click(screen.getByRole("button", { expanded: false }));
+    fireEvent.click(screen.getByRole("button", { expanded: false, name: /Add the thing/ }));
     expect(screen.getByText(/changes are in the commits it joins/i)).toBeTruthy();
   });
 
@@ -135,7 +145,7 @@ describe("expanding a commit", () => {
     serve({});
     render(<GitPane onOpenFile={onOpenFile} />);
     await waitFor(() => expect(screen.getByText("Add the thing")).toBeTruthy());
-    fireEvent.click(screen.getByRole("button", { expanded: false }));
+    fireEvent.click(screen.getByRole("button", { expanded: false, name: /Add the thing/ }));
     fireEvent.click(screen.getByText("src/main.rs").closest("button")!);
     expect(onOpenFile).toHaveBeenCalledWith("src/main.rs");
   });
@@ -144,7 +154,7 @@ describe("expanding a commit", () => {
     serve({});
     render(<GitPane />);
     await waitFor(() => expect(screen.getByText("Add the thing")).toBeTruthy());
-    const summary = screen.getByRole("button", { expanded: false });
+    const summary = screen.getByRole("button", { expanded: false, name: /Add the thing/ });
     fireEvent.click(summary);
     expect(screen.queryByText("src/main.rs")).toBeTruthy();
     fireEvent.click(summary);
@@ -200,5 +210,136 @@ describe("the publication floor", () => {
     serve({ floor: null });
     render(<GitPane />);
     return waitFor(() => expect(screen.queryByText(/above the floor/)).toBeNull());
+  });
+});
+
+// Protects docs/guarantees/collaboration/the-git-pane-does-the-daily-loop.md
+describe("the working tree", () => {
+  const serveChanges = (over: Partial<GitChanges> = {}) =>
+    vi.spyOn(api, "gitChanges").mockResolvedValue({
+      repository: true,
+      branch: "feature",
+      upstream: "origin/feature",
+      ahead: 2,
+      behind: 0,
+      files: [
+        { path: "src/main.rs", index: "M", tree: " " },
+        { path: "README.md", index: " ", tree: "M" },
+        { path: "notes.md", index: "?", tree: "?" },
+      ],
+      ...over,
+    });
+
+  it("splits git's two columns into the two lists a person stages between", () => {
+    const { staged, unstaged } = sides([
+      { path: "both.rs", index: "M", tree: "M" },
+      { path: "new.md", index: "?", tree: "?" },
+      { path: "moved.rs", from: "old.rs", index: "R", tree: " " },
+    ]);
+    expect(staged.map((f) => f.path)).toEqual(["both.rs", "moved.rs"]);
+    expect(unstaged.map((f) => f.path)).toEqual(["both.rs", "new.md"]);
+    // An untracked file reads as an addition, not as a question mark.
+    expect(unstaged[1].status).toBe("A");
+    expect(staged[1].from).toBe("old.rs");
+  });
+
+  it("shows the branch, how far ahead it is, and the files on each side", async () => {
+    serve({});
+    serveChanges();
+    render(<GitPane />);
+    const changes = await screen.findByRole("region", { name: "Working tree" });
+    expect(within(changes).getByText("feature")).toBeTruthy();
+    expect(within(changes).getByText("↑2")).toBeTruthy();
+    const staged = within(changes).getByRole("region", { name: "Staged files" });
+    expect(within(staged).getByText("src/main.rs")).toBeTruthy();
+    const unstaged = within(changes).getByRole("region", { name: "Unstaged files" });
+    expect(within(unstaged).getByText("README.md")).toBeTruthy();
+    expect(within(unstaged).getByText("notes.md")).toBeTruthy();
+  });
+
+  it("stages a file with one click and re-reads the repository", async () => {
+    serve({});
+    const changes = serveChanges();
+    const stage = vi.spyOn(api, "gitStage").mockResolvedValue({ ok: true });
+    render(<GitPane />);
+    const unstaged = await screen.findByRole("region", { name: "Unstaged files" });
+    const row = within(unstaged).getByText("README.md").closest("li")!;
+    fireEvent.click(within(row).getByRole("button", { name: "Stage" }));
+    await waitFor(() => expect(stage).toHaveBeenCalledWith({ paths: ["README.md"] }));
+    await waitFor(() => expect(changes.mock.calls.length).toBeGreaterThan(1));
+  });
+
+  it("shows a file's diff when its row is clicked", async () => {
+    serve({});
+    serveChanges();
+    vi.spyOn(api, "gitDiff").mockResolvedValue({
+      path: "README.md",
+      diff: "@@ -1 +1,2 @@\n one\n+two\n",
+      binary: false,
+    });
+    render(<GitPane />);
+    const unstaged = await screen.findByRole("region", { name: "Unstaged files" });
+    fireEvent.click(within(unstaged).getByText("README.md"));
+    await waitFor(() => expect(screen.getByRole("region", { name: "Diff of README.md" })).toBeTruthy());
+    expect(document.querySelectorAll(".diff-line--add")).toHaveLength(1);
+  });
+
+  it("commits what is staged with the message typed, and nothing without one", async () => {
+    serve({});
+    serveChanges();
+    const commit = vi.spyOn(api, "gitCommit").mockResolvedValue({ sha: "s", short: "s", subject: "Do it" });
+    render(<GitPane />);
+    await screen.findByRole("region", { name: "Working tree" });
+    const button = screen.getByRole("button", { name: /^Commit/ });
+    expect((button as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.change(screen.getByLabelText("Commit message"), { target: { value: "Do it" } });
+    expect((button as HTMLButtonElement).disabled).toBe(false);
+    fireEvent.click(button);
+    await waitFor(() => expect(commit).toHaveBeenCalledWith("Do it", false));
+    await waitFor(() => expect(screen.getByRole("status").textContent).toMatch(/Committed/));
+  });
+
+  it("asks twice before discarding, and shows git's own words when it refuses", async () => {
+    serve({});
+    serveChanges();
+    const discard = vi
+      .spyOn(api, "gitDiscard")
+      .mockRejectedValue(new Error("git checkout refused: pathspec 'README.md' did not match"));
+    render(<GitPane />);
+    const unstaged = await screen.findByRole("region", { name: "Unstaged files" });
+    const row = within(unstaged).getByText("README.md").closest("li")!;
+    const button = within(row).getByRole("button", { name: "Discard" });
+    fireEvent.click(button);
+    expect(discard).not.toHaveBeenCalled();
+    expect(within(row).getByRole("button", { name: "Discard?" })).toBeTruthy();
+    fireEvent.click(within(row).getByRole("button", { name: "Discard?" }));
+    await waitFor(() => expect(discard).toHaveBeenCalledWith(["README.md"]));
+    await waitFor(() => expect(screen.getByRole("alert").textContent).toMatch(/pathspec/));
+  });
+
+  it("switches branches from the branch menu", async () => {
+    serve({});
+    serveChanges();
+    vi.spyOn(api, "gitBranches").mockResolvedValue({
+      branches: [
+        { name: "feature", upstream: "origin/feature", current: true },
+        { name: "master", upstream: "origin/master", current: false },
+      ],
+    });
+    const checkout = vi.spyOn(api, "gitCheckout").mockResolvedValue({ ok: true, branch: "master" });
+    render(<GitPane />);
+    await screen.findByRole("region", { name: "Working tree" });
+    fireEvent.click(screen.getByRole("button", { name: /feature/ }));
+    const menu = await screen.findByRole("group", { name: "Branches" });
+    fireEvent.click(within(menu).getByRole("button", { name: /master/ }));
+    await waitFor(() => expect(checkout).toHaveBeenCalledWith("master"));
+  });
+
+  it("offers no verbs for a folder that is not a repository", async () => {
+    serve({ repository: false, commits: [] });
+    vi.spyOn(api, "gitChanges").mockResolvedValue({ repository: false, files: [] });
+    render(<GitPane />);
+    await screen.findByText(/not a git repository/i);
+    expect(screen.queryByRole("region", { name: "Working tree" })).toBeNull();
   });
 });
