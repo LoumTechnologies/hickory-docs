@@ -33,19 +33,11 @@ anything referencing a task must survive a retitle. An unknown id exits
 nonzero, like the other commands that take one.
 
 
-
-
 ## Storage
-
-
 
 ## Commands
 
-
-
 ## Entry point
-
-
 
 
 ### `todo.py`
@@ -155,8 +147,6 @@ if __name__ == "__main__":
 These cells run the real CLI. Ids are opaque and random, so the tests set
 titles and filter on state rather than pinning ids — pinning a random id
 would make the document fail on every run for no reason.
-
-
 
 $ cd project && rm -f /tmp/todo-acceptance.json && export TODO_FILE=/tmp/todo-acceptance.json
   python3 todo.py list

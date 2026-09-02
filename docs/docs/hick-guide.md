@@ -288,8 +288,54 @@ Notes: <hick:paste select="#internal-notes" />
 </hick:file>
 ```
 
-Copy/paste works across documents when multiple `.hick` files are
-processed in the same pipeline run.
+### Selecting
+
+Selectors are CSS-shaped. `#id` takes one fragment; `.class` collects every
+fragment carrying that class, in document order. `.a.b` requires **both**
+classes, and a comma is union — `.a,.b` is "either".
+
+`separator` goes between collected fragments, `distinct` collapses ones whose
+text is identical (keeping the first), and `min`/`max` fail the run when a
+paste collects the wrong number of them. `min`/`max` count what is emitted, so
+`distinct` applies before the count.
+
+```xml
+<hick:paste select=".ignore" distinct separator="&#10;" min="1" />
+```
+
+### Contributing across documents
+
+**Every other `.hick` in the same folder contributes its fragments**, and
+neither document names the other — they meet on the class. This is how several
+documents fill one generated file:
+
+```xml
+
+<hick:copy class="ignore">bin/</hick:copy>
+
+
+<hick:file path=".gitignore"><hick:paste select=".ignore" distinct /></hick:file>
+```
+
+Discovery is that one folder, not the whole repository, and a contributor
+offers only the fragments it declares itself — not the ones it gets from its
+own `hick:upstream`.
+
+A document that should keep its fragments to itself says so:
+
+```xml
+<hick:private />
+```
+
+A document's own fragment always wins over a contributed one with the same id;
+`.class` collects both. `hick:upstream` is still there for naming a specific
+document, including one in another folder.
+
+A cell can contribute too: a `.hick` file a cell writes into an output volume
+is read back, and the fragments in it are available to the documents in the
+run. Only `.hick` outputs are read this way — a generator's ordinary output is
+bytes, and scanning it for markup would make `<hick:` unwritable by any
+program.
 
 ---
 

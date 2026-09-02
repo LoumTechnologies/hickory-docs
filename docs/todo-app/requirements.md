@@ -54,16 +54,6 @@ tangled from these fragments — the requirement and the ticket are the same
 bytes, so they cannot drift. Editing the requirement IS editing the ticket.
 
 
-
-
-
-
-
-
-
-
-
-
 ### `work/task-rename.task.md`
 
 ```markdown

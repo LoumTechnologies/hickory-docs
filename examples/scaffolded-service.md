@@ -20,15 +20,11 @@ generator at all.
 
 This document does that, with a generator small enough to read.
 
-
-
 ## The volume the generator writes into
 
 `output="service"` means the volume's contents land under `service/`, and they
 keep landing there after the ingest — an ingest must not rearrange the tree it
 was asked to preserve.
-
-
 
 ## The generator
 
@@ -85,8 +81,6 @@ export function greet(who) {
 ## What ingest did with it
 
 The block below was written by:
-
-
 
 Three things about it are worth reading rather than skimming.
 

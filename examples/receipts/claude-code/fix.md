@@ -32,16 +32,10 @@ def pool_settings(env=os.environ):
 ```
 
 
-
-
-
 {'size': 10, 'acquire_timeout': None}
 {'size': 40, 'acquire_timeout': 2.0}
 
 
 
 ## Findings
-
-
-
 

@@ -17,8 +17,6 @@ the verdict itself named, drawn by the app as the model's own claim.
 
 ## The message
 
-
-
 Checkout p95 is back under the 300 ms SLO: 212 ms since Friday's fix, down from 489 ms between the Aug 12 deploy and the fix.
 
 **BACKED.** "Checkout p95 is back under the 300 ms SLO" is backed by [#transcript-u3] "The SLO is p95 under 300 milliseconds for checkout" and [#p95-before-after] "212 ms from the fix through 2026-08-23." The 212 ms figure is backed by [#p95-before-after] "212 ms from the fix through 2026-08-23." The 489 ms figure is backed by [#p95-before-after] "Checkout p95 was 489 ms between the 2026-08-12 deploy and the fix." "Friday's fix" is backed by [#transcript-u8] "ship the pool change behind a config flag on Friday" and "Aug 12 deploy" is backed by [#p95-before-after] "between the 2026-08-12 deploy and the fix."
@@ -26,15 +24,11 @@ Checkout p95 is back under the 300 ms SLO: 212 ms since Friday's fix, down from 
 *cites: #transcript-u3,#p95-before-after,#transcript-u8*
 
 
-
-
 Root cause was the connection pool exhausting at peak — we were at 10 connections; the fix raises it to 40 with a 2 s acquire timeout, behind the CHECKOUT_POOL_FIX flag.
 
 **BACKED.** "Root cause was the connection pool exhausting at peak — we were at 10 connections" (#transcript-u1: "the connection pool is exhausting at peak — we're at ten connections"). "the fix raises it to 40 with a 2 s acquire timeout, behind the CHECKOUT_POOL_FIX flag" (#fix-summary: "raises the checkout DB pool from 10 to 40 connections with a 2 s acquire timeout, behind the CHECKOUT_POOL_FIX flag").
 
 *cites: #transcript-u1,#fix-summary*
-
-
 
 
 The numbers exclude the Aug 18 10:00–12:00 load-test window.
@@ -47,8 +41,6 @@ The numbers exclude the Aug 18 10:00–12:00 load-test window.
 The last sentence is not a measurement; it is my judgment, and it is marked
 as one — a `slack:claim` says who is asserting it and on what standing, and
 nothing checks it, because nothing can.
-
-
 
 
 > **nate** — judgment · checkout capacity
@@ -87,8 +79,6 @@ Ask me about any line and I will show you where it came from.
 Later in the thread: *"Is 40 connections safe for the DB?"* The answer is
 not mine to make up — Sam answered it in the meeting, so the reply pastes
 Sam's turn and says that it is a report of what Sam said.
-
-
 
 
 > **nate** — report · postgres capacity

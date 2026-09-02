@@ -3,8 +3,6 @@
 
 ## The message
 
-
-
 After the fix deployed Friday, checkout p95 latency is 287 ms, down from 412 ms — back under our 300 ms SLO.
 
 **BACKED.** The claim in #m1 is supported by multiple fragments:
@@ -20,8 +18,6 @@ After the fix deployed Friday, checkout p95 latency is 287 ms, down from 412 ms 
 The core claims—that latency improved after a Friday fix and is now under the 300 ms SLO—are substantiated, though the precise latency numbers in #m1 appear to be paraphrased or rounded versions of the data in the backing fragments.
 
 *cites: #m1,#p95-before-after,#transcript-u3,#transcript-u8,#fix-summary*
-
-
 
 
 Root cause: the checkout service's DB connection pool was sized at 20, and under load we were queueing for connections with a 500 ms timeout — the fix raised the pool to 40 and the timeout to 2s, gated by feature flag `checkout_db_pool_v2`.
@@ -47,8 +43,6 @@ The root cause claim is backed by multiple sources:
 *cites: #transcript-u1,#transcript-u5,#fix-summary*
 
 
-
-
 These numbers exclude the load-test window on 2026-08-22 14:00–15:00 UTC.
 
 **Does the message sentence make claims that are BACKED or UNSUPPORTED?**
@@ -65,8 +59,6 @@ The claim is contradicted by the available evidence:
 The message claims the load test occurred on **2026-08-22 at 14:00–15:00 UTC**, but the backing fragments show it occurred on **2026-08-18 at 10:00–12:00**. The date and time window are both incorrect.
 
 *cites: #m3,#load-test-excluded,#transcript-u4*
-
-
 
 
 
@@ -97,8 +89,6 @@ Questions? Ask about any line.
 
 
 ## When someone asks
-
-
 
 
 > **nate** — report · postgres capacity

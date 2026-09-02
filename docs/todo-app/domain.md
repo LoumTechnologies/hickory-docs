@@ -10,14 +10,6 @@ document below this one goes stale together when it changes.
 
 ## Terms
 
-
-
-
-
-
-
-
-
 ## Decisions this model rests on
 
 

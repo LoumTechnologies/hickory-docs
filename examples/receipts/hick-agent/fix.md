@@ -13,9 +13,6 @@ Proposal: raise the pool from ten to forty connections and put a two second acqu
 ## Implementation
 
 
-
-
-
 ### `fix/pool.py`
 
 ```python
@@ -39,7 +36,4 @@ def pool_settings(env=os.environ):
 
 
 ## Findings
-
-
-
 

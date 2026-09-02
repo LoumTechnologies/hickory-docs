@@ -15,29 +15,21 @@
 
 
 
-
-
-
-
-
-
-
-
-
-
 $ echo "Built by hick" > out/stamp.txt
-[never run]
 
 
 $ cat out/stamp.txt
-[never run]
+Built by hick
+
 
 
 
 
 
 $ cat out/stamp.txt && echo "Fork inherited builder state"
-[never run]
+Built by hick
+Fork inherited builder state
+
 
 
 
@@ -932,7 +924,8 @@ The following block is an exec tag rendered by the pipeline — it shows
 the full transcript for the referenced container (commands and output):
 
 > $ cat out/stamp.txt
-[never run]
+Built by hick
+
 
 
 ### Forked container transcript
@@ -944,7 +937,9 @@ also adds a network deny rule, further restricting the builder's
 capabilities:
 
 > $ cat out/stamp.txt && echo "Fork inherited builder state"
-[never run]
+Built by hick
+Fork inherited builder state
+
 
 
 ### Pasted build command

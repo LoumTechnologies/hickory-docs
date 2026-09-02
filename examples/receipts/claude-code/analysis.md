@@ -16,9 +16,6 @@ silent.
 
 I have the hourly latency export for August 10th through the 21st in the analytics bucket. I can compute before and after for whatever window you pick. One warning: the 18th has the load test in it, ten to noon, so anything that averages over the 18th will be wrong unless you exclude that window.
 
-
-
-
 baseline  (08-10 .. 08-12)        p95 203 ms over 12 buckets
 broken    (08-12 .. 08-21 12:00)  p95 489 ms over 56 buckets
 after fix (08-21 12:00 .. 08-24)  p95 212 ms over 15 buckets
@@ -33,9 +30,4 @@ the rest of the pipeline can quote. They are typed, not pasted from the cell
 — an exec's output is not selectable — so the `hick:expect` above is what
 keeps them honest: change the data and the cell fails before anyone reads a
 stale finding.
-
-
-
-
-
 

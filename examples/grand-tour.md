@@ -19,8 +19,6 @@ don't:
 4. **Feature-gated sections** — an R/ggplot chapter that only runs when you
    ask for it, so the document stays runnable on machines without R.
 
-
-
 ## 1. Literate weaving: a program in prose order
 
 Classic literate programming: the document is written for readers, and the
@@ -30,8 +28,6 @@ them together into `analysis.py`. In the web editor's Output view you can see
 `analysis.py` fully assembled — and edit it there, with per-character lineage
 tracing every byte back to the section that contributed it, so edits flow
 back to the right place in this prose.
-
-
 
 ### The header
 
@@ -50,8 +46,6 @@ section).
 
 ```
 
-
-
 ### A deterministic random number generator
 
 Reproducibility is the whole game, so the synthetic data comes from an
@@ -68,8 +62,6 @@ def lcg(seed):
         yield state
 
 ```
-
-
 
 ### Synthesizing the ledger
 
@@ -93,8 +85,6 @@ def make_sales(seed=2026, n=24):
     return rows
 
 ```
-
-
 
 ### The report
 
@@ -122,8 +112,6 @@ if __name__ == "__main__":
     main()
 
 ```
-
-
 
 ### The assembled file
 
@@ -196,8 +184,6 @@ expected output is pinned byte-for-byte: change any fragment above without
 re-running the document and `hick test` fails, either here or on the
 file diff.
 
-
-
 $ python3 project/analysis.py
 east      7117.44
 north    10440.28
@@ -213,8 +199,6 @@ Cells are shell commands, so any CLI is a "kernel". Here DuckDB builds a
 table of synthetic sales (arithmetic, not `random()` — deterministic across
 DuckDB versions) and persists it to a database file that later cells in the
 same container reuse:
-
-
 
 $ duckdb tour.db -c "
   CREATE TABLE sales AS
@@ -280,8 +264,6 @@ squares written as Polars expressions, and prints the coefficients. The
 expectation is a per-line regex: the shape of the result is pinned, and
 since the data is seeded the values cannot drift either (the woven output
 below is checked byte-for-byte):
-
-
 
 $ uv run --python 3.12 --with polars python3 - <<'EOF'
   import random
