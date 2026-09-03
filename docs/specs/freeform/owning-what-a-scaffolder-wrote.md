@@ -1,7 +1,14 @@
 # Owning what a scaffolder wrote
 
 *Status: design of record for how a document owns files it did not type.
-Adopted 2026-08-23. **Sequence steps 1 and 2 are built** (2026-08-23):
+Adopted 2026-08-23. **Superseded 2026-09-03 by `lenses.md` on where a
+scaffold lives:** a scaffold is an act, not an expression, and it becomes a
+recipe-bearing commit read through the history lens — the `exec > ingested >
+file` cell for scaffolds, the re-ingest merge and File → New Project's
+document are retired there. This document remains the record of the two
+refusals it argues (CRDT edits, line-offset patches), of why a durable claim
+must not point into a cache, and of `hick ingest --from '#cell'`, which stays
+for bringing an exec's output into a document you are writing. **Sequence steps 1 and 2 are built** (2026-08-23):
 `hick ingest --from '#cell' <doc>.hick` writes `<hick:ingested>` with the
 gitignore filter and the non-UTF-8 refusal, and the ingested `SourceOrigin`
 keeps blame and the reverse edit honest — see

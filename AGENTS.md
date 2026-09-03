@@ -557,6 +557,26 @@ back, the document included, and a placeholder staged before the run for a
 file a cell fills then overwrote the cell's real product, with the run
 reporting nothing failed.
 
+**The viewer is a block editor, and a document is one thing it views**
+(`docs/specs/freeform/lenses.md`, adopted 2026-09-03, nothing built under
+that name). A **lens** is a synthesized document — the same cards — over
+something that is not a `.hick` file, and every block declares three things:
+what it is a view of, how a change gets home, and whether a change is
+allowed right now. The third column is entirely rules already decided
+elsewhere (synthetic bytes refuse the reverse edit, a merged-view variant may
+only add, the publication floor), asked **per block instead of per tab**.
+Four lenses: the plain file, the generated file, the merged view, and the
+new **history lens** — commits drawn oldest-first as cards, a recipe-bearing
+commit (`Hick-Recipe`/`Hick-Image`/`Hick-Output` trailers) drawn as a cell
+with its diff as output, the working tree as the tail. It takes scaffolding
+over from `owning-what-a-scaffolder-wrote.md`: a scaffold is an act, so File
+→ New Project will **write a commit, not a document**, and **replay makes a
+sibling commit, never remakes the old one** — rebase onto it above the floor,
+merge below. Say "lens" and "no evidence of drift"; **never** save a lens,
+and never say "reproducible" of a commit nobody has replayed. It is Emacs's
+buffers with blocks instead of text, a floor instead of trust, provenance
+instead of nothing, and no save.
+
 Where all of this is going is `docs/specs/freeform/three-axes.md` (adopted
 2026-09-03, nothing built): a document, a cell and a produced file answer
 **three questions** — *evidence* (recorded / stale / unrecorded), *ownership*
