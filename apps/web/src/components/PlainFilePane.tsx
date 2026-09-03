@@ -54,6 +54,7 @@ import { createPlainSaver, type PlainSaveState } from "../lib/plainFileSave";
 import { draftDisposition, useDraftKeeper } from "../lib/drafts";
 import { onFlushSaves } from "../lib/flushSaves";
 import { MergeView } from "./MergeView";
+import { DivergedBanner } from "./DivergedBanner";
 
 export function PlainFilePane({
   path,
@@ -629,21 +630,18 @@ export function PlainFilePane({
         </div>
       )}
       {saveState.kind === "conflict" && (
-        <div className="banner banner-fail" role="alert">
-          This file changed on disk while you were editing — another program
-          wrote it. Your text is still in this buffer, unsaved.{" "}
-          <button type="button" className="btn" onClick={reload}>
-            Reload from disk
-          </button>{" "}
-          <button type="button" className="btn" onClick={overwrite}>
-            Overwrite with my version
-          </button>{" "}
-          {/* The answer that throws nothing away. Reload loses this buffer;
-              overwrite loses whatever the other program wrote. */}
-          <button type="button" className="btn btn-primary" onClick={openMerge}>
-            Merge…
-          </button>
-        </div>
+        // The same surface a diverged generated file gets, with the same
+        // three ways out. Here "mine" is the buffer and "theirs" is the
+        // disk, because it was another program that wrote the file.
+        <DivergedBanner
+          what={path}
+          reason="Another program wrote the file while you were editing; your text is still in this buffer, unsaved."
+          mine="your unsaved text"
+          theirs="the file on disk"
+          onKeepMine={overwrite}
+          onTakeTheirs={reload}
+          onMerge={openMerge}
+        />
       )}
       {saveState.kind === "error" && (
         <div className="banner banner-fail" role="alert">

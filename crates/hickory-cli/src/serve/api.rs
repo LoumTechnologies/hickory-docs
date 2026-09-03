@@ -381,11 +381,11 @@ struct TreeNode {
     /// happens to be overwritten from time to time.
     #[serde(skip_serializing_if = "Option::is_none")]
     generated_by: Option<String>,
-    /// Why the loop is leaving this generated file as it is on disk rather
-    /// than rewriting it from its document. Absent for every file the
-    /// document and the disk agree about.
+    /// Why the disk does not hold what the document produces — the loop is
+    /// leaving the file as it is. Absent for every file the document and the
+    /// disk agree about. Axis 3 of docs/specs/freeform/three-axes.md.
     #[serde(skip_serializing_if = "Option::is_none")]
-    held: Option<String>,
+    diverged: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     children: Option<Vec<TreeNode>>,
 }
@@ -687,13 +687,13 @@ pub fn generated_by(generated: &HashMap<String, String>, path: &str) -> Option<S
     best.map(|(_, doc)| doc.clone())
 }
 
-/// Stamp `held` onto every node the loop is holding.
-fn mark_held(nodes: &mut [TreeNode], held: &HashMap<String, String>) {
+/// Stamp `diverged` onto every node whose disk bytes are not the document's.
+fn mark_held(nodes: &mut [TreeNode], held: &HashMap<String, super::DivergedOutput>) {
     for node in nodes {
         if !node.dir
-            && let Some(reason) = held.get(&node.path)
+            && let Some(diverged) = held.get(&node.path)
         {
-            node.held = Some(reason.clone());
+            node.diverged = Some(diverged.reason.clone());
         }
         if let Some(children) = node.children.as_mut() {
             mark_held(children, held);
@@ -701,11 +701,54 @@ fn mark_held(nodes: &mut [TreeNode], held: &HashMap<String, String>) {
     }
 }
 
-/// `GET /api/outputs/held` — every generated file the loop is holding, with
-/// why. See `docs/guarantees/authoring/an-output-that-cannot-be-carried-back-is-held.md`.
-pub async fn held_outputs(State(state): State<LocalState>) -> Json<Value> {
+/// `GET /api/outputs/diverged` — every produced file whose disk bytes are
+/// not what its document produces: why, and the versions a merge needs. See
+/// `docs/guarantees/authoring/an-output-that-cannot-be-carried-back-is-held.md`.
+pub async fn diverged_outputs(State(state): State<LocalState>) -> Json<Value> {
     let held = state.held.lock().expect("held outputs").clone();
-    Json(json!({ "held": held }))
+    Json(json!({ "diverged": held }))
+}
+
+#[derive(serde::Deserialize)]
+pub struct ResolveBody {
+    pub path: String,
+    pub content: String,
+}
+
+/// `POST /api/outputs/resolve` — write the bytes a person chose (a merge's
+/// result) over a diverged file. The loop then treats them as an ordinary
+/// save: carried back into the document where they can be.
+pub async fn resolve_output(
+    State(state): State<LocalState>,
+    Json(body): Json<ResolveBody>,
+) -> ApiResult<Json<Value>> {
+    if body.path.is_empty()
+        || std::path::Path::new(&body.path).is_absolute()
+        || body.path.split('/').any(|p| p == "..")
+    {
+        return Err(ApiError::bad_request(format!(
+            "{:?} is not a path inside the open folder",
+            body.path
+        )));
+    }
+    let root = state
+        .index
+        .root()
+        .canonicalize()
+        .unwrap_or_else(|_| state.index.root().to_path_buf());
+    let sender = state.up_commands.lock().expect("up command inbox").clone();
+    let Some(sender) = sender else {
+        return Err(ApiError::unavailable(
+            "the folder is not being watched, so nothing can take the resolution",
+        ));
+    };
+    sender
+        .send(crate::up::UpCommand::Resolve(
+            root.join(&body.path),
+            body.content,
+        ))
+        .map_err(|_| ApiError::unavailable("the watch loop has stopped"))?;
+    Ok(Json(json!({ "ok": true, "path": body.path })))
 }
 
 #[derive(serde::Deserialize)]
@@ -793,7 +836,7 @@ fn insert_tree_node(top: &mut Vec<TreeNode>, rel: &str, dir: bool, index: &super
                 dir,
                 doc_id,
                 generated_by: None,
-                held: None,
+                diverged: None,
                 children: dir.then(Vec::new),
             });
             return;
@@ -808,7 +851,7 @@ fn insert_tree_node(top: &mut Vec<TreeNode>, rel: &str, dir: bool, index: &super
                     dir: true,
                     doc_id: None,
                     generated_by: None,
-                    held: None,
+                    diverged: None,
                     children: Some(Vec::new()),
                 });
                 siblings.len() - 1
@@ -1565,7 +1608,7 @@ mod tree_tests {
                 dir: false,
                 doc_id: None,
                 generated_by: None,
-                held: None,
+                diverged: None,
                 children: None,
             },
             TreeNode {
@@ -1574,7 +1617,7 @@ mod tree_tests {
                 dir: false,
                 doc_id: Some("d2".into()),
                 generated_by: None,
-                held: None,
+                diverged: None,
                 children: None,
             },
             TreeNode {
@@ -1583,14 +1626,14 @@ mod tree_tests {
                 dir: true,
                 doc_id: None,
                 generated_by: None,
-                held: None,
+                diverged: None,
                 children: Some(vec![TreeNode {
                     name: "main.rs".into(),
                     path: "src/main.rs".into(),
                     dir: false,
                     doc_id: None,
                     generated_by: None,
-                    held: None,
+                    diverged: None,
                     children: None,
                 }]),
             },

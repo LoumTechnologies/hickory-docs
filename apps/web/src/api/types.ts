@@ -238,10 +238,9 @@ export interface FileNode {
   /** The id of the document that generates this file, when one does. Absent
    * on documents themselves, on directories, and on files nobody writes. */
   generated_by?: string;
-  /** Why the loop is leaving this generated file as it is on disk rather
-   * than rewriting it from its document. See
-   * docs/guarantees/authoring/an-output-that-cannot-be-carried-back-is-held.md */
-  held?: string;
+  /** Why the disk does not hold what the document produces, when it does
+   * not. See docs/guarantees/authoring/an-output-that-cannot-be-carried-back-is-held.md */
+  diverged?: string;
 }
 
 export interface FilesResponse {
@@ -267,10 +266,22 @@ export interface OutputFileMeta {
   language: string;
 }
 
-/** GET /api/outputs/held — generated files the loop is leaving as they are
- * on disk, root-relative path → why. */
-export interface HeldOutputs {
-  held: Record<string, string>;
+/** One produced file whose disk bytes are not what its document produces —
+ * axis 3 of docs/specs/freeform/three-axes.md. */
+export interface DivergedOutput {
+  /** `held`: somebody wrote it and it could not be carried back. `kept`: the
+   * document cannot reproduce it yet (an unrecorded cell). */
+  kind: "held" | "kept";
+  reason: string;
+  /** The last bytes both sides agreed on. */
+  base: string;
+  /** What the document produces now; empty for `kept`. */
+  theirs: string;
+}
+
+/** GET /api/outputs/diverged, root-relative path → the file's state. */
+export interface DivergedOutputs {
+  diverged: Record<string, DivergedOutput>;
 }
 
 /** One input that was in front of the model when it wrote (context provenance). */

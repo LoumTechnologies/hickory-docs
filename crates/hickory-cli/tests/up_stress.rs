@@ -300,7 +300,7 @@ fn interleaved_document_and_output_edits_never_corrupt() {
     if doc_marker != out_marker {
         let log = up.log();
         assert!(
-            log.contains("marked held"),
+            log.contains("diverged (held)"),
             "document and output disagree and the loop never said it was holding the \
              file:\ndoc={doc_marker}\nout={out_marker}\n{log}"
         );
@@ -407,7 +407,7 @@ fn a_refused_edit_holds_the_file_with_the_edit_in_it() {
         // said it was holding the file.
         (Some("from-document"), Some("from-output")) => {
             assert!(
-                log.contains("marked held"),
+                log.contains("diverged (held)"),
                 "a refused edit was not reported as held:\n{log}"
             );
         }

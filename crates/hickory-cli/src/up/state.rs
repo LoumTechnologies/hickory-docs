@@ -46,14 +46,46 @@ pub struct WovenState {
     outputs: HashMap<PathBuf, OutputState>,
     /// Absolute `.hick` path → its source when we last wove it.
     docs: HashMap<PathBuf, String>,
-    /// Output files whose bytes on disk are NOT what the document produces,
-    /// and why. A held file is never rewritten by the loop: the bytes came
-    /// from a person or from git, and the loop has nothing truer to put in
-    /// their place. The hold lifts the moment the document catches up —
-    /// when a weave produces exactly the held bytes — or when somebody asks
-    /// for the file to be regenerated. See
+    /// Output files whose bytes on disk are NOT what the document produces —
+    /// axis 3 of docs/specs/freeform/three-axes.md, *diverged* — and why.
+    /// A held file is never rewritten by the loop: the bytes came from a
+    /// person or from git, and the loop has nothing truer to put in their
+    /// place. The state lifts the moment the document catches up — a weave
+    /// produces exactly the bytes on disk — or when somebody picks a way
+    /// out by name. See
     /// docs/guarantees/authoring/an-output-that-cannot-be-carried-back-is-held.md
-    held: HashMap<PathBuf, String>,
+    held: HashMap<PathBuf, Diverged>,
+}
+
+/// Why a produced file is not what its document produces, and the two
+/// other versions a merge needs.
+#[derive(Debug, Clone)]
+pub struct Diverged {
+    pub kind: DivergedKind,
+    pub reason: String,
+    /// The last bytes the document and the disk agreed on.
+    pub base: String,
+    /// What the document produces now. Empty when it cannot produce
+    /// anything yet (`Kept`).
+    pub theirs: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DivergedKind {
+    /// Somebody wrote the file and the loop could not carry it back.
+    Held,
+    /// The document cannot reproduce this file yet (an unrecorded cell), so
+    /// what is on disk was left alone.
+    Kept,
+}
+
+impl DivergedKind {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            DivergedKind::Held => "held",
+            DivergedKind::Kept => "kept",
+        }
+    }
 }
 
 impl WovenState {
@@ -107,11 +139,18 @@ impl WovenState {
 
         // A held file stays held until the document produces exactly what
         // is on disk. Overwriting it here would be the same destruction the
-        // hold exists to prevent, one weave later.
-        if self.held.contains_key(path) {
-            if on_disk.as_deref() == Some(state.content.as_str()) {
+        // hold exists to prevent, one weave later. A KEPT file is different:
+        // the document could not produce it before and can now, so the keep
+        // ends and the write goes ahead.
+        if let Some(diverged) = self.held.get_mut(path) {
+            if diverged.kind == DivergedKind::Kept
+                || on_disk.as_deref() == Some(state.content.as_str())
+            {
                 self.held.remove(path);
             } else {
+                // What the document produces now, so a merge has its
+                // third version.
+                diverged.theirs = state.content.clone();
                 self.outputs.insert(path.to_path_buf(), state);
                 return Ok(false);
             }
@@ -157,12 +196,53 @@ impl WovenState {
     /// Keep an output file as it is on disk, and remember why the loop is
     /// not touching it.
     pub fn hold_output(&mut self, path: &Path, reason: String) {
-        self.held.insert(path.to_path_buf(), reason);
+        let base = self
+            .outputs
+            .get(path)
+            .map(|o| o.content.clone())
+            .unwrap_or_default();
+        self.held.insert(
+            path.to_path_buf(),
+            Diverged {
+                kind: DivergedKind::Held,
+                reason,
+                theirs: base.clone(),
+                base,
+            },
+        );
     }
 
-    /// Every held output, with its reason.
-    pub fn held(&self) -> &HashMap<PathBuf, String> {
+    /// Record that a produced file was left as it is because the document
+    /// cannot reproduce it yet.
+    pub fn keep_output(&mut self, path: &Path, reason: String) {
+        if self.held.contains_key(path) {
+            return;
+        }
+        let on_disk = std::fs::read_to_string(path).unwrap_or_default();
+        self.held.insert(
+            path.to_path_buf(),
+            Diverged {
+                kind: DivergedKind::Kept,
+                reason,
+                base: on_disk,
+                theirs: String::new(),
+            },
+        );
+    }
+
+    /// Every diverged output, with its reason and the versions a merge needs.
+    pub fn held(&self) -> &HashMap<PathBuf, Diverged> {
         &self.held
+    }
+
+    /// Write bytes a person chose — a merge's result — over a diverged file.
+    /// The next event on the file is then an ordinary save, carried back
+    /// where it can be and held where it cannot.
+    pub fn resolve_output(&mut self, path: &Path, content: &str) -> Result<()> {
+        self.held.remove(path);
+        set_read_only(path, false)?;
+        write_atomic(path, content)?;
+        Ok(())
     }
 
     /// Put an output file back to the bytes the document produces — the

@@ -12,6 +12,9 @@ import { EditorView } from "@codemirror/view";
 
 import { api } from "../api/client";
 import { FILES_CHANGED_EVENT } from "./FolderTreePane";
+import { DivergedBanner } from "../components/DivergedBanner";
+import { MergeView } from "../components/MergeView";
+import type { DivergedOutput } from "../api/types";
 import type { OutputFile, SourceEdit } from "../api/types";
 import { OutputEditorPane, provToChars, type ProvChar } from "../components/OutputEditorPane";
 import { createOutputSaver } from "../lib/outputSave";
@@ -141,16 +144,18 @@ export function GeneratedFileView({
     });
   }, [liveFile, saver]);
 
-  // Whether the loop is holding this file, and why: bytes on disk that are
-  // not the document's and could not be carried back. Read on mount and
-  // whenever files change, since a hold begins and ends with a batch.
-  const [held, setHeld] = useState<string | null>(null);
-  const [regenerateError, setRegenerateError] = useState<string | null>(null);
+  // Axis 3: whether the disk holds what the document produces, and if not,
+  // why and the versions a merge needs. Read on mount and whenever files
+  // change, since the state begins and ends with a batch.
+  const [diverged, setDiverged] = useState<DivergedOutput | null>(null);
+  const [dismissed, setDismissed] = useState<string | null>(null);
+  const [merging, setMerging] = useState(false);
+  const [wayError, setWayError] = useState<string | null>(null);
   useEffect(() => {
     let live = true;
     const read = () =>
-      void api.heldOutputs().then(
-        (answer) => live && setHeld(answer.held[path] ?? null),
+      void api.divergedOutputs().then(
+        (answer) => live && setDiverged(answer.diverged[path] ?? null),
         () => {},
       );
     read();
@@ -166,25 +171,46 @@ export function GeneratedFileView({
 
   return (
     <div className="generated-view">
-      {held && (
-        <div className="banner banner-warn generated-view__held" role="status">
-          This file is held: what is on disk is not what {path}'s document produces, and the
-          difference could not be carried back — {held}. The loop is leaving it as it is.
-          Edit the document to match, or{" "}
-          <button
-            type="button"
-            className="btn btn-small"
-            onClick={() =>
-              void api.regenerateOutput(path).then(
-                () => setRegenerateError(null),
-                (e) => setRegenerateError(e instanceof Error ? e.message : String(e)),
-              )
-            }
-          >
-            Regenerate from document
-          </button>
-          {regenerateError && <span className="error"> {regenerateError}</span>}
-        </div>
+      {diverged && dismissed !== diverged.reason && !merging && (
+        <DivergedBanner
+          what={path}
+          reason={diverged.reason}
+          mine="what is on disk"
+          theirs="what the document produces"
+          onKeepMine={() => setDismissed(diverged.reason)}
+          onTakeTheirs={
+            diverged.kind === "held"
+              ? () =>
+                  void api.regenerateOutput(path).then(
+                    () => setWayError(null),
+                    (e) => setWayError(e instanceof Error ? e.message : String(e)),
+                  )
+              : undefined
+          }
+          takeTheirsHint={
+            diverged.kind === "kept" ? "Run the document to have a version to take." : undefined
+          }
+          onMerge={diverged.kind === "held" ? () => setMerging(true) : undefined}
+          error={wayError}
+        />
+      )}
+      {diverged && merging && file && (
+        <MergeView
+          path={path}
+          base={diverged.base}
+          ours={file.content}
+          theirs={diverged.theirs}
+          oursLabel="What is on disk"
+          theirsLabel="What the document produces"
+          onAccept={(text) => {
+            setMerging(false);
+            void api.resolveOutput(path, text).then(
+              () => setWayError(null),
+              (e) => setWayError(e instanceof Error ? e.message : String(e)),
+            );
+          }}
+          onCancel={() => setMerging(false)}
+        />
       )}
       <OutputEditorPane
         key={path}

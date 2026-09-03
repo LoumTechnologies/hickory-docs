@@ -748,12 +748,12 @@ function TreeRow({
         onContextMenu={(event) => onRowMenu(event, node.path, false)}
       >
         {node.name}
-        {node.held && (
-          // The loop is leaving this file as it is on disk — somebody's
-          // bytes, not the document's — and says so here rather than
-          // silently. The pane says why; this says that.
-          <span className="folder-tree__held" data-tip={`Held: ${node.held}`}>
-            held
+        {node.diverged && (
+          // The disk does not hold what the document produces, and the loop
+          // is leaving it that way — said here rather than silently. The
+          // pane says why and offers the ways out; this says that.
+          <span className="folder-tree__diverged" data-tip={`Diverged: ${node.diverged}`}>
+            diverged
           </span>
         )}
       </button>

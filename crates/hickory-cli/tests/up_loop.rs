@@ -311,7 +311,7 @@ fn a_fully_generated_file_is_read_only_and_a_forced_edit_is_held_not_undone() {
     // The loop says why it is holding the file — and then leaves it alone.
     // It used to put the file back, and that undid what a person (or
     // `git checkout`) had just written, a second after they wrote it.
-    up.wait_for_log("marked held", "the loop never said it was holding the file");
+    up.wait_for_log("diverged (held)", "the loop never said the file diverged");
     std::thread::sleep(Duration::from_millis(1500));
     let held = std::fs::read_to_string(&woven_markdown).expect("read");
     assert!(

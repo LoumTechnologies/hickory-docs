@@ -556,6 +556,12 @@ shows its last output marked stale instead of `[never run]`, and the weave
 target is written again in that case; `hick test` reports `STALE` as drift
 with `hick run` as the fix. The web status value is `unrecorded`.
 
+**Step 2 built:** one *diverged* surface. Held, kept and the plain-file
+`409` are one state with one banner (`DivergedBanner`) and three ways out —
+keep mine, take theirs, merge — and the server publishes base and theirs so
+the merge is a real three-way one; a merge's result goes back through
+`POST /api/outputs/resolve` and is then an ordinary save.
+
 ## Stack (settled — do not relitigate)
 
 - CLI + language + local server: Rust (edition 2024), axum, tokio. No database.

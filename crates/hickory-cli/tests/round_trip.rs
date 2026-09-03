@@ -209,7 +209,7 @@ fn a_git_checkout_of_a_generated_file_under_the_loop_is_held_not_undone() {
     wait_until(
         "the loop never said it was holding the file",
         Duration::from_secs(30),
-        || read_log().contains("marked held"),
+        || read_log().contains("diverged (held)"),
     );
     std::thread::sleep(Duration::from_millis(1500));
     assert_eq!(

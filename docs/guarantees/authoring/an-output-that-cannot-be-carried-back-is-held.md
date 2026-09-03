@@ -26,6 +26,21 @@ until it produces the held bytes lifts the hold; so does **Regenerate from
 document**, which is the only path that overwrites held bytes and is taken
 only when asked by name.
 
+
+> **Amended 2026-09-03 (three-axes, step 2).** Held is one case of one
+> state, *diverged* — the disk does not hold what the document produces —
+> and the surface is the same everywhere: a produced file the loop is
+> holding, a produced file the document cannot reproduce yet (*kept*, an
+> unrecorded cell), and a plain file that changed on disk under an unsaved
+> buffer all show `DivergedBanner` with the same three ways out — **keep
+> mine**, **take theirs**, **merge**. The tree says *diverged*. The server
+> publishes each diverged file with its `kind`, its reason, the last agreed
+> `base` and the document's current `theirs` (`GET /api/outputs/diverged`);
+> *take theirs* is `POST /api/outputs/regenerate`, and a merge's result goes
+> through `POST /api/outputs/resolve`, after which the loop treats the bytes
+> as an ordinary save. A kept file has no *theirs* yet, and the banner says
+> what would make one.
+
 ---
 
 Last LLM verification:

@@ -146,13 +146,21 @@ async fn run_loop(
                 None => break,
             },
             command = commands.recv() => {
-                if let Some(UpCommand::Regenerate(path)) = command {
-                    if let Err(e) = woven.restore_output(&path) {
-                        log::warn!("could not regenerate {}: {e:#}", path.display());
+                match command {
+                    Some(UpCommand::Regenerate(path)) => {
+                        if let Err(e) = woven.restore_output(&path) {
+                            log::warn!("could not regenerate {}: {e:#}", path.display());
+                        }
                     }
-                    publish_held(&state, &root, &woven);
-                    notify_files_changed(&state, &root, &woven, &mut output_marks).await;
+                    Some(UpCommand::Resolve(path, content)) => {
+                        if let Err(e) = woven.resolve_output(&path, &content) {
+                            log::warn!("could not resolve {}: {e:#}", path.display());
+                        }
+                    }
+                    None => {}
                 }
+                publish_held(&state, &root, &woven);
+                notify_files_changed(&state, &root, &woven, &mut output_marks).await;
                 continue;
             },
             _ = &mut stop => break,
@@ -203,9 +211,17 @@ async fn run_loop(
 /// paths.
 fn publish_held(state: &LocalState, root: &PathBuf, woven: &WovenState) {
     let mut held = HashMap::new();
-    for (path, reason) in woven.held() {
+    for (path, diverged) in woven.held() {
         if let Ok(rel) = path.strip_prefix(root) {
-            held.insert(rel.to_string_lossy().replace('\\', "/"), reason.clone());
+            held.insert(
+                rel.to_string_lossy().replace('\\', "/"),
+                super::DivergedOutput {
+                    kind: diverged.kind.as_str(),
+                    reason: diverged.reason.clone(),
+                    base: diverged.base.clone(),
+                    theirs: diverged.theirs.clone(),
+                },
+            );
         }
     }
     *state.held.lock().expect("held outputs") = held;

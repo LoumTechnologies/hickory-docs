@@ -50,6 +50,8 @@ pub enum UpCommand {
     /// Overwrite a held output with what its document produces — the one
     /// path that writes over held bytes, taken only when asked by name.
     Regenerate(PathBuf),
+    /// Write bytes a person chose (a merge's result) over a diverged file.
+    Resolve(PathBuf, String),
 }
 
 pub(crate) fn watch_error(err: notify::Error) -> anyhow::Error {
@@ -532,6 +534,12 @@ async fn weave_document_as(
         // Not tracked either: these bytes are not ours. `up` re-adopts the
         // file the moment a run gives it something real to say.
         if missing_recording.contains(rel_path.as_str()) && full.exists() {
+            state.keep_output(
+                &full,
+                "the cell that produces this file is unrecorded; run the document to bring it \
+                 forward"
+                    .to_string(),
+            );
             continue;
         }
         // The weave target too. It used to be exempt as "this weave's own
@@ -543,11 +551,13 @@ async fn weave_document_as(
         // to keep.
         if Some(rel_path.as_str()) == weave_target && !missing_recording.is_empty() && full.exists()
         {
-            eprintln!(
-                "  kept {}: {} cell(s) have no recording; run the document to bring it forward",
-                full.display(),
+            let reason = format!(
+                "{} cell(s) are unrecorded, so the document cannot produce this file yet; \
+                 run the document to bring it forward",
                 run.result.never_run.len()
             );
+            eprintln!("  diverged (kept) {}: {reason}", full.display());
+            state.keep_output(&full, reason);
             continue;
         }
         let provenance = output_lineage(&run, rel_path).unwrap_or_default();
@@ -713,9 +723,9 @@ fn consume_output_save(path: &Path, state: &mut WovenState) -> Result<Option<Pat
             Err(e) => {
                 let reason = format!("{e:#}");
                 eprintln!(
-                    "holding {}: the edit could not be carried into {}\n  {reason}\n  \
-                     The file is left as it is and marked held; edit the document, or \
-                     regenerate the file from it.",
+                    "diverged (held) {}: the edit could not be carried into {}\n  {reason}\n  \
+                     The file is left as it is. Edit the document to match, take the \
+                     document's version, or merge.",
                     path.display(),
                     doc.display()
                 );

@@ -145,10 +145,24 @@ pub struct LocalState {
     /// Generated files the loop is holding — root-relative path → why —
     /// published by the loop after every batch so the tree and the pane can
     /// say so. See `docs/guarantees/authoring/an-output-that-cannot-be-carried-back-is-held.md`.
-    pub held: Arc<std::sync::Mutex<HashMap<String, String>>>,
+    pub held: Arc<std::sync::Mutex<HashMap<String, DivergedOutput>>>,
     /// The running loop's command inbox, set when the loop starts.
     pub up_commands:
         Arc<std::sync::Mutex<Option<tokio::sync::mpsc::UnboundedSender<crate::up::UpCommand>>>>,
+}
+
+/// One diverged produced file, as the tree and the pane read it. Axis 3 of
+/// `docs/specs/freeform/three-axes.md`.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct DivergedOutput {
+    /// `held` (somebody wrote it and it could not be carried back) or
+    /// `kept` (the document cannot reproduce it yet).
+    pub kind: &'static str,
+    pub reason: String,
+    /// The last bytes both sides agreed on.
+    pub base: String,
+    /// What the document produces now; empty for `kept`.
+    pub theirs: String,
 }
 
 /// The session's provider-key settings: the live store the agent route reads
@@ -512,8 +526,9 @@ fn router(state: LocalState) -> Router {
         // a terminal on every row of the tree. See serve/git.rs.
         .route("/git/log", get(git::log))
         .route("/git/status", get(git::status))
-        .route("/outputs/held", get(api::held_outputs))
+        .route("/outputs/diverged", get(api::diverged_outputs))
         .route("/outputs/regenerate", post(api::regenerate_output))
+        .route("/outputs/resolve", post(api::resolve_output))
         .route("/git/changes", get(git_ops::changes))
         .route("/git/diff", get(git_ops::diff))
         .route("/git/stage", post(git_ops::stage))

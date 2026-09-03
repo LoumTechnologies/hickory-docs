@@ -8286,7 +8286,7 @@ button.status-bar__item:hover { background: var(--bg-sunken); color: var(--fg); 
 .diff-line--del { color: var(--fail); background: color-mix(in srgb, var(--fail) 10%, transparent); }
 
 /* --- a held generated file --------------------------------------------- */
-.folder-tree__held {
+.folder-tree__diverged {
   margin-left: 0.4rem;
   padding: 0 0.3rem;
   border-radius: 3px;
@@ -8296,4 +8296,6 @@ button.status-bar__item:hover { background: var(--bg-sunken); color: var(--fg); 
   color: var(--warn);
 }
 .banner-warn { background: color-mix(in srgb, var(--warn) 14%, transparent); }
-.generated-view__held { margin: 0 0 0.4rem; font-size: 0.8rem; }
+.diverged { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; margin: 0 0 0.4rem; font-size: 0.8rem; }
+.diverged__text { flex: 1 1 24rem; }
+.diverged__ways { display: inline-flex; gap: 0.4rem; align-items: center; }

@@ -181,10 +181,10 @@ pub fn refusal_message(path: &Path, doc: &Path, woven: &str, error: &LineageErro
     };
 
     format!(
-        "refused an edit to {}\n  {}\n  \
-         The file is left as it is and marked held. To make this change, edit\n  {}\n  \
-         directly — the document is where generated text comes from — or regenerate \
-         the file from it.",
+        "diverged (held) {}: refused an edit\n  {}\n  \
+         The file is left as it is. To make this change, edit\n  {}\n  \
+         directly — the document is where generated text comes from — or take the \
+         document's version, or merge.",
         path.display(),
         where_,
         doc.display()
