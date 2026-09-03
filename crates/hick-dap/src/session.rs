@@ -358,7 +358,10 @@ impl Mapping {
             .map_err(|e| anyhow::anyhow!("{e}"))?;
         let mut files = HashMap::new();
         for file in &state.virtual_files {
-            let map = hick_lsp::position_map::PositionMap::build(&file.segments);
+            // `without_first_line`, because `weave_into` wrote the file
+            // without it: the two are one decision and must not drift.
+            let map =
+                hick_lsp::position_map::PositionMap::build(&file.segments).without_first_line();
             // The adapter sees the file where the cell ran, not where the
             // document lives.
             files.insert(workdir.join(&file.path), map);
@@ -1241,17 +1244,29 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let mapping = Mapping::for_document(Path::new("d.hick"), source, dir.path()).expect("maps");
 
-        // `def total(x):` is document line 5 (0-based). It is line ONE of
-        // app.py, not line zero: the block's text begins with the newline
-        // that follows the opening tag, so the generated file starts with a
-        // blank line. Getting this off by one would put every breakpoint one
-        // line from where it was asked for.
+        // The mapping and the bytes are one decision, so they are asserted
+        // together: whatever `weave_into` writes is what the map describes.
+        // A block's text begins with the newline after its opening tag, and
+        // the file is written WITHOUT it — the engine's own weave writes no
+        // such line, and a leading blank line moves whatever has to be at
+        // byte 0 (a `#!`, a BOM, an XML declaration). Getting either half
+        // wrong on its own puts every breakpoint one line from where it was
+        // asked for.
+        let written = crate::weave_into(source, dir.path()).expect("weaves");
+        assert_eq!(written.len(), 1);
+        let bytes = std::fs::read_to_string(&written[0]).unwrap();
+        assert!(bytes.starts_with("def total(x):"), "{bytes:?}");
+
+        // `def total(x):` is document line 5 (0-based), and line ZERO of the
+        // file that was just written.
         let (path, line) = mapping.to_generated(5).expect("the code line maps");
         assert!(path.ends_with("app.py"), "{path:?}");
-        assert_eq!(line, 1);
+        assert_eq!(line, 0);
+        assert_eq!(bytes.lines().nth(line as usize), Some("def total(x):"));
 
         // And back again, which is what a stack frame needs.
-        assert_eq!(mapping.to_document(&path, 1), Some(5));
+        assert_eq!(mapping.to_document(&path, 0), Some(5));
+        assert_eq!(mapping.to_document(&path, 1), Some(6));
     }
 
     #[test]

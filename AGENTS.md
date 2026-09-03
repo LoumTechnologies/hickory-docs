@@ -492,6 +492,28 @@ number dropped reported rather than swallowed. Every answer says when the
 index was built and how many covered files have changed since. Not built: any
 use of it inside the app.
 
+**A `hick:file` is a generated file however deeply it is nested
+(2026-09-03, `a-file-block-is-a-file-however-deeply-it-is-nested.md`).**
+Debugging a scaffolded C# program said *"this document does not generate
+app/Program.cs. It generates:"* — and then nothing, about a file in the
+document it was reading. Two disagreements between the engine and the view
+built on `hick_lsp`, the first hiding the second. (1) **Which blocks are
+files:** `hick-literate` has always asked `all_tags`, `build_virtual_files`
+asked `find_tags` (top level only), and `hick ingest` writes
+`exec > ingested > file` — so every scaffold a document owned was written by
+`hick run` and invisible to the language server and the debugger. (2) **What
+the bytes are:** a virtual file's `content()` opens with the newline after
+its tag, which is what makes its line 0 the tag's line and is exactly right
+for a reader that never writes the file down; anything that **writes** it
+must drop that line (`written_content`) and shift the map with it
+(`PositionMap::without_first_line`), because a leading blank line moves
+whatever has to be at byte 0 — a `#!`, a **BOM**, an XML declaration.
+`dotnet new` writes a BOM, so MSBuild refused the woven `.csproj` with
+`MSB4025` at *line 2, position 1*. The fixture in `live_session.rs` wrote the
+files itself and claimed in a comment that it therefore could not drift from
+the mapping; it now weaves through `weave_into`, which is the one place that
+decides.
+
 A plain file in the repository — `src/main.rs`, `app.py` — has **the same
 language server a document has**
 (`docs/guarantees/editor-intelligence/a-plain-file-has-the-same-language-server.md`,

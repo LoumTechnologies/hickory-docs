@@ -37,11 +37,16 @@ print(f"total {sum(line_total(q, p) for q, p in LINES):.2f}")
 
 /// 1-based line of `    subtotal = quantity * unit_price` in `pricing.py`.
 ///
-/// Six, not five: the generated file opens with the newline that follows
-/// `<hick:file …>`, so every line of the block sits one lower than it reads
-/// in the document. Being one out here is not a rounding error — line 5 is
-/// the `def`, which runs once, at module level, in a different frame.
-const SUBTOTAL: u32 = 6;
+/// Five, and it counts the block's lines exactly as they read in the
+/// document: the generated file is written **without** the newline that
+/// follows `<hick:file …>`, the way the engine's own weave writes it. Being
+/// one out here is not a rounding error — line 4 is the `def`, which runs
+/// once, at module level, in a different frame.
+const SUBTOTAL: u32 = 5;
+
+/// 1-based line of the second blank line in `pricing.py` — a line Python
+/// cannot stop on, which is the point of the test that uses it.
+const BLANK: u32 = 3;
 
 struct Project {
     dir: tempfile::TempDir,
@@ -214,10 +219,10 @@ async fn a_capture_run_writes_nothing_into_the_project() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn a_capture_follows_a_breakpoint_the_adapter_moves() {
-    // Line 4 is blank. Python cannot stop there, so debugpy slides the
-    // breakpoint down to the `def` below it. Recording nothing would report
-    // "never hit" about a breakpoint that fired — so the capture follows it,
-    // and the woven table says it moved.
+    // `BLANK` is a blank line. Python cannot stop there, so debugpy slides
+    // the breakpoint down to the `def` below it. Recording nothing would
+    // report "never hit" about a breakpoint that fired — so the capture
+    // follows it, and the woven table says it moved.
     let Some(project) = project() else {
         skip();
         return;
@@ -226,7 +231,7 @@ async fn a_capture_follows_a_breakpoint_the_adapter_moves() {
         Path::new("doc.hick"),
         DOC,
         project.dir.path(),
-        &[spec(4, &["LINES"])],
+        &[spec(BLANK, &["LINES"])],
     )
     .await
     .expect("the capture run finishes");

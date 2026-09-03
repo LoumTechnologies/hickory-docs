@@ -194,4 +194,32 @@ fn main() {}
         assert!(content.contains("use std::io;"), "content was: {content}");
         assert!(content.contains("fn main()"), "content was: {content}");
     }
+
+    #[test]
+    fn a_file_block_is_a_virtual_file_however_deeply_it_is_nested() {
+        // `hick ingest` writes `exec > ingested > file`, and the engine's
+        // weave has always written those files (`all_tags`). This asked only
+        // the top level, so an ingested scaffold had no language server
+        // inside it at all and the debugger reported that the document
+        // generated nothing. One rule now: the file blocks the weave writes.
+        let source = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n\
+         <hick:doc xmlns:hick=\"http://www.hickorydocs.com/1.0\" weave=\"o.md\">\n\
+         <hick:exec container=\"sdk\">\n\
+         <hick:ingested from=\"#c\" sha256=\"dead\" at=\"2026-09-03\" files=\"1\" skipped=\"0\">\n\
+         <hick:file path=\"app/Program.cs\">\n\
+         Console.WriteLine(\"Hello\");\n\
+         </hick:file>\n\
+         </hick:ingested>\n\
+         </hick:exec>\n\
+         </hick:doc>\n";
+        let state = HickDocumentState::from_source(source).expect("parses");
+        assert_eq!(state.virtual_files.len(), 1);
+        assert_eq!(state.virtual_files[0].path, "app/Program.cs");
+        assert_eq!(state.virtual_files[0].language_id, Some("csharp"));
+        assert!(
+            state.virtual_files[0]
+                .content()
+                .contains("Console.WriteLine")
+        );
+    }
 }

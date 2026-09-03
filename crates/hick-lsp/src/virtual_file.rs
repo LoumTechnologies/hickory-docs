@@ -41,6 +41,29 @@ impl VirtualFile {
         out
     }
 
+    /// The bytes to **write** for this file, as the engine's weave writes
+    /// them: the content without the newline that opens it.
+    ///
+    /// [`VirtualFile::content`] begins with the newline after the
+    /// `<hick:file>` tag, so line 0 is the tag's line and the rest lines up
+    /// with the document. A language server, which only ever reads, wants
+    /// exactly that. Anything that writes the file down wants the other
+    /// thing, because a leading blank line moves whatever must be at byte 0
+    /// — a `#!` line, a UTF-8 BOM, an XML declaration. `dotnet new` writes
+    /// its `.csproj` with a BOM, and a scaffold a document had ingested
+    /// could not be built by the debugger for exactly this reason:
+    /// `MSB4025: Data at the root level is invalid. Line 2, position 1.`
+    ///
+    /// Pair it with [`crate::position_map::PositionMap::without_first_line`],
+    /// which is the same removal on the other side.
+    pub fn written_content(&self) -> String {
+        let content = self.content();
+        content
+            .strip_prefix('\n')
+            .map(str::to_string)
+            .unwrap_or(content)
+    }
+
     /// Total number of lines.
     pub fn line_count(&self) -> usize {
         let content = self.content();
@@ -54,13 +77,28 @@ impl VirtualFile {
 /// Build virtual files from all `hick:file` tags in the document.
 ///
 /// `copy_registry` maps copy/paste IDs to their resolved text content.
+///
+/// **At any depth**, which is the whole of a bug that was live for a week.
+/// This used to ask `find_tags`, which is the top level only, while the
+/// engine's own weave has always asked `all_tags` — so a `hick:file` nested
+/// inside anything was written to disk by `hick run` and invisible to
+/// everything built on this. The nesting is not exotic: `exec > ingested >
+/// file` is exactly what `hick ingest` writes, so every scaffold a document
+/// owned had no language server inside it, and the debugger — which weaves
+/// through this function — reported "this document does not generate
+/// app/Program.cs. It generates:" and then nothing, about a file sitting in
+/// the document it was reading.
+///
+/// The rule is one rule: **the same file blocks the weave writes**. A
+/// `hick:file` inside another is not skipped, for the same reason — matching
+/// the weave is the point, and it does not skip one either.
 pub fn build_virtual_files(
     doc: &HickDocument,
     copy_registry: &HashMap<String, String>,
 ) -> Vec<VirtualFile> {
     let mut files = Vec::new();
 
-    for tag in doc.find_tags("file") {
+    for tag in doc.all_tags().into_iter().filter(|t| t.name == "file") {
         let path = match tag.get_attribute("path") {
             Some(p) => p.to_string(),
             None => continue,

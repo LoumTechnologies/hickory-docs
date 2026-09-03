@@ -68,14 +68,14 @@ fn fixture() -> Option<Fixture> {
     std::fs::create_dir_all(root.join(".git")).ok()?;
     std::fs::write(root.join("doc.hick"), DOC).ok()?;
 
-    // The generated file, as a run would produce it. Written from the same
-    // mapping the session uses, so the file and the coordinates cannot
-    // disagree.
+    // The generated file, as a run would produce it — through `weave_into`,
+    // which is the one place that decides what those bytes are. This used to
+    // write the files itself from the virtual files, which is how it came to
+    // disagree with the mapping the moment the bytes changed: the fixture's
+    // own comment claimed the two could not drift, while the code made sure
+    // they could.
     let mapping = Mapping::for_document(Path::new("doc.hick"), DOC, root).ok()?;
-    let state = hick_lsp::document::HickDocumentState::from_source(DOC).ok()?;
-    for file in &state.virtual_files {
-        std::fs::write(root.join(&file.path), file.content()).ok()?;
-    }
+    hick_dap::weave_into(DOC, root).ok()?;
 
     borrow_this_repos_adapters(root);
     let adapter = hick_dap::discover("python", root)?;

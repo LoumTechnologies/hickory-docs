@@ -15,6 +15,11 @@ use anyhow::{Context, Result};
 
 /// Write every file the document generates into `dir`, returning them in
 /// document order.
+///
+/// The bytes are the engine's: `written_content`, not `content`. The
+/// difference is one leading newline, and it is the difference between a
+/// `.csproj` MSBuild will load and one it refuses at line 2 position 1.
+/// `Mapping::for_document` drops the same line from the other side.
 pub fn weave_into(source: &str, dir: &Path) -> Result<Vec<PathBuf>> {
     let state = hick_lsp::document::HickDocumentState::from_source(source)
         .map_err(|e| anyhow::anyhow!("{e}"))?;
@@ -25,7 +30,7 @@ pub fn weave_into(source: &str, dir: &Path) -> Result<Vec<PathBuf>> {
             std::fs::create_dir_all(parent)
                 .with_context(|| format!("creating {}", parent.display()))?;
         }
-        std::fs::write(&path, file.content())
+        std::fs::write(&path, file.written_content())
             .with_context(|| format!("writing {}", path.display()))?;
         written.push(path);
     }
@@ -108,6 +113,64 @@ pub fn adapter_for(program: &Path, project: &Path) -> Result<crate::Discovered> 
 
 #[cfg(test)]
 mod tests {
+    /// A scaffold a document owns: `exec > ingested > file`, which is what
+    /// `hick ingest --from '#cell'` writes. Nothing here is at the top
+    /// level, which is the whole point.
+    const INGESTED: &str = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n\
+        <hick:doc xmlns:hick=\"http://www.hickorydocs.com/1.0\" weave=\"o.md\">\n\
+        # Scaffolded\n\n\
+        <hick:exec container=\"sdk\">\n\
+        <hick:copy id=\"scaffold\">\n\
+        dotnet new console -n app -o out\n\
+        </hick:copy>\n\
+        <hick:ingested from=\"#scaffold\" sha256=\"dead\" at=\"2026-09-03\" files=\"2\" skipped=\"0\">\n\
+        <hick:file path=\"app/Program.cs\">\n\
+        \u{feff}Console.WriteLine(\"Hello, World!\");\n\
+        </hick:file>\n\
+        <hick:file path=\"app/app.csproj\">\n\
+        \u{feff}<Project Sdk=\"Microsoft.NET.Sdk\" />\n\
+        </hick:file>\n\
+        </hick:ingested>\n\
+        </hick:exec>\n\
+        </hick:doc>\n";
+
+    #[test]
+    fn a_file_a_document_owns_is_generated_however_deeply_it_is_nested() {
+        // The bug this exists for: `hick ingest` writes its files three tags
+        // down, the engine's weave has always written them (`all_tags`), and
+        // this weave asked only the top level — so Debug on a scaffolded
+        // `Program.cs` answered "this document does not generate
+        // app/Program.cs. It generates:" and then nothing at all.
+        let dir = tempfile::tempdir().unwrap();
+        let files = weave_into(INGESTED, dir.path()).unwrap();
+        let names: Vec<String> = files
+            .iter()
+            .map(|p| p.strip_prefix(dir.path()).unwrap().display().to_string())
+            .collect();
+        assert_eq!(names, vec!["app/Program.cs", "app/app.csproj"]);
+        assert!(entry_point(&files).unwrap().ends_with("Program.cs"));
+    }
+
+    #[test]
+    fn what_has_to_be_at_byte_zero_is_at_byte_zero() {
+        // `dotnet new` writes a BOM. A leading blank line puts it at line 2
+        // position 1, where MSBuild refuses the project file outright
+        // (MSB4025) — so the bytes written are the engine's, with no line in
+        // front of them. The same would be true of a `#!` line and an XML
+        // declaration; a BOM is only the one that was caught.
+        let dir = tempfile::tempdir().unwrap();
+        let files = weave_into(INGESTED, dir.path()).unwrap();
+        for file in &files {
+            let bytes = std::fs::read(file).unwrap();
+            assert_eq!(
+                &bytes[..3],
+                &[0xEF, 0xBB, 0xBF],
+                "{} does not start with the bytes the document holds",
+                file.display()
+            );
+        }
+    }
+
     use super::*;
 
     #[test]
