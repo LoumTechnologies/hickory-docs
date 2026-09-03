@@ -540,3 +540,104 @@ describe("two panes on one socket", () => {
   });
 });
 
+
+// Protects docs/guarantees/debugging/a-breakpoint-can-carry-a-condition.md
+//
+// `hick-dap::Breakpoint` has carried `condition`, `hit_condition` and
+// `log_message` since the debugger was written, and the server deserializes
+// all three. Nothing could set one: the hook sent `{ line }` and nothing else,
+// and `debugStateEffects` hardcoded `conditional: false`.
+describe("a breakpoint carries what the person attached to it", () => {
+  it("sends a condition on the wire, and only what was set", async () => {
+    const { socket, hook } = open();
+    act(() => hook.result.current.start());
+    act(() => socket.deliver(STARTED));
+    await waitFor(() => expect(hook.result.current.status).toBe("running"));
+
+    act(() => hook.result.current.toggleBreakpoint(10));
+    act(() => hook.result.current.setBreakpointCondition(10, { condition: "i > 10" }));
+
+    const last = socket.sent.at(-1) as { op: string; breakpoints: Record<string, unknown>[] };
+    expect(last.op).toBe("breakpoints");
+    const sent = last.breakpoints.find((b) => b.line === 10)!;
+    expect(sent).toEqual({ line: 10, condition: "i > 10" });
+    // An adapter must never be handed an empty string to parse.
+    expect(sent).not.toHaveProperty("hit_condition");
+    expect(sent).not.toHaveProperty("log_message");
+  });
+
+  it("carries a hit count and a log message too", async () => {
+    const { socket, hook } = open();
+    act(() => hook.result.current.start());
+    act(() => socket.deliver(STARTED));
+    await waitFor(() => expect(hook.result.current.status).toBe("running"));
+
+    act(() => hook.result.current.toggleBreakpoint(4));
+    act(() =>
+      hook.result.current.setBreakpointCondition(4, {
+        hit_condition: "> 5",
+        log_message: "here with i={i}",
+      }),
+    );
+    const last = socket.sent.at(-1) as { breakpoints: Record<string, unknown>[] };
+    expect(last.breakpoints.find((b) => b.line === 4)).toEqual({
+      line: 4,
+      hit_condition: "> 5",
+      log_message: "here with i={i}",
+    });
+  });
+
+  it("clears a condition when it is emptied", async () => {
+    const { socket, hook } = open();
+    act(() => hook.result.current.start());
+    act(() => socket.deliver(STARTED));
+    await waitFor(() => expect(hook.result.current.status).toBe("running"));
+
+    act(() => hook.result.current.toggleBreakpoint(7));
+    act(() => hook.result.current.setBreakpointCondition(7, { condition: "x" }));
+    act(() => hook.result.current.setBreakpointCondition(7, { condition: "  " }));
+
+    const last = socket.sent.at(-1) as { breakpoints: Record<string, unknown>[] };
+    expect(last.breakpoints.find((b) => b.line === 7)).toEqual({ line: 7 });
+    expect(hook.result.current.breakpoints.find((b) => b.line === 7)?.condition).toBeUndefined();
+  });
+
+  it("keeps the condition when the adapter moves the breakpoint", async () => {
+    // The subtle one. A breakpoint that slides to the next executable line
+    // and silently loses its condition would stop on every pass — the exact
+    // opposite of what was asked for.
+    const { socket, hook } = open();
+    act(() => hook.result.current.start());
+    act(() => socket.deliver(STARTED));
+    await waitFor(() => expect(hook.result.current.status).toBe("running"));
+
+    act(() => hook.result.current.toggleBreakpoint(12));
+    act(() => hook.result.current.setBreakpointCondition(12, { condition: "n == 3" }));
+    act(() =>
+      socket.deliver({
+        event: "breakpoints",
+        session: "dbg-0",
+        breakpoints: [{ line: 12, state: "bound", moved_to: 13 }],
+      }),
+    );
+
+    const held = hook.result.current.breakpoints;
+    expect(held).toHaveLength(1);
+    expect(held[0].line).toBe(13);
+    expect(held[0].condition).toBe("n == 3");
+  });
+
+  it("keeps a condition set before the program runs, and starts with it", async () => {
+    const { socket, hook } = open();
+    act(() => hook.result.current.toggleBreakpoint(3));
+    act(() => hook.result.current.setBreakpointCondition(3, { condition: "ready" }));
+    // Nothing is running, so nothing was sent — the condition is for the run.
+    expect(socket.sent).toHaveLength(0);
+
+    act(() => hook.result.current.start());
+    expect(socket.sent[0]).toMatchObject({
+      op: "start",
+      breakpoints: [{ line: 3, condition: "ready" }],
+    });
+  });
+});

@@ -2892,6 +2892,50 @@ button.fleet-grant {
   clip-path: polygon(0 0, 100% 0, 100% 60%, 60% 100%, 0 100%);
   border-radius: 2px;
 }
+/* The panel behind a right-click or alt-click on the breakpoint gutter.
+   Positioned by the editor at the line's own top, so it reads as belonging
+   to that breakpoint rather than to the pane. */
+.cm-bp-editor {
+  position: absolute;
+  left: 2.6rem;
+  z-index: 20;
+  width: 22rem;
+  max-width: calc(100% - 3rem);
+  padding: 0.5rem 0.6rem 0.4rem;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: var(--bg);
+  box-shadow: 0 6px 18px color-mix(in srgb, var(--fg) 18%, transparent);
+  font-size: 0.8rem;
+}
+.cm-bp-editor-title {
+  color: var(--fg-muted);
+  font-size: 0.75rem;
+  margin-bottom: 0.35rem;
+}
+.cm-bp-editor-row {
+  display: grid;
+  grid-template-columns: 7.5rem 1fr;
+  align-items: center;
+  gap: 0.4rem;
+  margin-bottom: 0.3rem;
+}
+.cm-bp-editor-row span { color: var(--fg-muted); }
+.cm-bp-editor-row input {
+  padding: 0.15rem 0.3rem;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  background: var(--bg);
+  color: var(--fg);
+  font-family: ui-monospace, Menlo, monospace;
+  font-size: 0.8rem;
+}
+.cm-bp-editor-hint {
+  margin: 0.35rem 0 0;
+  color: var(--fg-muted);
+  font-size: 0.7rem;
+  line-height: 1.35;
+}
 .cm-paused-arrow {
   display: inline-block;
   width: 0;

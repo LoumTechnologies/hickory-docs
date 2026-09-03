@@ -738,6 +738,8 @@ function useDocumentSession(
       // a document with no debugger running still has diagnostics.
       ...debugEditor({
         onToggleBreakpoint: (line) => debugRef.current.toggleBreakpoint(line),
+        onSetBreakpointCondition: (line, patch) =>
+          debugRef.current.setBreakpointCondition(line, patch),
         // A gutter stack mark is a caller; clicking it shows that frame.
         onSelectFrame: selectFrameAndReveal,
         // The inline eval at the paused line, answered in the selected frame.

@@ -318,6 +318,8 @@ export function PlainFilePane({
                 language: initial.language,
                 lineNumbers: false,
                 onToggleBreakpoint: (line) => debugRef.current.toggleBreakpoint(line),
+                onSetBreakpointCondition: (line, patch) =>
+                  debugRef.current.setBreakpointCondition(line, patch),
                 onSelectFrame: selectFrameAndReveal,
                 onEvaluate: (expression) => debugRef.current.query(expression),
                 onAddWatch: (expression) => debugRef.current.addWatch(expression),

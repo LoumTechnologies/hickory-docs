@@ -40,9 +40,33 @@ import { structureOf } from "../editor/wysiwyg";
 export interface BreakpointMark {
   line: number;
   state: BindState;
+  /** True when anything below is set: drawn as a diamond, not a dot. */
   conditional: boolean;
   /** Why it could not bind, or why it is not confirmed yet, shown on hover. */
   message?: string;
+  /** Stop only when this is true, in the debuggee's own language. */
+  condition?: string;
+  /** Stop only on the Nth hit — the adapter's own syntax. */
+  hitCondition?: string;
+  /** Log this and continue instead of stopping. */
+  logMessage?: string;
+}
+
+/**
+ * What a breakpoint's tooltip should say.
+ *
+ * A conditional breakpoint that says only "Conditional breakpoint" makes a
+ * person open the editor to remember what they wrote. Saying it here costs a
+ * string and answers the question where it is asked.
+ */
+export function breakpointTip(mark: BreakpointMark): string {
+  if (mark.message) return mark.message;
+  const parts: string[] = [];
+  if (mark.logMessage) parts.push(`Logs ${JSON.stringify(mark.logMessage)} and continues`);
+  if (mark.condition) parts.push(`Stops when ${mark.condition}`);
+  if (mark.hitCondition) parts.push(`Hit count ${mark.hitCondition}`);
+  if (parts.length === 0) return "Breakpoint";
+  return parts.join(" · ");
 }
 
 /** Whether a mark is broken: refused outright, with a reason to show. */
@@ -108,7 +132,14 @@ export function stackMarksOf(frames: readonly Frame[], pausedLine: number | null
  * and a plain file's pane cannot draw the same session two different ways.
  */
 export function debugStateEffects(session: {
-  breakpoints: readonly { line: number; state: BindState; message?: string }[];
+  breakpoints: readonly {
+    line: number;
+    state: BindState;
+    message?: string;
+    condition?: string;
+    hit_condition?: string;
+    log_message?: string;
+  }[];
   pausedLine: number | null;
   variables: Variable[];
   frames: readonly Frame[];
@@ -119,8 +150,16 @@ export function debugStateEffects(session: {
       session.breakpoints.map((breakpoint) => ({
         line: breakpoint.line,
         state: breakpoint.state,
-        conditional: false,
+        // Computed, never assumed. This read `false` from the day it was
+        // written, which made `cm-bp-conditional` unreachable styling for a
+        // feature the engine had always supported.
+        conditional: Boolean(
+          breakpoint.condition || breakpoint.hit_condition || breakpoint.log_message,
+        ),
         message: breakpoint.message,
+        condition: breakpoint.condition,
+        hitCondition: breakpoint.hit_condition,
+        logMessage: breakpoint.log_message,
       })),
     ),
     setPausedLine.of(session.pausedLine),
@@ -197,11 +236,7 @@ function dotElement(mark: BreakpointMark): HTMLElement {
   // The reason, on the thing it is about. Without this, an unbindable
   // breakpoint is a mystery rather than a message — and with it, the message
   // needs to be nowhere else.
-  dot.dataset.tip = mark.message
-    ? mark.message
-    : mark.conditional
-      ? "Conditional breakpoint"
-      : "Breakpoint";
+  dot.dataset.tip = breakpointTip(mark);
   return dot;
 }
 
@@ -219,7 +254,8 @@ class DotMarker extends GutterMarker {
   eq(other: DotMarker) {
     return (
       other.mark.state === this.mark.state &&
-      other.mark.conditional === this.mark.conditional
+      other.mark.conditional === this.mark.conditional &&
+      breakpointTip(other.mark) === breakpointTip(this.mark)
     );
   }
   toDOM() {
@@ -274,7 +310,8 @@ class PausedAtBreakpointMarker extends GutterMarker {
   eq(other: PausedAtBreakpointMarker) {
     return (
       other.mark.state === this.mark.state &&
-      other.mark.conditional === this.mark.conditional
+      other.mark.conditional === this.mark.conditional &&
+      breakpointTip(other.mark) === breakpointTip(this.mark)
     );
   }
   toDOM() {
@@ -652,6 +689,115 @@ export interface DebugEditorOptions {
   onEvaluate?: (expression: string) => Promise<string | null>;
   /** Add an expression to the watch list. */
   onAddWatch?: (expression: string) => void;
+  /**
+   * Attach a condition, hit count, or log message to a breakpoint.
+   *
+   * Reached by right-clicking or alt-clicking the gutter, which is where
+   * every other editor puts it. Absent in a pane that has no debugger, and
+   * the gesture then falls back to an ordinary toggle rather than opening a
+   * panel that could not do anything.
+   */
+  onSetBreakpointCondition?: (
+    line: number,
+    patch: { condition?: string; hit_condition?: string; log_message?: string },
+  ) => void;
+}
+
+/**
+ * The little panel behind a right-click on a breakpoint.
+ *
+ * Built as DOM rather than React for the same reason the inline evaluator is:
+ * it belongs to the editor, and both the document pane and the plain-file
+ * pane get it from this one function — the rule that stops the two drawing
+ * one session two different ways.
+ */
+export function openBreakpointEditor(
+  view: EditorView,
+  mark: BreakpointMark,
+  onSet: (
+    line: number,
+    patch: { condition?: string; hit_condition?: string; log_message?: string },
+  ) => void,
+): void {
+  view.dom.querySelector(".cm-bp-editor")?.remove();
+
+  const panel = document.createElement("div");
+  panel.className = "cm-bp-editor";
+  panel.setAttribute("role", "dialog");
+  panel.setAttribute("aria-label", `Breakpoint on line ${mark.line + 1}`);
+
+  const title = document.createElement("div");
+  title.className = "cm-bp-editor-title";
+  title.textContent = `Line ${mark.line + 1}`;
+  panel.appendChild(title);
+
+  const fields: { key: "condition" | "hit_condition" | "log_message"; input: HTMLInputElement }[] =
+    [];
+  const field = (
+    key: "condition" | "hit_condition" | "log_message",
+    label: string,
+    value: string | undefined,
+    placeholder: string,
+  ) => {
+    const row = document.createElement("label");
+    row.className = "cm-bp-editor-row";
+    const name = document.createElement("span");
+    name.textContent = label;
+    const input = document.createElement("input");
+    input.type = "text";
+    input.value = value ?? "";
+    input.placeholder = placeholder;
+    row.appendChild(name);
+    row.appendChild(input);
+    panel.appendChild(row);
+    fields.push({ key, input });
+    return input;
+  };
+
+  const first = field("condition", "Condition", mark.condition, "i > 10");
+  field("hit_condition", "Hit count", mark.hitCondition, "> 5");
+  field(
+    "log_message",
+    "Log and continue",
+    mark.logMessage,
+    "reached with i={i}",
+  );
+
+  const hint = document.createElement("p");
+  hint.className = "cm-bp-editor-hint";
+  hint.textContent =
+    "Empty means no condition. A log message makes this a breakpoint that does not stop.";
+  panel.appendChild(hint);
+
+  const close = () => panel.remove();
+  const apply = () => {
+    const patch: { condition?: string; hit_condition?: string; log_message?: string } = {};
+    for (const { key, input } of fields) patch[key] = input.value.trim();
+    onSet(mark.line, patch);
+    close();
+  };
+
+  panel.addEventListener("keydown", (event) => {
+    // The editor must not treat typing here as typing in the document.
+    event.stopPropagation();
+    if (event.key === "Escape") close();
+    else if (event.key === "Enter") apply();
+  });
+  // Applying on the way out means there is no Save button to miss, and no
+  // half-typed condition silently discarded by clicking elsewhere.
+  panel.addEventListener("focusout", () => {
+    window.setTimeout(() => {
+      if (!panel.isConnected) return;
+      if (panel.contains(document.activeElement)) return;
+      apply();
+    }, 0);
+  });
+
+  const block = view.lineBlockAt(view.state.doc.line(mark.line + 1).from);
+  panel.style.top = `${block.top}px`;
+  view.dom.appendChild(panel);
+  first.focus();
+  first.select();
 }
 
 /**
@@ -674,6 +820,65 @@ export function gutterAction(
   }
   const target = breakpointLine(state, line);
   return target === null ? null : { kind: "breakpoint", line: target };
+}
+
+/**
+ * What a gutter gesture on `line` means.
+ *
+ * Pure, and exported, for exactly the reason `gutterAction` is: a gutter's
+ * `domEventHandlers` never fire under jsdom, which has no layout to resolve a
+ * pointer's height against. The handlers below are two lines each so that
+ * everything worth testing is here.
+ */
+export function gutterIntent(
+  state: EditorState,
+  line: number,
+  gesture: { alt?: boolean; context?: boolean },
+  canEdit: boolean,
+):
+  | { kind: "frame"; id: number }
+  | { kind: "toggle"; line: number }
+  | { kind: "edit"; line: number }
+  | null {
+  const action = gutterAction(state, line);
+  if (action?.kind === "frame") {
+    // A right-click on a caller's arrow is not a breakpoint gesture at all.
+    return gesture.context ? null : action;
+  }
+  if (action?.kind !== "breakpoint") return null;
+  // Editing needs somewhere to send the condition. A pane without one falls
+  // back to an ordinary toggle rather than opening a panel that can do
+  // nothing — and a right-click there is left to the browser.
+  if (!canEdit) return gesture.context ? null : { kind: "toggle", line: action.line };
+  if (gesture.alt || gesture.context) return { kind: "edit", line: action.line };
+  return { kind: "toggle", line: action.line };
+}
+
+/**
+ * Open the editor for the breakpoint on `line`, setting one first if there
+ * is none.
+ *
+ * Editing a line with no breakpoint is not an error: asking for "stop here
+ * when x > 10" on a bare line is the common case, and making a person click
+ * twice to express it is ceremony.
+ */
+export function editBreakpoint(
+  view: EditorView,
+  line: number,
+  options: DebugEditorOptions,
+): void {
+  const onSet = options.onSetBreakpointCondition;
+  if (!onSet) {
+    options.onToggleBreakpoint(line);
+    return;
+  }
+  const existing = view.state.field(breakpointField, false)?.find((mark) => mark.line === line);
+  if (!existing) options.onToggleBreakpoint(line);
+  openBreakpointEditor(
+    view,
+    existing ?? { line, state: "pending", conditional: false },
+    onSet,
+  );
 }
 
 /** The paused arrow, which carries no state either. */
@@ -795,15 +1000,36 @@ export function debugEditor(options: DebugEditorOptions): Extension[] {
         update.startState.field(pausedField) !== update.state.field(pausedField) ||
         update.startState.field(stackField) !== update.state.field(stackField),
       domEventHandlers: {
+        // A stack mark selects its frame; anywhere else is a breakpoint,
+        // snapped to the line that can hold one — or refused quietly: a dot
+        // that appears and then reports it could not bind is worse than no
+        // dot. Alt-click and right-click edit it instead, which is the
+        // gesture every other editor uses; alt exists because a trackpad
+        // without a second button has no other way to ask.
         mousedown(view, block, event) {
-          const clicked = lineAtEvent(view, block, event);
-          // A stack mark selects its frame; anywhere else is a breakpoint,
-          // snapped to the line that can hold one — or refused quietly: a dot
-          // that appears and then reports it could not bind is worse than no
-          // dot.
-          const action = gutterAction(view.state, clicked);
-          if (action?.kind === "frame") options.onSelectFrame?.(action.id);
-          else if (action?.kind === "breakpoint") options.onToggleBreakpoint(action.line);
+          const line = lineAtEvent(view, block, event);
+          const intent = gutterIntent(
+            view.state,
+            line,
+            { alt: (event as MouseEvent).altKey },
+            Boolean(options.onSetBreakpointCondition),
+          );
+          if (intent?.kind === "frame") options.onSelectFrame?.(intent.id);
+          else if (intent?.kind === "toggle") options.onToggleBreakpoint(intent.line);
+          else if (intent?.kind === "edit") editBreakpoint(view, intent.line, options);
+          return true;
+        },
+        contextmenu(view, block, event) {
+          const line = lineAtEvent(view, block, event);
+          const intent = gutterIntent(
+            view.state,
+            line,
+            { context: true },
+            Boolean(options.onSetBreakpointCondition),
+          );
+          if (intent?.kind !== "edit") return false;
+          event.preventDefault();
+          editBreakpoint(view, intent.line, options);
           return true;
         },
       },

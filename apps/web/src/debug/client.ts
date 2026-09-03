@@ -16,8 +16,17 @@ export const CHANNEL_DEBUG = 0x03;
 export interface DebugBreakpoint {
   /** 0-based document line. */
   line: number;
+  /** Stop only when this is true, in the debuggee's own language. */
   condition?: string;
+  /** Stop only on the Nth hit (`">5"`, `"%3"` — the adapter's own syntax). */
   hit_condition?: string;
+  /**
+   * Log this and continue, instead of stopping. JetBrains and VS Code both
+   * spell it as a breakpoint that does not break; the server has carried it
+   * since `hick-dap`'s `Breakpoint` was written, and `{expr}` inside it is
+   * interpolated by the adapter.
+   */
+  log_message?: string;
 }
 
 export interface BreakpointStatus {

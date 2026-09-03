@@ -11,6 +11,7 @@ import type { TranscriptEvent } from "../api/types";
 import { DebugClient } from "./client";
 import type {
   BreakpointStatus,
+  DebugBreakpoint,
   DebugCapabilities,
   DebugEvent,
   Frame,
@@ -42,7 +43,7 @@ export interface DebugSession {
   variables: Variable[];
   selectedFrame: number | null;
   /** Where the user has asked to stop, whether or not it bound. */
-  breakpoints: BreakpointStatus[];
+  breakpoints: HeldBreakpoint[];
   /** How the program ended, once it has: its exit code, when reported. */
   exitCode: number | null;
   /**
@@ -65,6 +66,19 @@ export interface DebugSession {
   jumpTo(line: number): void;
   runTo(line: number): void;
   toggleBreakpoint(line: number): void;
+  /**
+   * Attach a condition, a hit count, or a log message to the breakpoint on
+   * this line — or clear them, by passing empty strings.
+   *
+   * All three have been carried by `hick-dap::Breakpoint` and forwarded to
+   * the adapter since the debugger was written; until this existed nothing
+   * could set one, and the gutter's own `cm-bp-conditional` styling was
+   * unreachable.
+   */
+  setBreakpointCondition(
+    line: number,
+    patch: { condition?: string; hit_condition?: string; log_message?: string },
+  ): void;
   selectFrame(id: number): void;
   evaluate(expression: string, context?: "hover" | "watch" | "repl"): void;
   /** Ask for a value and get it back, for the hover tooltip. */
@@ -79,18 +93,69 @@ export interface DebugSession {
 }
 
 /**
- * Put each breakpoint where the adapter actually bound it.
+ * A breakpoint as this pane holds it: what the adapter said about it, plus
+ * the three things only the person knows.
+ *
+ * The adapter never reports a condition back, so it cannot come from
+ * `BreakpointStatus` — it has to survive every status the server sends.
+ */
+export interface HeldBreakpoint extends BreakpointStatus {
+  /** Stop only when this is true, in the debuggee's own language. */
+  condition?: string;
+  /** Stop only on the Nth hit — the adapter's own syntax. */
+  hit_condition?: string;
+  /** Log this and continue instead of stopping. */
+  log_message?: string;
+}
+
+/** Whether a breakpoint carries anything beyond "stop here". */
+export function isConditional(breakpoint: HeldBreakpoint): boolean {
+  return Boolean(breakpoint.condition || breakpoint.hit_condition || breakpoint.log_message);
+}
+
+/**
+ * Put each breakpoint where the adapter actually bound it, keeping what the
+ * person attached to it.
  *
  * A dot drawn on the line you asked for, while the program stops on the line
  * below, is a gutter that disagrees with the debugger — and the debugger is
- * the one that is right.
+ * the one that is right. But the move must carry the condition with it: a
+ * breakpoint that slides one line down and silently becomes unconditional
+ * would stop on every pass, which is the opposite of what was asked for.
+ * That is why the match is made against the status BEFORE the move is
+ * applied, where both the requested and the bound line are still in hand.
  */
-function followMoves(statuses: BreakpointStatus[]): BreakpointStatus[] {
-  return statuses.map((status) =>
-    status.moved_to === undefined || status.moved_to === status.line
-      ? status
-      : { ...status, line: status.moved_to, moved_to: undefined },
-  );
+function followMoves(previous: HeldBreakpoint[], statuses: BreakpointStatus[]): HeldBreakpoint[] {
+  return statuses.map((status) => {
+    const held =
+      previous.find((breakpoint) => breakpoint.line === status.line) ??
+      (status.moved_to === undefined
+        ? undefined
+        : previous.find((breakpoint) => breakpoint.line === status.moved_to));
+    const moved =
+      status.moved_to === undefined || status.moved_to === status.line
+        ? status
+        : { ...status, line: status.moved_to, moved_to: undefined };
+    return {
+      ...moved,
+      condition: held?.condition,
+      hit_condition: held?.hit_condition,
+      log_message: held?.log_message,
+    };
+  });
+}
+
+/**
+ * The wire form: only what was actually set, so an adapter is never handed
+ * an empty condition string to parse.
+ */
+function onTheWire(breakpoints: HeldBreakpoint[]): DebugBreakpoint[] {
+  return breakpoints.map((breakpoint) => ({
+    line: breakpoint.line,
+    ...(breakpoint.condition ? { condition: breakpoint.condition } : {}),
+    ...(breakpoint.hit_condition ? { hit_condition: breakpoint.hit_condition } : {}),
+    ...(breakpoint.log_message ? { log_message: breakpoint.log_message } : {}),
+  }));
 }
 
 /**
@@ -142,6 +207,7 @@ export const IDLE_SESSION: DebugSession = {
   jumpTo() {},
   runTo() {},
   toggleBreakpoint() {},
+  setBreakpointCondition() {},
   selectFrame() {},
   evaluate() {},
   valueAt: () => Promise.resolve(null),
@@ -226,7 +292,7 @@ export function useDebuggerOver(client: DebugClient | null, docPath: string): De
   const [frames, setFrames] = useState<Frame[]>([]);
   const [variables, setVariables] = useState<Variable[]>([]);
   const [selectedFrame, setSelectedFrame] = useState<number | null>(null);
-  const [breakpoints, setBreakpoints] = useState<BreakpointStatus[]>([]);
+  const [breakpoints, setBreakpoints] = useState<HeldBreakpoint[]>([]);
   // Which file this session is running, for the panel to say so: "paused" is
   // ambiguous in a document that generates three programs.
   const [program, setProgram] = useState<string | null>(null);
@@ -265,7 +331,7 @@ export function useDebuggerOver(client: DebugClient | null, docPath: string): De
         case "started":
           sessionRef.current = event.session;
           setCapabilities(event.capabilities);
-          setBreakpoints(followMoves(event.breakpoints));
+          setBreakpoints((current) => followMoves(current, event.breakpoints));
           setStatus("running");
           clearFailure();
           setExitCode(null);
@@ -279,7 +345,7 @@ export function useDebuggerOver(client: DebugClient | null, docPath: string): De
           clearFailure();
           break;
         case "breakpoints":
-          setBreakpoints(followMoves(event.breakpoints));
+          setBreakpoints((current) => followMoves(current, event.breakpoints));
           break;
         case "value": {
           setLastValue({ expression: event.expression, value: event.value, type: event.type });
@@ -393,15 +459,59 @@ export function useDebuggerOver(client: DebugClient | null, docPath: string): De
         const session = sessionRef.current;
         if (client && session && (statusRef.current === "paused" || statusRef.current === "running")) {
           clearFailure();
-          client.setBreakpoints(
-            session,
-            next.map((breakpoint) => ({ line: breakpoint.line })),
-          );
+          client.setBreakpoints(session, onTheWire(next));
         }
         return next.sort((a, b) => a.line - b.line);
       });
     },
     [client],
+  );
+
+  const setBreakpointCondition = useCallback(
+    (
+      line: number,
+      patch: { condition?: string; hit_condition?: string; log_message?: string },
+    ) => {
+      setBreakpoints((current) => {
+        // An empty string clears; `undefined` in the patch leaves that field
+        // alone, so a popover can send only what it edited. Trimmed here
+        // rather than in the caller: a condition of three spaces is not a
+        // condition, and an adapter handed one reports a parse error about
+        // code the person never wrote.
+        const clean = (value: string | undefined) => {
+          const trimmed = value?.trim();
+          return trimmed ? trimmed : undefined;
+        };
+        const next = current.map((breakpoint) =>
+          breakpoint.line === line
+            ? {
+                ...breakpoint,
+                condition:
+                  "condition" in patch ? clean(patch.condition) : breakpoint.condition,
+                hit_condition:
+                  "hit_condition" in patch
+                    ? clean(patch.hit_condition)
+                    : breakpoint.hit_condition,
+                log_message:
+                  "log_message" in patch ? clean(patch.log_message) : breakpoint.log_message,
+              }
+            : breakpoint,
+        );
+        // Same rule as toggling: only a live session can be told, and the
+        // condition is kept here for the next run either way.
+        const session = sessionRef.current;
+        if (
+          client &&
+          session &&
+          (statusRef.current === "paused" || statusRef.current === "running")
+        ) {
+          clearFailure();
+          client.setBreakpoints(session, onTheWire(next));
+        }
+        return next;
+      });
+    },
+    [client, clearFailure],
   );
 
   const start = useCallback(
@@ -410,11 +520,7 @@ export function useDebuggerOver(client: DebugClient | null, docPath: string): De
       setStatus("starting");
       clearFailure();
       setProgram(program ?? null);
-      client.start(
-        uri,
-        breakpoints.map((breakpoint) => ({ line: breakpoint.line })),
-        program,
-      );
+      client.start(uri, onTheWire(breakpoints), program);
     },
     [client, uri, breakpoints, clearFailure],
   );
@@ -583,6 +689,7 @@ export function useDebuggerOver(client: DebugClient | null, docPath: string): De
       jumpTo,
       runTo,
       toggleBreakpoint,
+      setBreakpointCondition,
       selectFrame,
       evaluate,
       valueAt,
@@ -611,6 +718,7 @@ export function useDebuggerOver(client: DebugClient | null, docPath: string): De
       jumpTo,
       runTo,
       toggleBreakpoint,
+      setBreakpointCondition,
       selectFrame,
       evaluate,
       valueAt,

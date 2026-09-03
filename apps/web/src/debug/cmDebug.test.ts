@@ -3,7 +3,12 @@ import { EditorView } from "@codemirror/view";
 import { beforeAll, describe, expect, it } from "vitest";
 import {
   breakpointLine,
+  breakpointTip,
   debugEditor,
+  debugStateEffects,
+  editBreakpoint,
+  gutterIntent,
+  openBreakpointEditor,
   gutterAction,
   inlinePlacements,
   revealLine,
@@ -611,3 +616,194 @@ describe("a plain file's breakpoints", () => {
   });
 });
 
+
+// Protects docs/guarantees/debugging/a-breakpoint-can-carry-a-condition.md
+describe("a conditional breakpoint is visibly one", () => {
+  it("computes `conditional` from what is set, rather than assuming false", () => {
+    const effects = debugStateEffects({
+      breakpoints: [
+        { line: 0, state: "bound" },
+        { line: 1, state: "bound", condition: "i > 3" },
+        { line: 2, state: "bound", log_message: "here" },
+        { line: 3, state: "bound", hit_condition: "> 5" },
+      ],
+      pausedLine: null,
+      variables: [],
+      frames: [],
+      watches: [],
+    });
+    const marks = (effects[0] as unknown as { value: { line: number; conditional: boolean }[] })
+      .value;
+    expect(marks.map((m) => m.conditional)).toEqual([false, true, true, true]);
+  });
+
+  it("draws the wedge, not a plain dot", () => {
+    const extensions = debugEditor({ onToggleBreakpoint: () => {} });
+    const state = EditorState.create({ doc: "a = 1\nb = 2\n", extensions });
+    const view = new EditorView({ state });
+    view.dispatch({
+      effects: setBreakpointMarks.of([
+        { line: 0, state: "bound" as const, conditional: true, condition: "i > 3" },
+      ]),
+    });
+    expect(view.dom.querySelector(".cm-bp-conditional")).not.toBeNull();
+  });
+
+  it("says what the condition is, where it is asked", () => {
+    expect(breakpointTip({ line: 0, state: "bound", conditional: false })).toBe("Breakpoint");
+    expect(
+      breakpointTip({ line: 0, state: "bound", conditional: true, condition: "i > 3" }),
+    ).toBe("Stops when i > 3");
+    expect(
+      breakpointTip({
+        line: 0,
+        state: "bound",
+        conditional: true,
+        logMessage: "at {i}",
+        hitCondition: "> 2",
+      }),
+    ).toBe('Logs "at {i}" and continues · Hit count > 2');
+    // A reason it could not bind still wins: that is the more urgent fact.
+    expect(
+      breakpointTip({
+        line: 0,
+        state: "refused",
+        conditional: true,
+        condition: "i > 3",
+        message: "no code on this line",
+      }),
+    ).toBe("no code on this line");
+  });
+
+  it("redraws when only the condition changed", () => {
+    // `eq` used to compare state and the conditional flag alone, so editing
+    // a condition left the old tooltip in place.
+    const extensions = debugEditor({ onToggleBreakpoint: () => {} });
+    const state = EditorState.create({ doc: "a = 1\nb = 2\n", extensions });
+    const view = new EditorView({ state });
+    view.dispatch({
+      effects: setBreakpointMarks.of([
+        { line: 0, state: "bound" as const, conditional: true, condition: "i > 3" },
+      ]),
+    });
+    view.dispatch({
+      effects: setBreakpointMarks.of([
+        { line: 0, state: "bound" as const, conditional: true, condition: "i > 99" },
+      ]),
+    });
+    expect(view.dom.querySelector<HTMLElement>(".cm-bp")?.dataset.tip).toBe("Stops when i > 99");
+  });
+});
+
+describe("editing a breakpoint from the gutter", () => {
+  // The gutter's own `domEventHandlers` never fire under jsdom, which has no
+  // layout to resolve a pointer's height against — the same reason
+  // `gutterAction` is a pure exported function rather than something a test
+  // clicks. So the gesture is tested as an intent, and the panel directly.
+  const withMarks = (
+    marks: { line: number; state: "bound"; conditional: boolean; condition?: string }[],
+  ) => {
+    const view = new EditorView({
+      state: EditorState.create({
+        doc: "a = 1\nb = 2\nc = 3\n",
+        // A plain file, so every line is code and can hold a breakpoint —
+        // the document path needs a hick block around it, which is tested
+        // by `gutterAction`'s own cases above.
+        extensions: debugEditor({ onToggleBreakpoint: () => {}, language: "python" }),
+      }),
+    });
+    view.dispatch({ effects: setBreakpointMarks.of(marks) });
+    return view;
+  };
+
+  it("toggles on a plain click and edits on alt or right click", () => {
+    const view = withMarks([{ line: 0, state: "bound", conditional: false }]);
+    expect(gutterIntent(view.state, 0, {}, true)).toEqual({ kind: "toggle", line: 0 });
+    expect(gutterIntent(view.state, 0, { alt: true }, true)).toEqual({ kind: "edit", line: 0 });
+    expect(gutterIntent(view.state, 0, { context: true }, true)).toEqual({ kind: "edit", line: 0 });
+  });
+
+  it("falls back to toggling in a pane that cannot set a condition", () => {
+    const view = withMarks([{ line: 0, state: "bound", conditional: false }]);
+    expect(gutterIntent(view.state, 0, { alt: true }, false)).toEqual({ kind: "toggle", line: 0 });
+    // And a right-click there is left to the browser rather than swallowed.
+    expect(gutterIntent(view.state, 0, { context: true }, false)).toBeNull();
+  });
+
+  it("still selects a frame, and never edits one", () => {
+    const view = withMarks([]);
+    view.dispatch({ effects: setStackMarks.of([{ line: 1, id: 7, name: "main", depth: 1 }]) });
+    expect(gutterIntent(view.state, 1, {}, true)).toEqual({ kind: "frame", id: 7 });
+    expect(gutterIntent(view.state, 1, { context: true }, true)).toBeNull();
+  });
+
+  it("shows what is already set", () => {
+    const view = withMarks([]);
+    openBreakpointEditor(
+      view,
+      { line: 1, state: "bound", conditional: true, condition: "i > 3", hitCondition: "> 2" },
+      () => {},
+    );
+    const inputs = [...view.dom.querySelectorAll<HTMLInputElement>(".cm-bp-editor input")];
+    expect(inputs).toHaveLength(3);
+    expect(inputs.map((input) => input.value)).toEqual(["i > 3", "> 2", ""]);
+    expect(view.dom.querySelector(".cm-bp-editor")?.getAttribute("aria-label")).toBe(
+      "Breakpoint on line 2",
+    );
+  });
+
+  it("applies what was typed on Enter, trimmed, and closes", () => {
+    const set: [number, Record<string, string | undefined>][] = [];
+    const view = withMarks([]);
+    openBreakpointEditor(view, { line: 0, state: "bound", conditional: false }, (line, patch) =>
+      set.push([line, patch]),
+    );
+    const inputs = [...view.dom.querySelectorAll<HTMLInputElement>(".cm-bp-editor input")];
+    inputs[0].value = "  n == 3  ";
+    inputs[0].dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+
+    expect(set).toEqual([[0, { condition: "n == 3", hit_condition: "", log_message: "" }]]);
+    expect(view.dom.querySelector(".cm-bp-editor")).toBeNull();
+  });
+
+  it("discards on Escape without setting anything", () => {
+    const set: unknown[] = [];
+    const view = withMarks([]);
+    openBreakpointEditor(view, { line: 0, state: "bound", conditional: false }, (line, patch) =>
+      set.push([line, patch]),
+    );
+    const input = view.dom.querySelector<HTMLInputElement>(".cm-bp-editor input")!;
+    input.value = "nope";
+    input.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+    expect(set).toEqual([]);
+    expect(view.dom.querySelector(".cm-bp-editor")).toBeNull();
+  });
+
+  it("never leaves two panels open", () => {
+    const view = withMarks([]);
+    openBreakpointEditor(view, { line: 0, state: "bound", conditional: false }, () => {});
+    openBreakpointEditor(view, { line: 1, state: "bound", conditional: false }, () => {});
+    expect(view.dom.querySelectorAll(".cm-bp-editor")).toHaveLength(1);
+  });
+
+  it("sets a breakpoint first when the line has none", () => {
+    const toggled: number[] = [];
+    const view = withMarks([]);
+    editBreakpoint(view, 2, {
+      onToggleBreakpoint: (line) => toggled.push(line),
+      onSetBreakpointCondition: () => {},
+    });
+    expect(toggled).toEqual([2]);
+    expect(view.dom.querySelector(".cm-bp-editor")).not.toBeNull();
+  });
+
+  it("does not add a second breakpoint when one is already there", () => {
+    const toggled: number[] = [];
+    const view = withMarks([{ line: 0, state: "bound", conditional: false }]);
+    editBreakpoint(view, 0, {
+      onToggleBreakpoint: (line) => toggled.push(line),
+      onSetBreakpointCondition: () => {},
+    });
+    expect(toggled).toEqual([]);
+  });
+});

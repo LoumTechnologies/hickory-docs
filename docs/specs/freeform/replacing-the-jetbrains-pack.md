@@ -101,7 +101,7 @@ Every JetBrains IDE ships roughly the same editor; these rows are what
 |---|---|---|
 | Breakpoints, stepping, frames, variables | **built** | `hick-dap`, `a-plain-file-has-the-same-debugger.md` |
 | Three breakpoint states, honestly reported | **built** | `a-breakpoint-that-is-not-bound-yet-is-not-refused.md` |
-| Conditional breakpoints, hit counts, logpoints | **built in the engine** | `session.rs`; **UI exposure needs auditing** |
+| Conditional breakpoints, hit counts, logpoints | **built** | `a-breakpoint-can-carry-a-condition.md` — engine since day one, given a door 2026-09-03 |
 | Watches, evaluate expression, set variable | **built in the engine** | `client.ts` carries `eval`, `jump`, `runTo`, `drop_frame` |
 | Build before launch for compiled languages | **built** | `a-compiled-language-launches-what-a-build-produced.md` |
 | A missing debugger installs itself | **built** | `a-missing-debugger-is-a-button.md` |
@@ -161,10 +161,13 @@ Ranked by how much daily work each unblocks, not by size:
    biggest single hole. Blocked on a licence check: `java-debug` is EPL, and
    the no-copyleft rule has to be applied to it explicitly rather than
    assumed either way.
-2. **Audit the debugger UI against the engine.** Conditional breakpoints,
-   logpoints, watches, evaluate and set-variable all exist in `hick-dap` and
-   in the wire protocol. If the UI does not reach them, this is the cheapest
-   large win in the document: no new capability, only a surface.
+2. **Audit the debugger UI against the engine.** ~~Conditional breakpoints and
+   logpoints~~ — **done 2026-09-03**, and the prediction held exactly: the
+   engine was complete, `debugStateEffects` hardcoded `conditional: false`,
+   and the gutter's own conditional styling had never been reachable. Watches,
+   evaluate and step-back are exposed. Still unreached: **exception
+   breakpoints**, which `hick-dap` carries as `exception_filters` and no UI
+   offers, and **set-variable**, which the wire supports and nothing calls.
 3. **Prove the unproven Silvers.** Go, TypeScript, Ruby and C/C++ claim a
    debugger nobody has run. Each needs the end-to-end test C# and Rust got.
 4. **Call hierarchy and type hierarchy** — two LSP requests, forwarded and
