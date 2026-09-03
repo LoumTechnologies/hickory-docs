@@ -158,6 +158,17 @@ pub struct TemplateOption {
     /// The template engine's own condition for this option mattering,
     /// verbatim. Shown, never evaluated.
     pub enabled_if: Option<String>,
+    /// The help section this option was printed under, or `None` for the
+    /// command's own unnamed `Options:`.
+    ///
+    /// `dotnet` prints one list and leaves this `None` throughout. A clap
+    /// tool prints several — `uv init`'s own flags, then "Python options",
+    /// "Cache options", "Global options" — and a form showing all of them
+    /// equally is a form nobody reads. Carried rather than filtered because
+    /// the judgment belongs to the dialog, not to a parser that would make
+    /// it once for every tool.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub section: Option<String>,
 }
 
 /// `dotnet new <template> --help`, parsed.
@@ -615,6 +626,9 @@ fn finish_option(raw: RawOption) -> Option<TemplateOption> {
             s if s.is_empty() => None,
             s => Some(s),
         },
+        // `dotnet new --help` prints one list of options with no headings,
+        // so there is never a section to name.
+        section: None,
     })
 }
 

@@ -9,6 +9,7 @@ pub mod agent_cell_runner;
 pub mod agent_lineage;
 pub mod anchor;
 pub mod carry;
+pub mod clap_help;
 pub mod claude_code;
 pub mod code_model;
 pub mod continuity;
