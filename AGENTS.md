@@ -443,6 +443,27 @@ runs the last build's `hick-lsp` and answers nothing; and two `LspClient`s on
 one channel each take the other's replies, which is why plain files share
 one client.
 
+**A plain file has the same debugger a document has**
+(`docs/guarantees/debugging/a-plain-file-has-the-same-debugger.md`,
+2026-09-03): `src/main.rs` or `tools/app.py` opened in its own pane gets the
+breakpoint gutter, a Debug button and the debugger's strip, and is debugged
+**as itself** — `Mapping::identity`, so line *n* is line *n*; built by
+`build_plain` in the **nearest project above the file** (never above the
+folder the app opened) into that project's **own** output, asking `cargo
+metadata` where the target directory is because a workspace member's is the
+workspace's; run **in place**, with the project directory as its working
+directory and no scratch copy, since a plain file has nothing woven to
+protect. Until then the app could debug a document's generated Python and
+could not put a breakpoint in the repository it was open on. Two things it
+forced: the **workspace socket now carries the debug channel**, shared by
+every plain-file pane through one `DebugClient`, so the server names the
+file on `started`, `build` and a failed `start` and each pane keeps only its
+own events (`eventIsOurs`); and a frame in *another* file of the folder is
+reported **root-relative with its own line** (`source_line`), so the pane can
+open it as a tab rather than call it external. The isolation guarantee's
+boundary now says a plain file runs in place: the pane still cannot write
+the file while stepping, but the program does whatever the program does.
+
 **Format on save** (`save-can-format-first.md`, 2026-09-02) is a per-user
 setting, off by default, persisted in `ui.json` beside the window title;
 Shift+Alt+F formats at any time. The edits come from **the file's own

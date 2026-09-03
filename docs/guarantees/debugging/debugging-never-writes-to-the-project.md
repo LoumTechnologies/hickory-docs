@@ -12,7 +12,16 @@ what makes the property architectural rather than a matter of care: a session
 has nowhere to write *to*. The debug channel (`0x03`) carries no edit
 operation either, so an app that is stepping cannot also be editing.
 
-Two things are deliberately outside the guarantee:
+Three things are deliberately outside the guarantee:
+
+- **A plain file runs in place.** A file that is not a document —
+  `src/main.rs`, `app.py` — is debugged as itself, in its own project, with
+  the person's own build (`a-plain-file-has-the-same-debugger.md`). It has
+  nothing woven to protect and no transcript to keep honest; it is their
+  program in their checkout, and what it writes is what it would write
+  under `cargo run`. The debug channel still carries no edit operation, so
+  the *pane* cannot change the file while stepping; the *program* may do
+  whatever the program does.
 
 - **Evaluating an expression can change the debugged program.** `lines.pop()`
   really pops. That is the debuggee's own business, and it dies with the

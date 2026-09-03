@@ -55,6 +55,19 @@ import { draftDisposition, useDraftKeeper } from "../lib/drafts";
 import { onFlushSaves } from "../lib/flushSaves";
 import { MergeView } from "./MergeView";
 import { DivergedBanner } from "./DivergedBanner";
+import { DebugStrip } from "../debug/DebugStrip";
+import { debugEditor, debugStateEffects, revealLine } from "../debug/cmDebug";
+import { isDebuggable } from "../debug/languages";
+import { useWorkspaceDebugger } from "../debug/useDebugger";
+
+/**
+ * Whether a frame's source is a file in the folder the app opened — which
+ * the server names root-relative — rather than a path outside it, which
+ * the adapter named absolutely and which no tab can show.
+ */
+export function isWorkspaceSource(source: string | null | undefined): source is string {
+  return !!source && !/^([A-Za-z]:)?[\\/]/.test(source);
+}
 
 export function PlainFilePane({
   path,
@@ -136,6 +149,33 @@ export function PlainFilePane({
   const lsp = useWorkspaceLsp(liveText === null ? "" : path, liveText ?? "");
   const lspRef = useRef(lsp);
   lspRef.current = lsp;
+
+  // The debugger, over the same workspace connection the language server
+  // uses. The file is debugged as itself: a breakpoint on line 12 is a
+  // breakpoint on line 12 of this file, and the program runs in its own
+  // project. The pane reads the session through a ref inside the editor's
+  // callbacks, which were built once and must see the current state.
+  const debug = useWorkspaceDebugger(path);
+  const debugRef = useRef(debug);
+  debugRef.current = debug;
+  // Selecting a frame is asking to go there. A frame in this file is
+  // revealed here; a frame in ANOTHER file of the folder — the callee in
+  // `src/lib.rs` — is opened in its own tab at the adapter's line, since
+  // this pane cannot show a line it does not have.
+  const selectFrameAndReveal = useCallback((id: number) => {
+    const session = debugRef.current;
+    session.selectFrame(id);
+    const frame = session.frames.find((candidate) => candidate.id === id);
+    if (!frame) return;
+    const view = viewRef.current;
+    if (frame.line !== null && frame.line !== undefined) {
+      if (view) revealLine(view, frame.line);
+      return;
+    }
+    if (isWorkspaceSource(frame.source) && typeof frame.source_line === "number") {
+      openLocation(frame.source, frame.source_line + 1);
+    }
+  }, []);
 
   const saver = useMemo(
     () =>
@@ -273,6 +313,20 @@ export function PlainFilePane({
           blameGutter(),
           lineNumbers(),
           wrapGutterMarkers(),
+          // The breakpoint gutter, the paused line, the inline values — the
+          // same layer a document's editor wears, told that every line here
+          // is code. Only for a language hick can debug: a gutter that
+          // accepts a dot it can never bind is a promise it cannot keep.
+          ...(isDebuggable(initial.language)
+            ? debugEditor({
+                language: initial.language,
+                lineNumbers: false,
+                onToggleBreakpoint: (line) => debugRef.current.toggleBreakpoint(line),
+                onSelectFrame: selectFrameAndReveal,
+                onEvaluate: (expression) => debugRef.current.query(expression),
+                onAddWatch: (expression) => debugRef.current.addWatch(expression),
+              })
+            : []),
           ...languageExtensions(initial.language),
           // A run mark beside every test the file's language has a shape
           // for; a click runs that test in a terminal named after it.
@@ -316,6 +370,9 @@ export function PlainFilePane({
               const query = live ? (identifierAt(live.state.doc.toString(), at) ?? "") : "";
               onReferencesRef.current?.({ locations, query });
             },
+            // While paused, a hover says what this holds as well as what it
+            // is — the same merged tooltip a document's editor shows.
+            runtimeValue: (word) => debugRef.current.valueAt(word),
           }),
           ...lspFeatures({
             client: lspClient,
@@ -440,6 +497,15 @@ export function PlainFilePane({
 
   // Who last touched each line, when the column is on.
   useBlame(railView, path);
+
+  // Push the debugger's state into the editor: the gutter dots, the paused
+  // line, and the values shown at the end of each line. `railView` is the
+  // view as state, so this runs again once the editor exists.
+  useEffect(() => {
+    const view = viewRef.current;
+    if (!view || !fileRef.current || !isDebuggable(fileRef.current.language)) return;
+    view.dispatch({ effects: debugStateEffects(debug) });
+  }, [debug, railView]);
 
   // Diagnostics arrive in LSP line/character coordinates; translate against
   // the live buffer so they stay put while the user types. The workspace's
@@ -610,6 +676,18 @@ export function PlainFilePane({
           {adopting ? "Adopting…" : "Make literate"}
         </button>
         )}
+        {/* The way into a session, for a file hick can debug. The strip's
+            own "Debug again" takes over once a session has run, so this is
+            only shown while there is none. */}
+        {file && isDebuggable(file.language) && debug.status === "idle" && (
+          <button
+            className="btn"
+            onClick={() => debug.start()}
+            data-tip="Run this file under the debugger, in its own project, stopping at your breakpoints"
+          >
+            Debug
+          </button>
+        )}
         {notice && (
           <span className="muted plain-file__notice" role="status">
             {notice}
@@ -648,6 +726,42 @@ export function PlainFilePane({
           Could not save {path}: {saveState.message}
         </div>
       )}
+      {/* The debugger's chrome, above the file it debugs — nothing while
+          idle. The same strip a document's block gets. */}
+      <DebugStrip
+        status={debug.status}
+        program={null}
+        message={debug.message}
+        offerInstall={debug.offerInstall}
+        onInstall={async (offer) => {
+          await api.installTool(offer.kind, offer.language);
+          // Straight back into the session that failed: installing and then
+          // asking somebody to press Debug again is the same missing step
+          // this button exists to remove.
+          debug.start();
+        }}
+        capabilities={debug.capabilities}
+        frames={debug.frames}
+        selectedFrame={debug.selectedFrame}
+        watches={debug.watches}
+        exitCode={debug.exitCode}
+        buildOutput={debug.buildOutput}
+        onSelectFrame={selectFrameAndReveal}
+        onStep={debug.step}
+        onJumpHere={() => {
+          const view = viewRef.current;
+          if (!view) return;
+          debug.jumpTo(view.state.doc.lineAt(view.state.selection.main.head).number - 1);
+        }}
+        onStart={() => debug.start()}
+        onStop={debug.stop}
+        onAddWatch={() => {
+          void askTextRef.current?.("Expression to watch:", "").then((expression) => {
+            if (expression) debug.addWatch(expression);
+          });
+        }}
+        onRemoveWatch={debug.removeWatch}
+      />
       {!file && <p className="muted">Loading {path}…</p>}
       {/* The merge REPLACES the editor rather than floating over it: the two
           sides plus their context need the whole pane to be readable, and a

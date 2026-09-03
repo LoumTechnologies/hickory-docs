@@ -588,3 +588,26 @@ Console.WriteLine("Hello, World!");
     expect(breakpointLine(cs, lineWith("<Project Sdk"))).toBeNull();
   });
 });
+
+// Protects docs/guarantees/debugging/a-plain-file-has-the-same-debugger.md
+describe("a plain file's breakpoints", () => {
+  const plain = (language: string) =>
+    EditorState.create({
+      doc: "import os\n\nprint(1)\n",
+      extensions: debugEditor({ language, lineNumbers: false, onToggleBreakpoint: () => {} }),
+    });
+
+  it("lets any line with code hold one, sliding a blank line down", () => {
+    // No block structure to read: the whole file is code, and the only rule
+    // left is the one about blank lines.
+    expect(breakpointLine(plain("python"), 0)).toBe(0);
+    expect(breakpointLine(plain("python"), 1)).toBe(2);
+    // The trailing newline's empty line has nothing below it.
+    expect(breakpointLine(plain("python"), 3)).toBeNull();
+  });
+
+  it("refuses every line of a language hick cannot debug", () => {
+    expect(breakpointLine(plain("justfile"), 0)).toBeNull();
+  });
+});
+

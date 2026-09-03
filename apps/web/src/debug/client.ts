@@ -42,7 +42,15 @@ export interface Frame {
   name: string;
   /** 0-based document line, or null for a frame outside the document. */
   line: number | null;
+  /**
+   * The frame's file: root-relative when it is a file in the folder the app
+   * opened (which the workspace can open as a tab), else as the adapter
+   * named it.
+   */
   source: string | null;
+  /** 0-based line in `source`, as the adapter reported it — for opening a
+   * frame that is in another file of the project. */
+  source_line?: number | null;
   in_document: boolean;
 }
 
@@ -79,7 +87,16 @@ export interface DebugCapabilities {
 export type BindState = "bound" | "pending" | "refused";
 
 export type DebugEvent =
-  | { event: "started"; session: string; capabilities: DebugCapabilities; breakpoints: BreakpointStatus[] }
+  | {
+      event: "started";
+      session: string;
+      /** The file this session runs, exactly as `start` named it. Every
+       * plain-file pane shares one socket, and this is how each tells its
+       * own session from a neighbour's. */
+      doc?: string;
+      capabilities: DebugCapabilities;
+      breakpoints: BreakpointStatus[];
+    }
   | {
       event: "stopped";
       session: string;
@@ -108,10 +125,13 @@ export type DebugEvent =
   // them unchanged — a build tool's colour and its rewritten progress lines
   // are the reason that is a terminal and not a text card. It is not a
   // transcript: nothing here is recorded, woven, or compared.
-  | { event: "build"; events: TranscriptEvent[] }
+  | { event: "build"; doc?: string; events: TranscriptEvent[] }
   | {
       event: "failed";
       session: string | null;
+      /** The file a failed START was for, when the failure has no session
+       * to name instead. */
+      doc?: string;
       message: string;
       /** Which request failed, so its message can be shown where it belongs. */
       about?: string;

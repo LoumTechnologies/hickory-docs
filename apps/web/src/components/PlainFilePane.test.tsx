@@ -16,6 +16,7 @@ import type { WorkspaceDraft } from "../api/types";
 import { setSharedRealtime, type Realtime } from "../api/realtime";
 import { createLspChannel, encodeLspFrame, type JsonRpcMessage } from "../lsp/channel";
 import { resetWorkspaceLsp } from "../lsp/useLsp";
+import { resetWorkspaceDebugger } from "../debug/useDebugger";
 import { allFileProblems, resetFileProblems } from "../lib/fileProblems";
 
 const ON_DISK = "one\ntwo\nthree\n";
@@ -48,6 +49,7 @@ const draft = (over: Partial<WorkspaceDraft> = {}): WorkspaceDraft => ({
 beforeEach(() => {
   vi.restoreAllMocks();
   resetWorkspaceLsp();
+  resetWorkspaceDebugger();
   resetFileProblems();
 });
 
@@ -236,3 +238,109 @@ describe("closing the pane", () => {
     expect(saveDraft.mock.calls.every((call) => call[0].contents !== "")).toBe(true);
   });
 });
+
+// Protects docs/guarantees/debugging/a-plain-file-has-the-same-debugger.md
+describe("a plain file and the debugger", () => {
+  const APP = "import os\n\ndef main():\n    print(os.getcwd())\n\nmain()\n";
+
+  /** A realtime whose debug channel this test holds both ends of. */
+  function debugWire() {
+    const sent: Record<string, unknown>[] = [];
+    let handler: ((frame: Uint8Array) => boolean) | null = null;
+    const realtime: Realtime = {
+      serverAuthoritative: false,
+      whenSynced: () => Promise.resolve(),
+      bindDoc: () => {},
+      onRunEvent: () => () => {},
+      lsp: () => null,
+      close: () => {},
+      reopen: () => {},
+      debug: () => ({
+        send: (frame) => {
+          sent.push(JSON.parse(new TextDecoder().decode(frame.subarray(1))));
+        },
+      }),
+      onDebugFrame: (h) => {
+        handler = h;
+      },
+    };
+    setSharedRealtime(realtime);
+    const deliver = (event: Record<string, unknown>) => {
+      const body = new TextEncoder().encode(JSON.stringify(event));
+      const frame = new Uint8Array(body.length + 1);
+      frame[0] = 0x03;
+      frame.set(body, 1);
+      handler?.(frame);
+    };
+    return { sent, deliver };
+  }
+
+  function serveFile(path: string, language: string, content: string) {
+    vi.spyOn(api, "file").mockResolvedValue({ path, language, content, hash: `h:${content}` });
+    vi.spyOn(api, "drafts").mockResolvedValue({ drafts: [] });
+    vi.spyOn(api, "files").mockResolvedValue({ root: "repo", tree: [{ name: path, path, dir: false }] });
+  }
+
+  it("offers Debug and a breakpoint gutter for a language hick can debug", async () => {
+    debugWire();
+    serveFile("tools/app.py", "python", APP);
+    render(<PlainFilePane path="tools/app.py" />);
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Debug" })).toBeDefined();
+      expect(document.querySelector(".cm-breakpoint-gutter")).not.toBeNull();
+    });
+  });
+
+  it("offers neither for a file hick cannot debug", async () => {
+    // A gutter that takes a dot it can never bind is a promise the pane
+    // cannot keep, and a Debug button that only ever fails is worse.
+    debugWire();
+    serveFile("notes.md", "markdown", ON_DISK);
+    render(<PlainFilePane path="notes.md" />);
+    await waitFor(() => expect(document.querySelector(".cm-content")).not.toBeNull());
+    expect(screen.queryByRole("button", { name: "Debug" })).toBeNull();
+    expect(document.querySelector(".cm-breakpoint-gutter")).toBeNull();
+  });
+
+  it("starts at the file's own path and shows the session above the file", async () => {
+    const { sent, deliver } = debugWire();
+    serveFile("tools/app.py", "python", APP);
+    render(<PlainFilePane path="tools/app.py" />);
+    const button = await screen.findByRole("button", { name: "Debug" });
+    button.click();
+    await waitFor(() =>
+      expect(sent[0]).toMatchObject({ op: "start", doc: "hick:///tools/app.py", breakpoints: [] }),
+    );
+    // An answer for ANOTHER pane's file is not this pane's business.
+    deliver({
+      event: "started",
+      session: "dbg-7",
+      doc: "hick:///other.py",
+      capabilities: {},
+      breakpoints: [],
+    });
+    deliver({
+      event: "started",
+      session: "dbg-0",
+      doc: "hick:///tools/app.py",
+      capabilities: {},
+      breakpoints: [],
+    });
+    deliver({
+      event: "stopped",
+      session: "dbg-0",
+      reason: "breakpoint",
+      line: 3,
+      frames: [{ id: 1, name: "main", line: 3, source: "tools/app.py", in_document: true }],
+      variables: [],
+    });
+    await waitFor(() => {
+      const strip = screen.getByRole("toolbar", { name: "Debugger" });
+      expect(strip.textContent).toContain("paused");
+    });
+    // The way in is gone while a session runs; the strip's verbs take over.
+    expect(screen.queryByRole("button", { name: "Debug" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Step over" })).toBeDefined();
+  });
+});
+

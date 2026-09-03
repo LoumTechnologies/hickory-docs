@@ -19,7 +19,7 @@
 // taller line is a ribbon pointing at the wrong place. Inline values are
 // inline widgets; the paused line is a background.
 
-import { RangeSetBuilder, StateEffect, StateField } from "@codemirror/state";
+import { Facet, RangeSetBuilder, StateEffect, StateField } from "@codemirror/state";
 import type { EditorState, Extension } from "@codemirror/state";
 import {
   Decoration,
@@ -101,10 +101,51 @@ export function stackMarksOf(frames: readonly Frame[], pausedLine: number | null
  *    block, which is what every editor does and what the adapter would do
  *    anyway, only sooner and visibly.
  */
+/**
+ * What the debugger's state looks like in an editor: the gutter dots, the
+ * paused line, the inline values, the rest of the stack in the gutter, and
+ * the watches at the end of their lines. One helper, so a document's editor
+ * and a plain file's pane cannot draw the same session two different ways.
+ */
+export function debugStateEffects(session: {
+  breakpoints: readonly { line: number; state: BindState; message?: string }[];
+  pausedLine: number | null;
+  variables: Variable[];
+  frames: readonly Frame[];
+  watches: WatchValue[];
+}): StateEffect<unknown>[] {
+  return [
+    setBreakpointMarks.of(
+      session.breakpoints.map((breakpoint) => ({
+        line: breakpoint.line,
+        state: breakpoint.state,
+        conditional: false,
+        message: breakpoint.message,
+      })),
+    ),
+    setPausedLine.of(session.pausedLine),
+    setInlineValues.of(session.variables),
+    setStackMarks.of(stackMarksOf(session.frames, session.pausedLine)),
+    setWatchValues.of(session.watches),
+  ];
+}
+
 export function breakpointLine(state: EditorState, line: number): number | null {
-  const structure = structureOf(state);
   const doc = state.doc;
   if (line < 0 || line >= doc.lines) return null;
+
+  // A plain file: every line is code, in one language. The only rule left
+  // is the blank-line one, and the block is the whole file.
+  const whole = state.facet(wholeFileLanguage);
+  if (whole !== null) {
+    if (!isDebuggable(whole)) return null;
+    for (let number = line + 1; number <= doc.lines; number += 1) {
+      if (doc.line(number).text.trim().length > 0) return number - 1;
+    }
+    return null;
+  }
+
+  const structure = structureOf(state);
   const at = doc.line(line + 1);
 
   const block = structure.blocks.find(
@@ -122,6 +163,15 @@ export function breakpointLine(state: EditorState, line: number): number | null 
   }
   return null;
 }
+
+/**
+ * The language of a file whose EVERY line is code — a plain `src/main.rs`
+ * or `app.py` opened in its own pane, as opposed to a document, where only
+ * the lines inside a `hick:file` block are. Unset (null) in a document.
+ */
+export const wholeFileLanguage = Facet.define<string | null, string | null>({
+  combine: (values) => values.find((value) => value !== null) ?? null,
+});
 
 export const setBreakpointMarks = StateEffect.define<BreakpointMark[]>();
 export const setPausedLine = StateEffect.define<number | null>();
@@ -582,6 +632,18 @@ class EvalWidget extends WidgetType {
 // --- the extension ----------------------------------------------------------
 
 export interface DebugEditorOptions {
+  /**
+   * Set for a plain file, whose every line is code in this one language.
+   * A document leaves it unset and the gutter reads the block structure.
+   */
+  language?: string | null;
+  /**
+   * Whether this bundle supplies the line-number gutter. A document's editor
+   * has no other source of line numbers; a plain file's pane already
+   * declares its own, in the order it wants its gutters, and a second copy
+   * would draw every number twice.
+   */
+  lineNumbers?: boolean;
   /** Toggle a breakpoint on this 0-based document line. */
   onToggleBreakpoint: (line: number) => void;
   /** Show this frame's line and values (a gutter stack mark was clicked). */
@@ -670,15 +732,16 @@ export function debugEditor(options: DebugEditorOptions): Extension[] {
     ]);
   });
   return [
+    ...(options.language !== undefined ? [wholeFileLanguage.of(options.language)] : []),
     // Numbers first, then the dots. Without them there is no way to say which
     // line anything is on — and in a document whose editor hides and folds
     // markup, "the fourth line I can see" is not the fourth line of the file,
     // which is the only line number the debugger and the document agree on.
-    lineNumbers(),
+    //
     // A wrapped line keeps its number on the first visual row; every
     // continuation row gets a muted wrap mark instead of blank gutter, so
     // the tall cell reads as one logical line continuing.
-    wrapGutterMarkers(),
+    ...(options.lineNumbers === false ? [] : [lineNumbers(), wrapGutterMarkers()]),
     breakpointField,
     pausedField,
     stackField,

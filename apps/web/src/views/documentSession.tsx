@@ -33,16 +33,7 @@ import {
 } from "../lsp/cmLsp";
 import { lspFeatures } from "../lsp/cmLspFeatures";
 import { useDebugger } from "../debug/useDebugger";
-import {
-  debugEditor,
-  revealLine,
-  stackMarksOf,
-  setBreakpointMarks,
-  setInlineValues,
-  setPausedLine,
-  setStackMarks,
-  setWatchValues,
-} from "../debug/cmDebug";
+import { debugEditor, debugStateEffects, revealLine } from "../debug/cmDebug";
 import { positionToUtf16 } from "../lsp/positions";
 import { sourcePositionAt, type OutputProvenance } from "../lsp/outputMapping";
 import type { LspLocation } from "../lsp/client";
@@ -331,25 +322,7 @@ function useDocumentSession(
   useEffect(() => {
     const view = editorRef.current;
     if (!view) return;
-    view.dispatch({
-      effects: [
-        setBreakpointMarks.of(
-          debug.breakpoints.map((breakpoint) => ({
-            line: breakpoint.line,
-            state: breakpoint.state,
-            conditional: false,
-            message: breakpoint.message,
-          })),
-        ),
-        setPausedLine.of(debug.pausedLine),
-        setInlineValues.of(debug.variables),
-        // The rest of the stack, in the gutter: every frame below the one
-        // execution is stopped at, on the line it will return to.
-        setStackMarks.of(stackMarksOf(debug.frames, debug.pausedLine)),
-        // Watches, drawn faded at the end of the line that mentions each one.
-        setWatchValues.of(debug.watches),
-      ],
-    });
+    view.dispatch({ effects: debugStateEffects(debug) });
   }, [debug.breakpoints, debug.pausedLine, debug.variables, debug.frames, debug.watches, docEditor]);
 
   // Run events arrive in bursts (one terminal message per run, plus the

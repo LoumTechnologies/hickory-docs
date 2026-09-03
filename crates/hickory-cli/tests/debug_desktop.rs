@@ -85,6 +85,48 @@ async fn open_app() -> App {
     }
 }
 
+/// A folder with no document in it at all: two plain Python files, and the
+/// window's workspace socket — the one a plain file's pane talks over.
+const APP_PY: &str = "from helpers import double\n\n\ndef run(n):\n    total = double(n)\n    return total\n\n\nprint(run(21))\n";
+const HELPERS_PY: &str = "def double(x):\n    return x * 2\n";
+/// 0-based line of `    total = double(n)` in app.py.
+const TOTAL_LINE: u32 = 4;
+
+async fn open_plain_workspace() -> App {
+    let dir = tempfile::tempdir().expect("a temp project");
+    let root = dir.path().to_path_buf();
+    std::fs::create_dir_all(root.join(".git")).unwrap();
+    std::fs::create_dir_all(root.join("tools")).unwrap();
+    std::fs::write(root.join("tools/app.py"), APP_PY).unwrap();
+    std::fs::write(root.join("tools/helpers.py"), HELPERS_PY).unwrap();
+
+    let prepared = prepare(ServeOptions {
+        target: root.clone(),
+        port: 0,
+        params: Vec::new(),
+        executor: ExecutorChoice::Local,
+        key_store_path: None,
+        ui_settings_path: None,
+    })
+    .await
+    .expect("the session prepares");
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let port = listener.local_addr().unwrap().port();
+    tokio::spawn(async move {
+        axum::serve(listener, prepared.router).await.unwrap();
+    });
+
+    let url = format!("ws://127.0.0.1:{port}/api/ws?doc=workspace");
+    let (socket, _) = tokio_tungstenite::connect_async(&url)
+        .await
+        .expect("the window connects");
+    App {
+        socket,
+        root,
+        _dir: dir,
+    }
+}
+
 async fn send(socket: &mut Socket, request: Value) {
     let mut frame = vec![CHANNEL_DEBUG];
     frame.extend_from_slice(&serde_json::to_vec(&request).unwrap());
@@ -437,7 +479,10 @@ async fn reaping_a_finished_session_deletes_the_scratch_clone() {
         .start(&root.join("doc.hick"), &[], None, &mut |_| {})
         .await
         .expect("the session starts");
-    let scratch = live.scratch_path().to_path_buf();
+    let scratch = live
+        .scratch_path()
+        .expect("a document's debuggee has a scratch clone")
+        .to_path_buf();
     assert!(
         scratch.exists(),
         "the debuggee has a scratch clone to run in"
@@ -469,4 +514,198 @@ async fn reaping_a_finished_session_deletes_the_scratch_clone() {
         "the scratch clone survived the session: {}",
         scratch.display()
     );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_plain_file_debugs_as_itself_over_the_workspace_socket() {
+    // Protects docs/guarantees/debugging/a-plain-file-has-the-same-debugger.md
+    //
+    // No document anywhere: `tools/app.py` is debugged at its own path, on
+    // its own lines, over the socket a plain file's pane already has. A
+    // frame in the neighbouring file is not "external" — it is a file in
+    // this folder, named so the app can open it.
+    let mut app = open_plain_workspace().await;
+    if !python_available(&app.root) {
+        eprintln!("SKIPPED: no Python debug adapter (`hick dap install python`)");
+        return;
+    }
+    let before = std::fs::read_to_string(app.root.join("tools/app.py")).unwrap();
+
+    send(
+        &mut app.socket,
+        json!({ "op": "start", "doc": "hick:///tools/app.py",
+                "breakpoints": [{ "line": TOTAL_LINE }] }),
+    )
+    .await;
+    let started = wait_for(&mut app.socket, "started", Duration::from_secs(60))
+        .await
+        .expect("the session starts");
+    // The answer says which file it is for: every plain-file pane shares
+    // this socket, and one of them must be able to tell this is its own.
+    assert_eq!(started["doc"], "hick:///tools/app.py", "{started}");
+    assert_eq!(started["breakpoints"][0]["line"], TOTAL_LINE);
+    assert_eq!(started["breakpoints"][0]["state"], "bound", "{started}");
+    let session = started["session"].as_str().unwrap().to_string();
+
+    let stopped = wait_for(&mut app.socket, "stopped", Duration::from_secs(60))
+        .await
+        .expect("the program stops");
+    assert_eq!(
+        stopped["line"], TOTAL_LINE,
+        "the paused line is the file's own: {stopped}"
+    );
+    assert_eq!(stopped["frames"][0]["name"], "run");
+    assert_eq!(stopped["frames"][0]["source"], "tools/app.py", "{stopped}");
+    let variables = stopped["variables"].as_array().unwrap();
+    let n = variables
+        .iter()
+        .find(|v| v["name"] == "n")
+        .expect("n is in scope for the inline display");
+    assert_eq!(n["value"], "21");
+
+    // Step into the neighbouring file. It is not the file being debugged,
+    // so it has no line in THIS pane — but it is a file in this folder, and
+    // the app can open it at the line the adapter reported.
+    send(
+        &mut app.socket,
+        json!({ "op": "step", "session": session, "how": "in" }),
+    )
+    .await;
+    let inside = wait_for(&mut app.socket, "stopped", Duration::from_secs(30))
+        .await
+        .expect("stops inside double");
+    let top = &inside["frames"][0];
+    assert_eq!(top["name"], "double", "{inside}");
+    assert_eq!(top["in_document"], false);
+    assert_eq!(top["source"], "tools/helpers.py", "{inside}");
+    assert_eq!(top["source_line"], 1, "{inside}");
+    // And the caller is still addressed in the debugged file's own lines.
+    let caller = &inside["frames"][1];
+    assert_eq!(caller["source"], "tools/app.py", "{inside}");
+    assert_eq!(caller["line"], TOTAL_LINE, "{inside}");
+
+    send(&mut app.socket, json!({ "op": "stop", "session": session })).await;
+    wait_for(&mut app.socket, "ended", Duration::from_secs(30))
+        .await
+        .expect("the session ends");
+
+    // Debugging a plain file runs it in place, and stepping through it
+    // still changes nothing: the file is as it was.
+    assert_eq!(
+        std::fs::read_to_string(app.root.join("tools/app.py")).unwrap(),
+        before
+    );
+}
+
+/// Point a temp folder at the adapters this repository installed, so a
+/// developer who ran `hick dap install rust` once at the top of the repo
+/// exercises the compiled path instead of skipping it.
+fn rust_available(root: &std::path::Path) -> bool {
+    #[cfg(unix)]
+    {
+        let cache = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../.hick-cache");
+        if cache
+            .join("adapters/codelldb/extension/adapter/codelldb")
+            .exists()
+        {
+            let _ = std::os::unix::fs::symlink(cache, root.join(".hick-cache"));
+        }
+    }
+    let have_cargo = std::process::Command::new("cargo")
+        .arg("--version")
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status()
+        .map(|s| s.success())
+        .unwrap_or(false);
+    have_cargo && hick_dap::discover("rust", root).is_some()
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_plain_rust_file_builds_in_its_own_project_and_stops_on_its_own_line() {
+    // Protects docs/guarantees/debugging/a-plain-file-has-the-same-debugger.md
+    //
+    // The compiled case, and the one where "in its own project" has teeth: a
+    // workspace MEMBER's binary lands in the workspace's `target/`, which is
+    // cargo's answer and not `<member>/target`; nothing is built under
+    // `.hick-cache/`; and there is no scratch copy at all.
+    let dir = tempfile::tempdir().expect("a temp workspace");
+    let root = dir.path().to_path_buf();
+    std::fs::create_dir_all(root.join(".git")).unwrap();
+    std::fs::create_dir_all(root.join("crates/pricing/src")).unwrap();
+    std::fs::write(
+        root.join("Cargo.toml"),
+        "[workspace]\nmembers = [\"crates/pricing\"]\nresolver = \"2\"\n",
+    )
+    .unwrap();
+    std::fs::write(
+        root.join("crates/pricing/Cargo.toml"),
+        "[package]\nname = \"pricing\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+    )
+    .unwrap();
+    let main = root.join("crates/pricing/src/main.rs");
+    std::fs::write(
+        &main,
+        "fn line_total(quantity: u32, unit_price: f64) -> f64 {\n\
+         \x20   let subtotal = quantity as f64 * unit_price;\n\
+         \x20   subtotal\n\
+         }\n\n\
+         fn main() {\n\
+         \x20   println!(\"{}\", line_total(3, 1.25));\n\
+         }\n",
+    )
+    .unwrap();
+    if !rust_available(&root) {
+        eprintln!("SKIPPED: no cargo or no Rust debug adapter (`hick dap install rust`)");
+        return;
+    }
+
+    let registry = hickory_cli::debug_sessions::Registry::new();
+    let mut said: Vec<String> = Vec::new();
+    let breakpoints = vec![hick_dap::Breakpoint {
+        line: 1,
+        condition: None,
+        hit_condition: None,
+        log_message: None,
+    }];
+    let (id, live, _statuses) = registry
+        .start_plain(&main, &root, &breakpoints, &mut |line| {
+            if let hick_dap::BuildOutput::Out(t) | hick_dap::BuildOutput::Err(t) = line {
+                said.push(t);
+            }
+        })
+        .await
+        .unwrap_or_else(|e| panic!("the session did not start:\n{e:#}\n{}", said.join("\n")));
+
+    assert!(
+        live.scratch_path().is_none(),
+        "a plain file has no scratch copy"
+    );
+    // The binary is where the person's own `cargo build` would have put
+    // it — the WORKSPACE's target directory, cargo's answer — and not under
+    // a redirected `.hick-cache/cargo-target`, which is the document path's
+    // rule. (The repo's adapter cache is symlinked in above, so the cache
+    // directory's mere existence proves nothing; the binary's location does.)
+    let binary = root.join("target/debug/pricing");
+    assert!(
+        binary.exists() || binary.with_extension("exe").exists(),
+        "the build did not land in the workspace's own target directory"
+    );
+
+    let stopped = live
+        .session
+        .wait_for_stop(Duration::from_secs(60))
+        .await
+        .expect("waiting for the stop")
+        .expect("the program stops rather than finishing");
+    let frames = live
+        .session
+        .stack(stopped.thread_id)
+        .await
+        .expect("a stack");
+    assert_eq!(frames[0].line, Some(1), "{frames:?}");
+    assert!(frames[0].in_document, "{frames:?}");
+    assert_eq!(frames[0].source_line, Some(1));
+
+    registry.stop(&id).await.expect("stops");
 }

@@ -235,7 +235,110 @@ pub async fn build(
         )));
     }
 
-    let code = run(argv, &dir, &packages, cache_root, &out_dir, on_output).await?;
+    let env = BuildEnv::Confined {
+        packages,
+        cli_home: cache_root.join(".hick-cache/dotnet"),
+        out_dir: out_dir.clone(),
+    };
+    finish(
+        argv,
+        &dir,
+        &env,
+        &project_file,
+        scratch,
+        &out_dir,
+        artifact,
+        on_output,
+    )
+    .await
+}
+
+/// Build a file that is not a document — `src/main.rs`, `Program.cs` — the
+/// way the person's own tools would, and return what to launch.
+///
+/// The plain-file sibling of [`build`], and it differs in exactly the ways
+/// a plain file differs from a document:
+///
+/// * **The project is the nearest one above the file**, not the one file
+///   in a scratch tree. A repository holds many `Cargo.toml`s, and the one
+///   that owns `crates/foo/src/main.rs` is the closest — the same rule the
+///   run-test gutter uses to pick a directory. Never below the folder the
+///   app opened: a manifest outside it is outside the project.
+/// * **It builds in place, into the project's own output.** No scratch
+///   copy — copying a checkout with its `target/` per session is not a
+///   cost anyone would pay — and no redirected `CARGO_TARGET_DIR`, so the
+///   build shares its incremental state with the person's own `cargo
+///   build`. Where cargo puts it is asked of cargo (`cargo metadata`),
+///   because a workspace member's target directory is the workspace's.
+/// * **Nothing is invented.** A `.cs` with no `.csproj` above it is refused
+///   by name, exactly as for a document; the fix is named too.
+pub async fn build_plain(
+    source: &Path,
+    root: &Path,
+    on_output: &mut (dyn FnMut(BuildOutput) + Send),
+) -> Result<PathBuf> {
+    let Some(language) = crate::program::language_of(source) else {
+        return Ok(source.to_path_buf());
+    };
+    let Build::Command {
+        project,
+        argv,
+        artifact,
+        ..
+    } = build_for(language)
+    else {
+        return Ok(source.to_path_buf());
+    };
+
+    let name = source.file_name().unwrap_or_default().to_string_lossy();
+    let project_file = nearest_matching(root, source, project).with_context(|| {
+        format!(
+            "{name} is {language}, which is compiled: the debugger launches what a build \
+             produces, not the source you wrote.\n\n\
+             No project file ({project}) was found above {name} inside {}, so there is \
+             nothing to build.\n\
+             Next step: open the folder that holds the project, or add a {project} beside \
+             the code and the debugger will build it.",
+            root.display()
+        )
+    })?;
+    let dir = project_file.parent().unwrap_or(root).to_path_buf();
+
+    on_output(BuildOutput::Cmd(format!(
+        "{} ({})",
+        argv.join(" "),
+        display_relative(&project_file, root)
+    )));
+    let out_dir = match language {
+        "rust" => cargo_target_dir(&dir).await,
+        _ => dir.clone(),
+    };
+    finish(
+        argv,
+        &dir,
+        &BuildEnv::Own,
+        &project_file,
+        root,
+        &out_dir,
+        artifact,
+        on_output,
+    )
+    .await
+}
+
+/// Run a build whose project has been found, and locate what it wrote.
+#[allow(clippy::too_many_arguments)]
+async fn finish(
+    argv: &[&str],
+    dir: &Path,
+    env: &BuildEnv,
+    project_file: &Path,
+    display_root: &Path,
+    out_dir: &Path,
+    artifact: &str,
+    on_output: &mut (dyn FnMut(BuildOutput) + Send),
+) -> Result<PathBuf> {
+    let code = run(argv, dir, env, on_output).await?;
     on_output(BuildOutput::Exit(code));
     if code != 0 {
         // Deliberately neutral about WHERE the output is: this same error
@@ -245,20 +348,94 @@ pub async fn build(
         bail!(
             "building {} failed (exit {code}). The build's own output says why — the compiler \
              named the file and the line, and that is what to read.",
-            display_relative(&project_file, scratch)
+            display_relative(project_file, display_root)
         );
     }
 
-    locate_artifact(&out_dir, artifact, &project_file)
+    locate_artifact(out_dir, artifact, project_file)
+}
+
+/// Where cargo puts this package's build, asked of cargo itself.
+///
+/// `<project>/target` is only right for a package that is its own
+/// workspace; a member builds into the workspace root's `target/`, and a
+/// `.cargo/config.toml` can move it anywhere. `cargo metadata` answers all
+/// three, and falls back to the plain guess when it cannot run at all — the
+/// build that follows will say why in its own words.
+async fn cargo_target_dir(dir: &Path) -> PathBuf {
+    let output = tokio::process::Command::new("cargo")
+        .args(["metadata", "--no-deps", "--format-version", "1"])
+        .current_dir(dir)
+        .stdin(std::process::Stdio::null())
+        .output()
+        .await;
+    if let Ok(output) = output
+        && output.status.success()
+        && let Ok(metadata) = serde_json::from_slice::<serde_json::Value>(&output.stdout)
+        && let Some(target) = metadata.get("target_directory").and_then(|v| v.as_str())
+    {
+        return PathBuf::from(target);
+    }
+    dir.join("target")
+}
+
+/// The nearest ancestor of `file` (its own directory first, `root` last)
+/// holding a file matching `pattern`.
+///
+/// Sorted within a directory, like [`find_one`], so two project files side
+/// by side pick the same one every time.
+fn nearest_matching(root: &Path, file: &Path, pattern: &str) -> Option<PathBuf> {
+    let mut dir = file.parent()?;
+    loop {
+        let mut found: Vec<PathBuf> = std::fs::read_dir(dir)
+            .ok()?
+            .flatten()
+            .map(|entry| entry.path())
+            .filter(|p| {
+                p.is_file()
+                    && p.file_name()
+                        .map(|n| wildcard(pattern, &n.to_string_lossy()))
+                        .unwrap_or(false)
+            })
+            .collect();
+        found.sort();
+        if let Some(first) = found.into_iter().next() {
+            return Some(first);
+        }
+        if dir == root {
+            return None;
+        }
+        dir = dir.parent()?;
+    }
+}
+
+/// The environment a build runs with, beyond the tool's own defaults.
+///
+/// Two shapes, because the two things built here belong to different
+/// people. A **document's** build is this app's: it runs in a scratch copy,
+/// its package cache and its artifacts are redirected under `.hick-cache/`,
+/// and the .NET CLI's own writes to `$HOME` are redirected with them — the
+/// same three redirects `hick lsp install csharp` makes, for the same
+/// reason: this product says nothing to anyone, and a tool it spawns on the
+/// user's behalf must not be the exception. A **plain file's** build is the
+/// person's own: their `cargo build`, in their checkout, into their
+/// `target/`, with their NuGet cache — redirecting any of it would make the
+/// debugger build a second copy of the project beside the one their own
+/// tools use. Telemetry stays off in both.
+enum BuildEnv {
+    Confined {
+        packages: PathBuf,
+        cli_home: PathBuf,
+        out_dir: PathBuf,
+    },
+    Own,
 }
 
 /// Run the build, streaming both streams as they arrive.
 async fn run(
     argv: &[&str],
     dir: &Path,
-    packages: &Path,
-    cache_root: &Path,
-    out_dir: &Path,
+    env: &BuildEnv,
     on_output: &mut (dyn FnMut(BuildOutput) + Send),
 ) -> Result<i32> {
     use tokio::io::{AsyncBufReadExt, BufReader};
@@ -267,15 +444,21 @@ async fn run(
     command
         .args(&argv[1..])
         .current_dir(dir)
-        // The same three redirects `hick lsp install csharp` needs, for the
-        // same reasons: the .NET CLI writes to `$HOME` by default, and this
-        // product says nothing to anyone — a tool it spawns on the user's
-        // behalf must not be the exception.
-        .env("NUGET_PACKAGES", packages)
-        .env("DOTNET_CLI_HOME", cache_root.join(".hick-cache/dotnet"))
-        .env("DOTNET_CLI_TELEMETRY_OPTOUT", "1")
-        // Harmless to dotnet; the whole point for cargo. See `artifact_root`.
-        .env("CARGO_TARGET_DIR", out_dir)
+        .env("DOTNET_CLI_TELEMETRY_OPTOUT", "1");
+    if let BuildEnv::Confined {
+        packages,
+        cli_home,
+        out_dir,
+    } = env
+    {
+        command
+            .env("NUGET_PACKAGES", packages)
+            .env("DOTNET_CLI_HOME", cli_home)
+            // Harmless to dotnet; the whole point for cargo. See
+            // `artifact_root`.
+            .env("CARGO_TARGET_DIR", out_dir);
+    }
+    command
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
         .stdin(std::process::Stdio::null());
@@ -690,6 +873,73 @@ mod csharp {
             words.contains("error CS"),
             "no compiler error surfaced:\n{words}"
         );
+    }
+
+    #[test]
+    fn the_nearest_project_file_above_a_plain_file_wins() {
+        // Protects docs/guarantees/debugging/a-plain-file-has-the-same-debugger.md
+        //
+        // A repository holds many manifests; the one that owns a file is the
+        // closest above it — and never one above the folder the app opened.
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().join("repo");
+        std::fs::create_dir_all(root.join("crates/foo/src")).unwrap();
+        std::fs::write(dir.path().join("Cargo.toml"), "").unwrap();
+        std::fs::write(root.join("Cargo.toml"), "").unwrap();
+        std::fs::write(root.join("crates/foo/Cargo.toml"), "").unwrap();
+        let file = root.join("crates/foo/src/main.rs");
+        std::fs::write(&file, "").unwrap();
+        assert_eq!(
+            nearest_matching(&root, &file, "Cargo.toml"),
+            Some(root.join("crates/foo/Cargo.toml"))
+        );
+        let orphan = root.join("scripts/x.rs");
+        std::fs::create_dir_all(orphan.parent().unwrap()).unwrap();
+        std::fs::write(&orphan, "").unwrap();
+        assert_eq!(
+            nearest_matching(&root, &orphan, "Cargo.toml"),
+            Some(root.join("Cargo.toml"))
+        );
+        // Above the root is outside the project, even when a manifest sits there.
+        let outside = tempfile::tempdir().unwrap();
+        std::fs::write(outside.path().join("Cargo.toml"), "").unwrap();
+        let sub = outside.path().join("a");
+        std::fs::create_dir_all(&sub).unwrap();
+        let file = sub.join("main.rs");
+        std::fs::write(&file, "").unwrap();
+        assert_eq!(nearest_matching(&sub, &file, "Cargo.toml"), None);
+    }
+
+    #[tokio::test]
+    async fn a_plain_interpreted_file_is_its_own_program() {
+        // Protects docs/guarantees/debugging/a-plain-file-has-the-same-debugger.md
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("app.py");
+        std::fs::write(&file, "print(1)\n").unwrap();
+        let mut seen = Vec::new();
+        let program = build_plain(&file, dir.path(), &mut |line| seen.push(line))
+            .await
+            .unwrap();
+        assert_eq!(program, file);
+        assert!(
+            seen.is_empty(),
+            "nothing to build, nothing to say: {seen:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_plain_compiled_file_with_no_project_is_refused_by_name() {
+        // Protects docs/guarantees/debugging/a-plain-file-has-the-same-debugger.md
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("Program.cs");
+        std::fs::write(&file, "").unwrap();
+        let error = build_plain(&file, dir.path(), &mut |_| {})
+            .await
+            .expect_err("nothing to build");
+        let text = format!("{error:#}");
+        assert!(text.contains("Program.cs is csharp"), "{text}");
+        assert!(text.contains("*.csproj"), "{text}");
+        assert!(text.contains("Next step"), "{text}");
     }
 
     #[test]

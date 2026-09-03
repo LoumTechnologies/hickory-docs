@@ -111,6 +111,11 @@ fn repl() -> String {
 pub enum Response {
     Started {
         session: String,
+        /// The document (or plain file) this session runs, exactly as the
+        /// client named it in `start`. The workspace socket is shared by
+        /// every plain-file pane, so an answer must say which pane it is
+        /// for; a document's own socket carries it too, harmlessly.
+        doc: String,
         capabilities: hick_dap::Capabilities,
         breakpoints: Vec<hick_dap::BreakpointStatus>,
     },
@@ -172,11 +177,18 @@ pub enum Response {
     /// fails says why in MSBuild's own words, and "build failed" throws all
     /// of that away.
     Build {
+        /// Which start this build belongs to, as the client named it.
+        doc: String,
         events: Vec<Value>,
     },
     /// Something did not work, in words a person can act on.
     Failed {
         session: Option<String>,
+        /// The document a failed START was for, so a pane on a shared
+        /// socket can tell its own refusal from a neighbour's. Absent when
+        /// the failure has a session to name instead.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        doc: Option<String>,
         message: String,
         /// Which request failed, so the app can put the message where it
         /// belongs. A failure with no home becomes a banner that outlives its
@@ -221,6 +233,10 @@ pub async fn handle(
 ) -> Vec<Response> {
     let about = about_of(&request);
     let lines = lines_of(&request);
+    let doc = match &request {
+        Request::Start { doc, .. } => Some(doc.clone()),
+        _ => None,
+    };
     // Collected out here rather than inside, because the case that needs it
     // is the failing one: a build that fails takes `handle_inner` down the
     // error arm, and anything gathered in there would go with it.
@@ -228,7 +244,10 @@ pub async fn handle(
     let result = handle_inner(registry, root, request, &mut built).await;
     let mut out = Vec::new();
     if !built.is_empty() {
-        out.push(Response::Build { events: built });
+        out.push(Response::Build {
+            doc: doc.clone().unwrap_or_default(),
+            events: built,
+        });
     }
     match result {
         Ok(responses) => out.extend(responses),
@@ -244,6 +263,7 @@ pub async fn handle(
                     language: missing.language.clone(),
                 });
             out.push(Response::Failed {
+                doc: if session.is_none() { doc } else { None },
                 session,
                 message: format!("{error:#}"),
                 about: Some(about.to_string()),
@@ -316,20 +336,30 @@ async fn handle_inner(
         } => {
             let path = resolve(root, &doc);
             let since = std::time::Instant::now();
-            let (session, live, statuses) = registry
-                .start(&path, &breakpoints, program.as_deref(), &mut |line| {
-                    built.push(build_event(line, since))
-                })
-                .await
-                .map_err(|e| (None, e))?;
+            let mut on_build = |line| built.push(build_event(line, since));
+            // A document is woven into a scratch copy and debugged there; a
+            // file that is not one is debugged as itself, in its own project,
+            // with the folder the app opened as the root that bounds the
+            // search for that project.
+            let started = if crate::debug_sessions::is_document(&path) {
+                registry
+                    .start(&path, &breakpoints, program.as_deref(), &mut on_build)
+                    .await
+            } else {
+                registry
+                    .start_plain(&path, root, &breakpoints, &mut on_build)
+                    .await
+            };
+            let (session, live, statuses) = started.map_err(|e| (None, e))?;
             let mut out = vec![Response::Started {
                 session: session.clone(),
+                doc,
                 capabilities: live.session.capabilities().clone(),
                 breakpoints: statuses,
             }];
             // Run to the first stop before answering, so the UI never shows a
             // started session with no position in it.
-            out.extend(settle(registry, &session, &live).await);
+            out.extend(settle(registry, root, &session, &live).await);
             Ok(out)
         }
 
@@ -357,7 +387,7 @@ async fn handle_inner(
                 .get(&session)
                 .await
                 .map_err(|e| (Some(session.clone()), e))?;
-            Ok(position(&session, &live).await)
+            Ok(position(root, &session, &live).await)
         }
 
         Request::Eval {
@@ -406,7 +436,7 @@ async fn handle_inner(
                 .step(how, thread, frame)
                 .await
                 .map_err(|e| (Some(session.clone()), e))?;
-            Ok(settle(registry, &session, &live).await)
+            Ok(settle(registry, root, &session, &live).await)
         }
 
         Request::Jump { session, line } => {
@@ -419,7 +449,7 @@ async fn handle_inner(
                 .jump_to(line, thread)
                 .await
                 .map_err(|e| (Some(session.clone()), e))?;
-            Ok(settle_in_place(&session, &live).await)
+            Ok(settle_in_place(root, &session, &live).await)
         }
 
         Request::RunTo { session, line } => {
@@ -432,7 +462,7 @@ async fn handle_inner(
                 .run_to(line, thread)
                 .await
                 .map_err(|e| (Some(session.clone()), e))?;
-            Ok(settle(registry, &session, &live).await)
+            Ok(settle(registry, root, &session, &live).await)
         }
 
         Request::Children { session, reference } => {
@@ -469,7 +499,7 @@ async fn handle_inner(
             // Re-read the position: changing a value changes what the inline
             // display should show, and recomputing it here saves the client
             // from knowing that.
-            Ok(position(&session, &live).await)
+            Ok(position(root, &session, &live).await)
         }
 
         Request::Stop { session } => {
@@ -492,6 +522,7 @@ async fn handle_inner(
 /// arrive a beat later.
 async fn settle(
     registry: &Arc<Registry>,
+    root: &std::path::Path,
     session: &str,
     live: &Arc<crate::debug_sessions::Live>,
 ) -> Vec<Response> {
@@ -508,7 +539,7 @@ async fn settle(
                 // while the program stops on it perfectly.
                 breakpoints: live.session.breakpoint_statuses(),
             }];
-            out.extend(position_with(session, live, &stopped.reason).await);
+            out.extend(position_with(root, session, live, &stopped.reason).await);
             out
         }
         Ok(None) => {
@@ -521,6 +552,7 @@ async fn settle(
         }
         Err(error) => vec![Response::Failed {
             session: Some(session.to_string()),
+            doc: None,
             message: format!("{error:#}"),
             about: None,
             lines: Vec::new(),
@@ -537,20 +569,59 @@ async fn settle(
 /// with a stale paused line for a minute over a move that already happened.
 /// A short grace period picks up the event where an adapter does send it, and
 /// otherwise the answer is simply where we are now.
-async fn settle_in_place(session: &str, live: &Arc<crate::debug_sessions::Live>) -> Vec<Response> {
+async fn settle_in_place(
+    root: &std::path::Path,
+    session: &str,
+    live: &Arc<crate::debug_sessions::Live>,
+) -> Vec<Response> {
     if let Ok(Some(stopped)) = live.session.wait_for_stop(Duration::from_millis(400)).await {
         *live.thread_id.lock().await = Some(stopped.thread_id);
-        return position_with(session, live, &stopped.reason).await;
+        return position_with(root, session, live, &stopped.reason).await;
     }
-    position_with(session, live, "goto").await
+    position_with(root, session, live, "goto").await
 }
 
-async fn position(session: &str, live: &Arc<crate::debug_sessions::Live>) -> Vec<Response> {
-    position_with(session, live, "state").await
+async fn position(
+    root: &std::path::Path,
+    session: &str,
+    live: &Arc<crate::debug_sessions::Live>,
+) -> Vec<Response> {
+    position_with(root, session, live, "state").await
+}
+
+/// A frame's source, in the client's own scheme when it is a file in the
+/// folder the app opened.
+///
+/// The adapter names a frame's file the way it was compiled or launched —
+/// an absolute path. A frame outside the file being debugged but inside the
+/// project (`src/lib.rs` under a plain `src/main.rs`) is one the app can
+/// open as a tab, and the tab is addressed by the root-relative path every
+/// other part of the app uses. A path outside the root — a document's
+/// scratch copy, the standard library — is left as the adapter said it.
+pub fn relative_source(root: &std::path::Path, frame: hick_dap::Frame) -> hick_dap::Frame {
+    let Some(source) = frame.source.as_deref() else {
+        return frame;
+    };
+    let path = std::path::Path::new(source);
+    let relative: Option<PathBuf> = match path.strip_prefix(root) {
+        Ok(rel) => Some(rel.to_path_buf()),
+        Err(_) => match (root.canonicalize(), path.canonicalize()) {
+            (Ok(root), Ok(path)) => path.strip_prefix(&root).ok().map(|p| p.to_path_buf()),
+            _ => None,
+        },
+    };
+    match relative {
+        Some(relative) => hick_dap::Frame {
+            source: Some(relative.to_string_lossy().replace('\\', "/")),
+            ..frame
+        },
+        None => frame,
+    }
 }
 
 /// The stack, the top frame's variables, and the line the gutter marks.
 async fn position_with(
+    root: &std::path::Path,
     session: &str,
     live: &Arc<crate::debug_sessions::Live>,
     reason: &str,
@@ -564,7 +635,14 @@ async fn position_with(
             }];
         }
     };
-    let frames = live.session.stack(thread).await.unwrap_or_default();
+    let frames: Vec<hick_dap::Frame> = live
+        .session
+        .stack(thread)
+        .await
+        .unwrap_or_default()
+        .into_iter()
+        .map(|frame| relative_source(root, frame))
+        .collect();
     let variables = match frames.first() {
         Some(frame) => live.session.variables(frame.id).await.unwrap_or_default(),
         None => Vec::new(),
@@ -795,6 +873,7 @@ mod tests {
         // The UI shows this text; a code would need a second table nobody
         // would keep in step.
         let frame = frame_of(&Response::Failed {
+            doc: None,
             session: Some("dbg-1".into()),
             message: "that line is prose, not code".into(),
             about: Some("breakpoints".into()),
@@ -815,6 +894,7 @@ mod tests {
         // `about`/`lines` are omitted rather than sent empty: a UI that keys
         // on their presence should not have to know two spellings of absent.
         let frame = frame_of(&Response::Failed {
+            doc: None,
             session: None,
             message: "no such session".into(),
             about: None,

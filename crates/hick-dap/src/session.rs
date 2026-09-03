@@ -209,6 +209,12 @@ pub struct Frame {
     pub line: Option<u32>,
     /// The file as the adapter named it, for frames outside the document.
     pub source: Option<String>,
+    /// 0-based line in `source`, as the adapter reported it — the raw
+    /// coordinate, before any mapping. Present for every frame that has a
+    /// source, so a frame in *another* file of the same project (a plain
+    /// file's `src/lib.rs`) can be opened at its line even though it is not
+    /// in the file being debugged.
+    pub source_line: Option<u32>,
     pub in_document: bool,
 }
 
@@ -319,9 +325,32 @@ pub struct Mapping {
     files: HashMap<PathBuf, hick_lsp::position_map::PositionMap>,
     /// The document's own path, for naming.
     document: PathBuf,
+    /// True when `document` is a plain file being debugged as itself: every
+    /// line maps to the same line, and the "generated file" is the file.
+    plain: bool,
 }
 
 impl Mapping {
+    /// The mapping for a file that is not a document — `src/main.rs`,
+    /// `app.py` — debugged as itself, at its own path.
+    ///
+    /// The same move `hick-lsp` makes for a plain file's language server:
+    /// skip the weave and hand the file over as it is, so every caller that
+    /// translates through a `Mapping` works unchanged. A line is its own
+    /// line in both directions, and no line is outside the file.
+    pub fn identity(file: &Path) -> Self {
+        Self {
+            files: HashMap::new(),
+            document: file.to_path_buf(),
+            plain: true,
+        }
+    }
+
+    /// Whether this maps a plain file to itself.
+    pub fn is_identity(&self) -> bool {
+        self.plain
+    }
+
     /// Build the mapping for a document by weaving it the way the language
     /// server does.
     pub fn for_document(document: &Path, source: &str, workdir: &Path) -> Result<Self> {
@@ -337,11 +366,15 @@ impl Mapping {
         Ok(Self {
             files,
             document: document.to_path_buf(),
+            plain: false,
         })
     }
 
     /// Document line -> (generated file, line) for setting a breakpoint.
     pub fn to_generated(&self, line: u32) -> Option<(PathBuf, u32)> {
+        if self.plain {
+            return Some((self.document.clone(), line));
+        }
         for (path, map) in &self.files {
             if let Some((vline, _)) = map.to_virtual(line, 0) {
                 return Some((path.clone(), vline));
@@ -352,6 +385,9 @@ impl Mapping {
 
     /// (generated file, line) -> document line for showing a frame.
     pub fn to_document(&self, path: &Path, line: u32) -> Option<u32> {
+        if self.plain {
+            return same_file(path, &self.document).then_some(line);
+        }
         let map = self.files.get(path)?;
         map.to_source(line, 0).map(|(l, _)| l)
     }
@@ -362,7 +398,26 @@ impl Mapping {
 
     /// Every generated file this document produces, for the launch config.
     pub fn generated_files(&self) -> Vec<PathBuf> {
+        if self.plain {
+            return vec![self.document.clone()];
+        }
         self.files.keys().cloned().collect()
+    }
+}
+
+/// Whether two paths name one file.
+///
+/// Adapters report a frame's source in their own spelling — codelldb gives
+/// the path cargo compiled with, debugpy the path it was launched with — so
+/// the comparison is made on the canonical path when both resolve, and on
+/// the bytes when either does not.
+fn same_file(a: &Path, b: &Path) -> bool {
+    if a == b {
+        return true;
+    }
+    match (a.canonicalize(), b.canonicalize()) {
+        (Ok(a), Ok(b)) => a == b,
+        _ => false,
     }
 }
 
@@ -756,6 +811,7 @@ impl Session {
                         .unwrap_or("?")
                         .to_string(),
                     line: document_line,
+                    source_line: path.as_ref().map(|_| raw_line),
                     source: path.map(|p| p.to_string_lossy().to_string()),
                     in_document: document_line.is_some(),
                 }
@@ -1210,5 +1266,29 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let mapping = Mapping::for_document(Path::new("d.hick"), source, dir.path()).unwrap();
         assert_eq!(mapping.to_generated(2), None);
+    }
+
+    #[test]
+    fn a_plain_file_maps_every_line_to_itself() {
+        // Protects docs/guarantees/debugging/a-plain-file-has-the-same-debugger.md
+        //
+        // `src/main.rs` is not woven: the breakpoint goes on the line it was
+        // asked for, in the file itself, and a frame in that file comes back
+        // on the same line. A frame in ANOTHER file of the project is not
+        // in this one — but it keeps its source, so the app can open it.
+        let dir = tempfile::tempdir().unwrap();
+        let main = dir.path().join("main.rs");
+        let lib = dir.path().join("lib.rs");
+        std::fs::write(&main, "fn main() {}\n").unwrap();
+        std::fs::write(&lib, "pub fn f() {}\n").unwrap();
+        let mapping = Mapping::identity(&main);
+        assert!(mapping.is_identity());
+        assert_eq!(mapping.to_generated(7), Some((main.clone(), 7)));
+        assert_eq!(mapping.to_document(&main, 7), Some(7));
+        // The adapter's own spelling of the same file still counts.
+        let spelled = dir.path().join(".").join("main.rs");
+        assert_eq!(mapping.to_document(&spelled, 3), Some(3));
+        assert_eq!(mapping.to_document(&lib, 3), None);
+        assert_eq!(mapping.generated_files(), vec![main]);
     }
 }

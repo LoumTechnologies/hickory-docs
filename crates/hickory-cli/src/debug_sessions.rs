@@ -15,7 +15,7 @@
 //!   document, the files it generates, or a committed transcript.
 
 use std::collections::HashMap;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant};
@@ -30,17 +30,20 @@ pub const IDLE_TIMEOUT: Duration = Duration::from_secs(15 * 60);
 /// A started session, plus what a caller needs to keep talking to it.
 pub struct Live {
     pub session: Session,
-    /// The scratch directory the debuggee runs in. Deleted with the session.
-    scratch: tempfile::TempDir,
+    /// The scratch directory a DOCUMENT's debuggee runs in. Deleted with
+    /// the session. `None` for a plain file, which runs in its own project —
+    /// see [`Registry::start`].
+    scratch: Option<tempfile::TempDir>,
     /// The thread the program last stopped on, so a caller need not repeat it.
     pub thread_id: Mutex<Option<i64>>,
     last_touched: Mutex<Instant>,
 }
 
 impl Live {
-    /// Where the debuggee ran — for tests that check it is gone afterwards.
-    pub fn scratch_path(&self) -> &Path {
-        self.scratch.path()
+    /// Where a document's debuggee ran — for tests that check it is gone
+    /// afterwards. A plain file has no scratch copy and answers `None`.
+    pub fn scratch_path(&self) -> Option<&Path> {
+        self.scratch.as_ref().map(|dir| dir.path())
     }
 
     async fn touch(&self) {
@@ -63,12 +66,19 @@ impl Registry {
         Self::default()
     }
 
-    /// Start a session over one document, in a scratch clone of its project.
+    /// Start a session over one document, in a scratch clone of its project
+    /// — or over a plain file, in place.
     ///
-    /// The clone is what makes the isolation guarantee true rather than
-    /// intended: the debuggee's writes land in a temp directory that is
-    /// deleted when the session ends, so stepping through a cell that writes
-    /// a file cannot touch the repository.
+    /// For a document the clone is what makes the isolation guarantee true
+    /// rather than intended: the debuggee's writes land in a temp directory
+    /// that is deleted when the session ends, so stepping through a cell
+    /// that writes a file cannot touch the repository.
+    ///
+    /// A file that is not a document — `src/main.rs`, `app.py` — has nothing
+    /// woven to protect and no transcript to keep honest; it is the person's
+    /// own program in the person's own checkout, and it runs where their
+    /// `cargo run` would, with `root` as the folder the app opened. See
+    /// [`Self::start_plain`].
     pub async fn start(
         &self,
         document: &Path,
@@ -76,6 +86,15 @@ impl Registry {
         program: Option<&str>,
         on_build: &mut (dyn FnMut(BuildOutput) + Send),
     ) -> Result<(String, Arc<Live>, Vec<BreakpointStatus>)> {
+        if !is_document(document) {
+            // No folder was named, so the repository the file is in stands
+            // in for it — the same bound a plain file's language server
+            // falls back to.
+            let root = repository_of(document);
+            return self
+                .start_plain(document, &root, breakpoints, on_build)
+                .await;
+        }
         let source = std::fs::read_to_string(document)
             .with_context(|| format!("reading {}", document.display()))?;
         let project = document.parent().unwrap_or(Path::new("."));
@@ -141,6 +160,62 @@ impl Registry {
         )
         .await?;
 
+        Ok(self.register(session, Some(scratch), statuses).await)
+    }
+
+    /// Start a session over a file that is not a document, in its own
+    /// project.
+    ///
+    /// The same adapters, the same session API, the same breakpoints and
+    /// frames — with three differences that are all the same difference:
+    /// the file is debugged **as itself**. The mapping is the identity
+    /// (`Mapping::identity`), so a breakpoint on line 12 is a breakpoint on
+    /// line 12 of the file; the build, when the language needs one, runs in
+    /// the nearest project above the file and into that project's own
+    /// output (`hick_dap::build_plain`); and the program runs with the
+    /// project directory as its working directory, because that is where
+    /// the person's own `cargo run` or `python app.py` would run it.
+    ///
+    /// `root` is the folder the app opened. Discovery looks for adapters
+    /// from there, the way it does for a document, and no project file above
+    /// it counts.
+    pub async fn start_plain(
+        &self,
+        file: &Path,
+        root: &Path,
+        breakpoints: &[Breakpoint],
+        on_build: &mut (dyn FnMut(BuildOutput) + Send),
+    ) -> Result<(String, Arc<Live>, Vec<BreakpointStatus>)> {
+        if !file.is_file() {
+            bail!(
+                "{} is not a file in this folder, so there is nothing to debug.",
+                file.display()
+            );
+        }
+        let adapter = hick_dap::adapter_for(file, root)?;
+        tracing_adapter(&adapter);
+        let program = hick_dap::build_plain(file, root, on_build).await?;
+        let cwd = project_dir_of(root, file);
+        let (session, statuses) = Session::start(
+            Launch {
+                adapter: adapter.command,
+                program,
+                cwd,
+                extra: serde_json::json!({}),
+            },
+            Arc::new(Mapping::identity(file)),
+            breakpoints,
+        )
+        .await?;
+        Ok(self.register(session, None, statuses).await)
+    }
+
+    async fn register(
+        &self,
+        session: Session,
+        scratch: Option<tempfile::TempDir>,
+        statuses: Vec<BreakpointStatus>,
+    ) -> (String, Arc<Live>, Vec<BreakpointStatus>) {
         let id = format!("dbg-{}", self.next_id.fetch_add(1, Ordering::SeqCst));
         let live = Arc::new(Live {
             session,
@@ -149,7 +224,7 @@ impl Registry {
             last_touched: Mutex::new(Instant::now()),
         });
         self.sessions.lock().await.insert(id.clone(), live.clone());
-        Ok((id, live, statuses))
+        (id, live, statuses)
     }
 
     /// Look a session up, and mark it as still wanted.
@@ -250,6 +325,72 @@ fn tracing_adapter(found: &hick_dap::Discovered) {
 
 /// The language of a generated file, by extension, for adapter routing.
 ///
+/// Whether a path is a `.hick` document, as opposed to a file to debug as
+/// itself. By extension: the same line `hick-lsp` draws for a plain file's
+/// language server.
+pub fn is_document(path: &Path) -> bool {
+    path.extension().is_some_and(|ext| ext == "hick")
+}
+
+/// The nearest ancestor holding a `.git`, else the file's own directory.
+fn repository_of(file: &Path) -> PathBuf {
+    let own = file.parent().unwrap_or(Path::new(".")).to_path_buf();
+    let mut dir = own.as_path();
+    loop {
+        if dir.join(".git").exists() {
+            return dir.to_path_buf();
+        }
+        let Some(parent) = dir.parent() else {
+            return own;
+        };
+        dir = parent;
+    }
+}
+
+/// The directory a plain file's program runs in: the nearest project above
+/// it (`Cargo.toml`, `package.json`, `pyproject.toml`, `go.mod`, a
+/// `.csproj`), stopping at `root`, else the file's own directory.
+///
+/// The same rule the run-test gutter uses to pick where `cargo test` runs,
+/// for the same reason: a program reads its config and writes its output
+/// relative to where its own tools run it.
+fn project_dir_of(root: &Path, file: &Path) -> PathBuf {
+    const MANIFESTS: [&str; 5] = [
+        "Cargo.toml",
+        "package.json",
+        "pyproject.toml",
+        "go.mod",
+        ".csproj",
+    ];
+    let own = file.parent().unwrap_or(root).to_path_buf();
+    let mut dir = own.as_path();
+    loop {
+        let Ok(entries) = std::fs::read_dir(dir) else {
+            break;
+        };
+        let has_manifest = entries.flatten().any(|entry| {
+            let name = entry.file_name();
+            let name = name.to_string_lossy();
+            MANIFESTS.iter().any(|m| {
+                if m.starts_with('.') {
+                    name.ends_with(m)
+                } else {
+                    name == *m
+                }
+            })
+        });
+        if has_manifest {
+            return dir.to_path_buf();
+        }
+        if dir == root {
+            break;
+        }
+        let Some(parent) = dir.parent() else { break };
+        dir = parent;
+    }
+    own
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -293,5 +434,29 @@ mod tests {
         };
         assert!(error.contains("nothing to debug"), "{error}");
         assert!(error.contains("hick dap list"), "{error}");
+    }
+
+    #[test]
+    fn a_plain_file_runs_in_the_nearest_project_above_it() {
+        // Protects docs/guarantees/debugging/a-plain-file-has-the-same-debugger.md
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        std::fs::create_dir_all(root.join("crates/foo/src")).unwrap();
+        std::fs::write(root.join("Cargo.toml"), "").unwrap();
+        std::fs::write(root.join("crates/foo/Cargo.toml"), "").unwrap();
+        let file = root.join("crates/foo/src/main.rs");
+        std::fs::write(&file, "").unwrap();
+        assert_eq!(project_dir_of(root, &file), root.join("crates/foo"));
+        // A stray script with no manifest anywhere runs where it lives.
+        let loose = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(loose.path().join("tools")).unwrap();
+        let script = loose.path().join("tools/x.py");
+        std::fs::write(&script, "").unwrap();
+        assert_eq!(
+            project_dir_of(loose.path(), &script),
+            loose.path().join("tools")
+        );
+        assert!(!is_document(&script));
+        assert!(is_document(Path::new("notes/a.hick")));
     }
 }

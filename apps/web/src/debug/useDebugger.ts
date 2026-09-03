@@ -6,7 +6,7 @@
 // `continue` takes as long as the program does.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { Realtime } from "../api/realtime";
+import { getWorkspaceRealtime, type Realtime } from "../api/realtime";
 import type { TranscriptEvent } from "../api/types";
 import { DebugClient } from "./client";
 import type {
@@ -93,7 +93,86 @@ function followMoves(statuses: BreakpointStatus[]): BreakpointStatus[] {
   );
 }
 
+/**
+ * Whether an event from the channel is about THIS session.
+ *
+ * The workspace socket is shared by every plain-file pane, and a pane that
+ * took a neighbour's `stopped` would show itself paused on a line of a
+ * program it never started. A session-bearing event is ours when the
+ * session is the one we hold; the ones from before there is a session —
+ * `started`, a `build`, a `failed` start — name the file instead, and are
+ * ours when they name ours. An event with neither (an older server, a
+ * test's bare event) is taken, so a document's own socket keeps working
+ * unchanged.
+ */
+export function eventIsOurs(
+  event: DebugEvent,
+  uri: string,
+  session: string | null,
+): boolean {
+  if (event.event === "started" || event.event === "build") {
+    return event.doc === undefined || event.doc === uri;
+  }
+  if (event.event === "failed") {
+    if (event.session) return event.session === session;
+    return event.doc === undefined || event.doc === uri;
+  }
+  return session !== null && event.session === session;
+}
+
+/** A debugger for one document, over the document's own socket. */
 export function useDebugger(realtime: Realtime, docPath: string): DebugSession {
+  const client = useMemo(() => {
+    const channel = realtime.debug?.();
+    return channel ? new DebugClient(channel) : null;
+  }, [realtime]);
+
+  // The way back. A client that can send but is never handed the socket's
+  // inbound frames sits at "starting…" forever while the engine answers into
+  // nothing, so this is registered as soon as the client exists.
+  useEffect(() => {
+    if (!client || !realtime.onDebugFrame) return;
+    realtime.onDebugFrame((frame) => client.handleFrame(frame));
+    return () => realtime.onDebugFrame?.(() => false);
+  }, [client, realtime]);
+
+  return useDebuggerOver(client, docPath);
+}
+
+// The workspace's one debug client, shared by every plain file.
+//
+// One, not one per pane, for the same reason the language client is one:
+// the socket hands inbound frames to a single handler, and two clients on
+// one connection would each take the other's answers. Each pane's hook
+// filters the shared stream down to its own session (`eventIsOurs`).
+let workspaceClient: DebugClient | null = null;
+function workspaceDebugClient(): DebugClient | null {
+  if (workspaceClient) return workspaceClient;
+  const realtime = getWorkspaceRealtime();
+  const channel = realtime?.debug?.();
+  if (!realtime || !channel) return null;
+  const client = new DebugClient(channel);
+  realtime.onDebugFrame?.((frame) => client.handleFrame(frame));
+  workspaceClient = client;
+  return client;
+}
+
+/** Test seam: forget the workspace debug client. */
+export function resetWorkspaceDebugger(): void {
+  workspaceClient = null;
+}
+
+/**
+ * A debugger for a plain file — `src/main.rs`, `app.py` — over the
+ * workspace connection. The same verbs, the same events, at the file's
+ * own path; the server debugs a file that is not a document as itself.
+ */
+export function useWorkspaceDebugger(path: string): DebugSession {
+  const client = useMemo(() => workspaceDebugClient(), []);
+  return useDebuggerOver(client, path);
+}
+
+export function useDebuggerOver(client: DebugClient | null, docPath: string): DebugSession {
   const [status, setStatus] = useState<DebugStatus>("idle");
   const [message, setMessage] = useState<string | null>(null);
   // A missing tool this machine can fetch, carried out of the failure so the
@@ -139,23 +218,14 @@ export function useDebugger(realtime: Realtime, docPath: string): DebugSession {
   statusRef.current = status;
 
   const uri = useMemo(() => `hick:///${docPath.replace(/^\/+/, "")}`, [docPath]);
-  const client = useMemo(() => {
-    const channel = realtime.debug?.();
-    return channel ? new DebugClient(channel) : null;
-  }, [realtime]);
-
-  // The way back. A client that can send but is never handed the socket's
-  // inbound frames sits at "starting…" forever while the engine answers into
-  // nothing, so this is registered as soon as the client exists.
-  useEffect(() => {
-    if (!client || !realtime.onDebugFrame) return;
-    realtime.onDebugFrame((frame) => client.handleFrame(frame));
-    return () => realtime.onDebugFrame?.(() => false);
-  }, [client, realtime]);
 
   useEffect(() => {
     if (!client) return;
     const off = client.on((event: DebugEvent) => {
+      // A shared channel carries every pane's sessions; only ours is ours.
+      // Before `started` there is no session to match, so a start that is
+      // still in flight is recognised by the file it named.
+      if (!eventIsOurs(event, uri, sessionRef.current)) return;
       switch (event.event) {
         case "build":
           // Replaces rather than appends: a build belongs to the start that
@@ -264,7 +334,7 @@ export function useDebugger(realtime: Realtime, docPath: string): DebugSession {
       }
     });
     return off;
-  }, [client]);
+  }, [client, uri]);
 
   // A window that closes mid-session leaves a process running; the server
   // sweeps it, but saying so promptly is cheaper than waiting for the sweep.

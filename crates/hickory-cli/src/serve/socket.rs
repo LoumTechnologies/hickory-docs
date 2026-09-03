@@ -80,7 +80,9 @@ pub async fn ws_handler(
 /// for plain files, which have no room of their own.
 const WORKSPACE_ROOM: &str = "workspace";
 
-/// A socket with no document: the language channel, and nothing else.
+/// A socket with no document: the language channel and the debug channel,
+/// and nothing else — no room, no edits. A plain file's pane asks its
+/// language questions and runs its debugger over this one connection.
 async fn run_workspace_socket(state: LocalState, socket: WebSocket) -> anyhow::Result<()> {
     let client_id = NEXT_CLIENT_ID.fetch_add(1, Ordering::Relaxed);
     let (tx, mut rx) = mpsc::unbounded_channel::<Vec<u8>>();
@@ -93,6 +95,7 @@ async fn run_workspace_socket(state: LocalState, socket: WebSocket) -> anyhow::R
         }
     });
     let mut subscribed = false;
+    let mut debuggers: Option<std::sync::Arc<crate::debug_sessions::Registry>> = None;
     while let Some(msg) = stream.next().await {
         let data = match msg {
             Ok(WsMessage::Binary(b)) => b.to_vec(),
@@ -100,22 +103,30 @@ async fn run_workspace_socket(state: LocalState, socket: WebSocket) -> anyhow::R
             Ok(WsMessage::Close(_)) | Err(_) => break,
             Ok(_) => continue,
         };
-        if data.first() != Some(&CHANNEL_LSP) {
-            continue;
+        match data.first() {
+            Some(&CHANNEL_LSP) => forward_lsp(
+                &state,
+                client_id,
+                &tx,
+                &mut subscribed,
+                &data[1..],
+                WORKSPACE_ROOM,
+            ),
+            Some(&CHANNEL_DEBUG) => {
+                forward_debug(&state, &tx, &mut debuggers, &data, WORKSPACE_ROOM)
+            }
+            _ => continue,
         }
-        forward_lsp(
-            &state,
-            client_id,
-            &tx,
-            &mut subscribed,
-            &data[1..],
-            WORKSPACE_ROOM,
-        );
     }
     if subscribed {
         state.lsp.unsubscribe(client_id);
     }
     writer.abort();
+    // The window is gone, so its debuggers go with it — a running program
+    // must not outlive the tab that started it.
+    if let Some(debuggers) = debuggers {
+        debuggers.stop_all().await;
+    }
     Ok(())
 }
 
@@ -149,6 +160,40 @@ fn forward_lsp(
             }
         }
         Err(e) => log::debug!("unparseable lsp frame on {key}: {e}"),
+    }
+}
+
+/// One `0x03` frame into this connection's debuggers, starting the registry
+/// on the first one.
+///
+/// One registry per connection: a debug session belongs to the window that
+/// started it, and every one of them ends when that window goes away. The
+/// document socket and the workspace socket share this, because a plain
+/// file's pane debugs over the workspace socket exactly as it asks language
+/// questions over it.
+fn forward_debug(
+    state: &LocalState,
+    tx: &mpsc::UnboundedSender<Vec<u8>>,
+    debuggers: &mut Option<std::sync::Arc<crate::debug_sessions::Registry>>,
+    data: &[u8],
+    key: &str,
+) {
+    let registry = debuggers
+        .get_or_insert_with(|| std::sync::Arc::new(crate::debug_sessions::Registry::new()));
+    match super::debug_bridge::request_of(data) {
+        Ok(request) => {
+            // Spawned rather than awaited: a `continue` can take as long as
+            // the program does, and blocking here would freeze this window's
+            // editing with it.
+            let registry = registry.clone();
+            let root = state.index.root().to_path_buf();
+            let tx = tx.clone();
+            tokio::spawn(async move {
+                let responses = super::debug_bridge::handle(&registry, &root, request).await;
+                super::debug_bridge::reply(&tx, responses);
+            });
+        }
+        Err(e) => log::debug!("unparseable debug frame on {key}: {e}"),
     }
 }
 
@@ -212,30 +257,7 @@ async fn run_socket(state: LocalState, key: String, socket: WebSocket) -> anyhow
                     &key,
                 );
             }
-            CHANNEL_DEBUG => {
-                // One registry per connection: a debug session belongs to the
-                // window that started it, and every one of them ends when
-                // that window goes away.
-                let registry = debuggers.get_or_insert_with(|| {
-                    std::sync::Arc::new(crate::debug_sessions::Registry::new())
-                });
-                match super::debug_bridge::request_of(&data) {
-                    Ok(request) => {
-                        // Spawned rather than awaited: a `continue` can take
-                        // as long as the program does, and blocking here
-                        // would freeze this window's editing with it.
-                        let registry = registry.clone();
-                        let root = state.index.root().to_path_buf();
-                        let tx = tx.clone();
-                        tokio::spawn(async move {
-                            let responses =
-                                super::debug_bridge::handle(&registry, &root, request).await;
-                            super::debug_bridge::reply(&tx, responses);
-                        });
-                    }
-                    Err(e) => log::debug!("unparseable debug frame on {key}: {e}"),
-                }
-            }
+            CHANNEL_DEBUG => forward_debug(&state, &tx, &mut debuggers, &data, &key),
             // Server → client only.
             CHANNEL_RUN => {}
             _ => {}

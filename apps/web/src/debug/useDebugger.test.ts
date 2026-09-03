@@ -1,7 +1,8 @@
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import type { Realtime } from "../api/realtime";
-import { useDebugger } from "./useDebugger";
+import { DebugClient } from "./client";
+import { eventIsOurs, useDebugger, useDebuggerOver } from "./useDebugger";
 
 /**
  * A socket that records what went out and can push frames back in.
@@ -474,3 +475,68 @@ describe("the debugger, over the socket", () => {
     expect(hook.result.current.frames).toEqual([]);
   });
 });
+
+// Protects docs/guarantees/debugging/a-plain-file-has-the-same-debugger.md
+describe("two panes on one socket", () => {
+  const frame = (event: Record<string, unknown>) => {
+    const body = new TextEncoder().encode(JSON.stringify(event));
+    const out = new Uint8Array(body.length + 1);
+    out[0] = 0x03;
+    out.set(body, 1);
+    return out;
+  };
+
+  it("each takes only its own session", async () => {
+    // Every plain file's pane shares the workspace connection, so the
+    // stream carries everybody's sessions. A pane that took a neighbour's
+    // `stopped` would show itself paused in a program it never started.
+    const sent: unknown[] = [];
+    const client = new DebugClient({
+      send: (bytes) => sent.push(JSON.parse(new TextDecoder().decode(bytes.subarray(1)))),
+    });
+    const a = renderHook(() => useDebuggerOver(client, "tools/a.py"));
+    const b = renderHook(() => useDebuggerOver(client, "tools/b.py"));
+
+    act(() => a.result.current.start());
+    expect(sent[0]).toMatchObject({ op: "start", doc: "hick:///tools/a.py" });
+    act(() => {
+      client.handleFrame(frame({ ...STARTED, doc: "hick:///tools/a.py" }));
+    });
+    await waitFor(() => expect(a.result.current.status).toBe("running"));
+    expect(b.result.current.status).toBe("idle");
+
+    act(() => {
+      client.handleFrame(frame(STOPPED));
+    });
+    await waitFor(() => expect(a.result.current.status).toBe("paused"));
+    expect(b.result.current.status).toBe("idle");
+    expect(b.result.current.pausedLine).toBeNull();
+
+    // A start that fails names the file it was for, and lands there only.
+    act(() => b.result.current.start());
+    act(() => {
+      client.handleFrame(
+        frame({
+          event: "failed",
+          session: null,
+          doc: "hick:///tools/b.py",
+          message: "no debug adapter for python on this machine",
+          about: "start",
+        }),
+      );
+    });
+    await waitFor(() => expect(b.result.current.status).toBe("failed"));
+    expect(a.result.current.status).toBe("paused");
+    expect(a.result.current.message).toBeNull();
+  });
+
+  it("still takes an answer that names no file", () => {
+    // A document's own socket carries one session and an older engine may
+    // not say which; that must keep working.
+    expect(eventIsOurs({ ...STARTED, event: "started" } as never, "hick:///x.hick", null)).toBe(true);
+    expect(eventIsOurs(STOPPED as never, "hick:///x.hick", "dbg-0")).toBe(true);
+    expect(eventIsOurs(STOPPED as never, "hick:///x.hick", null)).toBe(false);
+    expect(eventIsOurs(STOPPED as never, "hick:///x.hick", "dbg-9")).toBe(false);
+  });
+});
+
