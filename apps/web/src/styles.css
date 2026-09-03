@@ -3088,12 +3088,49 @@ button.fleet-grant {
 
 .cm-lsp-hover {
   max-width: 34rem;
+  /* A hover has no length limit — rust-analyzer will hand over a type's whole
+     doc comment — and without a ceiling it grew past the window with its own
+     end unreachable. Noted while dogfooding on 2026-09-02. */
+  max-height: 22rem;
+  overflow-y: auto;
+  overscroll-behavior: contain;
   padding: 0.4rem 0.6rem;
   font-family: ui-monospace, Menlo, monospace;
   font-size: 0.78rem;
   line-height: 1.5;
   white-space: pre-wrap;
   color: var(--fg);
+}
+/* Prose in a hover is prose: proportional, so the doc comment beside a
+   signature reads as a sentence rather than as more code. */
+.cm-lsp-hover-text {
+  margin: 0 0 0.4rem;
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
+  white-space: pre-wrap;
+}
+.cm-lsp-hover-text:last-child { margin-bottom: 0; }
+/* The fenced signature: the thing you actually hovered to see. */
+.cm-lsp-hover-code {
+  margin: 0 0 0.4rem;
+  padding: 0.3rem 0.4rem;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--fg) 7%, transparent);
+  font-family: ui-monospace, Menlo, monospace;
+  overflow-x: auto;
+  white-space: pre;
+}
+.cm-lsp-hover-code:last-child { margin-bottom: 0; }
+.cm-lsp-hover-code code { font: inherit; }
+.cm-lsp-hover hr {
+  margin: 0.4rem 0;
+  border: 0;
+  border-top: 1px solid var(--border);
+}
+.cm-lsp-hover code {
+  padding: 0 0.15rem;
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--fg) 7%, transparent);
+  font-family: ui-monospace, Menlo, monospace;
 }
 .cm-tooltip {
   border: 1px solid var(--border);

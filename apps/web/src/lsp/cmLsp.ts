@@ -16,6 +16,7 @@
 import { RangeSetBuilder, StateEffect, StateField } from "@codemirror/state";
 import type { Extension, Text } from "@codemirror/state";
 import { Decoration, EditorView, hoverTooltip, keymap } from "@codemirror/view";
+import { renderHoverMarkdown } from "./hoverMarkdown";
 import type { DecorationSet, Tooltip } from "@codemirror/view";
 import type { LspClient, LspDiagnostic, LspLocation } from "./client";
 import type { LspPosition } from "./positions";
@@ -253,7 +254,10 @@ export function lspSupport(opts: CmLspOptions): Extension[] {
             // Separated from the problem above it, so two different kinds of
             // statement do not read as one paragraph.
             info.className = problems.length > 0 || value ? "cm-lsp-hover-info" : "";
-            info.textContent = text;
+            // Rendered, not dumped: a server answers in Markdown, and setting
+            // it as text showed the backticks, the word `rust`, and a row of
+            // hyphens. Never `innerHTML` — the string is another program's.
+            info.appendChild(renderHoverMarkdown(text));
             dom.appendChild(info);
           }
           return { dom };

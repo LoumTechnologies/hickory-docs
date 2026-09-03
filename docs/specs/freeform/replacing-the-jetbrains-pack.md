@@ -67,7 +67,7 @@ Every JetBrains IDE ships roughly the same editor; these rows are what
 | Feature | State | Evidence / note |
 |---|---|---|
 | Syntax highlighting | **built** | `a-routed-language-is-drawn.md` |
-| Completion, diagnostics, hover, signature help | **built** | `a-language-server-is-found-without-being-configured.md`, `the-meta-lsp-forwards-what-the-child-supports.md` |
+| Completion, diagnostics, hover, signature help | **built** | `a-language-server-is-found-without-being-configured.md`, `the-meta-lsp-forwards-what-the-child-supports.md`, `a-hover-is-rendered-not-dumped.md` |
 | Same intelligence on plain repo files | **built** | `a-plain-file-has-the-same-language-server.md` |
 | Format on save, format now | **built** | `save-can-format-first.md` |
 | Multiple cursors, rectangular selection | **built** | `several-cursors-edit-at-once.md` |
@@ -89,7 +89,7 @@ Every JetBrains IDE ships roughly the same editor; these rows are what
 | Feature | State | Evidence / note |
 |---|---|---|
 | Go to definition, references, rename | **built** | `prepareRename`, `textDocument/references` forwarded |
-| Search everywhere / go to file | **built** | `CommandBar.tsx` — **known defect**: ranks a typed full path below a fuzzier hit |
+| Search everywhere / go to file | **built** | `a-typed-path-opens-that-file.md` — the 2026-09-02 ranking defect is fixed |
 | Project-wide index across generated files | **built** | `an-index-answers-in-documents.md` |
 | **Call hierarchy** | **missing** | `callHierarchy` appears nowhere |
 | **Type hierarchy** | **missing** | `typeHierarchy` appears nowhere |
@@ -175,8 +175,9 @@ Ranked by how much daily work each unblocks, not by size:
    drawn. Small, and among the most-used IntelliJ navigation.
 5. **Structure view and breadcrumbs** — `documentSymbol` is already
    forwarded; this is a pane, not a protocol.
-6. **The command bar's ranking defect** — a typed full path must win. Already
-   found by dogfooding on 2026-09-02 and still open.
+6. ~~**The command bar's ranking defect**~~ — **done 2026-09-03**. It was two
+   defects: no ranking at all, and a result cap applied during the tree walk
+   rather than after ranking, which threw the best match away unscored.
 7. **The HTTP client**, which is nearly free given cells.
 8. **The database tool**, which is not free at all and is its own design.
 

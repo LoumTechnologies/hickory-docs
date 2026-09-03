@@ -168,6 +168,7 @@ import { EditorView } from "@codemirror/view";
 import { TAB_ZOOM_VAR } from "../lib/zoom";
 import { requestFlushSaves } from "../lib/flushSaves";
 import { onOpenLocation, onShowTerminal, pathOfDocUri, revealLine } from "../lib/revealLine";
+import { rankFiles } from "../lib/fileRanking";
 import { allFileProblems, useFileProblemsVersion } from "../lib/fileProblems";
 import { formatOnSave, loadFormatOnSave } from "../lib/formatOnSave";
 import { formatView } from "../lsp/cmLspFeatures";
@@ -645,27 +646,29 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
           run: () => openHitRef.current(hit.path, hit.start_line),
         }));
       }
-      // Files: everything the tree lists, matched on the path.
-      const needle = term.toLowerCase();
-      const out: CommandItem[] = [];
+      // Files: everything the tree lists, ranked on the path.
+      //
+      // Collected whole and ranked afterwards. Filtering and capping inside
+      // the walk — which is what this replaced — made the answer depend on
+      // the order the tree was built in, and threw the best match away
+      // without looking at it.
+      const files: FileNode[] = [];
       const walk = (nodes: readonly FileNode[]) => {
         for (const node of nodes) {
           if (node.dir) {
             if (node.children) walk(node.children);
-            continue;
+          } else {
+            files.push(node);
           }
-          if (needle && !node.path.toLowerCase().includes(needle)) continue;
-          out.push({
-            id: node.path,
-            label: node.name,
-            detail: node.path,
-            run: () => openHitRef.current(node.path, 1),
-          });
-          if (out.length >= 40) return;
         }
       };
       for (const root of folderRootsRef.current) walk(root.tree);
-      return out;
+      return rankFiles(files, term).map((node) => ({
+        id: node.path,
+        label: node.name,
+        detail: node.path,
+        run: () => openHitRef.current(node.path, 1),
+      }));
     },
     [welcomeActions],
   );
