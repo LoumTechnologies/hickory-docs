@@ -57,7 +57,16 @@ server, which hands the engine a `Shell` after `prepare`; an engine served
 by `hick up` has none, says so in the terminal, and the project is
 committed regardless.
 
-**Both of these are checkboxes on the form**, each ticked by the preview
+The location has **an ellipsis beside it that opens the platform's own
+folder chooser**, starting where the field already points. A cancel is
+`{"path": null}` and a `200`, not an error — someone who closed a dialog has
+said something perfectly clear. A native modal needs an event loop and a
+window, which an axum router has neither of, so this goes through the same
+`Shell` seam the window does; the catalogue answers `can_pick_folder`, and a
+client that is told `false` draws no ellipsis rather than a button that
+always fails.
+
+**The two decisions are checkboxes on the form**, each ticked by the preview
 before the button is pressed — the repository when the location has none,
 the window when the project lands outside the folder this window shows —
 and each stops deriving the moment the person touches it. A decision about
@@ -100,15 +109,15 @@ throws the answer away.
 The scaffolder runs on this machine's own `dotnet`; `Hick-Image` is
 recorded for a containerised replay and nothing here pulls it.
 `hick ingest --from '#cell'` is unchanged and still brings an exec's output
-volume into a document a person is writing. There is no folder *picker*: the
-location is a path typed or pasted into a field, because the app has no
-native file dialog and a browsed tree of the whole filesystem is a bigger
-thing than this needs. A location that does not exist yet is fine — the
-scaffolder makes it — but only `init_repository` creates a folder that has
-no repository above it.
+volume into a document a person is writing. A location that does not exist
+yet is fine — the scaffolder makes it — but only `init_repository` creates a
+folder that has no repository above it. The chooser only picks an existing
+folder; a new one is still typed.
 
-Opening a window is only tested through the seam: the test installs a
-`Shell` that writes down what it was asked to open. That a new process
+Opening a window and choosing a folder are only tested through the seam: the
+test installs a `Shell` that writes down what it was asked, and answers the
+chooser itself. No test drives a real native modal, and there is no version
+of this product where one should. That a new process
 really appears, and that macOS's `open -n -a` really starts a second
 instance rather than waking the first, is not covered by any test and has
 not been verified on macOS.
@@ -159,6 +168,8 @@ Last LLM verification:
   commit, the terminal handed over rather than a commit awaited, a project
   made anywhere on the machine, the repository named when it is not the open
   one, both checkboxes deriving and then staying put once touched, and the
-  three `open` values the pair produces).
+  three `open` values the pair produces; the ellipsis calling the route,
+  a cancel changing nothing and saying nothing, and no ellipsis at all when
+  the catalogue says there is no chooser).
 - Caveats: the live test skips without `dotnet`. The dialog is exercised in
   jsdom.

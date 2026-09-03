@@ -115,6 +115,10 @@ pub async fn templates(State(state): State<LocalState>) -> ApiResult<Json<Value>
         // field that starts as `.` hides which place that is.
         "location": root.to_string_lossy(),
         "separator": std::path::MAIN_SEPARATOR_STR,
+        // Whether the program hosting this engine can put a native folder
+        // chooser in front of anyone. A browser tab cannot, and a button that
+        // always fails is worse than no button.
+        "can_pick_folder": state.has_shell(),
         "templates": catalog.templates,
     })))
 }

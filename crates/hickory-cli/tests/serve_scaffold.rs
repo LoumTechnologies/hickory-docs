@@ -31,12 +31,26 @@ struct Session {
     /// Every folder a shell was asked to open, and where. Empty unless the
     /// session was started with [`start_with_shell`].
     opened: Opened,
+    /// What a stub picker answers with, and where it was opened. Only a
+    /// session with a shell has one.
+    picker: Picker,
     _dir: tempfile::TempDir,
 }
 
 /// What a shell was asked to open: the folder, and `new-window` /
 /// `this-window`.
 type Opened = std::sync::Arc<std::sync::Mutex<Vec<(PathBuf, String)>>>;
+
+/// A stub folder chooser: `answer` is what it returns, `started_at` is where
+/// it was told to open. There is no way to drive a real native modal from a
+/// test, and no version of this product where there should be.
+#[derive(Default)]
+struct Chooser {
+    answer: Option<PathBuf>,
+    started_at: Option<PathBuf>,
+}
+
+type Picker = std::sync::Arc<std::sync::Mutex<Chooser>>;
 
 /// A folder with one document in it, a git repository, and a `.gitignore`
 /// that ignores what a .NET restore writes.
@@ -98,9 +112,16 @@ async fn start_inner(with_shell: bool) -> Session {
     .expect("session prepares");
 
     let opened = Opened::default();
+    let picker = Picker::default();
     if with_shell {
         let seen = opened.clone();
+        let chooser = picker.clone();
         prepared.state.set_shell(Shell {
+            pick_folder: std::sync::Arc::new(move |start| {
+                let mut held = chooser.lock().unwrap();
+                held.started_at = Some(start.to_path_buf());
+                Ok(held.answer.clone())
+            }),
             open_folder: std::sync::Arc::new(move |folder, where_| {
                 seen.lock().unwrap().push((
                     folder.to_path_buf(),
@@ -126,6 +147,7 @@ async fn start_inner(with_shell: bool) -> Session {
         base: format!("http://127.0.0.1:{port}"),
         root,
         opened,
+        picker,
         _dir: dir,
     }
 }
@@ -415,6 +437,7 @@ async fn a_folder_without_a_repository_is_told_so_by_a_field() {
         base: format!("http://127.0.0.1:{port}"),
         root,
         opened: Opened::default(),
+        picker: Picker::default(),
         _dir: dir,
     };
     let (status, error) = post(&session, "/api/scaffold", spec("Greeter", "greeter")).await;
@@ -663,6 +686,79 @@ async fn a_preview_says_when_there_is_no_repository_rather_than_refusing() {
             .contains("Hick-Recipe: dotnet new console -o greeter"),
         "{preview}"
     );
+}
+
+#[tokio::test]
+async fn the_folder_chooser_is_the_hosts_and_a_cancel_is_an_answer() {
+    // Protects docs/guarantees/authoring/a-new-project-is-a-recipe-commit.md:
+    // the ellipsis beside Location is a route, because the page has no Tauri
+    // API and the engine has no dialogs — only the program hosting it does.
+    let session = start_with_shell().await;
+    session.picker.lock().unwrap().answer = Some(session.root.join("apps"));
+
+    let (status, chosen) = post(
+        &session,
+        "/api/pick-folder",
+        json!({ "start": session.root.to_string_lossy() }),
+    )
+    .await;
+    assert_eq!(status, 200, "{chosen}");
+    assert_eq!(
+        chosen["path"],
+        session.root.join("apps").to_string_lossy().as_ref()
+    );
+    assert_eq!(
+        session.picker.lock().unwrap().started_at.as_deref(),
+        Some(session.root.as_path()),
+        "the chooser opens where the field already points"
+    );
+
+    // A cancel is `{path: null}` and a 200. Somebody closing a dialog has
+    // said something perfectly clear, and a client that has to catch an
+    // exception to hear it will show it as one.
+    session.picker.lock().unwrap().answer = None;
+    let (status, cancelled) = post(&session, "/api/pick-folder", json!({ "start": "" })).await;
+    assert_eq!(status, 200, "{cancelled}");
+    assert_eq!(cancelled["path"], Value::Null);
+
+    // A start that is not a folder is not a refusal: a picker is a place to
+    // browse FROM, and the open folder is always one.
+    let (status, from_nowhere) = post(
+        &session,
+        "/api/pick-folder",
+        json!({ "start": "/no/such/place" }),
+    )
+    .await;
+    assert_eq!(status, 200, "{from_nowhere}");
+    assert_eq!(
+        session.picker.lock().unwrap().started_at.as_deref(),
+        Some(session.root.as_path())
+    );
+}
+
+#[tokio::test]
+async fn a_program_with_no_dialogs_says_so_and_the_catalogue_says_so_first() {
+    // `hick up` in a browser. The refusal exists, and the client never has to
+    // reach it: the catalogue says up front that there is no picker, so the
+    // ellipsis is not drawn at all.
+    let session = start().await;
+    let (status, refused) = post(&session, "/api/pick-folder", json!({ "start": "" })).await;
+    assert_eq!(status, 503, "{refused}");
+    assert!(
+        refused["error"].as_str().unwrap().contains("hick up"),
+        "{refused}"
+    );
+
+    if has_dotnet() {
+        let (status, catalog) = get(&session, "/api/scaffold/templates").await;
+        assert_eq!(status, 200, "{catalog}");
+        assert_eq!(catalog["can_pick_folder"], json!(false));
+    }
+    let with = start_with_shell().await;
+    if has_dotnet() {
+        let (_, catalog) = get(&with, "/api/scaffold/templates").await;
+        assert_eq!(catalog["can_pick_folder"], json!(true));
+    }
 }
 
 #[tokio::test]

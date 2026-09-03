@@ -22,6 +22,7 @@ vi.mock("../api/client", () => ({
     scaffoldOptions: vi.fn(),
     scaffoldPreview: vi.fn(),
     scaffoldCreate: vi.fn(),
+    pickFolder: vi.fn(),
   },
 }));
 
@@ -40,6 +41,7 @@ const CATALOG: ScaffoldCatalog = {
   image: "mcr.microsoft.com/dotnet/sdk:10.0",
   location: "/home/nate/notes",
   separator: "/",
+  can_pick_folder: true,
   templates: [
     {
       short_names: ["console"],
@@ -203,6 +205,60 @@ describe("the fields the template does not own", () => {
     // Only what was decided: --framework was left at its default and is not
     // written; --no-restore starts on here and is.
     expect(spec.options).toEqual([{ flag: "--no-restore" }]);
+  });
+
+  it("puts the platform's own chooser behind the ellipsis", async () => {
+    // The app has no `@tauri-apps/api` and no `invoke`, so the picker is a
+    // route: the page asks the engine, and the engine asks the program
+    // hosting it. See crates/hickory-cli/src/serve/shell.rs.
+    ready();
+    vi.mocked(api.pickFolder).mockResolvedValue({ path: "/home/nate/src/apps" });
+    await screen.findByText("-f, --framework");
+
+    fireEvent.click(screen.getByRole("button", { name: "Choose a folder" }));
+    // Opened where the field already points, not at some default.
+    await waitFor(() =>
+      expect(api.pickFolder).toHaveBeenCalledWith("/home/nate/notes"),
+    );
+    await waitFor(() =>
+      expect(
+        (screen.getByLabelText("Location") as HTMLInputElement).value,
+      ).toBe("/home/nate/src/apps"),
+    );
+  });
+
+  it("keeps the location when the chooser is cancelled", async () => {
+    // A cancel is `{path: null}`, an ordinary answer. Nothing changes and
+    // nothing is said — a person who closed a dialog does not need telling.
+    ready();
+    vi.mocked(api.pickFolder).mockResolvedValue({ path: null });
+    await screen.findByText("-f, --framework");
+    fireEvent.click(screen.getByRole("button", { name: "Choose a folder" }));
+    await waitFor(() => expect(api.pickFolder).toHaveBeenCalled());
+    expect((screen.getByLabelText("Location") as HTMLInputElement).value).toBe(
+      "/home/nate/notes",
+    );
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
+
+  it("draws no ellipsis where there is nothing behind it", async () => {
+    // `hick up` in a browser: the location can only be typed.
+    vi.mocked(api.scaffoldTemplates).mockResolvedValue({
+      ...CATALOG,
+      can_pick_folder: false,
+    });
+    vi.mocked(api.scaffoldOptions).mockResolvedValue(DETAIL);
+    vi.mocked(api.scaffoldPreview).mockResolvedValue({
+      output: "greeter",
+      folder: "/home/nate/notes/greeter",
+      repository: "/home/nate/notes",
+      command: "dotnet new console -o greeter -n Greeter",
+      message: "Scaffold Greeter with `dotnet new console`\n",
+    });
+    render(<NewProjectDialog onStarted={vi.fn()} onClose={vi.fn()} />);
+    await screen.findByText("-f, --framework");
+    expect(screen.queryByRole("button", { name: "Choose a folder" })).toBeNull();
+    expect(screen.getByLabelText("Location")).toBeTruthy();
   });
 
   it("makes a project anywhere on the machine", async () => {

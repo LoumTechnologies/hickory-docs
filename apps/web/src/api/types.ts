@@ -1132,6 +1132,10 @@ export interface ScaffoldCatalog {
   /** This machine's path separator, for joining a location to a folder name
    * in the one place the dialog shows the two together. */
   separator: string;
+  /** Whether the program hosting the engine can show a native folder
+   * chooser. False under `hick up` in a browser, where the location can only
+   * be typed — and where the ellipsis is therefore not drawn at all. */
+  can_pick_folder: boolean;
   templates: ScaffoldTemplate[];
 }
 

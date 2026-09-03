@@ -28,6 +28,8 @@ use axum::response::{IntoResponse, Response};
 use hickory_cli::ExecutorChoice;
 use hickory_cli::serve::{OpenWhere, ServeOptions, Shell, prepare};
 use hickory_cli::up::DirectoryLock;
+use tauri::Manager as _;
+use tauri_plugin_dialog::DialogExt as _;
 
 /// The built UI (`apps/web/dist`), compiled into this binary.
 ///
@@ -133,7 +135,29 @@ pub fn remember(config_dir: &Path, dir: &Path) {
 pub fn shell_hooks(handle: &tauri::AppHandle, config_dir: Option<&Path>) -> Shell {
     let handle = handle.clone();
     let config_dir = config_dir.map(Path::to_path_buf);
+    let picker = handle.clone();
     Shell {
+        // The same picker File → Open Folder uses, reached from the page
+        // rather than from the menu bar. `blocking_pick_folder` blocks the
+        // thread it is called on, and the route calls this on a blocking one:
+        // the menu handler spawns a worker for exactly this reason, since a
+        // native modal on the main thread deadlocks the app.
+        pick_folder: std::sync::Arc::new(move |start: &Path| {
+            let mut builder = picker
+                .dialog()
+                .file()
+                .set_title("Choose where the project goes")
+                .set_directory(start);
+            // Parented to the window, unlike the menu's pickers: this one is
+            // opened from a button inside the page, so a chooser that came up
+            // behind the window would read as the button having done nothing.
+            if let Some(window) = picker.get_webview_window("main") {
+                builder = builder.set_parent(&window);
+            }
+            Ok(builder
+                .blocking_pick_folder()
+                .and_then(|p| p.into_path().ok()))
+        }),
         open_folder: std::sync::Arc::new(move |folder: &Path, where_: OpenWhere| match where_ {
             OpenWhere::None => Ok(()),
             OpenWhere::NewWindow => {

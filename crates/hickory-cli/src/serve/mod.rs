@@ -45,6 +45,7 @@ pub mod refactor;
 pub mod reveal;
 pub mod sample;
 pub mod scaffold;
+pub mod shell;
 pub mod socket;
 pub mod store;
 pub mod story;
@@ -67,6 +68,8 @@ use serde_json::{Value, json};
 use crate::{ExecutorChoice, RunMode};
 use api::{ApiError, ApiResult};
 use store::{DocIndex, FileDocStore};
+
+pub use shell::{OpenWhere, Shell};
 
 /// How a local session was asked to run.
 ///
@@ -161,70 +164,6 @@ pub struct LocalState {
     /// The running loop's command inbox, set when the loop starts.
     pub up_commands:
         Arc<std::sync::Mutex<Option<tokio::sync::mpsc::UnboundedSender<crate::up::UpCommand>>>>,
-}
-
-/// Where a folder should be opened, when the app is asked to open one.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Deserialize)]
-#[serde(rename_all = "kebab-case")]
-pub enum OpenWhere {
-    /// Leave every window as it is.
-    None,
-    /// A second process on that folder — this one is untouched.
-    NewWindow,
-    /// This process, on that folder instead. A session is a process here
-    /// (the directory lock and the watcher are per-process), so this is a
-    /// restart: everything in this window goes, terminals included.
-    ThisWindow,
-}
-
-/// The things only the program *around* this server can do.
-///
-/// The server is an axum router; it has no window, no menu bar and no
-/// `AppHandle`. The desktop app has all three, and hands them down here as a
-/// closure after [`prepare`] rather than through [`ServeOptions`] — which
-/// keeps every other caller (the CLI, and a dozen tests) untouched, and keeps
-/// the fact that these are the *shell's* powers visible in the type.
-pub struct Shell {
-    /// Open `folder` in a window. `OpenWhere::None` never reaches this.
-    #[allow(clippy::type_complexity)]
-    pub open_folder: Arc<dyn Fn(&Path, OpenWhere) -> Result<()> + Send + Sync>,
-}
-
-impl std::fmt::Debug for Shell {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str("Shell")
-    }
-}
-
-impl LocalState {
-    /// Hand the server the shell's own powers. The desktop app calls this on
-    /// the [`Prepared`] state before serving.
-    pub fn set_shell(&self, shell: Shell) {
-        if let Ok(mut slot) = self.shell.lock() {
-            *slot = Some(shell);
-        }
-    }
-
-    /// Open a folder in a window, or say why this program cannot.
-    pub fn open_folder(&self, folder: &Path, where_: OpenWhere) -> Result<()> {
-        if where_ == OpenWhere::None {
-            return Ok(());
-        }
-        let hook = self
-            .shell
-            .lock()
-            .ok()
-            .and_then(|slot| slot.as_ref().map(|s| s.open_folder.clone()));
-        match hook {
-            Some(open) => open(folder, where_),
-            None => anyhow::bail!(
-                "this engine has no window to open: it is being served by `hick up`, and the \
-                 page you are looking at is a tab in your own browser.\n  \
-                 Next step: open {} with `hick open`, or point another `hick up` at it.",
-                folder.display()
-            ),
-        }
-    }
 }
 
 /// One diverged produced file, as the tree and the pane read it. Axis 3 of
@@ -581,6 +520,7 @@ fn router(state: LocalState) -> Router {
             get(history::get_continuity).put(history::put_continuity),
         )
         .route("/files", get(api::files))
+        .route("/pick-folder", post(shell::pick_folder))
         .route("/reveal", post(reveal::reveal))
         .route("/open-external", post(reveal::open_external))
         .route("/file", get(plain_file::get_file).put(plain_file::put_file))

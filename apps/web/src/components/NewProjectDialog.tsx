@@ -308,6 +308,9 @@ function Chooser({
   const [openTouched, setOpenTouched] = useState(false);
   const [newWindow, setNewWindow] = useState(true);
 
+  /** A native modal is up. The button is disabled while it is, because the
+   * dialog is blocking on the other side and a second one cannot be shown. */
+  const [picking, setPicking] = useState(false);
   const [showProblems, setShowProblems] = useState(false);
   const [busy, setBusy] = useState(false);
   const [failure, setFailure] = useState<string | null>(null);
@@ -515,14 +518,45 @@ function Chooser({
                 attr="anywhere"
                 hint="The folder the project's own folder is made in. Any folder on this machine — the repository that records it is whichever one holds it, and `~` and a relative path both work."
               >
-                <input
-                  className="insert-menu__input"
-                  value={location}
-                  spellCheck={false}
-                  autoComplete="off"
-                  aria-label="Location"
-                  onChange={(event) => setLocation(event.target.value)}
-                />
+                <div className="new-project__path">
+                  <input
+                    className="insert-menu__input"
+                    value={location}
+                    spellCheck={false}
+                    autoComplete="off"
+                    aria-label="Location"
+                    onChange={(event) => setLocation(event.target.value)}
+                  />
+                  {/* Drawn only where there is something on the other end of
+                      it: a browser tab served by `hick up` has no native
+                      dialogs, and a button that always fails is worse than a
+                      field you type into. */}
+                  {catalog.can_pick_folder && (
+                    <button
+                      type="button"
+                      className="btn new-project__browse"
+                      aria-label="Choose a folder"
+                      data-tip="Choose a folder"
+                      disabled={picking}
+                      onClick={() => {
+                        setPicking(true);
+                        api
+                          .pickFolder(location)
+                          .then((chosen) => {
+                            // Cancelling is an answer: the field keeps what
+                            // it had, and nothing is said about it.
+                            if (chosen.path) setLocation(chosen.path);
+                          })
+                          .catch((e: unknown) =>
+                            setFailure(e instanceof Error ? e.message : String(e)),
+                          )
+                          .finally(() => setPicking(false));
+                      }}
+                    >
+                      …
+                    </button>
+                  )}
+                </div>
               </Field>
 
               <label className="new-project__check">

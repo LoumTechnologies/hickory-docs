@@ -72,7 +72,14 @@ act. The same reasoning gives the second checkbox — **open the project, and
 in a new window or this one**. Windows are the *shell's*, not the server's
 (a session is a process here: a new window is a second process, this window
 is `remember` + `restart`), so `LocalState::set_shell` is the seam the
-desktop app fills after `prepare` and `hick up` leaves empty. The open
+desktop app fills after `prepare` and `hick up` leaves empty — and the same
+seam carries the **ellipsis beside Location**, which opens the platform's own
+folder chooser (`POST /api/pick-folder`, the same `blocking_pick_folder` File
+→ Open Folder uses, on a blocking thread because a native modal on the main
+thread deadlocks the app). A cancel is `{"path": null}` and a `200`; the
+catalogue publishes `can_pick_folder` so a browser tab draws no ellipsis
+rather than a button that always fails. The page has no `@tauri-apps/api` and
+no `invoke` at all, which is why every one of these is a route. The open
 happens **only after the commit**, and **never after a failure** — a restart
 that took away the terminal explaining why nothing was committed would
 delete the only useful thing on the screen. And (3), the one that generalises: **`dotnet new` runs in a terminal**

@@ -8155,6 +8155,22 @@ button.status-bar__item:hover { background: var(--bg-sunken); color: var(--fg); 
 .new-project__check input {
   margin-top: 0.15rem;
 }
+/* The location, and the ellipsis that opens the platform's own chooser. */
+.new-project__path {
+  display: flex;
+  gap: 0.4rem;
+  align-items: stretch;
+}
+.new-project__path .insert-menu__input {
+  flex: 1;
+  min-width: 0;
+}
+.new-project__browse {
+  flex: none;
+  padding: 0 0.7rem;
+  line-height: 1;
+}
+
 /* A checkbox whose label carries its own explanation under it. The hint is a
    span rather than a <p> because it sits inside the <label>: clicking any of
    it should still toggle the box. */

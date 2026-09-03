@@ -227,6 +227,12 @@ export const api = {
       language,
     }),
 
+  /** The platform's own folder chooser, opened at `start`. `{path: null}` is
+   * a cancel, which is an answer and not an error. 503 when the program
+   * hosting the engine has no dialogs — see crates/hickory-cli/src/serve/shell.rs. */
+  pickFolder: (start: string) =>
+    request<{ path: string | null }>("POST", "/api/pick-folder", { start }),
+
   /** What this machine can scaffold: every `dotnet new` template its SDK
    * has. 422 with `{missing: "dotnet"}` when there is no SDK at all — the
    * dialog keys off that field, never off the sentence.
