@@ -309,15 +309,18 @@ fn exec_block(
 
     // Same attributes `weave_ingested_block` reads to write the woven
     // markdown's caption — only surfaced here for the live card instead.
-    let ingested = tag.child_tags().find(|t| t.name == "ingested").map(|t| {
-        Box::new(IngestedInfo {
-            from: tag_attr(t, "from").unwrap_or_default(),
-            at: tag_attr(t, "at").unwrap_or_default(),
-            sha256: tag_attr(t, "sha256").unwrap_or_default(),
-            files: tag_attr(t, "files").unwrap_or_default(),
-            skipped: tag_attr(t, "skipped").unwrap_or_default(),
-        })
-    });
+    let ingested = tag
+        .child_tags()
+        .find(|t| t.name == "ingested" && t.get_attribute("key").is_none())
+        .map(|t| {
+            Box::new(IngestedInfo {
+                from: tag_attr(t, "from").unwrap_or_default(),
+                at: tag_attr(t, "at").unwrap_or_default(),
+                sha256: tag_attr(t, "sha256").unwrap_or_default(),
+                files: tag_attr(t, "files").unwrap_or_default(),
+                skipped: tag_attr(t, "skipped").unwrap_or_default(),
+            })
+        });
 
     let entry = input
         .transcripts

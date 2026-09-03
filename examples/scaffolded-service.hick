@@ -72,7 +72,12 @@ Generated. Do not edit by hand.
 }
 </hick:file>
 </hick:ingested>
-</hick:exec>
+<hick:ingested key="d465fadaeedc3d60d9a94c7d44ba5339837b4851d06faec8e51c5ec384eadbb9" sha256="0f12803b81433090ab2fdc15f50d457207585b55435537f0d508ee08091ea97e" at="2026-09-03">
+README.md
+node_modules
+package.json
+src
+</hick:ingested></hick:exec>
 
 ## What ingest did with it
 
@@ -131,5 +136,11 @@ cat out/package.json
   "main": "src/index.js"
 }
 </hick:expect>
-</hick:exec>
+<hick:ingested key="6a1f8a900d0eee3185f86c5555c022122d04a8282fb9ae4816cf9a171f582e51" sha256="cd91811ea65e567c6367fd0690c7d011060b07e42dd2bbb0fe5b13cd5f597bfc" at="2026-09-03">
+{
+  "name": "greeter",
+  "version": "0.1.0",
+  "main": "src/index.js"
+}
+</hick:ingested></hick:exec>
 </hick:doc>

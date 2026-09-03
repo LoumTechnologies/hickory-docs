@@ -57,7 +57,10 @@ EOF
 <hick:expect match="exact">{'size': 10, 'acquire_timeout': None}
 {'size': 40, 'acquire_timeout': 2.0}
 </hick:expect>
-</hick:exec>
+<hick:ingested key="fd2afee96a9ba93e7a15de9ff1d24943fa6799d99929091466fccf4e7edcf780" sha256="cf2706682adde03d90616e2ba42f51c942a3ec825a77fe5ddb0b2dcfa41d8858" at="2026-09-03">
+{'size': 10, 'acquire_timeout': None}
+{'size': 40, 'acquire_timeout': 2.0}
+</hick:ingested></hick:exec>
 
 ## Findings
 

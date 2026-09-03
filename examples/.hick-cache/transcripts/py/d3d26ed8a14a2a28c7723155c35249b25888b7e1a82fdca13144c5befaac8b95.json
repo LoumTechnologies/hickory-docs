@@ -1,7 +1,0 @@
-{
-  "commands": [
-    "python3 - <<'EOF'\nimport random\nrandom.seed(42)\nsample = [round(random.gauss(50, 12), 1) for _ in range(30)]\nwith open(\"sample.txt\", \"w\") as f:\n    f.write(\"\\n\".join(map(str, sample)))\nprint(f\"n = {len(sample)}\")\nprint(f\"mean = {sum(sample)/len(sample):.2f}\")\nEOF"
-  ],
-  "output": "n = 30\nmean = 50.28\n",
-  "output_hash": "c94cdf926ba9fe8f7f84aa29918385385251a4f1c57fef4796a42c22e377cb73"
-}

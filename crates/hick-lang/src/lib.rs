@@ -238,6 +238,25 @@ impl HickDocument {
         })
     }
 
+    /// Every tag in the document, at any depth, in document order.
+    ///
+    /// `tags()` is the top level only, which is the right question for a
+    /// document's sections and the wrong one for its cells: an exec inside a
+    /// `hick:file` is still a cell.
+    pub fn all_tags(&self) -> Vec<&HickTag> {
+        fn walk<'a>(nodes: &'a [HickNode], out: &mut Vec<&'a HickTag>) {
+            for node in nodes {
+                if let HickNode::Tag(tag) = node {
+                    out.push(tag);
+                    walk(&tag.children, out);
+                }
+            }
+        }
+        let mut out = Vec::new();
+        walk(&self.nodes, &mut out);
+        out
+    }
+
     /// Find all tags with a given local name (non-recursive).
     pub fn find_tags(&self, name: &str) -> Vec<&HickTag> {
         self.tags().filter(|t| t.name == name).collect()

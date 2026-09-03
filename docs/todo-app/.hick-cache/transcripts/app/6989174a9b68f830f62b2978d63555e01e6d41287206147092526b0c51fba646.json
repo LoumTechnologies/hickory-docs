@@ -1,7 +1,0 @@
-{
-  "commands": [
-    "cd project && export TODO_FILE=/tmp/todo-acceptance.json\nid=$(python3 todo.py list --state open | head -1 | cut -d' ' -f1)\npython3 todo.py block \"$id\"\npython3 todo.py block \"$id\"   # idempotent: a retry is never an error\npython3 todo.py list --state blocked | awk '{$1=\"\"; print substr($0,2)}'\necho \"--- unknown id exits nonzero:\"\npython3 todo.py block nosuchid 2>/dev/null || echo \"yes\""
-  ],
-  "output": "blocked ship it today\n--- unknown id exits nonzero:\nyes\n",
-  "output_hash": "d2dc3dde6faa68d10159a3b7dd4c550120871f1eed85498aa7c44cdb723ecb8a"
-}

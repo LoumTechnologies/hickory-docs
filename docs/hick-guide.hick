@@ -43,11 +43,14 @@
 
 <h:exec container="guide-builder" mount="guide-artifacts:/out">
 echo "Built by hick" > out/stamp.txt
-</h:exec>
+<h:ingested key="b63cc1bab812d21238221fe57130f163f9b843ec9c4d0e924efdd723d4cde4ef" sha256="e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855" at="2026-09-03">
+</h:ingested></h:exec>
 
 <h:exec container="guide-verifier" mount="guide-artifacts:/out">
 cat out/stamp.txt
-</h:exec>
+<h:ingested key="4760058bc09fe271ecf08aae0e5dc145577e97f171f4b7cab439d5b4d5b20a21" sha256="82b822b27165b0f7445360ab303dddeb4169a4d55a4bee0f8f46709b553eb95e" at="2026-09-03">
+Built by hick
+</h:ingested></h:exec>
 
 <!-- Fork demo: clone guide-builder's state into a restricted container -->
 <h:fork from="guide-builder" to="guide-forked">
@@ -56,7 +59,10 @@ cat out/stamp.txt
 
 <h:exec container="guide-forked" mount="guide-artifacts:/out">
 cat out/stamp.txt && echo "Fork inherited builder state"
-</h:exec>
+<h:ingested key="a342f9159cbb7bc537e8c3bdb2b4d062913ccc2604f32da59246b52de80624d0" sha256="75d9b2a2ea2b6cbad552a06975d8853dc2003881d1eadaa267e64f8fb401d477" at="2026-09-03">
+Built by hick
+Fork inherited builder state
+</h:ingested></h:exec>
 
 <!-- ================================================================== -->
 <!-- File output: the guide itself                                      -->
@@ -946,7 +952,9 @@ guide-forked    (forked from guide-builder, network denied)
 The following block is an exec tag rendered by the pipeline — it shows
 the full transcript for the referenced container (commands and output):
 
-> <h:exec container="guide-verifier">cat out/stamp.txt</h:exec>
+> <h:exec container="guide-verifier">cat out/stamp.txt<h:ingested key="d30e1a3f1d021e1b4f14aa5d2fe66cc2943cc667e556e569bfaa37cfea682984" sha256="82b822b27165b0f7445360ab303dddeb4169a4d55a4bee0f8f46709b553eb95e" at="2026-09-03">
+Built by hick
+</h:ingested></h:exec>
 
 ### Forked container transcript
 
@@ -956,7 +964,10 @@ re-running the original commands on the original container. The fork
 also adds a network deny rule, further restricting the builder's
 capabilities:
 
-> <h:exec container="guide-forked">cat out/stamp.txt && echo "Fork inherited builder state"</h:exec>
+> <h:exec container="guide-forked">cat out/stamp.txt && echo "Fork inherited builder state"<h:ingested key="ab96ef06d939ceac7ee4a8b38a62bb3ef32fd395f21157b4c1a93c5e3481ae2a" sha256="75d9b2a2ea2b6cbad552a06975d8853dc2003881d1eadaa267e64f8fb401d477" at="2026-09-03">
+Built by hick
+Fork inherited builder state
+</h:ingested></h:exec>
 
 ### Pasted build command
 

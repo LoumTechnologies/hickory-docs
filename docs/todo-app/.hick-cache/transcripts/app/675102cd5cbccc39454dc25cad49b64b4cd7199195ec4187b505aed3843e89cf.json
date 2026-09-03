@@ -1,7 +1,0 @@
-{
-  "commands": [
-    "cd project && rm -f /tmp/todo-acceptance.json && export TODO_FILE=/tmp/todo-acceptance.json\npython3 todo.py list\necho \"--- empty file reads as empty list, no error: $?\""
-  ],
-  "output": "--- empty file reads as empty list, no error: 0\n",
-  "output_hash": "6daafe54016f3acc282286aed436c7190470a1254950aef626bac7b100ea9398"
-}

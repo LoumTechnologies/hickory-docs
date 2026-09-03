@@ -1,7 +1,0 @@
-{
-  "commands": [
-    "cd project && export TODO_FILE=/tmp/todo-acceptance.json\nfirst=$(python3 todo.py list | head -1 | cut -d' ' -f1)\nlast=$(python3 todo.py list | tail -1 | cut -d' ' -f1)\npython3 todo.py done \"$first\"\npython3 todo.py done \"$first\"   # idempotent: a retry is never an error\npython3 todo.py drop \"$last\"\npython3 todo.py list | awk '{$1=\"\"; print substr($0,2)}'"
-  ],
-  "output": "done write the spec\nopen ship it\ndropped abandon this one\n",
-  "output_hash": "f3a533af07be18087b8efa7bc5dee1a76723f1e39498f8c0ca95d30cc8d62142"
-}

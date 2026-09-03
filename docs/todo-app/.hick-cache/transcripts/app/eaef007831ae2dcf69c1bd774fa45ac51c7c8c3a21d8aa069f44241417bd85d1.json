@@ -1,7 +1,0 @@
-{
-  "commands": [
-    "cd project && export TODO_FILE=/tmp/todo-acceptance.json\npython3 todo.py add \"write the spec\" > /dev/null\npython3 todo.py add \"ship it\" > /dev/null\npython3 todo.py add \"abandon this one\" > /dev/null\npython3 todo.py list | awk '{$1=\"\"; print substr($0,2)}'"
-  ],
-  "output": "open write the spec\nopen ship it\nopen abandon this one\n",
-  "output_hash": "8658905462420830ffd21e662b9e0d9ee01386573036ae192281c8c9fbfda6ec"
-}

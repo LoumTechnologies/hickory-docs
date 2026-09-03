@@ -1,6 +1,7 @@
 # Three axes, not thirty modes
 
-*Status: design of record, adopted 2026-09-03; nothing built yet. Written
+*Status: design of record, adopted 2026-09-03; steps 1–4 of the sequence
+built the same day, step 5 open. Written
 because the dogfooding of 2026-09-02 (`an-output-that-cannot-be-carried-back-is-held.md`
 and its neighbours) added two more states to a document that already had
 too many, and because the question "should recordings be committed or

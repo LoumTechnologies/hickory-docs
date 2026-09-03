@@ -1,7 +1,0 @@
-{
-  "commands": [
-    "cd project && export TODO_FILE=/tmp/todo-acceptance.json\nid=$(python3 todo.py list --state open | head -1 | cut -d' ' -f1)\npython3 todo.py rename \"$id\" \"ship it today\"\npython3 todo.py list --state open | awk '{$1=\"\"; print substr($0,2)}'\necho \"--- id survived the retitle:\"\npython3 todo.py list --state open | head -1 | cut -d' ' -f1 | grep -qx \"$id\" && echo \"yes\"\necho \"--- unknown id exits nonzero:\"\npython3 todo.py rename nosuchid \"x\" 2>/dev/null || echo \"yes\""
-  ],
-  "output": "open ship it today\n--- id survived the retitle:\nyes\n--- unknown id exits nonzero:\nyes\n",
-  "output_hash": "48aadf260222743257630badc22113e7e322ce1f7280363e297ccbaa633f9d5c"
-}

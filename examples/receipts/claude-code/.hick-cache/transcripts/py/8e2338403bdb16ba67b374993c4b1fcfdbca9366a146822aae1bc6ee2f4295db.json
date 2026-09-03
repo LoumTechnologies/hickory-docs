@@ -1,7 +1,0 @@
-{
-  "commands": [
-    "python3 - <<'PY'\nimport csv\nrows = list(csv.DictReader(open(\"project/data/checkout-latency.csv\")))\ndef mean(xs): xs = list(xs); return sum(xs) / len(xs)\nLOAD_TEST = {\"2026-08-18T08:00\"}          # the bucket covering 10:00-12:00 on the 18th\ndef window(lo, hi):\n    sel = [r for r in rows if lo <= r[\"bucket_start\"] < hi and r[\"bucket_start\"] not in LOAD_TEST]\n    return mean(int(r[\"p95_ms\"]) for r in sel), len(sel)\nbase, nb = window(\"2026-08-10T00:00\", \"2026-08-12T00:00\")\nbefore, n1 = window(\"2026-08-12T00:00\", \"2026-08-21T12:00\")\nafter, n2 = window(\"2026-08-21T12:00\", \"2026-08-24T00:00\")\ndropped = sum(1 for r in rows if r[\"bucket_start\"] in LOAD_TEST)\nprint(f\"baseline  (08-10 .. 08-12)        p95 {base:.0f} ms over {nb} buckets\")\nprint(f\"broken    (08-12 .. 08-21 12:00)  p95 {before:.0f} ms over {n1} buckets\")\nprint(f\"after fix (08-21 12:00 .. 08-24)  p95 {after:.0f} ms over {n2} buckets\")\nprint(f\"excluded: {dropped} bucket(s) in the 2026-08-18 load-test window\")\nPY"
-  ],
-  "output": "baseline  (08-10 .. 08-12)        p95 203 ms over 12 buckets\nbroken    (08-12 .. 08-21 12:00)  p95 489 ms over 56 buckets\nafter fix (08-21 12:00 .. 08-24)  p95 212 ms over 15 buckets\nexcluded: 1 bucket(s) in the 2026-08-18 load-test window\n",
-  "output_hash": "1488ef204c3e853d4e958743835e79f59df4fb44970b0bcf5e283d6f8e9372fd"
-}

@@ -1328,6 +1328,18 @@ async fn cmd_run(args: RunArgs) -> Result<ExitCode> {
         )
         .await?;
         let outputs = write_outputs_detailed(&run, args.out.as_deref())?;
+        // A document that keeps recordings keeps them current: the cells this
+        // run re-executed are written back into it. Never a cell it did not
+        // already keep — a run never decides what a document keeps.
+        let today = hickory_cli::ingest::today().unwrap_or_else(|| "unknown".to_string());
+        let refreshed = hickory_cli::ingest_recording::refresh_recordings(
+            &run.doc_path,
+            &run.result.refreshed,
+            &today,
+        )?;
+        if refreshed > 0 && !args.json {
+            eprintln!("  refreshed {refreshed} recording(s) kept in the document");
+        }
         if args.json {
             json_blocks.push(block_model_json(&run)?);
         } else {
@@ -3289,10 +3301,39 @@ async fn cmd_ingest(args: IngestArgs) -> Result<ExitCode> {
                 .unwrap_or_else(|| PathBuf::from("sessions"));
             return ingest_claude_code(&args.paths, &out, args.force, args.stdout);
         }
-        Some("recording") => anyhow::bail!(
-            "`--from recording` is the next step of docs/specs/freeform/three-axes.md and is not \
-             built yet; the recordings a document keeps still live in .hick-cache/transcripts/"
-        ),
+        Some("recording") => {
+            let doc = first()?;
+            let today = hickory_cli::ingest::today().unwrap_or_else(|| "unknown".to_string());
+            let report = hickory_cli::ingest_recording::ingest_recordings(
+                doc,
+                &[],
+                ExecutorChoice::from_env()?,
+                &today,
+            )
+            .await?;
+            println!(
+                "{}: {} recording(s) now kept in the document, {} refreshed, {} with nothing to \
+                 keep",
+                report.doc_path.display(),
+                report.ingested.len(),
+                report.refreshed.len(),
+                report.without.len()
+            );
+            for (cell, why) in &report.refused {
+                println!("  left in the cache: {cell} — {why}");
+            }
+            for (cell, why) in &report.without {
+                println!("  nothing to keep for {cell}: {why}");
+            }
+            if report
+                .without
+                .iter()
+                .any(|(_, why)| *why == "stale" || *why == "unrecorded")
+            {
+                println!("  Run the document first (`hick run`), then ingest again.");
+            }
+            return Ok(ExitCode::SUCCESS);
+        }
         Some(other) => anyhow::bail!(
             "`--from {other}` is not a source hick knows. Sources: '#cell' (a cell's output \
              volume), file, session, carry, claude-code."

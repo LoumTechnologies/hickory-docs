@@ -1,7 +1,0 @@
-{
-  "commands": [
-    "sort -t, -k2 -n fruit.csv"
-  ],
-  "output": "apple,3\nbanana,5\ncherry,7\napple,9\n",
-  "output_hash": "92bf6daf65a6da1d76c8a54a02257f6498dcef1d590c40d27dec850e76b59167"
-}

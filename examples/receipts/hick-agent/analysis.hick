@@ -66,6 +66,13 @@ Broken window (2026-08-12 to 2026-08-21 12:00): 488.7 ms
 After fix (2026-08-21 12:00 to 2026-08-24): 212.5 ms
 Excluded 1 rows (load-test window 2026-08-18 10:00-12:00)
 </hick:expect>
+
+<hick:ingested key="489f5a49477e2456e22ffd289dc38fcc1a997276b81ee36741a0f26fcca079c8" sha256="e441cf6914b0750138e1d3ae7106c479588f483d2e509f4ebcfc11c41629cf74" at="2026-09-03">
+Baseline (2026-08-10 to 2026-08-12): 202.6 ms
+Broken window (2026-08-12 to 2026-08-21 12:00): 488.7 ms
+After fix (2026-08-21 12:00 to 2026-08-24): 212.5 ms
+Excluded 1 rows (load-test window 2026-08-18 10:00-12:00)
+</hick:ingested>
 </hick:exec>
 
 ## Findings

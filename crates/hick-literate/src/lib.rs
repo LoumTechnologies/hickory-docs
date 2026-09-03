@@ -210,6 +210,15 @@ pub struct PipelineResult {
     /// reports them apart from the unrecorded. Axis 1 of
     /// `docs/specs/freeform/three-axes.md`.
     pub stale: std::collections::BTreeMap<CellId, String>,
+    /// The cache key each cell was looked up (or recorded) under.
+    pub keys: std::collections::BTreeMap<CellId, String>,
+    /// Cells that executed and whose document keeps a recording of them, so
+    /// the document's copy is now behind and should be brought forward.
+    pub refreshed: Vec<RefreshedRecording>,
+    /// Cells answered from a recording the document keeps, rather than from
+    /// the cache. The ingest's gate reads this to prove a recording it just
+    /// wrote is the one the weave uses.
+    pub from_document: std::collections::BTreeSet<CellId>,
     /// What each OUTPUT VOLUME produced on this run, by volume name.
     ///
     /// Separate from [`PipelineResult::files`] for two reasons, and both are
@@ -882,7 +891,11 @@ fn ingested_volume_names<'a>(
     fn walk(nodes: &[HickNode], out: &mut std::collections::HashSet<String>) {
         for node in nodes {
             let HickNode::Tag(tag) = node else { continue };
-            if tag.name == "exec" && tag.child_tags().any(|c| c.name == "ingested") {
+            if tag.name == "exec"
+                && tag
+                    .child_tags()
+                    .any(|c| c.name == "ingested" && c.get_attribute("key").is_none())
+            {
                 for entry in tag_attr(tag, "mount").unwrap_or_default().split(',') {
                     if let Some((vol, _)) = entry.trim().split_once(':') {
                         out.insert(vol.to_string());
@@ -1101,8 +1114,12 @@ fn seed_input_volumes(
 /// that never hits and grows a file per run. `.git/` is excluded for the same
 /// reason with a slower fuse: committing anything would invalidate every cell.
 fn is_run_artifact(path: &str) -> bool {
-    let first = path.split(['/', '\\']).next().unwrap_or("");
-    first == ".hick-cache" || first == ".git"
+    // At ANY depth, not only the first component: a folder mounted as `.`
+    // holds its subfolders' caches too, and a recording written under
+    // `sub/.hick-cache/` by another document's run moved every key of a
+    // cell mounting the parent.
+    path.split(['/', '\\'])
+        .any(|part| part == ".hick-cache" || part == ".git")
 }
 
 /// Digest the contents of every volume mounted into a cell.
@@ -1133,6 +1150,59 @@ fn is_run_artifact(path: &str) -> bool {
 /// caveat on the guarantee above — but it is exact for the unanchored
 /// patterns (`bin/`, `obj/`, `__pycache__`) that are the actual, observed
 /// failure mode.
+/// A recording a document keeps of one of its cells: `<hick:ingested
+/// key="…">` inside the `hick:exec`, holding the recorded output verbatim.
+/// Axis 1 of docs/specs/freeform/three-axes.md — evidence the document
+/// makes about itself, so it travels with the document rather than living
+/// in a cache a clone does not have.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DocRecording {
+    pub key: String,
+    pub output: String,
+}
+
+/// What executed and has a recording in its document, so the document's
+/// copy can be brought forward by whoever writes documents (`hick run`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RefreshedRecording {
+    pub cell: CellId,
+    pub key: String,
+    pub output: String,
+}
+
+/// Every recording the documents keep, by cell.
+pub fn document_recordings<'a>(
+    documents: impl Iterator<Item = &'a hick_lang::HickDocument>,
+) -> HashMap<CellId, Vec<DocRecording>> {
+    let mut out: HashMap<CellId, Vec<DocRecording>> = HashMap::new();
+    for doc in documents {
+        for exec in doc.all_tags().into_iter().filter(|t| t.name == "exec") {
+            let Some(container) = exec.get_attribute("container") else {
+                continue;
+            };
+            for child in exec.child_tags().filter(|c| c.name == "ingested") {
+                let Some(key) = child.get_attribute("key") else {
+                    continue;
+                };
+                out.entry(CellId::exec(container.trim(), exec.source_line))
+                    .or_default()
+                    .push(DocRecording {
+                        key: key.trim().to_string(),
+                        output: recording_body(&child.text_content()),
+                    });
+            }
+        }
+    }
+    out
+}
+
+/// The recorded output as written: the writer puts one newline after the
+/// opening tag so the output starts on its own line, and that newline is
+/// not part of the output.
+pub fn recording_body(text: &str) -> String {
+    text.strip_prefix('\n').unwrap_or(text).to_string()
+}
+
 /// Every `hick:file` a cell fills, keyed by the cell: (container, source
 /// line) → (the file's document-relative path, how its transcript renders).
 ///
@@ -1145,7 +1215,7 @@ pub(crate) fn cell_filled_files<'a>(
 ) -> HashMap<(String, usize), (String, hick_handlers::ExecShow)> {
     let mut out = HashMap::new();
     for doc in documents {
-        for tag in doc.tags().filter(|t| t.name == "file") {
+        for tag in doc.all_tags().into_iter().filter(|t| t.name == "file") {
             let Some(path) = tag.get_attribute("path") else {
                 continue;
             };
@@ -1176,10 +1246,52 @@ pub(crate) fn cell_filled_files<'a>(
 /// read either nothing or the previous run's spec, and the run reported
 /// nothing wrong. The volume's seeded record is left alone: the product is
 /// something the run changed, and the flush must treat it as such.
+/// The documents' literal `hick:file` products — bodies with no tag children —
+/// as the documents hold them now.
+///
+/// Seeded into the volumes that cover them BEFORE any cell runs, and into
+/// the seeded record the key is taken from. A volume seeded from disk holds
+/// the previous run's copy of such a file; the document is the truth, and a
+/// cell that reads the file must re-execute when the document changed it
+/// (`a-recording-is-keyed-by-the-cells-inputs.md`). This used to hold by
+/// accident, because the document itself was in the key; the document is
+/// out of the key now (it carries its recordings), so the product goes in
+/// on its own.
+pub(crate) fn literal_products<'a>(
+    documents: impl Iterator<Item = &'a hick_lang::HickDocument>,
+) -> Vec<(String, Vec<u8>)> {
+    let mut out = Vec::new();
+    for doc in documents {
+        for tag in doc.all_tags().into_iter().filter(|t| t.name == "file") {
+            let Some(path) = tag.get_attribute("path") else {
+                continue;
+            };
+            if tag.child_tags().next().is_none() {
+                out.push((
+                    path.trim().trim_start_matches("./").to_string(),
+                    tag.text_content().into_bytes(),
+                ));
+            }
+        }
+    }
+    out
+}
+
 fn inject_products_into_volumes(
     volume_store: &mut volume_state::VolumeStore,
     volumes: &HashMap<String, hick_exec::volume::VolumeDeclaration>,
     products: &[(String, Vec<u8>)],
+) -> Result<()> {
+    inject_products(volume_store, volumes, products, false)
+}
+
+/// `into_seed`: also make the products part of what the volume was SEEDED
+/// with, so they are in every cell's key.
+fn inject_products(
+    volume_store: &mut volume_state::VolumeStore,
+    volumes: &HashMap<String, hick_exec::volume::VolumeDeclaration>,
+    products: &[(String, Vec<u8>)],
+    into_seed: bool,
 ) -> Result<()> {
     for (vol_name, vol_decl) in volumes {
         let input = match &vol_decl.kind {
@@ -1211,7 +1323,12 @@ fn inject_products_into_volumes(
             changed = true;
         }
         if changed {
-            volume_store.update(vol_name, volume_state::pack_tar_files(&entries)?);
+            let tar = volume_state::pack_tar_files(&entries)?;
+            if into_seed {
+                volume_store.seed_tar(vol_name, tar);
+            } else {
+                volume_store.update(vol_name, tar);
+            }
         }
     }
     Ok(())
@@ -1238,7 +1355,7 @@ pub(crate) fn unstable_outputs<'a>(
 ) -> HashSet<String> {
     let mut out = HashSet::new();
     for doc in documents {
-        for tag in doc.tags().filter(|t| t.name == "file") {
+        for tag in doc.all_tags().into_iter().filter(|t| t.name == "file") {
             if tag.child_tags().any(|c| c.name == "exec")
                 && let Some(path) = tag.get_attribute("path")
             {
@@ -1264,15 +1381,95 @@ fn is_unstable_output(path: &str, unstable: &HashSet<String>) -> bool {
             .any(|u| u.ends_with(path) && u[..u.len() - path.len()].ends_with('/'))
 }
 
+/// What a cell's input digest leaves out and puts back, beyond the volume's
+/// own bytes. See `docs/specs/freeform/three-axes.md`, axis 1, and
+/// `a-recording-is-keyed-by-the-cells-inputs.md`.
+#[derive(Default)]
+pub(crate) struct DigestPolicy {
+    /// The documents' own unstable products and the documents themselves.
+    ///
+    /// Deliberately NOT "everything under an output volume's path": with
+    /// `output="."` that would remove every input and a changed script would
+    /// never re-execute the cell that reads it. What an earlier cell wrote
+    /// into a volume is kept out by digesting the volume as seeded instead.
+    pub unstable: HashSet<String>,
+}
+
+impl DigestPolicy {
+    pub(crate) fn from_documents(
+        documents: &[(&str, hick_lang::HickDocument)],
+        _volumes: &HashMap<String, hick_exec::volume::VolumeDeclaration>,
+    ) -> Self {
+        let mut unstable = unstable_outputs(documents.iter().map(|(_, d)| d));
+        // The documents' own bytes are not inputs to their cells either: a
+        // recording kept in the document changes the document, and must not
+        // thereby go stale the moment it is kept.
+        for (name, _) in documents {
+            unstable.insert(normalize_rel(name));
+        }
+        Self { unstable }
+    }
+}
+
+/// A document's bytes with every `<prefix:ingested key="…">…</prefix:ingested>`
+/// removed, for keying. Textual, on any prefix: the recordings are
+/// evidence, and a key that included them would move whenever a document
+/// kept one.
+pub(crate) fn strip_kept_recordings(bytes: &[u8]) -> Vec<u8> {
+    let Ok(text) = std::str::from_utf8(bytes) else {
+        return bytes.to_vec();
+    };
+    let mut out = String::with_capacity(text.len());
+    let mut rest = text;
+    loop {
+        // `<x:ingested key=`, whatever the prefix.
+        let Some(open) = rest
+            .find(":ingested key=")
+            .and_then(|i| rest[..i].rfind('<'))
+        else {
+            out.push_str(rest);
+            break;
+        };
+        let prefix = &rest[open + 1..rest[open..].find(':').map(|i| open + i).unwrap_or(open + 1)];
+        let close = format!("</{prefix}:ingested>");
+        let Some(end) = rest[open..].find(&close).map(|i| open + i + close.len()) else {
+            out.push_str(rest);
+            break;
+        };
+        out.push_str(&rest[..open]);
+        rest = &rest[end..];
+    }
+    out.into_bytes()
+}
+
+/// `./a/b/`, `a/b`, `.` → `a/b`, or `` for the project root.
+fn normalize_rel(path: &str) -> String {
+    let p = path.trim().trim_start_matches("./").trim_end_matches('/');
+    if p == "." {
+        String::new()
+    } else {
+        p.to_string()
+    }
+}
+
 fn mounted_inputs_digest(
     volume_store: &volume_state::VolumeStore,
     mounts: &[(String, String)],
     project_dir: &Path,
-    unstable: &HashSet<String>,
+    policy: &DigestPolicy,
 ) -> String {
+    let unstable = &policy.unstable;
     let mut entries: Vec<(String, Vec<u8>)> = Vec::new();
     for (vol_name, mount_path) in mounts {
-        let Some(tar) = volume_store.get(vol_name) else {
+        // The volume AS SEEDED, not as earlier cells left it. What an
+        // earlier cell wrote into a shared volume is that cell's output, and
+        // it reaches this key through the upstream-key term; hashing it
+        // here as well gave a run-time key no weave could recompute, since
+        // a weave runs nothing and the writes are never there.
+        // An unseeded volume — output-only, or seeded from a directory that
+        // did not exist — digests as "declared but empty", never as whatever
+        // earlier cells left in it.
+        let Some(tar) = volume_store.seeded(vol_name) else {
             entries.push((format!("{vol_name}@{mount_path}/"), Vec::new()));
             continue;
         };
@@ -1320,6 +1517,16 @@ fn mounted_inputs_digest(
                     if ignored.as_ref().is_some_and(|set| set.contains(&path)) {
                         continue;
                     }
+                    // A sibling document is an input like any file — minus
+                    // the recordings it keeps, which are evidence about
+                    // itself and not input to anything. Without this, keeping
+                    // a recording in one document staled every cell in the
+                    // folder that mounted it.
+                    let body = if path.ends_with(".hick") {
+                        strip_kept_recordings(&body)
+                    } else {
+                        body
+                    };
                     entries.push((format!("{vol_name}@{mount_path}/{path}"), body));
                 }
             }
@@ -1536,6 +1743,9 @@ pub async fn run_pipeline_with_authority(
         expectations: Vec::new(),
         never_run,
         stale: std::collections::BTreeMap::new(),
+        keys: std::collections::BTreeMap::new(),
+        refreshed: Vec::new(),
+        from_document: std::collections::BTreeSet::new(),
         span_files,
     })
 }
@@ -1658,8 +1868,12 @@ pub async fn run_pipeline_live(
     let authority = Arc::new(TokenAuthority::new(&root_key));
 
     let prepared = prepare_pipeline(sources, &authority, params)?;
-    let unstable_products = unstable_outputs(prepared.documents.iter().map(|(_, d)| d));
+    let digest_policy = DigestPolicy::from_documents(&prepared.documents, &prepared.volumes);
     let filled_files = cell_filled_files(prepared.documents.iter().map(|(_, d)| d));
+    let doc_recordings = document_recordings(prepared.documents.iter().map(|(_, d)| d));
+    let mut cell_keys: std::collections::BTreeMap<CellId, String> =
+        std::collections::BTreeMap::new();
+    let mut refreshed: Vec<RefreshedRecording> = Vec::new();
     // Products of cells that filled a `hick:file`, waiting to be put into
     // the volumes the next cell mounts. See `inject_products_into_volumes`.
     let mut pending_products: Vec<(String, Vec<u8>)> = Vec::new();
@@ -1743,6 +1957,12 @@ pub async fn run_pipeline_live(
         .clone()
         .unwrap_or_else(|| std::env::current_dir().unwrap_or_default());
     seed_input_volumes(&mut volume_store, &all_volume_decls, &working_dir, &[])?;
+    inject_products(
+        &mut volume_store,
+        &all_volume_decls,
+        &literal_products(documents.iter().map(|(_, d)| d)),
+        true,
+    )?;
 
     for doc_index in 0..documents.len() {
         let name = documents[doc_index].0;
@@ -2081,6 +2301,7 @@ pub async fn run_pipeline_live(
             // moment the cell writes to a volume it also reads; and a lookup
             // and a store that computed their keys separately could disagree,
             // which would record every cell under a key nothing ever looks up.
+            let key_terms_note;
             let exec_key = {
                 let caps_canonical = cache::canonical_caps(&container_defs, &exec_info.container);
                 let secret_names = cache::secret_names_for(&container_defs, &exec_info.container);
@@ -2089,10 +2310,15 @@ pub async fn run_pipeline_live(
                     &volume_store,
                     &exec_info.mounts,
                     &working_dir,
-                    &unstable_products,
+                    &digest_policy,
                 );
                 let upstream = upstream_keys(&flow_dag, exec_id, &keys_by_exec);
                 let upstream_refs: Vec<&str> = upstream.iter().map(String::as_str).collect();
+                key_terms_note = format!(
+                    "image={image} caps={caps_canonical} secrets={secret_refs:?} input={input_digest} \
+                     upstream={upstream_refs:?} command={:?}",
+                    exec_info.command
+                );
                 cache::exec_cache_key(
                     image,
                     &caps_canonical,
@@ -2103,6 +2329,15 @@ pub async fn run_pipeline_live(
                 )
             };
             keys_by_exec.insert(exec_id, exec_key.clone());
+            cell_keys.insert(
+                CellId::exec(&exec_info.container, exec_info.source_line),
+                exec_key.clone(),
+            );
+            trace!(
+                "key terms for {}: {}",
+                CellId::exec(&exec_info.container, exec_info.source_line),
+                key_terms_note
+            );
 
             // Check cache before executing
             if let Some(cc) = cache_config
@@ -2110,7 +2345,18 @@ pub async fn run_pipeline_live(
             {
                 let key = &exec_key;
 
-                if let Some(cached) = cache::cache_lookup(cc, &exec_info.container, key)? {
+                let from_document = doc_recordings
+                    .get(&CellId::exec(&exec_info.container, exec_info.source_line))
+                    .and_then(|recs| recs.iter().find(|r| &r.key == key))
+                    .map(|rec| cache::ExecCacheEntry {
+                        commands: vec![exec_info.command.trim().to_string()],
+                        output: rec.output.clone(),
+                        output_hash: cache::sha256_hex(&rec.output),
+                    });
+                if let Some(cached) = match from_document {
+                    Some(rec) => Some(rec),
+                    None => cache::cache_lookup(cc, &exec_info.container, key)?,
+                } {
                     info!(
                         "Cache hit for exec in '{}': {}…",
                         exec_info.container,
@@ -2441,6 +2687,17 @@ pub async fn run_pipeline_live(
                         };
                         cache::cache_store(cc, &exec_info.container, key, &cache_entry)?;
                         info!("Cached exec in '{}': {}…", exec_info.container, &key[..12]);
+                        // The document keeps a recording of this cell and it
+                        // is now behind: hand the new one to whoever writes
+                        // documents.
+                        let cell = CellId::exec(&exec_info.container, exec_info.source_line);
+                        if doc_recordings.contains_key(&cell) {
+                            refreshed.push(RefreshedRecording {
+                                cell,
+                                key: key.clone(),
+                                output: last.output.clone(),
+                            });
+                        }
                     }
                 }
 
@@ -2581,6 +2838,9 @@ pub async fn run_pipeline_live(
         expectations,
         never_run,
         stale: std::collections::BTreeMap::new(),
+        keys: cell_keys,
+        refreshed,
+        from_document: std::collections::BTreeSet::new(),
         span_files,
     })
 }
@@ -2614,7 +2874,7 @@ pub async fn run_pipeline_weave(
     let authority = Arc::new(TokenAuthority::new(&root_key));
 
     let prepared = prepare_pipeline(sources, &authority, params)?;
-    let unstable_products = unstable_outputs(prepared.documents.iter().map(|(_, d)| d));
+    let digest_policy = DigestPolicy::from_documents(&prepared.documents, &prepared.volumes);
     let PreparedPipeline {
         documents,
         state,
@@ -2632,11 +2892,21 @@ pub async fn run_pipeline_weave(
     let mut volume_store = volume_state::VolumeStore::new();
     if let Some(cc) = cache_config {
         seed_input_volumes(&mut volume_store, &all_volume_decls, &cc.project_dir, &[])?;
+        inject_products(
+            &mut volume_store,
+            &all_volume_decls,
+            &literal_products(documents.iter().map(|(_, d)| d)),
+            true,
+        )?;
     }
 
     let mut transcripts: Transcripts = HashMap::new();
     let mut never_run: NeverRun = NeverRun::new();
     let mut stale: std::collections::BTreeMap<CellId, String> = std::collections::BTreeMap::new();
+    let mut cell_keys: std::collections::BTreeMap<CellId, String> =
+        std::collections::BTreeMap::new();
+    let mut from_document: std::collections::BTreeSet<CellId> = std::collections::BTreeSet::new();
+    let doc_recordings = document_recordings(documents.iter().map(|(_, d)| d));
 
     for (name, doc) in &documents {
         let flow_dag = dag::build_dag(doc)
@@ -2672,7 +2942,7 @@ pub async fn run_pipeline_weave(
                         &volume_store,
                         &info.mounts,
                         &cc.project_dir,
-                        &unstable_products,
+                        &digest_policy,
                     );
                     let upstream = upstream_keys(&flow_dag, exec_id, &keys_by_exec);
                     let upstream_refs: Vec<&str> = upstream.iter().map(String::as_str).collect();
@@ -2685,7 +2955,43 @@ pub async fn run_pipeline_weave(
                         &upstream_refs,
                     );
                     keys_by_exec.insert(exec_id, key.clone());
-                    cache::cache_lookup(cc, &info.container, &key)?
+                    cell_keys.insert(cell_id_of(info), key.clone());
+                    trace!(
+                        "key terms for {}: image={image} caps={caps_canonical} secrets={secret_refs:?} \
+                         input={input_digest} upstream={upstream_refs:?} command={:?}",
+                        cell_id_of(info),
+                        info.command
+                    );
+                    // The document's own recording first, the cache second:
+                    // the document is where evidence it chose to keep lives.
+                    if let Some(recs) = doc_recordings.get(&cell_id_of(info))
+                        && !recs.iter().any(|r| r.key == key)
+                    {
+                        debug!(
+                            "cell {} keeps {} recording(s) in its document, none under its key {}… (kept: {})",
+                            cell_id_of(info),
+                            recs.len(),
+                            &key[..12],
+                            recs.iter()
+                                .map(|r| r.key.chars().take(12).collect::<String>())
+                                .collect::<Vec<_>>()
+                                .join(", ")
+                        );
+                    }
+                    match doc_recordings
+                        .get(&cell_id_of(info))
+                        .and_then(|recs| recs.iter().find(|r| r.key == key))
+                    {
+                        Some(rec) => {
+                            from_document.insert(cell_id_of(info));
+                            Some(cache::ExecCacheEntry {
+                                commands: commands.clone(),
+                                output: rec.output.clone(),
+                                output_hash: cache::sha256_hex(&rec.output),
+                            })
+                        }
+                        None => cache::cache_lookup(cc, &info.container, &key)?,
+                    }
                 }
                 (None, _) => None,
             };
@@ -2703,7 +3009,22 @@ pub async fn run_pipeline_weave(
                     // last recording, marked; only a cell that was never
                     // recorded gets the marker.
                     let stale_recording = match (cache_config, info.agent.as_ref()) {
-                        (Some(cc), None) => cache::stale_lookup(cc, &info.container, &commands)?,
+                        (Some(cc), None) => match doc_recordings
+                            .get(&cell_id_of(info))
+                            .and_then(|recs| recs.last())
+                        {
+                            // The document's recording under another key: the
+                            // inputs moved since it was kept.
+                            Some(rec) => Some((
+                                rec.key.clone(),
+                                cache::ExecCacheEntry {
+                                    commands: commands.clone(),
+                                    output: rec.output.clone(),
+                                    output_hash: cache::sha256_hex(&rec.output),
+                                },
+                            )),
+                            None => cache::stale_lookup(cc, &info.container, &commands)?,
+                        },
                         _ => None,
                     };
                     match stale_recording {
@@ -2753,6 +3074,9 @@ pub async fn run_pipeline_weave(
         expectations: Vec::new(),
         never_run,
         stale,
+        keys: cell_keys,
+        refreshed: Vec::new(),
+        from_document,
         span_files,
     })
 }
@@ -4096,6 +4420,14 @@ mod tests {
     // Protects docs/guarantees/execution/a-volume-carries-what-the-repository-carries.md
     // (the cache-digest half — `mounted_inputs_digest` must apply the same
     // `.gitignore` filter `seed_from_directory` already applies at seed time).
+    #[test]
+    fn a_sibling_documents_kept_recordings_are_not_in_the_key() {
+        let with = b"<h:doc>\n<h:exec container=\"c\">cmd<h:ingested key=\"k\" sha256=\"s\" at=\"d\">\nout\n</h:ingested></h:exec>\n</h:doc>\n";
+        let without = b"<h:doc>\n<h:exec container=\"c\">cmd</h:exec>\n</h:doc>\n";
+        assert_eq!(strip_kept_recordings(with), without.to_vec());
+        assert_eq!(strip_kept_recordings(without), without.to_vec());
+    }
+
     /// Protects docs/guarantees/execution/an-output-volume-flushes-only-what-the-run-changed.md
     #[test]
     fn a_flush_writes_only_what_the_run_changed() {
@@ -4152,9 +4484,10 @@ mod tests {
             .into_iter()
             .collect();
         store.seed_tar("src", volume_state::pack_tar_files(&before).unwrap());
-        let key_before = mounted_inputs_digest(&store, &mounts, dir.path(), &unstable);
+        let policy = DigestPolicy { unstable };
+        let key_before = mounted_inputs_digest(&store, &mounts, dir.path(), &policy);
         store.seed_tar("src", volume_state::pack_tar_files(&after).unwrap());
-        let key_after = mounted_inputs_digest(&store, &mounts, dir.path(), &unstable);
+        let key_after = mounted_inputs_digest(&store, &mounts, dir.path(), &policy);
         assert_eq!(
             key_before, key_after,
             "the run's own products moved the key"
@@ -4170,7 +4503,7 @@ mod tests {
         store.seed_tar("src", volume_state::pack_tar_files(&edited).unwrap());
         assert_ne!(
             key_after,
-            mounted_inputs_digest(&store, &mounts, dir.path(), &unstable)
+            mounted_inputs_digest(&store, &mounts, dir.path(), &policy)
         );
         // And a product under a subdirectory is matched by its tail.
         assert!(is_unstable_output(
@@ -4207,8 +4540,8 @@ mod tests {
                 ("build/junk.txt".to_string(), junk.to_vec()),
             ])
             .unwrap();
-            store.update("v", tar);
-            mounted_inputs_digest(&store, &mounts, dir.path(), &HashSet::new())
+            store.seed_tar("v", tar);
+            mounted_inputs_digest(&store, &mounts, dir.path(), &DigestPolicy::default())
         };
 
         assert_eq!(
@@ -4240,8 +4573,8 @@ mod tests {
             let tar =
                 volume_state::pack_tar_files(&[("build/junk.txt".to_string(), junk.to_vec())])
                     .unwrap();
-            store.update("v", tar);
-            mounted_inputs_digest(&store, &mounts, dir.path(), &HashSet::new())
+            store.seed_tar("v", tar);
+            mounted_inputs_digest(&store, &mounts, dir.path(), &DigestPolicy::default())
         };
         assert_ne!(
             digest_of(b"one"),

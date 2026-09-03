@@ -524,7 +524,7 @@ cannot be carried back is held, never restored**
 the file back a second after git or a person wrote it; now the bytes stay,
 the tree and pane say *held* and why, and the hold lifts when the document
 catches up or on an explicit *Regenerate from document*. And **transcripts
-are committed** (`a-recording-travels-with-its-outputs.md`): `hick init`
+are committed** (`a-recording-a-document-keeps-lives-in-the-document.md`): `hick init`
 writes `.hick-cache/*` and `!.hick-cache/transcripts/` — a bare
 `.hick-cache/` cannot be re-included under, which is why the older line is
 widened rather than kept. A recording stored under an older key formula is
@@ -567,6 +567,20 @@ gone; they are `hick ingest --from file|session|carry|claude-code`, beside
 the inbox (no `--from`) and `--from '#cell'`
 (`one-verb-brings-bytes-into-a-document.md`). `--from recording` is named
 and refused until step 4.
+
+**Step 4 built:** a recording a document keeps lives in the document
+(`a-recording-a-document-keeps-lives-in-the-document.md`): `hick ingest
+--from recording` writes `<hick:ingested key=…>` into the cell behind an
+equivalence gate, the weave reads the document first and the cache second,
+`hick run` refreshes what a document already keeps, and `.hick-cache/` is
+a cache again. Migrating this repository's recordings found four more
+things a key must leave out — the mutated volume, an output directory's
+contents, a sibling document's kept recordings, a nested cache — all in
+`a-recording-is-keyed-by-the-cells-inputs.md`. Two lessons that cost hours:
+**the gate pairs cells by position**, because a recording written into an
+earlier cell moves every later cell's line, and **the element goes exactly
+where the closing tag was**, because a newline added there is command text
+and command text is in the key.
 
 ## Stack (settled — do not relitigate)
 

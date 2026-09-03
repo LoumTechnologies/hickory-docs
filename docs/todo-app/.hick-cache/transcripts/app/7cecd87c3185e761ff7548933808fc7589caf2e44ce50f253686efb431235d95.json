@@ -1,7 +1,0 @@
-{
-  "commands": [
-    "cd project && export TODO_FILE=/tmp/todo-acceptance.json\npython3 todo.py list --state open | awk '{$1=\"\"; print substr($0,2)}'\necho \"--- unknown id exits nonzero:\"\npython3 todo.py done nosuchid 2>/dev/null || echo \"yes\""
-  ],
-  "output": "open ship it\n--- unknown id exits nonzero:\nyes\n",
-  "output_hash": "626211412a1d9fa27d8b74c73ce56a57da58975765617814c3de73a96f651e17"
-}

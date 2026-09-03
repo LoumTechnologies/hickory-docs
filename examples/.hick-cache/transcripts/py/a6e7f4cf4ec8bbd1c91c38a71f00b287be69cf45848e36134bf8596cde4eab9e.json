@@ -1,7 +1,0 @@
-{
-  "commands": [
-    "python3 project/analysis.py"
-  ],
-  "output": "east      7117.44\nnorth    10440.28\nsouth     8050.32\nwest     13175.48\ntotal    38783.52\n",
-  "output_hash": "14c87f342e6504a354119e28dbd09c057d320568bc737604c80ce092b7f3f56e"
-}

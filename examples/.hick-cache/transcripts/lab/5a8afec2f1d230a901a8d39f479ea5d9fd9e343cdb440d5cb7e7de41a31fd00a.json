@@ -1,7 +1,0 @@
-{
-  "commands": [
-    "uv run --python 3.12 --with polars python3 - <<'EOF'\nimport random\n\nimport polars as pl\n\nrandom.seed(11)\nxs = [round(random.uniform(0.0, 10.0), 3) for _ in range(120)]\nys = [round(3.2 * x + 4.5 + random.gauss(0.0, 2.0), 3) for x in xs]\ndf = pl.DataFrame({\"x\": xs, \"y\": ys})\n\ndx = pl.col(\"x\") - pl.col(\"x\").mean()\ndy = pl.col(\"y\") - pl.col(\"y\").mean()\nfit = df.select(slope=(dx * dy).sum() / (dx * dx).sum())\nslope = fit[\"slope\"][0]\nintercept = df[\"y\"].mean() - slope * df[\"x\"].mean()\n\npred = df.select(r=pl.col(\"y\") - (slope * pl.col(\"x\") + intercept))[\"r\"]\nss_res = (pred * pred).sum()\ndy_all = df[\"y\"] - df[\"y\"].mean()\nr2 = 1.0 - ss_res / (dy_all * dy_all).sum()\n\nprint(f\"n         = {df.height}\")\nprint(f\"slope     = {slope:.4f}\")\nprint(f\"intercept = {intercept:.4f}\")\nprint(f\"r_squared = {r2:.4f}\")\n\ndf.write_csv(\"points.csv\")\nwith open(\"coeffs.txt\", \"w\") as f:\n    f.write(f\"{slope:.6f} {intercept:.6f}\")\nEOF"
-  ],
-  "output": "n         = 120\nslope     = 3.1260\nintercept = 4.8361\nr_squared = 0.9467\n",
-  "output_hash": "0e0de3627c8c31b77b964ecb02305568fb89b7568ce244a7ac7634482d51bf09"
-}

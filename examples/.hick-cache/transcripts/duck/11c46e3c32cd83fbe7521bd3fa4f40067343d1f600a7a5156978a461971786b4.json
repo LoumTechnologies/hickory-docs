@@ -1,7 +1,0 @@
-{
-  "commands": [
-    "duckdb tour.db -c \"\nCREATE TABLE sales AS\nSELECT\n  ['north', 'south', 'east', 'west'][1 + i % 4] AS region,\n  1 + (i * 37) % 50 AS units,\n  round(10 + (i * 97) % 90 + (i % 7) / 10.0, 2) AS unit_price\nFROM range(48) t(i);\nSELECT count(*) AS rows FROM sales;\n\""
-  ],
-  "output": "┌───────┐\n│ rows  │\n│ int64 │\n├───────┤\n│    48 │\n└───────┘\n",
-  "output_hash": "d3c0f64e57b48f59d6843b82a4bffce8f7aee449a8c9b760fd9876f1571cec88"
-}

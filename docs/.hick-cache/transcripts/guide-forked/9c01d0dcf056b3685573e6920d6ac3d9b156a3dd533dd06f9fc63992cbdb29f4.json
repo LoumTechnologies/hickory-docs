@@ -1,7 +1,0 @@
-{
-  "commands": [
-    "cat out/stamp.txt && echo \"Fork inherited builder state\""
-  ],
-  "output": "Built by hick\nFork inherited builder state\n",
-  "output_hash": "75d9b2a2ea2b6cbad552a06975d8853dc2003881d1eadaa267e64f8fb401d477"
-}

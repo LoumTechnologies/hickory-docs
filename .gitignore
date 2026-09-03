@@ -5,10 +5,7 @@ dist-site/
 .env
 .env.*
 !.env.example
-# The cache is private except the transcripts: a recording is what lets a
-# clone weave the same bytes it has in git, so it travels with them.
-.hick-cache/*
-!.hick-cache/transcripts/
+.hick-cache/
 *.t
 *.t.err
 .DS_Store

@@ -1,7 +1,0 @@
-{
-  "commands": [
-    "awk -F, '{sum[$1]+=$2} END {for (k in sum) print k, sum[k]}' fruit.csv | sort"
-  ],
-  "output": "apple 12\nbanana 5\ncherry 7\n",
-  "output_hash": "54f1c9c54973c847357c5b4d46e541e4feaffdd6c2b6a0ce553fccff4768a835"
-}

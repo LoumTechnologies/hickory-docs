@@ -1,7 +1,0 @@
-{
-  "commands": [
-    "mkdir -p out/src out/node_modules/left-pad\nprintf '{\\n  \"name\": \"greeter\",\\n  \"version\": \"0.1.0\",\\n  \"main\": \"src/index.js\"\\n}\\n' > out/package.json\nprintf 'export function greet(who) {\\n  return \"hello, \" + who;\\n}\\n' > out/src/index.js\nprintf '# greeter\\n\\nGenerated. Do not edit by hand.\\n' > out/README.md\nprintf 'module.exports = function () {};\\n' > out/node_modules/left-pad/index.js\nls out"
-  ],
-  "output": "README.md\nnode_modules\npackage.json\nsrc\n",
-  "output_hash": "0f12803b81433090ab2fdc15f50d457207585b55435537f0d508ee08091ea97e"
-}

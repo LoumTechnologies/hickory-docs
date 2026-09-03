@@ -42,6 +42,13 @@ broken    (08-12 .. 08-21 12:00)  p95 489 ms over 56 buckets
 after fix (08-21 12:00 .. 08-24)  p95 212 ms over 15 buckets
 excluded: 1 bucket(s) in the 2026-08-18 load-test window
 </hick:expect>
+
+<hick:ingested key="7102c3d6be9464b8e315a0fb0fa166d97256b7326176ece7a16e856211a1f8b9" sha256="1488ef204c3e853d4e958743835e79f59df4fb44970b0bcf5e283d6f8e9372fd" at="2026-09-03">
+baseline  (08-10 .. 08-12)        p95 203 ms over 12 buckets
+broken    (08-12 .. 08-21 12:00)  p95 489 ms over 56 buckets
+after fix (08-21 12:00 .. 08-24)  p95 212 ms over 15 buckets
+excluded: 1 bucket(s) in the 2026-08-18 load-test window
+</hick:ingested>
 </hick:exec>
 
 ## Findings

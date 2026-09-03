@@ -35,7 +35,10 @@ cd project/fix && python3 -c 'import pool; print(pool.pool_settings({}))' && CHE
 <hick:expect match="exact">{'size': 10, 'acquire_timeout': None}
 {'size': 40, 'acquire_timeout': 2.0}
 </hick:expect>
-</hick:exec>
+<hick:ingested key="0c631a4dd8000f212bf5aef40bae2ca6a25251857aa9a095e4cad9844aa4f8bf" sha256="cf2706682adde03d90616e2ba42f51c942a3ec825a77fe5ddb0b2dcfa41d8858" at="2026-09-03">
+{'size': 10, 'acquire_timeout': None}
+{'size': 40, 'acquire_timeout': 2.0}
+</hick:ingested></hick:exec>
 
 ## Findings
 

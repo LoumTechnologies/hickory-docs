@@ -1,7 +1,0 @@
-{
-  "commands": [
-    "duckdb tour.db -c \"\nSELECT region,\n       sum(units)                    AS units,\n       round(sum(units * unit_price), 2) AS revenue\nFROM sales\nGROUP BY region\nORDER BY region;\n\""
-  ],
-  "output": "┌─────────┬────────┬─────────┐\n│ region  │ units  │ revenue │\n│ varchar │ int128 │ double  │\n├─────────┼────────┼─────────┤\n│ east    │    168 │  7996.8 │\n│ north   │    430 │ 24172.3 │\n│ south   │    324 │ 15996.2 │\n│ west    │    312 │ 13988.0 │\n└─────────┴────────┴─────────┘\n",
-  "output_hash": "6e5132c5b9e40c75542cc8d56f5320f9267880a8569b1e7dd9b9f0f55562c94d"
-}

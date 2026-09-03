@@ -61,6 +61,25 @@ hick diagram demo --group dir --format scene
   ]
 }
 </h:expect>
+
+<h:ingested key="d55c409bfdf8356fc7625c2c77bd57297ed9653eb56a61704e70b4fc811608d2" sha256="78960896db0869a02a5ff35fb767ecf67868a75d401e1eabbb58b44998b270b9" at="2026-09-03">
+{
+  "nodes": [
+    {
+      "id": "app"
+    },
+    {
+      "id": "lib"
+    }
+  ],
+  "edges": [
+    {
+      "from": "app",
+      "to": "lib"
+    }
+  ]
+}
+</h:ingested>
 </h:exec>
 
 The fragment below is the same topology, stated where a diagram can paste it.

@@ -687,6 +687,11 @@ fn weave_ingested_block(
     doc_path: &str,
     span_files: &[Arc<str>],
 ) {
+    // A recording the document keeps (`key=`) is evidence, not content: the
+    // cell's transcript already renders it, so it weaves nothing of its own.
+    if tag_attr(tag, "key").is_some() {
+        return;
+    }
     let Some(run) = tag_attr(tag, "sha256").filter(|v| !v.is_empty()) else {
         return;
     };

@@ -74,6 +74,30 @@ but the *key* stabilises one run later.
 > Proven on `examples/grand-tour.hick`: one `hick run`, then two weaves in a
 > row found the recording, and `git status` stayed clean.
 
+
+> **Amended 2026-09-03 (three-axes, step 4).** Migrating this repository's
+> recordings into its documents found four more ways a key moved between a
+> run and the weave that had to find its recording, each now a rule in
+> `DigestPolicy` and `mounted_inputs_digest`:
+> 1. **The volume as seeded, never as earlier cells left it.** What a cell
+>    wrote into a shared volume is that cell's output and reaches later keys
+>    through the upstream term; hashing it again gave a run-time key no weave
+>    could recompute. An unseeded volume — output-only — digests as empty.
+> 2. **Not "everything under an output volume's path".** That rule was tried
+>    and withdrawn the same day: with `output="."` it removed every input, and
+>    a changed script no longer re-executed the cell that reads it. Rule 1
+>    already covers what it was for.
+> 3. **A sibling `.hick` minus its kept recordings.** A document's evidence
+>    about itself is not an input to anything; with it in the key, keeping a
+>    recording in one document staled every cell in the folder.
+> 4. **`.hick-cache` at any depth, not only the first component.** A folder
+>    mounted as `.` holds its subfolders' caches, and another document's run
+>    moved every key of a cell mounting the parent.
+> The documents themselves are out too (step 4 keeps recordings inside
+> them). Proven by keeping 25 recordings across 9 documents and weaving all
+> of them with every cache directory moved aside: nothing stale, nothing
+> unrecorded, every output byte-identical.
+
 ---
 
 Last LLM verification:

@@ -24,6 +24,7 @@ pub mod index_install;
 pub mod index_read;
 pub mod ingest;
 pub mod ingest_exec;
+pub mod ingest_recording;
 pub mod init;
 pub mod language_tier;
 pub mod lsp_install;
@@ -997,10 +998,11 @@ pub async fn run_doc_subset(
             run_pipeline_live(&sources, &config, params, Some(&cc), executor).await?
         }
         RunMode::Weave => {
-            // Use the project's transcript cache when it exists.
+            // Always with the cache config, whether or not the cache directory
+            // exists: a recording a document keeps needs the key computed to be
+            // matched, and a clone with no cache still has its documents.
             let cc = cache::CacheConfig::new(project_dir, cache::CacheMode::Reuse);
-            let cache_config = cc.cache_dir.is_dir().then_some(&cc);
-            run_pipeline_weave(&sources, params, cache_config).await?
+            run_pipeline_weave(&sources, params, Some(&cc)).await?
         }
     };
 
@@ -1025,8 +1027,7 @@ pub async fn run_doc_subset(
 async fn stage_woven_files(doc_path: &Path, sources: &[(&str, &str)], params: &[(String, String)]) {
     let project_dir = project_dir_of(doc_path);
     let cc = cache::CacheConfig::new(project_dir, cache::CacheMode::Reuse);
-    let cache_config = cc.cache_dir.is_dir().then_some(&cc);
-    let Ok(result) = run_pipeline_weave(sources, params, cache_config).await else {
+    let Ok(result) = run_pipeline_weave(sources, params, Some(&cc)).await else {
         return;
     };
     let _ = write_files_if_absent(&result.files, project_dir);

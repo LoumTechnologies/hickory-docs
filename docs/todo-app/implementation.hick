@@ -140,6 +140,10 @@ python3 todo.py list
 echo "--- empty file reads as empty list, no error: $?"
 <hick:expect match="exact">--- empty file reads as empty list, no error: 0
 </hick:expect>
+
+<hick:ingested key="4d245f1d344ce0fd23128f8f639b57fe1533a54e184c5b27fc897cab9567c28d" sha256="6daafe54016f3acc282286aed436c7190470a1254950aef626bac7b100ea9398" at="2026-09-03">
+--- empty file reads as empty list, no error: 0
+</hick:ingested>
 </hick:exec>
 
 <hick:exec container="app" mount="src:/project">
@@ -152,6 +156,12 @@ python3 todo.py list | awk '{$1=""; print substr($0,2)}'
 open ship it
 open abandon this one
 </hick:expect>
+
+<hick:ingested key="18ffa64a9c607653460809a67ac2ee15cc54cd87ee92a5c4eb753a403b69122e" sha256="8658905462420830ffd21e662b9e0d9ee01386573036ae192281c8c9fbfda6ec" at="2026-09-03">
+open write the spec
+open ship it
+open abandon this one
+</hick:ingested>
 </hick:exec>
 
 <hick:exec container="app" mount="src:/project">
@@ -166,6 +176,12 @@ python3 todo.py list | awk '{$1=""; print substr($0,2)}'
 open ship it
 dropped abandon this one
 </hick:expect>
+
+<hick:ingested key="cdde3274c29a8995ce1194d0a059359d9efe0a2f896dfc634ab98a3d4b4d0c66" sha256="f3a533af07be18087b8efa7bc5dee1a76723f1e39498f8c0ca95d30cc8d62142" at="2026-09-03">
+done write the spec
+open ship it
+dropped abandon this one
+</hick:ingested>
 </hick:exec>
 
 <hick:exec container="app" mount="src:/project">
@@ -177,6 +193,12 @@ python3 todo.py done nosuchid 2>/dev/null || echo "yes"
 --- unknown id exits nonzero:
 yes
 </hick:expect>
+
+<hick:ingested key="a5b0240565524c5d24b8e35b19877d5b57163804e5917fc676e85cdbafd9a714" sha256="626211412a1d9fa27d8b74c73ce56a57da58975765617814c3de73a96f651e17" at="2026-09-03">
+open ship it
+--- unknown id exits nonzero:
+yes
+</hick:ingested>
 </hick:exec>
 
 <hick:exec container="app" mount="src:/project">
@@ -194,6 +216,14 @@ yes
 --- unknown id exits nonzero:
 yes
 </hick:expect>
+
+<hick:ingested key="83ce121ec746c0461d5232e5519f6832e2983b186812930d148c0cd2ee76d64c" sha256="48aadf260222743257630badc22113e7e322ce1f7280363e297ccbaa633f9d5c" at="2026-09-03">
+open ship it today
+--- id survived the retitle:
+yes
+--- unknown id exits nonzero:
+yes
+</hick:ingested>
 </hick:exec>
 <hick:exec container="app" mount="src:/project">
 cd project && export TODO_FILE=/tmp/todo-acceptance.json
@@ -207,5 +237,11 @@ python3 todo.py block nosuchid 2>/dev/null || echo "yes"
 --- unknown id exits nonzero:
 yes
 </hick:expect>
+
+<hick:ingested key="2f4d497b1350ce18ab0438be03d7ca365454f1cd0b97822d10432728e6157ca3" sha256="d2dc3dde6faa68d10159a3b7dd4c550120871f1eed85498aa7c44cdb723ecb8a" at="2026-09-03">
+blocked ship it today
+--- unknown id exits nonzero:
+yes
+</hick:ingested>
 </hick:exec>
 </hick:doc>

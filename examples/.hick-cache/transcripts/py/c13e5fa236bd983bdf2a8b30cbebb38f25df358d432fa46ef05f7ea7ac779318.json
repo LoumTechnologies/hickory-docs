@@ -1,7 +1,0 @@
-{
-  "commands": [
-    "python3 - <<'EOF'\nimport random\nrandom.seed(7)\nsample = [float(x) for x in open(\"sample.txt\")]\nn = len(sample)\nmeans = sorted(\n    sum(random.choices(sample, k=n)) / n\n    for _ in range(10_000)\n)\nlo, hi = means[249], means[9749]\nprint(f\"95% CI: [{lo:.2f}, {hi:.2f}]\")\nwith open(\"ci.txt\", \"w\") as f:\n    f.write(f\"{lo:.4f} {hi:.4f}\")\nEOF"
-  ],
-  "output": "95% CI: [47.33, 53.17]\n",
-  "output_hash": "76e748f2fa593016452c7a8e8079286344160a6568d24f7e42c649c37b246b5c"
-}
