@@ -58,8 +58,8 @@ use axum::http::StatusCode;
 use serde::Deserialize;
 use serde_json::{Value, json};
 
-use super::LocalState;
 use super::api::{ApiError, ApiResult};
+use super::{LocalState, OpenWhere};
 use crate::scaffold::{self, NoDotnetSdk, ScaffoldSpec};
 use crate::scaffold_commit::{self, NotARepository, Target};
 
@@ -165,11 +165,31 @@ pub struct CreateRequest {
     /// the open folder, which is what the dialog starts on.
     #[serde(default)]
     pub location: String,
+    /// Make a git repository in the location first, if it is not already in
+    /// one. The dialog's checkbox — ticked for it by the preview, which knows
+    /// before the person presses anything whether one is needed.
+    ///
+    /// A checkbox rather than a screen after the refusal: by the time you
+    /// have typed a location and a project name you have said what you want,
+    /// and being stopped to confirm one `git init` is a question the form
+    /// could have asked while you were reading it.
+    #[serde(default)]
+    pub init_repository: bool,
+    /// Where to open the project once it is committed. Never before, and
+    /// never at all if the scaffolder failed — a window that vanishes and
+    /// takes the terminal explaining the failure with it is the worst
+    /// possible answer to a failure.
+    #[serde(default = "no_window")]
+    pub open: OpenWhere,
     /// `spec.output` arrives as the project's folder *name*; what the recipe
     /// records is the same folder relative to the repository, which only
     /// `resolve_target` can work out.
     #[serde(flatten)]
     pub spec: ScaffoldSpec,
+}
+
+fn no_window() -> OpenWhere {
+    OpenWhere::None
 }
 
 /// The place in the message a preview cannot fill in yet.
@@ -280,6 +300,16 @@ pub async fn create(
         ));
     }
     let root = state.index.root().to_path_buf();
+    // The checkbox, honoured before the location is resolved. "Create a git
+    // repository" means "see to it that there is one", so a location already
+    // inside one is left alone — never nested inside it.
+    if body.init_repository {
+        let location = scaffold_commit::absolute_folder(&root, &body.location);
+        tokio::task::spawn_blocking(move || scaffold_commit::ensure_repository(&location))
+            .await
+            .map_err(|e| ApiError::internal(format!("making the repository did not finish: {e}")))?
+            .map_err(scaffold_error)?;
+    }
     let target = scaffold_commit::resolve_target(&root, &body.location, &body.spec.output)
         .map_err(scaffold_error)?;
     let spec = recorded(&body.spec, &target);
@@ -323,13 +353,13 @@ pub async fn create(
 
     record(&state.scaffolds, &session.id, Outcome::Running);
     let watcher = Watch {
-        scaffolds: state.scaffolds.clone(),
-        terminals: state.terminals.clone(),
+        state: state.clone(),
         session_id: session.id.clone(),
         scratch,
         into: leaf,
         target: target.clone(),
         spec,
+        open: body.open,
     };
     tokio::spawn(watcher.run());
 
@@ -346,8 +376,7 @@ pub async fn create(
 
 /// The half of a scaffold that happens after the request is answered.
 struct Watch {
-    scaffolds: Scaffolds,
-    terminals: Arc<hick_term::Terminals>,
+    state: LocalState,
     session_id: String,
     /// Held for as long as the run, and dropped with this task — which is
     /// what deletes the scaffolder's scratch directory.
@@ -356,6 +385,8 @@ struct Watch {
     into: String,
     target: Target,
     spec: ScaffoldSpec,
+    /// Where the project is opened once it is committed.
+    open: OpenWhere,
 }
 
 impl Watch {
@@ -364,7 +395,7 @@ impl Watch {
             // The session was closed before it finished. Nothing ran to
             // completion, so nothing is committed and nothing is claimed.
             record(
-                &self.scaffolds,
+                &self.state.scaffolds,
                 &self.session_id,
                 Outcome::Failed {
                     reason: "the terminal was closed before the scaffolder finished, so nothing \
@@ -380,7 +411,7 @@ impl Watch {
                  repository is exactly as it was.\r\n"
             ));
             record(
-                &self.scaffolds,
+                &self.state.scaffolds,
                 &self.session_id,
                 Outcome::Failed {
                     reason: format!(
@@ -412,7 +443,7 @@ impl Watch {
                     repo = self.target.repo_root.display(),
                 ));
                 record(
-                    &self.scaffolds,
+                    &self.state.scaffolds,
                     &self.session_id,
                     Outcome::Committed(Box::new(CommittedScaffold {
                         sha: commit.sha,
@@ -424,6 +455,7 @@ impl Watch {
                         repository: self.target.repo_root.to_string_lossy().into_owned(),
                     })),
                 );
+                self.open_it();
             }
             Ok(Err(e)) => {
                 let reason = format!("{e:#}");
@@ -431,7 +463,7 @@ impl Watch {
                     "\r\n\x1b[31mThe scaffolder ran, but the commit did not.\x1b[0m {reason}\r\n"
                 ));
                 record(
-                    &self.scaffolds,
+                    &self.state.scaffolds,
                     &self.session_id,
                     Outcome::Failed { reason },
                 );
@@ -440,7 +472,7 @@ impl Watch {
                 let reason = format!("committing the scaffold did not finish: {e}");
                 self.say(&format!("\r\n\x1b[31m{reason}\x1b[0m\r\n"));
                 record(
-                    &self.scaffolds,
+                    &self.state.scaffolds,
                     &self.session_id,
                     Outcome::Failed { reason },
                 );
@@ -448,10 +480,36 @@ impl Watch {
         }
     }
 
+    /// Open the project, if the person asked for a window.
+    ///
+    /// Last, and only after the commit: taking over this window is a restart
+    /// (a session is a process), which takes this very terminal with it — so
+    /// it must never happen while there is still something in that terminal
+    /// worth reading. A failure to open is said in the terminal and nowhere
+    /// else; the project exists and is committed either way, and that is the
+    /// part that mattered.
+    fn open_it(&self) {
+        if self.open == OpenWhere::None {
+            return;
+        }
+        if self.open == OpenWhere::ThisWindow {
+            self.say(
+                "\r\nOpening it in this window — a session is a process here, so this window \
+                 restarts and this terminal goes with it.\r\n",
+            );
+        }
+        if let Err(e) = self.state.open_folder(&self.target.dir, self.open) {
+            self.say(&format!(
+                "\r\n\x1b[33mThe project is committed; opening it is what failed.\x1b[0m \
+                 {e:#}\r\n"
+            ));
+        }
+    }
+
     /// Poll until the session has an exit code, or until it is gone.
     async fn wait_for_exit(&self) -> Option<i32> {
         loop {
-            let session = self.terminals.get(&self.session_id)?;
+            let session = self.state.terminals.get(&self.session_id)?;
             let summary = session.summary();
             if let Some(code) = summary.exit_code {
                 return Some(code);
@@ -464,7 +522,7 @@ impl Watch {
     /// verdict belongs beside the output that earned it, and this session has
     /// no shell to mistake it for input.
     fn say(&self, text: &str) {
-        if let Some(session) = self.terminals.get(&self.session_id) {
+        if let Some(session) = self.state.terminals.get(&self.session_id) {
             session.inject(text.as_bytes());
         }
     }

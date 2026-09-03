@@ -8155,6 +8155,22 @@ button.status-bar__item:hover { background: var(--bg-sunken); color: var(--fg); 
 .new-project__check input {
   margin-top: 0.15rem;
 }
+/* A checkbox whose label carries its own explanation under it. The hint is a
+   span rather than a <p> because it sits inside the <label>: clicking any of
+   it should still toggle the box. */
+.new-project__check span {
+  display: block;
+}
+.new-project__check .insert-menu__hint {
+  margin: 0.15rem 0 0;
+}
+/* "in a new window", under the checkbox that decides whether it applies. */
+.new-project__check--nested {
+  margin-left: 1.3rem;
+}
+.new-project__check--nested input:disabled + span {
+  opacity: 0.55;
+}
 /* Where the Location and the folder name land, together. The two fields are
    separate because they are edited separately; the answer they add up to is
    one string, and a person should read it rather than assemble it. */

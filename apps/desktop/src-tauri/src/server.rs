@@ -26,7 +26,7 @@ use axum::body::Body;
 use axum::http::{StatusCode, Uri, header};
 use axum::response::{IntoResponse, Response};
 use hickory_cli::ExecutorChoice;
-use hickory_cli::serve::{ServeOptions, prepare};
+use hickory_cli::serve::{OpenWhere, ServeOptions, Shell, prepare};
 use hickory_cli::up::DirectoryLock;
 
 /// The built UI (`apps/web/dist`), compiled into this binary.
@@ -112,6 +112,53 @@ pub fn remember(config_dir: &Path, dir: &Path) {
     let _ = std::fs::write(recent_file(config_dir), dir.to_string_lossy().as_bytes());
 }
 
+/// The shell's own powers, handed to the engine.
+///
+/// Both halves are process-level acts, which is the whole reason they cannot
+/// live in the server:
+///
+/// * **A new window is a new process.** The directory lock and the file
+///   watcher are per-process, so two folders open at once means two copies of
+///   the app — exactly what `hick open` already launches, through the same
+///   finder, so there is one answer to "where is the app" rather than two.
+/// * **This window is a restart.** Same reason, from the other side: this
+///   process holds *this* folder, and it cannot hold another. So the new
+///   folder is remembered and the process restarts into it — which is what
+///   `switch_to` has always done for File → Open Folder.
+///
+/// The restart is deferred by a moment so the HTTP response that asked for it
+/// gets out first. Exiting mid-response would leave the page reporting a
+/// dropped connection as if something had gone wrong, when what happened is
+/// precisely what was asked for.
+pub fn shell_hooks(handle: &tauri::AppHandle, config_dir: Option<&Path>) -> Shell {
+    let handle = handle.clone();
+    let config_dir = config_dir.map(Path::to_path_buf);
+    Shell {
+        open_folder: std::sync::Arc::new(move |folder: &Path, where_: OpenWhere| match where_ {
+            OpenWhere::None => Ok(()),
+            OpenWhere::NewWindow => {
+                let app = hickory_cli::open_app::find(
+                    |name| std::env::var(name).ok(),
+                    |path| path.exists(),
+                )
+                .context("could not find this app's own executable to start a second copy of it")?;
+                hickory_cli::open_app::open(&app, folder)
+            }
+            OpenWhere::ThisWindow => {
+                if let Some(dir) = &config_dir {
+                    remember(dir, folder);
+                }
+                let handle = handle.clone();
+                std::thread::spawn(move || {
+                    std::thread::sleep(std::time::Duration::from_millis(250));
+                    handle.restart();
+                });
+                Ok(())
+            }
+        }),
+    }
+}
+
 /// Start the engine on loopback and return the address to load.
 ///
 /// Binds port 0: the app has no reason to want a particular port, and asking
@@ -124,7 +171,11 @@ pub fn remember(config_dir: &Path, dir: &Path) {
 /// profile exports anything, so its keys cannot live in environment
 /// variables the way the CLI's do. `None` (no config dir on this platform)
 /// degrades to env-only.
-pub async fn start(target: &Path, config_dir: Option<&Path>) -> Result<Session> {
+pub async fn start(
+    target: &Path,
+    config_dir: Option<&Path>,
+    shell: Option<Shell>,
+) -> Result<Session> {
     // Development may name the port, so that whatever is proxying to the
     // engine can be pointed at it before the engine exists. Unset — which is
     // every downloaded copy — leaves the ephemeral port below. See dev.rs.
@@ -154,6 +205,15 @@ pub async fn start(target: &Path, config_dir: Option<&Path>) -> Result<Session> 
         ui_settings_path: config_dir.map(ui_settings_file),
     })
     .await?;
+
+    // The powers the engine does not have on its own. It is an axum router:
+    // it can commit a scaffold, and it cannot open a window. This is where the
+    // window comes from — passed in rather than built here, so a test can
+    // start the engine without an `AppHandle` and get a program that honestly
+    // has no windows. See `hickory_cli::serve::Shell`.
+    if let Some(shell) = shell {
+        prepared.state.set_shell(shell);
+    }
 
     // The up-loop runs beside the rooms: external edits (vim, formatters,
     // coding agents) reconcile into the live editor, and edits saved in

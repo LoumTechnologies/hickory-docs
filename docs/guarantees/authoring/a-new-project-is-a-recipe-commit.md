@@ -35,14 +35,35 @@ the repository's root, and a folder name that is a path are refused by name
 before any subprocess runs.
 
 A location inside no repository is refused with `missing: "repository"` and
-**the folder** in the body, and the dialog draws its own screen from those
-fields: a button that runs `git init` there, creating the folder if it is
-not there yet, and then returns to the form. A repository nested inside
-another is refused. This is the one place the app runs `git init`, and it
-is a button rather than a sentence because the person has already chosen
-the folder by asking for a project in it — unlike the .NET SDK, which stays
-a sentence and a link
+**the folder** in the body — unless the request says `init_repository`, in
+which case one `git init` is run there first, creating the folder if it is
+not there yet, and the scaffold proceeds in the same request. A folder
+already **inside** another repository is refused rather than nested; a
+folder that is already a repository's own root is a no-op. This is the one
+place the app runs `git init`, and it is offered rather than demanded
+because the person has chosen the folder by asking for a project in it —
+unlike the .NET SDK, which stays a sentence and a link
 (`docs/guarantees/debugging/a-missing-debugger-is-a-button.md`).
+
+Once — and only once — the commit is made, the project is opened where the
+request said: `new-window` (a second process, this window untouched),
+`this-window` (this process, on the new folder — which is a **restart**,
+because a session is a process here, so every tab in this window goes,
+including the terminal that just ran the scaffolder) or `none`. A scaffold
+that **failed** opens nothing whatever was asked, because the terminal
+explaining the failure is the most valuable thing on the screen and taking
+the window away would delete it. Windows belong to the program around the
+server, which hands the engine a `Shell` after `prepare`; an engine served
+by `hick up` has none, says so in the terminal, and the project is
+committed regardless.
+
+**Both of these are checkboxes on the form**, each ticked by the preview
+before the button is pressed — the repository when the location has none,
+the window when the project lands outside the folder this window shows —
+and each stops deriving the moment the person touches it. A decision about
+what pressing the button does belongs beside the button, not in a screen
+that stops you afterwards to ask about something you had already decided by
+typing a location.
 
 **Why one act, and why a temporary index.** A recipe commit is honest only
 if its tree is exactly what the recipe produced. An edit between the run
@@ -83,8 +104,14 @@ volume into a document a person is writing. There is no folder *picker*: the
 location is a path typed or pasted into a field, because the app has no
 native file dialog and a browsed tree of the whole filesystem is a bigger
 thing than this needs. A location that does not exist yet is fine — the
-scaffolder makes it — but only the `git init` button creates a folder that
-has no repository above it.
+scaffolder makes it — but only `init_repository` creates a folder that has
+no repository above it.
+
+Opening a window is only tested through the seam: the test installs a
+`Shell` that writes down what it was asked to open. That a new process
+really appears, and that macOS's `open -n -a` really starts a second
+instance rather than waking the first, is not covered by any test and has
+not been verified on macOS.
 
 ---
 
@@ -106,12 +133,17 @@ Last LLM verification:
   session), `result`, `preview` (which reports a missing repository rather
   than refusing), `scaffold_error` (`missing: "dotnet"`, and
   `missing: "repository"` with `path`).
-  `crates/hickory-cli/src/serve/git_ops.rs` — `init`, refusing a nested
-  repository. `apps/web/src/components/NewProjectDialog.tsx` — the Location
-  field, the resolved path under the folder name, the repository named in
-  the preview, `NoRepositoryScreen` with its button;
-  `apps/web/src/App.tsx` — `watchScaffold` hands the terminal to the
-  workspace and polls for the verdict.
+  `crates/hickory-cli/src/scaffold_commit.rs` — `init_repository`, refusing
+  a nested repository. `crates/hickory-cli/src/serve/mod.rs` — `Shell`,
+  `OpenWhere`, `LocalState::set_shell` / `open_folder` (the seam, and the
+  sentence a program with no window answers with);
+  `apps/desktop/src-tauri/src/server.rs` — `shell_hooks`, where a new window
+  is `open_app` and this window is `remember` + a deferred `restart`.
+  `apps/web/src/components/NewProjectDialog.tsx` — the Location field, the
+  resolved path under the folder name, the repository named in the preview,
+  and the two derived checkboxes (`initTouched` / `openTouched` are what
+  stop them deriving); `apps/web/src/App.tsx` — `watchScaffold` hands the
+  terminal to the workspace and polls for the verdict.
 - Test coverage: `crates/hickory-cli/src/scaffold_commit.rs` unit tests
   (staged and unstaged work left alone, `.gitignore` honoured, the trailer
   equal to `HEAD:greeter`, a root commit in an empty repository, the two
@@ -126,6 +158,7 @@ Last LLM verification:
   `apps/web/src/components/NewProjectDialog.test.tsx` (the preview is the
   commit, the terminal handed over rather than a commit awaited, a project
   made anywhere on the machine, the repository named when it is not the open
-  one, the `git init` button and the return to the form).
+  one, both checkboxes deriving and then staying put once touched, and the
+  three `open` values the pair produces).
 - Caveats: the live test skips without `dotnet`. The dialog is exercised in
   jsdom.

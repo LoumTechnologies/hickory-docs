@@ -151,9 +151,80 @@ pub struct LocalState {
     /// session that ran it. The terminal shows the person; this is how the
     /// app finds out. See [`scaffold`].
     pub scaffolds: scaffold::Scaffolds,
+    /// What the shell around this server can do that the server cannot.
+    ///
+    /// Set by the desktop app after [`prepare`], and `None` everywhere else —
+    /// under `hick up` the "window" is a browser tab somebody else owns.
+    /// Everything behind it is refused with a sentence when it is `None`,
+    /// never guessed at. See [`Shell`].
+    pub shell: Arc<Mutex<Option<Shell>>>,
     /// The running loop's command inbox, set when the loop starts.
     pub up_commands:
         Arc<std::sync::Mutex<Option<tokio::sync::mpsc::UnboundedSender<crate::up::UpCommand>>>>,
+}
+
+/// Where a folder should be opened, when the app is asked to open one.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum OpenWhere {
+    /// Leave every window as it is.
+    None,
+    /// A second process on that folder — this one is untouched.
+    NewWindow,
+    /// This process, on that folder instead. A session is a process here
+    /// (the directory lock and the watcher are per-process), so this is a
+    /// restart: everything in this window goes, terminals included.
+    ThisWindow,
+}
+
+/// The things only the program *around* this server can do.
+///
+/// The server is an axum router; it has no window, no menu bar and no
+/// `AppHandle`. The desktop app has all three, and hands them down here as a
+/// closure after [`prepare`] rather than through [`ServeOptions`] — which
+/// keeps every other caller (the CLI, and a dozen tests) untouched, and keeps
+/// the fact that these are the *shell's* powers visible in the type.
+pub struct Shell {
+    /// Open `folder` in a window. `OpenWhere::None` never reaches this.
+    #[allow(clippy::type_complexity)]
+    pub open_folder: Arc<dyn Fn(&Path, OpenWhere) -> Result<()> + Send + Sync>,
+}
+
+impl std::fmt::Debug for Shell {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("Shell")
+    }
+}
+
+impl LocalState {
+    /// Hand the server the shell's own powers. The desktop app calls this on
+    /// the [`Prepared`] state before serving.
+    pub fn set_shell(&self, shell: Shell) {
+        if let Ok(mut slot) = self.shell.lock() {
+            *slot = Some(shell);
+        }
+    }
+
+    /// Open a folder in a window, or say why this program cannot.
+    pub fn open_folder(&self, folder: &Path, where_: OpenWhere) -> Result<()> {
+        if where_ == OpenWhere::None {
+            return Ok(());
+        }
+        let hook = self
+            .shell
+            .lock()
+            .ok()
+            .and_then(|slot| slot.as_ref().map(|s| s.open_folder.clone()));
+        match hook {
+            Some(open) => open(folder, where_),
+            None => anyhow::bail!(
+                "this engine has no window to open: it is being served by `hick up`, and the \
+                 page you are looking at is a tab in your own browser.\n  \
+                 Next step: open {} with `hick open`, or point another `hick up` at it.",
+                folder.display()
+            ),
+        }
+    }
 }
 
 /// One diverged produced file, as the tree and the pane read it. Axis 3 of
@@ -547,7 +618,6 @@ fn router(state: LocalState) -> Router {
         .route("/git/branches", get(git_ops::branches))
         .route("/git/checkout", post(git_ops::checkout))
         .route("/git/stash", post(git_ops::stash))
-        .route("/git/init", post(git_ops::init))
         // The publication floor and the merge-driver check: two facts about
         // the repository that the document panes need at open, and that no
         // amount of reading the log can answer.
@@ -704,6 +774,7 @@ pub async fn prepare(opts: ServeOptions) -> Result<Prepared> {
         lsp: Arc::new(lsp_bridge::LspHub::new(index.root())),
         held: Arc::new(std::sync::Mutex::new(HashMap::new())),
         scaffolds: Arc::new(Mutex::new(HashMap::new())),
+        shell: Arc::new(Mutex::new(None)),
         up_commands: Arc::new(std::sync::Mutex::new(None)),
     };
 

@@ -22,14 +22,21 @@
 use std::path::PathBuf;
 
 use hickory_cli::ExecutorChoice;
-use hickory_cli::serve::{ServeOptions, prepare};
+use hickory_cli::serve::{OpenWhere, ServeOptions, Shell, prepare};
 use serde_json::{Value, json};
 
 struct Session {
     base: String,
     root: PathBuf,
+    /// Every folder a shell was asked to open, and where. Empty unless the
+    /// session was started with [`start_with_shell`].
+    opened: Opened,
     _dir: tempfile::TempDir,
 }
+
+/// What a shell was asked to open: the folder, and `new-window` /
+/// `this-window`.
+type Opened = std::sync::Arc<std::sync::Mutex<Vec<(PathBuf, String)>>>;
 
 /// A folder with one document in it, a git repository, and a `.gitignore`
 /// that ignores what a .NET restore writes.
@@ -38,6 +45,19 @@ struct Session {
 /// without it `obj/` lands in the document. See
 /// `docs/guarantees/execution/a-volume-carries-what-the-repository-carries.md`.
 async fn start() -> Session {
+    start_inner(false).await
+}
+
+/// The same folder, served by a program that has windows.
+///
+/// The desktop app hands the engine a `Shell` after `prepare`; this hands it
+/// one that writes down what it was asked for instead of launching anything,
+/// which is the only way to test that plumbing without a window server.
+async fn start_with_shell() -> Session {
+    start_inner(true).await
+}
+
+async fn start_inner(with_shell: bool) -> Session {
     let dir = tempfile::tempdir().unwrap();
     std::fs::write(dir.path().join("notes.hick"), "# Notes\n").unwrap();
     std::fs::write(dir.path().join(".gitignore"), "obj/\nbin/\n").unwrap();
@@ -77,6 +97,25 @@ async fn start() -> Session {
     .await
     .expect("session prepares");
 
+    let opened = Opened::default();
+    if with_shell {
+        let seen = opened.clone();
+        prepared.state.set_shell(Shell {
+            open_folder: std::sync::Arc::new(move |folder, where_| {
+                seen.lock().unwrap().push((
+                    folder.to_path_buf(),
+                    match where_ {
+                        OpenWhere::NewWindow => "new-window",
+                        OpenWhere::ThisWindow => "this-window",
+                        OpenWhere::None => "none",
+                    }
+                    .to_string(),
+                ));
+                Ok(())
+            }),
+        });
+    }
+
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let port = listener.local_addr().unwrap().port();
     tokio::spawn(async move {
@@ -86,6 +125,7 @@ async fn start() -> Session {
     Session {
         base: format!("http://127.0.0.1:{port}"),
         root,
+        opened,
         _dir: dir,
     }
 }
@@ -374,6 +414,7 @@ async fn a_folder_without_a_repository_is_told_so_by_a_field() {
     let session = Session {
         base: format!("http://127.0.0.1:{port}"),
         root,
+        opened: Opened::default(),
         _dir: dir,
     };
     let (status, error) = post(&session, "/api/scaffold", spec("Greeter", "greeter")).await;
@@ -453,9 +494,11 @@ async fn a_project_is_made_where_the_person_said_and_recorded_by_that_repository
 }
 
 #[tokio::test]
-async fn a_location_in_no_repository_is_offered_one_and_then_works() {
+async fn a_location_in_no_repository_is_refused_unless_the_checkbox_says_make_one() {
     // Protects docs/guarantees/authoring/a-new-project-is-a-recipe-commit.md:
-    // a fixable failure is a button. `POST /api/git/init` is that button.
+    // the repository is a checkbox on the form, not a screen after a refusal.
+    // Unticked, the typed refusal still stands — the dialog does not decide
+    // this on the server's behalf.
     let session = start().await;
     let plain = tempfile::tempdir().unwrap();
     let bare = plain.path().canonicalize().unwrap().join("fresh");
@@ -466,24 +509,19 @@ async fn a_location_in_no_repository_is_offered_one_and_then_works() {
     assert_eq!(status, 422, "{refused}");
     assert_eq!(refused["missing"], json!("repository"));
     assert_eq!(refused["path"], bare.to_string_lossy().as_ref());
+    assert!(!bare.exists(), "a refusal made nothing");
 
-    // The button: it makes the folder as well as the repository, because a
-    // location typed for a project need not exist yet.
-    let (status, made) = post(
-        &session,
-        "/api/git/init",
-        json!({ "path": bare.to_string_lossy() }),
-    )
-    .await;
-    assert_eq!(status, 200, "{made}");
-    assert!(bare.join(".git").exists());
-
+    // Ticked: the repository is made first — folder and all, because a
+    // location typed for a project need not exist yet — and the scaffold then
+    // proceeds in the same request.
+    body["init_repository"] = json!(true);
     if !has_dotnet() {
         return;
     }
     let (status, started) = post(&session, "/api/scaffold", body).await;
     assert_eq!(status, 202, "{started}");
     assert_eq!(started["repository"], bare.to_string_lossy().as_ref());
+    assert!(bare.join(".git").exists());
     let term = started["session"]["id"].as_str().unwrap().to_string();
     let created = settle(&session, &term).await;
     assert_eq!(created["state"], "committed", "{created}");
@@ -491,21 +529,111 @@ async fn a_location_in_no_repository_is_offered_one_and_then_works() {
 }
 
 #[tokio::test]
-async fn a_repository_inside_a_repository_is_refused() {
+async fn the_checkbox_never_nests_a_repository_inside_another() {
+    // Ticked inside a repository that already exists, it is a no-op — not a
+    // second repository in a subfolder, which is a mess neither git nor a
+    // person recovers from quickly.
+    if !has_dotnet() {
+        eprintln!("SKIPPED: no dotnet on this machine");
+        return;
+    }
     let session = start().await;
-    let (status, refused) = post(
-        &session,
-        "/api/git/init",
-        json!({ "path": session.root.join("inner").to_string_lossy() }),
-    )
-    .await;
-    assert_eq!(status, 422, "{refused}");
+    let mut body = spec("Greeter", "greeter");
+    body["init_repository"] = json!(true);
+    let (status, started) = post(&session, "/api/scaffold", body).await;
+    assert_eq!(status, 202, "{started}");
+    assert_eq!(
+        started["repository"],
+        session.root.to_string_lossy().as_ref()
+    );
+    let term = started["session"]["id"].as_str().unwrap().to_string();
+    assert_eq!(settle(&session, &term).await["state"], "committed");
+    assert!(!session.root.join("greeter/.git").exists());
+
+    // Nor in a *subfolder* of one, which is what the location field makes
+    // reachable — and which the debounced preview can leave ticked for a
+    // moment after the location has moved. It goes through, recorded by the
+    // repository above, with no second `.git` anywhere.
+    let mut body = spec("Inner", "inner");
+    body["location"] = json!(session.root.join("nested").to_string_lossy());
+    body["init_repository"] = json!(true);
+    let (status, started) = post(&session, "/api/scaffold", body).await;
+    assert_eq!(status, 202, "{started}");
+    assert_eq!(
+        started["repository"],
+        session.root.to_string_lossy().as_ref()
+    );
+    assert_eq!(started["output"], "nested/inner");
+    let term = started["session"]["id"].as_str().unwrap().to_string();
+    assert_eq!(settle(&session, &term).await["state"], "committed");
+    assert!(!session.root.join("nested/.git").exists());
+    assert!(!session.root.join("nested/inner/.git").exists());
+}
+
+#[tokio::test]
+async fn the_project_is_opened_only_after_it_is_committed_and_only_if_asked() {
+    // Protects docs/guarantees/authoring/a-new-project-is-a-recipe-commit.md:
+    // the window is a checkbox, the shell is what owns windows, and a
+    // scaffold that failed never takes the terminal explaining it away.
+    if !has_dotnet() {
+        eprintln!("SKIPPED: no dotnet on this machine");
+        return;
+    }
+    let session = start_with_shell().await;
+
+    // Failed: nothing is opened, whatever the checkbox said.
+    let mut body = spec("Ghost", "ghost");
+    body["template"] = json!("no-such-template-exists");
+    body["open"] = json!("new-window");
+    let (_, started) = post(&session, "/api/scaffold", body).await;
+    let term = started["session"]["id"].as_str().unwrap().to_string();
+    assert_eq!(settle(&session, &term).await["state"], "failed");
+    assert!(session.opened.lock().unwrap().is_empty());
+
+    // Not asked: nothing is opened either.
+    let (_, started) = post(&session, "/api/scaffold", spec("Quiet", "quiet")).await;
+    let term = started["session"]["id"].as_str().unwrap().to_string();
+    assert_eq!(settle(&session, &term).await["state"], "committed");
+    assert!(session.opened.lock().unwrap().is_empty());
+
+    // Asked, and committed: the folder that was made, in the window that was
+    // chosen — and the shell, not the server, is what is handed it.
+    let mut body = spec("Greeter", "greeter");
+    body["open"] = json!("this-window");
+    let (_, started) = post(&session, "/api/scaffold", body).await;
+    let term = started["session"]["id"].as_str().unwrap().to_string();
+    assert_eq!(settle(&session, &term).await["state"], "committed");
+    assert_eq!(
+        *session.opened.lock().unwrap(),
+        vec![(session.root.join("greeter"), "this-window".to_string())]
+    );
+}
+
+#[tokio::test]
+async fn a_window_is_refused_by_a_program_that_has_none() {
+    // `hick up` serves a tab in somebody's own browser. It says so, in the
+    // terminal, and the project is committed regardless — the commit is the
+    // part that mattered.
+    if !has_dotnet() {
+        eprintln!("SKIPPED: no dotnet on this machine");
+        return;
+    }
+    let session = start().await;
+    let mut body = spec("Greeter", "greeter");
+    body["open"] = json!("new-window");
+    let (_, started) = post(&session, "/api/scaffold", body).await;
+    let term = started["session"]["id"].as_str().unwrap().to_string();
+    assert_eq!(settle(&session, &term).await["state"], "committed");
+    let (_, terminals) = get(&session, "/api/terminals").await;
+    let ours = terminals["sessions"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|s| s["id"] == json!(term))
+        .unwrap();
     assert!(
-        refused["error"]
-            .as_str()
-            .unwrap()
-            .contains("already inside the repository"),
-        "{refused}"
+        ours["preview"].as_str().unwrap().contains("hick open"),
+        "the terminal says why, and what to do instead: {ours}"
     );
 }
 
@@ -518,10 +646,16 @@ async fn a_preview_says_when_there_is_no_repository_rather_than_refusing() {
     let bare = plain.path().canonicalize().unwrap().join("fresh");
     let mut body = spec("Greeter", "greeter");
     body["location"] = json!(bare.to_string_lossy());
+    // With the checkbox ticked, which is what the form does by itself the
+    // moment the location leaves a repository — and which must still make
+    // nothing. A preview runs on every keystroke; a preview that created a
+    // folder or a repository would litter the disk with half-typed paths.
+    body["init_repository"] = json!(true);
     let (status, preview) = post(&session, "/api/scaffold/preview", body).await;
     assert_eq!(status, 200, "{preview}");
     assert_eq!(preview["repository"], Value::Null);
     assert_eq!(preview["needs_repository"], bare.to_string_lossy().as_ref());
+    assert!(!bare.exists(), "a preview wrote something");
     assert!(
         preview["message"]
             .as_str()

@@ -181,6 +181,41 @@ pub fn repository_of(dir: &Path) -> Option<PathBuf> {
     Some(normalize(Path::new(&root)))
 }
 
+/// Make sure `dir` is inside a git repository, making one there if it is not.
+///
+/// The New Project checkbox, in one function. Its wording is "create a git
+/// repository", and its meaning is "see to it that there is one" — so a
+/// location already inside a repository is answered with **that** repository
+/// and nothing is created. That is not laxity, it is the whole safety
+/// property: a `git init` in a subfolder of a repository makes a nested one,
+/// which is a mess neither git nor a person recovers from quickly, and this
+/// is the only path in the app that runs `git init` at all.
+///
+/// Saying it this way rather than refusing also removes a race the form would
+/// otherwise have: the checkbox is ticked from a **debounced** preview, so a
+/// location typed quickly can be submitted while the box still holds the
+/// previous location's answer. Under a refusal that is an error message about
+/// nesting for an action that was perfectly reasonable. Under this, it is
+/// nothing at all.
+///
+/// The folder is created when it is not there: a location typed for a project
+/// that does not exist yet is the ordinary case, not a mistake.
+pub fn ensure_repository(dir: &Path) -> Result<PathBuf> {
+    let dir = normalize(dir);
+    if let Some(existing) = repository_of(&dir) {
+        return Ok(existing);
+    }
+    std::fs::create_dir_all(&dir).with_context(|| {
+        format!(
+            "could not make {}. Check that the path is spelled right and that you can write \
+             there.",
+            dir.display()
+        )
+    })?;
+    git_ok(&dir, &["init"], None)?;
+    Ok(dir)
+}
+
 /// Where the project goes, from what the dialog asked for.
 ///
 /// `open_folder` is the folder the app has open, which a relative location is

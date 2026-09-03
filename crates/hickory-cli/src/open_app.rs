@@ -31,7 +31,7 @@ const MAC_APP: &str = "Hickory Docs";
 pub enum App {
     /// A plain executable to run with the path as its argument.
     Exe(PathBuf),
-    /// A macOS bundle, launched through `open -a`.
+    /// A macOS bundle, launched through `open -n -a`.
     Bundle(PathBuf),
 }
 
@@ -62,6 +62,15 @@ pub fn find(
     if let Ok(me) = std::env::current_exe()
         && let Some(dir) = me.parent()
     {
+        // Already inside the bundle: `…/Hickory Docs.app/Contents/MacOS/x`.
+        // Answered as the bundle rather than as the executable beside us,
+        // because launching a Mach-O out of a bundle directly bypasses
+        // LaunchServices — which is how you get a second copy with no dock
+        // icon that never comes to the front. This is the case when the app
+        // asks for a window of its own.
+        if let Some(bundle) = enclosing_bundle(&me) {
+            return Some(App::Bundle(bundle));
+        }
         let beside = dir.join(EXE);
         if exists(&beside) {
             return Some(App::Exe(beside));
@@ -101,6 +110,24 @@ pub fn find(
         .map(App::Exe)
 }
 
+/// The `.app` this executable is inside, if it is inside one.
+///
+/// `…/Hickory Docs.app/Contents/MacOS/hickory-desktop` -> `…/Hickory Docs.app`.
+/// Purely a path shape, so it is testable everywhere and simply never matches
+/// off macOS.
+fn enclosing_bundle(exe: &Path) -> Option<PathBuf> {
+    let macos = exe.parent()?;
+    if macos.file_name()? != "MacOS" {
+        return None;
+    }
+    let contents = macos.parent()?;
+    if contents.file_name()? != "Contents" {
+        return None;
+    }
+    let bundle = contents.parent()?;
+    (bundle.extension()? == "app").then(|| bundle.to_path_buf())
+}
+
 /// The message for a machine that has the CLI and not the app.
 ///
 /// It leads with the fact that they are separate downloads, because "the app
@@ -136,7 +163,12 @@ pub fn open(app: &App, target: &Path) -> Result<()> {
     let mut command = match app {
         App::Bundle(bundle) => {
             let mut c = std::process::Command::new("open");
-            c.arg("-a").arg(bundle).arg("--args").arg(&target);
+            // `-n` is load-bearing, not caution: without it `open -a` hands
+            // the arguments to a copy that is already running, which here
+            // would be a process holding a *different* folder's directory
+            // lock and watcher. A session is a process in this product, so
+            // "open that folder" always means a new one.
+            c.arg("-n").arg("-a").arg(bundle).arg("--args").arg(&target);
             c
         }
         App::Exe(exe) => {
@@ -175,6 +207,35 @@ pub fn open(app: &App, target: &Path) -> Result<()> {
 mod tests {
     use super::*;
     use std::collections::HashMap;
+
+    #[test]
+    fn an_executable_inside_a_bundle_is_answered_as_the_bundle() {
+        // Launching the Mach-O directly bypasses LaunchServices, which is how
+        // a second copy ends up with no dock icon and never comes forward.
+        // The app asks for a window of its own by this route, so the shape
+        // has to be recognised — and it is only a path shape, which is why it
+        // is testable on a machine that has never seen a bundle.
+        assert_eq!(
+            enclosing_bundle(Path::new(
+                "/Applications/Hickory Docs.app/Contents/MacOS/hickory-desktop"
+            )),
+            Some(PathBuf::from("/Applications/Hickory Docs.app"))
+        );
+        assert_eq!(
+            enclosing_bundle(Path::new("/usr/local/bin/hickory-desktop")),
+            None
+        );
+        // The shape has to be the whole shape: MacOS/, under Contents/, under
+        // something ending `.app`.
+        assert_eq!(
+            enclosing_bundle(Path::new("/x/Thing.app/MacOS/hickory-desktop")),
+            None
+        );
+        assert_eq!(
+            enclosing_bundle(Path::new("/x/Thing/Contents/MacOS/hickory-desktop")),
+            None
+        );
+    }
 
     fn env(pairs: &[(&str, &str)]) -> impl Fn(&str) -> Option<String> + use<> {
         let map: HashMap<String, String> = pairs

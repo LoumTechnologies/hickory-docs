@@ -442,7 +442,11 @@ fn launch(handle: AppHandle) {
     // act, and is tried once: someone who typed a path wants that path, and
     // falling back to a picker would quietly hide their typo.
     if let Some(dir) = server::named_dir() {
-        match runtime.block_on(server::start(&dir, config_dir.as_deref())) {
+        match runtime.block_on(server::start(
+            &dir,
+            config_dir.as_deref(),
+            Some(server::shell_hooks(&handle, config_dir.as_deref())),
+        )) {
             Ok(session) => open(&handle, runtime, session, config_dir.as_deref(), &dir),
             Err(e) => fail(
                 &handle,
@@ -478,7 +482,11 @@ fn launch(handle: AppHandle) {
             },
         };
 
-        match runtime.block_on(server::start(&dir, config_dir.as_deref())) {
+        match runtime.block_on(server::start(
+            &dir,
+            config_dir.as_deref(),
+            Some(server::shell_hooks(&handle, config_dir.as_deref())),
+        )) {
             Ok(session) => {
                 open(&handle, runtime, session, config_dir.as_deref(), &dir);
                 return;

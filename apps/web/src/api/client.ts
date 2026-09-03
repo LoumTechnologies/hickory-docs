@@ -263,10 +263,6 @@ export const api = {
       "GET",
       `/api/scaffold/result?session=${encodeURIComponent(session)}`,
     ),
-  /** Make a git repository in a folder, creating the folder if it is not
-   * there. The button behind "this location is not in a repository". */
-  gitInit: (path: string) =>
-    request<{ root: string; said: string }>("POST", "/api/git/init", { path }),
 
   /** Put a `<hick:sample>` under the cell that generated this file: a window
    * onto a few of its lines, shown in the weave and never stored in the

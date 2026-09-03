@@ -1186,9 +1186,18 @@ export interface ScaffoldSpec {
   /** Where that folder is made: any folder on this machine, absolute or
    * `~`-prefixed; relative is read against the open folder. */
   location: string;
+  /** Make a git repository in the location first, if it is not in one. */
+  init_repository: boolean;
+  /** Where to open the project once it is committed — never before, and
+   * never at all if the scaffolder failed. */
+  open: OpenWhere;
   image: string;
   options: ChosenOption[];
 }
+
+/** Where a folder is opened. `this-window` is a restart: a session is a
+ * process, so everything in this window goes, terminals included. */
+export type OpenWhere = "none" | "new-window" | "this-window";
 
 /** The commit a New Project would make, without making it. */
 export interface ScaffoldPreview {

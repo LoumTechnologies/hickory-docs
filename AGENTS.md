@@ -55,13 +55,27 @@ dialog has a **Location** field, and the repository that records the recipe
 is **whichever one contains that location** (`resolve_target`), with `-o`
 still spelled from *that* repository's root because that is where a replay
 runs it. The dialog names the repository while you type, and says when it is
-not the open one. (2) **No repository is a button now** —
-`POST /api/git/init`, which makes the folder as well, refuses a repository
-inside a repository, and returns you to the form. The "sentence, never a
-button" line held for the .NET SDK and was never right for git: git is
-already here, it is one command in one folder, and *you have already chosen
-the folder by asking for a project in it*. The SDK stays a sentence and a
-link. And (3), the one that generalises: **`dotnet new` runs in a terminal**
+not the open one. (2) **No repository is a checkbox now** —
+`init_repository` on the create request (`ensure_repository`), which makes the
+folder as well, is ticked by the preview before you press anything, and means
+*see to it that there is one* rather than *make one* — so a location already
+inside a repository creates nothing. Saying it that way is what keeps it from
+ever nesting a repository, and it also removes a race the debounced preview
+would otherwise have. The "sentence, never a button" line held for the
+.NET SDK and was never right for git: git is already here, it is one command
+in one folder, and *you have already chosen the folder by asking for a
+project in it*. The SDK stays a sentence and a link. It was briefly a button
+on a screen after the refusal, which was the same mistake one step smaller:
+**a decision about what pressing the button does belongs beside the button**,
+derived correctly and yours to untick, never a stop sign in the middle of an
+act. The same reasoning gives the second checkbox — **open the project, and
+in a new window or this one**. Windows are the *shell's*, not the server's
+(a session is a process here: a new window is a second process, this window
+is `remember` + `restart`), so `LocalState::set_shell` is the seam the
+desktop app fills after `prepare` and `hick up` leaves empty. The open
+happens **only after the commit**, and **never after a failure** — a restart
+that took away the terminal explaining why nothing was committed would
+delete the only useful thing on the screen. And (3), the one that generalises: **`dotnet new` runs in a terminal**
 (`a-command-the-app-runs-is-watched-in-a-terminal.md`) — `POST /api/scaffold`
 answers `202` with a `hick_term` session the way `POST /api/tests/run` does,
 a watcher commits **the moment it exits zero** and `inject`s the verdict into

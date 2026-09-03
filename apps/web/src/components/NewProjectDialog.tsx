@@ -28,10 +28,16 @@
 //
 // And it does not confine you to the folder the app has open. The location is
 // anywhere on this machine; the repository that records the recipe is
-// whichever one holds it, which the server resolves and the preview names. A
-// location inside no repository is a screen with a button on it, because
-// `git init` is one command in one folder and you have already said you want
-// a project there.
+// whichever one holds it, which the server resolves and the preview names.
+//
+// Which is why the last two fields are checkboxes rather than screens. A
+// location inside no repository was, briefly, a screen with a `git init`
+// button on it — better than the sentence it replaced, and still a stop sign
+// in the middle of an act somebody had already committed to. The same is true
+// of opening the project: these are decisions about what pressing the button
+// does, so they belong beside the button, ticked correctly before you get
+// there and yours to untick. A form that has already made the obvious choice
+// is faster than one that asks, and honest as long as the choice is visible.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
@@ -64,6 +70,21 @@ export interface NewProjectDialogProps {
    * the dialog is gone by then. */
   onStarted: (started: ScaffoldStarted) => void;
   onClose: () => void;
+}
+
+/**
+ * Whether the project lands inside the folder this window already shows.
+ *
+ * The one thing "open the project" has to know. A project made beside your
+ * notes is already on screen — the tree will show it the moment it is
+ * committed — so opening a window on it is noise. A project made in
+ * `~/src/thing` is somewhere this window cannot see, and not opening it
+ * leaves you with a commit you have to go and find.
+ */
+function isInside(folder: string | null, open: string): boolean {
+  if (!folder) return false;
+  const root = open.replace(/[/\\]+$/, "");
+  return folder === root || folder.startsWith(`${root}/`) || folder.startsWith(`${root}\\`);
 }
 
 /** How long to sit still before asking the server what the commit looks
@@ -272,14 +293,24 @@ function Chooser({
     if (!outputTouched) setOutput(slug(next));
   };
 
+  // The two checkboxes, and the reason both track the location.
+  //
+  // Each one has an answer that is right nearly always, and the right answer
+  // changes as you type: a location outside a repository needs one made, and
+  // a project made somewhere new wants opening while one made inside the
+  // folder you are already looking at does not. So each starts derived and
+  // stops the moment the person touches it — the same rule the folder name
+  // follows, for the same reason: a later keystroke must never quietly
+  // overwrite a decision somebody made on purpose.
+  const [initRepository, setInitRepository] = useState(false);
+  const [initTouched, setInitTouched] = useState(false);
+  const [openIt, setOpenIt] = useState(false);
+  const [openTouched, setOpenTouched] = useState(false);
+  const [newWindow, setNewWindow] = useState(true);
+
   const [showProblems, setShowProblems] = useState(false);
   const [busy, setBusy] = useState(false);
   const [failure, setFailure] = useState<string | null>(null);
-  /** The location is inside no repository: a screen of its own, keyed off the
-   * response's `missing` field, since a scaffold is a commit and there is
-   * nowhere to make one. It holds the **folder**, because the way out is a
-   * button that makes a repository there and the button has to name it. */
-  const [noRepository, setNoRepository] = useState<string | null>(null);
 
   const spec: ScaffoldSpec | null = useMemo(() => {
     if (!template || !detail) return null;
@@ -290,10 +321,24 @@ function Chooser({
       name,
       output,
       location,
+      init_repository: initRepository,
+      open: openIt ? (newWindow ? "new-window" : "this-window") : "none",
       image: catalog.image,
       options: chosenOptions(detail.options, values),
     };
-  }, [template, detail, language, name, output, location, catalog.image, values]);
+  }, [
+    template,
+    detail,
+    language,
+    name,
+    output,
+    location,
+    initRepository,
+    openIt,
+    newWindow,
+    catalog.image,
+    values,
+  ]);
 
   // The preview: the server's own renderer, debounced. Held across a refresh
   // rather than blanked, so the pane does not flicker empty on every keypress.
@@ -310,7 +355,14 @@ function Chooser({
     const timer = setTimeout(() => {
       api
         .scaffoldPreview(spec)
-        .then((p) => live && setPreview(p))
+        .then((p) => {
+          if (!live) return;
+          setPreview(p);
+          // The preview is what knows both answers, because both are about
+          // where the project lands and only the server resolves that.
+          if (!initTouched) setInitRepository(p.repository === null);
+          if (!openTouched) setOpenIt(!isInside(p.folder, catalog.location));
+        })
         .catch(() => {
           // A preview that cannot be rendered is not an error the person has
           // to dismiss — the button says what went wrong if they press it.
@@ -320,7 +372,7 @@ function Chooser({
       live = false;
       clearTimeout(timer);
     };
-  }, [spec]);
+  }, [spec, initTouched, openTouched, catalog.location]);
 
   const problems = validate(name, output);
   const blocked = Object.keys(problems).length > 0;
@@ -343,16 +395,13 @@ function Chooser({
         onClose();
       })
       .catch((e: unknown) => {
-        const detail =
-          e instanceof ApiError && typeof e.body === "object" && e.body !== null
-            ? (e.body as { missing?: string; path?: string })
-            : null;
-        if (detail?.missing === "repository")
-          setNoRepository(detail.path ?? location);
-        else setFailure(e instanceof Error ? e.message : String(e));
+        // Including `missing: "repository"`, which is now the answer to
+        // having unticked the checkbox above — the server still refuses by
+        // type, and the sentence it refuses with is the one to show.
+        setFailure(e instanceof Error ? e.message : String(e));
         setBusy(false);
       });
-  }, [blocked, spec, busy, location, onStarted, onClose]);
+  }, [blocked, spec, busy, onStarted, onClose]);
 
   const searchRef = useRef<HTMLInputElement>(null);
   useEffect(() => searchRef.current?.focus(), []);
@@ -362,20 +411,6 @@ function Chooser({
     const next = matches[Math.min(matches.length - 1, Math.max(0, index + delta))];
     if (next) setChosen(next.short_names[0]);
   };
-
-  if (noRepository !== null)
-    return (
-      <NoRepositoryScreen
-        folder={noRepository}
-        onClose={onClose}
-        onMade={() => {
-          setNoRepository(null);
-          // Straight back to the form, with the location it refused: the
-          // repository exists now, so the next press is the one that works.
-          setPreview(null);
-        }}
-      />
-    );
 
   return (
     <Shell onClose={busy ? () => {} : onClose} label="New project">
@@ -490,6 +525,33 @@ function Chooser({
                 />
               </Field>
 
+              <label className="new-project__check">
+                <input
+                  type="checkbox"
+                  checked={initRepository}
+                  disabled={Boolean(preview?.repository)}
+                  onChange={(event) => {
+                    setInitTouched(true);
+                    setInitRepository(event.target.checked);
+                  }}
+                />
+                <span>
+                  Create a git repository
+                  {preview?.repository ? (
+                    <span className="insert-menu__hint">
+                      Already in one:{" "}
+                      <span className="mono">{preview.repository}</span>
+                    </span>
+                  ) : (
+                    <span className="insert-menu__hint">
+                      A new project is a commit that carries the command that
+                      made it, so it needs a repository to be recorded in.
+                      Without this, a location outside one is refused.
+                    </span>
+                  )}
+                </span>
+              </label>
+
               <Field
                 label="Folder name"
                 attr="-o"
@@ -530,6 +592,40 @@ function Chooser({
                 </Field>
               )}
 
+              <label className="new-project__check">
+                <input
+                  type="checkbox"
+                  checked={openIt}
+                  onChange={(event) => {
+                    setOpenTouched(true);
+                    setOpenIt(event.target.checked);
+                  }}
+                />
+                <span>
+                  Open the project when it is made
+                  <span className="insert-menu__hint">
+                    Ticked on its own for a project made outside this folder,
+                    since nothing here would show it otherwise.
+                  </span>
+                </span>
+              </label>
+              <label className="new-project__check new-project__check--nested">
+                <input
+                  type="checkbox"
+                  checked={newWindow}
+                  disabled={!openIt}
+                  onChange={(event) => setNewWindow(event.target.checked)}
+                />
+                <span>
+                  in a new window
+                  <span className="insert-menu__hint">
+                    {newWindow
+                      ? "A second copy of the app, on the new project. This window is left exactly as it is."
+                      : "This window switches to the new project. A session is a process here, so that is a restart — every tab in this window goes, including the terminal the scaffolder just ran in."}
+                  </span>
+                </span>
+              </label>
+
               {detailError && (
                 <p className="insert-menu__problem" role="alert">
                   {detailError}
@@ -565,22 +661,21 @@ function Chooser({
                   " — not the folder you have open."}
               </p>
             ) : preview?.needs_repository ? (
-              // Said before the button is ever pressed, and answered here:
-              // the person has already told us they want a project there.
-              <div className="new-project__no-repo" role="status">
-                <p>
-                  <span className="mono">{preview.needs_repository}</span> is
-                  not inside a git repository, and a new project is a commit.
-                </p>
-                <button
-                  type="button"
-                  className="btn"
-                  disabled={busy}
-                  onClick={() => setNoRepository(preview.needs_repository ?? location)}
-                >
-                  Make a repository there…
-                </button>
-              </div>
+              <p className="insert-menu__hint">
+                {initRepository ? (
+                  <>
+                    A git repository will be made in{" "}
+                    <span className="mono">{preview.needs_repository}</span>{" "}
+                    first — that is the checkbox above.
+                  </>
+                ) : (
+                  <>
+                    <span className="mono">{preview.needs_repository}</span> is
+                    not inside a git repository, and nothing above says to make
+                    one. This will be refused.
+                  </>
+                )}
+              </p>
             ) : null}
             <p className="insert-menu__hint">
               The scaffolder runs in a terminal you can read, and what it wrote
@@ -722,76 +817,4 @@ function OptionField({
   );
 }
 
-/**
- * The location is not inside a repository — and here is the button.
- *
- * This used to be a sentence telling you to go and type `git init`, on the
- * argument that a repository is a decision about a folder. It is; but it is a
- * decision you have already made by asking for a project there, and **a
- * fixable failure is a button, never a command to go and type**
- * (`docs/guarantees/debugging/a-missing-debugger-is-a-button.md`). The .NET
- * SDK stays a sentence and a link for the reason it always did — a
- * several-hundred-megabyte platform install this product has no catalogue for
- * — and git is the opposite of that: already here, one command, one folder.
- *
- * The folder is named in full, twice, because this button writes to a place
- * that may be nowhere near the one the app has open.
- */
-function NoRepositoryScreen({
-  folder,
-  onMade,
-  onClose,
-}: {
-  folder: string;
-  onMade: () => void;
-  onClose: () => void;
-}) {
-  const [busy, setBusy] = useState(false);
-  const [failure, setFailure] = useState<string | null>(null);
-  return (
-    <Shell onClose={busy ? () => {} : onClose} label="New project">
-      <div className="new-project__message">
-        <h2>That location is not in a git repository</h2>
-        <p>
-          A new project is a commit that carries the command that made it, so
-          it needs a repository to be recorded in.{" "}
-          <span className="mono">{folder}</span> is not inside one.
-        </p>
-        <p className="insert-menu__hint">
-          Making one here runs <span className="mono">git init</span> in that
-          folder, and creates the folder if it is not there yet. Nothing else:
-          no commit, no remote, no configuration.
-        </p>
-        {failure && (
-          <p className="insert-menu__problem" role="alert">
-            {failure}
-          </p>
-        )}
-        <div className="insert-menu__actions">
-          <button type="button" className="btn" onClick={onClose} disabled={busy}>
-            Cancel
-          </button>
-          <button
-            type="button"
-            className="btn btn-primary"
-            disabled={busy}
-            onClick={() => {
-              setBusy(true);
-              setFailure(null);
-              api
-                .gitInit(folder)
-                .then(() => onMade())
-                .catch((e: unknown) => {
-                  setFailure(e instanceof Error ? e.message : String(e));
-                  setBusy(false);
-                });
-            }}
-          >
-            {busy ? "Making it…" : `git init in ${folder}`}
-          </button>
-        </div>
-      </div>
-    </Shell>
-  );
-}
 

@@ -25,6 +25,10 @@ Concretely:
   have caught.
 * A notice elsewhere in the app says at most one sentence and points at the
   terminal. It never paraphrases a failure the terminal already explained.
+* **Nothing takes the terminal away while it still has something to say.**
+  New Project can be asked to open the finished project in *this* window,
+  which is a process restart — so it happens only after a successful commit,
+  and never after a failure, whose terminal is the whole answer.
 
 **Why.** A failing external program says why in its own words, in its own
 formatting, with its own next steps — and the app has no idea what any of

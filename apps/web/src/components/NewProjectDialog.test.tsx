@@ -22,7 +22,6 @@ vi.mock("../api/client", () => ({
     scaffoldOptions: vi.fn(),
     scaffoldPreview: vi.fn(),
     scaffoldCreate: vi.fn(),
-    gitInit: vi.fn(),
   },
 }));
 
@@ -252,34 +251,144 @@ describe("the fields the template does not own", () => {
     expect(onClose).not.toHaveBeenCalled();
   });
 
-  it("offers to make the repository, and goes back to the form once it has", async () => {
-    // A scaffold is a commit, and this location has nowhere to make one.
-    // Keyed off the field, never the sentence — and answered with a button,
-    // because `git init` is one command in one folder the person has already
-    // chosen. docs/guarantees/debugging/a-missing-debugger-is-a-button.md
-    const { onClose } = ready();
+  it("ticks 'create a git repository' by itself when the location has none", async () => {
+    // The repository is a checkbox on the form, not a screen after a refusal:
+    // by the time you have typed a location and a name you have said what you
+    // want. It is ticked FOR you and stays yours to untick.
+    ready();
+    vi.mocked(api.scaffoldCreate).mockResolvedValue(STARTED);
+    await screen.findByText("-f, --framework");
+    // Inside a repository already: nothing to make, and it says which one.
+    // Waited for, because it is the preview that knows — the checkbox has no
+    // opinion of its own until the server has resolved the location.
+    await screen.findByText(/Already in one:/);
+    const box = screen.getByRole("checkbox", { name: /Create a git repository/ });
+    expect((box as HTMLInputElement).checked).toBe(false);
+    expect((box as HTMLInputElement).disabled).toBe(true);
+
+    vi.mocked(api.scaffoldPreview).mockResolvedValue({
+      output: "greeter",
+      folder: "/home/nate/src/fresh/greeter",
+      repository: null,
+      needs_repository: "/home/nate/src/fresh",
+      problem: "not inside a git repository",
+      command: "dotnet new console -o greeter -n Greeter",
+      message: "Scaffold Greeter with `dotnet new console`\n",
+    });
+    fireEvent.change(screen.getByLabelText("Location"), {
+      target: { value: "/home/nate/src/fresh" },
+    });
+    await waitFor(() =>
+      expect(
+        (screen.getByRole("checkbox", {
+          name: /Create a git repository/,
+        }) as HTMLInputElement).checked,
+      ).toBe(true),
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Create project" }));
+    await waitFor(() => expect(api.scaffoldCreate).toHaveBeenCalled());
+    const [spec] = vi.mocked(api.scaffoldCreate).mock.calls[0];
+    expect(spec.init_repository).toBe(true);
+  });
+
+  it("leaves the repository alone once the person unticks it", async () => {
+    ready();
     vi.mocked(api.scaffoldCreate).mockRejectedValue(
-      new ApiError(422, "some sentence nobody should be matching on", {
+      new ApiError(422, "that location is not inside a git repository", {
         missing: "repository",
         path: "/home/nate/src/fresh",
       }),
     );
-    vi.mocked(api.gitInit).mockResolvedValue({ root: "/home/nate/src/fresh", said: "" });
-    await screen.findByText("-f, --framework");
-    fireEvent.click(screen.getByRole("button", { name: "Create project" }));
-
-    await screen.findByText("That location is not in a git repository");
-    const button = screen.getByRole("button", {
-      name: "git init in /home/nate/src/fresh",
+    vi.mocked(api.scaffoldPreview).mockResolvedValue({
+      output: "greeter",
+      folder: "/home/nate/src/fresh/greeter",
+      repository: null,
+      needs_repository: "/home/nate/src/fresh",
+      command: "dotnet new console -o greeter -n Greeter",
+      message: "Scaffold Greeter with `dotnet new console`\n",
     });
-    fireEvent.click(button);
-    await waitFor(() =>
-      expect(api.gitInit).toHaveBeenCalledWith("/home/nate/src/fresh"),
-    );
-    // Straight back to the form: the repository exists now.
-    await screen.findByText("-f, --framework");
-    expect(onClose).not.toHaveBeenCalled();
+    fireEvent.change(await screen.findByLabelText("Location"), {
+      target: { value: "/home/nate/src/fresh" },
+    });
+    const box = await screen.findByRole("checkbox", {
+      name: /Create a git repository/,
+    });
+    await waitFor(() => expect((box as HTMLInputElement).checked).toBe(true));
+    fireEvent.click(box);
+    // Untouched by the next keystroke: a derived answer stops deriving the
+    // moment somebody decides for themselves.
+    fireEvent.change(screen.getByDisplayValue("Greeter"), {
+      target: { value: "Widgets" },
+    });
+    await waitFor(() => expect((box as HTMLInputElement).checked).toBe(false));
+
+    fireEvent.click(screen.getByRole("button", { name: "Create project" }));
+    // The server still refuses by type, and its sentence is what is shown.
+    await screen.findByText(/not inside a git repository/);
+    const [spec] = vi.mocked(api.scaffoldCreate).mock.calls[0];
+    expect(spec.init_repository).toBe(false);
   });
+
+  it("opens a project made elsewhere, and leaves one made here alone", async () => {
+    ready();
+    vi.mocked(api.scaffoldCreate).mockResolvedValue(STARTED);
+    await screen.findByText("-f, --framework");
+    // Inside the folder this window already shows: the tree will show it, so
+    // there is nothing to open.
+    const open = screen.getByRole("checkbox", {
+      name: /Open the project when it is made/,
+    });
+    expect((open as HTMLInputElement).checked).toBe(false);
+
+    vi.mocked(api.scaffoldPreview).mockResolvedValue({
+      output: "greeter",
+      folder: "/home/nate/src/greeter",
+      repository: "/home/nate/src",
+      command: "dotnet new console -o greeter -n Greeter",
+      message: "Scaffold Greeter with `dotnet new console`\n",
+    });
+    fireEvent.change(screen.getByLabelText("Location"), {
+      target: { value: "/home/nate/src" },
+    });
+    await waitFor(() => expect((open as HTMLInputElement).checked).toBe(true));
+
+    fireEvent.click(screen.getByRole("button", { name: "Create project" }));
+    await waitFor(() => expect(api.scaffoldCreate).toHaveBeenCalled());
+    expect(vi.mocked(api.scaffoldCreate).mock.calls[0][0].open).toBe("new-window");
+  });
+
+  it("takes over this window when the new-window box is cleared", async () => {
+    ready();
+    vi.mocked(api.scaffoldCreate).mockResolvedValue(STARTED);
+    await screen.findByText("-f, --framework");
+    fireEvent.click(
+      screen.getByRole("checkbox", { name: /Open the project when it is made/ }),
+    );
+    const inNew = screen.getByRole("checkbox", { name: /in a new window/ });
+    expect((inNew as HTMLInputElement).checked).toBe(true);
+    fireEvent.click(inNew);
+    // Said plainly, because it costs you the terminal you were just reading.
+    await screen.findByText(/every tab in this window goes/);
+
+    fireEvent.click(screen.getByRole("button", { name: "Create project" }));
+    await waitFor(() => expect(api.scaffoldCreate).toHaveBeenCalled());
+    expect(vi.mocked(api.scaffoldCreate).mock.calls[0][0].open).toBe("this-window");
+  });
+
+  it("asks for no window at all when the project is not being opened", async () => {
+    const { onStarted } = ready();
+    vi.mocked(api.scaffoldCreate).mockResolvedValue(STARTED);
+    await screen.findByText("-f, --framework");
+    expect(
+      (screen.getByRole("checkbox", { name: /in a new window/ }) as HTMLInputElement)
+        .disabled,
+    ).toBe(true);
+    fireEvent.click(screen.getByRole("button", { name: "Create project" }));
+    await waitFor(() => expect(onStarted).toHaveBeenCalled());
+    expect(vi.mocked(api.scaffoldCreate).mock.calls[0][0].open).toBe("none");
+  });
+
 });
 
 describe("a machine with no SDK", () => {
