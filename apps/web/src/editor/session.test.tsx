@@ -102,7 +102,7 @@ describe("a session document renders as a conversation", () => {
   it("treats an agent's action as code, not transcript", () => {
     const structure = parseHickDoc(SESSION);
     const action = structure.blocks.find((b) => b.name === "action")!;
-    expect(languageForBlock(structure, action)).toBe("shell");
+    expect(languageForBlock(structure, action)).toBe("shellscript");
   });
 
   it("shows a failed observation as failed", () => {

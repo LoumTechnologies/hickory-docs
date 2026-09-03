@@ -99,6 +99,12 @@ pub struct LanguageSupport {
     pub language: &'static str,
     /// Bronze: the extension routes to this language id.
     pub text: Have,
+    /// Bronze: the editor has a grammar and can draw this language.
+    ///
+    /// Measured rather than assumed, because Bronze's own description
+    /// promised "highlighted" for two months while eleven routed languages
+    /// opened as undifferentiated grey text.
+    pub draw: Have,
     /// Silver: a language server.
     pub lsp: Have,
     /// Silver: a debug adapter.
@@ -131,6 +137,14 @@ pub fn support(language: &'static str, root: &Path) -> LanguageSupport {
     let text = Have::Present;
 
     let data = is_data_language(language);
+
+    // No `Installable` rung: a grammar either ships in the app or does not
+    // exist, and there is nothing a person could go and install.
+    let draw = if hick_lsp::lang_detect::highlight(language).is_editor() {
+        Have::Present
+    } else {
+        Have::Missing
+    };
 
     let lsp = capability(
         hick_lsp::discovery::discover(language, root).is_some(),
@@ -212,6 +226,7 @@ pub fn support(language: &'static str, root: &Path) -> LanguageSupport {
         tier,
         data,
         &Capabilities {
+            draw,
             lsp,
             dap,
             index,
@@ -223,6 +238,7 @@ pub fn support(language: &'static str, root: &Path) -> LanguageSupport {
     LanguageSupport {
         language,
         text,
+        draw,
         lsp,
         dap,
         index,
@@ -252,7 +268,7 @@ fn capability(present: bool, installable: bool) -> Have {
 fn is_data_language(language: &str) -> bool {
     matches!(
         language,
-        "json" | "yaml" | "toml" | "markdown" | "html" | "css" | "sql"
+        "json" | "yaml" | "toml" | "markdown" | "html" | "css" | "sql" | "xml"
     )
 }
 
@@ -279,6 +295,7 @@ fn indexed_by_the_ecosystem(language: &str) -> bool {
 /// The single most useful sentence for this language: what to do next.
 /// What a language has, for deciding the one thing to say next.
 struct Capabilities {
+    draw: Have,
     lsp: Have,
     dap: Have,
     index: Have,
@@ -288,6 +305,7 @@ struct Capabilities {
 
 fn next_step(language: &str, tier: Tier, data: bool, have: &Capabilities) -> Option<String> {
     let Capabilities {
+        draw,
         lsp,
         dap,
         index,
@@ -303,7 +321,14 @@ fn next_step(language: &str, tier: Tier, data: bool, have: &Capabilities) -> Opt
         return None;
     }
     // Named in ladder order, because raising a rung needs the lower one
-    // first, and one instruction is more useful than four.
+    // first, and one instruction is more useful than four. Drawing comes
+    // before everything: it is the rung the language is already standing on.
+    if !draw.counts() {
+        return Some(format!(
+            "no syntax grammar — {language} opens as plain text; \
+             `apps/web/src/editor/languages.ts` binds them"
+        ));
+    }
     if !lsp.counts() {
         return Some(format!(
             "no language server Hickory knows of — Silver needs one for {language}"

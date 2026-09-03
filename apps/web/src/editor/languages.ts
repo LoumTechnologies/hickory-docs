@@ -1,9 +1,21 @@
 // Language registry shared by the Output view (full CodeMirror language
-// extensions) and the Document view (embedded highlighting of block bodies).
+// extensions), the plain-file pane, and the Document view (embedded
+// highlighting of block bodies).
+//
+// WHICH languages exist is not decided here. It is generated from the
+// server's own routing table (`crates/hick-lsp/src/lang_detect.rs`) by
+// `just codegen`, because this file used to keep a second list and the two
+// drifted apart in both directions at once: Go, Java, Kotlin, Scala, C, C++,
+// Ruby, Swift, Lua, TOML and YAML were routed and reported as Bronze — whose
+// definition is "the text is right: routed, highlighted, runnable" — while
+// opening as undifferentiated grey text, and SQL and XML highlighted here
+// while being routed nowhere at all. What is decided here is only HOW each
+// language is drawn, and `languages.test.ts` fails if the server expects a
+// grammar this file has not bound.
 //
 // Colors are NOT defined here: highlighting emits stable `tok-*` classes and
 // styles.css maps them onto the hick palette for both light and dark, so
-// the two views and both themes stay in tune.
+// every view and both themes stay in tune.
 
 import type { Extension } from "@codemirror/state";
 import { syntaxHighlighting, HighlightStyle, StreamLanguage } from "@codemirror/language";
@@ -17,71 +29,85 @@ import { markdown } from "@codemirror/lang-markdown";
 import { html } from "@codemirror/lang-html";
 import { css } from "@codemirror/lang-css";
 import { sql } from "@codemirror/lang-sql";
+import { php } from "@codemirror/lang-php";
 import { shell } from "@codemirror/legacy-modes/mode/shell";
-// C# and XML come from the legacy modes rather than their own lezer grammars:
-// `@codemirror/legacy-modes` is already here for the shell, so these two cost
-// no new dependency — which matters for a product that must stay MIT-only and
-// ships every byte it builds.
-import { csharp } from "@codemirror/legacy-modes/mode/clike";
+// Most of the JetBrains pack comes from the legacy modes rather than its own
+// lezer grammar: `@codemirror/legacy-modes` is already here for the shell, so
+// Go, Java, C, C++, C#, Kotlin, Scala, Dart, Ruby, Swift, Lua, Groovy, R, F#,
+// Visual Basic, TOML, YAML and XML cost no new dependency — which matters for
+// a product that must stay copyleft-free and ships every byte it builds.
+import { c, cpp, csharp, dart, java, kotlin, scala } from "@codemirror/legacy-modes/mode/clike";
 import { xml } from "@codemirror/legacy-modes/mode/xml";
+import { go } from "@codemirror/legacy-modes/mode/go";
+import { ruby } from "@codemirror/legacy-modes/mode/ruby";
+import { swift } from "@codemirror/legacy-modes/mode/swift";
+import { lua } from "@codemirror/legacy-modes/mode/lua";
+import { groovy } from "@codemirror/legacy-modes/mode/groovy";
+import { r } from "@codemirror/legacy-modes/mode/r";
+import { fSharp } from "@codemirror/legacy-modes/mode/mllike";
+import { vb } from "@codemirror/legacy-modes/mode/vb";
+import { toml } from "@codemirror/legacy-modes/mode/toml";
+import { yaml } from "@codemirror/legacy-modes/mode/yaml";
 
-/** Canonical language ids the app understands. */
-export type LanguageId =
-  | "python"
-  | "javascript"
-  | "typescript"
-  | "jsx"
-  | "tsx"
-  | "rust"
-  | "json"
-  | "markdown"
-  | "html"
-  | "css"
-  | "sql"
-  | "shell"
-  | "csharp"
-  | "xml";
+import {
+  EXTENSION_TO_LANGUAGE,
+  HIGHLIGHTED_LANGUAGES,
+  type RoutedLanguageId,
+} from "./generated/languages";
 
-const ALIASES: Record<string, LanguageId> = {
-  python: "python",
-  py: "python",
-  javascript: "javascript",
+/** Canonical language ids the app understands — the server's own list. */
+export type LanguageId = RoutedLanguageId;
+
+/**
+ * Spellings that are not file extensions: what a person writes in a
+ * `language=` attribute or a markdown fence. Extensions come from the
+ * generated table and are never repeated here.
+ */
+const SYNONYMS: Record<string, RoutedLanguageId> = {
+  "c++": "cpp",
+  "c#": "csharp",
+  "f#": "fsharp",
+  "objective-c": "c",
+  bash: "shellscript",
+  sh: "shellscript",
+  shell: "shellscript",
+  zsh: "shellscript",
+  console: "shellscript",
+  jsx: "javascriptreact",
+  tsx: "typescriptreact",
+  "javascript-react": "javascriptreact",
+  "typescript-react": "typescriptreact",
   js: "javascript",
-  mjs: "javascript",
-  cjs: "javascript",
-  jsx: "jsx",
-  typescript: "typescript",
   ts: "typescript",
-  tsx: "tsx",
-  rust: "rust",
+  py: "python",
   rs: "rust",
-  json: "json",
-  markdown: "markdown",
   md: "markdown",
-  html: "html",
   htm: "html",
-  css: "css",
-  sql: "sql",
-  shell: "shell",
-  sh: "shell",
-  bash: "shell",
-  zsh: "shell",
-  csharp: "csharp",
   cs: "csharp",
-  xml: "xml",
-  // A .NET project file is XML with a different name on it, and a document
-  // that ingests `dotnet new` gets one whether or not it asked.
-  csproj: "xml",
-  props: "xml",
-  targets: "xml",
-  xaml: "xml",
-  xsd: "xml",
+  kt: "kotlin",
+  rb: "ruby",
+  yml: "yaml",
+  golang: "go",
+  "visual-basic": "vb",
+  vbnet: "vb",
+  dotnet: "csharp",
+  postgres: "sql",
+  postgresql: "sql",
+  mysql: "sql",
+  sqlite: "sql",
+  plsql: "sql",
+  tsql: "sql",
 };
 
 /** Canonicalise a language name or file extension; null when unknown. */
 export function normalizeLanguage(name: string | undefined | null): LanguageId | null {
   if (!name) return null;
-  return ALIASES[name.toLowerCase()] ?? null;
+  const key = name.toLowerCase();
+  // The language's own id always wins, then a file extension, then a synonym.
+  if ((HIGHLIGHTED_LANGUAGES as readonly string[]).includes(key)) return key as LanguageId;
+  const routed = EXTENSION_TO_LANGUAGE[key];
+  if (routed) return routed;
+  return SYNONYMS[key] ?? null;
 }
 
 /** Language inferred from a file path's extension; null when unknown. */
@@ -92,41 +118,67 @@ export function languageFromPath(path: string | undefined | null): LanguageId | 
   return normalizeLanguage(path.slice(dot + 1));
 }
 
-// One language instance per id, built lazily (the shell stream parser and the
-// big lezer grammars are only paid for when a doc actually uses them).
+/**
+ * How each language is drawn. A language the server routes but that has no
+ * grammar anywhere (Nix, Zig) is deliberately absent: it opens as plain text,
+ * and `hick lang` reports that rather than promising otherwise.
+ */
+const GRAMMARS: Partial<Record<LanguageId, () => Extension>> = {
+  python: () => python(),
+  javascript: () => javascript(),
+  javascriptreact: () => javascript({ jsx: true }),
+  typescript: () => javascript({ typescript: true }),
+  typescriptreact: () => javascript({ typescript: true, jsx: true }),
+  rust: () => rust(),
+  json: () => json(),
+  markdown: () => markdown(),
+  html: () => html(),
+  css: () => css(),
+  sql: () => sql(),
+  php: () => php(),
+  shellscript: () => StreamLanguage.define(shell),
+  csharp: () => StreamLanguage.define(csharp),
+  xml: () => StreamLanguage.define(xml),
+  go: () => StreamLanguage.define(go),
+  java: () => StreamLanguage.define(java),
+  c: () => StreamLanguage.define(c),
+  cpp: () => StreamLanguage.define(cpp),
+  kotlin: () => StreamLanguage.define(kotlin),
+  scala: () => StreamLanguage.define(scala),
+  dart: () => StreamLanguage.define(dart),
+  ruby: () => StreamLanguage.define(ruby),
+  swift: () => StreamLanguage.define(swift),
+  lua: () => StreamLanguage.define(lua),
+  groovy: () => StreamLanguage.define(groovy),
+  r: () => StreamLanguage.define(r),
+  fsharp: () => StreamLanguage.define(fSharp),
+  vb: () => StreamLanguage.define(vb),
+  toml: () => StreamLanguage.define(toml),
+  yaml: () => StreamLanguage.define(yaml),
+};
+
+/** Language ids this file can actually draw. Read by the drift test. */
+export function boundGrammars(): LanguageId[] {
+  return (Object.keys(GRAMMARS) as LanguageId[]).sort();
+}
+
+// One language instance per id, built lazily (the stream parsers and the big
+// lezer grammars are only paid for when something actually uses them).
+const supportCache = new Map<LanguageId, Extension | null>();
 const parserCache = new Map<LanguageId, Parser | null>();
 
-function buildParser(lang: LanguageId): Parser {
-  switch (lang) {
-    case "python":
-      return python().language.parser;
-    case "javascript":
-      return javascript().language.parser;
-    case "jsx":
-      return javascript({ jsx: true }).language.parser;
-    case "typescript":
-      return javascript({ typescript: true }).language.parser;
-    case "tsx":
-      return javascript({ typescript: true, jsx: true }).language.parser;
-    case "rust":
-      return rust().language.parser;
-    case "json":
-      return json().language.parser;
-    case "markdown":
-      return markdown().language.parser;
-    case "html":
-      return html().language.parser;
-    case "css":
-      return css().language.parser;
-    case "sql":
-      return sql().language.parser;
-    case "shell":
-      return StreamLanguage.define(shell).parser;
-    case "csharp":
-      return StreamLanguage.define(csharp).parser;
-    case "xml":
-      return StreamLanguage.define(xml).parser;
+function languageSupportFor(lang: LanguageId): Extension | null {
+  let ext = supportCache.get(lang);
+  if (ext === undefined) {
+    const build = GRAMMARS[lang];
+    try {
+      ext = build ? build() : null;
+    } catch {
+      ext = null;
+    }
+    supportCache.set(lang, ext);
   }
+  return ext;
 }
 
 /** The lezer parser for a language id (or alias/extension); null if unknown. */
@@ -135,11 +187,15 @@ export function parserForLanguage(name: string | undefined | null): Parser | nul
   if (!lang) return null;
   let p = parserCache.get(lang);
   if (p === undefined) {
-    try {
-      p = buildParser(lang);
-    } catch {
-      p = null;
-    }
+    // A lezer package returns a LanguageSupport, whose parser is one level
+    // down under `.language`; `StreamLanguage.define` returns a Language,
+    // which carries `.parser` itself. Reading only the first shape silently
+    // returned null for every legacy mode — the shell, C#, XML and the whole
+    // JetBrains half of the table — which is a blank block, not an error.
+    const support = languageSupportFor(lang) as
+      | { language?: { parser?: Parser }; parser?: Parser }
+      | null;
+    p = support?.language?.parser ?? support?.parser ?? null;
     parserCache.set(lang, p);
   }
   return p;
@@ -165,39 +221,6 @@ export const hickoryHighlightStyle = HighlightStyle.define([
   { tag: t.invalid, class: "tok-invalid" },
 ]);
 
-function languageSupport(lang: LanguageId): Extension {
-  switch (lang) {
-    case "python":
-      return python();
-    case "javascript":
-      return javascript();
-    case "jsx":
-      return javascript({ jsx: true });
-    case "typescript":
-      return javascript({ typescript: true });
-    case "tsx":
-      return javascript({ typescript: true, jsx: true });
-    case "rust":
-      return rust();
-    case "json":
-      return json();
-    case "markdown":
-      return markdown();
-    case "html":
-      return html();
-    case "css":
-      return css();
-    case "sql":
-      return sql();
-    case "shell":
-      return StreamLanguage.define(shell);
-    case "csharp":
-      return StreamLanguage.define(csharp);
-    case "xml":
-      return StreamLanguage.define(xml);
-  }
-}
-
 /**
  * Syntax highlighting for an output file's declared language (a name, alias,
  * extension, or full path). Unknown languages degrade to plain text.
@@ -205,6 +228,7 @@ function languageSupport(lang: LanguageId): Extension {
 export function languageExtensions(language: string): Extension[] {
   const lang = normalizeLanguage(language) ?? languageFromPath(language);
   const exts: Extension[] = [syntaxHighlighting(hickoryHighlightStyle, { fallback: true })];
-  if (lang) exts.push(languageSupport(lang));
+  const support = lang ? languageSupportFor(lang) : null;
+  if (support) exts.push(support);
   return exts;
 }

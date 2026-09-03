@@ -15,6 +15,31 @@ test:
     cargo build --workspace
     cargo test --workspace -- --test-threads=1
 
+# Regenerate everything derived from another file in this repo.
+#
+# Today that is one thing: the web app's language table, emitted from
+# `hick-lsp`'s routing table. It exists because the two used to be written
+# down separately and drifted apart in both directions at once — nineteen
+# extensions' worth — which is the same class of bug that has made a language
+# server unreachable here twice before.
+codegen:
+    cargo run -q -p hick-lsp --bin emit-languages > apps/web/src/editor/generated/languages.ts
+
+# Fail if anything generated is out of date with its source. Runs in CI and in
+# the pre-commit hook, so drift cannot reach master.
+check-codegen:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    out=apps/web/src/editor/generated/languages.ts
+    cargo run -q -p hick-lsp --bin emit-languages > "$out.check"
+    if ! diff -u "$out" "$out.check"; then
+      rm -f "$out.check"
+      echo >&2
+      echo "$out is stale. Run \`just codegen\` and commit the result." >&2
+      exit 1
+    fi
+    rm -f "$out.check"
+
 # Lint (warnings are errors, matching CI).
 clippy:
     cargo clippy --workspace -- -D warnings
@@ -34,6 +59,7 @@ fmt:
 # the LSP tests spawn the `hick-lsp` binary, which `cargo test` alone does not
 # produce, and without it they fail claiming no language server is installed.
 ci:
+    just check-codegen
     cargo fmt --all -- --check
     cargo clippy --workspace --all-targets -- -D warnings
     cargo build --workspace

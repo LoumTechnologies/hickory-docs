@@ -3826,14 +3826,15 @@ fn cmd_lang() -> Result<ExitCode> {
         root.display()
     );
     println!(
-        "  {:<16} {:<7} {:<5} {:<6} {:<6} {:<6} {:<7} NEXT",
-        "LANGUAGE", "TIER", "LSP", "DEBUG", "INDEX", "MODEL", "CLIENT"
+        "  {:<16} {:<7} {:<5} {:<5} {:<6} {:<6} {:<6} {:<7} NEXT",
+        "LANGUAGE", "TIER", "DRAW", "LSP", "DEBUG", "INDEX", "MODEL", "CLIENT"
     );
     for row in &rows {
         println!(
-            "  {:<16} {:<7} {:<5} {:<6} {:<6} {:<6} {:<7} {}",
+            "  {:<16} {:<7} {:<5} {:<5} {:<6} {:<6} {:<6} {:<7} {}",
             row.language,
             row.tier.name(),
+            row.draw.mark(),
             row.lsp.mark(),
             row.dap.mark(),
             row.index.mark(),
@@ -3850,7 +3851,8 @@ fn cmd_lang() -> Result<ExitCode> {
     println!(
         "  `yes` is installed here; `get` is available and not installed yet.\n\
          \n\
-         \x20 BRONZE  the text is right — the language is routed, highlighted, and runnable in a cell.\n\
+         \x20 BRONZE  the text is right — the language is routed and runnable in a cell, and\n\
+         \x20         DRAW says whether the editor has a grammar to colour it with.\n\
          \x20 SILVER  the editor is right — a language server and a debugger, in document coordinates.\n\
          \x20 GOLD    the code is data — an index, a code model to generate FROM, and a\n\
          \x20         typed-client emitter to write a generator IN."

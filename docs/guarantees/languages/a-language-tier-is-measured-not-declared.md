@@ -13,14 +13,21 @@ rather than reported as lacking them: its debugger, index and model columns
 read `n/a`, Silver is the top of its ladder, and it is never rounded up to
 Gold because three columns cannot apply.
 
+Bronze does not claim highlighting. Whether the editor can draw a language is
+its own measured column, `DRAW`, and is guaranteed separately by
+`a-routed-language-is-drawn.md`.
+
 ## Why
 
-Four bugs of one shape have shipped here, each a hand-maintained list beside
+Five bugs of one shape have shipped here, each a hand-maintained list beside
 the thing it described: `lang_detect` with no `cs` row (C# support existed and
 was unreachable), `hick init`'s report omitting C#, and both
 `known_languages()` functions omitting the React language ids while their
 `candidates()` served them — so `.tsx` files were reported as having neither
-a language server nor a debugger on a machine that had both.
+a language server nor a debugger on a machine that had both. The fifth was the
+web app's own language table, which disagreed with the routing table about
+nineteen extensions in both directions — see `a-routed-language-is-drawn.md`,
+which is also where the fix that removes the second list is recorded.
 
 None was caught by a test, because a list that is the only statement of its
 own contents cannot be checked against anything. The rule is therefore about
