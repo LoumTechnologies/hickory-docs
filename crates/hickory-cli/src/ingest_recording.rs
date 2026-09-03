@@ -21,7 +21,6 @@
 //! so an output containing `<prefix:` would parse as markup. Such a cell's
 //! recording stays in the cache and the refusal names the cell.
 
-use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
@@ -29,7 +28,7 @@ use hick_literate::cache::{CacheConfig, CacheMode};
 use hick_literate::{CellId, RefreshedRecording};
 
 use crate::ingest_exec::element_content_end;
-use crate::{DocRun, ExecutorChoice, RunMode};
+use crate::{ExecutorChoice, RunMode};
 
 /// What an ingest did.
 #[derive(Debug)]
@@ -114,18 +113,6 @@ fn apply(source: &str, mut edits: Vec<Edit>) -> String {
         out.replace_range(edit.span.0..edit.span.1, &edit.text);
     }
     out
-}
-
-/// The text files a run produced, for the equivalence gate.
-fn text_files(run: &DocRun) -> BTreeMap<String, String> {
-    run.result
-        .files
-        .iter()
-        .filter_map(|(path, content)| match content {
-            hick_exec::node::FileContent::Text(s) => Some((path.clone(), s.clone())),
-            _ => None,
-        })
-        .collect()
 }
 
 /// Keep every recorded cell's recording in the document.
@@ -232,59 +219,21 @@ pub async fn ingest_recordings(
     )
     .await
     .context("weaving the document with its recordings in it")?;
-    let before = text_files(&run);
-    let after: BTreeMap<String, String> = gated
-        .files
-        .iter()
-        .filter_map(|(path, content)| match content {
-            hick_exec::node::FileContent::Text(s) => Some((path.clone(), s.clone())),
-            _ => None,
-        })
-        .collect();
-    if before != after {
-        let differing: Vec<&String> = before
-            .keys()
-            .chain(after.keys())
-            .filter(|k| before.get(*k) != after.get(*k))
-            .collect::<std::collections::BTreeSet<_>>()
-            .into_iter()
+    let mut diffs = hick_literate::equiv::compare_outputs(&run.result.files, &gated.files);
+    if !diffs.is_empty() {
+        diffs.sort_by(|a, b| a.path.cmp(&b.path));
+        let report: Vec<String> = diffs
+            .iter()
+            .map(hick_literate::equiv::format_diff)
             .collect();
-        // Say WHERE, not only that: the first line that differs in the first
-        // differing file, so the report is actionable.
-        let mut first_diff = String::new();
-        if let Some(path) = differing.first() {
-            let a = before.get(*path).cloned().unwrap_or_default();
-            let b = after.get(*path).cloned().unwrap_or_default();
-            for (i, (x, y)) in a.lines().zip(b.lines()).enumerate() {
-                if x != y {
-                    first_diff =
-                        format!("\n  {path} line {}:\n    cache: {x}\n    doc:   {y}", i + 1);
-                    break;
-                }
-            }
-            if first_diff.is_empty() {
-                first_diff = format!(
-                    "\n  {path}: {} line(s) from the cache, {} with the recordings inside",
-                    a.lines().count(),
-                    b.lines().count()
-                );
-            }
-        }
-        let listed = format!(
-            "{}{first_diff}",
-            differing
-                .iter()
-                .map(|s| s.as_str())
-                .collect::<Vec<_>>()
-                .join(", ")
-        );
         anyhow::bail!(
             "refusing to write {}: with its recordings inside it, the document weaves differently \
-             from the cache ({} file(s) differ: {listed}). Nothing was written. This is the \
-             equivalence gate every ingest passes through; it should not fire, and its firing is \
-             a bug worth reporting with this document.",
+             from the cache ({} file(s) differ). Nothing was written. This is the equivalence \
+             gate every ingest passes through; it should not fire, and its firing is a bug worth \
+             reporting with this document.\n{}",
             doc_path.display(),
-            differing.len(),
+            diffs.len(),
+            report.join("\n")
         );
     }
     // Cells are paired by POSITION between the two parses, not by id: a

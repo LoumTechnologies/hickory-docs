@@ -582,6 +582,12 @@ earlier cell moves every later cell's line, and **the element goes exactly
 where the closing tag was**, because a newline added there is command text
 and command text is in the key.
 
+**Step 5 built:** one comparison. `hick test`'s drift check and the ingest
+gate now go through `compare_outputs`, which `equiv` and the refactor pin
+already used, with one report sentence (`describe_difference`) for all of
+them (`one-comparison-behind-test-equiv-pin-and-merge.md`). All five steps
+of `three-axes.md` are built.
+
 ## Stack (settled — do not relitigate)
 
 - CLI + language + local server: Rust (edition 2024), axum, tokio. No database.

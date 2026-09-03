@@ -225,6 +225,11 @@ impl StdioClient {
             let remaining = deadline.saturating_duration_since(Instant::now());
             match self.wait_for(id, remaining.min(Duration::from_secs(10))) {
                 Some(Value::Null) | None => {}
+                // An empty list is "nothing yet" too: rust-analyzer answers
+                // `[]` to a definition request while it is still indexing,
+                // and taking that as the answer failed this test on a cold
+                // machine while passing on a warm one.
+                Some(Value::Array(items)) if items.is_empty() => {}
                 Some(result) => {
                     if attempt > 1 {
                         eprintln!("  ({method} answered on attempt {attempt})");

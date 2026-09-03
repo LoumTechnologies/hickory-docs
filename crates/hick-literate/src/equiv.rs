@@ -183,6 +183,67 @@ pub enum DiffKind {
     },
 }
 
+/// Where two byte strings first part company, and how their lengths compare:
+/// the one sentence every comparison in this product ends with. `first` and
+/// `second` name the two sides in the caller's words ("on disk", "freshly
+/// produced"; "the first document", "the second").
+///
+/// Before this, `hick test`'s `DRIFTED` verdict named the file and nothing
+/// else, which left an author with no way to see what it thought differed
+/// short of diffing the files by hand outside the tool.
+pub fn describe_difference(first: &str, second: &str, existing: &[u8], produced: &[u8]) -> String {
+    let common = existing
+        .iter()
+        .zip(produced.iter())
+        .take_while(|(a, b)| a == b)
+        .count();
+    let len_note = match existing.len().cmp(&produced.len()) {
+        std::cmp::Ordering::Equal => format!("both {} bytes", existing.len()),
+        std::cmp::Ordering::Less => format!(
+            "{first} is {} bytes, {second} is {} bytes ({} more)",
+            existing.len(),
+            produced.len(),
+            produced.len() - existing.len()
+        ),
+        std::cmp::Ordering::Greater => format!(
+            "{first} is {} bytes, {second} is {} bytes ({} fewer)",
+            existing.len(),
+            produced.len(),
+            existing.len() - produced.len()
+        ),
+    };
+    if common == existing.len().min(produced.len()) {
+        // One is an exact byte-for-byte prefix of the other — there is no
+        // "first differing byte" to report, only where they stop agreeing.
+        return format!(
+            "{first} differs from {second} — identical for the first {common} bytes, then \
+             one simply ends ({len_note})"
+        );
+    }
+    // A line number, when both sides are valid UTF-8 — the common,
+    // human-legible case (source, markdown, config) — is more useful than a
+    // byte offset alone, but the offset is kept either way.
+    let line = match (std::str::from_utf8(existing), std::str::from_utf8(produced)) {
+        (Ok(e), Ok(_)) => Some(
+            e.as_bytes()[..common]
+                .iter()
+                .filter(|&&b| b == b'\n')
+                .count()
+                + 1,
+        ),
+        _ => None,
+    };
+    match line {
+        Some(n) => format!(
+            "{first} differs from {second} — first difference at byte {common} (line {n}), \
+             {len_note}"
+        ),
+        None => {
+            format!("{first} differs from {second} — first difference at byte {common}, {len_note}")
+        }
+    }
+}
+
 /// Compare two sets of output files.
 pub fn compare_outputs(
     files1: &HashMap<String, hick_exec::node::FileContent>,
@@ -309,7 +370,16 @@ pub fn format_diff(diff: &OutputDiff) -> String {
             first_content,
             second_content,
         } => {
-            let mut output = format!("~ {} (content differs)\n", diff.path);
+            let mut output = format!(
+                "~ {} ({})\n",
+                diff.path,
+                describe_difference(
+                    "the first",
+                    "the second",
+                    first_content.as_bytes(),
+                    second_content.as_bytes()
+                )
+            );
 
             // Simple line-by-line diff
             let lines1: Vec<&str> = first_content.lines().collect();
@@ -492,5 +562,43 @@ mod tests {
         assert!(result.equivalent);
         // Should test 2 combinations: {} and {auth}
         assert_eq!(result.combinations_tested, 2);
+    }
+}
+
+#[cfg(test)]
+mod describe_difference_tests {
+    use super::describe_difference;
+
+    #[test]
+    fn a_middle_byte_difference_names_the_offset_and_line() {
+        let existing = b"line one\nline two\nline three\n";
+        let produced = b"line one\nline TWO\nline three\n";
+        let detail = describe_difference("on disk", "freshly produced", existing, produced);
+        assert!(detail.contains("byte 14"), "{detail}");
+        assert!(detail.contains("line 2"), "{detail}");
+        assert!(detail.contains("both 29 bytes"), "{detail}");
+    }
+
+    #[test]
+    fn one_side_ending_early_is_reported_as_a_prefix_not_a_byte_offset() {
+        let existing = b"line one\nline two\n";
+        let produced = b"line one\nline two\nline three\n";
+        let detail = describe_difference("on disk", "freshly produced", existing, produced);
+        assert!(
+            detail.contains("identical for the first 18 bytes"),
+            "{detail}"
+        );
+        assert!(detail.contains("11 more"), "{detail}");
+        // Not a byte-offset claim: there is no differing byte, only an end.
+        assert!(!detail.contains("first difference at byte"), "{detail}");
+    }
+
+    #[test]
+    fn non_utf8_content_still_reports_a_byte_offset_with_no_line_number() {
+        let existing = [0u8, 1, 2, 255];
+        let produced = [0u8, 1, 9, 255];
+        let detail = describe_difference("on disk", "freshly produced", &existing, &produced);
+        assert!(detail.contains("byte 2"), "{detail}");
+        assert!(!detail.contains("line"), "{detail}");
     }
 }
