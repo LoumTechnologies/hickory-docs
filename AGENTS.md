@@ -536,6 +536,19 @@ back, the document included, and a placeholder staged before the run for a
 file a cell fills then overwrote the cell's real product, with the run
 reporting nothing failed.
 
+Where all of this is going is `docs/specs/freeform/three-axes.md` (adopted
+2026-09-03, nothing built): a document, a cell and a produced file answer
+**three questions** — *evidence* (recorded / stale / unrecorded), *ownership*
+(does the document own these bytes or point at them), *agreement* (does the
+disk hold what the document produces) — and the thirty named modes,
+sub-kinds, verbs and banners that exist today are answers to those three.
+`adopt`, `promote`, `carry`, `import` become `ingest --from`; refactor mode
+becomes a pin on the agreement axis; kept / held / preserved / `409` become
+one *diverged* surface with three ways out; and **recordings the document
+keeps are ingested into it as `hick:ingested key=…`**, which reverses the
+2026-09-02 decision to commit `.hick-cache/transcripts/` — a durable claim
+must not point into a cache, which `from=` already taught.
+
 ## Stack (settled — do not relitigate)
 
 - CLI + language + local server: Rust (edition 2024), axum, tokio. No database.
