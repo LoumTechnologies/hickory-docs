@@ -52,9 +52,11 @@ made for plain files:
 
 A document is still debugged in a scratch copy; nothing here changes
 `debugging-never-writes-to-the-project.md`, which now says so in its own
-boundary. Only one file is debugged at a time per pane, and only the file
-the pane holds shows a paused line: a frame in another file is *opened*, not
-drawn paused there. Which program a multi-binary package launches is
+boundary. Only one file is debugged at a time per pane. When the program
+stops in *another* file of the folder, that file's tab is opened and its
+pane draws the paused line (published through `lib/pausedElsewhere.ts`,
+cleared by the owning session when it moves on); values, watches and the
+strip stay with the owning pane. Which program a multi-binary package launches is
 answered the way it is for a document — the artifact named after the
 package — and a package with several and no match is a refusal that lists
 them, not a guess.
@@ -95,9 +97,10 @@ Last LLM verification:
   `apps/web/src/debug/cmDebug.test.ts` ("a plain file's breakpoints");
   `apps/web/src/components/PlainFilePane.test.tsx` ("a plain file and the
   debugger").
-- Caveats: both live tests skip loudly when the adapter (or cargo) is
-  missing, so a machine without debugpy or codelldb verifies the shape and
-  not the running program. C# in place (`dotnet build` in the file's own
-  project) is covered only by the lookup and the refusal; no live test
-  builds a plain `.csproj`. The browser-side behaviours are exercised by
-  the pane test in jsdom, not in a real browser.
+- Caveats: the live tests (Python, Rust, and C# —
+  `a_plain_csharp_file_builds_its_own_project_in_place_and_stops_on_its_own_line`,
+  `dotnet build` in the file's own project, the assembly under its own
+  `bin/`) skip loudly when the adapter or toolchain is missing, so a machine
+  without them verifies the shape and not the running program. The
+  browser-side behaviours are exercised by the pane test in jsdom, not in a
+  real browser.

@@ -17,6 +17,7 @@ import { setSharedRealtime, type Realtime } from "../api/realtime";
 import { createLspChannel, encodeLspFrame, type JsonRpcMessage } from "../lsp/channel";
 import { resetWorkspaceLsp } from "../lsp/useLsp";
 import { resetWorkspaceDebugger } from "../debug/useDebugger";
+import { publishPausedElsewhere, resetPausedElsewhere } from "../lib/pausedElsewhere";
 import { allFileProblems, resetFileProblems } from "../lib/fileProblems";
 
 const ON_DISK = "one\ntwo\nthree\n";
@@ -50,6 +51,7 @@ beforeEach(() => {
   vi.restoreAllMocks();
   resetWorkspaceLsp();
   resetWorkspaceDebugger();
+  resetPausedElsewhere();
   resetFileProblems();
 });
 
@@ -300,6 +302,22 @@ describe("a plain file and the debugger", () => {
     await waitFor(() => expect(document.querySelector(".cm-content")).not.toBeNull());
     expect(screen.queryByRole("button", { name: "Debug" })).toBeNull();
     expect(document.querySelector(".cm-breakpoint-gutter")).toBeNull();
+  });
+
+  it("draws the paused line when another pane's session is stopped in this file", async () => {
+    // The pane for `app.py` owns the session and stepped into `helpers.py`.
+    // This pane holds helpers.py; for reading, the paused line is its own.
+    debugWire();
+    serveFile("tools/helpers.py", "python", "def double(x):\n    return x * 2\n");
+    render(<PlainFilePane path="tools/helpers.py" />);
+    await waitFor(() => expect(document.querySelector(".cm-breakpoint-gutter")).not.toBeNull());
+    publishPausedElsewhere("tools/app.py", { path: "tools/helpers.py", line: 1 });
+    await waitFor(() => expect(document.querySelector(".cm-paused-arrow")).not.toBeNull());
+    // Only the owner clears it, and it does when the program moves on.
+    publishPausedElsewhere("tools/other.py", null);
+    expect(document.querySelector(".cm-paused-arrow")).not.toBeNull();
+    publishPausedElsewhere("tools/app.py", null);
+    await waitFor(() => expect(document.querySelector(".cm-paused-arrow")).toBeNull());
   });
 
   it("starts at the file's own path and shows the session above the file", async () => {

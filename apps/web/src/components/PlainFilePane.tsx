@@ -56,6 +56,7 @@ import { onFlushSaves } from "../lib/flushSaves";
 import { MergeView } from "./MergeView";
 import { DivergedBanner } from "./DivergedBanner";
 import { DebugStrip } from "../debug/DebugStrip";
+import { publishPausedElsewhere, usePausedElsewhere } from "../lib/pausedElsewhere";
 import { debugEditor, debugStateEffects, revealLine } from "../debug/cmDebug";
 import { isDebuggable } from "../debug/languages";
 import { useWorkspaceDebugger } from "../debug/useDebugger";
@@ -498,14 +499,42 @@ export function PlainFilePane({
   // Who last touched each line, when the column is on.
   useBlame(railView, path);
 
+  // Where THIS pane's session is paused when that is another file of the
+  // folder: say so, and open that file, the way stepping into a callee in
+  // another file opens it in any IDE. Cleared the moment the program moves
+  // on or the session ends; only this owner can clear what it published.
+  useEffect(() => {
+    const top = debug.frames[0];
+    if (
+      debug.status === "paused" &&
+      top &&
+      !top.in_document &&
+      isWorkspaceSource(top.source) &&
+      typeof top.source_line === "number"
+    ) {
+      publishPausedElsewhere(path, { path: top.source, line: top.source_line });
+      openLocation(top.source, top.source_line + 1);
+    } else {
+      publishPausedElsewhere(path, null);
+    }
+  }, [debug.status, debug.frames, path]);
+  useEffect(() => () => publishPausedElsewhere(path, null), [path]);
+
+  // And the other side: a session owned by ANOTHER pane is paused in this
+  // file. Drawn as the paused line here, because for reading it is one.
+  const elsewhere = usePausedElsewhere();
+  const pausedHere = elsewhere && elsewhere.path === path ? elsewhere.line : null;
+
   // Push the debugger's state into the editor: the gutter dots, the paused
   // line, and the values shown at the end of each line. `railView` is the
   // view as state, so this runs again once the editor exists.
   useEffect(() => {
     const view = viewRef.current;
     if (!view || !fileRef.current || !isDebuggable(fileRef.current.language)) return;
-    view.dispatch({ effects: debugStateEffects(debug) });
-  }, [debug, railView]);
+    const pausedLine = debug.pausedLine ?? pausedHere;
+    view.dispatch({ effects: debugStateEffects({ ...debug, pausedLine }) });
+    if (debug.pausedLine === null && pausedHere !== null) revealLine(view, pausedHere);
+  }, [debug, pausedHere, railView]);
 
   // Diagnostics arrive in LSP line/character coordinates; translate against
   // the live buffer so they stay put while the user types. The workspace's

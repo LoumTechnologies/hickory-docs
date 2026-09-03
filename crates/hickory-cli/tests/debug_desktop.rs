@@ -709,3 +709,109 @@ async fn a_plain_rust_file_builds_in_its_own_project_and_stops_on_its_own_line()
 
     registry.stop(&id).await.expect("stops");
 }
+
+/// Point a temp folder at the C# adapter this repository installed.
+fn csharp_available(root: &std::path::Path) -> bool {
+    #[cfg(unix)]
+    {
+        let cache = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../.hick-cache");
+        if cache.join("adapters/netcoredbg/netcoredbg").exists()
+            && !root.join(".hick-cache").exists()
+        {
+            let _ = std::os::unix::fs::symlink(cache, root.join(".hick-cache"));
+        }
+    }
+    let have_dotnet = std::process::Command::new("dotnet")
+        .arg("--version")
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status()
+        .map(|s| s.success())
+        .unwrap_or(false);
+    have_dotnet && hick_dap::discover("csharp", root).is_some()
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_plain_csharp_file_builds_its_own_project_in_place_and_stops_on_its_own_line() {
+    // Protects docs/guarantees/debugging/a-plain-file-has-the-same-debugger.md
+    //
+    // The other compiled language, in place: `dotnet build` runs in the
+    // nearest project above the file, the assembly lands under that project's
+    // own `bin/`, there is no scratch copy, and the breakpoint stops on the
+    // file's own line through netcoredbg's pdb mapping.
+    let dir = tempfile::tempdir().expect("a temp repository");
+    let root = dir.path().to_path_buf();
+    std::fs::create_dir_all(root.join(".git")).unwrap();
+    std::fs::create_dir_all(root.join("app")).unwrap();
+    std::fs::write(
+        root.join("app/app.csproj"),
+        "<Project Sdk=\"Microsoft.NET.Sdk\">\n  <PropertyGroup>\n    <OutputType>Exe</OutputType>\n\
+         \x20   <TargetFramework>net10.0</TargetFramework>\n  </PropertyGroup>\n</Project>\n",
+    )
+    .unwrap();
+    let program = root.join("app/Program.cs");
+    std::fs::write(
+        &program,
+        "class Program\n{\n    static decimal LineTotal(int quantity, decimal unitPrice)\n    {\n\
+         \x20       decimal subtotal = quantity * unitPrice;\n        return subtotal;\n    }\n\n\
+         \x20   static void Main()\n    {\n        System.Console.WriteLine(LineTotal(3, 1.25m));\n    }\n}\n",
+    )
+    .unwrap();
+    /// 0-based line of `        decimal subtotal = quantity * unitPrice;`.
+    const SUBTOTAL: u32 = 4;
+    if !csharp_available(&root) {
+        eprintln!("SKIPPED: no .NET SDK or no C# debug adapter (`hick dap install csharp`)");
+        return;
+    }
+
+    let registry = hickory_cli::debug_sessions::Registry::new();
+    let mut said: Vec<String> = Vec::new();
+    let breakpoints = vec![hick_dap::Breakpoint {
+        line: SUBTOTAL,
+        condition: None,
+        hit_condition: None,
+        log_message: None,
+    }];
+    let (id, live, _statuses) = registry
+        .start_plain(&program, &root, &breakpoints, &mut |line| {
+            if let hick_dap::BuildOutput::Out(t) | hick_dap::BuildOutput::Err(t) = line {
+                said.push(t);
+            }
+        })
+        .await
+        .unwrap_or_else(|e| panic!("the session did not start:\n{e:#}\n{}", said.join("\n")));
+
+    assert!(
+        live.scratch_path().is_none(),
+        "a plain file has no scratch copy"
+    );
+    assert!(
+        root.join("app/bin/Debug").exists(),
+        "the build did not land in the project's own bin/: {}",
+        said.join("\n")
+    );
+
+    let stopped = live
+        .session
+        .wait_for_stop(Duration::from_secs(120))
+        .await
+        .expect("waiting for the stop")
+        .expect("the program stops rather than finishing");
+    let frames = live
+        .session
+        .stack(stopped.thread_id)
+        .await
+        .expect("a stack");
+    let top = &frames[0];
+    assert!(top.name.contains("LineTotal"), "{frames:?}");
+    assert_eq!(top.line, Some(SUBTOTAL), "{frames:?}");
+    assert!(top.in_document, "{frames:?}");
+    let value = live
+        .session
+        .evaluate("quantity", Some(top.id), "watch")
+        .await
+        .expect("evaluating in the stopped frame");
+    assert_eq!(value.value, "3");
+
+    registry.stop(&id).await.expect("stops");
+}

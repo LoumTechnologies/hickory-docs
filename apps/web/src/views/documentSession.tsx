@@ -39,6 +39,7 @@ import { sourcePositionAt, type OutputProvenance } from "../lsp/outputMapping";
 import type { LspLocation } from "../lsp/client";
 import { FILES_CHANGED_EVENT } from "../shell/FolderTreePane";
 import { openLocation, pathOfDocUri } from "../lib/revealLine";
+import { publishPausedElsewhere } from "../lib/pausedElsewhere";
 import { navigate } from "../router";
 
 export type Banner = { kind: "pending" | "pass" | "fail"; text: string } | null;
@@ -324,6 +325,22 @@ function useDocumentSession(
     if (!view) return;
     view.dispatch({ effects: debugStateEffects(debug) });
   }, [debug.breakpoints, debug.pausedLine, debug.variables, debug.frames, debug.watches, docEditor]);
+
+  // A document's debuggee stopped in a plain file of the folder: that file's
+  // pane draws the paused line, and the workspace opens it. Same store the
+  // plain-file pane publishes to (lib/pausedElsewhere.ts).
+  useEffect(() => {
+    const owner = docPathRef.current ?? "";
+    const top = debug.frames[0];
+    const source = top?.source ?? null;
+    const inFolder = !!source && !/^([A-Za-z]:)?[\\/]/.test(source);
+    if (debug.status === "paused" && top && !top.in_document && inFolder && typeof top.source_line === "number") {
+      publishPausedElsewhere(owner, { path: source, line: top.source_line });
+      openLocation(source, top.source_line + 1);
+    } else {
+      publishPausedElsewhere(owner, null);
+    }
+  }, [debug.status, debug.frames]);
 
   // Run events arrive in bursts (one terminal message per run, plus the
   // `verify` fallback path), and each used to trigger its own full render.
