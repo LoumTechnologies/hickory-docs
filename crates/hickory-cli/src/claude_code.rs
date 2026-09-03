@@ -1,4 +1,4 @@
-//! `hick import claude-code`: a Claude Code transcript, as a `hick:session`.
+//! `hick ingest --from claude-code`: a Claude Code transcript, as a `hick:session`.
 //!
 //! Claude Code keeps every conversation as a JSONL file under
 //! `~/.claude/projects/<project>/<session-id>.jsonl` — one JSON object per
@@ -955,7 +955,7 @@ pub fn import_file(source: &Path, out_dir: &Path, force: bool) -> Result<Outcome
     let converted = convert(&jsonl).with_context(|| format!("converting {}", source.display()))?;
     if let Some(problem) = converted.stats.problems.first() {
         bail!(
-            "{problem}. Nothing was written; `hick import claude-code --stdout {}` prints the \
+            "{problem}. Nothing was written; `hick ingest --from claude-code --stdout {}` prints the \
              converted document so the line can be found.",
             source.display()
         );

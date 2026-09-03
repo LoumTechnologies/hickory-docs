@@ -1,6 +1,6 @@
 # Claude Code transcripts as session documents
 
-*Status: shipped 2026-08-23 as `hick import claude-code`. This note records
+*Status: shipped 2026-08-23 as `hick ingest --from claude-code`. This note records
 what a Claude Code transcript contains, what our `hick:session` format
 carries, where the two differ, and what was decided about each difference.
 Guarantee: `docs/guarantees/agent/a-claude-code-transcript-imports-as-a-session.md`.*

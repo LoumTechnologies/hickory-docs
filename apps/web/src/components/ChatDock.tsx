@@ -421,7 +421,7 @@ export function ChatDock({
               "session file. This one becomes a draft you may discard — sessions/ " +
               "is gitignored, so that is already the default — and nothing in the " +
               "new one will refer to it. Distil what you learned first: " +
-              "`hick carry <session>` writes the opening prompt and leaves the " +
+              "`hick ingest --from carry <session>` writes the opening prompt and leaves the " +
               "tests you kept and the approaches you ruled out for you to fill in. " +
               "To keep the change of mind instead, rewind.",
           );

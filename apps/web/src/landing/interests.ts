@@ -39,7 +39,7 @@ export const INTERESTS: Interest[] = [
     teaser: "Its session lands in git as a document you read in a diff, not a chat log.",
     body: [
       "Point your agent at a repository with `hick init` and set `HICKORY_SESSION`. Every tool call it makes — what it read, what it changed, what the run printed — is appended to a `.hick` document in your own repository, as it happens.",
-      "That artifact is reviewable the way code is reviewable: it is a file, it is in the diff, and the commands in it re-run. A messy exploratory session can be promoted with `hick promote` into a clean pipeline that reproduces the same result without the dead ends, so the record of how it was found and the artifact you maintain are both kept, separately.",
+      "That artifact is reviewable the way code is reviewable: it is a file, it is in the diff, and the commands in it re-run. A messy exploratory session can be promoted with `hick ingest --from session` into a clean pipeline that reproduces the same result without the dead ends, so the record of how it was found and the artifact you maintain are both kept, separately.",
       "Your own reasoning stays yours — the session records what was done to the document, not what the model was thinking.",
     ],
   },

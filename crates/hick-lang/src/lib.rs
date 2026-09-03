@@ -1742,7 +1742,7 @@ fn is_raw_content_tag(name: &str) -> bool {
     // and speaker turns are derived from it rather than stored beside it.
     // `context` is what a harness put in front of the model besides the
     // conversation — a compaction summary, a hook's output, an attached file.
-    // Bytes another tool produced, like a tool result; see `hick import`.
+    // Bytes another tool produced, like a tool result; see `hick ingest --from claude-code`.
     matches!(
         name,
         "input" | "tool-result" | "transcript" | "reasoning" | "context"

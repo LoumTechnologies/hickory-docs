@@ -51,7 +51,7 @@ then how, then proof:
    own, so a reader who only skims the headings still gets it.
 2. **The mechanism** (`components/AgentToolSurface.tsx`) — static, not
    interactive: `hick init`, `hick mcp`, the five `hick doc` tools, and the
-   artifact they leave behind (`HICKORY_SESSION`, `hick promote`). A fake
+   artifact they leave behind (`HICKORY_SESSION`, `hick ingest --from session`). A fake
    terminal pretending to run an agent would only obscure how small the real
    surface is.
 3. **The proof** (`landing/demos/ProgramDemo.tsx`) — one document, its woven

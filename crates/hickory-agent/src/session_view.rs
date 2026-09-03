@@ -104,7 +104,7 @@ pub enum Step {
     },
     /// Something the harness put in front of the model besides the
     /// conversation: a compaction summary, a hook's output, an attached
-    /// file. Written by `hick import`; the built-in agent records its
+    /// file. Written by `hick ingest --from claude-code`; the built-in agent records its
     /// context as `read` instead.
     Context {
         /// `compact`, `meta`, `attachment:file`, … — never the serde tag.

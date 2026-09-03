@@ -871,7 +871,7 @@ hick ingest --from '#id' <file.hick>  Ingest a cell's output volume (§4);
                                     running it again is a three-way merge
                                     against the base, recovered from the commit
                                     that introduced the recorded fingerprint
-hick carry &lt;session.hick&gt;           Distil a session into what carries to the
+hick ingest --from carry &lt;session.hick&gt;           Distil a session into what carries to the
                                     next attempt: a prompt, the tests you kept,
                                     the approaches you ruled out
 hick emit [dir]                     Show the commits a re-emission WOULD

@@ -129,7 +129,7 @@ arrives, is met with a decision instead of a surprise.
 
 ## What this makes easy downstream
 
-- **`hick adopt` on a markdown file becomes nearly a rename.** Adoption is
+- **`hick ingest --from file` on a markdown file becomes nearly a rename.** Adoption is
   byte-exact or refused (`docs/guarantees/authoring/adoption-is-byte-exact-or-refused.md`);
   with a bare document, the content that has to reproduce byte-exactly is the
   file itself with nothing wrapped around it.

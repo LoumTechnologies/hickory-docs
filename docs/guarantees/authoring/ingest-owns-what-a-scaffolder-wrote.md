@@ -52,7 +52,7 @@ Corollaries that are part of the guarantee:
 - **Text the parser would read as structure is refused before anything is
   written**, and the whole ingest is additionally proven byte-exact by a weave
   afterwards, with the document restored on any failure — the same discipline
-  `hick adopt` uses.
+  `hick ingest --from file` uses.
 - **A volume the document has ingested is no longer flushed as a pipeline
   output.** Ownership transferred: the document holds those bytes and your
   edits to them, and flushing a fresh run over the top would silently

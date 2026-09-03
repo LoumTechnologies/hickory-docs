@@ -1,7 +1,7 @@
 # A Claude Code Transcript Imports As A Session
 
 Given a Claude Code transcript (`~/.claude/projects/<project>/<session>.jsonl`),
-when `hick import claude-code <file>` runs, then a `hick:session` document is
+when `hick ingest --from claude-code <file>` runs, then a `hick:session` document is
 written to `sessions/<date>-<title>.hick` that the product reads back as the
 conversation it was: every prompt a turn with its `parent=` (the tree
 survives), every reply's prose, reasoning, and tool calls with their full
@@ -69,7 +69,7 @@ Last LLM verification:
 - Date: 2026-08-23
 - Reviewer: Claude Fable 5
 - Result: verified. All 37 transcripts of this repository's own Claude Code
-  history import (`hick import claude-code ~/.claude/projects/…/*.jsonl`),
+  history import (`hick ingest --from claude-code ~/.claude/projects/…/*.jsonl`),
   including the ones whose tool results and edits quote session files —
   the cases that exercise rules 1–3 above. The biggest (11,764 records)
   reads back as 74 turns, 2,125 replies, 2,059 tool calls and results, with

@@ -145,7 +145,7 @@ pub async fn adopt_new(file: &Path) -> Result<AdoptOutcome> {
     let doc_path = file.with_file_name(format!("{stem}.hick"));
     if doc_path.exists() {
         bail!(
-            "{} already exists. Adopt into it instead (`hick adopt {} --into {}`), \
+            "{} already exists. Adopt into it instead (`hick ingest --from file {} --into {}`), \
              or pick a different name for the new document.",
             doc_path.display(),
             file.display(),

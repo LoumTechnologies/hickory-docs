@@ -129,7 +129,7 @@ decision made during the port:
 - **`src/main.rs` and `src/bin/{hick-equiv,hick-compact,hick-promote}.rs`**
   — the old `hick` binary and helper bins are superseded by
   `crates/hickory-cli` (`hick`). The library modules they exposed
-  (`equiv`, `compact`, `promote`, `pipeline`, `watch`) remain; `hick promote`
+  (`equiv`, `compact`, `promote`, `pipeline`, `watch`) remain; `hick ingest --from session`
   wires the vendored promote cleanly.
 - **`generate_matrix.rs`, `visual_regression.rs`, `agents.rs`, and
   `docs/AGENTS.md`** were **deleted on 2026-08-13**, after the
@@ -220,7 +220,7 @@ not a byte-for-byte vendor:
   `XmlSessionLog` (a purpose-built `log:` namespace bundle) was replaced by
   `HickSessionLog`, which writes `hick:session` documents directly so
   sessions parse with `hick_lang::parse_session` and promote with
-  `hick promote`.
+  `hick ingest --from session`.
 - **Adapted**: the old wasm `ContainerBackend` execution was replaced by an
   adapter over `hickory_executor::Executor` — scripts are written into the
   agent container's workspace via `execute_with_stdin` and run as

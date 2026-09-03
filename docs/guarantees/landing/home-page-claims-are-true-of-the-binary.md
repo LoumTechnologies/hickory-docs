@@ -41,7 +41,7 @@ Last LLM verification:
   was hosted
 - Evidence: The command surface shown by
   `apps/web/src/components/AgentToolSurface.tsx` (`hick init`, `hick mcp`, the
-  five `hick doc` subcommands, `hick promote`, `HICKORY_SESSION`) matches
+  five `hick doc` subcommands, `hick ingest --from session`, `HICKORY_SESSION`) matches
   `crates/hickory-cli/src/main.rs` and the managed AGENTS.md body in
   `crates/hickory-cli/src/init.rs`, which is what `hick init` actually writes
   (alongside the `.mcp.json` entry and the pre-commit hook).

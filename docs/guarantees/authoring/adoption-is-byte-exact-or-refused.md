@@ -1,7 +1,7 @@
 # Adoption Is Byte-Exact, Or It Does Not Happen
 
 Given a plain text file in the open folder, when it is adopted into a
-literate document — `hick adopt`, `POST /api/adopt`, or the plain-file
+literate document — `hick ingest --from file`, `POST /api/adopt`, or the plain-file
 pane's "Make literate" button — then the new (or extended) document weaves
 that file byte-for-byte, verified by an actual weave BEFORE anything lands
 in the working tree; and when the round-trip cannot be byte-exact, then the

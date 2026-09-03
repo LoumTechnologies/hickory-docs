@@ -18,7 +18,7 @@ decision.
 
 **The carry is what moves between them**, and it is not the transcript: a
 better opening prompt, the tests you kept, the approaches you ruled out.
-`hick carry <session>` writes the opening prompt into an ordinary `.hick`
+`hick ingest --from carry <session>` writes the opening prompt into an ordinary `.hick`
 document and leaves the rest as empty, named slots.
 
 Corollaries that are part of the guarantee:
@@ -56,7 +56,7 @@ Last LLM verification:
     three slots and what each says), `unfilled_slots`, `carry_from_session`
     (the outside-`sessions/` default, the never-overwrite refusal, the
     not-a-session refusal).
-  - `crates/hickory-cli/src/main.rs` — `hick carry` and its report.
+  - `crates/hickory-cli/src/main.rs` — `hick ingest --from carry` and its report.
   - Tests: `crates/hickory-cli/src/carry.rs` unit tests (5);
     `apps/web/src/components/ChatDock.test.tsx` (3).
 - Caveat requiring LLM review: self-containment is not checked. A carried

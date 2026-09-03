@@ -4,7 +4,7 @@
 //! programming**: every session is written incrementally as a `hick:session`
 //! document that round-trips through `hick-lang`'s `SessionDocument` parser
 //! and can be promoted into a clean `hick:doc` pipeline with
-//! `hick promote`.
+//! `hick ingest --from session`.
 //!
 //! The loop: the LLM responds with `<hick:next>code</hick:next>` plus one
 //! fenced code block (shell or python) → the script executes through the

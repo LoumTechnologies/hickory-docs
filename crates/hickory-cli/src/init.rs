@@ -106,7 +106,7 @@ paste in verbatim.
    does the regenerating half continuously while you work; it does not
    replace `hick test`.
 3. Agent sessions live in `sessions/*.hick` (`hick:session` documents);
-   `hick promote <session>` compacts one into a clean pipeline doc.
+   `hick ingest --from session <session>` compacts one into a clean pipeline doc.
 
 ### The document tools — prefer these over editing files by hand
 

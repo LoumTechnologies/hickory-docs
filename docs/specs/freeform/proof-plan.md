@@ -30,7 +30,7 @@ command you can run or a test that already gates CI.
    the player scrubs through timed output.
 4. Pricing page renders `plans.json` through the API (no hard-coded prices).
 5. CLI: `hick agent "…"` works once `ANTHROPIC_API_KEY` is set — sessions
-   land in `sessions/*.hick`, `hick promote` compacts them.
+   land in `sessions/*.hick`, `hick ingest --from session` compacts them.
 6. The editor, live: the "smoke" project now has `weave-demo.hick` — open it
    to see the Typora-style Document view (syntax visible, styled like the
    render), then switch to **Output** → `pleasantries.py`: hover to see each

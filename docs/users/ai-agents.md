@@ -5,7 +5,7 @@ documents: the built-in `hick agent`, or a coding agent they already use
 (Claude Code, etc.) on a local repo.*
 
 Either way, the end product is the same: agent work lands as `hick:session`
-documents in `sessions/*.hick`, and `hick promote` compacts a session into
+documents in `sessions/*.hick`, and `hick ingest --from session` compacts a session into
 a clean pipeline document. The choice is about *where the agent runs*, not
 what it produces.
 
@@ -55,7 +55,7 @@ What happens, procedurally:
    appended to a `hick:session` document under `sessions/`. The session *is*
    the log; there is no separate chat transcript to lose.
 3. When it's done, you review the session, then
-   `hick promote sessions/<name>.hick --out docs/benchmark.hick` to keep
+   `hick ingest --from session sessions/<name>.hick --out docs/benchmark.hick` to keep
    only the surviving pipeline (last write wins, dead ends dropped).
 
 Choose this when you want sessions captured with full fidelity by
@@ -169,7 +169,7 @@ tool call and result, token counts — in
 document:
 
 ```sh
-hick import claude-code ~/.claude/projects/-home-me-notes/0509e08e-….jsonl
+hick ingest --from claude-code ~/.claude/projects/-home-me-notes/0509e08e-….jsonl
 # → sessions/20260813-133534-revise-home-page-to-prioritize-agent-fir.hick
 ```
 
@@ -201,7 +201,7 @@ which agent produced it.
   it.** With `HICKORY_SESSION` set, an outside agent's *tool calls* are
   recorded as a real `hick:session` — but its reasoning is not, and work it
   does by editing files directly, without the tools, is invisible to that
-  session. `hick import claude-code` is the other half: the transcript itself,
+  session. `hick ingest --from claude-code` is the other half: the transcript itself,
   reasoning and all, after the fact.
 - **`promote` has nothing to do on a tool-driven session.** It reconstructs a
   pipeline from *script* writes; tool calls edit the document in place, so

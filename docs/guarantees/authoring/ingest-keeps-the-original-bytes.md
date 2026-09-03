@@ -127,7 +127,7 @@ Last LLM verification:
 - Evidence for the layout rule: `ingested_block` in
   `crates/hickory-cli/src/ingest_exec.rs` writes the break after the open tag;
   `file_body` in the same module takes it back off for both merge inputs
-  (`RecordedIngest::ours` and `base_from_git`). `hick adopt` uses the same
+  (`RecordedIngest::ours` and `base_from_git`). `hick ingest --from file` uses the same
   convention (`new_doc_source`/`file_block` in
   `crates/hickory-cli/src/adopt.rs`).
 - Test coverage: `an_ingested_body_starts_on_its_own_line_without_changing_a_byte`

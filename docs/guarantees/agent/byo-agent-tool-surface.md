@@ -46,7 +46,7 @@ lives in that harness's own transcript in that vendor's own format. Importing
 those was considered and rejected — three private log shapes to maintain, for
 prose that nothing replays.
 
-A second, related limit: `hick promote` extracts *script* writes from a
+A second, related limit: `hick ingest --from session` extracts *script* writes from a
 session. A tool-driven session edits the document in place, so promoting one
 yields an empty pipeline — correctly, because there is nothing left to
 reconstruct. Promote is for script-first sessions; for tool-driven work the

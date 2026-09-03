@@ -105,7 +105,7 @@ provider is picked for you. Your key stays in your environment and goes only
 to the vendor you chose; hick never stores it, and nothing else in the tool
 touches the network. An unknown provider or a missing key fails before the
 first request, naming what to set.
-`hick promote` compacts a session into a clean pipeline: last-write wins,
+`hick ingest --from session` compacts a session into a clean pipeline: last-write wins,
 dead ends dropped. The agent's work product is a literate program in your git
 history, not a chat log that evaporated.
 
@@ -222,7 +222,7 @@ details, including how to verify a download:
 - `hick lineage <doc> --output <file>` — print the byte-precise provenance of a
   generated output file: which source spans produced each byte range
 - `hick agent "<prompt>"` — run an agent session (writes `sessions/*.hick`)
-- `hick promote <session.hick>` — compact a session into a pipeline
+- `hick ingest --from session <session.hick>` — compact a session into a pipeline
 - `hick refresh <doc>` — rewrite stale `hick:transform` passages; the only
   command that calls a model
 - `hick init` — set up a git repo for hick: the pre-commit drift gate, the

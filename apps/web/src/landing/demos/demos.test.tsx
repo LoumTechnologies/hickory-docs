@@ -72,7 +72,7 @@ describe("the agent tool surface", () => {
       "hick doc edit-output",
       "hick doc edit",
       "hick doc verify",
-      "hick promote",
+      "hick ingest --from session",
     ]) {
       expect(text).toContain(command);
     }

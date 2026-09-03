@@ -967,7 +967,7 @@ fn call_list_docs_tool(args: &Value) -> Result<String, String> {
                 match hick_lang::parse_session(&source) {
                     Ok(session) => format!(
                         "a recorded session, {} entr{} — read-only here; \
-                         `hick promote` turns one into a document",
+                         `hick ingest --from session` turns one into a document",
                         session.nodes.len(),
                         if session.nodes.len() == 1 { "y" } else { "ies" }
                     ),

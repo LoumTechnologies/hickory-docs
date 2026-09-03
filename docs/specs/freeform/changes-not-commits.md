@@ -108,7 +108,7 @@ existed. Every objection above is an objection to that.
 **Emitting a commit once is not that.** A commit that is produced by a process a
 person directed, and then frozen, is authored in every sense blame cares about.
 Nothing re-produces it; no tool that reads git history is looking at something
-a re-run can change. And the product already has this verb: `hick promote`
+a re-run can change. And the product already has this verb: `hick ingest --from session`
 turns a session into a clean pipeline, one way, and nothing regenerates the
 result afterwards.
 

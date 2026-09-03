@@ -30,7 +30,7 @@ notes IDE needs are the pieces that already exist:
 | A notes IDE needs | What already does it |
 |---|---|
 | A folder of notes that stay in sync with their rendered form | `hick up` — weaves a folder and keeps it woven, and carries edits made in a generated `.md` back into its document |
-| Turning an existing plain note into a first-class one | `hick adopt` — wraps a file's content byte-exactly and refuses if the weave does not reproduce it |
+| Turning an existing plain note into a first-class one | `hick ingest --from file` — wraps a file's content byte-exactly and refuses if the weave does not reproduce it |
 | An AI summary that cannot silently drift from its source | `hick:transform` — prose written by a model, pinned by fingerprint to exactly the bytes it read, checked by `hick test` offline and without a key |
 | Search across every note | `hick search` — lexical offline out of the box, semantic if the user installs a model |
 | Editing the same note in two places at once | `hickory-collab` + `hick-grove` — already justified by two writers (editor buffer and file on disk); a phone is simply the third |

@@ -164,7 +164,7 @@ of session must never be mistaken for each other — **run** (harness-written,
 evidence), **edited** (a declared layer over a frozen base, marked *in the
 bytes*, not merely in the rendering), and **staged** (authored, never executed,
 carried by the existing never-run marking). **Built (2026-08-23):** rewind and
-re-run named apart in the dock, and `hick carry` — which settled the carry's
+re-run named apart in the dock, and `hick ingest --from carry` — which settled the carry's
 home by inventing nothing: it is an ordinary `.hick` document, written outside
 the gitignored `sessions/`. Equivalence between two attempts is
 an **instrument, never a gate** — the person is the judge, and their
@@ -188,7 +188,7 @@ its parent, drawn in the app by the same cards as the chat
 (`docs/guarantees/agent/a-session-is-the-conversation.md`); the model's
 reasoning, when a provider streams it, is kept apart and folded
 (`docs/guarantees/agent/reasoning-is-shown-apart-from-the-answer.md`). A Claude Code transcript becomes a session document with
-`hick import claude-code` — what maps to what, what is dropped and counted,
+`hick ingest --from claude-code` — what maps to what, what is dropped and counted,
 and how the no-escaping invariant is honoured are
 `docs/specs/freeform/claude-code-sessions.md`. How outside material enters a notes folder is `docs/specs/freeform/ingest.md`;
 how the result is marked is `docs/specs/freeform/provenance-and-standing.md`.
@@ -561,6 +561,12 @@ with `hick run` as the fix. The web status value is `unrecorded`.
 keep mine, take theirs, merge — and the server publishes base and theirs so
 the merge is a real three-way one; a merge's result goes back through
 `POST /api/outputs/resolve` and is then an ordinary save.
+
+**Step 3 built:** one verb. `adopt`, `promote`, `carry` and `import` are
+gone; they are `hick ingest --from file|session|carry|claude-code`, beside
+the inbox (no `--from`) and `--from '#cell'`
+(`one-verb-brings-bytes-into-a-document.md`). `--from recording` is named
+and refused until step 4.
 
 ## Stack (settled — do not relitigate)
 

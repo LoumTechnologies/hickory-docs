@@ -227,7 +227,7 @@ fn lint_outcomes(source: &str, turns: &[&HickTag], out: &mut Vec<Diagnostic>) {
 }
 
 /// `</hick:input >` and friends: a verbatim body that quoted its own close
-/// tag, which `hick import` broke with a space so the element would not end
+/// tag, which `hick ingest --from claude-code` broke with a space so the element would not end
 /// early. The one place an imported byte differs from the transcript.
 fn lint_broken_close_tags(source: &str, out: &mut Vec<Diagnostic>) {
     for element in ["input", "tool-result", "reasoning", "context", "transcript"] {

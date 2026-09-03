@@ -292,7 +292,7 @@ the test of the decomposition.
 - **The in-memory document.** The idea that started this design was stronger
   than what it became: a literate document *generated from files across
   machines*, existing only in memory, as a surface for editing them together.
-  `hick adopt` already wraps a plain file byte-exactly and the reverse-edit path
+  `hick ingest --from file` already wraps a plain file byte-exactly and the reverse-edit path
   already carries an edit home, so a virtual document gathering regions from
   several real files is closer than it sounds. What stops it being written down
   as a design is that this product's central claim runs the other way — the

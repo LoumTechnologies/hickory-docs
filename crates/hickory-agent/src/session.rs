@@ -2,7 +2,7 @@
 //!
 //! Every agent session is written **incrementally** as a `hick:session`
 //! document — the same format `hick-lang` parses ([`hick_lang::parse_session`])
-//! and `hick promote` turns into a clean pipeline. The session file is the
+//! and `hick ingest --from session` turns into a clean pipeline. The session file is the
 //! durable, replayable record of the conversation: user turns, assistant
 //! responses with embedded `<hick:action>` script blocks, and captured
 //! `<hick:observation>` output.
@@ -468,7 +468,7 @@ pub fn quotes_hick(text: &str) -> bool {
 /// Two of this repository's committed example sessions are already in that
 /// state.
 ///
-/// The answer is the one `hick import claude-code` already uses for imported
+/// The answer is the one `hick ingest --from claude-code` already uses for imported
 /// transcripts: wrap it in `hick:input`, which IS a verbatim-capture element.
 /// Both session readers walk through the wrapper, so the text still reads as
 /// the same prose. Nothing is escaped and no byte is rewritten — the

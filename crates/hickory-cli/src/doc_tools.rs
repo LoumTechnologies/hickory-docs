@@ -74,7 +74,7 @@ pub fn session_from(explicit: Option<PathBuf>) -> Option<PathBuf> {
 /// anchors, what text, what came back. What it cannot capture is the external
 /// agent's reasoning, which lives in that harness's own transcript and is not
 /// ours to read. That is a deliberate boundary rather than an oversight —
-/// tool calls are what `hick promote` replays, and importing three vendors'
+/// tool calls are what `hick ingest --from session` replays, and importing three vendors'
 /// private log formats to recover prose would be a maintenance burden that
 /// buys nothing replayable.
 pub fn record_tool_call(

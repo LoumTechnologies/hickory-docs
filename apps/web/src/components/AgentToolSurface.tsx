@@ -91,7 +91,7 @@ export function AgentToolSurface() {
           <span className="mono">hick test</span> re-executes every cell in it and exits non-zero
           when the recorded output and reality have parted company, so a session that has quietly
           stopped being true fails a build instead of misleading the next reader.{" "}
-          <span className="mono">hick promote</span> compacts a messy exploratory session into a
+          <span className="mono">hick ingest --from session</span> compacts a messy exploratory session into a
           clean pipeline that reproduces the same result without the dead ends — the record of how
           it was found and the artifact you maintain, kept separately and both kept.
         </p>

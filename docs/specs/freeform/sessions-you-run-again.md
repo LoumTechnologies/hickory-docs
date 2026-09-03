@@ -3,7 +3,7 @@
 *Status: design of record for how a session is refined. Adopted 2026-08-23.
 **Sequence steps 1 and 2 are built** (2026-08-23): rewind and re-run named
 apart in the dock with what each keeps stated where the choice is made, and
-`hick carry` as the explicit artifact of ending a session. Steps 3–5 (edited
+`hick ingest --from carry` as the explicit artifact of ending a session. Steps 3–5 (edited
 sessions, self-containment as a check, equivalence as an instrument) are not.
 See `docs/guarantees/agent/rewind-and-re-run-are-two-different-acts.md`. It grew out of `changes-not-commits.md`, which asked
 whether a session could produce a commit, and amends that document's answer.
@@ -172,7 +172,7 @@ Two consequences worth stating because they simplify the design:
 
 1. ~~**Name the two acts.**~~ **Built 2026-08-23.** `/rewind` and `/rerun` in
    the dock, each affordance carrying the sentence about what it keeps.
-2. ~~**The carry**~~ **Built 2026-08-23.** `hick carry <session>` writes the
+2. ~~**The carry**~~ **Built 2026-08-23.** `hick ingest --from carry <session>` writes the
    opening prompt and leaves the other two slots empty and named — it does not
    distil for you, because the tests worth carrying are the ones you read and
    kept. One thing the design left open is now settled: the carry **invents no
