@@ -414,7 +414,7 @@ describe("live diagram assertions", () => {
       assertionStates(structure, [execAt(span, status)], ["row-count"], running);
     expect(states("ok")).toEqual([{ id: "row-count", state: "passing" }]);
     expect(states("failed")).toEqual([{ id: "row-count", state: "failing" }]);
-    expect(states("never-run")).toEqual([{ id: "row-count", state: "unknown" }]);
+    expect(states("unrecorded")).toEqual([{ id: "row-count", state: "unknown" }]);
     // A run in flight is not a verdict.
     expect(states("ok", new Set(["shell:1"]))).toEqual([{ id: "row-count", state: "unknown" }]);
     // An id no cell carries stays unknown rather than borrowing a neighbour.

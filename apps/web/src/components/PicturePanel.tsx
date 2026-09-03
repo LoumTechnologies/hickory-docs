@@ -25,7 +25,7 @@ export interface PicturePanelProps {
 const NEVER_RUN = "[never run]";
 
 export function PicturePanel({ src, path }: PicturePanelProps) {
-  const [status, setStatus] = useState<"loading" | "ok" | "missing" | "never-run">("loading");
+  const [status, setStatus] = useState<"loading" | "ok" | "missing" | "unrecorded">("loading");
 
   // A never-run marker is a 14-byte text file with an image's name: the
   // browser draws a broken icon and says nothing useful. Reading the bytes
@@ -42,7 +42,7 @@ export function PicturePanel({ src, path }: PicturePanelProps) {
       .then(async (response) => {
         if (!response.ok) return "missing" as const;
         const head = (await response.text()).slice(0, 200);
-        return head.includes(NEVER_RUN) ? ("never-run" as const) : ("ok" as const);
+        return head.includes(NEVER_RUN) ? ("unrecorded" as const) : ("ok" as const);
       })
       .catch(() => "missing" as const)
       .then((next) => {
@@ -53,7 +53,7 @@ export function PicturePanel({ src, path }: PicturePanelProps) {
     };
   }, [src]);
 
-  if (status === "never-run") {
+  if (status === "unrecorded") {
     return (
       <div className="rendered-picture rendered-picture--empty">
         <strong>{path}</strong> has no recording yet — the cell that draws it has not run

@@ -204,6 +204,12 @@ pub struct PipelineResult {
     /// weave-without-cache modes always, and by the live pipeline when
     /// [`PipelineConfig::collect_unverifiable`] is set.
     pub never_run: NeverRun,
+    /// Cells answered from a recording whose key no longer matches their
+    /// inputs — recorded, but *stale*. The weave shows the last recorded
+    /// output rather than a marker; a run brings it forward; `hick test`
+    /// reports them apart from the unrecorded. Axis 1 of
+    /// `docs/specs/freeform/three-axes.md`.
+    pub stale: std::collections::BTreeMap<CellId, String>,
     /// What each OUTPUT VOLUME produced on this run, by volume name.
     ///
     /// Separate from [`PipelineResult::files`] for two reasons, and both are
@@ -1529,6 +1535,7 @@ pub async fn run_pipeline_with_authority(
         transcripts,
         expectations: Vec::new(),
         never_run,
+        stale: std::collections::BTreeMap::new(),
         span_files,
     })
 }
@@ -2573,6 +2580,7 @@ pub async fn run_pipeline_live(
         transcripts,
         expectations,
         never_run,
+        stale: std::collections::BTreeMap::new(),
         span_files,
     })
 }
@@ -2628,6 +2636,7 @@ pub async fn run_pipeline_weave(
 
     let mut transcripts: Transcripts = HashMap::new();
     let mut never_run: NeverRun = NeverRun::new();
+    let mut stale: std::collections::BTreeMap<CellId, String> = std::collections::BTreeMap::new();
 
     for (name, doc) in &documents {
         let flow_dag = dag::build_dag(doc)
@@ -2689,12 +2698,33 @@ pub async fn run_pipeline_weave(
                     source_line: Some(info.source_line),
                 },
                 None => {
-                    never_run.insert(cell_id_of(info), NoBaseline::NotExecuted);
-                    ExecTranscriptEntry {
-                        commands,
-                        output: "[never run]".to_string(),
-                        events: Vec::new(),
-                        source_line: Some(info.source_line),
+                    // Stale, or unrecorded: the two must not look alike. A
+                    // cell that was recorded and whose inputs moved shows its
+                    // last recording, marked; only a cell that was never
+                    // recorded gets the marker.
+                    let stale_recording = match (cache_config, info.agent.as_ref()) {
+                        (Some(cc), None) => cache::stale_lookup(cc, &info.container, &commands)?,
+                        _ => None,
+                    };
+                    match stale_recording {
+                        Some((key, recorded)) => {
+                            stale.insert(cell_id_of(info), key);
+                            ExecTranscriptEntry {
+                                commands: recorded.commands,
+                                output: recorded.output,
+                                events: Vec::new(),
+                                source_line: Some(info.source_line),
+                            }
+                        }
+                        None => {
+                            never_run.insert(cell_id_of(info), NoBaseline::NotExecuted);
+                            ExecTranscriptEntry {
+                                commands,
+                                output: "[never run]".to_string(),
+                                events: Vec::new(),
+                                source_line: Some(info.source_line),
+                            }
+                        }
                     }
                 }
             };
@@ -2722,6 +2752,7 @@ pub async fn run_pipeline_weave(
         transcripts,
         expectations: Vec::new(),
         never_run,
+        stale,
         span_files,
     })
 }

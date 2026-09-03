@@ -1502,6 +1502,14 @@ async fn cmd_test(args: TestArgs) -> Result<ExitCode> {
                 CheckFailure::Unverifiable { doc, cell, reason } => {
                     eprintln!("{}", unverifiable_message(doc, cell, reason));
                 }
+                CheckFailure::StaleRecording { doc, cell } => {
+                    eprintln!(
+                        "STALE {} {cell}: recorded, but an input has changed since — the last \
+                         recording is shown, marked.\n  fix: hick run {}",
+                        doc.display(),
+                        doc.display()
+                    );
+                }
             }
         }
     }
@@ -1682,9 +1690,15 @@ async fn cmd_weave(args: WeaveArgs) -> Result<ExitCode> {
             json_blocks.push(block_model_json(&run)?);
         } else {
             print_run_summary(&run, &outputs);
+            if !run.result.stale.is_empty() {
+                eprintln!(
+                    "  {} cell(s) stale: recorded, but an input changed since — run to refresh",
+                    run.result.stale.len()
+                );
+            }
             if !run.result.never_run.is_empty() {
                 eprintln!(
-                    "  {} block(s) never run (no cached transcript)",
+                    "  {} cell(s) unrecorded: never run, nothing to weave from",
                     run.result.never_run.len()
                 );
             }

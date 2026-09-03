@@ -267,6 +267,54 @@ pub fn cache_lookup(
     Ok(Some(entry))
 }
 
+/// The recording a cell HAD, when the one under its current key is missing.
+///
+/// A key misses for two reasons that a person must be able to tell apart: the
+/// cell has never been recorded, or it was recorded and an input has since
+/// changed. The second is *stale*, and its last recording is still worth
+/// showing — marked — rather than replaced by a marker. Recordings carry
+/// the command text they ran, so the container's directory is scanned for
+/// the newest entry with the same commands. See
+/// `docs/specs/freeform/three-axes.md`, axis 1.
+pub fn stale_lookup(
+    config: &CacheConfig,
+    container: &str,
+    commands: &[String],
+) -> Result<Option<(String, ExecCacheEntry)>> {
+    let dir = config.cache_dir.join(container);
+    let Ok(entries) = std::fs::read_dir(&dir) else {
+        return Ok(None);
+    };
+    let mut newest: Option<(std::time::SystemTime, String, ExecCacheEntry)> = None;
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.extension().is_none_or(|e| e != "json") {
+            continue;
+        }
+        let Ok(data) = std::fs::read_to_string(&path) else {
+            continue;
+        };
+        let Ok(recorded) = serde_json::from_str::<ExecCacheEntry>(&data) else {
+            continue;
+        };
+        if recorded.commands != commands {
+            continue;
+        }
+        let modified = entry
+            .metadata()
+            .and_then(|m| m.modified())
+            .unwrap_or(std::time::UNIX_EPOCH);
+        let key = path
+            .file_stem()
+            .map(|s| s.to_string_lossy().into_owned())
+            .unwrap_or_default();
+        if newest.as_ref().is_none_or(|(when, _, _)| modified > *when) {
+            newest = Some((modified, key, recorded));
+        }
+    }
+    Ok(newest.map(|(_, key, entry)| (key, entry)))
+}
+
 /// Store a result in the cache.
 pub fn cache_store(
     config: &CacheConfig,

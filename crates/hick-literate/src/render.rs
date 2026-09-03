@@ -95,6 +95,8 @@ pub struct BlockModelInput<'a> {
     /// answered from a recording — keyed by [`crate::CellId`] so a cell with
     /// no container can be named too.
     pub never_run: &'a crate::NeverRun,
+    /// Cells answered from a recording whose inputs have since changed.
+    pub stale: &'a std::collections::BTreeMap<crate::CellId, String>,
 }
 
 /// Build the block model for one document.
@@ -330,12 +332,13 @@ fn exec_block(
         .iter()
         .find(|o| o.container.as_deref() == Some(container.as_str()) && o.line == line);
 
-    let status = if input
-        .never_run
-        .contains_key(&crate::CellId::exec(&container, line))
-        || entry.is_none()
-    {
-        "never-run"
+    // Axis 1 of docs/specs/freeform/three-axes.md: recorded, stale, or
+    // unrecorded — and a person must be able to tell the last two apart.
+    let cell = crate::CellId::exec(&container, line);
+    let status = if input.never_run.contains_key(&cell) || entry.is_none() {
+        "unrecorded"
+    } else if input.stale.contains_key(&cell) {
+        "stale"
     } else if let Some(o) = outcome {
         if o.passed { "ok" } else { "failed" }
     } else {
@@ -363,12 +366,14 @@ mod tests {
         let doc = hick_lang::parse(source).expect("parse");
         let transcripts = Transcripts::new();
         let never_run = crate::NeverRun::new();
+        let stale = std::collections::BTreeMap::new();
         build_block_model(&BlockModelInput {
             doc: &doc,
             transcripts: &transcripts,
             expectations: &[],
             files: None,
             never_run: &never_run,
+            stale: &stale,
         })
     }
 

@@ -25,7 +25,7 @@ export type TranscriptEvent =
   | { t: number; kind: "out" | "err"; data: string }
   | { t: number; kind: "exit"; code: number };
 
-export type ExecStatus = "ok" | "failed" | "stale" | "never-run";
+export type ExecStatus = "ok" | "failed" | "stale" | "unrecorded";
 
 export type Block =
   | { kind: "prose"; html: string; span: [number, number] }

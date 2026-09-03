@@ -110,7 +110,7 @@ function startRun(docId: string, cellIds: string[] | undefined, verify: boolean)
     started_at: new Date().toISOString(),
     // The same block model the real server records: the run's own blocks,
     // which is what the document view reads its transcripts from.
-    blocks: cells.map((c) => ({ ...c, status: c.status ?? "never-run", transcript: [] })),
+    blocks: cells.map((c) => ({ ...c, status: c.status ?? "unrecorded", transcript: [] })),
   };
   state.runs.set(runId, run);
 

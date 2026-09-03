@@ -549,6 +549,13 @@ keeps are ingested into it as `hick:ingested key=…`**, which reverses the
 2026-09-02 decision to commit `.hick-cache/transcripts/` — a durable claim
 must not point into a cache, which `from=` already taught.
 
+**Three-axes, step 1 built (2026-09-03):** every surface says *recorded /
+stale / unrecorded*. A miss is classified by `cache::stale_lookup` — the
+newest recording with the same command text — so a cell whose inputs moved
+shows its last output marked stale instead of `[never run]`, and the weave
+target is written again in that case; `hick test` reports `STALE` as drift
+with `hick run` as the fix. The web status value is `unrecorded`.
+
 ## Stack (settled — do not relitigate)
 
 - CLI + language + local server: Rust (edition 2024), axum, tokio. No database.

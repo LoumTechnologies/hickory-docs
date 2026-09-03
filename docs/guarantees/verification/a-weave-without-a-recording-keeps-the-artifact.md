@@ -46,6 +46,16 @@ number at all. Editing prose above a cell does not orphan its recording, and
 never did; issue #25's stated mechanism was wrong even though the symptom it
 reported was real.
 
+
+> **Amended 2026-09-03 (three-axes, step 1).** A cell whose recording exists
+> but no longer matches its inputs is **stale**, not unrecorded: the weave
+> shows its last recording (`cache::stale_lookup`, matched by the command it
+> ran), reports it as stale, and writes the rendering — nothing turns into a
+> marker. Only a cell with no recording at all is *unrecorded*, and that is
+> the only case the keep rule above still fires for. The app's block status
+> is `stale` or `unrecorded`; the word "never-run" is gone from every
+> surface except the marker text a weave writes where nothing has ever been.
+
 ---
 
 Last LLM verification:

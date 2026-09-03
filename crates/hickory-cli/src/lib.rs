@@ -252,6 +252,13 @@ pub enum CheckFailure {
         cell: CellId,
         reason: NoBaseline,
     },
+    /// A cell has a recording, and an input has changed since it was made.
+    /// Recorded but *stale*: the last output is still shown, marked, and a
+    /// run brings it forward. Axis 1 of `docs/specs/freeform/three-axes.md`.
+    StaleRecording {
+        doc: PathBuf,
+        cell: CellId,
+    },
 }
 
 impl CheckFailure {
@@ -265,9 +272,9 @@ impl CheckFailure {
         match self {
             CheckFailure::Expectation(_) => CheckOutcome::ExpectationFailed,
             CheckFailure::Unverifiable { .. } => CheckOutcome::Unverifiable,
-            CheckFailure::Drift { .. } | CheckFailure::StaleTransform { .. } => {
-                CheckOutcome::Drifted
-            }
+            CheckFailure::Drift { .. }
+            | CheckFailure::StaleTransform { .. }
+            | CheckFailure::StaleRecording { .. } => CheckOutcome::Drifted,
         }
     }
 }
@@ -1395,6 +1402,12 @@ pub fn check_failures(run: &DocRun, out_dir: Option<&Path>) -> Result<Vec<CheckF
             reason: reason.clone(),
         });
     }
+    for cell in run.result.stale.keys() {
+        failures.push(CheckFailure::StaleRecording {
+            doc: run.doc_path.clone(),
+            cell: cell.clone(),
+        });
+    }
     for outcome in &run.result.expectations {
         if !outcome.passed {
             failures.push(CheckFailure::Expectation(outcome.clone()));
@@ -1911,12 +1924,14 @@ fn volatile_outputs(doc: &hick_lang::HickDocument) -> HashSet<String> {
 /// Build the block model (`docs/specs/freeform/api.md`) for a run.
 pub fn block_model(run: &DocRun) -> Vec<Block> {
     let never_run = run.result.never_run.clone();
+    let stale = run.result.stale.clone();
     build_block_model(&BlockModelInput {
         doc: &run.doc,
         transcripts: &run.result.transcripts,
         expectations: &run.result.expectations,
         files: Some(&run.result.files),
         never_run: &never_run,
+        stale: &stale,
     })
 }
 

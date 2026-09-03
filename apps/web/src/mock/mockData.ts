@@ -103,7 +103,7 @@ export const CLI_BLOCKS: Block[] = [
     command: "hick run demo/hello.hick",
     span: span(CLI_SOURCE, '<hick:exec container="shell">\nhick run demo/hello.hick\n<hick:expect match="exact">\nconverged: 3 nodes, 0 stale\n</hick:expect>\n</hick:exec>'),
     expect: { match: "exact", body: "converged: 3 nodes, 0 stale" },
-    status: "never-run",
+    status: "unrecorded",
   },
 ];
 
@@ -275,7 +275,7 @@ export const WEAVE_BLOCKS: Block[] = [
       WEAVE_SOURCE,
       '<hick:exec container="py" image="python:3.12">\npython src/latency.py\n</hick:exec>',
     ),
-    status: "never-run",
+    status: "unrecorded",
   },
 ];
 

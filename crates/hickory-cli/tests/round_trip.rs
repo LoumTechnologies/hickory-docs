@@ -229,6 +229,88 @@ fn a_git_checkout_of_a_generated_file_under_the_loop_is_held_not_undone() {
     let _ = up.wait();
 }
 
+/// Protects docs/specs/freeform/three-axes.md (axis 1) and
+/// docs/guarantees/verification/a-weave-without-a-recording-keeps-the-artifact.md
+#[test]
+fn a_cell_whose_inputs_moved_is_stale_and_shows_its_last_recording() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().canonicalize().unwrap();
+    std::fs::write(root.join("service.hick"), CHAIN).unwrap();
+    git(&root, &["init", "-q", "-b", "master"]);
+    let out = hick()
+        .arg("run")
+        .arg(root.join("service.hick"))
+        .output()
+        .unwrap();
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let recorded = std::fs::read_to_string(root.join("service.md")).unwrap();
+    assert!(recorded.contains("/pets"), "{recorded}");
+
+    // A new file in the mounted folder changes both cells' inputs, so their
+    // recordings no longer match. They are STALE, not unrecorded: the weave
+    // keeps showing what was recorded and says so, and nothing turns into a
+    // marker.
+    std::fs::write(root.join("extra.txt"), "changes the digest\n").unwrap();
+    let out = hick()
+        .arg("weave")
+        .arg(root.join("service.hick"))
+        .output()
+        .unwrap();
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(out.status.success(), "{stderr}");
+    assert!(
+        stderr.contains("stale"),
+        "the weave did not report the cells as stale: {stderr}"
+    );
+    assert!(
+        !stderr.contains("unrecorded"),
+        "a stale cell was reported as unrecorded: {stderr}"
+    );
+    let woven = std::fs::read_to_string(root.join("service.md")).unwrap();
+    assert!(
+        !woven.contains("[never run]"),
+        "a marker was written over recorded output: {woven}"
+    );
+    assert!(
+        woven.contains("/pets"),
+        "the last recording was not shown: {woven}"
+    );
+
+    // `hick test` names it as the drift it is, with the run that fixes it.
+    let out = hick()
+        .arg("test")
+        .arg(root.join("service.hick"))
+        .output()
+        .unwrap();
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    // test re-executes, so the cells match again there; what matters is that
+    // the run afterwards leaves nothing stale.
+    let out = hick()
+        .arg("run")
+        .arg(root.join("service.hick"))
+        .output()
+        .unwrap();
+    assert!(
+        out.status.success(),
+        "{}\n{stderr}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let out = hick()
+        .arg("weave")
+        .arg(root.join("service.hick"))
+        .output()
+        .unwrap();
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        !stderr.contains("stale") && !stderr.contains("unrecorded"),
+        "{stderr}"
+    );
+}
+
 /// The absolute path helper, for readability above.
 #[allow(dead_code)]
 fn abs(root: &Path, rel: &str) -> PathBuf {

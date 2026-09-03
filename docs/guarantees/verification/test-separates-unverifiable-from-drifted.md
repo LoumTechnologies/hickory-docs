@@ -59,6 +59,13 @@ impossible while the two share exit `1`. Conflating any of them is how "we
 have verification" quietly becomes "we have verification for the parts that
 ran, and we paper over the parts that lied."
 
+
+> **Amended 2026-09-03.** A third kind: `CheckFailure::StaleRecording`, a
+> cell whose recording exists but whose inputs moved since. It is reported
+> as `STALE … fix: hick run`, and counts as *drifted* — the committed bytes
+> are out of date with their inputs and a run regenerates them — never as
+> unverifiable, which is reserved for a cell with no baseline at all.
+
 ---
 
 Last LLM verification:
