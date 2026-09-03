@@ -1125,6 +1125,13 @@ export interface ScaffoldCatalog {
   sdk_version: string;
   /** The SDK image matching that version, for the document's container. */
   image: string;
+  /** The folder the app has open, absolute — what the location field starts
+   * on. A project may be made anywhere on the machine; this is only where
+   * the field opens. */
+  location: string;
+  /** This machine's path separator, for joining a location to a folder name
+   * in the one place the dialog shows the two together. */
+  separator: string;
   templates: ScaffoldTemplate[];
 }
 
@@ -1172,27 +1179,64 @@ export interface ScaffoldSpec {
   title: string;
   language: string | null;
   name: string;
+  /** The project's folder *name* on the way out. The server answers with the
+   * same folder relative to the repository that will record it, which is not
+   * the same string once the location is somewhere else on the machine. */
   output: string;
+  /** Where that folder is made: any folder on this machine, absolute or
+   * `~`-prefixed; relative is read against the open folder. */
+  location: string;
   image: string;
   options: ChosenOption[];
 }
 
 /** The commit a New Project would make, without making it. */
 export interface ScaffoldPreview {
+  /** The folder, relative to the repository that would record it. */
   output: string;
+  /** That folder, absolute. Null when there is no repository to place it in
+   * relative to. */
+  folder: string | null;
+  /** The repository the recipe commit would be made in, or `null` when the
+   * location is inside none. */
+  repository: string | null;
+  /** Set with `repository: null`: the folder a `git init` would run in. */
+  needs_repository?: string | null;
+  /** Why there is no repository, in the server's own words. */
+  problem?: string;
   command: string;
   /** The message, trailers included; the tree hash is a placeholder. */
   message: string;
 }
 
-/** What `POST /api/scaffold` made: a commit carrying its recipe. */
+/** What `POST /api/scaffold` started: a terminal running the scaffolder.
+ *
+ * Not a commit — the commit happens when that terminal's command exits, and
+ * `scaffoldResult` is how the app learns it did. The person learns it from
+ * the terminal, which says so in its own scrollback. */
+export interface ScaffoldStarted {
+  session: TerminalSession;
+  output: string;
+  folder: string;
+  repository: string;
+}
+
+/** How a started scaffold ended. */
+export type ScaffoldResult =
+  | { state: "running" }
+  | { state: "failed"; error: string }
+  | ({ state: "committed" } & ScaffoldCreated);
+
+/** The commit a scaffold made, carrying its recipe. */
 export interface ScaffoldCreated {
   sha: string;
   short: string;
-  /** The folder the scaffold landed in. */
+  /** The folder the scaffold landed in, relative to its repository. */
   output: string;
   files: string[];
   message: string;
   /** The `Hick-Output` tree hash. */
   output_tree: string;
+  /** The repository the commit was made in — not necessarily the open one. */
+  repository: string;
 }

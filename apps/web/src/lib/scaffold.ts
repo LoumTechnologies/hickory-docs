@@ -144,6 +144,17 @@ export function problems(name: string, output: string): Record<string, string> {
     found.output =
       "Name a folder for the project's files. A scaffold is committed as its own tree, so it needs a folder of its own.";
   else if (folder.startsWith("/") || folder.split("/").includes(".."))
-    found.output = "The folder goes inside the one you have open.";
+    found.output =
+      "This is the folder's name, not a path. Where it goes is the Location above.";
   return found;
+}
+
+/** Join a location to the project's folder for display, on this machine's
+ * own separator. Display only — the server does the real resolution, and it
+ * is the only thing that knows which repository the result lands in. */
+export function joinPath(location: string, folder: string, separator: string): string {
+  const left = location.replace(/[/\\]+$/, "");
+  const right = folder.trim().replace(/^[/\\]+|[/\\]+$/g, "");
+  if (right === "") return left;
+  return `${left}${separator}${right.replace(/\//g, separator)}`;
 }

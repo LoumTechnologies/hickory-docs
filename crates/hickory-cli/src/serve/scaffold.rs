@@ -1,6 +1,6 @@
-//! File → New Project: `dotnet new`, as a form and then as a commit.
+//! File → New Project: `dotnet new`, as a form, a terminal, and a commit.
 //!
-//! Four routes, and the shape of them is the argument. Reading the catalogue
+//! Five routes, and the shape of them is the argument. Reading the catalogue
 //! and reading one template's options are separate because the second is a
 //! second `dotnet` process and the dialog only needs it once a template is
 //! chosen — a New Project dialog that spawned forty-six help invocations to
@@ -15,15 +15,42 @@
 //! called over HTTP, so what is shown and what is committed cannot be two
 //! renderers that agree today.
 //!
-//! ## Creating is one act
+//! ## The scaffolder runs in a terminal
 //!
-//! `POST /api/scaffold` runs the scaffolder into a scratch directory and
-//! commits what it wrote, through an index of its own, with the recipe in
-//! the trailers (`crate::scaffold_commit`). There is no moment between the
-//! two for an edit to slip into the recipe commit, which is what keeps the
-//! commit upgradeable. A scaffold that fails commits nothing and leaves the
-//! working tree as it was: there is no half-finished document to keep,
-//! because there is no document. `docs/specs/freeform/lenses.md`, step 3.
+//! It used to run as a `spawn_blocking` subprocess whose stdout was thrown
+//! away and whose stderr survived as six joined lines inside an error string.
+//! That is the shape this product already rejected for builds and for tests:
+//! **a command a person asked for is watched in a terminal, not reported by a
+//! spinner**, because a failing command says why in its own words and a
+//! summary throws all of that away. So `POST /api/scaffold` opens a
+//! `hick_term` session — the same one `POST /api/tests/run` opens — and
+//! answers with it, and the dialog hands it to the workspace as a tab.
+//! `docs/guarantees/execution/a-command-the-app-runs-is-watched-in-a-terminal.md`.
+//!
+//! ## Creating is still one act
+//!
+//! A terminal does not weaken that. The session runs in a scratch directory,
+//! and a watcher commits what it wrote **the moment it exits zero**, through
+//! an index of its own, with the recipe in the trailers
+//! (`crate::scaffold_commit`). There is no moment between the two for an edit
+//! to slip into the recipe commit, which is what keeps the commit
+//! upgradeable. A scaffold that fails commits nothing and leaves the working
+//! tree as it was: there is no half-finished document to keep, because there
+//! is no document. The watcher writes its verdict **into the session's own
+//! scrollback**, so the commit and the command that earned it are one thing to
+//! read. `docs/specs/freeform/lenses.md`, step 3.
+//!
+//! ## A project may be made anywhere
+//!
+//! The location is any folder on this machine, not a subfolder of the one the
+//! app has open. The repository that records the recipe is then whichever one
+//! contains that location — resolved by `scaffold_commit::resolve_target`,
+//! never assumed to be the open folder — and a location inside no repository
+//! at all is the typed `NotARepository`, answered with an offer to make one
+//! (`POST /api/git/init`).
+
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
 
 use axum::Json;
 use axum::extract::{Query, State};
@@ -34,14 +61,21 @@ use serde_json::{Value, json};
 use super::LocalState;
 use super::api::{ApiError, ApiResult};
 use crate::scaffold::{self, NoDotnetSdk, ScaffoldSpec};
-use crate::scaffold_commit::{self, NotARepository};
+use crate::scaffold_commit::{self, NotARepository, Target};
 
-/// Turn a scaffold failure into an API error, keeping the one distinction the
-/// dialog draws its own screen from.
+/// How often the watcher asks whether the scaffolder has finished. Fast
+/// enough that the commit lands while the person is still looking at the
+/// terminal, slow enough to be free.
+const POLL_MS: u64 = 120;
+
+/// Turn a scaffold failure into an API error, keeping the two distinctions
+/// the dialog draws its own screens from.
 ///
 /// A missing SDK is not a failed request, it is a machine that cannot do this
 /// at all — so it carries `missing: "dotnet"` in the detail, and the client
-/// keys off **that**, never off the sentence. The lesson is
+/// keys off **that**, never off the sentence. A location outside any
+/// repository is the same shape, and carries the folder as well, because the
+/// button it earns has to name where it would run `git init`. The lesson is
 /// `hick_dap::MissingAdapter`'s: a reworded message must not be able to take
 /// a screen away.
 fn scaffold_error(e: anyhow::Error) -> ApiError {
@@ -49,17 +83,18 @@ fn scaffold_error(e: anyhow::Error) -> ApiError {
         return ApiError::unprocessable(format!("{}", NoDotnetSdk))
             .with_detail(json!({ "missing": "dotnet" }));
     }
-    // The same shape for the other thing a machine can lack: a repository
-    // to record the scaffold in.
-    if e.downcast_ref::<NotARepository>().is_some() {
-        return ApiError::unprocessable(format!("{}", NotARepository))
-            .with_detail(json!({ "missing": "repository" }));
+    if let Some(missing) = e.downcast_ref::<NotARepository>() {
+        return ApiError::unprocessable(format!("{missing}")).with_detail(json!({
+            "missing": "repository",
+            "path": missing.path.to_string_lossy(),
+        }));
     }
     ApiError::unprocessable(format!("{e:#}"))
 }
 
-/// `GET /api/scaffold/templates` — what this machine can scaffold.
-pub async fn templates(State(_state): State<LocalState>) -> ApiResult<Json<Value>> {
+/// `GET /api/scaffold/templates` — what this machine can scaffold, and where
+/// a project would land by default.
+pub async fn templates(State(state): State<LocalState>) -> ApiResult<Json<Value>> {
     // `dotnet new list` is a subprocess that reads a template cache off disk;
     // on a cold cache it rebuilds it, which is seconds rather than
     // milliseconds. Holding a runtime worker for that is what
@@ -69,10 +104,17 @@ pub async fn templates(State(_state): State<LocalState>) -> ApiResult<Json<Value
         .map_err(|e| ApiError::internal(format!("the template listing did not finish: {e}")))?
         .map_err(scaffold_error)?;
     let image = scaffold::sdk_image(&catalog.sdk_version);
+    let root = state.index.root().to_path_buf();
+    let root = root.canonicalize().unwrap_or(root);
     Ok(Json(json!({
         "kind": "dotnet",
         "sdk_version": catalog.sdk_version,
         "image": image,
+        // The location field opens on the folder the app has open, spelled
+        // absolutely: the person is choosing a place on their machine, and a
+        // field that starts as `.` hides which place that is.
+        "location": root.to_string_lossy(),
+        "separator": std::path::MAIN_SEPARATOR_STR,
         "templates": catalog.templates,
     })))
 }
@@ -118,6 +160,14 @@ pub async fn options(
 /// What the dialog is asking to be scaffolded and committed.
 #[derive(Deserialize)]
 pub struct CreateRequest {
+    /// The folder the project's own folder is made **in**: absolute,
+    /// `~`-prefixed, or relative to the folder the app has open. Empty means
+    /// the open folder, which is what the dialog starts on.
+    #[serde(default)]
+    pub location: String,
+    /// `spec.output` arrives as the project's folder *name*; what the recipe
+    /// records is the same folder relative to the repository, which only
+    /// `resolve_target` can work out.
     #[serde(flatten)]
     pub spec: ScaffoldSpec,
 }
@@ -125,23 +175,101 @@ pub struct CreateRequest {
 /// The place in the message a preview cannot fill in yet.
 const OUTPUT_PENDING: &str = "<the tree hash, once it is committed>";
 
-/// `POST /api/scaffold/preview` — the exact commit, without making it.
-pub async fn preview(
-    State(_state): State<LocalState>,
-    Json(body): Json<CreateRequest>,
-) -> ApiResult<Json<Value>> {
-    let output = scaffold_commit::checked_output(&body.spec.output)
-        .map(|o| o.to_string())
-        .unwrap_or_else(|_| body.spec.output.trim().to_string());
-    Ok(Json(json!({
-        "output": output,
-        "command": scaffold::dotnet_new_command(&body.spec),
-        "message": scaffold::commit_message(&body.spec, OUTPUT_PENDING, &output),
-    })))
+/// The spec as it will be recorded: the same one, with `output` moved from
+/// "the folder you named" to "that folder, from the repository root", which
+/// is where a replay runs the recipe from.
+fn recorded(spec: &ScaffoldSpec, target: &Target) -> ScaffoldSpec {
+    ScaffoldSpec {
+        output: target.output.clone(),
+        ..spec.clone()
+    }
 }
 
-/// `POST /api/scaffold` — run the scaffolder and commit what it wrote, as
-/// one act.
+/// `POST /api/scaffold/preview` — the exact commit, without making it.
+///
+/// This route never refuses for want of a repository. The person is still
+/// typing, and a preview that blanks out the moment the location leaves a
+/// repository teaches them nothing; it says `repository: null` instead and
+/// the dialog offers to make one before the button is ever pressed.
+pub async fn preview(
+    State(state): State<LocalState>,
+    Json(body): Json<CreateRequest>,
+) -> ApiResult<Json<Value>> {
+    let root = state.index.root().to_path_buf();
+    match scaffold_commit::resolve_target(&root, &body.location, &body.spec.output) {
+        Ok(target) => {
+            let spec = recorded(&body.spec, &target);
+            Ok(Json(json!({
+                "output": target.output,
+                "folder": target.dir.to_string_lossy(),
+                "repository": target.repo_root.to_string_lossy(),
+                "command": scaffold::dotnet_new_command(&spec),
+                "message": scaffold::commit_message(&spec, OUTPUT_PENDING, &target.output),
+            })))
+        }
+        Err(e) => {
+            let missing = e.downcast_ref::<NotARepository>().cloned();
+            // Without a repository there is no root to make `-o` relative to,
+            // so the command is previewed with the folder as named — true of
+            // what will run, and honest about what is not yet decided.
+            let output = body.spec.output.trim().trim_end_matches('/').to_string();
+            let spec = ScaffoldSpec {
+                output: output.clone(),
+                ..body.spec
+            };
+            Ok(Json(json!({
+                "output": output,
+                "folder": missing
+                    .as_ref()
+                    .map(|m| m.path.join(&output).to_string_lossy().into_owned()),
+                "repository": Value::Null,
+                "needs_repository": missing.as_ref().map(|m| m.path.to_string_lossy()),
+                "problem": format!("{e:#}"),
+                "command": scaffold::dotnet_new_command(&spec),
+                "message": scaffold::commit_message(&spec, OUTPUT_PENDING, &output),
+            })))
+        }
+    }
+}
+
+/// What became of one scaffold, keyed by the terminal session that ran it.
+#[derive(Debug, Clone)]
+pub enum Outcome {
+    /// The scaffolder is still running.
+    Running,
+    /// It exited zero and the commit was made.
+    Committed(Box<CommittedScaffold>),
+    /// It exited non-zero, or the commit could not be made. Nothing was
+    /// committed either way.
+    Failed { reason: String },
+}
+
+#[derive(Debug, Clone)]
+pub struct CommittedScaffold {
+    pub sha: String,
+    pub short: String,
+    pub files: Vec<String>,
+    pub message: String,
+    pub output: String,
+    pub output_tree: String,
+    pub repository: String,
+}
+
+/// Every scaffold this session has started, by terminal session id.
+pub type Scaffolds = Arc<Mutex<HashMap<String, Outcome>>>;
+
+fn record(scaffolds: &Scaffolds, id: &str, outcome: Outcome) {
+    if let Ok(mut map) = scaffolds.lock() {
+        map.insert(id.to_string(), outcome);
+    }
+}
+
+/// `POST /api/scaffold` — run the scaffolder in a terminal, and commit what
+/// it wrote the moment it exits zero.
+///
+/// Answers `202` with the session, the way `POST /api/tests/run` answers with
+/// one: the work is watchable, not finished. `GET /api/scaffold/result` says
+/// how it ended.
 pub async fn create(
     State(state): State<LocalState>,
     Json(body): Json<CreateRequest>,
@@ -151,51 +279,233 @@ pub async fn create(
             "a project needs a name — it becomes the .NET root namespace and the assembly name.",
         ));
     }
-    let output = scaffold_commit::checked_output(&body.spec.output)
-        .map_err(|e| ApiError::bad_request(format!("{e:#}")))?;
     let root = state.index.root().to_path_buf();
-    let spec = ScaffoldSpec {
-        output: output.clone(),
-        ..body.spec
-    };
+    let target = scaffold_commit::resolve_target(&root, &body.location, &body.spec.output)
+        .map_err(scaffold_error)?;
+    let spec = recorded(&body.spec, &target);
 
-    let committed = tokio::task::spawn_blocking(move || -> anyhow::Result<_> {
-        // The cheap refusals first, before a subprocess runs.
-        if !scaffold_commit::is_repository(&root) {
-            anyhow::bail!(NotARepository);
-        }
-        scaffold_commit::refuse_occupied(&root, &output)?;
-        // Into scratch, never the repository: a scaffolder that fails halfway
-        // leaves nothing behind, and one that succeeds is committed whole.
-        let scratch = tempfile::tempdir()?;
-        let into = scratch.path().join("out");
-        scaffold::run_scaffold(&spec, &into)?;
-        scaffold_commit::commit_scaffold(&root, &spec, &into)
-    })
-    .await
-    .map_err(|e| ApiError::internal(format!("the scaffold did not finish: {e}")))?
-    .map_err(scaffold_error)?;
+    // The cheap refusals first, and all of them before a terminal exists: a
+    // session that opens only to print "that folder is not empty" is a tab
+    // the person has to close for a mistake a field could have caught.
+    let (target, spec) =
+        tokio::task::spawn_blocking(move || -> anyhow::Result<(Target, ScaffoldSpec)> {
+            scaffold_commit::refuse_occupied(&target.repo_root, &target.output)?;
+            scaffold::require_sdk()?;
+            Ok((target, spec))
+        })
+        .await
+        .map_err(|e| ApiError::internal(format!("checking the scaffold did not finish: {e}")))?
+        .map_err(scaffold_error)?;
+
+    // Into scratch, never the repository: a scaffolder that fails halfway
+    // leaves nothing behind, and one that succeeds is committed whole. The
+    // directory the scaffolder writes is named after the project's own
+    // folder, so the line on screen reads like the recipe.
+    let scratch = tempfile::tempdir()
+        .map_err(|e| ApiError::internal(format!("could not make a scratch directory: {e}")))?;
+    let leaf = target
+        .output
+        .rsplit('/')
+        .next()
+        .filter(|l| !l.is_empty())
+        .unwrap_or("out")
+        .to_string();
+    let argv = scaffold::dotnet_new_argv(&spec, &leaf);
+    let session = state
+        .terminals
+        .open(hick_term::SessionSpec {
+            title: format!("New project: {}", spec.name),
+            cwd: scratch.path().to_path_buf(),
+            argv,
+            monitor: false,
+        })
+        .map_err(|e| ApiError::unprocessable(format!("{e:#}")))?;
+
+    record(&state.scaffolds, &session.id, Outcome::Running);
+    let watcher = Watch {
+        scaffolds: state.scaffolds.clone(),
+        terminals: state.terminals.clone(),
+        session_id: session.id.clone(),
+        scratch,
+        into: leaf,
+        target: target.clone(),
+        spec,
+    };
+    tokio::spawn(watcher.run());
 
     Ok((
-        StatusCode::CREATED,
+        StatusCode::ACCEPTED,
         Json(json!({
-            "sha": committed.sha,
-            "short": committed.short,
-            "output": spec_output_of(&committed.message),
-            "files": committed.files,
-            "message": committed.message,
-            "output_tree": committed.output_tree,
+            "session": session.summary(),
+            "output": target.output,
+            "folder": target.dir.to_string_lossy(),
+            "repository": target.repo_root.to_string_lossy(),
         })),
     ))
 }
 
-/// The output folder, read back from the message's own trailer so the
-/// answer and the record cannot disagree.
-fn spec_output_of(message: &str) -> String {
-    message
-        .lines()
-        .find_map(|l| l.strip_prefix("Hick-Output: "))
-        .and_then(|v| v.split_once(' '))
-        .map(|(_, path)| path.to_string())
-        .unwrap_or_default()
+/// The half of a scaffold that happens after the request is answered.
+struct Watch {
+    scaffolds: Scaffolds,
+    terminals: Arc<hick_term::Terminals>,
+    session_id: String,
+    /// Held for as long as the run, and dropped with this task — which is
+    /// what deletes the scaffolder's scratch directory.
+    scratch: tempfile::TempDir,
+    /// The directory name inside the scratch that the scaffolder wrote.
+    into: String,
+    target: Target,
+    spec: ScaffoldSpec,
+}
+
+impl Watch {
+    async fn run(self) {
+        let Some(exit) = self.wait_for_exit().await else {
+            // The session was closed before it finished. Nothing ran to
+            // completion, so nothing is committed and nothing is claimed.
+            record(
+                &self.scaffolds,
+                &self.session_id,
+                Outcome::Failed {
+                    reason: "the terminal was closed before the scaffolder finished, so nothing \
+                             was committed."
+                        .to_string(),
+                },
+            );
+            return;
+        };
+        if exit != 0 {
+            self.say(&format!(
+                "\r\n\x1b[31mNothing was committed.\x1b[0m `dotnet new` exited {exit}; the \
+                 repository is exactly as it was.\r\n"
+            ));
+            record(
+                &self.scaffolds,
+                &self.session_id,
+                Outcome::Failed {
+                    reason: format!(
+                        "`dotnet new` exited {exit}. Nothing was committed — its own output, \
+                         above, says why."
+                    ),
+                },
+            );
+            return;
+        }
+
+        let from = self.scratch.path().join(&self.into);
+        let repo_root = self.target.repo_root.clone();
+        let spec = self.spec.clone();
+        let committed = tokio::task::spawn_blocking(move || {
+            scaffold_commit::commit_scaffold(&repo_root, &spec, &from)
+        })
+        .await;
+        match committed {
+            Ok(Ok(commit)) => {
+                self.say(&format!(
+                    "\r\n\x1b[32mCommitted {short}\x1b[0m — {n} file{s} in {output}/, in {repo}.\r\n\
+                     The command above is in the commit's trailers, so this scaffold can be \
+                     replayed with a newer SDK later.\r\n",
+                    short = commit.short,
+                    n = commit.files.len(),
+                    s = if commit.files.len() == 1 { "" } else { "s" },
+                    output = self.target.output,
+                    repo = self.target.repo_root.display(),
+                ));
+                record(
+                    &self.scaffolds,
+                    &self.session_id,
+                    Outcome::Committed(Box::new(CommittedScaffold {
+                        sha: commit.sha,
+                        short: commit.short,
+                        files: commit.files,
+                        message: commit.message,
+                        output: self.target.output.clone(),
+                        output_tree: commit.output_tree,
+                        repository: self.target.repo_root.to_string_lossy().into_owned(),
+                    })),
+                );
+            }
+            Ok(Err(e)) => {
+                let reason = format!("{e:#}");
+                self.say(&format!(
+                    "\r\n\x1b[31mThe scaffolder ran, but the commit did not.\x1b[0m {reason}\r\n"
+                ));
+                record(
+                    &self.scaffolds,
+                    &self.session_id,
+                    Outcome::Failed { reason },
+                );
+            }
+            Err(e) => {
+                let reason = format!("committing the scaffold did not finish: {e}");
+                self.say(&format!("\r\n\x1b[31m{reason}\x1b[0m\r\n"));
+                record(
+                    &self.scaffolds,
+                    &self.session_id,
+                    Outcome::Failed { reason },
+                );
+            }
+        }
+    }
+
+    /// Poll until the session has an exit code, or until it is gone.
+    async fn wait_for_exit(&self) -> Option<i32> {
+        loop {
+            let session = self.terminals.get(&self.session_id)?;
+            let summary = session.summary();
+            if let Some(code) = summary.exit_code {
+                return Some(code);
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(POLL_MS)).await;
+        }
+    }
+
+    /// Say something in the terminal without saying it to any shell: the
+    /// verdict belongs beside the output that earned it, and this session has
+    /// no shell to mistake it for input.
+    fn say(&self, text: &str) {
+        if let Some(session) = self.terminals.get(&self.session_id) {
+            session.inject(text.as_bytes());
+        }
+    }
+}
+
+#[derive(Deserialize)]
+pub struct ResultQuery {
+    /// The terminal session `POST /api/scaffold` answered with.
+    pub session: String,
+}
+
+/// `GET /api/scaffold/result?session=<id>` — how the scaffold ended.
+///
+/// The terminal shows the person what happened; this is how the *app* finds
+/// out, so the tree can refresh and the history pane can point at the new
+/// commit. Two readers of one act, neither pretending to be the other.
+pub async fn result(
+    State(state): State<LocalState>,
+    Query(query): Query<ResultQuery>,
+) -> ApiResult<Json<Value>> {
+    let outcome = state
+        .scaffolds
+        .lock()
+        .ok()
+        .and_then(|map| map.get(&query.session).cloned());
+    match outcome {
+        None => Err(ApiError::not_found(format!(
+            "no scaffold was started in session {:?}",
+            query.session
+        ))),
+        Some(Outcome::Running) => Ok(Json(json!({ "state": "running" }))),
+        Some(Outcome::Failed { reason }) => Ok(Json(json!({ "state": "failed", "error": reason }))),
+        Some(Outcome::Committed(c)) => Ok(Json(json!({
+            "state": "committed",
+            "sha": c.sha,
+            "short": c.short,
+            "files": c.files,
+            "message": c.message,
+            "output": c.output,
+            "output_tree": c.output_tree,
+            "repository": c.repository,
+        }))),
+    }
 }

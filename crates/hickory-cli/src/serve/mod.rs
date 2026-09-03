@@ -147,6 +147,10 @@ pub struct LocalState {
     /// published by the loop after every batch so the tree and the pane can
     /// say so. See `docs/guarantees/authoring/an-output-that-cannot-be-carried-back-is-held.md`.
     pub held: Arc<std::sync::Mutex<HashMap<String, DivergedOutput>>>,
+    /// What became of every scaffold this session started, by the terminal
+    /// session that ran it. The terminal shows the person; this is how the
+    /// app finds out. See [`scaffold`].
+    pub scaffolds: scaffold::Scaffolds,
     /// The running loop's command inbox, set when the loop starts.
     pub up_commands:
         Arc<std::sync::Mutex<Option<tokio::sync::mpsc::UnboundedSender<crate::up::UpCommand>>>>,
@@ -485,6 +489,7 @@ fn router(state: LocalState) -> Router {
         .route("/scaffold/templates", get(scaffold::templates))
         .route("/scaffold/options", get(scaffold::options))
         .route("/scaffold/preview", post(scaffold::preview))
+        .route("/scaffold/result", get(scaffold::result))
         .route("/docs/{id}/run", post(api::run_doc))
         .route("/docs/{id}/check", post(api::check_doc))
         .route("/docs/{id}/agent", post(agent::start_turn))
@@ -542,6 +547,7 @@ fn router(state: LocalState) -> Router {
         .route("/git/branches", get(git_ops::branches))
         .route("/git/checkout", post(git_ops::checkout))
         .route("/git/stash", post(git_ops::stash))
+        .route("/git/init", post(git_ops::init))
         // The publication floor and the merge-driver check: two facts about
         // the repository that the document panes need at open, and that no
         // amount of reading the log can answer.
@@ -697,6 +703,7 @@ pub async fn prepare(opts: ServeOptions) -> Result<Prepared> {
         anchors: Arc::new(anchored::Anchors::default()),
         lsp: Arc::new(lsp_bridge::LspHub::new(index.root())),
         held: Arc::new(std::sync::Mutex::new(HashMap::new())),
+        scaffolds: Arc::new(Mutex::new(HashMap::new())),
         up_commands: Arc::new(std::sync::Mutex::new(None)),
     };
 

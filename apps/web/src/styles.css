@@ -8155,6 +8155,31 @@ button.status-bar__item:hover { background: var(--bg-sunken); color: var(--fg); 
 .new-project__check input {
   margin-top: 0.15rem;
 }
+/* Where the Location and the folder name land, together. The two fields are
+   separate because they are edited separately; the answer they add up to is
+   one string, and a person should read it rather than assemble it. */
+.new-project__resolved {
+  overflow-wrap: anywhere;
+  color: var(--fg);
+  opacity: 0.75;
+}
+/* "That location is not in a repository", said while there is still time to
+   do something about it — and with the something next to it. */
+.new-project__no-repo {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  align-items: flex-start;
+  margin: 0.5rem 0;
+  padding: 0.5rem 0.6rem;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  font-size: 0.8rem;
+  line-height: 1.4;
+}
+.new-project__no-repo p {
+  margin: 0;
+}
 
 /* --- the git pane's working tree ----------------------------------------- */
 .git-work {

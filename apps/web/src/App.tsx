@@ -8,7 +8,16 @@ import { insertTarget, onMenuAction } from "./lib/menuBridge";
 import { landingTarget } from "./lib/newDoc";
 import { TooltipLayer } from "./components/TooltipLayer";
 import { NewProjectDialog } from "./components/NewProjectDialog";
+import { showTerminalRequest } from "./lib/revealLine";
+import type { ScaffoldStarted } from "./api/types";
 import { FILES_CHANGED_EVENT } from "./shell/FolderTreePane";
+
+/** How often the app asks whether a scaffold has landed, and for how long.
+ * The person is watching the terminal; this is only so the tree and the
+ * history pane catch up on their own. Ten minutes is longer than any
+ * `dotnet new` and shorter than forever. */
+const SCAFFOLD_POLL_MS = 400;
+const SCAFFOLD_POLL_TRIES = 1500;
 
 /// The desktop app's shell.
 ///
@@ -31,6 +40,51 @@ export function App() {
   // so hanging it off the workspace would have made it unreachable from
   // Settings and from the landing redirect for no reason.
   const [newProject, setNewProject] = useState(false);
+
+  // What happens after New Project's button: the scaffolder is running in a
+  // terminal, and that terminal is what the person watches.
+  //
+  // The app has its own reason to know how it ended — the tree has a new
+  // folder in it and the history a new commit — so it polls for the verdict
+  // while the terminal shows the person the same act in `dotnet`'s own words.
+  // Two readers of one thing, neither pretending to be the other; this one
+  // says one sentence and stops, because everything worth reading is in the
+  // tab. See docs/guarantees/execution/a-command-the-app-runs-is-watched-in-a-terminal.md.
+  const watchScaffold = (started: ScaffoldStarted) => {
+    showTerminalRequest(started.session.id, started.session.title);
+    let tries = 0;
+    const poll = () => {
+      void api
+        .scaffoldResult(started.session.id)
+        .then((result) => {
+          if (result.state === "running") {
+            // Bounded, because a `dotnet new` that never exits is a terminal
+            // the person is already looking at — not a poll to keep forever.
+            if (tries++ < SCAFFOLD_POLL_TRIES) setTimeout(poll, SCAFFOLD_POLL_MS);
+            return;
+          }
+          window.dispatchEvent(new Event(FILES_CHANGED_EVENT));
+          if (result.state === "committed") {
+            setNotice(
+              `${result.output}/ scaffolded and committed as ${result.short} — ` +
+                `${result.files.length} file${result.files.length === 1 ? "" : "s"}. ` +
+                "Read it as a story in the History pane.",
+            );
+          } else {
+            // The terminal has the whole of it; this only says where to look.
+            setNotice(
+              `Nothing was committed — the ${started.session.title} terminal says why.`,
+            );
+          }
+        })
+        .catch(() => {
+          /* The terminal is the record. A poll that cannot reach the server
+             has nothing useful to add to it. */
+        });
+    };
+    setTimeout(poll, SCAFFOLD_POLL_MS);
+  };
+
   const routeRef = useRef(route);
   routeRef.current = route;
   useEffect(() => {
@@ -116,17 +170,7 @@ export function App() {
       )}
       {newProject && (
         <NewProjectDialog
-          onCreated={(created) => {
-            // The tree has a new folder of files, and the history a new
-            // recipe commit. No document: a scaffold is an act, and it is
-            // recorded where acts go (docs/specs/freeform/lenses.md).
-            window.dispatchEvent(new Event(FILES_CHANGED_EVENT));
-            setNotice(
-              `${created.output}/ scaffolded and committed as ${created.short} — ` +
-                `${created.files.length} file${created.files.length === 1 ? "" : "s"}. ` +
-                "Read it as a story in the History pane.",
-            );
-          }}
+          onStarted={watchScaffold}
           onClose={() => setNewProject(false)}
         />
       )}

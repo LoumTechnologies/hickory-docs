@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { api, installMockHandler } from "./client";
+import { ApiError, api, installMockHandler } from "./client";
 
 describe("api.render deduplication", () => {
   afterEach(() => {
@@ -51,5 +51,64 @@ describe("api.render deduplication", () => {
     await expect(api.render("doc-1")).rejects.toThrow("render failed");
     fail = false;
     await expect(api.render("doc-1")).resolves.toEqual({ blocks: [] });
+  });
+});
+
+describe("a failed request says what the server said", () => {
+  afterEach(() => {
+    installMockHandler(null as never);
+    vi.restoreAllMocks();
+  });
+
+  /** The real fetch, with a response the caller describes. */
+  function answering(status: number, body: string, type: string) {
+    installMockHandler(null as never);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        new Response(body, {
+          status,
+          statusText: status === 422 ? "Unprocessable Entity" : "Bad Request",
+          headers: { "Content-Type": type },
+        }),
+      ),
+    );
+  }
+
+  it("reads our own JSON refusals", async () => {
+    answering(422, JSON.stringify({ error: "`greeter/` already exists." }), "application/json");
+    await expect(api.files()).rejects.toThrow("`greeter/` already exists.");
+  });
+
+  it("reads a plain-text body rather than showing the status line", async () => {
+    // The case that cost a debugging session: axum answers a request whose
+    // JSON body does not fit the handler's type BEFORE the handler runs, with
+    // `text/plain` naming the exact field. That sentence is the whole
+    // diagnosis, and it used to be replaced by "Unprocessable Entity".
+    answering(
+      422,
+      "Failed to deserialize the JSON body into the target type: missing field `image` at line 1 column 47",
+      "text/plain; charset=utf-8",
+    );
+    await expect(api.files()).rejects.toThrow(/missing field `image`/);
+  });
+
+  it("keeps the parsed body for the fields a screen is keyed off", async () => {
+    answering(
+      422,
+      JSON.stringify({ error: "no dotnet here", missing: "dotnet" }),
+      "application/json",
+    );
+    const error = await api.files().catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(ApiError);
+    expect((error as ApiError).body).toEqual({
+      error: "no dotnet here",
+      missing: "dotnet",
+    });
+  });
+
+  it("falls back to the status line only when the body is empty", async () => {
+    answering(422, "", "text/plain");
+    await expect(api.files()).rejects.toThrow("Unprocessable Entity");
   });
 });

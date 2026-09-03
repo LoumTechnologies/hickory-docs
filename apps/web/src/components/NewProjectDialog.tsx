@@ -14,16 +14,32 @@
 // writes the file, so it cannot be a picture of a different document.
 //
 // What "New Project" means here is not "make me a folder". It is: run the
-// scaffolder, and **ingest** what it wrote, so the forty files it produced are
-// bytes this document owns and a clone rebuilds without the SDK.
-// docs/specs/freeform/owning-what-a-scaffolder-wrote.md
+// scaffolder, and commit what it wrote as one act, so the forty files it
+// produced are a commit carrying the command that made them.
+// docs/specs/freeform/lenses.md, step 3.
+//
+// Two things this dialog does NOT do, and both are deliberate.
+//
+// It does not report the scaffolder. Pressing the button hands you a terminal
+// running `dotnet new`, and the dialog gets out of the way: a command a person
+// asked for is watched, never summarised, because a failing command says why
+// in its own words and "Unprocessable Entity" says nothing at all.
+// docs/guarantees/execution/a-command-the-app-runs-is-watched-in-a-terminal.md
+//
+// And it does not confine you to the folder the app has open. The location is
+// anywhere on this machine; the repository that records the recipe is
+// whichever one holds it, which the server resolves and the preview names. A
+// location inside no repository is a screen with a button on it, because
+// `git init` is one command in one folder and you have already said you want
+// a project there.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { ApiError, api } from "../api/client";
 import type {
   ScaffoldCatalog,
-  ScaffoldCreated,
+  ScaffoldPreview,
+  ScaffoldStarted,
   ScaffoldSpec,
   ScaffoldTemplate,
   ScaffoldTemplateDetail,
@@ -36,14 +52,17 @@ import {
   grouped,
   initialLanguage,
   initialValues,
+  joinPath,
   problems as validate,
   slug,
   type FieldValues,
 } from "../lib/scaffold";
 
 export interface NewProjectDialogProps {
-  /** The scaffold landed as a commit carrying its recipe. */
-  onCreated: (created: ScaffoldCreated) => void;
+  /** The scaffolder is running, in the terminal named here. The commit comes
+   * later, when it exits; whoever opened this dialog watches for that, since
+   * the dialog is gone by then. */
+  onStarted: (started: ScaffoldStarted) => void;
   onClose: () => void;
 }
 
@@ -52,7 +71,7 @@ export interface NewProjectDialogProps {
  * short enough that the preview feels like it is following you. */
 const PREVIEW_DEBOUNCE_MS = 180;
 
-export function NewProjectDialog({ onCreated, onClose }: NewProjectDialogProps) {
+export function NewProjectDialog({ onStarted, onClose }: NewProjectDialogProps) {
   const [catalog, setCatalog] = useState<ScaffoldCatalog | null>(null);
   /** Set when this machine has no SDK — a different screen, not an error
    * line. Keyed off the response's `missing` field rather than its wording. */
@@ -107,7 +126,7 @@ export function NewProjectDialog({ onCreated, onClose }: NewProjectDialogProps) 
       </Shell>
     );
 
-  return <Chooser catalog={catalog} onCreated={onCreated} onClose={onClose} />;
+  return <Chooser catalog={catalog} onStarted={onStarted} onClose={onClose} />;
 }
 
 /** The backdrop and the panel, shared by every state this dialog has. */
@@ -178,7 +197,7 @@ function NoSdkScreen({ onClose }: { onClose: () => void }) {
 
 function Chooser({
   catalog,
-  onCreated,
+  onStarted,
   onClose,
 }: {
   catalog: ScaffoldCatalog;
@@ -239,10 +258,13 @@ function Chooser({
   }, [template, language]);
 
   // The three fields that are not the template's: what the project is called,
-  // where its document goes, and where its files land. The path and the
-  // output follow the name until the person touches them — after that they
-  // are theirs, and a later rename must not overwrite what they typed.
+  // where it is made, and what its folder is called. The folder follows the
+  // name until the person touches it — after that it is theirs, and a later
+  // rename must not overwrite what they typed. The location starts on the
+  // folder the app has open and is not tied to it: a project may be made
+  // anywhere on this machine.
   const [name, setName] = useState("Greeter");
+  const [location, setLocation] = useState(catalog.location);
   const [output, setOutput] = useState("greeter");
   const [outputTouched, setOutputTouched] = useState(false);
   const renameTo = (next: string) => {
@@ -253,10 +275,11 @@ function Chooser({
   const [showProblems, setShowProblems] = useState(false);
   const [busy, setBusy] = useState(false);
   const [failure, setFailure] = useState<string | null>(null);
-  /** The folder is not a repository: a screen of its own, keyed off the
+  /** The location is inside no repository: a screen of its own, keyed off the
    * response's `missing` field, since a scaffold is a commit and there is
-   * nowhere to make one. */
-  const [noRepository, setNoRepository] = useState(false);
+   * nowhere to make one. It holds the **folder**, because the way out is a
+   * button that makes a repository there and the button has to name it. */
+  const [noRepository, setNoRepository] = useState<string | null>(null);
 
   const spec: ScaffoldSpec | null = useMemo(() => {
     if (!template || !detail) return null;
@@ -266,23 +289,28 @@ function Chooser({
       language: language || null,
       name,
       output,
+      location,
       image: catalog.image,
       options: chosenOptions(detail.options, values),
     };
-  }, [template, detail, language, name, output, catalog.image, values]);
+  }, [template, detail, language, name, output, location, catalog.image, values]);
 
   // The preview: the server's own renderer, debounced. Held across a refresh
   // rather than blanked, so the pane does not flicker empty on every keypress.
-  const [preview, setPreview] = useState<{ command: string; message: string } | null>(
-    null,
-  );
+  //
+  // It also answers the question the location field raises — *which
+  // repository will record this?* — and answers it while the person is still
+  // typing, including "none of them, and here is the folder a `git init`
+  // would run in". That is why the preview route never refuses for want of a
+  // repository: a blank pane teaches nothing.
+  const [preview, setPreview] = useState<ScaffoldPreview | null>(null);
   useEffect(() => {
     if (!spec) return;
     let live = true;
     const timer = setTimeout(() => {
       api
         .scaffoldPreview(spec)
-        .then((p) => live && setPreview({ command: p.command, message: p.message }))
+        .then((p) => live && setPreview(p))
         .catch(() => {
           // A preview that cannot be rendered is not an error the person has
           // to dismiss — the button says what went wrong if they press it.
@@ -307,21 +335,24 @@ function Chooser({
     setFailure(null);
     api
       .scaffoldCreate(spec)
-      .then((created) => {
-        onCreated(created);
+      .then((started) => {
+        // The scaffolder is running, in a terminal. Handing it over and
+        // closing is the whole point: what happens next is `dotnet`'s own
+        // output, in a tab, not a spinner on a modal.
+        onStarted(started);
         onClose();
       })
       .catch((e: unknown) => {
-        const missingRepository =
-          e instanceof ApiError &&
-          typeof e.body === "object" &&
-          e.body !== null &&
-          (e.body as { missing?: string }).missing === "repository";
-        if (missingRepository) setNoRepository(true);
+        const detail =
+          e instanceof ApiError && typeof e.body === "object" && e.body !== null
+            ? (e.body as { missing?: string; path?: string })
+            : null;
+        if (detail?.missing === "repository")
+          setNoRepository(detail.path ?? location);
         else setFailure(e instanceof Error ? e.message : String(e));
         setBusy(false);
       });
-  }, [blocked, spec, busy, onCreated, onClose]);
+  }, [blocked, spec, busy, location, onStarted, onClose]);
 
   const searchRef = useRef<HTMLInputElement>(null);
   useEffect(() => searchRef.current?.focus(), []);
@@ -332,7 +363,19 @@ function Chooser({
     if (next) setChosen(next.short_names[0]);
   };
 
-  if (noRepository) return <NoRepositoryScreen onClose={onClose} />;
+  if (noRepository !== null)
+    return (
+      <NoRepositoryScreen
+        folder={noRepository}
+        onClose={onClose}
+        onMade={() => {
+          setNoRepository(null);
+          // Straight back to the form, with the location it refused: the
+          // repository exists now, so the next press is the one that works.
+          setPreview(null);
+        }}
+      />
+    );
 
   return (
     <Shell onClose={busy ? () => {} : onClose} label="New project">
@@ -433,9 +476,24 @@ function Chooser({
               </Field>
 
               <Field
-                label="Files land in"
+                label="Location"
+                attr="anywhere"
+                hint="The folder the project's own folder is made in. Any folder on this machine — the repository that records it is whichever one holds it, and `~` and a relative path both work."
+              >
+                <input
+                  className="insert-menu__input"
+                  value={location}
+                  spellCheck={false}
+                  autoComplete="off"
+                  aria-label="Location"
+                  onChange={(event) => setLocation(event.target.value)}
+                />
+              </Field>
+
+              <Field
+                label="Folder name"
                 attr="-o"
-                hint="The folder the scaffold is committed into, inside the one you have open. It must be empty."
+                hint="The project's own folder, made inside the location. It must not already hold anything — a scaffold is committed exactly as the scaffolder wrote it."
                 problem={showProblems ? problems.output : undefined}
               >
                 <input
@@ -447,6 +505,9 @@ function Chooser({
                     setOutput(event.target.value);
                   }}
                 />
+                <p className="insert-menu__hint mono new-project__resolved">
+                  {joinPath(location, output, catalog.separator)}
+                </p>
               </Field>
 
               {template && template.languages.length > 1 && (
@@ -496,12 +557,38 @@ function Chooser({
             <pre className="insert-menu__preview-text mono">
               {preview?.message ?? "…"}
             </pre>
+            {preview?.repository ? (
+              <p className="insert-menu__hint">
+                Committed in{" "}
+                <span className="mono">{preview.repository}</span>
+                {preview.repository !== catalog.location &&
+                  " — not the folder you have open."}
+              </p>
+            ) : preview?.needs_repository ? (
+              // Said before the button is ever pressed, and answered here:
+              // the person has already told us they want a project there.
+              <div className="new-project__no-repo" role="status">
+                <p>
+                  <span className="mono">{preview.needs_repository}</span> is
+                  not inside a git repository, and a new project is a commit.
+                </p>
+                <button
+                  type="button"
+                  className="btn"
+                  disabled={busy}
+                  onClick={() => setNoRepository(preview.needs_repository ?? location)}
+                >
+                  Make a repository there…
+                </button>
+              </div>
+            ) : null}
             <p className="insert-menu__hint">
-              The scaffolder runs and its output is committed, as one act, with
-              the command in the commit's trailers. Nothing of yours is swept in
-              and nothing is edited before it is committed — which is what lets
-              the commit be replayed with a newer SDK later. Your changes go in
-              the next commit.
+              The scaffolder runs in a terminal you can read, and what it wrote
+              is committed the moment it exits — as one act, with the command in
+              the commit's trailers. Nothing of yours is swept in and nothing is
+              edited before it is committed, which is what lets the commit be
+              replayed with a newer SDK later. Your changes go in the next
+              commit.
             </p>
           </div>
 
@@ -525,7 +612,7 @@ function Chooser({
               disabled={busy || !detail}
               data-tip={blocked ? "Fill the fields marked below first" : undefined}
             >
-              {busy ? "Scaffolding…" : "Create project"}
+              {busy ? "Starting…" : "Create project"}
             </button>
           </div>
         </div>
@@ -636,26 +723,71 @@ function OptionField({
 }
 
 /**
- * The folder is not a repository. A sentence and a next step, not a button:
- * `git init` is a decision about the folder, and the terminal is one click
- * away on the tree.
+ * The location is not inside a repository — and here is the button.
+ *
+ * This used to be a sentence telling you to go and type `git init`, on the
+ * argument that a repository is a decision about a folder. It is; but it is a
+ * decision you have already made by asking for a project there, and **a
+ * fixable failure is a button, never a command to go and type**
+ * (`docs/guarantees/debugging/a-missing-debugger-is-a-button.md`). The .NET
+ * SDK stays a sentence and a link for the reason it always did — a
+ * several-hundred-megabyte platform install this product has no catalogue for
+ * — and git is the opposite of that: already here, one command, one folder.
+ *
+ * The folder is named in full, twice, because this button writes to a place
+ * that may be nowhere near the one the app has open.
  */
-function NoRepositoryScreen({ onClose }: { onClose: () => void }) {
+function NoRepositoryScreen({
+  folder,
+  onMade,
+  onClose,
+}: {
+  folder: string;
+  onMade: () => void;
+  onClose: () => void;
+}) {
+  const [busy, setBusy] = useState(false);
+  const [failure, setFailure] = useState<string | null>(null);
   return (
-    <Shell onClose={onClose} label="New project">
+    <Shell onClose={busy ? () => {} : onClose} label="New project">
       <div className="new-project__message">
-        <h2>This folder is not a git repository</h2>
+        <h2>That location is not in a git repository</h2>
         <p>
           A new project is a commit that carries the command that made it, so
-          it needs a repository to be recorded in.
+          it needs a repository to be recorded in.{" "}
+          <span className="mono">{folder}</span> is not inside one.
         </p>
         <p className="insert-menu__hint">
-          Open a terminal on the folder’s row in the tree and run{" "}
-          <span className="mono">git init</span>, then try again.
+          Making one here runs <span className="mono">git init</span> in that
+          folder, and creates the folder if it is not there yet. Nothing else:
+          no commit, no remote, no configuration.
         </p>
+        {failure && (
+          <p className="insert-menu__problem" role="alert">
+            {failure}
+          </p>
+        )}
         <div className="insert-menu__actions">
-          <button type="button" className="btn" onClick={onClose}>
-            Close
+          <button type="button" className="btn" onClick={onClose} disabled={busy}>
+            Cancel
+          </button>
+          <button
+            type="button"
+            className="btn btn-primary"
+            disabled={busy}
+            onClick={() => {
+              setBusy(true);
+              setFailure(null);
+              api
+                .gitInit(folder)
+                .then(() => onMade())
+                .catch((e: unknown) => {
+                  setFailure(e instanceof Error ? e.message : String(e));
+                  setBusy(false);
+                });
+            }}
+          >
+            {busy ? "Making it…" : `git init in ${folder}`}
           </button>
         </div>
       </div>

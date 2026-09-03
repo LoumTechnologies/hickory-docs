@@ -47,7 +47,6 @@ use std::collections::BTreeMap;
 use std::process::Command;
 
 use anyhow::{Context as _, Result, bail};
-use std::path::Path;
 
 use serde::{Deserialize, Serialize};
 
@@ -731,17 +730,28 @@ fn dotnet_new_args<'a>(spec: &'a ScaffoldSpec, into: &'a str) -> Vec<&'a str> {
     args
 }
 
-/// Run the scaffolder, writing into `into` — a scratch directory, never the
-/// repository. What it wrote is committed by `scaffold_commit`, as one act.
+/// The scaffolder's whole command line, `dotnet` included, for a terminal
+/// session to run in a scratch directory.
 ///
-/// This machine's own `dotnet`, exactly as the local executor used. The
-/// `image` on the spec is recorded in the recipe for a replay that runs in a
-/// container; nothing here pulls it.
-pub fn run_scaffold(spec: &ScaffoldSpec, into: &Path) -> Result<()> {
-    let into = into.to_string_lossy().into_owned();
-    let args = dotnet_new_args(spec, &into);
-    run(&args)?;
-    Ok(())
+/// The scaffold is not run by a subprocess whose output nobody sees: it runs
+/// in a terminal, where a person reads `dotnet`'s own words. So what this
+/// answers is an argv, not a result. `into` is a *name* rather than a path,
+/// because the session's working directory is the scratch directory — which
+/// also makes the line on screen the same line the recipe records.
+/// See `crates/hickory-cli/src/serve/scaffold.rs`.
+pub fn dotnet_new_argv(spec: &ScaffoldSpec, into: &str) -> Vec<String> {
+    let mut argv = vec!["dotnet".to_string()];
+    argv.extend(dotnet_new_args(spec, into).into_iter().map(str::to_string));
+    argv
+}
+
+/// Whether this machine has a `dotnet` at all, and which one.
+///
+/// Asked before a terminal is opened, so "no SDK" stays the typed refusal it
+/// has always been rather than arriving as a shell's "command not found" in
+/// a terminal nobody asked for.
+pub fn require_sdk() -> Result<String> {
+    Ok(run(&["--version"])?.trim().to_string())
 }
 
 /// The commit message a scaffold is recorded under: prose a person reads,

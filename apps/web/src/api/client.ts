@@ -51,7 +51,8 @@ import type {
   FleetMachine,
   TerminalAnchor,
   ScaffoldCatalog,
-  ScaffoldCreated,
+  ScaffoldResult,
+  ScaffoldStarted,
   ScaffoldPreview,
   ScaffoldSpec,
   ScaffoldTemplateDetail,
@@ -78,6 +79,47 @@ export class ApiError extends Error {
   ) {
     super(message);
   }
+}
+
+/** The longest error body worth putting in front of a person as a sentence.
+ * Past this it is a page, not a message, and the console has the whole of it. */
+const ERROR_TEXT_LIMIT = 600;
+
+/**
+ * A failed response, read for everything it actually says.
+ *
+ * The server's own refusals are `{"error": "…"}` and were always read. What
+ * was not, and what cost a real debugging session, is everything that answers
+ * a request **before** a handler runs: axum's own extractor rejections are
+ * `text/plain`, so a 422 saying `missing field \`image\`` — the whole
+ * diagnosis, sitting right there in the body — was thrown away and shown as
+ * the HTTP status text, "Unprocessable Entity". A message that names no
+ * field, no value and no route is not an error message.
+ *
+ * So: the JSON shape first, then the body's own text, and only then the
+ * status line — which is the honest answer for a body that is genuinely
+ * empty. `user-facing-errors`: an error says which check failed.
+ */
+async function apiError(res: Response): Promise<ApiError> {
+  const raw = await res.text().catch(() => "");
+  let message = "";
+  let errBody: unknown;
+  try {
+    const data = JSON.parse(raw);
+    errBody = data;
+    if (typeof data?.error === "string") message = data.error;
+    else if (typeof data?.message === "string") message = data.message;
+  } catch {
+    /* Not JSON. The text is the message. */
+  }
+  if (!message) {
+    const text = raw.trim();
+    message =
+      text.length > ERROR_TEXT_LIMIT
+        ? `${text.slice(0, ERROR_TEXT_LIMIT)}…`
+        : text;
+  }
+  return new ApiError(res.status, message || res.statusText, errBody);
 }
 
 type MockHandler = (
@@ -109,17 +151,7 @@ async function request<T>(
     body: body === undefined ? undefined : JSON.stringify(body),
   });
   if (!res.ok) {
-    let message = res.statusText;
-    let errBody: unknown;
-    try {
-      const data = await res.json();
-      errBody = data;
-      if (typeof data?.error === "string") message = data.error;
-      else if (typeof data?.message === "string") message = data.message;
-    } catch {
-      /* non-JSON error body */
-    }
-    throw new ApiError(res.status, message, errBody);
+    throw await apiError(res);
   }
   if (res.status === 204) return undefined as T;
   return (await res.json()) as T;
@@ -216,11 +248,25 @@ export const api = {
    * here — a preview free to disagree with the file is worse than none. */
   scaffoldPreview: (spec: ScaffoldSpec) =>
     request<ScaffoldPreview>("POST", "/api/scaffold/preview", { ...spec }),
-  /** Run the scaffolder and commit what it wrote, as one act. The commit
+  /** Run the scaffolder in a terminal, and commit what it wrote the moment
+   * it exits zero. Answers the session, not the commit: the work is
+   * watchable, not finished — `scaffoldResult` says how it ended. The commit
    * carries the recipe in its trailers; see
-   * docs/guarantees/authoring/a-new-project-is-a-recipe-commit.md. */
+   * docs/guarantees/authoring/a-new-project-is-a-recipe-commit.md and
+   * docs/guarantees/execution/a-command-the-app-runs-is-watched-in-a-terminal.md. */
   scaffoldCreate: (spec: ScaffoldSpec) =>
-    request<ScaffoldCreated>("POST", "/api/scaffold", { ...spec }),
+    request<ScaffoldStarted>("POST", "/api/scaffold", { ...spec }),
+  /** How a started scaffold ended. The terminal tells the person; this is
+   * how the app finds out, so the tree and the history pane can catch up. */
+  scaffoldResult: (session: string) =>
+    request<ScaffoldResult>(
+      "GET",
+      `/api/scaffold/result?session=${encodeURIComponent(session)}`,
+    ),
+  /** Make a git repository in a folder, creating the folder if it is not
+   * there. The button behind "this location is not in a repository". */
+  gitInit: (path: string) =>
+    request<{ root: string; said: string }>("POST", "/api/git/init", { path }),
 
   /** Put a `<hick:sample>` under the cell that generated this file: a window
    * onto a few of its lines, shown in the weave and never stored in the

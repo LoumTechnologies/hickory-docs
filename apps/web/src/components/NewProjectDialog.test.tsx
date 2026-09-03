@@ -22,6 +22,7 @@ vi.mock("../api/client", () => ({
     scaffoldOptions: vi.fn(),
     scaffoldPreview: vi.fn(),
     scaffoldCreate: vi.fn(),
+    gitInit: vi.fn(),
   },
 }));
 
@@ -38,6 +39,8 @@ const CATALOG: ScaffoldCatalog = {
   kind: "dotnet",
   sdk_version: "10.0.111",
   image: "mcr.microsoft.com/dotnet/sdk:10.0",
+  location: "/home/nate/notes",
+  separator: "/",
   templates: [
     {
       short_names: ["console"],
@@ -91,15 +94,37 @@ function ready() {
   vi.mocked(api.scaffoldOptions).mockResolvedValue(DETAIL);
   vi.mocked(api.scaffoldPreview).mockResolvedValue({
     output: "greeter",
+    folder: "/home/nate/notes/greeter",
+    repository: "/home/nate/notes",
     command: "dotnet new console -o greeter -n Greeter --language 'C#' --no-restore",
     message:
       "Scaffold Greeter with `dotnet new console`\n\nHick-Recipe: dotnet new console -o greeter -n Greeter --language 'C#' --no-restore\n",
   });
-  const onCreated = vi.fn();
+  const onStarted = vi.fn();
   const onClose = vi.fn();
-  render(<NewProjectDialog onCreated={onCreated} onClose={onClose} />);
-  return { onCreated, onClose };
+  render(<NewProjectDialog onStarted={onStarted} onClose={onClose} />);
+  return { onStarted, onClose };
 }
+
+/** What `POST /api/scaffold` answers: a terminal, not a commit. */
+const STARTED = {
+  session: {
+    id: "term-3",
+    title: "New project: Greeter",
+    cwd: "/tmp/scratch",
+    monitor: false,
+    state: "working",
+    since_ms: 0,
+    branch: null,
+    dirty: false,
+    preview: "",
+    prompt: null,
+    exit_code: null,
+  },
+  output: "greeter",
+  folder: "/home/nate/notes/greeter",
+  repository: "/home/nate/notes",
+} as never;
 
 describe("the machine's own templates", () => {
   it("lists what dotnet has, grouped by its own tags", async () => {
@@ -154,32 +179,65 @@ describe("the fields the template does not own", () => {
     expect(screen.getByDisplayValue("apps/mine")).toBeTruthy();
   });
 
-  it("creates with what the form says, and closes", async () => {
-    const { onCreated, onClose } = ready();
-    vi.mocked(api.scaffoldCreate).mockResolvedValue({
-      sha: "abc123abc123",
-      short: "abc123a",
-      output: "greeter",
-      files: ["greeter/Program.cs", "greeter/Greeter.csproj"],
-      message: "Scaffold Greeter with `dotnet new console`\n",
-      output_tree: "4b825dc",
-    });
+  it("hands over the terminal it started, and closes", async () => {
+    // The button does not wait for a commit: it starts the scaffolder in a
+    // terminal and gets out of the way.
+    // docs/guarantees/execution/a-command-the-app-runs-is-watched-in-a-terminal.md
+    const { onStarted, onClose } = ready();
+    vi.mocked(api.scaffoldCreate).mockResolvedValue(STARTED);
     await screen.findByText("-f, --framework");
     // The preview is the commit, trailers and all.
     await screen.findByText(/Hick-Recipe: dotnet new console -o greeter/);
 
     fireEvent.click(screen.getByRole("button", { name: "Create project" }));
-    await waitFor(() => expect(onCreated).toHaveBeenCalled());
+    await waitFor(() => expect(onStarted).toHaveBeenCalledWith(STARTED));
     expect(onClose).toHaveBeenCalled();
 
     const [spec] = vi.mocked(api.scaffoldCreate).mock.calls[0];
     expect(spec.template).toBe("console");
     expect(spec.name).toBe("Greeter");
     expect(spec.output).toBe("greeter");
+    // The location is a field, and it is sent: a project is made where the
+    // person said, not inside the folder the app happens to have open.
+    expect(spec.location).toBe("/home/nate/notes");
     expect(spec.image).toBe("mcr.microsoft.com/dotnet/sdk:10.0");
     // Only what was decided: --framework was left at its default and is not
     // written; --no-restore starts on here and is.
     expect(spec.options).toEqual([{ flag: "--no-restore" }]);
+  });
+
+  it("makes a project anywhere on the machine", async () => {
+    const { onStarted } = ready();
+    vi.mocked(api.scaffoldCreate).mockResolvedValue(STARTED);
+    await screen.findByText("-f, --framework");
+
+    fireEvent.change(screen.getByLabelText("Location"), {
+      target: { value: "/home/nate/src" },
+    });
+    // The dialog shows where the two fields land together, so the person can
+    // read the answer rather than assemble it.
+    await screen.findByText("/home/nate/src/greeter");
+
+    fireEvent.click(screen.getByRole("button", { name: "Create project" }));
+    await waitFor(() => expect(onStarted).toHaveBeenCalled());
+    const [spec] = vi.mocked(api.scaffoldCreate).mock.calls[0];
+    expect(spec.location).toBe("/home/nate/src");
+    expect(spec.output).toBe("greeter");
+  });
+
+  it("names the repository that will record it when it is not the open one", async () => {
+    ready();
+    vi.mocked(api.scaffoldPreview).mockResolvedValue({
+      output: "apps/greeter",
+      folder: "/home/nate/src/apps/greeter",
+      repository: "/home/nate/src",
+      command: "dotnet new console -o apps/greeter -n Greeter",
+      message: "Scaffold Greeter with `dotnet new console`\n",
+    });
+    fireEvent.change(await screen.findByLabelText("Location"), {
+      target: { value: "/home/nate/src/apps" },
+    });
+    await screen.findByText(/not the folder you have open/);
   });
 
   it("shows the failure and stays open rather than losing the form", async () => {
@@ -194,17 +252,32 @@ describe("the fields the template does not own", () => {
     expect(onClose).not.toHaveBeenCalled();
   });
 
-  it("gets its own screen when the folder is not a repository", async () => {
-    // A scaffold is a commit, and this folder has nowhere to make one. Keyed
-    // off the field, never the sentence.
+  it("offers to make the repository, and goes back to the form once it has", async () => {
+    // A scaffold is a commit, and this location has nowhere to make one.
+    // Keyed off the field, never the sentence — and answered with a button,
+    // because `git init` is one command in one folder the person has already
+    // chosen. docs/guarantees/debugging/a-missing-debugger-is-a-button.md
     const { onClose } = ready();
     vi.mocked(api.scaffoldCreate).mockRejectedValue(
-      new ApiError(422, "some sentence nobody should be matching on", { missing: "repository" }),
+      new ApiError(422, "some sentence nobody should be matching on", {
+        missing: "repository",
+        path: "/home/nate/src/fresh",
+      }),
     );
+    vi.mocked(api.gitInit).mockResolvedValue({ root: "/home/nate/src/fresh", said: "" });
     await screen.findByText("-f, --framework");
     fireEvent.click(screen.getByRole("button", { name: "Create project" }));
-    await screen.findByText("This folder is not a git repository");
-    expect(screen.getByText(/git init/)).toBeTruthy();
+
+    await screen.findByText("That location is not in a git repository");
+    const button = screen.getByRole("button", {
+      name: "git init in /home/nate/src/fresh",
+    });
+    fireEvent.click(button);
+    await waitFor(() =>
+      expect(api.gitInit).toHaveBeenCalledWith("/home/nate/src/fresh"),
+    );
+    // Straight back to the form: the repository exists now.
+    await screen.findByText("-f, --framework");
     expect(onClose).not.toHaveBeenCalled();
   });
 });
@@ -218,7 +291,7 @@ describe("a machine with no SDK", () => {
         missing: "dotnet",
       }),
     );
-    render(<NewProjectDialog onCreated={vi.fn()} onClose={vi.fn()} />);
+    render(<NewProjectDialog onStarted={vi.fn()} onClose={vi.fn()} />);
 
     await screen.findByText("No .NET SDK on this machine");
     // A sentence and a link, not a button: this product has no catalogue for
@@ -231,7 +304,7 @@ describe("a machine with no SDK", () => {
     vi.mocked(api.scaffoldTemplates).mockRejectedValue(
       new ApiError(500, "the template listing did not finish", {}),
     );
-    render(<NewProjectDialog onCreated={vi.fn()} onClose={vi.fn()} />);
+    render(<NewProjectDialog onStarted={vi.fn()} onClose={vi.fn()} />);
     await screen.findByText("Could not read the templates");
   });
 });

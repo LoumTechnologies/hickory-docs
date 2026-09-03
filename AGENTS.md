@@ -44,9 +44,36 @@ commit's tree is exactly the scaffolder's and draws one of three states:
 committed · not upgradeable*, and the replay evidence (still *unrecorded*).
 An occupied target folder and the repository root are refused; no
 repository is `NotARepository`, a **type** answered as `missing:
-"repository"`, a sentence and `git init`, never a button. A scaffold that
-fails commits nothing and leaves no folder. The paragraph below is what it
-replaced and is kept for `hick ingest --from '#cell'`, which stays.
+"repository"`. A scaffold that fails commits nothing and leaves no folder.
+The paragraph below is what it replaced and is kept for `hick ingest --from
+'#cell'`, which stays.
+
+**Amended the same day, from dogfooding.** Two of that paragraph's answers
+were wrong, and each was wrong for a reason worth keeping. (1) **A project
+is made anywhere on this machine**, not in a subfolder of the open one: the
+dialog has a **Location** field, and the repository that records the recipe
+is **whichever one contains that location** (`resolve_target`), with `-o`
+still spelled from *that* repository's root because that is where a replay
+runs it. The dialog names the repository while you type, and says when it is
+not the open one. (2) **No repository is a button now** —
+`POST /api/git/init`, which makes the folder as well, refuses a repository
+inside a repository, and returns you to the form. The "sentence, never a
+button" line held for the .NET SDK and was never right for git: git is
+already here, it is one command in one folder, and *you have already chosen
+the folder by asking for a project in it*. The SDK stays a sentence and a
+link. And (3), the one that generalises: **`dotnet new` runs in a terminal**
+(`a-command-the-app-runs-is-watched-in-a-terminal.md`) — `POST /api/scaffold`
+answers `202` with a `hick_term` session the way `POST /api/tests/run` does,
+a watcher commits **the moment it exits zero** and `inject`s the verdict into
+that session's own scrollback, and `GET /api/scaffold/result` is how the
+*app* finds out (the person already knows: they watched it). It had been a
+subprocess whose stdout was discarded, and the failure that exposed it
+reached a person as the two words **"Unprocessable Entity"** — the HTTP
+status line — because the web client also read only `{"error": …}` from a
+failed response and fell back to `res.statusText` for everything else,
+throwing away axum's own `text/plain` rejection that named the exact missing
+field. Both halves are fixed; `apiError` now reads the JSON shape, then the
+body's own text, and only then the status line.
 
 How a document owns files a scaffolder (`dotnet new`) wrote is
 `docs/specs/freeform/owning-what-a-scaffolder-wrote.md` (**superseded for

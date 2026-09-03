@@ -521,6 +521,63 @@ pub async fn stash(
     .await
 }
 
+#[derive(Deserialize)]
+pub struct InitBody {
+    /// The folder to make a repository in: absolute, `~`-prefixed, or
+    /// relative to the folder the app has open. It is created if it is not
+    /// there yet, the way `git init <dir>` creates it.
+    pub path: String,
+}
+
+/// `POST /api/git/init` — make a repository, where the person said.
+///
+/// This is the one place the app runs `git init`, and it exists because New
+/// Project needs it: a project may be made anywhere on this machine, and a
+/// location outside any repository has nowhere to record the recipe commit.
+/// The old answer was a sentence telling you to go and type it, on the
+/// argument that `git init` is a decision about a folder. It is — but it is a
+/// decision the person has already made by asking for a project there, and
+/// **a fixable failure is a button, never a command to go and type**
+/// (`docs/guarantees/debugging/a-missing-debugger-is-a-button.md`). Unlike an
+/// SDK, git is already here and the act is one command in one folder.
+///
+/// Refused when the folder is already inside a repository: two repositories
+/// nested by accident is a mess a button must not be able to make. `git init`
+/// on a folder that already has its own `.git` is harmless and left to git.
+pub async fn init(
+    State(state): State<LocalState>,
+    Json(body): Json<InitBody>,
+) -> ApiResult<Json<Value>> {
+    let open = state.index.root().to_path_buf();
+    let dir = crate::scaffold_commit::absolute_folder(&open, &body.path);
+    if let Some(existing) = crate::scaffold_commit::repository_of(&dir)
+        && existing != dir
+    {
+        return Err(ApiError::unprocessable(format!(
+            "{} is already inside the repository at {}. A repository inside a repository is \
+             almost never what anyone means.\n  \
+             Next step: use that repository, or choose a folder outside it.",
+            dir.display(),
+            existing.display()
+        )));
+    }
+    tokio::task::spawn_blocking({
+        let dir = dir.clone();
+        move || std::fs::create_dir_all(&dir)
+    })
+    .await
+    .map_err(|e| ApiError::internal(format!("making the folder did not finish: {e}")))?
+    .map_err(|e| {
+        ApiError::unprocessable(format!(
+            "could not make {}: {e}. Check that the path is spelled right and that you can \
+             write there.",
+            dir.display()
+        ))
+    })?;
+    let said = git_ok(&dir, &["init"])?;
+    Ok(json!({ "root": dir.to_string_lossy(), "said": said.trim() })).map(Json)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

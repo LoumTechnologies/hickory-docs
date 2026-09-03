@@ -36,26 +36,190 @@ use anyhow::{Context, Result, bail};
 
 use crate::scaffold::ScaffoldSpec;
 
-/// The folder the app has open is not a git repository.
+/// The folder a project would land in is not inside a git repository.
 ///
-/// A **type**, like `NoDotnetSdk`: the dialog draws its own sentence for
-/// this, and a reworded message must not be able to take it away. A folder
-/// of notes with no repository is normal; it is only that a scaffold has
-/// nowhere to be recorded in one.
-#[derive(Debug, Clone, Copy)]
-pub struct NotARepository;
+/// A **type**, like `NoDotnetSdk`: the dialog draws its own screen for this,
+/// and a reworded message must not be able to take it away. It carries the
+/// folder, because a project may be made anywhere on this machine and the
+/// answer — offering to make a repository there — has to name *which* folder
+/// it would make one in.
+#[derive(Debug, Clone)]
+pub struct NotARepository {
+    /// The folder that would hold the project, and so the folder a `git
+    /// init` would be run in.
+    pub path: PathBuf,
+}
 
 impl std::fmt::Display for NotARepository {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(
-            "this folder is not a git repository, so a scaffold has nowhere to be recorded: a \
+        write!(
+            f,
+            "{} is not inside a git repository, so a scaffold has nowhere to be recorded: a \
              new project is a commit that carries the command that made it.\n  \
-             Next step: open a terminal on the folder and run `git init`, then try again.",
+             Next step: make a repository there, or choose a folder inside one.",
+            self.path.display()
         )
     }
 }
 
 impl std::error::Error for NotARepository {}
+
+/// Where a project will land, and which repository will record it.
+///
+/// The dialog asks two things — a **location** (any folder on this machine)
+/// and a **folder name** — and everything downstream needs a third: the
+/// repository the recipe commit is made in, which is whichever one contains
+/// the location. That is the one this resolves, so `output` below is always
+/// what `-o` must say when the recipe is replayed *from the repository root*,
+/// however far from that root the person was pointing.
+#[derive(Debug, Clone)]
+pub struct Target {
+    /// The repository the recipe commit is made in.
+    pub repo_root: PathBuf,
+    /// The project's folder, relative to `repo_root`, `/`-separated. What
+    /// the recipe's `-o` records and what `Hick-Output` names.
+    pub output: String,
+    /// That folder, absolute.
+    pub dir: PathBuf,
+    /// The location the person named, absolute — the parent of `dir`.
+    pub location: PathBuf,
+}
+
+/// Expand a leading `~`, then make the path absolute against `base`.
+///
+/// A relative location is read against the folder the app has open, which is
+/// what makes the field's default (`.`) and a typed `../elsewhere` both mean
+/// the obvious thing.
+pub fn absolute_folder(base: &Path, location: &str) -> PathBuf {
+    let trimmed = location.trim();
+    if trimmed.is_empty() {
+        return base.to_path_buf();
+    }
+    let expanded: PathBuf = if trimmed == "~" {
+        home()
+    } else if let Some(rest) = trimmed
+        .strip_prefix("~/")
+        .or_else(|| trimmed.strip_prefix("~\\"))
+    {
+        home().join(rest)
+    } else {
+        PathBuf::from(trimmed)
+    };
+    if expanded.is_absolute() {
+        normalize(&expanded)
+    } else {
+        normalize(&base.join(expanded))
+    }
+}
+
+fn home() -> PathBuf {
+    std::env::var_os("HOME")
+        .or_else(|| std::env::var_os("USERPROFILE"))
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from("/"))
+}
+
+/// Resolve `.` and `..` lexically, and canonicalize as far as the filesystem
+/// already goes.
+///
+/// Both halves are needed. Lexical resolution is what lets a person type
+/// `../scratch` for a folder that does not exist yet; canonicalizing the part
+/// that *does* exist is what makes `strip_prefix` against git's own answer
+/// work, since `git rev-parse --show-toplevel` reports a real path and
+/// `/tmp` is a symlink on macOS.
+fn normalize(path: &Path) -> PathBuf {
+    let mut out = PathBuf::new();
+    for component in path.components() {
+        match component {
+            std::path::Component::CurDir => {}
+            std::path::Component::ParentDir => {
+                if !out.pop() {
+                    out.push("..");
+                }
+            }
+            other => out.push(other.as_os_str()),
+        }
+    }
+    // The longest existing prefix, canonicalized, with the rest put back.
+    let mut existing = out.clone();
+    let mut rest: Vec<std::ffi::OsString> = Vec::new();
+    while !existing.exists() {
+        match existing.file_name() {
+            Some(name) => {
+                rest.push(name.to_os_string());
+                if !existing.pop() {
+                    return out;
+                }
+            }
+            None => return out,
+        }
+    }
+    let mut resolved = existing.canonicalize().unwrap_or(existing);
+    for name in rest.into_iter().rev() {
+        resolved.push(name);
+    }
+    resolved
+}
+
+/// The repository containing `dir` — which need not exist yet, so the walk
+/// starts at its nearest existing ancestor.
+pub fn repository_of(dir: &Path) -> Option<PathBuf> {
+    let mut probe = dir.to_path_buf();
+    while !probe.is_dir() {
+        if !probe.pop() {
+            return None;
+        }
+    }
+    let top = git(&probe, &["rev-parse", "--show-toplevel"], None).ok()?;
+    if !top.status.success() {
+        return None;
+    }
+    let root = String::from_utf8_lossy(&top.stdout).trim().to_string();
+    if root.is_empty() {
+        return None;
+    }
+    Some(normalize(Path::new(&root)))
+}
+
+/// Where the project goes, from what the dialog asked for.
+///
+/// `open_folder` is the folder the app has open, which a relative location is
+/// read against and which an empty one means. `folder` is the project's own
+/// directory name, checked by [`checked_output`] — the same check whether the
+/// project lands next to your notes or three directories away, because the
+/// thing being checked is the shape of the name, not where it is.
+pub fn resolve_target(open_folder: &Path, location: &str, folder: &str) -> Result<Target> {
+    let folder = checked_output(folder)?;
+    let location = absolute_folder(open_folder, location);
+    let dir = normalize(&location.join(&folder));
+    let repo_root = repository_of(&location).ok_or(NotARepository {
+        path: location.clone(),
+    })?;
+    let output = dir
+        .strip_prefix(&repo_root)
+        .map(|rel| rel.to_string_lossy().replace('\\', "/"))
+        .map_err(|_| {
+            anyhow::anyhow!(
+                "{} is not inside {}, which is the repository that would record the scaffold. \
+                 Choose a folder inside that repository.",
+                dir.display(),
+                repo_root.display()
+            )
+        })?;
+    if output.is_empty() || output == "." {
+        bail!(
+            "{} is the root of its repository. A scaffold is committed as its own tree, so it \
+             needs a folder of its own — name one inside the repository instead.",
+            dir.display()
+        );
+    }
+    Ok(Target {
+        repo_root,
+        output,
+        dir,
+        location,
+    })
+}
 
 /// What the commit carried.
 #[derive(Debug, Clone)]
@@ -192,7 +356,9 @@ pub fn commit_scaffold(
     from_dir: &Path,
 ) -> Result<ScaffoldCommit> {
     if !is_repository(root) {
-        bail!(NotARepository);
+        bail!(NotARepository {
+            path: root.to_path_buf()
+        });
     }
     let output = checked_output(&spec.output)?;
     refuse_occupied(root, &output)?;
@@ -406,6 +572,59 @@ mod tests {
         let commit = commit_scaffold(dir.path(), &spec("greeter"), out.path()).unwrap();
         assert_eq!(sh(dir.path(), &["rev-parse", "HEAD"]), commit.sha);
         assert_eq!(sh(dir.path(), &["rev-list", "--count", "HEAD"]), "1");
+    }
+
+    #[test]
+    fn a_location_anywhere_is_recorded_by_the_repository_that_holds_it() {
+        // Protects docs/guarantees/authoring/a-new-project-is-a-recipe-commit.md:
+        // the repository is whichever one contains the location, and `-o` is
+        // spelled from *its* root — never from the folder the app has open.
+        let open = repo();
+        let elsewhere = repo();
+        std::fs::create_dir_all(elsewhere.path().join("apps")).unwrap();
+
+        let here = resolve_target(open.path(), "", "greeter").unwrap();
+        assert_eq!(here.output, "greeter");
+        assert_eq!(here.repo_root, normalize(open.path()));
+
+        let there = resolve_target(
+            open.path(),
+            &elsewhere.path().join("apps").to_string_lossy(),
+            "greeter",
+        )
+        .unwrap();
+        assert_eq!(there.repo_root, normalize(elsewhere.path()));
+        assert_eq!(there.output, "apps/greeter");
+        assert_eq!(there.dir, normalize(&elsewhere.path().join("apps/greeter")));
+
+        // A location relative to the open folder, and one that does not exist
+        // yet — the scaffolder makes it.
+        let nested = resolve_target(open.path(), "apps/new", "greeter").unwrap();
+        assert_eq!(nested.output, "apps/new/greeter");
+        assert!(!nested.dir.exists());
+    }
+
+    #[test]
+    fn a_location_in_no_repository_names_the_folder_it_would_make_one_in() {
+        let plain = tempfile::tempdir().unwrap();
+        let bare = plain.path().join("fresh");
+        let error = resolve_target(plain.path(), &bare.to_string_lossy(), "greeter").unwrap_err();
+        let missing = error
+            .downcast_ref::<NotARepository>()
+            .expect("the typed refusal, so a reworded sentence cannot take the button away");
+        assert_eq!(missing.path, normalize(&bare));
+    }
+
+    #[test]
+    fn the_repository_root_is_still_refused_however_it_is_reached() {
+        // `-o .` would mix the scaffold's tree with everything already there,
+        // and `Hick-Output` would name the whole repository. Pointing the
+        // location at the root and naming the folder `.` is the same thing
+        // said a longer way, and is refused the same way.
+        let dir = repo();
+        assert!(resolve_target(dir.path(), &dir.path().to_string_lossy(), ".").is_err());
+        assert!(resolve_target(dir.path(), "", "../escape").is_err());
+        assert!(resolve_target(dir.path(), "", "/tmp/escape").is_err());
     }
 
     #[test]
