@@ -8382,4 +8382,34 @@ button.status-bar__item:hover { background: var(--bg-sunken); color: var(--fg); 
 .git-pane__story { margin: 0.2rem 0.7rem 0.4rem; }
 .story-chip--matches { border-style: solid; border-color: var(--accent); color: var(--fg); }
 .story-chip--edited { border-style: solid; border-color: var(--danger); color: var(--danger); }
+.story-chip--same { border-style: solid; border-color: var(--accent); }
+.story-chip--differs { border-style: solid; border-color: var(--fg); color: var(--fg); }
+.story__notice {
+  margin: 0 0 0.8rem;
+  padding: 0.4rem 0.7rem;
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--accent);
+  border-radius: 6px;
+  background: var(--bg-raised);
+  font-size: 0.82rem;
+  white-space: pre-wrap;
+}
+.story-card__foot { display: flex; align-items: center; justify-content: space-between; gap: 0.6rem; margin-top: 0.55rem; }
+.story-card__verbs { display: inline-flex; gap: 0.35rem; align-items: center; }
+.story-cell__verbs { margin-top: 0.45rem; }
+.story-card__textarea {
+  width: 100%;
+  box-sizing: border-box;
+  margin-top: 0.45rem;
+  padding: 0.4rem 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--fg);
+  font-size: 0.82rem;
+  resize: vertical;
+}
+.story-card__reword .story-card__verbs { margin-top: 0.4rem; }
+.story-tail__form { display: flex; flex-direction: column; gap: 0.4rem; margin-top: 0.5rem; }
+.story-tail__recipe { border-top: 1px dashed var(--border); padding-top: 0.5rem; }
 

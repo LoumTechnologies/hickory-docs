@@ -47,6 +47,7 @@ pub mod sample;
 pub mod scaffold;
 pub mod socket;
 pub mod store;
+pub mod story;
 pub mod terminal;
 pub mod test_run;
 pub mod watch;
@@ -545,6 +546,14 @@ fn router(state: LocalState) -> Router {
         // the repository that the document panes need at open, and that no
         // amount of reading the log can answer.
         .route("/git/floor", get(history::floor))
+        // The history lens's verbs (lenses.md steps 4–6): each one git
+        // operation run as itself, refused in words, 409 with git's words
+        // when a join stops. See serve/story.rs.
+        .route("/git/replay", post(story::replay))
+        .route("/git/recipe", post(story::emit))
+        .route("/git/reword", post(story::reword))
+        .route("/git/drop", post(story::drop))
+        .route("/git/move", post(story::move_commit))
         // The merged view: one tab, several worktrees, read-only for now —
         // the alignment is where the risk lives and is proved before anything
         // writes through it. See docs/specs/freeform/the-merged-view.md.

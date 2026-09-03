@@ -578,13 +578,19 @@ file a cell fills then overwrote the cell's real product, with the run
 reporting nothing failed.
 
 **The viewer is a block editor, and a document is one thing it views**
-(`docs/specs/freeform/lenses.md`, adopted 2026-09-03; **steps 1–3 built the
-same day**: the merged-view guarantee names the rule, the read-only
-history lens exists — `Read as a story` on the Git pane, `GET
-/api/git/commit?sha=` for a card's diff and *edited since*, `recipe` on a
-log row from the trailers with `output_matches` checked by git,
-`the-history-lens-reads-the-repository-as-a-story.md` — and New Project
-writes a recipe commit). A **lens** is a synthesized document — the same cards — over
+(`docs/specs/freeform/lenses.md`, adopted 2026-09-03; **all six steps built
+the same day**: the merged-view guarantee names the rule; the history lens
+— `Read as a story` on the Git pane, `GET /api/git/commit?sha=` for a
+card's diff and *edited since*, `recipe` on a log row with
+`output_matches` checked by git; New Project as a recipe commit; **replay**
+(`recipe.rs`: the command runs in a **detached worktree**, never the
+working tree, and S2 is a sibling rebased onto above the floor or a child
+merged below it, with `Hick-Replay-Of`/`Hick-Replay-Same` as **evidence**);
+the **tail** (`POST /api/git/recipe`, `hick emit` with a place to type it);
+and **reword/move/drop** as `git rebase -i` with `GIT_SEQUENCE_EDITOR=cp
+<todo>` (`story.rs`), drafts only. A join that stops is `409` with git's
+words and the repository is left where git left it. The re-ingest merge is
+retired: a second `hick ingest --from '#cell'` is refused by name.) A **lens** is a synthesized document — the same cards — over
 something that is not a `.hick` file, and every block declares three things:
 what it is a view of, how a change gets home, and whether a change is
 allowed right now. The third column is entirely rules already decided

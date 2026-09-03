@@ -34,8 +34,9 @@ permanent, and *edited since* is a separate fact on the same card.
 
 ## Boundary
 
-Read-only. No reword, reorder, drop, replay or commit happens from this
-view yet; those are later steps and are gated by the floor drawn here.
+The verbs — replay, the tail's commit and recipe, reword, move, drop — are
+their own guarantees beside this one and are gated by the floor drawn
+here; this guarantee is about what the lens shows.
 `edited_since` names the **first** later commit to touch each file, not
 every one. A merge commit is drawn as an ordinary card with its combined
 diff; the diverged surface for merges is a later step.

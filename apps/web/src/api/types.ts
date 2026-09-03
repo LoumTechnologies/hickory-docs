@@ -787,6 +787,31 @@ export interface GitRecipe {
    * committed and cannot be upgraded by replay. Absent when the trailer
    * names no path to check. */
   output_matches?: boolean;
+  /** For a replay commit: the commit it replayed. */
+  replay_of?: string;
+  /** For a replay commit: whether it produced the same tree the replayed
+   * commit recorded. Evidence — a run happened — not a claim. */
+  replay_same?: boolean;
+}
+
+/** What `POST /api/git/replay` did. */
+export interface GitReplay {
+  of: string;
+  sha: string;
+  short: string;
+  same: boolean;
+  /** `rebase` above the floor, `merge` below it. */
+  moved: "rebase" | "merge";
+  head: string;
+  said: string[];
+}
+
+/** What `POST /api/git/recipe` made: a recipe commit, now HEAD. */
+export interface GitRecipeRun {
+  sha: string;
+  short: string;
+  output_tree: string;
+  said: string[];
 }
 
 /** One commit as a card (`GET /api/git/commit?sha=`): its diff, its files,

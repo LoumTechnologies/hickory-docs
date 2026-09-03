@@ -1,9 +1,14 @@
 # Lenses: the viewer is a block editor, and a document is one thing it views
 
-*Status: adopted 2026-09-03. **Steps 1–3 built the same day** (the
-read-only history lens; File → New Project as a recipe commit through a
-temporary index, `Hick-Output` a tree hash the lens checks). Steps 4–6 are
-not built. It
+*Status: adopted 2026-09-03. **All six steps built the same day**: the
+history lens; File → New Project as a recipe commit through a temporary
+index, `Hick-Output` a tree hash the lens checks; replay into a sibling
+above the floor or a child below it (`a-recipe-commit-can-be-replayed.md`);
+the tail as the next commit, prose or recipe
+(`the-tail-of-the-story-is-the-next-commit.md`); reword, move and drop as
+git's own rebase above the floor
+(`the-past-is-edited-by-rebase-above-the-floor.md`). The re-ingest merge is
+retired with it. It
 names what two built things already are — the generated-file tab and the
 merged view (`the-merged-view.md`) — and adds a third, the **history lens**,
 which takes over scaffolding from `owning-what-a-scaffolder-wrote.md`. That

@@ -3,7 +3,7 @@
 // Protects docs/guarantees/lenses/the-history-lens-reads-the-repository-as-a-story.md
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 
 import { HistoryLens, OPEN_TAIL, floorIndex, storyOrder } from "./HistoryLens";
 import { api } from "../api/client";
@@ -55,6 +55,8 @@ const LOG: GitLog = {
 function serve(log: GitLog = LOG) {
   vi.spyOn(api, "gitLog").mockResolvedValue(log);
   vi.spyOn(api, "gitStatus").mockResolvedValue({ repository: true, branch: "master", staged: 0, unstaged: 2, untracked: 0 });
+  vi.spyOn(api, "gitStage").mockResolvedValue({ ok: true } as never);
+  vi.spyOn(api, "gitCommit").mockResolvedValue({ sha: "d4444444", short: "d444444" } as never);
   return vi.spyOn(api, "gitCommitDetail").mockResolvedValue({
     sha: "b2222222",
     diff: "diff --git a/app/Program.cs b/app/Program.cs\n+// scaffolded\n",
@@ -171,3 +173,101 @@ describe("the history lens", () => {
     await waitFor(() => expect(screen.getByText(/not a git repository/)).toBeTruthy());
   });
 });
+
+// Protects docs/guarantees/lenses/a-recipe-commit-can-be-replayed.md,
+// docs/guarantees/lenses/the-tail-of-the-story-is-the-next-commit.md and
+// docs/guarantees/lenses/the-past-is-edited-by-rebase-above-the-floor.md
+describe("the story's verbs", () => {
+  it("replays a recipe whose tree matches, and says what came of it", async () => {
+    serve();
+    const replay = vi.spyOn(api, "gitReplay").mockResolvedValue({
+      of: "b2222222",
+      sha: "e5555555",
+      short: "e555555",
+      same: false,
+      moved: "rebase",
+      head: "f6666666",
+      said: [],
+    });
+    render(<HistoryLens />);
+    const cell = await screen.findByRole("group", { name: "Recipe" });
+    fireEvent.click(within(cell).getByRole("button", { name: "Replay" }));
+    await waitFor(() => expect(replay).toHaveBeenCalledWith("b2222222"));
+    await waitFor(() => expect(screen.getByRole("alert").textContent).toMatch(/Replayed b222222 as e555555/));
+    expect(screen.getByRole("alert").textContent).toMatch(/differs/);
+    expect(screen.getByRole("alert").textContent).toMatch(/rebase/);
+  });
+
+  it("offers no replay on a commit edited before it was committed, and shows replay evidence apart", async () => {
+    const log = {
+      ...LOG,
+      commits: LOG.commits.map((c) =>
+        c.recipe
+          ? { ...c, recipe: { ...c.recipe, output_matches: false, replay_of: "a1111111", replay_same: true } }
+          : c,
+      ),
+    };
+    serve(log);
+    render(<HistoryLens />);
+    const cell = await screen.findByRole("group", { name: "Recipe" });
+    expect(within(cell).queryByRole("button", { name: "Replay" })).toBeNull();
+    // Evidence, worded as evidence: a replay happened and matched.
+    expect(cell.textContent).toContain("replayed · same as a111111");
+    expect(cell.textContent).not.toContain("no evidence of drift");
+  });
+
+  it("gives drafts reword, move and drop, and records nothing", async () => {
+    serve();
+    const reword = vi.spyOn(api, "gitReword").mockResolvedValue({ head: "x" });
+    const drop = vi.spyOn(api, "gitDrop").mockResolvedValue({ head: "x" });
+    render(<HistoryLens />);
+    const draft = await screen.findByRole("article", { name: "Change Main" });
+    const record = screen.getByRole("article", { name: "First" });
+    expect(within(record).queryByRole("group", { name: "Edit this draft" })).toBeNull();
+    const edit = within(draft).getByRole("group", { name: "Edit this draft" });
+    // The only draft is both first and last: nowhere to move.
+    expect(within(edit).getByRole("button", { name: "Move earlier" })).toHaveProperty("disabled", true);
+    expect(within(edit).getByRole("button", { name: "Move later" })).toHaveProperty("disabled", true);
+
+    fireEvent.click(within(edit).getByRole("button", { name: "Reword" }));
+    const textarea = within(draft).getByRole("textbox", { name: "New message" }) as HTMLTextAreaElement;
+    expect(textarea.value).toBe("Change Main");
+    fireEvent.change(textarea, { target: { value: "Change Main, said better" } });
+    fireEvent.click(within(draft).getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(reword).toHaveBeenCalledWith("c3333333", "Change Main, said better"));
+
+    fireEvent.click(within(screen.getByRole("article", { name: "Change Main" })).getByRole("button", { name: "Drop" }));
+    await waitFor(() => expect(drop).toHaveBeenCalledWith("c3333333"));
+  });
+
+  it("shows git's words when a verb is refused, and re-reads the story", async () => {
+    serve();
+    vi.spyOn(api, "gitDrop").mockRejectedValue(new Error("the working tree has uncommitted changes"));
+    render(<HistoryLens />);
+    const draft = await screen.findByRole("article", { name: "Change Main" });
+    const calls = vi.mocked(api.gitLog).mock.calls.length;
+    fireEvent.click(within(draft).getByRole("button", { name: "Drop" }));
+    await waitFor(() => expect(screen.getByRole("alert").textContent).toContain("uncommitted changes"));
+    await waitFor(() => expect(vi.mocked(api.gitLog).mock.calls.length).toBeGreaterThan(calls));
+  });
+
+  it("commits the working tree from the tail, and runs a command as a recipe", async () => {
+    serve();
+    const recipe = vi.spyOn(api, "gitRecipe").mockResolvedValue({ sha: "e5555555", short: "e555555", output_tree: "t", said: [] });
+    render(<HistoryLens />);
+    const tail = await screen.findByRole("article", { name: "Working tree" });
+    const message = within(tail).getByRole("textbox", { name: "What happened" });
+    expect(within(tail).getByRole("button", { name: "Commit" })).toHaveProperty("disabled", true);
+    fireEvent.change(message, { target: { value: "Fix the thing" } });
+    fireEvent.click(within(tail).getByRole("button", { name: "Commit" }));
+    await waitFor(() => expect(api.gitCommit).toHaveBeenCalledWith("Fix the thing"));
+    expect(api.gitStage).toHaveBeenCalledWith({ all: true });
+
+    fireEvent.change(within(tail).getByRole("textbox", { name: "Command" }), { target: { value: "dotnet new webapi -o app" } });
+    fireEvent.change(within(tail).getByRole("textbox", { name: "Output folder" }), { target: { value: "app" } });
+    fireEvent.click(within(tail).getByRole("button", { name: "Run and commit" }));
+    await waitFor(() => expect(recipe).toHaveBeenCalledWith("dotnet new webapi -o app", "app"));
+    await waitFor(() => expect(screen.getByRole("alert").textContent).toContain("committed app/ as e555555"));
+  });
+});
+

@@ -76,6 +76,14 @@ pub struct Recipe {
     /// when the trailer names no path to check.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub output_matches: Option<bool>,
+    /// For a replay commit: which commit it replayed (`Hick-Replay-Of`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub replay_of: Option<String>,
+    /// For a replay commit: whether its output was the same tree the
+    /// replayed commit recorded (`Hick-Replay-Same`). This is EVIDENCE — a
+    /// run happened — where the rest of a recipe is a declared claim.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub replay_same: Option<bool>,
 }
 
 /// The recipe in a commit body, if its trailers carry one.
@@ -88,6 +96,8 @@ pub fn recipe_of(body: &str) -> Option<Recipe> {
     let mut command = None;
     let mut image = None;
     let mut output = None;
+    let mut replay_of = None;
+    let mut replay_same = None;
     for line in last.lines() {
         let Some((key, value)) = line.split_once(':') else {
             continue;
@@ -97,6 +107,8 @@ pub fn recipe_of(body: &str) -> Option<Recipe> {
             "Hick-Recipe" => command = Some(value.to_string()),
             "Hick-Image" => image = Some(value.to_string()),
             "Hick-Output" => output = Some(value.to_string()),
+            "Hick-Replay-Of" => replay_of = Some(value.to_string()),
+            "Hick-Replay-Same" => replay_same = Some(value == "yes"),
             _ => {}
         }
     }
@@ -113,6 +125,8 @@ pub fn recipe_of(body: &str) -> Option<Recipe> {
         output,
         output_path,
         output_matches: None,
+        replay_of,
+        replay_same,
     })
 }
 
@@ -602,6 +616,8 @@ mod tests {
                 output: Some("sha256:9f2c".into()),
                 output_path: None,
                 output_matches: None,
+                replay_of: None,
+                replay_same: None,
             })
         );
         // The shape the scaffold writes: a tree hash and the path it sits at.
@@ -621,6 +637,8 @@ mod tests {
                 output: None,
                 output_path: None,
                 output_matches: None,
+                replay_of: None,
+                replay_same: None,
             })
         );
     }

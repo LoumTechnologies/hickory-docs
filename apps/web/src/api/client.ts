@@ -62,6 +62,8 @@ import type {
   GitBranch,
   GitCommitDetail,
   GitCommitResult,
+  GitRecipeRun,
+  GitReplay,
 } from "./types";
 
 export const MOCK = import.meta.env.VITE_MOCK === "1";
@@ -373,6 +375,20 @@ export const api = {
    * since. Asked on expand by the history lens. */
   gitCommitDetail: (sha: string) =>
     request<GitCommitDetail>("GET", `/api/git/commit?sha=${encodeURIComponent(sha)}`),
+  // The history lens's verbs (lenses.md steps 4–6). Each is one git
+  // operation run as itself on the server; a refusal comes back in git's
+  // words, and a join that stops on a conflict comes back as 409.
+  /** Run a recipe commit's recipe again and join the result. */
+  gitReplay: (sha: string) => request<GitReplay>("POST", "/api/git/replay", { sha }),
+  /** The tail: run a command in a clean worktree at HEAD and commit its
+   * output under `output/` with the recipe. */
+  gitRecipe: (command: string, output: string) =>
+    request<GitRecipeRun>("POST", "/api/git/recipe", { command, output }),
+  gitReword: (sha: string, message: string) =>
+    request<{ head: string }>("POST", "/api/git/reword", { sha, message }),
+  gitDrop: (sha: string) => request<{ head: string }>("POST", "/api/git/drop", { sha }),
+  gitMove: (sha: string, direction: "earlier" | "later") =>
+    request<{ head: string }>("POST", "/api/git/move", { sha, direction }),
 
   // The git pane's verbs — each one git command, run as itself, with git's
   // own words when it refuses. See crates/hickory-cli/src/serve/git_ops.rs.

@@ -389,6 +389,16 @@ project matches one letter, which is a list nobody reads.
   expand, not with the log. A commit in the log carries
   `recipe?: {command, image?, output?}` when its trailers do; that is a
   declared claim, not a verified one.
+- The history lens's verbs (`lenses.md` steps 4–6), each one git operation
+  run as itself, refused in words, and `409` with git's words when a join
+  stops: `POST /api/git/replay {sha}` →
+  `{of, sha, short, same, moved: "rebase"|"merge", head, said}`;
+  `POST /api/git/recipe {command, output}` → `{sha, short, output_tree,
+  said}` (the tail: run in a detached worktree at HEAD, committed as HEAD's
+  child); `POST /api/git/reword {sha, message}`, `POST /api/git/drop
+  {sha}`, `POST /api/git/move {sha, direction: "earlier"|"later"}` →
+  `{head}`, drafts only. A recipe on a log row also carries `replay_of` and
+  `replay_same` when the commit is a replay.
 
 **One git invocation answers everything the graph shows.** `--numstat` costs
 almost nothing on top of the log walk, so a commit's files arrive with the
