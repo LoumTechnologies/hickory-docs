@@ -1,4 +1,4 @@
-// Protects docs/guarantees/authoring/a-new-project-writes-the-command-it-ran.md
+// Protects docs/guarantees/authoring/a-new-project-is-a-recipe-commit.md
 
 import { describe, expect, it } from "vitest";
 
@@ -136,10 +136,10 @@ describe("the fields the template does not own", () => {
   });
 
   it("refuses a document that is not a document", () => {
-    expect(problems("Greeter", "greeter.txt", "greeter").path).toContain(".hick");
-    expect(problems("Greeter", "../out.hick", "greeter").path).toBeTruthy();
-    expect(problems("", "greeter.hick", "greeter").name).toBeTruthy();
-    expect(problems("Greeter", "greeter.hick", "").output).toBeTruthy();
-    expect(problems("Greeter", "greeter.hick", "greeter")).toEqual({});
+    expect(problems("", "greeter").name).toBeTruthy();
+    expect(problems("Greeter", "").output).toBeTruthy();
+    expect(problems("Greeter", ".").output).toBeTruthy();
+    expect(problems("Greeter", "../out").output).toBeTruthy();
+    expect(problems("Greeter", "apps/greeter")).toEqual({});
   });
 });

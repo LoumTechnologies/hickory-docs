@@ -8380,4 +8380,6 @@ button.status-bar__item:hover { background: var(--bg-sunken); color: var(--fg); 
   font-size: 0.7rem;
 }
 .git-pane__story { margin: 0.2rem 0.7rem 0.4rem; }
+.story-chip--matches { border-style: solid; border-color: var(--accent); color: var(--fg); }
+.story-chip--edited { border-style: solid; border-color: var(--danger); color: var(--danger); }
 

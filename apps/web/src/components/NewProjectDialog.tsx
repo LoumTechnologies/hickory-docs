@@ -4,7 +4,7 @@
 // machine's SDK has, searchable. In the middle the chosen template's own
 // options, read out of `dotnet new <template> --help` rather than out of a
 // list we maintain — a template from a NuGet package this app has never heard
-// of gets the same form as `console`. Underneath, the exact document that is
+// of gets the same form as `console`. Underneath, the exact commit that is
 // about to be written.
 //
 // The preview is not decoration, and it is the same argument the Insert panel
@@ -42,12 +42,12 @@ import {
 } from "../lib/scaffold";
 
 export interface NewProjectDialogProps {
-  /** The scaffold landed: open the document it wrote. */
+  /** The scaffold landed as a commit carrying its recipe. */
   onCreated: (created: ScaffoldCreated) => void;
   onClose: () => void;
 }
 
-/** How long to sit still before asking the server what the document looks
+/** How long to sit still before asking the server what the commit looks
  * like. Long enough that typing a name is one request rather than eight,
  * short enough that the preview feels like it is following you. */
 const PREVIEW_DEBOUNCE_MS = 180;
@@ -243,20 +243,20 @@ function Chooser({
   // output follow the name until the person touches them — after that they
   // are theirs, and a later rename must not overwrite what they typed.
   const [name, setName] = useState("Greeter");
-  const [path, setPath] = useState("greeter.hick");
   const [output, setOutput] = useState("greeter");
-  const [pathTouched, setPathTouched] = useState(false);
   const [outputTouched, setOutputTouched] = useState(false);
   const renameTo = (next: string) => {
     setName(next);
-    if (!pathTouched) setPath(`${slug(next)}.hick`);
     if (!outputTouched) setOutput(slug(next));
   };
 
-  const [run, setRun] = useState(true);
   const [showProblems, setShowProblems] = useState(false);
   const [busy, setBusy] = useState(false);
   const [failure, setFailure] = useState<string | null>(null);
+  /** The folder is not a repository: a screen of its own, keyed off the
+   * response's `missing` field, since a scaffold is a commit and there is
+   * nowhere to make one. */
+  const [noRepository, setNoRepository] = useState(false);
 
   const spec: ScaffoldSpec | null = useMemo(() => {
     if (!template || !detail) return null;
@@ -273,7 +273,7 @@ function Chooser({
 
   // The preview: the server's own renderer, debounced. Held across a refresh
   // rather than blanked, so the pane does not flicker empty on every keypress.
-  const [preview, setPreview] = useState<{ command: string; source: string } | null>(
+  const [preview, setPreview] = useState<{ command: string; message: string } | null>(
     null,
   );
   useEffect(() => {
@@ -281,8 +281,8 @@ function Chooser({
     let live = true;
     const timer = setTimeout(() => {
       api
-        .scaffoldPreview(path, spec)
-        .then((p) => live && setPreview({ command: p.command, source: p.source }))
+        .scaffoldPreview(spec)
+        .then((p) => live && setPreview({ command: p.command, message: p.message }))
         .catch(() => {
           // A preview that cannot be rendered is not an error the person has
           // to dismiss — the button says what went wrong if they press it.
@@ -292,9 +292,9 @@ function Chooser({
       live = false;
       clearTimeout(timer);
     };
-  }, [spec, path]);
+  }, [spec]);
 
-  const problems = validate(name, path, output);
+  const problems = validate(name, output);
   const blocked = Object.keys(problems).length > 0;
 
   const submit = useCallback(() => {
@@ -306,16 +306,22 @@ function Chooser({
     setBusy(true);
     setFailure(null);
     api
-      .scaffoldCreate(path, spec, run)
+      .scaffoldCreate(spec)
       .then((created) => {
         onCreated(created);
         onClose();
       })
       .catch((e: unknown) => {
-        setFailure(e instanceof Error ? e.message : String(e));
+        const missingRepository =
+          e instanceof ApiError &&
+          typeof e.body === "object" &&
+          e.body !== null &&
+          (e.body as { missing?: string }).missing === "repository";
+        if (missingRepository) setNoRepository(true);
+        else setFailure(e instanceof Error ? e.message : String(e));
         setBusy(false);
       });
-  }, [blocked, spec, busy, path, run, onCreated, onClose]);
+  }, [blocked, spec, busy, onCreated, onClose]);
 
   const searchRef = useRef<HTMLInputElement>(null);
   useEffect(() => searchRef.current?.focus(), []);
@@ -325,6 +331,8 @@ function Chooser({
     const next = matches[Math.min(matches.length - 1, Math.max(0, index + delta))];
     if (next) setChosen(next.short_names[0]);
   };
+
+  if (noRepository) return <NoRepositoryScreen onClose={onClose} />;
 
   return (
     <Shell onClose={busy ? () => {} : onClose} label="New project">
@@ -425,26 +433,9 @@ function Chooser({
               </Field>
 
               <Field
-                label="Document"
-                attr="path"
-                hint="The .hick file this writes, relative to the folder you have open."
-                problem={showProblems ? problems.path : undefined}
-              >
-                <input
-                  className={`insert-menu__input${showProblems && problems.path ? " bad" : ""}`}
-                  value={path}
-                  spellCheck={false}
-                  onChange={(event) => {
-                    setPathTouched(true);
-                    setPath(event.target.value);
-                  }}
-                />
-              </Field>
-
-              <Field
                 label="Files land in"
-                attr="output"
-                hint="The volume's output directory — where the generated tree appears beside the document."
+                attr="-o"
+                hint="The folder the scaffold is committed into, inside the one you have open. It must be empty."
                 problem={showProblems ? problems.output : undefined}
               >
                 <input
@@ -501,26 +492,16 @@ function Chooser({
           </div>
 
           <div className="insert-menu__preview">
-            <h3 className="insert-menu__preview-title">What gets written</h3>
+            <h3 className="insert-menu__preview-title">The commit this makes</h3>
             <pre className="insert-menu__preview-text mono">
-              {preview?.source ?? "…"}
+              {preview?.message ?? "…"}
             </pre>
-          </div>
-
-          <div className="new-project__run">
-            <label className="new-project__check">
-              <input
-                type="checkbox"
-                checked={run}
-                onChange={(event) => setRun(event.target.checked)}
-              />
-              Run it now and ingest what it writes
-            </label>
             <p className="insert-menu__hint">
-              The generated files become bytes this document owns, so a clone
-              rebuilds the tree without the SDK. Unchecked, the document is
-              written with the command in it and nothing run — press Run
-              whenever you like.
+              The scaffolder runs and its output is committed, as one act, with
+              the command in the commit's trailers. Nothing of yours is swept in
+              and nothing is edited before it is committed — which is what lets
+              the commit be replayed with a newer SDK later. Your changes go in
+              the next commit.
             </p>
           </div>
 
@@ -544,7 +525,7 @@ function Chooser({
               disabled={busy || !detail}
               data-tip={blocked ? "Fill the fields marked below first" : undefined}
             >
-              {busy ? (run ? "Scaffolding…" : "Creating…") : "Create project"}
+              {busy ? "Scaffolding…" : "Create project"}
             </button>
           </div>
         </div>
@@ -653,3 +634,32 @@ function OptionField({
     </div>
   );
 }
+
+/**
+ * The folder is not a repository. A sentence and a next step, not a button:
+ * `git init` is a decision about the folder, and the terminal is one click
+ * away on the tree.
+ */
+function NoRepositoryScreen({ onClose }: { onClose: () => void }) {
+  return (
+    <Shell onClose={onClose} label="New project">
+      <div className="new-project__message">
+        <h2>This folder is not a git repository</h2>
+        <p>
+          A new project is a commit that carries the command that made it, so
+          it needs a repository to be recorded in.
+        </p>
+        <p className="insert-menu__hint">
+          Open a terminal on the folder’s row in the tree and run{" "}
+          <span className="mono">git init</span>, then try again.
+        </p>
+        <div className="insert-menu__actions">
+          <button type="button" className="btn" onClick={onClose}>
+            Close
+          </button>
+        </div>
+      </div>
+    </Shell>
+  );
+}
+

@@ -35,7 +35,7 @@ const LOG: GitLog = {
       sha: "b2222222",
       subject: "Scaffold a web API",
       body: "Scaffolded.\n\nHick-Recipe: dotnet new webapi -o app\nHick-Image: sdk:9.0",
-      recipe: { command: "dotnet new webapi -o app", image: "sdk:9.0" },
+      recipe: { command: "dotnet new webapi -o app", image: "sdk:9.0", output: "4b825dc", output_path: "app", output_matches: true },
       files: [
         { path: "app/Program.cs", status: "A", added: 10, removed: 0 },
         { path: "app/app.csproj", status: "A", added: 5, removed: 0 },
@@ -116,6 +116,28 @@ describe("the history lens", () => {
     expect(cell.textContent).not.toMatch(/reproducible/);
     // The trailers are not repeated as prose.
     expect(cell.textContent).not.toContain("Hick-Recipe");
+    // git checked the tree against the trailer: this one is the scaffold
+    // exactly, so it can be upgraded.
+    expect(cell.textContent).toContain("matches its recorded output");
+    expect(cell.textContent).toContain("upgradeable");
+  });
+
+  it("says when a recipe commit was edited before it was committed", async () => {
+    // The visual answer to "is this upgradeable?": a tree that is not the
+    // trailer's is a scaffold with edits fused into it, and replay cannot
+    // separate them.
+    const edited = {
+      ...LOG,
+      commits: LOG.commits.map((c) =>
+        c.recipe ? { ...c, recipe: { ...c.recipe, output_matches: false } } : c,
+      ),
+    };
+    serve(edited);
+    render(<HistoryLens />);
+    const cell = await screen.findByRole("group", { name: "Recipe" });
+    expect(cell.textContent).toContain("edited before it was committed");
+    expect(cell.textContent).toContain("not upgradeable");
+    expect(cell.textContent).not.toContain("matches its recorded output");
   });
 
   it("shows the diff as the card's output, and what was edited since", async () => {

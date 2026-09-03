@@ -16,9 +16,16 @@ The view says on its face that it is a lens: it exists on disk nowhere, it
 cannot be saved, and every card is read-only. A folder that is not a
 repository says so rather than failing.
 
-A recipe is a **declared** claim, in the commit's own words. Nothing has
-replayed it, so the card is drawn *unrecorded* and says "no evidence of
-drift". The word "reproducible" does not appear on a recipe card.
+A recipe card carries three states, drawn apart. **Matches its recorded
+output · upgradeable**: `Hick-Output` names a tree hash and a path, and the
+commit's own tree at that path has that hash — checked by git on the log
+(`output_matches`), no replay. **Edited before it was committed · not
+upgradeable**: the tree does not match, so edits are fused into the
+scaffold and replay cannot separate them. And the replay evidence, which
+nothing has produced yet, so the card is drawn *unrecorded* and says "no
+evidence of drift". A recipe is a **declared** claim in the commit's own
+words; a matching hash can be written by hand, so the word is "matches",
+never "verified", and "reproducible" does not appear on a recipe card.
 
 This is step 2 of `docs/specs/freeform/lenses.md`. It answers the complaint
 that started that spec: a scaffold whose output vanished the moment one of
@@ -40,7 +47,10 @@ Last LLM verification:
 - Reviewer: Claude (Fable 5.1)
 - Result: verified
 - Evidence: `crates/hickory-cli/src/serve/git.rs` — `Recipe`, `recipe_of`
-  (trailers in the last paragraph only, per `git interpret-trailers`),
+  (trailers in the last paragraph only, per `git interpret-trailers`;
+  `Hick-Output: <tree> <path>` split into `output` and `output_path`),
+  `check_output` (one `git rev-parse <sha>:<path>` per recipe commit on the
+  log, filling `output_matches`),
   `Commit::recipe`, the `commit` handler on `GET /api/git/commit?sha=` and
   `edited_since` (one `git log --reverse --name-only <sha>..HEAD -- files`);
   `crates/hickory-cli/src/serve/mod.rs` routes `GET`/`POST /git/commit`
@@ -56,6 +66,8 @@ Last LLM verification:
   one with 404); `apps/web/src/views/HistoryLens.test.tsx` (order, the
   floor line, the recipe cell and its wording, the diff and edited-since on
   expand, folding, the not-a-repository answer).
-- Caveats: the lens is exercised in jsdom, not in a real browser. Nothing
-  yet writes a recipe commit (step 3), so the only recipe commits are ones
-  written by hand or by tests.
+- Caveats: the lens is exercised in jsdom, not in a real browser. File →
+  New Project writes recipe commits (step 3,
+  `a-new-project-is-a-recipe-commit.md`); the live route test asserts
+  `output_matches: true` on the commit it made, and the lens test covers
+  both the matching and the edited-before-commit drawings.

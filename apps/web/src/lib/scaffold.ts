@@ -8,10 +8,10 @@
 // what the decisions were. So the command carries the decisions and nothing
 // else — which is also what a person typing it by hand would do.
 //
-// Nothing here renders the document. That is the server's
-// `scaffold_document`, shown through `POST /api/scaffold/preview`, so what the
-// dialog displays and what gets written are the same function rather than two
-// that agree today.
+// Nothing here renders the commit message. That is the server's
+// `commit_message`, shown through `POST /api/scaffold/preview`, so what the
+// dialog displays and what gets committed are the same function rather than
+// two that agree today.
 
 import type { ChosenOption, TemplateOption, ScaffoldTemplate } from "../api/types";
 
@@ -135,17 +135,15 @@ export function filterTemplates(
 }
 
 /** What the dialog cannot proceed without, keyed by field. */
-export function problems(name: string, path: string, output: string): Record<string, string> {
+export function problems(name: string, output: string): Record<string, string> {
   const found: Record<string, string> = {};
   if (name.trim() === "")
     found.name = "A project needs a name — it becomes the root namespace and the assembly name.";
-  if (path.trim() === "") found.path = "The document needs a name.";
-  else if (!path.trim().endsWith(".hick"))
-    found.path =
-      "A document's path ends in `.hick` — that is what makes it a document rather than one of the files it generates.";
-  else if (path.includes("..")) found.path = "The document goes inside this folder.";
-  if (output.trim() === "")
+  const folder = output.trim().replace(/\/+$/, "");
+  if (folder === "" || folder === ".")
     found.output =
-      "Name the folder the generated tree lands in; an empty one would scatter the scaffold across the notes folder.";
+      "Name a folder for the project's files. A scaffold is committed as its own tree, so it needs a folder of its own.";
+  else if (folder.startsWith("/") || folder.split("/").includes(".."))
+    found.output = "The folder goes inside the one you have open.";
   return found;
 }

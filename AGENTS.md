@@ -29,8 +29,28 @@ could replace branching in a `.hick` document. The short answer is that the
 branch→feature-set half is worth doing and the branches-as-flags half would
 cost the provenance that this product exists for.
 
+**File → New Project is a recipe commit, not a document (2026-09-03,
+`lenses.md` step 3, `a-new-project-is-a-recipe-commit.md`).** The
+scaffolder runs into a scratch directory and what it wrote is committed **as
+one act** through a **temporary index** (`scaffold_commit.rs`: `read-tree
+HEAD`, add only the scaffold's files, `write-tree`, `commit-tree`,
+`update-ref`), so the person's staged and unstaged work is neither swept in
+nor touched, and there is no uncommitted scaffold for an edit to fuse into.
+The trailers are `Hick-Recipe` (the command, run from the root, `-o
+<folder>`), `Hick-Image`, and `Hick-Output: <tree hash> <folder>` — a **git
+tree hash**, so the history lens checks with one `rev-parse` whether the
+commit's tree is exactly the scaffolder's and draws one of three states:
+*matches its recorded output · upgradeable*, *edited before it was
+committed · not upgradeable*, and the replay evidence (still *unrecorded*).
+An occupied target folder and the repository root are refused; no
+repository is `NotARepository`, a **type** answered as `missing:
+"repository"`, a sentence and `git init`, never a button. A scaffold that
+fails commits nothing and leaves no folder. The paragraph below is what it
+replaced and is kept for `hick ingest --from '#cell'`, which stays.
+
 How a document owns files a scaffolder (`dotnet new`) wrote is
-`docs/specs/freeform/owning-what-a-scaffolder-wrote.md`: **`hick ingest` reads
+`docs/specs/freeform/owning-what-a-scaffolder-wrote.md` (**superseded for
+scaffolds** by the paragraph above): **`hick ingest` reads
 the exec's output volume** and writes the scaffold into the document as ordinary
 `hick:file` bytes carrying the run's fingerprint, so your four lines are
 ordinary edits and there is no anchor grammar at all. Nesting is
@@ -558,11 +578,13 @@ file a cell fills then overwrote the cell's real product, with the run
 reporting nothing failed.
 
 **The viewer is a block editor, and a document is one thing it views**
-(`docs/specs/freeform/lenses.md`, adopted 2026-09-03; **steps 1–2 built the
-same day**: the merged-view guarantee names the rule, and the read-only
+(`docs/specs/freeform/lenses.md`, adopted 2026-09-03; **steps 1–3 built the
+same day**: the merged-view guarantee names the rule, the read-only
 history lens exists — `Read as a story` on the Git pane, `GET
 /api/git/commit?sha=` for a card's diff and *edited since*, `recipe` on a
-log row from the trailers, `the-history-lens-reads-the-repository-as-a-story.md`). A **lens** is a synthesized document — the same cards — over
+log row from the trailers with `output_matches` checked by git,
+`the-history-lens-reads-the-repository-as-a-story.md` — and New Project
+writes a recipe commit). A **lens** is a synthesized document — the same cards — over
 something that is not a `.hick` file, and every block declares three things:
 what it is a view of, how a change gets home, and whether a change is
 allowed right now. The third column is entirely rules already decided

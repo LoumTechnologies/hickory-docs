@@ -1,13 +1,12 @@
 //! File → New Project, over the real routes.
 //!
-//! Protects `docs/guarantees/authoring/a-new-project-writes-the-command-it-ran.md`
-//! and `docs/guarantees/authoring/a-new-project-that-cannot-run-still-leaves-a-document.md`.
+//! Protects `docs/guarantees/authoring/a-new-project-is-a-recipe-commit.md`.
 //!
 //! The parsing half is covered against checked-in fixtures in
 //! `scaffold_templates.rs`. What is left is the half no fixture can show: that
-//! the dialog's answer becomes a document on disk, that running it puts the
-//! generator's bytes inside that document, and that a scaffold which does not
-//! run leaves the document standing anyway.
+//! the dialog's answer becomes a commit carrying its recipe, that the commit
+//! holds exactly what the scaffolder wrote and nothing of the person's, and
+//! that a scaffold which does not run commits nothing.
 //!
 //! Anything that needs a real `dotnet` says so and skips without one. The
 //! machine that has an SDK gets the whole claim tested; the machine that does
@@ -129,159 +128,197 @@ fn spec(name: &str, output: &str) -> Value {
     })
 }
 
-#[tokio::test]
-async fn the_preview_is_the_bytes_that_get_written() {
-    let session = start().await;
-    let mut body = spec("Greeter", "greeter");
-    body["path"] = json!("greeter.hick");
-    body["run"] = json!(false);
+fn git_out(root: &std::path::Path, args: &[&str]) -> String {
+    let out = std::process::Command::new("git")
+        .arg("-C")
+        .arg(root)
+        .args(args)
+        .output()
+        .expect("git runs");
+    assert!(
+        out.status.success(),
+        "git {args:?}: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    String::from_utf8_lossy(&out.stdout).trim().to_string()
+}
 
-    let (status, preview) = post(&session, "/api/scaffold/preview", body.clone()).await;
+#[tokio::test]
+async fn the_preview_is_the_commit_that_gets_made() {
+    let session = start().await;
+    let (status, preview) = post(
+        &session,
+        "/api/scaffold/preview",
+        spec("Greeter", "greeter"),
+    )
+    .await;
     assert_eq!(status, 200, "{preview}");
     assert_eq!(
-        preview["command"].as_str().unwrap(),
-        "dotnet new console -o out -n Greeter --language 'C#' --no-restore"
+        preview["command"],
+        "dotnet new console -o greeter -n Greeter --language 'C#' --no-restore"
     );
-
-    let (status, created) = post(&session, "/api/scaffold", body).await;
-    assert_eq!(status, 201, "{created}");
-    // The whole reason the preview is a route: what it showed and what was
-    // written are the same function, so they cannot drift.
-    assert_eq!(created["source"], preview["source"]);
-    assert_eq!(
-        std::fs::read_to_string(session.root.join("greeter.hick")).unwrap(),
-        preview["source"].as_str().unwrap()
+    let message = preview["message"].as_str().unwrap();
+    assert!(
+        message.starts_with("Scaffold Greeter with `dotnet new console`"),
+        "{message}"
+    );
+    assert!(
+        message.contains("Hick-Recipe: dotnet new console -o greeter"),
+        "{message}"
+    );
+    assert!(
+        message.contains("Hick-Image: mcr.microsoft.com/dotnet/sdk:10.0"),
+        "{message}"
+    );
+    // The one thing a preview cannot know is said as such, not faked.
+    assert!(
+        message.contains("Hick-Output: <the tree hash, once it is committed> greeter"),
+        "{message}"
     );
 }
 
 #[tokio::test]
-async fn a_new_project_owns_what_dotnet_wrote() {
+async fn a_new_project_is_a_commit_holding_exactly_what_dotnet_wrote() {
     if !has_dotnet() {
-        eprintln!("no dotnet on this machine — skipping the half that needs one");
+        eprintln!("SKIPPED: no dotnet on this machine");
         return;
     }
     let session = start().await;
-    let mut body = spec("Greeter", "greeter");
-    body["path"] = json!("greeter.hick");
+    // Work in flight, which the recipe commit must neither take nor lose.
+    std::fs::write(session.root.join("notes.hick"), "# Notes\nmine\n").unwrap();
+    let before = git_out(&session.root, &["rev-parse", "HEAD"]);
 
-    let (status, created) = post(&session, "/api/scaffold", body).await;
+    let (status, created) = post(&session, "/api/scaffold", spec("Greeter", "greeter")).await;
     assert_eq!(status, 201, "{created}");
-    assert_eq!(created["note"], Value::Null, "the scaffold ran: {created}");
-
-    let files: Vec<&str> = created["ingested"]["files"]
+    let sha = created["sha"].as_str().unwrap().to_string();
+    assert_eq!(git_out(&session.root, &["rev-parse", "HEAD"]), sha);
+    assert_eq!(git_out(&session.root, &["rev-parse", "HEAD^"]), before);
+    let files: Vec<&str> = created["files"]
         .as_array()
-        .expect("an ingest happened")
+        .unwrap()
         .iter()
         .map(|f| f.as_str().unwrap())
         .collect();
+    assert!(files.contains(&"greeter/Program.cs"), "{files:?}");
+    assert!(files.iter().all(|f| f.starts_with("greeter/")), "{files:?}");
     assert!(
-        files.contains(&"greeter/Program.cs"),
-        "the generated program is in the document, under the volume's own \
-         output path: {files:?}"
+        !files.iter().any(|f| f.contains("/obj/")),
+        "a restore's obj/ is not the scaffolder's: {files:?}"
     );
-    assert!(files.iter().any(|f| f.ends_with(".csproj")), "{files:?}");
+    // The person's edit is still theirs, uncommitted; the scaffold is clean.
+    let status_lines = git_out(&session.root, &["status", "--porcelain"]);
+    assert_eq!(status_lines.trim(), "M notes.hick", "{status_lines}");
 
-    // The bytes really are in the document — that is the whole claim. Not a
-    // reference to a cache, not a patch: the file on disk holds them.
-    let source = std::fs::read_to_string(session.root.join("greeter.hick")).unwrap();
-    assert!(source.contains("<hick:ingested"), "{source}");
-    assert!(
-        source.contains(r#"<hick:file path="greeter/Program.cs">"#),
-        "{source}"
-    );
-    assert!(source.contains("Console.WriteLine"), "{source}");
-    // And the run that wrote them is recorded on the block.
-    assert!(
-        source.contains(&format!(
-            r#"sha256="{}""#,
-            created["ingested"]["fingerprint"].as_str().unwrap()
-        )),
-        "{source}"
-    );
-
-    // The files are on disk when the route answers. An ingested volume is
-    // deliberately no longer flushed as a pipeline output, so a weave is the
-    // only thing that puts them there — and New Project doing it is what
-    // stops the dialog closing on a folder with no project in it.
-    assert!(session.root.join("greeter/Program.cs").exists());
-    assert!(session.root.join("greeter.md").exists());
-
-    // And a clone rebuilds the tree without running the generator at all.
-    std::fs::remove_dir_all(session.root.join("greeter")).unwrap();
-    let weave = std::process::Command::new(env!("CARGO_BIN_EXE_hick"))
-        .args(["weave", "greeter.hick"])
-        .current_dir(&session.root)
-        .output()
-        .expect("hick weave runs");
-    assert!(
-        weave.status.success(),
-        "{}",
-        String::from_utf8_lossy(&weave.stderr)
-    );
-    assert!(
-        std::fs::read_to_string(session.root.join("greeter/Program.cs"))
-            .unwrap()
-            .contains("Console.WriteLine")
-    );
-}
-
-#[tokio::test]
-async fn a_scaffold_that_cannot_run_still_leaves_a_document() {
-    let session = start().await;
-    let mut body = spec("Ghost", "ghost");
-    // A template no SDK has. The command is well-formed and the document is
-    // fine; it is the generator that fails.
-    body["template"] = json!("no-such-template-exists");
-    body["path"] = json!("ghost.hick");
-
-    let (status, created) = post(&session, "/api/scaffold", body).await;
-    assert_eq!(status, 201, "{created}");
-    assert_eq!(created["ingested"], Value::Null);
-    assert!(
-        created["note"].as_str().is_some_and(|n| !n.is_empty()),
-        "the failure is reported rather than swallowed: {created}"
-    );
-
-    // The part that worked is still there, and it is a complete document:
-    // pressing Run is all that is left to try.
-    let source = std::fs::read_to_string(session.root.join("ghost.hick")).unwrap();
-    assert!(
-        source.contains("dotnet new no-such-template-exists"),
-        "{source}"
-    );
-    assert!(source.contains(r#"<hick:copy id="scaffold">"#), "{source}");
-    assert!(!source.contains("<hick:ingested"), "{source}");
-}
-
-#[tokio::test]
-async fn the_paths_a_document_may_not_have_are_refused() {
-    let session = start().await;
-
-    let mut body = spec("Greeter", "greeter");
-    body["path"] = json!("greeter.txt");
-    body["run"] = json!(false);
-    let (status, error) = post(&session, "/api/scaffold", body.clone()).await;
-    assert_eq!(status, 400, "{error}");
-    assert!(error["error"].as_str().unwrap().contains(".hick"));
-
-    body["path"] = json!("../escape.hick");
-    let (status, error) = post(&session, "/api/scaffold", body.clone()).await;
-    assert_eq!(status, 400, "{error}");
-
-    // "New" is not a way to lose something.
-    body["path"] = json!("notes.hick");
-    let (status, error) = post(&session, "/api/scaffold", body.clone()).await;
-    assert_eq!(status, 422, "{error}");
+    // The log draws it as a recipe whose tree matches its trailer.
+    let (status, log) = get(&session, "/api/git/log").await;
+    assert_eq!(status, 200);
+    let card = &log["commits"][0];
+    assert_eq!(card["sha"], sha);
     assert_eq!(
-        std::fs::read_to_string(session.root.join("notes.hick")).unwrap(),
-        "# Notes\n"
+        card["recipe"]["command"],
+        created["message"]
+            .as_str()
+            .unwrap()
+            .lines()
+            .find_map(|l| l.strip_prefix("Hick-Recipe: "))
+            .unwrap()
     );
+    assert_eq!(card["recipe"]["output_path"], "greeter", "{card}");
+    assert_eq!(card["recipe"]["output_matches"], true, "{card}");
+    assert_eq!(card["recipe"]["output"], created["output_tree"]);
 
-    // An empty output would scatter the scaffold across the notes folder.
-    body["path"] = json!("greeter.hick");
-    body["output"] = json!("  ");
-    let (status, error) = post(&session, "/api/scaffold", body).await;
-    assert_eq!(status, 400, "{error}");
+    // A second scaffold into the same folder is refused: it is occupied.
+    let (status, refused) = post(&session, "/api/scaffold", spec("Greeter", "greeter")).await;
+    assert_eq!(status, 422, "{refused}");
+    assert!(
+        refused["error"]
+            .as_str()
+            .unwrap()
+            .contains("already exists"),
+        "{refused}"
+    );
+    assert_eq!(
+        git_out(&session.root, &["rev-parse", "HEAD"]),
+        sha,
+        "nothing was committed"
+    );
+}
+
+#[tokio::test]
+async fn a_scaffold_that_cannot_run_commits_nothing_and_leaves_no_folder() {
+    let session = start().await;
+    let before = git_out(&session.root, &["rev-parse", "HEAD"]);
+    let mut body = spec("Ghost", "ghost");
+    body["template"] = json!("no-such-template-exists");
+
+    let (status, answer) = post(&session, "/api/scaffold", body).await;
+    assert_eq!(status, 422, "{answer}");
+    if !has_dotnet() {
+        assert_eq!(answer["missing"], json!("dotnet"));
+    } else {
+        assert!(
+            answer["error"]
+                .as_str()
+                .is_some_and(|e| e.contains("no-such-template-exists")),
+            "{answer}"
+        );
+    }
+    assert_eq!(git_out(&session.root, &["rev-parse", "HEAD"]), before);
+    assert!(
+        !session.root.join("ghost").exists(),
+        "a failed scaffold left a folder behind"
+    );
+    assert_eq!(git_out(&session.root, &["status", "--porcelain"]), "");
+}
+
+#[tokio::test]
+async fn the_folders_a_scaffold_may_not_have_are_refused() {
+    let session = start().await;
+    for output in [".", "  ", "../escape", "/tmp/escape"] {
+        let (status, error) = post(&session, "/api/scaffold", spec("Greeter", output)).await;
+        assert_eq!(status, 400, "{output:?}: {error}");
+    }
+    // An occupied folder, before any scaffolder runs.
+    std::fs::create_dir_all(session.root.join("taken")).unwrap();
+    std::fs::write(session.root.join("taken/x.txt"), "").unwrap();
+    let (status, error) = post(&session, "/api/scaffold", spec("Greeter", "taken")).await;
+    assert_eq!(status, 422, "{error}");
+    assert!(
+        error["error"].as_str().unwrap().contains("already exists"),
+        "{error}"
+    );
+}
+
+#[tokio::test]
+async fn a_folder_without_a_repository_is_told_so_by_a_field() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("notes.hick"), "# Notes\n").unwrap();
+    let root = dir.path().canonicalize().unwrap();
+    let prepared = prepare(ServeOptions {
+        target: root.clone(),
+        port: 0,
+        params: Vec::new(),
+        executor: ExecutorChoice::Local,
+        key_store_path: None,
+        ui_settings_path: None,
+    })
+    .await
+    .expect("session prepares");
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let port = listener.local_addr().unwrap().port();
+    tokio::spawn(async move {
+        axum::serve(listener, prepared.router).await.unwrap();
+    });
+    let session = Session {
+        base: format!("http://127.0.0.1:{port}"),
+        root,
+        _dir: dir,
+    };
+    let (status, error) = post(&session, "/api/scaffold", spec("Greeter", "greeter")).await;
+    assert_eq!(status, 422, "{error}");
+    // The dialog keys off the field, never the sentence.
+    assert_eq!(error["missing"], json!("repository"));
+    assert!(!session.root.join("greeter").exists());
 }
 
 #[tokio::test]

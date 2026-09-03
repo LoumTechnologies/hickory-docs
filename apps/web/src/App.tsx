@@ -117,19 +117,14 @@ export function App() {
       {newProject && (
         <NewProjectDialog
           onCreated={(created) => {
-            // The tree has a new document and, when the scaffold ran, a new
-            // directory of files beside it.
+            // The tree has a new folder of files, and the history a new
+            // recipe commit. No document: a scaffold is an act, and it is
+            // recorded where acts go (docs/specs/freeform/lenses.md).
             window.dispatchEvent(new Event(FILES_CHANGED_EVENT));
-            navigate(`/docs/${created.id}`);
             setNotice(
-              created.ingested
-                ? `${created.path} — ${created.ingested.files.length} file(s) ingested` +
-                  (created.ingested.skipped.length > 0
-                    ? `, ${created.ingested.skipped.length} skipped by .gitignore`
-                    : "")
-                : created.note
-                  ? `${created.path} written; the scaffold did not run — ${created.note}`
-                  : `${created.path} written`,
+              `${created.output}/ scaffolded and committed as ${created.short} — ` +
+                `${created.files.length} file${created.files.length === 1 ? "" : "s"}. ` +
+                "Read it as a story in the History pane.",
             );
           }}
           onClose={() => setNewProject(false)}

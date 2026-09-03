@@ -63,9 +63,19 @@ pub struct Recipe {
     pub command: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub image: Option<String>,
-    /// The fingerprint of what the command produced, as the commit claims.
+    /// The git tree hash of what the command produced, as the commit claims.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub output: Option<String>,
+    /// Where in the repository that tree sits (`Hick-Output: <tree> <path>`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub output_path: Option<String>,
+    /// Whether the commit's own tree at `output_path` IS `output` — checked
+    /// by git, no replay. `false` means the commit was edited before it was
+    /// committed (or its trailer was written by hand), and it cannot be
+    /// upgraded by replay because the edits cannot be separated. `None`
+    /// when the trailer names no path to check.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub output_matches: Option<bool>,
 }
 
 /// The recipe in a commit body, if its trailers carry one.
@@ -90,11 +100,37 @@ pub fn recipe_of(body: &str) -> Option<Recipe> {
             _ => {}
         }
     }
+    let (output, output_path) = match output {
+        Some(value) => match value.split_once(' ') {
+            Some((tree, path)) => (Some(tree.to_string()), Some(path.trim().to_string())),
+            None => (Some(value), None),
+        },
+        None => (None, None),
+    };
     command.filter(|c| !c.is_empty()).map(|command| Recipe {
         command,
         image,
         output,
+        output_path,
+        output_matches: None,
     })
+}
+
+/// Fill in `output_matches` for a recipe commit: does the commit's tree at
+/// the recorded path have the recorded hash? One `git rev-parse`, and the
+/// answer is derived rather than declared — the difference between "this is
+/// exactly the scaffold" and "someone edited this before committing it".
+fn check_output(root: &std::path::Path, sha: &str, recipe: &mut Recipe) {
+    let (Some(recorded), Some(path)) = (&recipe.output, &recipe.output_path) else {
+        return;
+    };
+    let actual = git(
+        root,
+        &["rev-parse", "--verify", "-q", &format!("{sha}:{path}")],
+    )
+    .filter(|out| out.status.success())
+    .map(|out| String::from_utf8_lossy(&out.stdout).trim().to_string());
+    recipe.output_matches = Some(actual.as_deref() == Some(recorded.as_str()));
 }
 
 #[derive(Serialize)]
@@ -182,6 +218,14 @@ pub async fn log(
             return None;
         }
         let mut commits = parse_log(&String::from_utf8_lossy(&out.stdout));
+        // Recipe commits are rare and the check is one process each, so it
+        // rides with the log: the lens draws "matches its recipe" or "edited
+        // before commit" on the card itself, unexpanded.
+        for commit in &mut commits {
+            if let Some(recipe) = &mut commit.recipe {
+                check_output(&root, &commit.sha, recipe);
+            }
+        }
         // Which of these are still drafts. Computed here, in the same
         // blocking task, because it is the same repository and the same
         // handful of git calls.
@@ -556,8 +600,15 @@ mod tests {
                 command: "dotnet new webapi -o . --no-restore".into(),
                 image: Some("mcr.microsoft.com/dotnet/sdk:9.0".into()),
                 output: Some("sha256:9f2c".into()),
+                output_path: None,
+                output_matches: None,
             })
         );
+        // The shape the scaffold writes: a tree hash and the path it sits at.
+        let scaffold =
+            recipe_of("S\n\nHick-Recipe: dotnet new x -o app\nHick-Output: 4b825dc app").unwrap();
+        assert_eq!(scaffold.output.as_deref(), Some("4b825dc"));
+        assert_eq!(scaffold.output_path.as_deref(), Some("app"));
         // A recipe line in the middle of prose is prose about a recipe.
         assert_eq!(recipe_of("Hick-Recipe: x\n\nand then some prose"), None);
         assert_eq!(recipe_of("just a message"), None);
@@ -567,7 +618,9 @@ mod tests {
             Some(Recipe {
                 command: "cargo init".into(),
                 image: None,
-                output: None
+                output: None,
+                output_path: None,
+                output_matches: None,
             })
         );
     }

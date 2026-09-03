@@ -2,7 +2,7 @@
 //!
 //! Protects
 //! `docs/guarantees/authoring/a-new-project-reads-the-scaffolder-s-own-options.md`
-//! and `docs/guarantees/authoring/a-new-project-writes-the-command-it-ran.md`.
+//! and `docs/guarantees/authoring/a-new-project-is-a-recipe-commit.md`.
 //!
 //! The fixtures are real `dotnet new … --help` output, captured from SDK
 //! 10.0.111 on 2026-09-01 and checked in. A test that shells out to `dotnet`
@@ -11,8 +11,8 @@
 //! the wrapping is in the bytes.
 
 use hickory_cli::scaffold::{
-    ChosenOption, OptionKind, ScaffoldSpec, dotnet_new_command, parse_template_help,
-    parse_template_list, scaffold_document, sdk_image, suggested_output, suggested_path,
+    ChosenOption, OptionKind, ScaffoldSpec, commit_message, dotnet_new_command,
+    parse_template_help, parse_template_list, sdk_image, suggested_output,
 };
 
 fn fixture(name: &str) -> String {
@@ -228,7 +228,7 @@ fn spec() -> ScaffoldSpec {
 fn the_command_is_the_one_a_person_would_type() {
     assert_eq!(
         dotnet_new_command(&spec()),
-        "dotnet new webapi -o out -n Greeter --language 'C#' --no-restore --auth None"
+        "dotnet new webapi -o greeter -n Greeter --language 'C#' --no-restore --auth None"
     );
 }
 
@@ -240,46 +240,49 @@ fn a_name_that_needs_quoting_gets_it() {
     spec.language = None;
     assert_eq!(
         dotnet_new_command(&spec),
-        "dotnet new webapi -o out -n 'My Project'"
+        "dotnet new webapi -o greeter -n 'My Project'"
     );
 
     spec.name = "it's".into();
     assert_eq!(
         dotnet_new_command(&spec),
-        r"dotnet new webapi -o out -n 'it'\''s'"
+        r"dotnet new webapi -o greeter -n 'it'\''s'"
     );
 }
 
 #[test]
-fn the_document_parses_and_holds_the_command() {
-    let source = scaffold_document(&spec());
-    let doc = hick_lang::parse(&source).expect("a scaffold document parses");
-
-    // The cell the ingest will aim at, by the id both sides agree on.
-    assert!(
-        source.contains(r#"<hick:copy id="scaffold">"#),
-        "the command lives in an identified copy, not as loose text:\n{source}"
+fn the_message_carries_the_recipe_as_trailers() {
+    let message = commit_message(
+        &spec(),
+        "4b825dc642cb6eb9a060e54bf8d69288fbee4904",
+        "greeter",
     );
-    assert!(source.contains("dotnet new webapi -o out -n Greeter"));
-    // `-o out` is the mount point; `output=` is where the tree lands.
-    assert!(source.contains(r#"<hick:volume name="project" output="greeter" />"#));
-    assert!(source.contains(r#"mount="project:out""#));
-    // A bare document: no wrapper, because nothing here rebinds the prefix.
-    assert!(!source.contains("<hick:doc"));
-    assert_eq!(doc.prefix, "hick");
+    // Subject first, prose, then the trailers as git's own last paragraph.
+    assert!(
+        message.starts_with("Scaffold Greeter with `dotnet new webapi`\n\n"),
+        "{message}"
+    );
+    let trailers = message.trim_end().rsplit("\n\n").next().unwrap();
+    assert_eq!(
+        trailers,
+        "Hick-Recipe: dotnet new webapi -o greeter -n Greeter --language 'C#' --no-restore --auth None\n\
+         Hick-Image: mcr.microsoft.com/dotnet/sdk:10.0\n\
+         Hick-Output: 4b825dc642cb6eb9a060e54bf8d69288fbee4904 greeter"
+    );
+    // The prose says what the trailers mean, in words a person reads in git log.
+    assert!(message.contains("nothing was edited before it was committed"));
 }
 
 #[test]
 fn defaults_are_derived_from_the_project_name() {
-    assert_eq!(suggested_path("Greeter"), "greeter.hick");
     assert_eq!(suggested_output("Greeter"), "greeter");
     assert_eq!(
-        suggested_path("Company.WebApplication1"),
-        "company-webapplication1.hick"
+        suggested_output("Company.WebApplication1"),
+        "company-webapplication1"
     );
     assert_eq!(suggested_output("My Project"), "my-project");
-    // Nothing usable in the name still has to produce a legal path.
-    assert_eq!(suggested_path("///"), "project.hick");
+    // Nothing usable in the name still has to produce a legal folder.
+    assert_eq!(suggested_output("///"), "project");
 }
 
 #[test]

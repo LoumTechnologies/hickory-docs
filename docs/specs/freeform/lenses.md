@@ -1,6 +1,9 @@
 # Lenses: the viewer is a block editor, and a document is one thing it views
 
-*Status: proposal, adopted 2026-09-03, nothing built under this name. It
+*Status: adopted 2026-09-03. **Steps 1–3 built the same day** (the
+read-only history lens; File → New Project as a recipe commit through a
+temporary index, `Hick-Output` a tree hash the lens checks). Steps 4–6 are
+not built. It
 names what two built things already are — the generated-file tab and the
 merged view (`the-merged-view.md`) — and adds a third, the **history lens**,
 which takes over scaffolding from `owning-what-a-scaffolder-wrote.md`. That
@@ -138,8 +141,14 @@ Scaffold a web API
 
 Hick-Recipe: dotnet new webapi -o . --no-restore
 Hick-Image: mcr.microsoft.com/dotnet/sdk:9.0
-Hick-Output: sha256:9f2c…
+Hick-Output: 9f2c…c4e1 app
 ```
+
+`Hick-Output` is the **git tree hash** of the scaffolded folder as the
+scaffolder wrote it, and the path it sits at. Not an opaque fingerprint:
+a tree hash is something git can check against the commit's own tree with
+one `rev-parse`, no replay needed — which is what gives a recipe card its
+first state below.
 
 This is the shape `hick emit` already has — each emitted commit carries the
 document version that emitted it — with the recipe in place of the version.
@@ -148,6 +157,43 @@ recipe, stop. The four lines you change are the next commit. The scaffold's
 output is visible forever, because it is the commit's tree, and the scaffold
 card can say *edited since, two commits down*. That is the fact the cell
 could not show.
+
+### The in-between moment is designed away
+
+A recipe commit is honest only if its tree is exactly what the recipe
+produced. Run the scaffolder, edit a file, *then* commit, and the edit is
+fused into the recipe commit where no replay can separate it — the commit
+cannot be upgraded. So the product never produces that moment: File → New
+Project runs the scaffolder into a scratch directory and commits what it
+wrote **as one act**, with nothing a person can do in between. There is no
+uncommitted scaffold, and so nothing to stash, stage or mark as pending.
+
+Git makes this safe to do with other work in flight. The commit is built
+through a **temporary index** — `read-tree HEAD`, add exactly the files the
+run wrote, `write-tree`, `commit-tree`, `update-ref` — so the person's own
+staged and unstaged changes are neither swept into the recipe commit nor
+touched. Afterwards the scaffold's paths are added to the real index so
+`git status` agrees with HEAD about them. The one refusal is a target folder
+that already holds anything: a scaffold is committed exactly as the
+scaffolder wrote it, so it needs an empty folder of its own — and never the
+repository's root, since `Hick-Output` would then name a tree that is not
+the scaffolder's.
+
+Someone can still make the in-between moment by hand — `dotnet new` in a
+terminal, an edit, a commit with hand-written trailers — and the lens
+catches it, because the tree hash is checkable by git alone. A recipe card
+therefore has **three states, drawn apart**:
+
+- **Matches its recorded output.** Derived: git holds exactly the tree the
+  trailer names at that path. Nothing was edited before it was committed,
+  so replay and rebase can upgrade it. Still a claim about what the
+  scaffolder wrote — a matching hash can be hand-written — so the word is
+  "matches", never "verified".
+- **Edited before it was committed.** Derived mismatch. The edits cannot be
+  separated from the scaffold without re-running the old recipe exactly, so
+  the card offers no replay and says why.
+- **Replayed: same, or differs.** Evidence, from an actual run. The only
+  state that speaks to whether the recipe still produces this today.
 
 ### Replay makes a new commit, never remakes the old one
 
@@ -261,8 +307,9 @@ it the story without the verbs.
    past, opened at the tail; recipe commits drawn as cells with the diff as
    output; the *edited since* fact on a recipe card; the floor row marked.
 3. **Scaffold writes a commit.** File → New Project commits with the three
-   trailers and writes no document. The scaffold cell path is deleted. The
-   `hick ingest --from '#cell'` verb stays.
+   trailers and writes no document, through a temporary index, refusing an
+   occupied folder. The lens draws the three states above. The scaffold
+   cell path is deleted. The `hick ingest --from '#cell'` verb stays.
 4. **Replay.** The verb on a recipe card: sibling commit, fingerprint
    compared, rebase above the floor and merge below it, dirty tree refused.
 5. **The tail.** The working tree as the last card; prose there is the next

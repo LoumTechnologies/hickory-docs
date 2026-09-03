@@ -47,6 +47,8 @@ use std::collections::BTreeMap;
 use std::process::Command;
 
 use anyhow::{Context as _, Result, bail};
+use std::path::Path;
+
 use serde::{Deserialize, Serialize};
 
 /// `dotnet` is not on this machine's PATH.
@@ -650,19 +652,14 @@ pub struct ScaffoldSpec {
     pub language: Option<String>,
     /// `-n`: the project's name, which is also its root namespace.
     pub name: String,
-    /// The directory the volume lands in, relative to the document.
+    /// The directory the scaffold lands in, relative to the repository.
     pub output: String,
-    /// The SDK image a container executor would pull. Ignored by the local
-    /// and sandbox executors, which run on the machine's own `dotnet`.
+    /// The SDK image a containerised replay would pull, recorded in the
+    /// recipe. The scaffold itself runs on this machine's own `dotnet`.
     pub image: String,
     #[serde(default)]
     pub options: Vec<ChosenOption>,
 }
-
-/// The cell id the ingest is aimed at. One name, used by the document this
-/// writes and by the ingest that follows it — they have to agree, so neither
-/// side spells it itself.
-pub const SCAFFOLD_CELL: &str = "scaffold";
 
 /// Quote an argument for the POSIX shell a cell's command runs under.
 ///
@@ -681,19 +678,20 @@ fn shell_quote(arg: &str) -> String {
     }
 }
 
-/// The `dotnet new` line the document runs.
+/// The `dotnet new` line the recipe records — run from the repository's
+/// root, writing into `-o <output>`.
 ///
-/// `-o out` is not the project's directory: it is the cell's **mount point**,
-/// where the volume named in the document is attached. Where the files end up
-/// in the repository is the volume's `output=`, which is why the same command
-/// works unchanged whether the cell runs on this machine or in a container.
+/// This is the `Hick-Recipe` trailer, spelled the way a person would type
+/// it at the root of the checkout, so a replay is the same line run in the
+/// same place. Only what was changed from the template's defaults is on it.
 pub fn dotnet_new_command(spec: &ScaffoldSpec) -> String {
+    let output = spec.output.trim().trim_end_matches('/');
     let mut parts = vec![
         "dotnet".to_string(),
         "new".to_string(),
         shell_quote(&spec.template),
         "-o".to_string(),
-        "out".to_string(),
+        shell_quote(if output.is_empty() { "." } else { output }),
         "-n".to_string(),
         shell_quote(&spec.name),
     ];
@@ -710,60 +708,71 @@ pub fn dotnet_new_command(spec: &ScaffoldSpec) -> String {
     parts.join(" ")
 }
 
-/// The document a New Project writes.
+/// The `dotnet new` arguments, unquoted, for running rather than recording.
+fn dotnet_new_args<'a>(spec: &'a ScaffoldSpec, into: &'a str) -> Vec<&'a str> {
+    let mut args = vec![
+        "new",
+        spec.template.as_str(),
+        "-o",
+        into,
+        "-n",
+        spec.name.as_str(),
+    ];
+    if let Some(language) = spec.language.as_deref().filter(|l| !l.is_empty()) {
+        args.push("--language");
+        args.push(language);
+    }
+    for option in &spec.options {
+        args.push(option.flag.as_str());
+        if let Some(value) = &option.value {
+            args.push(value.as_str());
+        }
+    }
+    args
+}
+
+/// Run the scaffolder, writing into `into` — a scratch directory, never the
+/// repository. What it wrote is committed by `scaffold_commit`, as one act.
 ///
-/// A **bare** document (`bare-documents.md`): no `<hick:doc>` wrapper, because
-/// nothing here rebinds the namespace prefix, and it weaves a `.md` of its own
-/// name without being told to.
+/// This machine's own `dotnet`, exactly as the local executor used. The
+/// `image` on the spec is recorded in the recipe for a replay that runs in a
+/// container; nothing here pulls it.
+pub fn run_scaffold(spec: &ScaffoldSpec, into: &Path) -> Result<()> {
+    let into = into.to_string_lossy().into_owned();
+    let args = dotnet_new_args(spec, &into);
+    run(&args)?;
+    Ok(())
+}
+
+/// The commit message a scaffold is recorded under: prose a person reads,
+/// then the trailers a replay reads.
 ///
-/// The shape is `exec > copy` with nothing else inside it yet. The ingest that
-/// runs next adds the `<hick:ingested>` block, and it has to be able to find
-/// the command: hence the `hick:copy` with an id, rather than loose text in
-/// the cell.
-pub fn scaffold_document(spec: &ScaffoldSpec) -> String {
-    let command = dotnet_new_command(spec);
+/// `output_tree` is the git tree hash of `output/` as the scaffolder wrote
+/// it — `Hick-Output` — which is what lets the history lens tell a commit
+/// that is exactly the scaffold from one that was edited before it was
+/// committed, with one `git rev-parse` and no replay.
+pub fn commit_message(spec: &ScaffoldSpec, output_tree: &str, output: &str) -> String {
     let what = if spec.title.is_empty() {
         format!("`dotnet new {}`", spec.template)
     } else {
         format!("{} (`dotnet new {}`)", spec.title, spec.template)
     };
     format!(
-        r#"# {name}
-
-Scaffolded from {what}, and then **ingested**: every byte the generator wrote is
-in this document, under the run that wrote it. Edit them here or in `{output}/` —
-they are ordinary document bytes now, and a change in either place lands in the
-other.
-
-Running the cell again is a three-way merge, not a second copy: the bytes as
-they were ingested are the base, the fresh `dotnet new` is theirs, and whatever
-you have changed here is ours. That is what makes it safe to take a newer SDK's
-scaffold without losing your own edits.
-
-<hick:container name="sdk" image="{image}" />
-
-The image is what a Docker executor pulls. The local and sandbox executors
-ignore it and use this machine's own `dotnet` — which is the one that produced
-what follows.
-
-<hick:volume name="project" output="{output}" />
-
-`output=` is where the generated tree lands in the repository. The cell mounts
-that same volume at `out`, so the command writes into `out/` and the files
-arrive under `{output}/`.
-
-<hick:exec container="sdk" mount="project:out">
-<hick:copy id="{cell}">
-{command}
-</hick:copy>
-</hick:exec>
-"#,
+        "Scaffold {name} with `dotnet new {template}`\n\n\
+         {what}, scaffolded into `{output}/`. Every byte in this commit is the \
+         scaffolder's; nothing was edited before it was committed. To take a newer \
+         SDK's scaffold, replay this commit and move the commits after it onto the \
+         result.\n\n\
+         Hick-Recipe: {command}\n\
+         Hick-Image: {image}\n\
+         Hick-Output: {output_tree} {output}\n",
         name = spec.name,
+        template = spec.template,
         what = what,
-        output = spec.output,
+        output = output,
+        command = dotnet_new_command(spec),
         image = spec.image,
-        cell = SCAFFOLD_CELL,
-        command = command,
+        output_tree = output_tree,
     )
 }
 
@@ -786,11 +795,6 @@ pub fn sdk_image(version: &str) -> String {
         }
         _ => "mcr.microsoft.com/dotnet/sdk:latest".to_string(),
     }
-}
-
-/// A default `.hick` path for a project name: `Greeter` -> `greeter.hick`.
-pub fn suggested_path(name: &str) -> String {
-    format!("{}.hick", slug(name))
 }
 
 /// A default output directory for a project name.

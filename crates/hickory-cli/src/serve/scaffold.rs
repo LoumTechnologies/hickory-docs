@@ -1,4 +1,4 @@
-//! File → New Project: `dotnet new`, as a form and then as a document.
+//! File → New Project: `dotnet new`, as a form and then as a commit.
 //!
 //! Four routes, and the shape of them is the argument. Reading the catalogue
 //! and reading one template's options are separate because the second is a
@@ -8,25 +8,22 @@
 //!
 //! ## Why there is a preview route
 //!
-//! The dialog shows the exact bytes it is about to write, the way the Insert
-//! panel does, and for the same reason: this is a text format a person owns
-//! and edits by hand, and a dialog that writes markup you never see teaches
-//! you nothing. The preview could have been assembled in TypeScript — and
-//! then there would be two implementations of the document, one shown and one
-//! written, free to disagree. So the preview is the same function, called
-//! over HTTP. The server is in this process on loopback; the round trip costs
-//! nothing worth having a second renderer for.
+//! The dialog shows the exact commit message it is about to write, the way
+//! the Insert panel shows its markup, and for the same reason: a recipe is a
+//! text a person will read in `git log` for years, and a dialog that writes
+//! one you never saw teaches you nothing. The preview is the same function,
+//! called over HTTP, so what is shown and what is committed cannot be two
+//! renderers that agree today.
 //!
-//! ## Creating is two acts, and only the first is guaranteed
+//! ## Creating is one act
 //!
-//! `POST /api/scaffold` writes the document and then runs it and ingests what
-//! the generator wrote. The second half can fail for reasons that are not
-//! this product's business — no SDK, a template that needs a NuGet feed, a
-//! cell the executor will not run — and when it does, the **document still
-//! exists**. It is a complete, correct, unrun document: the command is in it,
-//! and pressing Run does the rest. Deleting it to keep the failure tidy would
-//! throw away the part that worked, and leave the person with nothing to fix.
-//! The response says which of the two happened.
+//! `POST /api/scaffold` runs the scaffolder into a scratch directory and
+//! commits what it wrote, through an index of its own, with the recipe in
+//! the trailers (`crate::scaffold_commit`). There is no moment between the
+//! two for an edit to slip into the recipe commit, which is what keeps the
+//! commit upgradeable. A scaffold that fails commits nothing and leaves the
+//! working tree as it was: there is no half-finished document to keep,
+//! because there is no document. `docs/specs/freeform/lenses.md`, step 3.
 
 use axum::Json;
 use axum::extract::{Query, State};
@@ -35,9 +32,9 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 
 use super::LocalState;
-use super::api::{ApiError, ApiResult, new_doc_target};
-use crate::ExecutorChoice;
+use super::api::{ApiError, ApiResult};
 use crate::scaffold::{self, NoDotnetSdk, ScaffoldSpec};
+use crate::scaffold_commit::{self, NotARepository};
 
 /// Turn a scaffold failure into an API error, keeping the one distinction the
 /// dialog draws its own screen from.
@@ -51,6 +48,12 @@ fn scaffold_error(e: anyhow::Error) -> ApiError {
     if e.downcast_ref::<NoDotnetSdk>().is_some() {
         return ApiError::unprocessable(format!("{}", NoDotnetSdk))
             .with_detail(json!({ "missing": "dotnet" }));
+    }
+    // The same shape for the other thing a machine can lack: a repository
+    // to record the scaffold in.
+    if e.downcast_ref::<NotARepository>().is_some() {
+        return ApiError::unprocessable(format!("{}", NotARepository))
+            .with_detail(json!({ "missing": "repository" }));
     }
     ApiError::unprocessable(format!("{e:#}"))
 }
@@ -112,36 +115,33 @@ pub async fn options(
     ))
 }
 
-/// What the dialog is asking to be written, and where.
+/// What the dialog is asking to be scaffolded and committed.
 #[derive(Deserialize)]
 pub struct CreateRequest {
-    /// The `.hick` path, relative to the served folder.
-    pub path: String,
     #[serde(flatten)]
     pub spec: ScaffoldSpec,
-    /// Run the cell and ingest what it writes. On by default: a New Project
-    /// that leaves you an unrun command is a snippet, not a project.
-    #[serde(default = "yes")]
-    pub run: bool,
 }
 
-fn yes() -> bool {
-    true
-}
+/// The place in the message a preview cannot fill in yet.
+const OUTPUT_PENDING: &str = "<the tree hash, once it is committed>";
 
-/// `POST /api/scaffold/preview` — the exact bytes, without writing them.
+/// `POST /api/scaffold/preview` — the exact commit, without making it.
 pub async fn preview(
     State(_state): State<LocalState>,
     Json(body): Json<CreateRequest>,
 ) -> ApiResult<Json<Value>> {
+    let output = scaffold_commit::checked_output(&body.spec.output)
+        .map(|o| o.to_string())
+        .unwrap_or_else(|_| body.spec.output.trim().to_string());
     Ok(Json(json!({
-        "path": body.path,
+        "output": output,
         "command": scaffold::dotnet_new_command(&body.spec),
-        "source": scaffold::scaffold_document(&body.spec),
+        "message": scaffold::commit_message(&body.spec, OUTPUT_PENDING, &output),
     })))
 }
 
-/// `POST /api/scaffold` — write the document, run it, and ingest the scaffold.
+/// `POST /api/scaffold` — run the scaffolder and commit what it wrote, as
+/// one act.
 pub async fn create(
     State(state): State<LocalState>,
     Json(body): Json<CreateRequest>,
@@ -151,85 +151,51 @@ pub async fn create(
             "a project needs a name — it becomes the .NET root namespace and the assembly name.",
         ));
     }
-    if body.spec.output.trim().is_empty() {
-        return Err(ApiError::bad_request(
-            "name the folder the generated tree lands in — it is the volume's `output=`, and \
-             an empty one would scatter the scaffold across the notes folder.",
-        ));
-    }
+    let output = scaffold_commit::checked_output(&body.spec.output)
+        .map_err(|e| ApiError::bad_request(format!("{e:#}")))?;
+    let root = state.index.root().to_path_buf();
+    let spec = ScaffoldSpec {
+        output: output.clone(),
+        ..body.spec
+    };
 
-    let (rel, absolute) = new_doc_target(&state, &body.path)?;
-    let source = scaffold::scaffold_document(&body.spec);
-    std::fs::write(&absolute, &source)
-        .map_err(|e| ApiError::internal(format!("could not write {}: {e}", absolute.display())))?;
-    let id = state.index.add(&rel);
-
-    let mut ingested = Value::Null;
-    let mut note = Value::Null;
-    if body.run {
-        let today = crate::ingest::today().unwrap_or_else(|| "unknown".to_string());
-        let outcome = crate::ingest_exec::ingest_from_exec(
-            &absolute,
-            &format!("#{}", scaffold::SCAFFOLD_CELL),
-            state.executor,
-            &today,
-        )
-        .await;
-        match outcome {
-            Ok(outcome) => {
-                ingested = json!({
-                    "from": outcome.from,
-                    "fingerprint": outcome.fingerprint,
-                    "files": outcome.ingested,
-                    "skipped": outcome.skipped,
-                });
-                // Then weave, so the tree is on disk when the dialog closes.
-                //
-                // Not belt-and-braces: an ingested volume is deliberately no
-                // longer flushed as a pipeline output — the document owns
-                // those bytes, and flushing a fresh run over them would
-                // overwrite the edits it exists to protect — so after an
-                // ingest the ONLY thing that puts the files on disk is a
-                // weave. Without this, New Project finished with a document
-                // full of a project and a folder with no project in it, and
-                // whether the files appeared came down to whether a file
-                // watcher happened to be running.
-                if let Err(e) = weave_to_disk(&absolute).await {
-                    note = json!(format!(
-                        "the scaffold was ingested, but writing the files out \
-                         failed: {e:#}\n  Next step: run `hick weave {rel}` — \
-                         the bytes are in the document, so nothing is lost."
-                    ));
-                }
-            }
-            // The document is the part that worked and it stays. What the run
-            // said is the part the person has to act on, so it is carried
-            // through whole rather than flattened to "scaffolding failed".
-            Err(e) => note = json!(format!("{e:#}")),
+    let committed = tokio::task::spawn_blocking(move || -> anyhow::Result<_> {
+        // The cheap refusals first, before a subprocess runs.
+        if !scaffold_commit::is_repository(&root) {
+            anyhow::bail!(NotARepository);
         }
-    }
+        scaffold_commit::refuse_occupied(&root, &output)?;
+        // Into scratch, never the repository: a scaffolder that fails halfway
+        // leaves nothing behind, and one that succeeds is committed whole.
+        let scratch = tempfile::tempdir()?;
+        let into = scratch.path().join("out");
+        scaffold::run_scaffold(&spec, &into)?;
+        scaffold_commit::commit_scaffold(&root, &spec, &into)
+    })
+    .await
+    .map_err(|e| ApiError::internal(format!("the scaffold did not finish: {e}")))?
+    .map_err(scaffold_error)?;
 
-    let written = std::fs::read_to_string(&absolute).unwrap_or(source);
     Ok((
         StatusCode::CREATED,
         Json(json!({
-            "id": id,
-            "path": rel,
-            "source": written,
-            "ingested": ingested,
-            "executor": state.executor.as_str(),
-            "note": note,
+            "sha": committed.sha,
+            "short": committed.short,
+            "output": spec_output_of(&committed.message),
+            "files": committed.files,
+            "message": committed.message,
+            "output_tree": committed.output_tree,
         })),
     ))
 }
 
-/// Weave one document to disk, no execution: cached transcripts where there
-/// are any, and the ingested block is not one of them — its bytes are in the
-/// document, so a weave alone reproduces the whole tree. That is the property
-/// `owning-what-a-scaffolder-wrote.md` exists for, exercised here at the
-/// moment it is first true.
-async fn weave_to_disk(doc: &std::path::Path) -> anyhow::Result<()> {
-    let run = crate::run_doc(doc, &[], crate::RunMode::Weave, ExecutorChoice::Local).await?;
-    crate::write_outputs(&run, None)?;
-    Ok(())
+/// The output folder, read back from the message's own trailer so the
+/// answer and the record cannot disagree.
+fn spec_output_of(message: &str) -> String {
+    message
+        .lines()
+        .find_map(|l| l.strip_prefix("Hick-Output: "))
+        .and_then(|v| v.split_once(' '))
+        .map(|(_, path)| path.to_string())
+        .unwrap_or_default()
 }

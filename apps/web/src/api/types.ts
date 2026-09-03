@@ -778,7 +778,15 @@ export interface GitFileChange {
 export interface GitRecipe {
   command: string;
   image?: string;
+  /** The git tree hash of what the command produced, as the commit claims. */
   output?: string;
+  /** Where that tree sits in the repository. */
+  output_path?: string;
+  /** Whether the commit's own tree at `output_path` is `output` — checked by
+   * git, no replay. False means the commit was edited before it was
+   * committed and cannot be upgraded by replay. Absent when the trailer
+   * names no path to check. */
+  output_matches?: boolean;
 }
 
 /** One commit as a card (`GET /api/git/commit?sha=`): its diff, its files,
@@ -1144,27 +1152,22 @@ export interface ScaffoldSpec {
   options: ChosenOption[];
 }
 
+/** The commit a New Project would make, without making it. */
 export interface ScaffoldPreview {
-  path: string;
+  output: string;
   command: string;
-  source: string;
+  /** The message, trailers included; the tree hash is a placeholder. */
+  message: string;
 }
 
-/** What the run put into the document. `null` when the scaffold did not run —
- * the document exists either way, and `note` says what happened. */
-export interface ScaffoldIngest {
-  from: string;
-  fingerprint: string;
-  files: string[];
-  /** Paths the project's `.gitignore` kept out of the document. */
-  skipped: string[];
-}
-
+/** What `POST /api/scaffold` made: a commit carrying its recipe. */
 export interface ScaffoldCreated {
-  id: string;
-  path: string;
-  source: string;
-  ingested: ScaffoldIngest | null;
-  executor: string;
-  note: string | null;
+  sha: string;
+  short: string;
+  /** The folder the scaffold landed in. */
+  output: string;
+  files: string[];
+  message: string;
+  /** The `Hick-Output` tree hash. */
+  output_tree: string;
 }

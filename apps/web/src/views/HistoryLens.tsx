@@ -129,9 +129,38 @@ function CommitCard({ commit, expanded, onToggle }: { commit: GitCommit; expande
           <div className="story-cell__bar">
             <span className="story-cell__verb">recipe</span>
             {recipe.image && <span className="mono story-cell__image">{recipe.image}</span>}
-            {/* A trailer anyone can write is a trailer anyone can get wrong.
-                The colour comes from replay evidence and nothing else, and
-                nothing has replayed this. */}
+            {/* Two chips, two questions, kept apart. First: is this commit's
+                tree exactly what its trailer says the scaffolder wrote?
+                Derived — git checked it, no replay — and it decides whether
+                the commit can be upgraded at all: an edit made before the
+                commit is fused into it and cannot be separated. Second: has
+                anything replayed the recipe? Nothing has, so the answer is
+                "unrecorded", however confident the prose. */}
+            {recipe.output_matches === true && (
+              <span
+                className="story-chip story-chip--matches"
+                data-tip="git holds exactly the tree the trailer recorded at this path: nothing was edited before it was committed, so replay and rebase can upgrade it"
+              >
+                matches its recorded output · upgradeable
+              </span>
+            )}
+            {recipe.output_matches === false && (
+              <span
+                className="story-chip story-chip--edited"
+                role="status"
+                data-tip="The tree at the recorded path is not the one the trailer names: something was edited before this was committed, or the trailer was written by hand. The edits cannot be separated from the scaffold, so this cannot be upgraded by replay."
+              >
+                edited before it was committed · not upgradeable
+              </span>
+            )}
+            {recipe.output_matches === undefined && (
+              <span
+                className="story-chip"
+                data-tip="The trailer names no path to check, so whether this tree is the scaffolder's cannot be told without a replay."
+              >
+                no recorded output
+              </span>
+            )}
             <span
               className="story-chip story-chip--unrecorded"
               data-tip="A declared claim in the commit's own words. Replay is what would verify it; nothing has."

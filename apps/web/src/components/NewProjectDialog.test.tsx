@@ -90,9 +90,10 @@ function ready() {
   vi.mocked(api.scaffoldTemplates).mockResolvedValue(CATALOG);
   vi.mocked(api.scaffoldOptions).mockResolvedValue(DETAIL);
   vi.mocked(api.scaffoldPreview).mockResolvedValue({
-    path: "greeter.hick",
-    command: "dotnet new console -o out -n Greeter --language 'C#' --no-restore",
-    source: "# Greeter\n\n<hick:copy id=\"scaffold\">\n",
+    output: "greeter",
+    command: "dotnet new console -o greeter -n Greeter --language 'C#' --no-restore",
+    message:
+      "Scaffold Greeter with `dotnet new console`\n\nHick-Recipe: dotnet new console -o greeter -n Greeter --language 'C#' --no-restore\n",
   });
   const onCreated = vi.fn();
   const onClose = vi.fn();
@@ -141,38 +142,37 @@ describe("the fields the template does not own", () => {
     fireEvent.change(screen.getByDisplayValue("Greeter"), {
       target: { value: "Widgets" },
     });
-    expect(screen.getByDisplayValue("widgets.hick")).toBeTruthy();
     expect(screen.getByDisplayValue("widgets")).toBeTruthy();
 
-    // Once touched, the path is theirs: renaming must not overwrite it.
-    fireEvent.change(screen.getByDisplayValue("widgets.hick"), {
-      target: { value: "notes/mine.hick" },
+    // Once touched, the folder is theirs: renaming must not overwrite it.
+    fireEvent.change(screen.getByDisplayValue("widgets"), {
+      target: { value: "apps/mine" },
     });
     fireEvent.change(screen.getByDisplayValue("Widgets"), {
       target: { value: "Gadgets" },
     });
-    expect(screen.getByDisplayValue("notes/mine.hick")).toBeTruthy();
+    expect(screen.getByDisplayValue("apps/mine")).toBeTruthy();
   });
 
   it("creates with what the form says, and closes", async () => {
     const { onCreated, onClose } = ready();
     vi.mocked(api.scaffoldCreate).mockResolvedValue({
-      id: "abc",
-      path: "greeter.hick",
-      source: "# Greeter\n",
-      ingested: { from: "#scaffold", fingerprint: "ab", files: ["greeter/Program.cs"], skipped: [] },
-      executor: "sandbox",
-      note: null,
+      sha: "abc123abc123",
+      short: "abc123a",
+      output: "greeter",
+      files: ["greeter/Program.cs", "greeter/Greeter.csproj"],
+      message: "Scaffold Greeter with `dotnet new console`\n",
+      output_tree: "4b825dc",
     });
     await screen.findByText("-f, --framework");
+    // The preview is the commit, trailers and all.
+    await screen.findByText(/Hick-Recipe: dotnet new console -o greeter/);
 
     fireEvent.click(screen.getByRole("button", { name: "Create project" }));
     await waitFor(() => expect(onCreated).toHaveBeenCalled());
     expect(onClose).toHaveBeenCalled();
 
-    const [path, spec, run] = vi.mocked(api.scaffoldCreate).mock.calls[0];
-    expect(path).toBe("greeter.hick");
-    expect(run).toBe(true);
+    const [spec] = vi.mocked(api.scaffoldCreate).mock.calls[0];
     expect(spec.template).toBe("console");
     expect(spec.name).toBe("Greeter");
     expect(spec.output).toBe("greeter");
@@ -185,12 +185,26 @@ describe("the fields the template does not own", () => {
   it("shows the failure and stays open rather than losing the form", async () => {
     const { onClose } = ready();
     vi.mocked(api.scaffoldCreate).mockRejectedValue(
-      new Error("greeter.hick already exists. Open it, or choose another name."),
+      new Error("`greeter/` already exists and is not empty."),
     );
     await screen.findByText("-f, --framework");
 
     fireEvent.click(screen.getByRole("button", { name: "Create project" }));
     await screen.findByText(/already exists/);
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
+  it("gets its own screen when the folder is not a repository", async () => {
+    // A scaffold is a commit, and this folder has nowhere to make one. Keyed
+    // off the field, never the sentence.
+    const { onClose } = ready();
+    vi.mocked(api.scaffoldCreate).mockRejectedValue(
+      new ApiError(422, "some sentence nobody should be matching on", { missing: "repository" }),
+    );
+    await screen.findByText("-f, --framework");
+    fireEvent.click(screen.getByRole("button", { name: "Create project" }));
+    await screen.findByText("This folder is not a git repository");
+    expect(screen.getByText(/git init/)).toBeTruthy();
     expect(onClose).not.toHaveBeenCalled();
   });
 });

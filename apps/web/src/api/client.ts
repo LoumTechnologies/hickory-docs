@@ -212,17 +212,13 @@ export const api = {
   /** The exact bytes New Project would write, without writing them. The same
    * function that writes them, called over the wire rather than reimplemented
    * here — a preview free to disagree with the file is worse than none. */
-  scaffoldPreview: (path: string, spec: ScaffoldSpec) =>
-    request<ScaffoldPreview>("POST", "/api/scaffold/preview", {
-      path,
-      run: false,
-      ...spec,
-    }),
-
-  /** Write the document, run the generator, and ingest what it wrote. The
-   * document is created even when the run fails; `note` says so. */
-  scaffoldCreate: (path: string, spec: ScaffoldSpec, run: boolean) =>
-    request<ScaffoldCreated>("POST", "/api/scaffold", { path, run, ...spec }),
+  scaffoldPreview: (spec: ScaffoldSpec) =>
+    request<ScaffoldPreview>("POST", "/api/scaffold/preview", { ...spec }),
+  /** Run the scaffolder and commit what it wrote, as one act. The commit
+   * carries the recipe in its trailers; see
+   * docs/guarantees/authoring/a-new-project-is-a-recipe-commit.md. */
+  scaffoldCreate: (spec: ScaffoldSpec) =>
+    request<ScaffoldCreated>("POST", "/api/scaffold", { ...spec }),
 
   /** Put a `<hick:sample>` under the cell that generated this file: a window
    * onto a few of its lines, shown in the weave and never stored in the
