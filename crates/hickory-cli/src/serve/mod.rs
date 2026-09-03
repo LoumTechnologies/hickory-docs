@@ -534,7 +534,8 @@ fn router(state: LocalState) -> Router {
         .route("/git/stage", post(git_ops::stage))
         .route("/git/unstage", post(git_ops::unstage))
         .route("/git/discard", post(git_ops::discard))
-        .route("/git/commit", post(git_ops::commit))
+        // GET reads one commit as a card (the history lens); POST makes one.
+        .route("/git/commit", get(git::commit).post(git_ops::commit))
         .route("/git/push", post(git_ops::push))
         .route("/git/pull", post(git_ops::pull))
         .route("/git/branches", get(git_ops::branches))

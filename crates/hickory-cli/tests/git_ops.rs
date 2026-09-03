@@ -308,3 +308,88 @@ async fn branches_stash_and_discard() {
     let (status, _) = post(&session, "/api/git/discard", json!({ "paths": ["../x"] })).await;
     assert_eq!(status, 400);
 }
+
+#[tokio::test]
+async fn a_commit_reads_as_a_card_with_its_recipe_and_what_was_edited_since() {
+    // Protects docs/guarantees/lenses/the-history-lens-reads-the-repository-as-a-story.md
+    //
+    // A scaffold is a commit with a recipe in its trailers. The lens draws it
+    // as a cell whose output is its diff, and says which later commit
+    // changed what it wrote — the fact the old scaffold cell could not show.
+    let session = start(true).await;
+    std::fs::create_dir_all(session.root.join("app")).unwrap();
+    std::fs::write(session.root.join("app/Program.cs"), "// scaffolded\n").unwrap();
+    std::fs::write(session.root.join("app/app.csproj"), "<Project />\n").unwrap();
+    git(&session.root, &["add", "-A"]);
+    git(
+        &session.root,
+        &[
+            "commit",
+            "-q",
+            "-m",
+            "Scaffold a web API\n\nHick-Recipe: dotnet new webapi -o app --no-restore\n\
+             Hick-Image: mcr.microsoft.com/dotnet/sdk:9.0\nHick-Output: sha256:abc",
+        ],
+    );
+    let scaffold = git(&session.root, &["rev-parse", "HEAD"])
+        .trim()
+        .to_string();
+    // Your four lines, in the next commit.
+    std::fs::write(
+        session.root.join("app/Program.cs"),
+        "// scaffolded\n// mine\n",
+    )
+    .unwrap();
+    git(&session.root, &["commit", "-qam", "Change Main"]);
+    let edit = git(&session.root, &["rev-parse", "--short", "HEAD"])
+        .trim()
+        .to_string();
+
+    let (status, log) = get(&session, "/api/git/log").await;
+    assert_eq!(status, 200);
+    let commits = log["commits"].as_array().unwrap();
+    let card = commits
+        .iter()
+        .find(|c| c["sha"] == scaffold)
+        .expect("the scaffold is in the log");
+    assert_eq!(
+        card["recipe"]["command"],
+        "dotnet new webapi -o app --no-restore"
+    );
+    assert_eq!(card["recipe"]["image"], "mcr.microsoft.com/dotnet/sdk:9.0");
+    assert_eq!(card["recipe"]["output"], "sha256:abc");
+    let plain = commits
+        .iter()
+        .find(|c| c["subject"] == "Change Main")
+        .unwrap();
+    assert!(
+        plain.get("recipe").is_none(),
+        "a commit without trailers has no recipe: {plain}"
+    );
+
+    let (status, detail) = get(&session, &format!("/api/git/commit?sha={scaffold}")).await;
+    assert_eq!(status, 200, "{detail}");
+    let diff = detail["diff"].as_str().unwrap();
+    assert!(
+        diff.contains("+// scaffolded"),
+        "the output is the commit's own diff: {diff}"
+    );
+    let files: Vec<&str> = detail["files"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|f| f.as_str().unwrap())
+        .collect();
+    assert_eq!(files, vec!["app/Program.cs", "app/app.csproj"]);
+    // Program.cs was edited since, by the next commit; the project file was not.
+    let edited = detail["edited_since"].as_array().unwrap();
+    assert_eq!(edited.len(), 1, "{edited:?}");
+    assert_eq!(edited[0]["path"], "app/Program.cs");
+    assert_eq!(edited[0]["short"], edit);
+    assert_eq!(edited[0]["subject"], "Change Main");
+
+    let (status, refused) = get(&session, "/api/git/commit?sha=nothex").await;
+    assert_eq!(status, 400, "{refused}");
+    let (status, missing) = get(&session, "/api/git/commit?sha=deadbeef").await;
+    assert_eq!(status, 404, "{missing}");
+}

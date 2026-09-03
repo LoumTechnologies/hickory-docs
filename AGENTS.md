@@ -558,8 +558,11 @@ file a cell fills then overwrote the cell's real product, with the run
 reporting nothing failed.
 
 **The viewer is a block editor, and a document is one thing it views**
-(`docs/specs/freeform/lenses.md`, adopted 2026-09-03, nothing built under
-that name). A **lens** is a synthesized document — the same cards — over
+(`docs/specs/freeform/lenses.md`, adopted 2026-09-03; **steps 1–2 built the
+same day**: the merged-view guarantee names the rule, and the read-only
+history lens exists — `Read as a story` on the Git pane, `GET
+/api/git/commit?sha=` for a card's diff and *edited since*, `recipe` on a
+log row from the trailers, `the-history-lens-reads-the-repository-as-a-story.md`). A **lens** is a synthesized document — the same cards — over
 something that is not a `.hick` file, and every block declares three things:
 what it is a view of, how a change gets home, and whether a change is
 allowed right now. The third column is entirely rules already decided

@@ -40,6 +40,19 @@ export function openGitTab(layout: Layout): Layout {
   return openInLayout(layout, makeTab("tool", GIT_TAB, "History"), layout.focus);
 }
 
+/** The tab the history lens lives in: the same repository as `GIT_TAB`,
+ * read as a story. docs/specs/freeform/lenses.md */
+export const STORY_TAB = "story";
+
+/** Read the history as a story. Opening it twice fronts the one that exists. */
+export function openStoryTab(layout: Layout): Layout {
+  for (const pane of panes(layout.root)) {
+    const index = pane.tabs.findIndex((t) => t.kind === "tool" && t.target === STORY_TAB);
+    if (index >= 0) return activate(layout, pane.id, index);
+  }
+  return openInLayout(layout, makeTab("tool", STORY_TAB, "Story"), layout.focus);
+}
+
 /** The tab this machine's fleet lives in. */
 export const FLEET_TAB = "fleet";
 

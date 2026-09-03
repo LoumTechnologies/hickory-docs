@@ -34,7 +34,14 @@ const ROW = 44;
 const LANE = 14;
 const EXPANDED_EXTRA = 0;
 
-export function GitPane({ onOpenFile }: { onOpenFile?: (path: string) => void }) {
+export function GitPane({
+  onOpenFile,
+  onOpenStory,
+}: {
+  onOpenFile?: (path: string) => void;
+  /** The same repository, read as a story: the history lens. */
+  onOpenStory?: () => void;
+}) {
   const [log, setLog] = useState<GitLog | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [open, setOpen] = useState<ReadonlySet<string>>(new Set());
@@ -98,6 +105,18 @@ export function GitPane({ onOpenFile }: { onOpenFile?: (path: string) => void })
           drafts, and re-emission may replace them. Merging moves the line,
           which is why it is computed on every read and never stored.
           docs/specs/freeform/expression-and-log.md */}
+      {onOpenStory && (
+        <p className="git-pane__story">
+          <button
+            type="button"
+            className="btn"
+            onClick={onOpenStory}
+            data-tip="The same commits, oldest first, drawn as cards. A lens: read-only, and on disk nowhere."
+          >
+            Read as a story
+          </button>
+        </p>
+      )}
       {floor && (
         <p className="git-floor" role="status">
           <span className="git-floor__count">

@@ -382,6 +382,13 @@ project matches one letter, which is a list nobody reads.
   where each file is `{path, from?, status, added?, removed?}`.
 - `GET /api/git/status` →
   `{repository, branch?, staged?, unstaged?, untracked?}`.
+- `GET /api/git/commit?sha=` →
+  `{sha, diff, files, edited_since: [{path, sha, short, subject}]}` — one
+  commit as a card for the history lens (`lenses.md`): its diff, and for
+  each of its files the nearest later commit that changed it. Asked on
+  expand, not with the log. A commit in the log carries
+  `recipe?: {command, image?, output?}` when its trailers do; that is a
+  declared claim, not a verified one.
 
 **One git invocation answers everything the graph shows.** `--numstat` costs
 almost nothing on top of the log walk, so a commit's files arrive with the

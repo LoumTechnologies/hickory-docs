@@ -119,6 +119,8 @@ import {
   openUntitledTab,
   openWelcomeTab,
   openGitTab,
+  openStoryTab,
+  STORY_TAB,
   WELCOME_TAB,
   GIT_TAB,
   FLEET_TAB,
@@ -150,6 +152,7 @@ import { useZoom } from "./useZoom";
 import { StatusBar } from "../shell/StatusBar";
 import { WelcomePane, type WelcomeAction } from "./WelcomePane";
 import { GitPane } from "./GitPane";
+import { HistoryLens } from "./HistoryLens";
 import { FleetPane } from "./FleetPane";
 import { MergedView } from "./MergedView";
 import {
@@ -432,6 +435,12 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
         label: "History",
         hint: "The commit graph, with every commit's files",
         run: () => setLayout(openGitTab),
+      },
+      {
+        id: "story",
+        label: "History as a story",
+        hint: "The same commits, oldest first, drawn as cards — a lens, read-only",
+        run: () => setLayout(openStoryTab),
       },
       {
         id: "fleet",
@@ -1691,7 +1700,15 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
       );
     }
     if (tab.kind === "tool" && tab.target === GIT_TAB) {
-      return <GitPane onOpenFile={(path) => openHit(path, 1)} />;
+      return (
+        <GitPane
+          onOpenFile={(path) => openHit(path, 1)}
+          onOpenStory={() => setLayout(openStoryTab)}
+        />
+      );
+    }
+    if (tab.kind === "tool" && tab.target === STORY_TAB) {
+      return <HistoryLens />;
     }
     if (tab.kind === "tool" && tab.target === FLEET_TAB) {
       return <FleetPane />;

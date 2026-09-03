@@ -772,9 +772,29 @@ export interface GitFileChange {
   removed?: number;
 }
 
+/** A commit's recipe, from its `Hick-Recipe` / `Hick-Image` / `Hick-Output`
+ * trailers. A DECLARED claim in the commit's own words: nothing has checked
+ * it until a replay does. docs/specs/freeform/lenses.md */
+export interface GitRecipe {
+  command: string;
+  image?: string;
+  output?: string;
+}
+
+/** One commit as a card (`GET /api/git/commit?sha=`): its diff, its files,
+ * and which of those files a later commit changed. */
+export interface GitCommitDetail {
+  sha: string;
+  diff: string;
+  files: string[];
+  edited_since: { path: string; sha: string; short: string; subject: string }[];
+}
+
 export interface GitCommit {
   /** Above the publication floor: still a draft. */
   draft?: boolean;
+  /** The command that produced this commit's tree, when its trailers say. */
+  recipe?: GitRecipe;
   sha: string;
   short: string;
   parents: string[];

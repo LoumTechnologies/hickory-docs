@@ -8299,3 +8299,85 @@ button.status-bar__item:hover { background: var(--bg-sunken); color: var(--fg); 
 .diverged { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; margin: 0 0 0.4rem; font-size: 0.8rem; }
 .diverged__text { flex: 1 1 24rem; }
 .diverged__ways { display: inline-flex; gap: 0.4rem; align-items: center; }
+
+/* The history lens: the repository read as a story, oldest first, with the
+   cards a document uses. A lens — no save path — so the banner says so.
+   docs/specs/freeform/lenses.md */
+.story {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 0.6rem 1rem 2rem;
+  max-width: 64rem;
+}
+.story--none { padding: 1.2rem; }
+.story__banner { margin: 0 0 0.8rem; font-size: 0.8rem; }
+.story__fold { margin: 0 0 0.8rem; }
+.story__floor {
+  margin: 0.4rem 0 0.8rem;
+  padding: 0.3rem 0.6rem;
+  border-top: 1px dashed var(--border);
+  border-bottom: 1px dashed var(--border);
+  font-size: 0.78rem;
+  color: var(--fg-muted);
+}
+.story-card {
+  border: 1px solid var(--border);
+  border-left: 2px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-raised);
+  padding: 0.6rem 0.9rem 0.7rem;
+  margin-bottom: 0.75rem;
+  font-size: 0.85rem;
+}
+.story-card--recipe { border-left-color: var(--accent); }
+.story-card--draft { border-style: dashed; }
+.story-card--tail { border-left-color: var(--fg-muted); }
+.story-card__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.8rem;
+  flex-wrap: wrap;
+}
+.story-card__subject { margin: 0; font-size: 0.95rem; font-weight: 600; }
+.story-card__meta {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  font-size: 0.72rem;
+  color: var(--fg-muted);
+}
+.story-card__body {
+  margin: 0.45rem 0 0;
+  white-space: pre-wrap;
+  color: var(--fg);
+}
+.story-card__toggle { margin-top: 0.55rem; font-size: 0.76rem; }
+.story-card__detail { margin-top: 0.5rem; }
+.story-card__edited { margin: 0 0 0.5rem; font-size: 0.78rem; }
+.story-cell {
+  margin-top: 0.5rem;
+  border: 1px solid var(--border);
+  border-left: 2px solid var(--accent);
+  border-radius: 0 6px 6px 0;
+  background: var(--bg);
+  padding: 0.4rem 0.7rem 0.5rem;
+}
+.story-cell__bar {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  font-size: 0.72rem;
+  color: var(--fg-muted);
+}
+.story-cell__verb { text-transform: uppercase; letter-spacing: 0.04em; font-weight: 600; }
+.story-cell__command { margin: 0.35rem 0 0; white-space: pre-wrap; font-size: 0.8rem; }
+.story-chip {
+  padding: 0 0.35rem;
+  border: 1px dashed var(--border);
+  border-radius: 3px;
+  font-size: 0.7rem;
+}
+.git-pane__story { margin: 0.2rem 0.7rem 0.4rem; }
+

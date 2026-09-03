@@ -51,6 +51,52 @@ struct FileChange {
     removed: Option<u64>,
 }
 
+/// A commit's recipe: the command that produced its tree, from the
+/// `Hick-Recipe` / `Hick-Image` / `Hick-Output` trailers in its message.
+///
+/// A **declared** claim, in the commit's own words — anyone can write a
+/// trailer, and nothing here checks it. Replay is what verifies one, and
+/// until then a recipe commit is drawn as *unrecorded*: say "no evidence of
+/// drift", never "reproducible". docs/specs/freeform/lenses.md
+#[derive(Serialize, Debug, PartialEq, Eq, Clone)]
+pub struct Recipe {
+    pub command: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub image: Option<String>,
+    /// The fingerprint of what the command produced, as the commit claims.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub output: Option<String>,
+}
+
+/// The recipe in a commit body, if its trailers carry one.
+///
+/// Trailers are the last paragraph, `Key: value` per line, which is git's
+/// own rule (`git interpret-trailers`); a `Hick-Recipe:` line in the middle
+/// of prose is prose about a recipe, not a recipe.
+pub fn recipe_of(body: &str) -> Option<Recipe> {
+    let last = body.trim_end().rsplit("\n\n").next()?;
+    let mut command = None;
+    let mut image = None;
+    let mut output = None;
+    for line in last.lines() {
+        let Some((key, value)) = line.split_once(':') else {
+            continue;
+        };
+        let value = value.trim();
+        match key.trim() {
+            "Hick-Recipe" => command = Some(value.to_string()),
+            "Hick-Image" => image = Some(value.to_string()),
+            "Hick-Output" => output = Some(value.to_string()),
+            _ => {}
+        }
+    }
+    command.filter(|c| !c.is_empty()).map(|command| Recipe {
+        command,
+        image,
+        output,
+    })
+}
+
 #[derive(Serialize)]
 struct Commit {
     sha: String,
@@ -74,6 +120,9 @@ struct Commit {
     /// `crate::floor`; see docs/specs/freeform/expression-and-log.md.
     #[serde(default)]
     draft: bool,
+    /// The command that produced this commit's tree, when its trailers say.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    recipe: Option<Recipe>,
 }
 
 #[derive(Deserialize)]
@@ -213,8 +262,10 @@ fn parse_log(text: &str) -> Vec<Commit> {
 
         let added = files.iter().filter_map(|f| f.added).sum();
         let removed = files.iter().filter_map(|f| f.removed).sum();
+        let recipe = recipe_of(&body);
         commits.push(Commit {
             draft: false,
+            recipe,
             sha,
             short,
             parents,
@@ -320,6 +371,123 @@ fn split_rename(path: &str) -> Option<(String, String)> {
     Some((before.to_string(), after.to_string()))
 }
 
+#[derive(Deserialize)]
+pub struct CommitParams {
+    pub sha: String,
+}
+
+/// A later commit that touched one of this commit's files.
+#[derive(Serialize, Debug, PartialEq, Eq)]
+pub struct EditedSince {
+    pub path: String,
+    pub sha: String,
+    pub short: String,
+    pub subject: String,
+}
+
+/// `GET /api/git/commit?sha=` — one commit as a card: its diff, and which
+/// of its files a later commit changed.
+///
+/// The history lens draws a recipe-bearing commit as a cell whose output is
+/// its diff, and says *edited since* on it — the fact the scaffold cell
+/// could never show, because it had one place to put the output. This is
+/// asked per card on expand, not with the log: a `git show` per commit is
+/// a process per row, and the lens folds its past by default.
+pub async fn commit(
+    State(state): State<LocalState>,
+    Query(params): Query<CommitParams>,
+) -> ApiResult<Json<Value>> {
+    let root = state.index.root().to_path_buf();
+    let sha = params.sha.trim().to_string();
+    if sha.is_empty() || !sha.chars().all(|c| c.is_ascii_hexdigit()) {
+        return Err(ApiError::bad_request(format!(
+            "`{sha}` is not a commit id. Pass the hex id the log reported."
+        )));
+    }
+    tokio::task::spawn_blocking(move || {
+        let show = git(
+            &root,
+            &[
+                "show",
+                "--no-color",
+                "--no-ext-diff",
+                "--find-renames",
+                "--format=",
+                &sha,
+            ],
+        )
+        .ok_or_else(|| ApiError::internal("could not run git".to_string()))?;
+        if !show.status.success() {
+            return Err(ApiError::not_found(format!(
+                "no commit `{sha}` in this repository: {}",
+                String::from_utf8_lossy(&show.stderr).trim()
+            )));
+        }
+        let diff = String::from_utf8_lossy(&show.stdout).into_owned();
+        let files: Vec<String> = git(&root, &["show", "--name-only", "--format=", &sha])
+            .map(|out| {
+                String::from_utf8_lossy(&out.stdout)
+                    .lines()
+                    .map(str::trim)
+                    .filter(|l| !l.is_empty())
+                    .map(str::to_string)
+                    .collect()
+            })
+            .unwrap_or_default();
+        let edited_since = edited_since(&root, &sha, &files);
+        Ok(Json(json!({
+            "sha": sha,
+            "diff": diff,
+            "files": files,
+            "edited_since": edited_since,
+        })))
+    })
+    .await
+    .map_err(|e| ApiError::internal(format!("the git task failed: {e}")))?
+}
+
+/// For each of `files`, the nearest later commit on the way to HEAD that
+/// changed it — the *edited since* fact on a recipe card.
+///
+/// One `git log` for all of them, walking `<sha>..HEAD` oldest-first with
+/// `--name-only`; the first commit naming a path is the one that edited it
+/// first. Bounded by the log's own walk, not by a call per file.
+fn edited_since(root: &std::path::Path, sha: &str, files: &[String]) -> Vec<EditedSince> {
+    if files.is_empty() {
+        return Vec::new();
+    }
+    let range = format!("{sha}..HEAD");
+    let format = format!("--pretty=format:{RECORD}%H{FIELD}%h{FIELD}%s");
+    let mut args: Vec<&str> = vec!["log", "--reverse", "--name-only", &format, &range, "--"];
+    args.extend(files.iter().map(String::as_str));
+    let Some(out) = git(root, &args) else {
+        return Vec::new();
+    };
+    let text = String::from_utf8_lossy(&out.stdout);
+    let mut seen: std::collections::HashSet<&str> = std::collections::HashSet::new();
+    let mut edits = Vec::new();
+    for record in text.split(RECORD) {
+        let mut lines = record.lines();
+        let Some(head) = lines.next() else { continue };
+        let mut parts = head.split(FIELD);
+        let (Some(commit), Some(short), Some(subject)) = (parts.next(), parts.next(), parts.next())
+        else {
+            continue;
+        };
+        for path in lines.map(str::trim).filter(|l| !l.is_empty()) {
+            if files.iter().any(|f| f == path) && seen.insert(path) {
+                edits.push(EditedSince {
+                    path: path.to_string(),
+                    sha: commit.trim().to_string(),
+                    short: short.to_string(),
+                    subject: subject.to_string(),
+                });
+            }
+        }
+    }
+    edits
+}
+
 /// `GET /api/git/status` — the branch, and whether anything is uncommitted.
 ///
 /// The status bar's half of this: a name and two counts, not a file list.
@@ -373,6 +541,35 @@ mod tests {
 
     fn record(fields: &[&str]) -> String {
         format!("{RECORD}{}", fields.join(&FIELD.to_string()))
+    }
+
+    #[test]
+    fn a_recipe_is_read_from_the_last_paragraphs_trailers() {
+        // Protects docs/guarantees/lenses/the-history-lens-reads-the-repository-as-a-story.md
+        let body = "Scaffold a web API\n\nMore prose, mentioning Hick-Recipe: in passing.\n\n\
+                    Hick-Recipe: dotnet new webapi -o . --no-restore\n\
+                    Hick-Image: mcr.microsoft.com/dotnet/sdk:9.0\n\
+                    Hick-Output: sha256:9f2c";
+        assert_eq!(
+            recipe_of(body),
+            Some(Recipe {
+                command: "dotnet new webapi -o . --no-restore".into(),
+                image: Some("mcr.microsoft.com/dotnet/sdk:9.0".into()),
+                output: Some("sha256:9f2c".into()),
+            })
+        );
+        // A recipe line in the middle of prose is prose about a recipe.
+        assert_eq!(recipe_of("Hick-Recipe: x\n\nand then some prose"), None);
+        assert_eq!(recipe_of("just a message"), None);
+        // The command alone is a recipe; the image and output are optional.
+        assert_eq!(
+            recipe_of("Subject\n\nHick-Recipe: cargo init"),
+            Some(Recipe {
+                command: "cargo init".into(),
+                image: None,
+                output: None
+            })
+        );
     }
 
     #[test]

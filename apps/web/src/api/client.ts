@@ -60,6 +60,7 @@ import type {
   GitDiff,
   GitSaid,
   GitBranch,
+  GitCommitDetail,
   GitCommitResult,
 } from "./types";
 
@@ -372,6 +373,10 @@ export const api = {
 
   /** The branch, and whether anything is uncommitted. */
   gitStatus: () => request<GitStatus>("GET", "/api/git/status"),
+  /** One commit as a card: its diff, and which of its files were edited
+   * since. Asked on expand by the history lens. */
+  gitCommitDetail: (sha: string) =>
+    request<GitCommitDetail>("GET", `/api/git/commit?sha=${encodeURIComponent(sha)}`),
 
   // The git pane's verbs — each one git command, run as itself, with git's
   // own words when it refuses. See crates/hickory-cli/src/serve/git_ops.rs.
