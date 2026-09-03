@@ -18,6 +18,7 @@ import { createLspChannel, encodeLspFrame, type JsonRpcMessage } from "../lsp/ch
 import { resetWorkspaceLsp } from "../lsp/useLsp";
 import { resetWorkspaceDebugger } from "../debug/useDebugger";
 import { publishPausedElsewhere, resetPausedElsewhere } from "../lib/pausedElsewhere";
+import { PlainDebugHosts, resetPlainDebugHosts } from "../debug/plainDebugHosts";
 import { allFileProblems, resetFileProblems } from "../lib/fileProblems";
 
 const ON_DISK = "one\ntwo\nthree\n";
@@ -52,6 +53,7 @@ beforeEach(() => {
   resetWorkspaceLsp();
   resetWorkspaceDebugger();
   resetPausedElsewhere();
+  resetPlainDebugHosts();
   resetFileProblems();
 });
 
@@ -286,7 +288,7 @@ describe("a plain file and the debugger", () => {
   it("offers Debug and a breakpoint gutter for a language hick can debug", async () => {
     debugWire();
     serveFile("tools/app.py", "python", APP);
-    render(<PlainFilePane path="tools/app.py" />);
+    render(<><PlainDebugHosts /><PlainFilePane path="tools/app.py" /></>);
     await waitFor(() => {
       expect(screen.getByRole("button", { name: "Debug" })).toBeDefined();
       expect(document.querySelector(".cm-breakpoint-gutter")).not.toBeNull();
@@ -298,7 +300,7 @@ describe("a plain file and the debugger", () => {
     // cannot keep, and a Debug button that only ever fails is worse.
     debugWire();
     serveFile("notes.md", "markdown", ON_DISK);
-    render(<PlainFilePane path="notes.md" />);
+    render(<><PlainDebugHosts /><PlainFilePane path="notes.md" /></>);
     await waitFor(() => expect(document.querySelector(".cm-content")).not.toBeNull());
     expect(screen.queryByRole("button", { name: "Debug" })).toBeNull();
     expect(document.querySelector(".cm-breakpoint-gutter")).toBeNull();
@@ -309,7 +311,7 @@ describe("a plain file and the debugger", () => {
     // This pane holds helpers.py; for reading, the paused line is its own.
     debugWire();
     serveFile("tools/helpers.py", "python", "def double(x):\n    return x * 2\n");
-    render(<PlainFilePane path="tools/helpers.py" />);
+    render(<><PlainDebugHosts /><PlainFilePane path="tools/helpers.py" /></>);
     await waitFor(() => expect(document.querySelector(".cm-breakpoint-gutter")).not.toBeNull());
     publishPausedElsewhere("tools/app.py", { path: "tools/helpers.py", line: 1 });
     await waitFor(() => expect(document.querySelector(".cm-paused-arrow")).not.toBeNull());
@@ -323,7 +325,7 @@ describe("a plain file and the debugger", () => {
   it("starts at the file's own path and shows the session above the file", async () => {
     const { sent, deliver } = debugWire();
     serveFile("tools/app.py", "python", APP);
-    render(<PlainFilePane path="tools/app.py" />);
+    render(<><PlainDebugHosts /><PlainFilePane path="tools/app.py" /></>);
     const button = await screen.findByRole("button", { name: "Debug" });
     button.click();
     await waitFor(() =>

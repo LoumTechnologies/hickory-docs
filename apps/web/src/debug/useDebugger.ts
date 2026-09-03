@@ -120,6 +120,36 @@ export function eventIsOurs(
   return session !== null && event.session === session;
 }
 
+/** A session that does nothing: what a pane shows until its host has mounted. */
+export const IDLE_SESSION: DebugSession = {
+  offerInstall: null,
+  status: "idle",
+  message: null,
+  program: null,
+  capabilities: null,
+  pausedLine: null,
+  frames: [],
+  variables: [],
+  selectedFrame: null,
+  breakpoints: [],
+  exitCode: null,
+  buildOutput: [],
+  lastValue: null,
+  watches: [],
+  start() {},
+  stop() {},
+  step() {},
+  jumpTo() {},
+  runTo() {},
+  toggleBreakpoint() {},
+  selectFrame() {},
+  evaluate() {},
+  valueAt: () => Promise.resolve(null),
+  query: () => Promise.resolve(null),
+  addWatch() {},
+  removeWatch() {},
+};
+
 /** A debugger for one document, over the document's own socket. */
 export function useDebugger(realtime: Realtime, docPath: string): DebugSession {
   const client = useMemo(() => {

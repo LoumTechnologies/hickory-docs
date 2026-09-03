@@ -153,6 +153,7 @@ import { StatusBar } from "../shell/StatusBar";
 import { WelcomePane, type WelcomeAction } from "./WelcomePane";
 import { GitPane } from "./GitPane";
 import { HistoryLens } from "./HistoryLens";
+import { PlainDebugHosts } from "../debug/plainDebugHosts";
 import { FleetPane } from "./FleetPane";
 import { MergedView } from "./MergedView";
 import {
@@ -1818,6 +1819,9 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
 
   return (
     <div className="doc-page with-chat wide-mode">
+      {/* Plain files' debug sessions, held above their panes so a session
+          survives the tab that started it being fronted away. */}
+      <PlainDebugHosts />
       {/* One field across the top, understanding four prefixes, rather than
           four separate controls to learn and four places to look. */}
       <div className="workspace-top">

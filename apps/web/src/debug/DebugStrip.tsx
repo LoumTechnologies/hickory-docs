@@ -17,11 +17,22 @@ import type { DebugCapabilities, Frame, Step } from "./client";
 import { backwardsControl } from "./client";
 import type { Watch } from "./useDebugger";
 
-/** The combo box's line for one frame: who, and where it will return to. */
+/**
+ * The combo box's line for one frame: who, and where it will return to.
+ *
+ * A frame in another file of the folder is named by that file and line —
+ * it is one the app can open — and only a frame outside the folder (the
+ * standard library, an installed package) is "external".
+ */
 export function frameLabel(frame: Frame): string {
-  return frame.in_document && frame.line !== null && frame.line !== undefined
-    ? `${frame.name} — line ${frame.line + 1}`
-    : `${frame.name} — external`;
+  if (frame.in_document && frame.line !== null && frame.line !== undefined) {
+    return `${frame.name} — line ${frame.line + 1}`;
+  }
+  const inFolder = !!frame.source && !/^([A-Za-z]:)?[\\/]/.test(frame.source);
+  if (inFolder && typeof frame.source_line === "number") {
+    return `${frame.name} — ${frame.source}:${frame.source_line + 1}`;
+  }
+  return `${frame.name} — external`;
 }
 
 /**

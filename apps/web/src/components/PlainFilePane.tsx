@@ -56,19 +56,11 @@ import { onFlushSaves } from "../lib/flushSaves";
 import { MergeView } from "./MergeView";
 import { DivergedBanner } from "./DivergedBanner";
 import { DebugStrip } from "../debug/DebugStrip";
-import { publishPausedElsewhere, usePausedElsewhere } from "../lib/pausedElsewhere";
+import { usePausedElsewhere } from "../lib/pausedElsewhere";
 import { debugEditor, debugStateEffects, revealLine } from "../debug/cmDebug";
 import { isDebuggable } from "../debug/languages";
-import { useWorkspaceDebugger } from "../debug/useDebugger";
-
-/**
- * Whether a frame's source is a file in the folder the app opened — which
- * the server names root-relative — rather than a path outside it, which
- * the adapter named absolutely and which no tab can show.
- */
-export function isWorkspaceSource(source: string | null | undefined): source is string {
-  return !!source && !/^([A-Za-z]:)?[\\/]/.test(source);
-}
+import { IDLE_SESSION } from "../debug/useDebugger";
+import { isWorkspaceSource, usePlainDebugSession } from "../debug/plainDebugHosts";
 
 export function PlainFilePane({
   path,
@@ -154,9 +146,12 @@ export function PlainFilePane({
   // The debugger, over the same workspace connection the language server
   // uses. The file is debugged as itself: a breakpoint on line 12 is a
   // breakpoint on line 12 of this file, and the program runs in its own
-  // project. The pane reads the session through a ref inside the editor's
-  // callbacks, which were built once and must see the current state.
-  const debug = useWorkspaceDebugger(path);
+  // project. The session lives ABOVE this pane, in a workspace-level host
+  // (debug/plainDebugHosts.tsx), because only the active tab is rendered
+  // and a session held here would die the moment another tab was fronted.
+  // The pane reads the session through a ref inside the editor's callbacks,
+  // which were built once and must see the current state.
+  const debug = usePlainDebugSession(path) ?? IDLE_SESSION;
   const debugRef = useRef(debug);
   debugRef.current = debug;
   // Selecting a frame is asking to go there. A frame in this file is
@@ -498,27 +493,6 @@ export function PlainFilePane({
 
   // Who last touched each line, when the column is on.
   useBlame(railView, path);
-
-  // Where THIS pane's session is paused when that is another file of the
-  // folder: say so, and open that file, the way stepping into a callee in
-  // another file opens it in any IDE. Cleared the moment the program moves
-  // on or the session ends; only this owner can clear what it published.
-  useEffect(() => {
-    const top = debug.frames[0];
-    if (
-      debug.status === "paused" &&
-      top &&
-      !top.in_document &&
-      isWorkspaceSource(top.source) &&
-      typeof top.source_line === "number"
-    ) {
-      publishPausedElsewhere(path, { path: top.source, line: top.source_line });
-      openLocation(top.source, top.source_line + 1);
-    } else {
-      publishPausedElsewhere(path, null);
-    }
-  }, [debug.status, debug.frames, path]);
-  useEffect(() => () => publishPausedElsewhere(path, null), [path]);
 
   // And the other side: a session owned by ANOTHER pane is paused in this
   // file. Drawn as the paused line here, because for reading it is one.

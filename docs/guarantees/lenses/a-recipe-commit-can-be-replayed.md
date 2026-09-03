@@ -68,4 +68,6 @@ Last LLM verification:
   `apps/web/src/views/HistoryLens.test.tsx` ("the story's verbs").
 - Caveats: the conflict-stopped path is tested for a reorder (`story.rs`),
   not for a replay's rebase; both go through the same `409` and leave git's
-  state. Exercised in jsdom, not in a real browser.
+  state. Replay was driven in a real browser on 2026-09-03 (the dirty-tree
+  refusal in git's words, then a rebase whose new card showed both chips);
+  the automated browser-side coverage is jsdom.

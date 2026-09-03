@@ -39,14 +39,20 @@ made for plain files:
    no scratch copy. A plain file has nothing woven to protect and no
    transcript to keep honest; it is the person's program in the person's
    checkout, and it reads and writes what it would under `cargo run`.
-4. **The pane wires the whole layer over the workspace socket.**
-   `PlainFilePane` mounts `debugEditor` with the file's language as the
-   whole-file language, so every non-blank line can hold a breakpoint;
-   `useWorkspaceDebugger` shares one `DebugClient` over the workspace
-   connection (which now carries the debug channel as well as the language
-   one); and because every plain-file pane shares that connection, the
-   server names the file on `started`, `build` and a failed `start`, and
-   each pane keeps only the events for its own file or its own session.
+4. **The pane wires the whole layer over the workspace socket, and the
+   session lives above the pane.** `PlainFilePane` mounts `debugEditor`
+   with the file's language as the whole-file language, so every non-blank
+   line can hold a breakpoint; `useWorkspaceDebugger` shares one
+   `DebugClient` over the workspace connection (which now carries the debug
+   channel as well as the language one); and because every plain-file pane
+   shares that connection, the server names the file on `started`, `build`
+   and a failed `start`, and each pane keeps only the events for its own
+   file or its own session. The session itself is held by a workspace-level
+   **host** (`debug/plainDebugHosts.tsx`), one per path, never unmounted —
+   because only a pane's active tab is rendered, and a session held in the
+   pane's own state died the moment stepping into a callee fronted the
+   callee's tab. Found in a real browser on 2026-09-03; a document never
+   had this problem because its session lives in the workspace registry.
 
 ## Boundary
 
@@ -96,11 +102,16 @@ Last LLM verification:
   `apps/web/src/debug/useDebugger.test.ts` ("two panes on one socket");
   `apps/web/src/debug/cmDebug.test.ts` ("a plain file's breakpoints");
   `apps/web/src/components/PlainFilePane.test.tsx` ("a plain file and the
-  debugger").
+  debugger", rendered beside `PlainDebugHosts`);
+  `apps/web/src/debug/DebugStrip.test.tsx` (a frame in another file of the
+  folder is named by file and line, not "external").
 - Caveats: the live tests (Python, Rust, and C# —
   `a_plain_csharp_file_builds_its_own_project_in_place_and_stops_on_its_own_line`,
   `dotnet build` in the file's own project, the assembly under its own
   `bin/`) skip loudly when the adapter or toolchain is missing, so a machine
-  without them verifies the shape and not the running program. The
-  browser-side behaviours are exercised by the pane test in jsdom, not in a
-  real browser.
+  without them verifies the shape and not the running program. The whole
+  loop — breakpoint, Debug, paused line with inline values, step into the
+  neighbouring file, its tab opening with the paused line, the stack naming
+  it, Stop — was driven in a real browser (Playwright over the Vite dev
+  server and the engine) on 2026-09-03; the automated coverage of the
+  browser side is jsdom.

@@ -21,6 +21,18 @@ describe("the combo box's line for a frame", () => {
       frameLabel({ id: 3, name: "runner", line: null, source: "orders.py", in_document: true }),
     ).toBe("runner — external");
   });
+
+  it("names a frame in another file of the folder by that file and line", () => {
+    // Protects docs/guarantees/debugging/a-plain-file-has-the-same-debugger.md
+    // The callee in `tools/helpers.py` is not external: the app can open it,
+    // and the stack should say where it is rather than shrug.
+    expect(
+      frameLabel({ id: 4, name: "double", line: null, source: "tools/helpers.py", source_line: 1, in_document: false }),
+    ).toBe("double — tools/helpers.py:2");
+    expect(
+      frameLabel({ id: 5, name: "loads", line: null, source: "/usr/lib/python3/json/__init__.py", source_line: 3, in_document: false }),
+    ).toBe("loads — external");
+  });
 });
 
 describe("the function keys the tooltips promise", () => {
