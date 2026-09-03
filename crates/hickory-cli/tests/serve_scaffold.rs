@@ -799,3 +799,172 @@ async fn the_catalogue_answers_or_says_there_is_no_sdk() {
     let (status, error) = get(&session, "/api/scaffold/options?template=nope-nope").await;
     assert_eq!(status, 422, "{error}");
 }
+
+// ---------------------------------------------------------------------------
+// A second scaffolder
+//
+// Protects docs/guarantees/authoring/a-new-project-uses-the-toolchain-the-language-uses.md
+// ---------------------------------------------------------------------------
+
+fn has(program: &str) -> bool {
+    std::process::Command::new(program)
+        .arg("--version")
+        .output()
+        .map(|o| o.status.success())
+        .unwrap_or(false)
+}
+
+#[tokio::test]
+async fn the_catalogue_names_every_scaffolder_this_machine_has() {
+    let session = start().await;
+    let (status, body) = get(&session, "/api/scaffold/templates?toolchain=uv").await;
+    if !has("uv") {
+        // The typed refusal, not a shell's "command not found": the dialog
+        // draws its own screen from `missing`, never from the sentence.
+        assert_eq!(status, 422, "{body}");
+        assert_eq!(body["detail"]["missing"], "uv", "{body}");
+        return;
+    }
+    assert_eq!(status, 200, "{body}");
+    assert_eq!(body["kind"], "uv");
+
+    // Measured, never declared. Whatever is listed is on this machine.
+    let ids: Vec<&str> = body["toolchains"]
+        .as_array()
+        .expect("toolchains")
+        .iter()
+        .map(|t| t["id"].as_str().unwrap())
+        .collect();
+    assert!(ids.contains(&"uv"), "{ids:?}");
+    for id in &ids {
+        assert!(has(id), "`{id}` was offered and is not installed");
+    }
+
+    // A single-shape tool is a catalogue of one, so the dialog needs no
+    // second idea of what a scaffolder is.
+    let templates = body["templates"].as_array().unwrap();
+    assert_eq!(templates.len(), 1, "{templates:?}");
+    assert_eq!(templates[0]["short_names"][0], "init");
+}
+
+#[tokio::test]
+async fn a_scaffolder_nobody_serves_is_refused_by_name() {
+    let session = start().await;
+    let (status, body) = get(&session, "/api/scaffold/templates?toolchain=maven").await;
+    assert_eq!(status, 400, "{body}");
+    let message = body["error"].as_str().unwrap_or_default().to_string();
+    assert!(message.contains("maven"), "{message}");
+    // And it says what it does know, rather than only what it does not.
+    assert!(
+        message.contains("dotnet") && message.contains("uv"),
+        "{message}"
+    );
+}
+
+#[tokio::test]
+async fn uvs_own_flags_are_the_form_and_the_ones_hick_owns_are_not() {
+    if !has("uv") {
+        eprintln!("SKIPPED: no uv on this machine");
+        return;
+    }
+    let session = start().await;
+    let (status, body) = get(&session, "/api/scaffold/options?toolchain=uv&template=init").await;
+    assert_eq!(status, 200, "{body}");
+    let flags: Vec<&str> = body["options"]
+        .as_array()
+        .expect("options")
+        .iter()
+        .map(|o| o["flag"].as_str().unwrap())
+        .collect();
+    for expected in ["--lib", "--app", "--package", "--name"] {
+        assert!(flags.contains(&expected), "no `{expected}` among {flags:?}");
+    }
+    // Version control is asked once, by the dialog's own checkbox, at the
+    // level where the question belongs.
+    assert!(!flags.contains(&"--vcs"), "{flags:?}");
+    assert!(!flags.contains(&"--help"), "{flags:?}");
+}
+
+#[tokio::test]
+async fn a_uv_project_is_a_recipe_commit_like_any_other() {
+    if !has("uv") {
+        eprintln!("SKIPPED: no uv on this machine");
+        return;
+    }
+    let session = start().await;
+    std::fs::write(session.root.join("notes.hick"), "# Notes\nmine\n").unwrap();
+    let before = git_out(&session.root, &["rev-parse", "HEAD"]);
+
+    let body = json!({
+        "toolchain": "uv",
+        "template": "init",
+        "name": "orders",
+        "output": "orders",
+        "image": "ghcr.io/astral-sh/uv:0.11.7",
+        "options": [{ "flag": "--lib" }],
+    });
+
+    // The preview is the commit that gets made — the same renderer, over the
+    // wire, so no second implementation can show a different one.
+    let (status, preview) = post(&session, "/api/scaffold/preview", body.clone()).await;
+    assert_eq!(status, 200, "{preview}");
+    let previewed = preview["command"].as_str().unwrap().to_string();
+    assert!(previewed.starts_with("uv init orders"), "{previewed}");
+    assert!(previewed.contains("--vcs none"), "{previewed}");
+
+    let (status, started) = post(&session, "/api/scaffold", body).await;
+    assert_eq!(status, 202, "{started}");
+    let term = started["session"]["id"].as_str().unwrap().to_string();
+    let created = settle(&session, &term).await;
+    assert_eq!(created["state"], "committed", "{created}");
+
+    let files: Vec<&str> = created["files"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|f| f.as_str().unwrap())
+        .collect();
+    assert!(files.contains(&"orders/pyproject.toml"), "{files:?}");
+    assert!(files.iter().all(|f| f.starts_with("orders/")), "{files:?}");
+    // The defect this rule exists for: both `uv init` and `cargo new` make a
+    // repository INSIDE the project unless told not to, and this scaffold is
+    // committed to the repository that contains it.
+    assert!(
+        !files.iter().any(|f| f.contains("/.git/")),
+        "a nested repository was committed: {files:?}"
+    );
+    assert!(
+        !session.root.join("orders/.git").exists(),
+        "uv made a repository inside the one it was committed to"
+    );
+
+    // One commit, on top of the person's untouched work.
+    let sha = created["sha"].as_str().unwrap().to_string();
+    assert_eq!(git_out(&session.root, &["rev-parse", "HEAD^"]), before);
+    assert_eq!(
+        git_out(&session.root, &["status", "--porcelain"]).trim(),
+        "M notes.hick"
+    );
+
+    // The trailers a replay reads, naming the tool that actually ran.
+    let message = git_out(&session.root, &["log", "-1", "--format=%B", &sha]);
+    assert!(
+        message.starts_with("Scaffold orders with `uv init`"),
+        "{message}"
+    );
+    assert!(
+        message.contains(&format!("Hick-Recipe: {previewed}")),
+        "the recipe must be the previewed line, verbatim:\n{message}"
+    );
+    assert!(
+        message.contains("Hick-Image: ghcr.io/astral-sh/uv:"),
+        "{message}"
+    );
+
+    // And the history lens reads it as a recipe whose tree matches.
+    let (status, log) = get(&session, "/api/git/log").await;
+    assert_eq!(status, 200);
+    let card = &log["commits"][0];
+    assert_eq!(card["sha"], json!(sha));
+    assert_eq!(card["recipe"]["output_matches"], json!(true), "{card}");
+}

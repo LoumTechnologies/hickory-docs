@@ -5,7 +5,7 @@
 // and docs/guarantees/authoring/a-machine-with-no-sdk-says-so.md
 
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 
 vi.mock("../api/client", () => ({
   ApiError: class ApiError extends Error {
@@ -42,6 +42,15 @@ const CATALOG: ScaffoldCatalog = {
   location: "/home/nate/notes",
   separator: "/",
   can_pick_folder: true,
+  toolchains: [
+    {
+      id: "dotnet",
+      label: ".NET",
+      language: "C#",
+      version: "10.0.100",
+      templated: true,
+    },
+  ],
   templates: [
     {
       short_names: ["console"],
@@ -151,11 +160,11 @@ describe("the machine's own templates", () => {
   it("re-reads the options when the language changes", async () => {
     ready();
     await screen.findByText("-f, --framework");
-    expect(api.scaffoldOptions).toHaveBeenCalledWith("console", "C#");
+    expect(api.scaffoldOptions).toHaveBeenCalledWith("console", "C#", "dotnet");
 
     fireEvent.change(screen.getByDisplayValue("C#"), { target: { value: "F#" } });
     await waitFor(() =>
-      expect(api.scaffoldOptions).toHaveBeenCalledWith("console", "F#"),
+      expect(api.scaffoldOptions).toHaveBeenCalledWith("console", "F#", "dotnet"),
     );
   });
 });
@@ -471,5 +480,103 @@ describe("a machine with no SDK", () => {
     );
     render(<NewProjectDialog onStarted={vi.fn()} onClose={vi.fn()} />);
     await screen.findByText("Could not read the templates");
+  });
+});
+
+// Protects docs/guarantees/authoring/a-new-project-uses-the-toolchain-the-language-uses.md
+describe("choosing which scaffolder", () => {
+  const UV = {
+    id: "uv",
+    label: "Python (uv)",
+    language: "Python",
+    version: "uv 0.11.7",
+    templated: false,
+  };
+  const BOTH: ScaffoldCatalog = {
+    ...CATALOG,
+    toolchains: [CATALOG.toolchains[0], UV],
+  };
+  const UV_CATALOG: ScaffoldCatalog = {
+    ...BOTH,
+    kind: "uv",
+    sdk_version: "uv 0.11.7",
+    image: "ghcr.io/astral-sh/uv:0.11.7",
+    templates: [
+      {
+        short_names: ["init"],
+        name: "Python project",
+        languages: ["Python"],
+        default_language: "Python",
+        tags: ["Python"],
+      },
+    ],
+  };
+  const UV_DETAIL: ScaffoldTemplateDetail = {
+    title: "Python (uv) (uv init)",
+    author: "",
+    description: "Create a new project",
+    other_languages: [],
+    options: [
+      {
+        names: ["--lib"],
+        flag: "--lib",
+        kind: "bool",
+        choices: [],
+        default: null,
+        description: "Create a project for a library",
+        enabled_if: null,
+      },
+    ],
+  };
+
+  it("draws no picker on a machine with one scaffolder", async () => {
+    ready();
+    await screen.findByText("-f, --framework");
+    expect(screen.queryByRole("radiogroup", { name: "Toolchain" })).toBeNull();
+  });
+
+  it("offers every scaffolder this machine has, and no others", async () => {
+    vi.mocked(api.scaffoldTemplates).mockResolvedValue(BOTH);
+    vi.mocked(api.scaffoldOptions).mockResolvedValue(DETAIL);
+    render(<NewProjectDialog onStarted={vi.fn()} onClose={vi.fn()} />);
+    await screen.findByText("-f, --framework");
+    const group = screen.getByRole("radiogroup", { name: "Toolchain" });
+    const labels = within(group)
+      .getAllByRole("radio")
+      .map((button) => button.textContent);
+    expect(labels).toEqual([".NET", "Python (uv)"]);
+    expect(
+      within(group).getByRole("radio", { name: ".NET" }).getAttribute("aria-checked"),
+    ).toBe("true");
+  });
+
+  it("asks the server again, for the scaffolder that was picked", async () => {
+    vi.mocked(api.scaffoldTemplates).mockResolvedValue(BOTH);
+    vi.mocked(api.scaffoldOptions).mockResolvedValue(DETAIL);
+    render(<NewProjectDialog onStarted={vi.fn()} onClose={vi.fn()} />);
+    await screen.findByText("-f, --framework");
+
+    vi.mocked(api.scaffoldTemplates).mockResolvedValue(UV_CATALOG);
+    vi.mocked(api.scaffoldOptions).mockResolvedValue(UV_DETAIL);
+    fireEvent.click(screen.getByRole("radio", { name: "Python (uv)" }));
+
+    await waitFor(() =>
+      expect(api.scaffoldTemplates).toHaveBeenCalledWith("uv"),
+    );
+    // And the form is uv's own, not .NET's carried over: `--no-restore` is a
+    // flag uv has never heard of.
+    await screen.findByText("--lib");
+    expect(screen.queryByText("-f, --framework")).toBeNull();
+    await waitFor(() =>
+      expect(api.scaffoldOptions).toHaveBeenCalledWith("init", "Python", "uv"),
+    );
+  });
+
+  it("names the tool that is not installed, rather than always .NET", async () => {
+    vi.mocked(api.scaffoldTemplates).mockRejectedValue(
+      new ApiError(422, "no `uv` on this machine's PATH", { missing: "uv" }),
+    );
+    render(<NewProjectDialog onStarted={vi.fn()} onClose={vi.fn()} />);
+    expect(await screen.findByText("No uv on this machine")).toBeTruthy();
   });
 });

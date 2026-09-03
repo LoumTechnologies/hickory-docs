@@ -237,16 +237,21 @@ export const api = {
    * has. 422 with `{missing: "dotnet"}` when there is no SDK at all — the
    * dialog keys off that field, never off the sentence.
    * See crates/hickory-cli/src/serve/scaffold.rs. */
-  scaffoldTemplates: () =>
-    request<ScaffoldCatalog>("GET", "/api/scaffold/templates"),
+  scaffoldTemplates: (toolchain?: string) =>
+    request<ScaffoldCatalog>(
+      "GET",
+      "/api/scaffold/templates" +
+        (toolchain ? `?toolchain=${encodeURIComponent(toolchain)}` : ""),
+    ),
 
   /** One template's options, as fields. A second `dotnet` process, so it is
    * asked for only once a template is chosen. */
-  scaffoldOptions: (template: string, language?: string | null) =>
+  scaffoldOptions: (template: string, language?: string | null, toolchain?: string) =>
     request<ScaffoldTemplateDetail>(
       "GET",
       `/api/scaffold/options?template=${encodeURIComponent(template)}` +
-        (language ? `&language=${encodeURIComponent(language)}` : ""),
+        (language ? `&language=${encodeURIComponent(language)}` : "") +
+        (toolchain ? `&toolchain=${encodeURIComponent(toolchain)}` : ""),
     ),
 
   /** The exact bytes New Project would write, without writing them. The same

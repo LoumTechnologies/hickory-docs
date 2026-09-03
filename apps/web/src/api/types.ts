@@ -1118,10 +1118,28 @@ export interface ScaffoldTemplate {
   tags: string[];
 }
 
+/** One scaffolder this machine actually has. */
+export interface ScaffoldToolchain {
+  /** `dotnet`, `uv`, `cargo` — what a request names it by. */
+  id: string;
+  /** What the picker calls it: ".NET", "Python (uv)", "Rust (cargo)". */
+  label: string;
+  /** The language a project made with it is written in. */
+  language: string;
+  /** What the tool reported for `--version`, verbatim. */
+  version: string;
+  /** Whether it has a template catalogue (dotnet) or one shape chosen by
+   * flags (uv, cargo). A single-shape tool draws no template list. */
+  templated: boolean;
+}
+
 export interface ScaffoldCatalog {
-  /** `dotnet` today. Named so a second scaffolder is a variant of this
-   * screen rather than a rewrite of it. */
+  /** Which scaffolder this catalogue is for. */
   kind: string;
+  /** Every scaffolder this machine has, measured rather than declared —
+   * so the picker can never offer one that would fail after the form is
+   * filled in. */
+  toolchains: ScaffoldToolchain[];
   sdk_version: string;
   /** The SDK image matching that version, for the document's container. */
   image: string;
@@ -1197,6 +1215,9 @@ export interface ScaffoldSpec {
   open: OpenWhere;
   image: string;
   options: ChosenOption[];
+  /** Which scaffolder. Absent means `dotnet`, which is what every request
+   * meant before there was a choice. */
+  toolchain?: string;
 }
 
 /** Where a folder is opened. `this-window` is a restart: a session is a

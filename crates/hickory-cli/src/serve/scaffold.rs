@@ -60,8 +60,9 @@ use serde_json::{Value, json};
 
 use super::api::{ApiError, ApiResult};
 use super::{LocalState, OpenWhere};
-use crate::scaffold::{self, NoDotnetSdk, ScaffoldSpec};
+use crate::scaffold::{NoDotnetSdk, ScaffoldSpec};
 use crate::scaffold_commit::{self, NotARepository, Target};
+use crate::toolchain::Toolchain;
 
 /// How often the watcher asks whether the scaffolder has finished. Fast
 /// enough that the commit lands while the person is still looking at the
@@ -92,22 +93,97 @@ fn scaffold_error(e: anyhow::Error) -> ApiError {
     ApiError::unprocessable(format!("{e:#}"))
 }
 
+/// The same, for a scaffolder that is not `dotnet`.
+///
+/// A missing tool is a machine that cannot do this at all, not a failed
+/// request, and the dialog draws its own screen from `missing` rather than
+/// from the sentence — the rule `hick_dap::MissingAdapter` set and
+/// `NoDotnetSdk` followed. Extending it was not optional: without this, a
+/// machine with no `uv` answered "no such file or directory" and the dialog
+/// had nothing to key off.
+fn scaffold_error_for(toolchain: Toolchain, e: anyhow::Error) -> ApiError {
+    if toolchain == Toolchain::Dotnet {
+        return scaffold_error(e);
+    }
+    let shape = toolchain.shape();
+    let text = format!("{e:#}");
+    if text.contains("not on this machine's PATH") {
+        return ApiError::unprocessable(format!(
+            "no `{program}` on this machine's PATH, so there is nothing to scaffold {label} \
+             with.\n  Next step: install {program}, then reopen this dialog — hick will find \
+             it. Nothing here installs a language toolchain for you.",
+            program = shape.program,
+            label = shape.label,
+        ))
+        .with_detail(json!({ "missing": shape.program }));
+    }
+    ApiError::unprocessable(text)
+}
+
+/// Which scaffolder a request is about.
+///
+/// Absent means `dotnet`, which is what every client sent before there was
+/// more than one — a dialog that has not been updated keeps working.
+#[derive(Deserialize, Default)]
+pub struct ToolchainQuery {
+    #[serde(default)]
+    pub toolchain: Option<String>,
+}
+
+/// Read the toolchain out of whatever named it, refusing an id nothing
+/// serves rather than quietly scaffolding with the wrong tool.
+fn chosen(id: Option<&str>) -> ApiResult<Toolchain> {
+    match id.map(str::trim).filter(|id| !id.is_empty()) {
+        None => Ok(Toolchain::Dotnet),
+        Some(id) => Toolchain::parse(id).ok_or_else(|| {
+            ApiError::bad_request(format!(
+                "no scaffolder called `{id}`. This build knows {}.",
+                Toolchain::ALL
+                    .iter()
+                    .map(|t| t.id())
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ))
+        }),
+    }
+}
+
 /// `GET /api/scaffold/templates` — what this machine can scaffold, and where
 /// a project would land by default.
-pub async fn templates(State(state): State<LocalState>) -> ApiResult<Json<Value>> {
+pub async fn templates(
+    State(state): State<LocalState>,
+    Query(query): Query<ToolchainQuery>,
+) -> ApiResult<Json<Value>> {
+    let toolchain = chosen(query.toolchain.as_deref())?;
     // `dotnet new list` is a subprocess that reads a template cache off disk;
     // on a cold cache it rebuilds it, which is seconds rather than
     // milliseconds. Holding a runtime worker for that is what
     // `spawn_blocking` is for.
-    let catalog = tokio::task::spawn_blocking(scaffold::catalog)
+    let catalog = tokio::task::spawn_blocking(move || toolchain.catalog())
         .await
         .map_err(|e| ApiError::internal(format!("the template listing did not finish: {e}")))?
-        .map_err(scaffold_error)?;
-    let image = scaffold::sdk_image(&catalog.sdk_version);
+        .map_err(|e| scaffold_error_for(toolchain, e))?;
+    let image = toolchain.image(&catalog.sdk_version);
+    // Measured, never declared: a dialog offering `uv` on a machine without
+    // it is a dialog that fails after the person has filled in a form. The
+    // same rule `hick lang` follows for every other capability.
+    let installed = tokio::task::spawn_blocking(Toolchain::installed)
+        .await
+        .unwrap_or_default();
     let root = state.index.root().to_path_buf();
     let root = root.canonicalize().unwrap_or(root);
     Ok(Json(json!({
-        "kind": "dotnet",
+        "kind": toolchain.id(),
+        "toolchains": installed
+            .iter()
+            .map(|(tool, version)| json!({
+                "id": tool.id(),
+                "label": tool.shape().label,
+                "language": tool.shape().language,
+                "version": version,
+                "templated": tool.shape().templated,
+            }))
+            .collect::<Vec<_>>(),
         "sdk_version": catalog.sdk_version,
         "image": image,
         // The location field opens on the folder the app has open, spelled
@@ -131,6 +207,9 @@ pub struct DetailQuery {
     /// default, which is what `dotnet new <name> --help` answers with.
     #[serde(default)]
     pub language: Option<String>,
+    /// Which scaffolder. Absent means `dotnet`.
+    #[serde(default)]
+    pub toolchain: Option<String>,
 }
 
 /// `GET /api/scaffold/options?template=webapi&language=C%23` — one template's
@@ -144,18 +223,18 @@ pub async fn options(
             "name a template — `?template=webapi`. `GET /api/scaffold/templates` lists them.",
         ));
     }
+    let toolchain = chosen(query.toolchain.as_deref())?;
     let template = query.template.clone();
     let language = query.language.clone().filter(|l| !l.trim().is_empty());
-    let detail = tokio::task::spawn_blocking(move || {
-        scaffold::template_detail(&template, language.as_deref())
-    })
-    .await
-    .map_err(|e| {
-        ApiError::internal(format!(
-            "reading the template's options did not finish: {e}"
-        ))
-    })?
-    .map_err(scaffold_error)?;
+    let detail =
+        tokio::task::spawn_blocking(move || toolchain.detail(&template, language.as_deref()))
+            .await
+            .map_err(|e| {
+                ApiError::internal(format!(
+                    "reading the template's options did not finish: {e}"
+                ))
+            })?
+            .map_err(|e| scaffold_error_for(toolchain, e))?;
     Ok(Json(
         serde_json::to_value(detail).unwrap_or_else(|_| json!({})),
     ))
@@ -185,6 +264,10 @@ pub struct CreateRequest {
     /// possible answer to a failure.
     #[serde(default = "no_window")]
     pub open: OpenWhere,
+    /// Which scaffolder. Absent means `dotnet`, so a client that predates
+    /// there being a choice keeps working.
+    #[serde(default)]
+    pub toolchain: Option<String>,
     /// `spec.output` arrives as the project's folder *name*; what the recipe
     /// records is the same folder relative to the repository, which only
     /// `resolve_target` can work out.
@@ -219,6 +302,7 @@ pub async fn preview(
     State(state): State<LocalState>,
     Json(body): Json<CreateRequest>,
 ) -> ApiResult<Json<Value>> {
+    let toolchain = chosen(body.toolchain.as_deref())?;
     let root = state.index.root().to_path_buf();
     match scaffold_commit::resolve_target(&root, &body.location, &body.spec.output) {
         Ok(target) => {
@@ -227,8 +311,8 @@ pub async fn preview(
                 "output": target.output,
                 "folder": target.dir.to_string_lossy(),
                 "repository": target.repo_root.to_string_lossy(),
-                "command": scaffold::dotnet_new_command(&spec),
-                "message": scaffold::commit_message(&spec, OUTPUT_PENDING, &target.output),
+                "command": toolchain.command(&spec),
+                "message": toolchain.commit_message(&spec, OUTPUT_PENDING, &target.output),
             })))
         }
         Err(e) => {
@@ -249,8 +333,8 @@ pub async fn preview(
                 "repository": Value::Null,
                 "needs_repository": missing.as_ref().map(|m| m.path.to_string_lossy()),
                 "problem": format!("{e:#}"),
-                "command": scaffold::dotnet_new_command(&spec),
-                "message": scaffold::commit_message(&spec, OUTPUT_PENDING, &output),
+                "command": toolchain.command(&spec),
+                "message": toolchain.commit_message(&spec, OUTPUT_PENDING, &output),
             })))
         }
     }
@@ -298,10 +382,15 @@ pub async fn create(
     State(state): State<LocalState>,
     Json(body): Json<CreateRequest>,
 ) -> ApiResult<(StatusCode, Json<Value>)> {
+    let toolchain = chosen(body.toolchain.as_deref())?;
     if body.spec.name.trim().is_empty() {
-        return Err(ApiError::bad_request(
-            "a project needs a name — it becomes the .NET root namespace and the assembly name.",
-        ));
+        return Err(ApiError::bad_request(match toolchain {
+            Toolchain::Dotnet => {
+                "a project needs a name — it becomes the .NET root namespace and the \
+                 assembly name."
+            }
+            _ => "a project needs a name — it becomes the package name.",
+        }));
     }
     let root = state.index.root().to_path_buf();
     // The checkbox, honoured before the location is resolved. "Create a git
@@ -324,12 +413,15 @@ pub async fn create(
     let (target, spec) =
         tokio::task::spawn_blocking(move || -> anyhow::Result<(Target, ScaffoldSpec)> {
             scaffold_commit::refuse_occupied(&target.repo_root, &target.output)?;
-            scaffold::require_sdk()?;
+            // Before a terminal exists: "the tool is not installed" must stay
+            // a typed refusal rather than arriving as a shell's "command not
+            // found" in a tab nobody asked for.
+            toolchain.version()?;
             Ok((target, spec))
         })
         .await
         .map_err(|e| ApiError::internal(format!("checking the scaffold did not finish: {e}")))?
-        .map_err(scaffold_error)?;
+        .map_err(|e| scaffold_error_for(toolchain, e))?;
 
     // Into scratch, never the repository: a scaffolder that fails halfway
     // leaves nothing behind, and one that succeeds is committed whole. The
@@ -344,7 +436,7 @@ pub async fn create(
         .filter(|l| !l.is_empty())
         .unwrap_or("out")
         .to_string();
-    let argv = scaffold::dotnet_new_argv(&spec, &leaf);
+    let argv = toolchain.argv(&spec, &leaf);
     let session = state
         .terminals
         .open(hick_term::SessionSpec {
@@ -358,6 +450,7 @@ pub async fn create(
     record(&state.scaffolds, &session.id, Outcome::Running);
     let watcher = Watch {
         state: state.clone(),
+        toolchain,
         session_id: session.id.clone(),
         scratch,
         into: leaf,
@@ -389,6 +482,7 @@ struct Watch {
     into: String,
     target: Target,
     spec: ScaffoldSpec,
+    toolchain: Toolchain,
     /// Where the project is opened once it is committed.
     open: OpenWhere,
 }
@@ -410,8 +504,12 @@ impl Watch {
             return;
         };
         if exit != 0 {
+            // Named for the tool that actually ran: "`dotnet new` exited 1"
+            // on a machine where `uv` failed sends a person to the wrong
+            // place entirely.
+            let phrase = self.toolchain.phrase(&self.spec.template);
             self.say(&format!(
-                "\r\n\x1b[31mNothing was committed.\x1b[0m `dotnet new` exited {exit}; the \
+                "\r\n\x1b[31mNothing was committed.\x1b[0m `{phrase}` exited {exit}; the \
                  repository is exactly as it was.\r\n"
             ));
             record(
@@ -419,7 +517,7 @@ impl Watch {
                 &self.session_id,
                 Outcome::Failed {
                     reason: format!(
-                        "`dotnet new` exited {exit}. Nothing was committed — its own output, \
+                        "`{phrase}` exited {exit}. Nothing was committed — its own output, \
                          above, says why."
                     ),
                 },
@@ -430,8 +528,9 @@ impl Watch {
         let from = self.scratch.path().join(&self.into);
         let repo_root = self.target.repo_root.clone();
         let spec = self.spec.clone();
+        let toolchain = self.toolchain;
         let committed = tokio::task::spawn_blocking(move || {
-            scaffold_commit::commit_scaffold(&repo_root, &spec, &from)
+            scaffold_commit::commit_scaffold(&repo_root, toolchain, &spec, &from)
         })
         .await;
         match committed {

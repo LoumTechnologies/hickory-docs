@@ -387,6 +387,7 @@ fn copy_tree(from: &Path, to: &Path) -> Result<()> {
 /// so.
 pub fn commit_scaffold(
     root: &Path,
+    toolchain: crate::toolchain::Toolchain,
     spec: &ScaffoldSpec,
     from_dir: &Path,
 ) -> Result<ScaffoldCommit> {
@@ -435,7 +436,9 @@ pub fn commit_scaffold(
     let tree = git_ok(root, &["write-tree"], Some(&index))?;
     let output_tree = git_ok(root, &["rev-parse", &format!("{tree}:{output}")], None)?;
 
-    let message = crate::scaffold::commit_message(spec, &output_tree, &output);
+    // The toolchain's own wording and its own recipe line — `uv init` is not
+    // `dotnet new`, and a replay runs whatever `Hick-Recipe` says.
+    let message = toolchain.commit_message(spec, &output_tree, &output);
     let message_file = scratch.path().join("message");
     std::fs::write(&message_file, &message).context("writing the commit message")?;
     let message_arg = message_file.to_string_lossy().into_owned();
@@ -549,7 +552,13 @@ mod tests {
         std::fs::write(root.join("notes.md"), "# Notes\nstaged\nunstaged\n").unwrap();
         let out = scaffolder_output();
 
-        let commit = commit_scaffold(root, &spec("greeter"), out.path()).unwrap();
+        let commit = commit_scaffold(
+            root,
+            crate::toolchain::Toolchain::Dotnet,
+            &spec("greeter"),
+            out.path(),
+        )
+        .unwrap();
 
         // The commit holds the scaffold's files, filtered by .gitignore, and
         // nothing of the person's.
@@ -604,7 +613,13 @@ mod tests {
         sh(dir.path(), &["config", "user.email", "t@example.com"]);
         sh(dir.path(), &["config", "user.name", "T"]);
         let out = scaffolder_output();
-        let commit = commit_scaffold(dir.path(), &spec("greeter"), out.path()).unwrap();
+        let commit = commit_scaffold(
+            dir.path(),
+            crate::toolchain::Toolchain::Dotnet,
+            &spec("greeter"),
+            out.path(),
+        )
+        .unwrap();
         assert_eq!(sh(dir.path(), &["rev-parse", "HEAD"]), commit.sha);
         assert_eq!(sh(dir.path(), &["rev-list", "--count", "HEAD"]), "1");
     }
@@ -668,14 +683,26 @@ mod tests {
         std::fs::create_dir_all(dir.path().join("taken")).unwrap();
         std::fs::write(dir.path().join("taken/x.txt"), "").unwrap();
         let out = scaffolder_output();
-        let error = commit_scaffold(dir.path(), &spec("taken"), out.path()).unwrap_err();
+        let error = commit_scaffold(
+            dir.path(),
+            crate::toolchain::Toolchain::Dotnet,
+            &spec("taken"),
+            out.path(),
+        )
+        .unwrap_err();
         assert!(
             format!("{error:#}").contains("already exists and is not empty"),
             "{error:#}"
         );
 
         let plain = tempfile::tempdir().unwrap();
-        let error = commit_scaffold(plain.path(), &spec("greeter"), out.path()).unwrap_err();
+        let error = commit_scaffold(
+            plain.path(),
+            crate::toolchain::Toolchain::Dotnet,
+            &spec("greeter"),
+            out.path(),
+        )
+        .unwrap_err();
         assert!(
             error.downcast_ref::<NotARepository>().is_some(),
             "{error:#}"

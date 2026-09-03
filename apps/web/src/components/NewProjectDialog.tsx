@@ -94,32 +94,47 @@ const PREVIEW_DEBOUNCE_MS = 180;
 
 export function NewProjectDialog({ onStarted, onClose }: NewProjectDialogProps) {
   const [catalog, setCatalog] = useState<ScaffoldCatalog | null>(null);
-  /** Set when this machine has no SDK — a different screen, not an error
-   * line. Keyed off the response's `missing` field rather than its wording. */
-  const [noSdk, setNoSdk] = useState(false);
+  /** Which scaffolder the dialog is asking about. `null` until the first
+   * catalogue answers, because what this machine HAS is measured rather than
+   * assumed — a picker offering `uv` where there is none is a form that
+   * fails after it has been filled in. */
+  const [toolchain, setToolchain] = useState<string | null>(null);
+  /** Set when the chosen scaffolder is not on this machine — a different
+   * screen, not an error line. Keyed off the response's `missing` field
+   * rather than its wording, so a reworded sentence cannot take the screen
+   * away. Holds the program's name, because the screen has to say which. */
+  const [missingTool, setMissingTool] = useState<string | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
 
   useEffect(() => {
     let live = true;
+    setMissingTool(null);
+    setLoadError(null);
     api
-      .scaffoldTemplates()
-      .then((c) => live && setCatalog(c))
+      .scaffoldTemplates(toolchain ?? undefined)
+      .then((c) => {
+        if (!live) return;
+        setCatalog(c);
+        setToolchain((current) => current ?? c.kind);
+      })
       .catch((e: unknown) => {
         if (!live) return;
         const missing =
           e instanceof ApiError &&
           typeof e.body === "object" &&
-          e.body !== null &&
-          (e.body as { missing?: string }).missing === "dotnet";
-        if (missing) setNoSdk(true);
+          e.body !== null
+            ? (e.body as { missing?: string }).missing
+            : undefined;
+        if (missing) setMissingTool(missing);
         else setLoadError(e instanceof Error ? e.message : String(e));
       });
     return () => {
       live = false;
     };
-  }, []);
+  }, [toolchain]);
 
-  if (noSdk) return <NoSdkScreen onClose={onClose} />;
+  if (missingTool === "dotnet") return <NoSdkScreen onClose={onClose} />;
+  if (missingTool) return <NoToolScreen tool={missingTool} onClose={onClose} />;
   if (loadError)
     return (
       <Shell onClose={onClose} label="New project">
@@ -147,7 +162,20 @@ export function NewProjectDialog({ onStarted, onClose }: NewProjectDialogProps) 
       </Shell>
     );
 
-  return <Chooser catalog={catalog} onStarted={onStarted} onClose={onClose} />;
+  return (
+    // Keyed on the scaffolder: choosing another one is a different form with
+    // a different template, different fields and a different name, and
+    // carrying `--no-restore` from `dotnet new` into `uv init` would be a
+    // flag uv has never heard of.
+    <Chooser
+      key={toolchain ?? catalog.kind}
+      catalog={catalog}
+      toolchain={toolchain ?? catalog.kind}
+      onToolchain={setToolchain}
+      onStarted={onStarted}
+      onClose={onClose}
+    />
+  );
 }
 
 /** The backdrop and the panel, shared by every state this dialog has. */
@@ -216,11 +244,84 @@ function NoSdkScreen({ onClose }: { onClose: () => void }) {
   );
 }
 
+/**
+ * The same screen as `NoSdkScreen`, for a scaffolder that is not `dotnet`.
+ *
+ * Kept apart rather than generalised because .NET's is the one with a
+ * download page worth naming, and because this product installs language
+ * servers and debug adapters but never a language toolchain — that is a
+ * sentence and not a button, for the reason `owning-what-a-scaffolder-wrote`
+ * gives about the SDK.
+ */
+function NoToolScreen({ tool, onClose }: { tool: string; onClose: () => void }) {
+  return (
+    <Shell onClose={onClose} label="New project">
+      <div className="new-project__message">
+        <h2>No {tool} on this machine</h2>
+        <p>
+          New Project asks <code>{tool}</code> what it can scaffold, and there
+          is no <code>{tool}</code> on this machine's PATH.
+        </p>
+        <p className="insert-menu__hint">
+          Install it, then reopen this window — a running process keeps the
+          PATH it was started with, so a tool installed just now will not be
+          visible until it restarts.
+        </p>
+        <div className="insert-menu__actions">
+          <button type="button" className="btn" onClick={onClose}>
+            Close
+          </button>
+        </div>
+      </div>
+    </Shell>
+  );
+}
+
+/**
+ * Which scaffolder to use.
+ *
+ * Drawn only when this machine has more than one: a picker with a single
+ * entry is a control that cannot be operated, and on a .NET-only machine
+ * this dialog should look exactly as it did.
+ */
+function ToolchainPicker({
+  catalog,
+  chosen,
+  onChoose,
+}: {
+  catalog: ScaffoldCatalog;
+  chosen: string;
+  onChoose: (id: string) => void;
+}) {
+  if (catalog.toolchains.length < 2) return null;
+  return (
+    <div className="new-project__toolchains" role="radiogroup" aria-label="Toolchain">
+      {catalog.toolchains.map((tool) => (
+        <button
+          key={tool.id}
+          type="button"
+          role="radio"
+          aria-checked={tool.id === chosen}
+          className={`new-project__toolchain${tool.id === chosen ? " on" : ""}`}
+          onClick={() => onChoose(tool.id)}
+          data-tip={`${tool.label} — ${tool.version}`}
+        >
+          {tool.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 function Chooser({
   catalog,
+  toolchain,
+  onToolchain,
   onStarted,
   onClose,
 }: {
+  toolchain: string;
+  onToolchain: (id: string) => void;
   catalog: ScaffoldCatalog;
 } & Omit<NewProjectDialogProps, never>) {
   const [query, setQuery] = useState("");
@@ -264,7 +365,7 @@ function Chooser({
     setDetail(null);
     setDetailError(null);
     api
-      .scaffoldOptions(template.short_names[0], language || null)
+      .scaffoldOptions(template.short_names[0], language || null, toolchain)
       .then((d) => {
         if (!live) return;
         setDetail(d);
@@ -276,7 +377,7 @@ function Chooser({
     return () => {
       live = false;
     };
-  }, [template, language]);
+  }, [template, language, toolchain]);
 
   // The three fields that are not the template's: what the project is called,
   // where it is made, and what its folder is called. The folder follows the
@@ -328,8 +429,10 @@ function Chooser({
       open: openIt ? (newWindow ? "new-window" : "this-window") : "none",
       image: catalog.image,
       options: chosenOptions(detail.options, values),
+      toolchain,
     };
   }, [
+    toolchain,
     template,
     detail,
     language,
@@ -427,11 +530,17 @@ function Chooser({
         }}
       >
         <div className="insert-menu__list-pane">
+          <ToolchainPicker
+            catalog={catalog}
+            chosen={toolchain}
+            onChoose={onToolchain}
+          />
           <input
             ref={searchRef}
             className="insert-menu__search"
             type="search"
             placeholder="Find a template…"
+            hidden={catalog.templates.length < 2}
             value={query}
             aria-label="Find a template"
             onChange={(event) => setQuery(event.target.value)}
@@ -449,9 +558,10 @@ function Chooser({
             {matches.length === 0 && (
               <p className="insert-menu__empty">
                 Nothing by that name. This is whatever{" "}
-                <span className="mono">dotnet new list</span> says — a template
-                from a package needs{" "}
-                <span className="mono">dotnet new install</span> first.
+                <span className="mono">
+                  {toolchain === "dotnet" ? "dotnet new list" : `${toolchain} --help`}
+                </span>{" "}
+                says.
               </p>
             )}
             {grouped(matches).map(({ group, templates }) => (
@@ -482,7 +592,8 @@ function Chooser({
             ))}
           </div>
           <p className="new-project__sdk">
-            .NET SDK <span className="mono">{catalog.sdk_version}</span>
+            {toolchain === "dotnet" ? ".NET SDK " : ""}
+            <span className="mono">{catalog.sdk_version}</span>
           </p>
         </div>
 
@@ -491,7 +602,11 @@ function Chooser({
             <header className="insert-menu__header">
               <h2 className="insert-menu__title">{template?.name ?? "…"}</h2>
               <code className="insert-menu__tag">
-                dotnet new {template?.short_names[0]}
+                {/* The tool's own phrase. A single-shape scaffolder has no
+                    template to name, and `uv init init` reads as a mistake. */}
+                {catalog.toolchains.find((t) => t.id === toolchain)?.templated ?? true
+                  ? `${toolchain === "dotnet" ? "dotnet new" : toolchain} ${template?.short_names[0] ?? ""}`
+                  : `${toolchain} ${template?.short_names[0] ?? ""}`}
               </code>
             </header>
             {detail?.description && (

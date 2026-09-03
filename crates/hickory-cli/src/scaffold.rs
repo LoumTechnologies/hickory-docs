@@ -679,7 +679,7 @@ pub struct ScaffoldSpec {
 /// A project name is a .NET root namespace and will almost never need this.
 /// It is here because "almost never" is the case that reaches a user as a
 /// document whose cell does not run.
-fn shell_quote(arg: &str) -> String {
+pub fn shell_quote(arg: &str) -> String {
     let plain = !arg.is_empty()
         && arg
             .chars()

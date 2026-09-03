@@ -8178,6 +8178,29 @@ button.status-bar__item:hover { background: var(--bg-sunken); color: var(--fg); 
 /* Which SDK is being offered, pinned under the list: the answer to "why is
    this template here and that one not" is the version, and it should not
    need looking for. */
+/* Which scaffolder, above the template list, because it decides what that
+   list means. Drawn only when this machine has more than one. */
+.new-project__toolchains {
+  display: flex;
+  gap: 0.25rem;
+  margin-bottom: 0.5rem;
+}
+.new-project__toolchain {
+  flex: 1;
+  padding: 0.25rem 0.4rem;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: transparent;
+  color: var(--fg-muted);
+  font-size: 0.78rem;
+  cursor: pointer;
+}
+.new-project__toolchain:hover { color: var(--fg); }
+.new-project__toolchain.on {
+  border-color: var(--accent-2);
+  background: color-mix(in srgb, var(--accent-2) 12%, transparent);
+  color: var(--fg);
+}
 .new-project__sdk {
   margin: 0;
   padding: 0.4rem 0.75rem;

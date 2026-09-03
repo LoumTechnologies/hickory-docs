@@ -112,6 +112,7 @@ Every JetBrains IDE ships roughly the same editor; these rows are what
 | **Profiler (dotTrace/dotMemory)** | **missing** | — |
 | **Remote debug / attach to process** | **missing** | — |
 | **Run configurations** | **deliberately absent** | there is no `launch.json` and there must not be — everything is found without being configured |
+| New project (per language) | **built for .NET, Python (uv), Rust (cargo)** | `a-new-project-uses-the-toolchain-the-language-uses.md`; Go and Node not offered |
 
 ### Version control
 

@@ -40,6 +40,7 @@ pub mod search_install;
 pub mod serve;
 pub mod story;
 pub mod tool_install;
+pub mod toolchain;
 pub mod typed_client;
 pub mod up;
 
