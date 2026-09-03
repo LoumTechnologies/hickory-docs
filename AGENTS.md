@@ -71,7 +71,7 @@ element, the gitignore filter, the non-UTF-8 refusal, and the ingested origin �
 plus one rule the spec did not name: **a volume a document has ingested is no
 longer flushed as a pipeline output** (it arrives in
 `PipelineResult::ingested_volume_files` instead), or the next `hick run`
-overwrites your four lines. **Re-ingest is built too**, and it settled where
+overwrites your four lines. **Re-ingest was built and then retired (2026-09-03, `lenses.md`)** — a second ingest into a cell is now refused by name, pointing at the history lens — but while it existed it settled where
 the base comes from: the document holds *ours* and records the run's hash, but
 a hash verifies rather than reconstructs — so **the base is this document at
 the commit that introduced that fingerprint**, recovered from git. Volatile
@@ -163,7 +163,7 @@ its configured-driver check at project open and in `hick test` — never in the
 pre-commit hook, since `hick init` installs the hook. Continuity itself stays
 **also built:** the correspondence journal (`.hick-journal/`, gitignored by
 `hick init` — delete that line to let CI check it), refactor mode as a
-byte-precise recording site, the re-ingest as a diff-precise one, and the
+byte-precise recording site (the re-ingest was a diff-precise one until it was retired 2026-09-03), and the
 pre-commit repair. All of it rides one switch, per-user in
 `hickory-workspace`, **off by default**: no continuity, no journal, no check.
 Journal entries above the floor are **provisional** — the concession that part

@@ -3203,69 +3203,7 @@ async fn cmd_ingest_from_exec(args: &IngestArgs, selector: &str) -> Result<ExitC
          `hick lineage` reports them as ingested rather than as text you wrote."
     );
 
-    // A re-ingest is a three-way merge, so what it DID is the report.
-    let m = &outcome.merge;
-    if let Some(base) = &outcome.base_commit {
-        println!(
-            "  Merged against the ingest committed in {} — the bytes as they \
-             were ingested are the base, this run is theirs, your edits are ours.",
-            &base[..base.len().min(12)]
-        );
-        let list = |label: &str, paths: &[String]| {
-            if paths.is_empty() {
-                return;
-            }
-            println!("  {label}: {}", paths.len());
-            for path in paths.iter().take(10) {
-                println!("    {path}");
-            }
-            if paths.len() > 10 {
-                println!("    … ({} more)", paths.len() - 10);
-            }
-        };
-        list("changed by this run", &m.merged);
-        list("added by this run", &m.added);
-        list(
-            "no longer produced, and you had not changed them, so removed",
-            &m.removed,
-        );
-        // Named rather than counted: a tool does not get to delete somebody's
-        // edit because a scaffolder changed its mind.
-        list(
-            "no longer produced, but you HAD changed them, so kept",
-            &m.kept,
-        );
-        if m.is_empty_of_change() && m.merged.is_empty() {
-            println!("  Nothing moved: this run produced what the last one did.");
-        }
-        if !m.conflicted.is_empty() {
-            println!();
-            for path in &m.conflicted {
-                println!("  CONFLICT {path}");
-            }
-            println!(
-                "  {} file(s) were changed on both sides in the same place. The \
-                 markers are in the document, where the resolution belongs — \
-                 resolve them there and they become ordinary document bytes with \
-                 ordinary provenance.\n  \
-                 Note that a scaffolder randomises things (a user-secrets id, a \
-                 GUID, a timestamp), so some of these are noise rather than a \
-                 real disagreement.",
-                m.conflicted.len()
-            );
-        }
-    }
-    if outcome.recorded > 0 {
-        println!(
-            "  {} correspondence(s) recorded — continuity is on for this project.",
-            outcome.recorded
-        );
-    }
-    if outcome.merge.conflicted.is_empty() {
-        Ok(ExitCode::SUCCESS)
-    } else {
-        Ok(ExitCode::from(1))
-    }
+    Ok(ExitCode::SUCCESS)
 }
 
 async fn cmd_ingest(args: IngestArgs) -> Result<ExitCode> {

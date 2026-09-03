@@ -39,7 +39,6 @@
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
-use std::process::Command;
 
 use anyhow::{Context as _, Result, bail};
 use hick_lang::{HickDocument, HickNode, HickTag};
@@ -60,12 +59,6 @@ pub struct IngestExecOutcome {
     /// Paths the repository's `.gitignore` filtered out, with the volume
     /// path they had.
     pub skipped: Vec<String>,
-    /// What a re-ingest's three-way merge did. Empty for a first ingest.
-    pub merge: MergeReport,
-    /// The commit the base was recovered from, for a re-ingest.
-    pub base_commit: Option<String>,
-    /// Correspondences written to the journal — zero unless continuity is on.
-    pub recorded: usize,
 }
 
 // ---------------------------------------------------------------------------
@@ -317,285 +310,22 @@ pub fn element_content_end(
     }
 }
 
-// ---------------------------------------------------------------------------
-// Re-ingest: a three-way merge with a real base
-// ---------------------------------------------------------------------------
-
-/// The `<hick:ingested>` block already in the document.
-struct RecordedIngest {
-    /// The fingerprint of the run it recorded. This is the key that finds the
-    /// BASE in git — see [`base_from_git`].
-    sha256: String,
-    at: String,
-    /// The files as the document holds them NOW: the last run's bytes plus
-    /// whatever you changed. This is **ours**.
-    ours: BTreeMap<String, String>,
-    /// Byte span of the whole element in the document source, so a re-ingest
-    /// replaces it rather than appending a second one.
-    span: (usize, usize),
-}
-
-/// What one re-ingest did, per file.
-#[derive(Default)]
-pub struct MergeReport {
-    /// Merged cleanly — either side changed it, or both did compatibly.
-    pub merged: Vec<String>,
-    /// The fresh run introduced it; the document did not have it.
-    pub added: Vec<String>,
-    /// The fresh run no longer produces it and you had not changed it, so it
-    /// is gone from the document too.
-    pub removed: Vec<String>,
-    /// The fresh run no longer produces it but you HAD changed it, so it is
-    /// kept and named. Deleting somebody's edit because a scaffolder stopped
-    /// emitting the file is not a decision a tool gets to make.
-    pub kept: Vec<String>,
-    /// Both sides changed the same region differently. The markers are in the
-    /// document.
-    pub conflicted: Vec<String>,
-}
-
-impl MergeReport {
-    pub fn is_empty_of_change(&self) -> bool {
-        self.added.is_empty() && self.removed.is_empty() && self.conflicted.is_empty()
-    }
-}
-
-/// The bytes as they were when this run was ingested — recovered from git.
+/// Whether the cell already carries an ingest: its `<hick:ingested>` child,
+/// with the run it recorded.
 ///
-/// This is the piece the design did not have: the document holds `ours` and
-/// records the run's `sha256`, but the ORIGINAL bytes are gone, because your
-/// four lines overwrote them. A hash verifies; it does not reconstruct.
-///
-/// Git is where they are. `expression-and-log.md`'s division of labour is
-/// exactly this — **the document describes the present, git holds the past** —
-/// so the base is the version of this document at the commit that introduced
-/// this fingerprint. The ingest is one commit and your four lines are the
-/// next, which is the shape that document argues for on its own merits.
-///
-/// `None` when the ingest was never committed: then there IS no base, and a
-/// re-ingest has to say so rather than invent one.
-fn base_from_git(
-    doc_path: &Path,
-    prefix: &str,
-    sha256: &str,
-) -> Result<Option<(String, BTreeMap<String, String>)>> {
-    let Some(root) = crate::replay::git_root(doc_path.parent().unwrap_or(Path::new("."))) else {
-        return Ok(None);
-    };
-    let root = std::fs::canonicalize(&root).unwrap_or(root);
-    let abs = std::fs::canonicalize(doc_path).unwrap_or_else(|_| doc_path.to_path_buf());
-    let Ok(rel) = abs.strip_prefix(&root) else {
-        return Ok(None);
-    };
-    let rel = rel.to_string_lossy().replace('\\', "/");
-
-    // `-S` finds the commits where the count of this string CHANGED, so the
-    // oldest of them is the one that introduced it. Reversed, so the first is
-    // the oldest — a fingerprint that was introduced, removed and reintroduced
-    // would otherwise give the wrong base.
-    let out = Command::new("git")
-        .arg("-C")
-        .arg(&root)
-        .args([
-            "log",
-            "--reverse",
-            "--format=%H",
-            &format!("-S{sha256}"),
-            "--",
-            &rel,
-        ])
-        .output()
-        .context("failed to run git log")?;
-    if !out.status.success() {
-        return Ok(None);
-    }
-    let Some(commit) = String::from_utf8_lossy(&out.stdout)
-        .lines()
-        .map(str::trim)
-        .find(|l| !l.is_empty())
-        .map(str::to_string)
-    else {
-        return Ok(None);
-    };
-
-    let show = Command::new("git")
-        .arg("-C")
-        .arg(&root)
-        .args(["show", &format!("{commit}:{rel}")])
-        .output()
-        .context("failed to run git show")?;
-    if !show.status.success() {
-        return Ok(None);
-    }
-    let text = String::from_utf8_lossy(&show.stdout).to_string();
-    let Ok(old) = hick_lang::parse(&text) else {
-        return Ok(None);
-    };
-
-    let mut files = BTreeMap::new();
-    let mut stack: Vec<&hick_lang::HickTag> = old.tags().collect();
-    while let Some(tag) = stack.pop() {
-        if tag.name == "ingested" && tag.get_attribute("sha256") == Some(sha256) {
-            for child in tag.child_tags() {
-                if child.name == "file"
-                    && let Some(path) = child.get_attribute("path")
-                {
-                    files.insert(path.to_string(), file_body(child));
-                }
-            }
-        }
-        for child in &tag.children {
-            if let hick_lang::HickNode::Tag(t) = child {
-                stack.push(t);
-            }
-        }
-    }
-    let _ = prefix;
-    if files.is_empty() {
-        return Ok(None);
-    }
-    Ok(Some((commit, files)))
-}
-
-/// The bytes an ingested `<hick:file>` block stands for.
-///
-/// The line break that ends the block's open tag belongs to the TAG, not to
-/// the file — the same rule the pipeline applies when it writes the file out
-/// (`docs/guarantees/language/a-generated-file-starts-at-its-first-byte.md`).
-/// Reading it back with `tag_text` alone would hand the merge a leading
-/// newline the scaffolder never produced, and since the run's side has no
-/// such byte, EVERY file would look changed on our side: a re-ingest that
-/// should merge cleanly reports a conflict on the first line of everything.
-fn file_body(tag: &hick_lang::HickTag) -> String {
-    let text = hick_lang::tag_text(tag);
-    text.strip_prefix("\r\n")
-        .or_else(|| text.strip_prefix('\n'))
-        .map(str::to_string)
-        .unwrap_or(text)
-}
-
-/// Three-way merge one file's text. Returns `(merged, conflicted)`.
-fn merge_one(base: &str, ours: &str, theirs: &str) -> Result<(String, bool)> {
-    if ours == theirs {
-        return Ok((ours.to_string(), false));
-    }
-    if base == ours {
-        // Only the scaffolder changed it: take the new SDK's version.
-        return Ok((theirs.to_string(), false));
-    }
-    if base == theirs {
-        // Only you changed it: the new run produces what the old one did.
-        return Ok((ours.to_string(), false));
-    }
-    let dir = tempfile::tempdir().context("could not create a scratch directory")?;
-    let (b, o, t) = (
-        dir.path().join("b"),
-        dir.path().join("o"),
-        dir.path().join("t"),
-    );
-    std::fs::write(&b, base)?;
-    std::fs::write(&o, ours)?;
-    std::fs::write(&t, theirs)?;
-    let out = Command::new("git")
-        .args([
-            "merge-file",
-            "-L",
-            "yours",
-            "-L",
-            "the previous run",
-            "-L",
-            "this run",
-        ])
-        .arg(&o)
-        .arg(&b)
-        .arg(&t)
-        .output()
-        .context("failed to run `git merge-file`")?;
-    let conflicts = out.status.code().unwrap_or(-1);
-    if conflicts < 0 {
-        bail!(
-            "the three-way merge failed: {}",
-            String::from_utf8_lossy(&out.stderr).trim()
-        );
-    }
-    let merged = std::fs::read_to_string(&o)?;
-    Ok((merged, conflicts > 0))
-}
-
-/// Merge the three sides of a re-ingest into one file set.
-///
-/// Set membership is merged as well as content, because a new SDK adds and
-/// drops files: a path only in `theirs` is new, and a path the run stopped
-/// producing is removed **only if you had not touched it** — deleting
-/// somebody's edit because a scaffolder changed its mind is not a decision a
-/// tool gets to make.
-fn merge_ingests(
-    base: &BTreeMap<String, String>,
-    ours: &BTreeMap<String, String>,
-    theirs: &BTreeMap<String, String>,
-) -> Result<(BTreeMap<String, String>, MergeReport)> {
-    let mut out = BTreeMap::new();
-    let mut report = MergeReport::default();
-
-    let mut paths: Vec<&String> = base
-        .keys()
-        .chain(ours.keys())
-        .chain(theirs.keys())
-        .collect();
-    paths.sort();
-    paths.dedup();
-
-    for path in paths {
-        match (base.get(path), ours.get(path), theirs.get(path)) {
-            (Some(b), Some(o), Some(t)) => {
-                let (merged, conflicted) = merge_one(b, o, t)?;
-                out.insert(path.clone(), merged);
-                if conflicted {
-                    report.conflicted.push(path.clone());
-                } else if o != t {
-                    report.merged.push(path.clone());
-                }
-            }
-            // The run introduced it.
-            (None, None, Some(t)) => {
-                out.insert(path.clone(), t.clone());
-                report.added.push(path.clone());
-            }
-            // You added it inside the block; the run knows nothing about it.
-            (None, Some(o), None) => {
-                out.insert(path.clone(), o.clone());
-            }
-            // Both added the same path independently: no base, so merge is
-            // two-way and there is nothing to reconcile against.
-            (None, Some(o), Some(t)) => {
-                let (merged, conflicted) = merge_one("", o, t)?;
-                out.insert(path.clone(), merged);
-                if conflicted {
-                    report.conflicted.push(path.clone());
-                } else if o != t {
-                    report.merged.push(path.clone());
-                }
-            }
-            // The run stopped producing it.
-            (Some(b), Some(o), None) => {
-                if b == o {
-                    report.removed.push(path.clone());
-                } else {
-                    out.insert(path.clone(), o.clone());
-                    report.kept.push(path.clone());
-                }
-            }
-            // It was in the base and is back in the run, but you deleted it.
-            (Some(_), None, Some(_)) => {
-                report.removed.push(path.clone());
-            }
-            (Some(_), None, None) => {
-                report.removed.push(path.clone());
-            }
-            (None, None, None) => {}
-        }
-    }
-    Ok((out, report))
+/// A second ingest into a cell is **refused**, not merged. The three-way
+/// re-ingest merge this used to do treated a scaffold as a living
+/// expression to re-evaluate over your edits; `lenses.md` retired it, since
+/// a scaffold is an act and is upgraded through its commit's recipe in the
+/// history lens. `hick ingest --from '#cell'` stays for what it was really
+/// for — bringing an exec's output into a document you are writing, once.
+fn existing_ingest(exec: &HickTag) -> Option<(String, String)> {
+    exec.child_tags().find(|c| c.name == "ingested").map(|tag| {
+        (
+            tag.get_attribute("sha256").unwrap_or_default().to_string(),
+            tag.get_attribute("at").unwrap_or_default().to_string(),
+        )
+    })
 }
 
 // ---------------------------------------------------------------------------
@@ -618,32 +348,19 @@ pub async fn ingest_from_exec(
     let (exec, id) = locate_exec(&doc, selector)?;
     let from = format!("#{id}");
 
-    // A second ingest into the same cell is a THREE-WAY MERGE against the
-    // recorded base — the old ingested bytes are the base, the fresh run is
-    // theirs, and the document (with your four lines) is ours.
-    let existing = exec
-        .child_tags()
-        .find(|c| c.name == "ingested")
-        .map(|tag| RecordedIngest {
-            sha256: tag.get_attribute("sha256").unwrap_or_default().to_string(),
-            at: tag.get_attribute("at").unwrap_or_default().to_string(),
-            ours: tag
-                .child_tags()
-                .filter(|c| c.name == "file")
-                .filter_map(|c| Some((c.get_attribute("path")?.to_string(), file_body(c))))
-                .collect::<BTreeMap<String, String>>(),
-            span: (
-                tag.source_span.map(|s| s.start).unwrap_or(0),
-                element_content_end(
-                    &source,
-                    tag.source_span.map(|s| s.end).unwrap_or(0),
-                    &prefix,
-                    "ingested",
-                )
-                .map(|end| end + format!("</{prefix}:ingested>").len())
-                .unwrap_or(0),
-            ),
-        });
+    if let Some((sha256, at)) = existing_ingest(exec) {
+        bail!(
+            "that cell already has an <{prefix}:ingested> block, recorded {} with sha256 {}. \
+             An ingest brings a run's output into a document once; it is not re-run over \
+             your edits.\n  \
+             To take a newer scaffold, scaffold it as a commit (File → New Project) and \
+             read it in the history lens, where a recipe commit can be replayed. To start \
+             this cell over and lose the edits inside its block, delete the block by hand \
+             and ingest again. Nothing was changed.",
+            if at.is_empty() { "(no date)" } else { &at },
+            if sha256.is_empty() { "(none)" } else { &sha256 },
+        );
+    }
 
     let (volume, out_prefix) = output_volume(&doc, exec)?;
     let open_end = exec
@@ -796,56 +513,14 @@ pub async fn ingest_from_exec(
         );
     }
 
-    // A re-ingest is a three-way merge; a first ingest is just the run.
-    let (text, report, base_commit) = match &existing {
-        None => (text, MergeReport::default(), None),
-        Some(existing) => {
-            let Some((commit, base)) = base_from_git(doc_path, &prefix, &existing.sha256)? else {
-                bail!(
-                    "that cell already has an <{prefix}:ingested> block recorded \
-                     {} with sha256 {}, but the commit that introduced it is not \
-                     in this repository's history — so there is no BASE to merge \
-                     against.\n  \
-                     A re-ingest is a three-way merge: the bytes as they were \
-                     ingested are the base, this run is theirs, and the document \
-                     is ours. The hash records WHICH run it was; git is what \
-                     holds the bytes, because your own edits overwrote them in \
-                     the document.\n  \
-                     Next steps: commit the existing ingest first and run this \
-                     again — or, to start over and lose your edits inside the \
-                     block, delete the block by hand.",
-                    if existing.at.is_empty() {
-                        "(no date)"
-                    } else {
-                        &existing.at
-                    },
-                    if existing.sha256.is_empty() {
-                        "(none)"
-                    } else {
-                        &existing.sha256
-                    },
-                );
-            };
-            let (merged, report) = merge_ingests(&base, &existing.ours, &text)?;
-            (merged, report, Some(commit))
-        }
-    };
-
     let fingerprint = run_fingerprint(&text);
     let block = ingested_block(&prefix, &from, &fingerprint, today, &text, skipped.len());
 
     let mut next = source.clone();
-    match &existing {
-        // Replace the old element in place: a second block beside the first
-        // would make the cell claim two runs produced it.
-        Some(existing) => next.replace_range(existing.span.0..existing.span.1, &block),
-        None => next.insert_str(insert_at, &block),
-    }
+    next.insert_str(insert_at, &block);
     // A machine writing your source, and one of the writers that had no way
     // back at all. Recorded before the write, so the document immediately
-    // before an ingest is one command away — which is also what makes the
-    // re-ingest merge's false conflicts cheap to study rather than
-    // frightening to trigger.
+    // before an ingest is one command away.
     crate::history::record(
         doc_path.parent().unwrap_or(std::path::Path::new(".")),
         hickory_workspace::history::ActKind::Ingest,
@@ -895,74 +570,11 @@ pub async fn ingest_from_exec(
         }
     }
 
-    // A re-ingest is the richest recording site the scaffolder path has —
-    // base, ours and theirs in hand at one moment. Its precision is DIFF and
-    // that is not a lesser byte-precision: two runs of a scaffolder share no
-    // history, so no byte-precise thread exists to record even with the tool
-    // watching the whole time. This is the case that forces the distinction.
-    let recorded = record_reingest(doc_path, &existing, &text, base_commit.as_deref(), today);
-
     Ok(IngestExecOutcome {
         doc_path: doc_path.to_path_buf(),
         from,
         fingerprint,
         ingested: text.keys().cloned().collect(),
         skipped,
-        merge: report,
-        base_commit,
-        recorded,
     })
-}
-
-/// Record what a re-ingest moved, if continuity is on. Zero otherwise — the
-/// switch is the whole feature, not just its drawing.
-fn record_reingest(
-    doc_path: &Path,
-    existing: &Option<RecordedIngest>,
-    merged: &BTreeMap<String, String>,
-    base_commit: Option<&str>,
-    today: &str,
-) -> usize {
-    let Some(existing) = existing else { return 0 };
-    let Some(root) = crate::replay::git_root(doc_path.parent().unwrap_or(Path::new("."))) else {
-        return 0;
-    };
-    let root = std::fs::canonicalize(&root).unwrap_or(root);
-    if !crate::continuity::enabled(&root) {
-        return 0;
-    }
-    let abs = std::fs::canonicalize(doc_path).unwrap_or_else(|_| doc_path.to_path_buf());
-    let Ok(rel) = abs.strip_prefix(&root) else {
-        return 0;
-    };
-    let rel = rel.to_string_lossy().replace('\\', "/");
-
-    // One entry per file that survived the merge: the block it was in before,
-    // and the block it is in now. Coarse on purpose — the span is the whole
-    // element on each side, because there is no finer thread between two runs
-    // of a foreign tool.
-    let entries: Vec<crate::continuity::Correspondence> = merged
-        .keys()
-        .filter(|path| existing.ours.contains_key(*path))
-        .map(|_| crate::continuity::Correspondence {
-            from: crate::continuity::Endpoint {
-                commit: base_commit.map(str::to_string),
-                path: rel.clone(),
-                span: existing.span,
-            },
-            to: crate::continuity::Endpoint {
-                commit: None,
-                path: rel.clone(),
-                span: existing.span,
-            },
-            precision: crate::continuity::Precision::Diff,
-            site: crate::continuity::Site::Reingest,
-            provisional: true,
-            head: None,
-            recorded_at: today.to_string(),
-        })
-        .collect();
-    crate::continuity::Journal::at(&root)
-        .append(&entries)
-        .unwrap_or(0)
 }

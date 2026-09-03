@@ -70,7 +70,7 @@ Last LLM verification:
   `<hick:ingested>` block. Confirmed load-bearing by temporarily reverting
   to the whole-document call and observing the test fail at exactly that
   assertion. The full existing ingest suite (`ingest.rs`, `ingest_scaffold.rs`,
-  `ingest_naming.rs`, `reingest_merge.rs`) still passes unchanged.
+  `ingest_naming.rs`) still passes unchanged.
 - Caveat requiring LLM review: only ordinary `hick:exec` DAG dependencies
   (mounts, copy/paste edges) are considered. If some OTHER kind of
   document-wide precondition exists that is not expressed as a DAG edge, it

@@ -58,7 +58,7 @@ Corollaries that are part of the guarantee:
   edits to them, and flushing a fresh run over the top would silently
   overwrite your four lines on every `hick run`.
 - **A second ingest into the same cell is refused**, naming the recorded base
-  and its date, because re-ingesting is a three-way merge against that base
+  and its date. (Re-ingesting as a three-way merge against that base was retired 2026-09-03 by `lenses.md`: a second ingest is refused by name, and a scaffold is upgraded through its commit's recipe.) It was recorded because a re-ingest would have merged against that base
   and that is deliberately a later step.
 
 What this does NOT claim: nothing here merges, records a correspondence, or

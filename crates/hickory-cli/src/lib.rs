@@ -1811,8 +1811,7 @@ pub fn output_collision_warnings(doc: &hick_lang::HickDocument) -> Vec<String> {
                  scaffolder cell runs with `--force`, or leaves the two \
                  declarations disagreeing about what the file contains. Drop \
                  this declaration and let the ingested content own the path, \
-                 or re-ingest to bring it up to date instead of hand-editing \
-                 a competing copy."
+                 rather than hand-editing a competing copy."
             ))
         })
         .collect()

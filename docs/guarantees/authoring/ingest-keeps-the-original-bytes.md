@@ -102,7 +102,7 @@ must not be given a trailing byte it never had.
 reads `ours` from the open document and the base from git, and both go through
 `file_body`, which drops that one break. Reading it raw hands the merge a
 newline the run's side does not have, so every file looks changed on our side
-and a re-ingest that should merge cleanly reports a conflict on the first line
+and (before the re-ingest merge was retired on 2026-09-03) a re-ingest that should have merged cleanly reported a conflict on the first line
 of everything. That is not hypothetical — it is what the change to this
 convention broke, and what the test below now holds.
 
@@ -134,7 +134,7 @@ Last LLM verification:
   (`crates/hickory-cli/tests/ingest_scaffold.rs`) — the layout AND the byte
   round-trip in one test, since either alone is the wrong half.
   `a_re_ingest_keeps_your_edit_and_takes_the_runs_change`
-  (`crates/hickory-cli/tests/reingest_merge.rs`) is what catches the merge
+  (formerly `reingest_merge.rs`, deleted with the merge) was what caught the merge
   reading the break as an edit.
   `crates/hickory-cli/tests/ingest.rs` (29 tests) — verbatim
   bytes, derived attendees, empty-and-stale summaries driven through the real

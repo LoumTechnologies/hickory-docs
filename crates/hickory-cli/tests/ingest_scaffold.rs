@@ -279,8 +279,15 @@ fn a_second_ingest_is_refused_and_names_the_recorded_base() {
         .expect("run hick");
     assert!(!out.status.success());
     let stderr = String::from_utf8_lossy(&out.stderr).to_string();
-    assert!(stderr.contains("three-way merge"), "{stderr}");
+    // An ingest happens once. The re-ingest merge that used to run here was
+    // retired by lenses.md: a scaffold is upgraded through its commit's
+    // recipe, and the refusal says where.
+    assert!(
+        stderr.contains("already has an <hick:ingested> block"),
+        "{stderr}"
+    );
     assert!(stderr.contains("sha256"), "{stderr}");
+    assert!(stderr.contains("history lens"), "{stderr}");
     // Refused means nothing changed.
     assert_eq!(std::fs::read_to_string(&doc).unwrap(), before);
 }
