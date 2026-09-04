@@ -266,6 +266,20 @@ pub enum CheckFailure {
         doc: PathBuf,
         cell: CellId,
     },
+    /// A `hick:transform` passage's bytes are no longer the ones the model
+    /// wrote.
+    ///
+    /// Reported, never failed. Editing an AI-written passage is the author's
+    /// business — it is their document — and the run / edited / staged
+    /// distinction in `sessions-you-run-again.md` says the answer is to MARK
+    /// it, not to refuse it. What must not happen is the document going on
+    /// claiming a model wrote words a person typed.
+    EditedTransform {
+        doc: PathBuf,
+        line: usize,
+        /// The model named on the element, when it names one.
+        model: Option<String>,
+    },
     /// A `cites=` selector matches nothing.
     ///
     /// Whether a citation's CLAIM is true is not checkable — that is the
@@ -298,6 +312,9 @@ impl CheckFailure {
             // which is a statement that is definitely wrong — the same
             // standing a failed expectation has.
             CheckFailure::DanglingCitation { .. } => CheckOutcome::ExpectationFailed,
+            // Not a failure of any kind: the document is telling the truth
+            // about itself, which is the whole point of the marking.
+            CheckFailure::EditedTransform { .. } => CheckOutcome::Verified,
             CheckFailure::Drift { .. }
             | CheckFailure::StaleTransform { .. }
             | CheckFailure::StaleRecording { .. } => CheckOutcome::Drifted,
@@ -447,6 +464,34 @@ pub fn stale_transforms(doc_path: &Path, source: &str) -> Result<Vec<CheckFailur
                 line: tag.source_line,
                 select,
                 instruct,
+            });
+        }
+    }
+    Ok(out)
+}
+
+/// Every `hick:transform` whose prose has been edited since a model wrote it.
+///
+/// Free and offline, like the staleness check beside it: it compares a
+/// recorded hash of the passage against the passage. A transform with no
+/// `wrote=` was written before the attribute existed and claims nothing
+/// either way — silence, not a mark.
+pub fn edited_transforms(doc_path: &Path, source: &str) -> Result<Vec<CheckFailure>> {
+    let doc = transform_document(doc_path, source)?;
+    let mut out = Vec::new();
+    for tag in own_transforms(&doc) {
+        let Some(recorded) = tag.get_attribute("wrote").map(str::trim) else {
+            continue;
+        };
+        if recorded.is_empty() {
+            continue;
+        }
+        let body = hick_lang::tag_text(tag);
+        if hick_lang::passage_fingerprint(&body) != recorded {
+            out.push(CheckFailure::EditedTransform {
+                doc: doc_path.to_path_buf(),
+                line: tag.source_line,
+                model: tag.get_attribute("model").map(str::to_string),
             });
         }
     }

@@ -149,9 +149,10 @@ the reason to make it at all:
   documents to specific lines. `hick context` says, for a line the agent
   wrote, exactly what was in front of the model — files at a sha256 and a
   commit — and says plainly that it knows nothing when the session is gone.
-  One real defect was found and fixed
-  (`a-citation-that-points-at-nothing-fails.md`), and one gap is recorded and
-  open: an edited AI passage is not marked as edited.
+  Two real defects were found and fixed: a citation resolving to nothing was
+  silently dropped (`a-citation-that-points-at-nothing-fails.md`), and an
+  edited AI passage went on claiming the model wrote it
+  (`an-edited-ai-passage-stops-claiming-the-model-wrote-it.md`).
 - **The three provenances.** Three kinds of provenance, drawn apart so they
   can never be mistaken for one another — lineage (the weave), context (what
   the model was actually shown), and declared (`cites=`)

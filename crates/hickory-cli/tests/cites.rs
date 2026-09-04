@@ -119,3 +119,83 @@ fn a_citation_that_resolves_is_not_reported() {
     assert_eq!(cites[0].to.len(), 1, "{:?}", cites[0].to);
     assert!(cites[0].dangling.is_empty());
 }
+
+// Protects docs/guarantees/lineage/an-edited-ai-passage-stops-claiming-the-model-wrote-it.md
+mod edited_passages {
+    use hickory_cli::{CheckFailure, CheckOutcome, check_outcome, edited_transforms};
+
+    /// A transform holding exactly what the model wrote, `wrote=` and all.
+    fn doc(passage: &str, wrote: &str) -> String {
+        format!(
+            "<hick:copy id=\"f\" class=\"incident\">The release was red.</hick:copy>\n\n\
+             <hick:transform model=\"a/b\" select=\".incident\" instruct=\"Summarize.\" \
+             from=\"deadbeef\" wrote=\"{wrote}\">\n{passage}\n</hick:transform>\n"
+        )
+    }
+
+    fn write(dir: &std::path::Path, source: &str) -> std::path::PathBuf {
+        let path = dir.join("note.hick");
+        std::fs::write(&path, source).unwrap();
+        path
+    }
+
+    #[test]
+    fn the_models_own_words_are_not_marked() {
+        let dir = tempfile::tempdir().unwrap();
+        let passage = "The release was red for two days.";
+        let wrote = hick_lang::passage_fingerprint(passage);
+        let path = write(dir.path(), &doc(passage, &wrote));
+        let source = std::fs::read_to_string(&path).unwrap();
+        assert!(edited_transforms(&path, &source).unwrap().is_empty());
+    }
+
+    #[test]
+    fn a_hand_edit_is_marked_and_names_the_model() {
+        let dir = tempfile::tempdir().unwrap();
+        // Stamped for what the model wrote; the document holds something else.
+        let wrote = hick_lang::passage_fingerprint("The release was red for two days.");
+        let path = write(
+            dir.path(),
+            &doc("Everything was fine and nobody noticed.", &wrote),
+        );
+        let source = std::fs::read_to_string(&path).unwrap();
+        let found = edited_transforms(&path, &source).unwrap();
+        assert_eq!(found.len(), 1, "{found:?}");
+        match &found[0] {
+            CheckFailure::EditedTransform { model, .. } => {
+                assert_eq!(model.as_deref(), Some("a/b"));
+            }
+            other => panic!("wrong failure: {other:?}"),
+        }
+        // Editing is the author's business. The document telling the truth
+        // about itself is not a failure of verification.
+        assert_eq!(check_outcome(&found), CheckOutcome::Verified);
+    }
+
+    #[test]
+    fn whitespace_around_the_passage_is_not_an_edit() {
+        // Re-indenting a document must not read as somebody rewriting the
+        // model: the newlines around a passage are the element's formatting.
+        let dir = tempfile::tempdir().unwrap();
+        let passage = "The release was red for two days.";
+        let wrote = hick_lang::passage_fingerprint(passage);
+        let path = write(dir.path(), &doc(&format!("\n{passage}   "), &wrote));
+        let source = std::fs::read_to_string(&path).unwrap();
+        assert!(edited_transforms(&path, &source).unwrap().is_empty());
+    }
+
+    #[test]
+    fn a_passage_written_before_this_existed_claims_nothing() {
+        // Silence, not a mark: a document with no `wrote=` never said whose
+        // words these are, and inventing an answer for it would be worse
+        // than saying nothing.
+        let dir = tempfile::tempdir().unwrap();
+        let path = write(
+            dir.path(),
+            "<hick:transform select=\".x\" instruct=\"Summarize.\" from=\"deadbeef\">\n\
+             anything at all\n</hick:transform>\n",
+        );
+        let source = std::fs::read_to_string(&path).unwrap();
+        assert!(edited_transforms(&path, &source).unwrap().is_empty());
+    }
+}

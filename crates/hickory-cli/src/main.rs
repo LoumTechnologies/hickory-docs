@@ -1385,6 +1385,7 @@ async fn cmd_test(args: TestArgs) -> Result<ExitCode> {
         // no model is called, so this stays free and deterministic in CI.
         failures.extend(hickory_cli::stale_transforms(&run.doc_path, &run.source)?);
         failures.extend(hickory_cli::dangling_citations(&run.doc_path, &run.source)?);
+        failures.extend(hickory_cli::edited_transforms(&run.doc_path, &run.source)?);
         if args.json {
             json_blocks.push(block_model_json(&run)?);
         }
@@ -1434,6 +1435,23 @@ async fn cmd_test(args: TestArgs) -> Result<ExitCode> {
                          fix: hick refresh {}",
                         doc.display(),
                         doc.display(),
+                    );
+                }
+                CheckFailure::EditedTransform { doc, line, model } => {
+                    // Not a failure. Said in the report because a person
+                    // reading it should know which passages are no longer the
+                    // model's own words, and said as a fact rather than as a
+                    // problem.
+                    let by = model
+                        .as_deref()
+                        .map(|m| format!(" by {m}"))
+                        .unwrap_or_default();
+                    eprintln!(
+                        "EDITED {}:{line}: this passage was written{by} and has been edited by \
+                         hand since. The weave says so too. Nothing to fix — `hick refresh {}` \
+                         would replace your edit with the model's own words.",
+                        doc.display(),
+                        doc.display()
                     );
                 }
                 CheckFailure::DanglingCitation {
@@ -4182,8 +4200,14 @@ async fn cmd_refresh(args: RefreshArgs) -> Result<ExitCode> {
             // leaned on, kept apart from `from=` (what it was shown) and
             // drawn by the app as an assertion.
             let cites = cited_ids(&passage, &input);
+            // What the model actually wrote, so a later hand-edit is
+            // detectable. `from=` pins the inputs; without this, changing the
+            // prose alone left every fingerprint matching and the passage
+            // went on claiming the model's authorship of a person's words.
+            let wrote = hick_lang::passage_fingerprint(&passage);
             let mut attrs: Vec<(&str, &str)> = vec![
                 ("from", &fingerprint),
+                ("wrote", &wrote),
                 ("provider", llm.provider_name()),
                 ("model", llm.model_name()),
             ];

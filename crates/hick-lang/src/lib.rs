@@ -930,6 +930,24 @@ pub fn transform_fingerprint(input: &str, instruct: &str) -> String {
     format!("{:08x}", (hash ^ (hash >> 32)) as u32)
 }
 
+/// A fingerprint of a passage's own bytes, for `wrote=`.
+///
+/// `transform_fingerprint` pins what a passage was written FROM. This pins
+/// what was written — the other half, and the one that says whether the words
+/// in the document are still the words the model produced.
+///
+/// Trimmed before hashing, because a passage's surrounding newlines are the
+/// element's formatting rather than its content: re-indenting a document must
+/// not read as somebody rewriting the model.
+pub fn passage_fingerprint(passage: &str) -> String {
+    let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
+    for byte in passage.trim().bytes() {
+        hash ^= byte as u64;
+        hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
+    }
+    format!("{:08x}", (hash ^ (hash >> 32)) as u32)
+}
+
 fn fragment_matches(tag: &HickTag, selector: &str) -> bool {
     selector
         .split(',')
