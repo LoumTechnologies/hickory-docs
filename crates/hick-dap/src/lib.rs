@@ -12,11 +12,12 @@ pub mod adapter;
 pub mod build;
 pub mod capture;
 pub mod discovery;
+pub mod java;
 pub mod program;
 pub mod protocol;
 pub mod session;
 
-pub use adapter::Adapter;
+pub use adapter::{Adapter, Transport};
 pub use build::{BuildOutput, build, build_plain, is_compiled};
 pub use capture::{CaptureSpec, Captured, Hit};
 pub use discovery::{Discovered, discover, how_to_get, known_languages, suggests_hick_install};

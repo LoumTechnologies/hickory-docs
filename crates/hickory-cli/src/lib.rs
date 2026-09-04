@@ -27,6 +27,7 @@ pub mod ingest;
 pub mod ingest_exec;
 pub mod ingest_recording;
 pub mod init;
+pub mod java_debug;
 pub mod language_tier;
 pub mod lsp_install;
 pub mod mcp;

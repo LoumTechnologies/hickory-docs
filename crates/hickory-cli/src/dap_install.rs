@@ -71,6 +71,19 @@ const INSTALLERS: &[Installer] = &[
         reason: "the only MIT-licensed .NET debugger, and the one hick's C# support was built against",
     },
     Installer {
+        language: "java",
+        tool: "curl",
+        package: "java-debug",
+        command: "",
+        assets: JAVA_DEBUG,
+        // EPL-1.0, and allowed: it is a jar loaded by a separate JVM — the
+        // language server's — never linked into anything hick builds. That is
+        // the same relationship this product already has with eclipse.jdt.ls
+        // itself. See docs/specs/freeform/debugging-the-jvm.md, where the
+        // decision is recorded rather than left implicit.
+        reason: "the Java debugger, which runs as a plugin inside the language server",
+    },
+    Installer {
         language: "rust",
         tool: "curl",
         package: "codelldb",
@@ -82,6 +95,59 @@ const INSTALLERS: &[Installer] = &[
         reason: "the LLDB-based debugger VS Code's Rust users run, usable outside it",
     },
 ];
+
+/// java-debug, as shipped inside `vscjava.vscode-java-debug` 0.59.0.
+///
+/// One archive for every platform, for the same reason jdt.ls is: it is a
+/// Java jar. It unpacks into `java-debug/`, and the bundle jdt.ls is handed
+/// is then `java-debug/extension/server/com.microsoft.java.debug.plugin-*.jar`.
+///
+/// The checksum was taken on 2026-09-04 by fetching the asset.
+const JAVA_DEBUG: &[Asset] = &[
+    Asset {
+        os: "linux",
+        arch: "x86_64",
+        url: JAVA_DEBUG_URL,
+        sha256: JAVA_DEBUG_SHA256,
+        unpack: "unzip",
+        into: "java-debug",
+    },
+    Asset {
+        os: "linux",
+        arch: "aarch64",
+        url: JAVA_DEBUG_URL,
+        sha256: JAVA_DEBUG_SHA256,
+        unpack: "unzip",
+        into: "java-debug",
+    },
+    Asset {
+        os: "macos",
+        arch: "aarch64",
+        url: JAVA_DEBUG_URL,
+        sha256: JAVA_DEBUG_SHA256,
+        unpack: "unzip",
+        into: "java-debug",
+    },
+    Asset {
+        os: "macos",
+        arch: "x86_64",
+        url: JAVA_DEBUG_URL,
+        sha256: JAVA_DEBUG_SHA256,
+        unpack: "unzip",
+        into: "java-debug",
+    },
+    Asset {
+        os: "windows",
+        arch: "x86_64",
+        url: JAVA_DEBUG_URL,
+        sha256: JAVA_DEBUG_SHA256,
+        unpack: "unzip",
+        into: "java-debug",
+    },
+];
+
+const JAVA_DEBUG_URL: &str = "https://open-vsx.org/api/vscjava/vscode-java-debug/0.59.0/file/vscjava.vscode-java-debug-0.59.0.vsix";
+const JAVA_DEBUG_SHA256: &str = "87627e24dbb5b01137decc0265f043cb08adad22af3c195f1ba39898dafb1588";
 
 /// js-debug v1.117.0.
 ///

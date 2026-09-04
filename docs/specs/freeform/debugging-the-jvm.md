@@ -1,6 +1,13 @@
 # Debugging The JVM
 
-**Status: a design, investigated 2026-09-04, nothing built.** Java, Kotlin,
+**Status: Java is BUILT (2026-09-04) — see
+`docs/guarantees/debugging/a-debugger-that-lives-in-a-language-server-is-asked-for.md`.
+The open question below was measured and answered yes: jdt.ls imports a
+directory with no build file, and no `javac` is needed. Kotlin, Scala and
+Groovy remain as described: three separate investigations, none of them this
+one.**
+
+*Originally written as a design, 2026-09-04, before any of it existed:* Java, Kotlin,
 Scala and Groovy are IntelliJ's own subject and the largest hole in
 `replacing-the-jetbrains-pack.md`. This is what it would actually take, and
 what it must not claim before then.

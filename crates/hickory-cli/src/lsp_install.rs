@@ -4,7 +4,7 @@
 //! `hick dap install`; see [`crate::tool_install`]. This file is the
 //! catalogue and nothing else.
 
-use crate::tool_install::{Catalogue, Installer};
+use crate::tool_install::{Asset, Catalogue, Installer};
 
 /// Where a language server is installed, relative to the project root.
 pub const SERVERS_DIR: &str = ".hick-cache/servers";
@@ -83,6 +83,23 @@ const INSTALLERS: &[Installer] = &[
         reason: "a Roslyn-based C# server that installs as a dotnet tool",
     },
     Installer {
+        language: "java",
+        tool: "curl",
+        package: "eclipse.jdt.ls",
+        // Nothing to run: an archive install builds its command from the
+        // matching asset below.
+        command: "",
+        assets: JDT_LS,
+        // Taken from the `redhat.java` extension rather than from
+        // download.eclipse.org, and the reason is the pin. jdt.ls publishes
+        // `jdt-language-server-latest.tar.gz`, whose URL is stable and whose
+        // BYTES change daily, so a SHA-256 against it would break within a
+        // day; its milestone directories have no listing to resolve a version
+        // from. The extension is published per version, so its bytes are
+        // fixed — which is what an archive installer pins.
+        reason: "the Java language server, and the host the debugger runs inside",
+    },
+    Installer {
         language: "json",
         tool: "npm",
         package: "vscode-langservers-extracted",
@@ -98,6 +115,62 @@ pub fn plans() -> Vec<crate::tool_install::InstallPlan> {
 }
 
 /// Install one language's server, confined.
+/// eclipse.jdt.ls, as shipped inside `redhat.java` 1.57.2026090408 (EPL-2.0).
+///
+/// One archive for every platform: jdt.ls is Java, and the per-platform
+/// `config_*` directories are all inside the one download, so the same bytes
+/// are the honest answer on each row. It unpacks into `java/`, and the
+/// server is then `java/extension/server`.
+///
+/// The checksum was taken on 2026-09-04 by fetching the asset. Only
+/// `linux-x86_64` has been unpacked and run.
+const JDT_LS: &[Asset] = &[
+    Asset {
+        os: "linux",
+        arch: "x86_64",
+        url: JDT_LS_URL,
+        sha256: JDT_LS_SHA256,
+        unpack: "unzip",
+        into: "java",
+    },
+    Asset {
+        os: "linux",
+        arch: "aarch64",
+        url: JDT_LS_URL,
+        sha256: JDT_LS_SHA256,
+        unpack: "unzip",
+        into: "java",
+    },
+    Asset {
+        os: "macos",
+        arch: "aarch64",
+        url: JDT_LS_URL,
+        sha256: JDT_LS_SHA256,
+        unpack: "unzip",
+        into: "java",
+    },
+    Asset {
+        os: "macos",
+        arch: "x86_64",
+        url: JDT_LS_URL,
+        sha256: JDT_LS_SHA256,
+        unpack: "unzip",
+        into: "java",
+    },
+    Asset {
+        os: "windows",
+        arch: "x86_64",
+        url: JDT_LS_URL,
+        sha256: JDT_LS_SHA256,
+        unpack: "unzip",
+        into: "java",
+    },
+];
+
+const JDT_LS_URL: &str =
+    "https://open-vsx.org/api/redhat/java/1.57.2026090408/file/redhat.java-1.57.2026090408.vsix";
+const JDT_LS_SHA256: &str = "2249b3669443f88e82243ad4fae8b1247741bafe341f52d1e6d15cd2e720ed6e";
+
 pub fn install(root: &std::path::Path, language: &str) -> anyhow::Result<std::path::PathBuf> {
     crate::tool_install::install(&CATALOGUE, root, language)
 }

@@ -40,7 +40,7 @@ omitted because nothing has reached Gold.
 | WebStorm | typescript, javascript, tsx, jsx | yes | get | yes | **Silver, proven end to end** (2026-09-04) |
 | RubyMine | ruby | yes | get | — | **Bronze — rdbg does not fit the adapter shape** |
 | DataGrip | sql | yes | get | n/a | Silver as a *language*; the tool is missing (below) |
-| IntelliJ | java | yes | get | — | **Bronze — no debug adapter** |
+| IntelliJ | java | yes | yes | yes | **Silver, proven end to end** (2026-09-04) |
 | IntelliJ | kotlin | yes | get | — | **Bronze — no debug adapter** |
 | IntelliJ | scala | yes | get | — | **Bronze — no debug adapter** |
 | IntelliJ | groovy | yes | — | — | **Bronze — nothing but text** |
@@ -175,11 +175,12 @@ Ranked by how much daily work each unblocks, not by size:
    document line and reads a value out of the frame
    (`an-adapter-that-runs-on-a-second-connection-is-followed.md`). One child
    is followed; a target that spawns further targets is not.
-2. **A JVM debug adapter** — Java and Kotlin, the pack's centre and the
-   biggest single hole. **No longer blocked:** the licence is decided and the
-   design is `debugging-the-jvm.md`. Its own first step is a measurement, not
-   a build — whether jdt.ls will import a scratch tree with no build file —
-   and that answer decides everything after it.
+2. ~~**A JVM debug adapter**~~ — **Java done 2026-09-04.** The measurement
+   answered yes: jdt.ls imports a directory with no build file at all, so a
+   document need not generate a `pom.xml`, and no `javac` is required.
+   `a-debugger-that-lives-in-a-language-server-is-asked-for.md`. **Kotlin,
+   Scala and Groovy are still Bronze** and share none of this — each is its
+   own adapter and its own investigation.
 3. **Audit the debugger UI against the engine.** ~~Conditional breakpoints and
    logpoints~~ — **done 2026-09-03**, and the prediction held exactly: the
    engine was complete, `debugStateEffects` hardcoded `conditional: false`,

@@ -26,6 +26,12 @@ pub struct Discovered {
     pub transport: Transport,
     /// Whether the program runs on a second connection to the same adapter.
     pub multi_session: bool,
+    /// Whether this adapter must be asked for rather than spawned.
+    ///
+    /// True only for Java. `command` is then empty and `transport` means
+    /// nothing until a caller that can speak LSP has obtained a port — see
+    /// `hickory_cli::java_debug`.
+    pub hosted: bool,
     /// Launch keys this adapter requires, merged under the caller's own.
     ///
     /// Most adapters need none: `program` and `cwd` are the whole request.
@@ -55,6 +61,9 @@ enum Recipe {
         package: &'static str,
         entry: &'static str,
     },
+    /// An adapter that runs INSIDE a language server, and is obtained by
+    /// asking it. There is nothing here to spawn.
+    LanguageServerHosted,
 }
 
 struct Candidate {
@@ -64,6 +73,8 @@ struct Candidate {
     /// this had to exist: three of the four ecosystems here listen on a
     /// socket and never read stdin.
     transport: Transport,
+    /// Whether this adapter is hosted by a language server.
+    hosted: bool,
     /// Launch keys this adapter requires, as a JSON object literal.
     launch: &'static str,
     /// Whether this adapter runs the program on a SECOND connection.
@@ -97,6 +108,7 @@ const LANGUAGES: &[(&str, &[Candidate])] = &[
     // `language_of` offer C#, pick `Program.cs`, and fail at launch — worse
     // than saying nothing. See `build.rs`.
     ("csharp", C_CSHARP),
+    ("java", C_JAVA),
     // Ruby is deliberately absent. `rdbg` does not fit this shape at all:
     // `rdbg --open target.rb` RUNS the program and opens a UNIX domain
     // socket, so the program is chosen when the adapter is spawned rather
@@ -121,6 +133,7 @@ const C_PYTHON: &[Candidate] = &[Candidate {
         module: "debugpy.adapter",
     },
     transport: Transport::Stdio,
+    hosted: false,
     launch: "{}",
     multi_session: false,
 }];
@@ -135,6 +148,7 @@ const C_NODE: &[Candidate] = &[Candidate {
         entry: "src/dapDebugServer.js",
     },
     transport: Transport::Tcp,
+    hosted: false,
     // Without a `type` js-debug answers "Unknown config" and lists back
     // everything it was sent. `pwa-node` is the Node debugger; the browser
     // ones are a different product decision and are not offered.
@@ -152,6 +166,7 @@ const C_GO: &[Candidate] = &[Candidate {
         args: &["dap", "--listen=127.0.0.1:{port}"],
     },
     transport: Transport::Tcp,
+    hosted: false,
     launch: "{}",
     multi_session: false,
 }];
@@ -163,6 +178,7 @@ const C_NATIVE: &[Candidate] = &[
             args: &[],
         },
         transport: Transport::Stdio,
+        hosted: false,
         launch: "{}",
         multi_session: false,
     },
@@ -174,6 +190,7 @@ const C_NATIVE: &[Candidate] = &[
             args: &[],
         },
         transport: Transport::Stdio,
+        hosted: false,
         launch: "{}",
         multi_session: false,
     },
@@ -187,6 +204,18 @@ const C_NATIVE: &[Candidate] = &[
 // shape `tool_install` did not have — a URL and a pinned SHA-256 per platform.
 // That shape exists now (`hickory-cli::dap_install`), so both roads are open:
 // discovery still prefers a netcoredbg the user installed themselves.
+// java-debug is a plugin inside eclipse.jdt.ls, not a program. Discovery's
+// job here is only to say whether both halves are installed; obtaining a
+// port needs LSP, and that happens a layer up.
+const C_JAVA: &[Candidate] = &[Candidate {
+    adapter: "java-debug",
+    recipe: Recipe::LanguageServerHosted,
+    transport: Transport::Stdio,
+    hosted: true,
+    launch: "{}",
+    multi_session: false,
+}];
+
 const C_CSHARP: &[Candidate] = &[Candidate {
     adapter: "netcoredbg",
     recipe: Recipe::Binary {
@@ -194,6 +223,7 @@ const C_CSHARP: &[Candidate] = &[Candidate {
         args: &["--interpreter=vscode"],
     },
     transport: Transport::Stdio,
+    hosted: false,
     launch: "{}",
     multi_session: false,
 }];
@@ -241,6 +271,10 @@ pub fn how_to_get(language: &str) -> String {
         "c" | "cpp" => "hick uses LLVM's own adapter here. `lldb-dap` ships with LLVM \
                         (`apt install lldb`, `brew install llvm`); codelldb is the other one \
                         hick looks for. Either on PATH is enough."
+            .to_string(),
+        "java" => "Java's debugger is a plugin inside its language server, so it needs both: \
+                   `hick lsp install java` and `hick dap install java`. A `java` on PATH is \
+                   also needed to run them — hick installs the server, never a JDK."
             .to_string(),
         "ruby" => "hick cannot debug Ruby yet, and would rather say so than offer something \
                    that fails at launch. `rdbg` from the debug gem does not fit the shape \
@@ -309,6 +343,7 @@ fn resolve(candidate: &Candidate, root: &Path, project_only: bool) -> Option<Dis
                 adapter: candidate.adapter,
                 transport: candidate.transport,
                 multi_session: candidate.multi_session,
+                hosted: candidate.hosted,
                 launch_extra: launch_extra(candidate),
             })
         }
@@ -333,6 +368,23 @@ fn resolve(candidate: &Candidate, root: &Path, project_only: bool) -> Option<Dis
                 adapter: candidate.adapter,
                 transport: candidate.transport,
                 multi_session: candidate.multi_session,
+                hosted: candidate.hosted,
+                launch_extra: launch_extra(candidate),
+            })
+        }
+        Recipe::LanguageServerHosted => {
+            // Both halves, because the debugger runs inside the server: one
+            // without the other cannot debug anything, and reporting Java as
+            // debuggable then would be the claim this whole area exists to
+            // stop making.
+            crate::java::installed(root)?;
+            Some(Discovered {
+                command: Vec::new(),
+                origin,
+                adapter: candidate.adapter,
+                transport: candidate.transport,
+                multi_session: candidate.multi_session,
+                hosted: candidate.hosted,
                 launch_extra: launch_extra(candidate),
             })
         }
@@ -357,6 +409,7 @@ fn resolve(candidate: &Candidate, root: &Path, project_only: bool) -> Option<Dis
                 adapter: candidate.adapter,
                 transport: candidate.transport,
                 multi_session: candidate.multi_session,
+                hosted: candidate.hosted,
                 launch_extra: launch_extra(candidate),
             })
         }

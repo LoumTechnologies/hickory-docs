@@ -604,6 +604,7 @@ const REPORTED_LANGUAGES: &[(&str, &str)] = &[
     ("typescript", "TypeScript/JavaScript"),
     ("csharp", "C#"),
     ("go", "Go"),
+    ("java", "Java"),
     ("json", "JSON"),
     ("yaml", "YAML"),
 ];

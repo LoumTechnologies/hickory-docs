@@ -59,6 +59,15 @@ pub enum Transport {
     /// The adapter listens on a TCP port and is connected to. The command's
     /// arguments carry `{port}` where the port belongs.
     Tcp,
+    /// Somebody else is already listening on this port, and nothing is
+    /// spawned.
+    ///
+    /// Java's adapter is not a program: `java-debug` is a plugin inside the
+    /// Java language server, and a client gets a session by asking that
+    /// server for one and reading a port out of the reply. Obtaining the port
+    /// needs LSP, which this crate must not know about — so the crate that
+    /// owns both ends does the asking and hands the port here.
+    Attached(u16),
 }
 
 /// The `{port}` placeholder an adapter's arguments use.
@@ -103,6 +112,7 @@ impl Adapter {
         match transport {
             Transport::Stdio => Adapter::spawn(command).await,
             Transport::Tcp => Adapter::connect_tcp(command).await,
+            Transport::Attached(port) => Adapter::attach(port).await,
         }
     }
 
@@ -173,6 +183,22 @@ impl Adapter {
         let _ = stream.set_nodelay(true);
         let (read, write) = stream.into_split();
         let mut adapter = Adapter::wire(Box::new(write), read, Some(child));
+        adapter.port = Some(port);
+        Ok(adapter)
+    }
+
+    /// Connect to a server somebody else started, and own no process.
+    ///
+    /// Whoever obtained the port owns what is listening on it, and is
+    /// responsible for ending it — `shutdown` here closes the conversation
+    /// and kills nothing.
+    pub async fn attach(port: u16) -> Result<Self> {
+        let stream = tokio::net::TcpStream::connect(("127.0.0.1", port))
+            .await
+            .with_context(|| format!("connecting to the debug adapter on port {port}"))?;
+        let _ = stream.set_nodelay(true);
+        let (read, write) = stream.into_split();
+        let mut adapter = Adapter::wire(Box::new(write), read, None);
         adapter.port = Some(port);
         Ok(adapter)
     }

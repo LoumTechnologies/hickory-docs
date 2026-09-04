@@ -152,6 +152,9 @@ fn project_dirs(root: &Path) -> Vec<PathBuf> {
         root.join(".hick-cache/servers/python/bin"),
         root.join(".hick-cache/servers/python/Scripts"),
         root.join(".hick-cache/servers/dotnet"),
+        // eclipse.jdt.ls is not a binary but a jar; the archive ships a
+        // launcher script beside it, which is what discovery can run.
+        root.join(".hick-cache/servers/java/extension/server/bin"),
     ];
 
     // Then each directory from here up to the repository root.
