@@ -78,6 +78,8 @@ jobs:
           # runner that cannot confine anything tests the wrong product.
           sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 || true
           npm install -g typescript@5 typescript-language-server  # 7.x ships no tsserver.js, which the wrapper needs
+          npm install -g intelephense                             # PhpStorm's language, and a node server: no PHP runtime needed
+          sudo apt-get install -y clangd                          # CLion's two, and clangd serves C and C++ from one install
           pipx install basedpyright || pip install --user basedpyright
           rustup component add rust-analyzer
           go install golang.org/x/tools/gopls@latest || true
@@ -247,6 +249,11 @@ jobs:
           sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 || true
       - run: cargo build -p hickory-cli --bin hick
       - run: cargo run -p hickory-cli --bin hick -- dap install csharp
+      # csharp-ls is a `dotnet tool`, so this is the only job it can exist in.
+      # It covers C# in the PLAIN-FILE sweep; the document sweep reports it as
+      # not covered, because csharp-ls resolves a compilation from the
+      # projects under `rootUri` and a document's code is staged elsewhere.
+      - run: cargo run -p hickory-cli --bin hick -- lsp install csharp
       # Assert the two things these suites skip on, BEFORE running them. Every
       # C# test here takes its skip path when either is missing, so without
       # this the job could go green having tested nothing — which is exactly
@@ -273,6 +280,10 @@ jobs:
       - run: >-
           cargo test -p hickory-cli --test serve_scaffold --test debug_desktop
           -- --test-threads=1 --nocapture
+      # The language-server sweep, for the one language only this job can
+      # serve. Every other language skips loudly here and is covered in the
+      # `rust` job.
+      - run: cargo test -p hickory-cli --test lsp_languages -- --test-threads=1 --nocapture
 
   # The guest test scripts parse on a VM, minutes into a run, on a machine
   # nobody is watching. Both halves of this check were real failures the first

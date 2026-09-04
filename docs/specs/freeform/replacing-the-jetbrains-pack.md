@@ -58,6 +58,39 @@ all four sit at Bronze. Java and Kotlin have a debug adapter that exists and
 is permissively licensed — `java-debug` (Eclipse JDT, EPL) needs a licence
 check against the no-copyleft rule before it can be considered.
 
+## What CI verifies, per language
+
+Asked and measured on 2026-09-04 rather than assumed. "Covered" means a test
+drove the real thing — a server to an answer in document coordinates, an
+adapter to a stop — not that the code exists.
+
+| Language | Debugger | Language server (document) | Language server (plain file) |
+|---|---|---|---|
+| Python | yes | yes | yes |
+| Rust | yes | yes | yes |
+| Go | yes | yes | yes |
+| TypeScript | yes | yes | yes |
+| JavaScript | yes | via TypeScript's server | via TypeScript's server |
+| Java | yes | yes | yes |
+| C | yes | yes (clangd) | yes |
+| C++ | yes | yes (clangd) | yes |
+| C# | yes (own job) | **no — see below** | yes (own job) |
+| PHP | — | yes (intelephense) | yes |
+| Ruby, Kotlin, Scala | — | not covered | not covered |
+
+**C# has a debugger in a document and no language server in one.** csharp-ls
+resolves a compilation from the projects under `rootUri`, and a document's
+code is staged elsewhere — so the file it is asked about belongs to no
+project it loaded. Measured three ways on 2026-09-04: with the `.csproj`
+beside the document, generated into the staged tree, and with the request
+budget raised to 180 seconds. Empty every time. The plain-file path works and
+is covered. What would fix it is a server that accepts a loose translation
+unit the way clangd does, or staging a whole project rather than a file.
+
+Ruby, Kotlin and Scala have servers hick can discover and no fixture drives
+them. That is the remaining gap in this table, and it is honest rather than
+hidden: adding each means installing its server in CI.
+
 ## Cross-IDE features
 
 Every JetBrains IDE ships roughly the same editor; these rows are what

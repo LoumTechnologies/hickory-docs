@@ -66,8 +66,23 @@ struct Language {
     code: &'static str,
     /// A symbol defined in `code`, used to ask for hover and definition.
     symbol: &'static str,
-    /// Extra files that make this a real project of its ecosystem.
+    /// Extra files that make this a real project of its ecosystem, written
+    /// beside the document.
     scaffold: &'static [(&'static str, &'static str)],
+    /// Whether this server can answer inside a DOCUMENT, as opposed to only
+    /// for a plain file.
+    ///
+    /// True for every server here but one. csharp-ls resolves a compilation
+    /// from the projects it finds under `rootUri`, and a document's code is
+    /// staged somewhere else entirely — so the file it is asked about belongs
+    /// to no project it loaded, and it answers nothing. Measured on
+    /// 2026-09-04 with the `.csproj` beside the document, generated INTO the
+    /// staged tree, and with the budget raised to 180s; empty every time.
+    ///
+    /// Recorded rather than hidden: C# in a document has a debugger and no
+    /// language server, and that is worth knowing. The plain-file sweep still
+    /// covers csharp, so this is a narrowing, not a hole.
+    in_document: bool,
 }
 
 /// Let a temp project see the servers this repository has installed.
@@ -91,6 +106,48 @@ fn borrow_this_repos_servers(_into: &std::path::Path) {}
 
 const LANGUAGES: &[Language] = &[
     Language {
+        id: "csharp",
+        file: "Lib.cs",
+        code: "public static class Lib\n{\n    public static int Summarise(string path) => path.Length;\n\n    public static int Main() => Summarise(\"x\");\n}\n",
+        symbol: "Summarise",
+        // csharp-ls loads a project, not a loose file: without a csproj it
+        // answers nothing and the failure reads as a broken server.
+        scaffold: &[(
+            "app.csproj",
+            "<Project Sdk=\"Microsoft.NET.Sdk\">\n  <PropertyGroup>\n    <OutputType>Exe</OutputType>\n    <TargetFramework>net10.0</TargetFramework>\n  </PropertyGroup>\n</Project>\n",
+        )],
+        in_document: false,
+    },
+    Language {
+        id: "php",
+        file: "lib.php",
+        code: "<?php\nfunction summarise(string $path): int {\n    return strlen($path);\n}\n\necho summarise(\"x\");\n",
+        symbol: "summarise",
+        scaffold: &[],
+        in_document: true,
+    },
+    Language {
+        id: "c",
+        file: "lib.c",
+        code: "int summarise(int value) {\n    return value * 2;\n}\n\nint main(void) {\n    return summarise(21);\n}\n",
+        symbol: "summarise",
+        // Free: clangd serves C and C++ both, so the second row costs an
+        // install of nothing and covers a language the C suite debugs.
+        scaffold: &[],
+        in_document: true,
+    },
+    Language {
+        id: "cpp",
+        file: "lib.cpp",
+        code: "int summarise(int value) {\n    return value * 2;\n}\n\nint main() {\n    return summarise(21);\n}\n",
+        symbol: "summarise",
+        // clangd works on a loose translation unit; a compile_commands.json
+        // would pin the flags and is not needed for one file with no
+        // includes.
+        scaffold: &[],
+        in_document: true,
+    },
+    Language {
         id: "java",
         file: "Main.java",
         code: "public class Main {\n    static int summarise(String path) {\n        return path.length();\n    }\n\n    public static void main(String[] args) {\n        System.out.println(summarise(\"x\"));\n    }\n}\n",
@@ -99,6 +156,7 @@ const LANGUAGES: &[Language] = &[
         // bare directory, which is what a document's scratch tree is. Proved
         // when the debugger was built — see debugging-the-jvm.md.
         scaffold: &[],
+        in_document: true,
     },
     Language {
         id: "python",
@@ -111,6 +169,7 @@ const LANGUAGES: &[Language] = &[
             "pyproject.toml",
             "[project]\nname = \"fixture\"\nversion = \"0.1.0\"\n",
         )],
+        in_document: true,
     },
     Language {
         id: "rust",
@@ -121,6 +180,7 @@ const LANGUAGES: &[Language] = &[
             "Cargo.toml",
             "[package]\nname = \"fixture\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
         )],
+        in_document: true,
     },
     Language {
         id: "typescript",
@@ -137,6 +197,7 @@ const LANGUAGES: &[Language] = &[
                 "{\n  \"compilerOptions\": { \"strict\": true, \"target\": \"ES2020\" }\n}\n",
             ),
         ],
+        in_document: true,
     },
     Language {
         id: "go",
@@ -144,6 +205,7 @@ const LANGUAGES: &[Language] = &[
         code: "package main\n\nimport \"fmt\"\n\nfunc double(value int) int {\n\treturn value * 2\n}\n\nfunc main() {\n\tfmt.Println(double(21))\n}\n",
         symbol: "double",
         scaffold: &[("go.mod", "module fixture\n\ngo 1.22\n")],
+        in_document: true,
     },
 ];
 
@@ -613,6 +675,17 @@ fn every_installed_language_answers_in_document_coordinates() {
             eprintln!(
                 "SKIPPED rust on Windows: rust-analyzer does not answer about a staged \
                  file there — see issue #24"
+            );
+            continue;
+        }
+        if !language.in_document {
+            // Not a skip for a missing server: this one is installed and
+            // answers for a plain file. It cannot answer for a document, and
+            // saying which of the two is the point of the flag.
+            eprintln!(
+                "NOT COVERED {}: its server cannot answer about a staged file — see the \
+                 `in_document` note beside its fixture. The plain-file sweep covers it.",
+                language.id
             );
             continue;
         }
