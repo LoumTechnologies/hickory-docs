@@ -83,7 +83,12 @@ Last LLM verification:
   debug adapter at all, `.hick-cache` is gitignored, and every live debug
   suite skipped while the job went green. `crates/hick-dap/tests/debug_coverage.rs`
   now fails when nothing was debuggable, and CI installs the adapters before
-  the tests. C# is covered by a job of its own: the main one deletes the .NET
+  the tests — in a `debuggers` job of its own, which installs the adapters,
+  asserts each one by name before running anything, and sets
+  `HICKORY_REQUIRE_DEBUG_ADAPTERS=1` so an empty run is a failure. It is not
+  required everywhere on purpose: nobody has these adapters by default, and a
+  guard that always failed would break `cargo test` on a clean clone. C# is
+  covered by a job of its own: the main one deletes the .NET
   SDK to fit a full workspace build, so netcoredbg cannot run there, and a
   separate job builds two crates instead of everything and has the disk for
   it. That job asserts `dotnet --version` and the netcoredbg binary BEFORE

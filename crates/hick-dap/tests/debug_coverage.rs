@@ -14,6 +14,20 @@
 //! So this asserts what no individual suite can: that *something* was
 //! debuggable here. It is the same guard `lsp_languages.rs` already makes for
 //! language servers, for the same reason and in the same words.
+//!
+//! # Why it is asked for rather than always on
+//!
+//! Nobody has codelldb, debugpy or netcoredbg by default. A guard that always
+//! failed would break `cargo test` on a clean clone for every contributor —
+//! demanding five installs before a single test can run — which is a worse
+//! product than the gap it closes.
+//!
+//! So it reports on every machine and **fails only where debugging is meant
+//! to be covered**: CI's `debuggers` job sets
+//! `HICKORY_REQUIRE_DEBUG_ADAPTERS=1` after installing them. That job also
+//! asserts each adapter exists in a step of its own, so the env var going
+//! missing does not quietly disarm anything — two independent checks, and
+//! neither is the only one.
 
 use std::path::Path;
 
@@ -67,10 +81,18 @@ fn at_least_one_language_can_actually_be_debugged_here() {
         }
     }
     eprintln!("debuggable on this machine: {covered:?}");
+    if std::env::var_os("HICKORY_REQUIRE_DEBUG_ADAPTERS").is_none() {
+        eprintln!(
+            "not required on this machine — set HICKORY_REQUIRE_DEBUG_ADAPTERS=1 to make \
+             an empty list a failure, as CI's `debuggers` job does. Missing:\n{}",
+            missing.join("\n")
+        );
+        return;
+    }
     assert!(
         !covered.is_empty(),
-        "no debug adapter is installed on this machine, so every live debug suite skipped \
-         and tested nothing.\nInstall at least one:\n{}",
+        "no debug adapter is installed, so every live debug suite skipped and tested \
+         nothing.\nInstall at least one:\n{}",
         missing.join("\n")
     );
 }

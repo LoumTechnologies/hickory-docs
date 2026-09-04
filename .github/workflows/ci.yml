@@ -97,26 +97,11 @@ jobs:
         run: |
           curl -LsSf https://astral.sh/uv/install.sh | sh
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
-      # The debug adapters, for the same reason as the language servers above
-      # and with a sharper edge. Every `live_session_*.rs` skips loudly when
-      # its adapter is missing, `.hick-cache` is gitignored, and no adapter
-      # was ever installed here — so all eight live debug suites skipped and
-      # this job went green. The product's largest claim was covered by
-      # nothing. `debug_coverage.rs` now fails when that happens, and this is
-      # what keeps it passing honestly.
-      #
-      # C# is deliberately absent: netcoredbg needs the .NET SDK, which the
-      # disk-reclaim step above deletes to make room for this build. That is
-      # a real trade and is written down rather than left as an absence.
-      - name: Install the debug adapters the live suites need
-        run: |
-          go install github.com/go-delve/delve/cmd/dlv@latest
-          cargo run -p hickory-cli --bin hick -- dap install python
-          cargo run -p hickory-cli --bin hick -- dap install rust        # codelldb, which also serves C and C++
-          cargo run -p hickory-cli --bin hick -- dap install typescript  # js-debug, for JavaScript and TypeScript
-          cargo run -p hickory-cli --bin hick -- lsp install java        # the Java debugger runs INSIDE the language server,
-          cargo run -p hickory-cli --bin hick -- dap install java        # so Java needs both halves or neither works
-          df -h / | tail -1
+      # The debug adapters are NOT installed here. They live in the
+      # `debuggers` job below, which has the disk this one spends on a full
+      # workspace build and reports a broken debugger as a broken debugger
+      # rather than as one red line inside a twenty-minute run. The live
+      # debug suites skip here, on purpose.
       - run: cargo test --workspace -- --test-threads=1
       - name: Install DuckDB CLI (pinned to the version the examples expect)
         run: |
@@ -152,6 +137,75 @@ jobs:
         run: |
           cargo run -p hickory-cli -- run examples/grand-tour.hick --features with-r --out /tmp/grand-tour-with-r
           cargo run -p hickory-cli -- test examples/grand-tour.hick --features with-r --out /tmp/grand-tour-with-r
+
+  # The debuggers, in a job of their own.
+  #
+  # Eight languages debug through this product, each with a live suite that
+  # drives a real adapter to a real stop. Every one of them skips loudly when
+  # its adapter is missing — right, because a machine without delve cannot
+  # debug Go — and until 2026-09-04 CI installed none of them, so all eight
+  # skipped and the job went green.
+  #
+  # Installing them in the `rust` job fixed the coverage and put ~120 MB on a
+  # runner that already deletes 10 GB to fit, and buried a debugger failure
+  # inside a full workspace run. Here instead: this job builds one crate,
+  # installs the adapters, and runs only the suites that use them — so when it
+  # is red, the debugger is what broke.
+  #
+  # C# is not here. It needs the .NET SDK, and has its own job below for the
+  # same reason this one exists.
+  debuggers:
+    needs: [changes]
+    if: always() && (github.event_name == 'push' || needs.changes.outputs.run_rust == 'true')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.96.1
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: debuggers
+      # debugpy is installed into a real virtualenv by uv, which is how
+      # discovery recognises it — so uv has to exist first.
+      - name: Install uv, which the Python adapter is installed with
+        run: |
+          curl -LsSf https://astral.sh/uv/install.sh | sh
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+      - run: cargo build -p hickory-cli --bin hick
+      - name: Install the adapters the live suites drive
+        run: |
+          go install github.com/go-delve/delve/cmd/dlv@latest
+          echo "$HOME/go/bin" >> "$GITHUB_PATH"
+          cargo run -p hickory-cli --bin hick -- dap install python
+          cargo run -p hickory-cli --bin hick -- dap install rust        # codelldb, which also serves C and C++
+          cargo run -p hickory-cli --bin hick -- dap install typescript  # js-debug, for JavaScript and TypeScript
+          cargo run -p hickory-cli --bin hick -- lsp install java        # the Java debugger runs INSIDE the language server,
+          cargo run -p hickory-cli --bin hick -- dap install java        # so Java needs both halves or neither works
+          df -h / | tail -1
+      # Named one by one, BEFORE the tests. Every suite takes its skip path
+      # when its adapter is missing, so a failed install would otherwise show
+      # up as a green job that tested nothing — which is the exact failure
+      # this job was created to end.
+      - name: Prove this runner can actually cover each of them
+        run: |
+          test -x .hick-cache/adapters/codelldb/extension/adapter/codelldb || { echo "no codelldb: Rust, C and C++ would skip" >&2; exit 1; }
+          test -f .hick-cache/adapters/js-debug/src/dapDebugServer.js      || { echo "no js-debug: JavaScript and TypeScript would skip" >&2; exit 1; }
+          test -x .hick-cache/adapters/python/bin/python                   || { echo "no debugpy venv: Python would skip" >&2; exit 1; }
+          ls .hick-cache/adapters/java-debug/extension/server/*.jar > /dev/null || { echo "no java-debug bundle: Java would skip" >&2; exit 1; }
+          command -v dlv > /dev/null || { echo "no delve: Go would skip" >&2; exit 1; }
+          node --version
+          java -version
+      # `HICKORY_REQUIRE_DEBUG_ADAPTERS` turns `debug_coverage.rs` from a
+      # report into a gate. It is deliberately not on everywhere: nobody has
+      # these adapters by default, and a guard that always failed would break
+      # `cargo test` on a clean clone for every contributor.
+      - name: Every live debug suite, with an empty run counted as a failure
+        env:
+          HICKORY_REQUIRE_DEBUG_ADAPTERS: "1"
+        run: cargo test -p hick-dap --tests -- --test-threads=1 --nocapture
+      # Java's suite lives in `hickory-cli`, because its adapter is not
+      # spawned but ASKED FOR — over LSP, which `hick-dap` must not know
+      # about.
+      - run: cargo test -p hickory-cli --test live_session_java -- --test-threads=1 --nocapture
 
   # C#, which the `rust` job above cannot cover.
   #
