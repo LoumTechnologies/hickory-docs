@@ -153,6 +153,67 @@ jobs:
           cargo run -p hickory-cli -- run examples/grand-tour.hick --features with-r --out /tmp/grand-tour-with-r
           cargo run -p hickory-cli -- test examples/grand-tour.hick --features with-r --out /tmp/grand-tour-with-r
 
+  # C#, which the `rust` job above cannot cover.
+  #
+  # That job deletes /usr/share/dotnet to reclaim ~10 GB, because a full
+  # `cargo test --workspace` plus this workspace's debug artifacts do not fit
+  # on a runner otherwise. netcoredbg needs the SDK, so C# debugging was the
+  # one language verified on a developer's machine and nowhere else — and the
+  # cost was wider than the debugger: `serve_scaffold.rs` skipped five tests
+  # covering File -> New Project end to end, which is the scaffold-as-a-recipe-
+  # commit feature in its entirety.
+  #
+  # A separate job has the disk the `rust` job does not: it builds two crates
+  # and runs four suites rather than building and testing everything.
+  csharp:
+    needs: [changes]
+    if: always() && (github.event_name == 'push' || needs.changes.outputs.run_rust == 'true')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.96.1
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: csharp
+      # Pinned rather than trusting whatever the runner ships: the test
+      # fixtures declare `net10.0`, and an SDK that cannot build that target
+      # would skip or fail for a reason that has nothing to do with hick.
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+      - name: The sandbox a cell is confined by, as the rust job installs it
+        run: |
+          sudo apt-get update && sudo apt-get install -y bubblewrap
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 || true
+      - run: cargo build -p hickory-cli --bin hick
+      - run: cargo run -p hickory-cli --bin hick -- dap install csharp
+      # Assert the two things these suites skip on, BEFORE running them. Every
+      # C# test here takes its skip path when either is missing, so without
+      # this the job could go green having tested nothing — which is exactly
+      # what the `rust` job was doing.
+      - name: Prove this runner can actually cover C#
+        run: |
+          dotnet --version
+          test -x .hick-cache/adapters/netcoredbg/netcoredbg \
+            || { echo "netcoredbg did not install; every C# suite would skip" >&2; exit 1; }
+      # Debugging: a breakpoint on a document line stopping inside the
+      # assembly `dotnet build` produced — not in the .cs source.
+      - run: >-
+          cargo test -p hick-dap --test live_session_csharp --test csharp_document
+          -- --test-threads=1 --nocapture
+      # New Project, end to end: `dotnet new` in a terminal, committed as one
+      # recipe commit through a temporary index, with the history lens
+      # checking the tree against its own trailer.
+      #
+      # `serve_scaffold.rs` runs in the `rust` job too, and the two halves
+      # cover different tests on purpose: uv is installed there and not here,
+      # dotnet here and not there. Adding uv to this job would duplicate
+      # coverage rather than add any; removing it from the other would lose
+      # the uv half entirely.
+      - run: >-
+          cargo test -p hickory-cli --test serve_scaffold --test debug_desktop
+          -- --test-threads=1 --nocapture
+
   # The guest test scripts parse on a VM, minutes into a run, on a machine
   # nobody is watching. Both halves of this check were real failures the first
   # time `vmkit test` ran: a `.ps1` containing one em dash died with

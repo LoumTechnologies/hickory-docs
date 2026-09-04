@@ -83,8 +83,11 @@ Last LLM verification:
   debug adapter at all, `.hick-cache` is gitignored, and every live debug
   suite skipped while the job went green. `crates/hick-dap/tests/debug_coverage.rs`
   now fails when nothing was debuggable, and CI installs the adapters before
-  the tests. C# is still uncovered there, because netcoredbg needs the .NET
-  SDK that the runner deletes for disk space.
+  the tests. C# is covered by a job of its own: the main one deletes the .NET
+  SDK to fit a full workspace build, so netcoredbg cannot run there, and a
+  separate job builds two crates instead of everything and has the disk for
+  it. That job asserts `dotnet --version` and the netcoredbg binary BEFORE
+  running anything, so it cannot go green having skipped.
   `{port}` is claimed and released before the adapter binds it, which is a
   race no DAP client can close (adapters take a port number, not a listening
   socket) and is named in the code rather than hidden. Only `linux-x86_64`
