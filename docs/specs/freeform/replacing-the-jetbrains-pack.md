@@ -141,7 +141,17 @@ Every JetBrains IDE ships roughly the same editor; these rows are what
 Worth writing down, because the trade is not one-directional and these are
 the reason to make it at all:
 
-- **A note can prove itself.** Three kinds of provenance, drawn apart so they
+- **A note can prove itself** — and this was exercised end to end on
+  2026-09-04 rather than taken on trust. Changing a fact an AI summarised
+  makes `hick test` fail offline with the line, the selector and the
+  instruction. `hick cites` resolves a message's every claim back across four
+  documents to specific lines. `hick context` says, for a line the agent
+  wrote, exactly what was in front of the model — files at a sha256 and a
+  commit — and says plainly that it knows nothing when the session is gone.
+  One real defect was found and fixed
+  (`a-citation-that-points-at-nothing-fails.md`), and one gap is recorded and
+  open: an edited AI passage is not marked as edited.
+- **The three provenances.** Three kinds of provenance, drawn apart so they
   can never be mistaken for one another — lineage (the weave), context (what
   the model was actually shown), and declared (`cites=`)
   (`three-provenances-are-drawn-apart.md`). An AI summary in a note can be

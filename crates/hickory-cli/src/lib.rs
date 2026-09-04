@@ -265,6 +265,20 @@ pub enum CheckFailure {
         doc: PathBuf,
         cell: CellId,
     },
+    /// A `cites=` selector matches nothing.
+    ///
+    /// Whether a citation's CLAIM is true is not checkable — that is the
+    /// difference between declared provenance and derived provenance, and
+    /// nothing here pretends otherwise. Whether its POINTER resolves is
+    /// entirely checkable, offline, and was not being checked: a document
+    /// citing `#no-such-anchor` five times wove those names into its output
+    /// beside the ones that resolved and passed `hick test` with `ok`.
+    DanglingCitation {
+        doc: PathBuf,
+        line: usize,
+        /// The one selector that matched nothing.
+        selector: String,
+    },
 }
 
 impl CheckFailure {
@@ -278,6 +292,11 @@ impl CheckFailure {
         match self {
             CheckFailure::Expectation(_) => CheckOutcome::ExpectationFailed,
             CheckFailure::Unverifiable { .. } => CheckOutcome::Unverifiable,
+            // Not drift: there is nothing to regenerate, and no re-run
+            // fixes it. The document points at something that is not there,
+            // which is a statement that is definitely wrong — the same
+            // standing a failed expectation has.
+            CheckFailure::DanglingCitation { .. } => CheckOutcome::ExpectationFailed,
             CheckFailure::Drift { .. }
             | CheckFailure::StaleTransform { .. }
             | CheckFailure::StaleRecording { .. } => CheckOutcome::Drifted,
@@ -433,6 +452,27 @@ pub fn stale_transforms(doc_path: &Path, source: &str) -> Result<Vec<CheckFailur
     Ok(out)
 }
 
+/// Every `cites=` selector in `source` that matches nothing.
+///
+/// The check a declared citation CAN carry. `cites=` is an assertion and its
+/// truth is not verifiable — that is the whole distinction between declared
+/// and derived provenance — but a selector either resolves or it does not,
+/// and that costs nothing to answer. Left unanswered, a citation to
+/// `#no-such-anchor` renders beside real ones and reads exactly like them.
+pub fn dangling_citations(doc_path: &Path, source: &str) -> Result<Vec<CheckFailure>> {
+    let mut out = Vec::new();
+    for cite in declared_cites(doc_path, source)? {
+        for selector in cite.dangling {
+            out.push(CheckFailure::DanglingCitation {
+                doc: doc_path.to_path_buf(),
+                line: cite.from.first_line,
+                selector,
+            });
+        }
+    }
+    Ok(out)
+}
+
 /// The bytes a transform reads: its selected fragments, concatenated in
 /// document order.
 /// Load a document the way the transform fingerprint paths must see it.
@@ -536,6 +576,16 @@ pub struct DeclaredCite {
     /// What the selectors resolved to — possibly in upstream documents,
     /// possibly nothing (a dangling citation is reported, not hidden).
     pub to: Vec<CitePlace>,
+    /// The individual selectors in `select` that matched nothing at all.
+    ///
+    /// Resolved one at a time rather than as a set, because the set was
+    /// hiding them: `cites="#a,#b"` where only `#a` exists produced a
+    /// non-empty `to`, and `#b` vanished with no warning anywhere — the
+    /// weave still printed its name beside the ones that resolved, so a
+    /// claim sourced to nothing looked exactly like a claim sourced to
+    /// something.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub dangling: Vec<String>,
 }
 
 /// A place a citation points at or comes from: a file and a line range.
@@ -650,14 +700,29 @@ pub fn declared_cites(doc_path: &Path, source: &str) -> Result<Vec<DeclaredCite>
             .unwrap_or_default()
             .trim()
             .to_string();
-        let to = hick_lang::fragments_matching(&doc, &select)
-            .into_iter()
-            .map(&mut place_of)
-            .collect();
+        // One selector at a time. `fragments_matching` takes the whole
+        // comma-separated list and answers with the union, which cannot say
+        // which of them contributed nothing.
+        let mut to = Vec::new();
+        let mut dangling = Vec::new();
+        for one in select.split(',').map(str::trim).filter(|s| !s.is_empty()) {
+            let matched = hick_lang::fragments_matching(&doc, one);
+            if matched.is_empty() {
+                dangling.push(one.to_string());
+                continue;
+            }
+            for fragment in matched {
+                let place = place_of(fragment);
+                if !to.contains(&place) {
+                    to.push(place);
+                }
+            }
+        }
         out.push(DeclaredCite {
             select,
             from: place_of(tag),
             to,
+            dangling,
         });
     }
     Ok(out)

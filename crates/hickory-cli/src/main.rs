@@ -1384,6 +1384,7 @@ async fn cmd_test(args: TestArgs) -> Result<ExitCode> {
         // Transform passages are checked from the SOURCE, not from a re-run:
         // no model is called, so this stays free and deterministic in CI.
         failures.extend(hickory_cli::stale_transforms(&run.doc_path, &run.source)?);
+        failures.extend(hickory_cli::dangling_citations(&run.doc_path, &run.source)?);
         if args.json {
             json_blocks.push(block_model_json(&run)?);
         }
@@ -1433,6 +1434,19 @@ async fn cmd_test(args: TestArgs) -> Result<ExitCode> {
                          fix: hick refresh {}",
                         doc.display(),
                         doc.display(),
+                    );
+                }
+                CheckFailure::DanglingCitation {
+                    doc,
+                    line,
+                    selector,
+                } => {
+                    eprintln!(
+                        "FAIL {}:{line}: cites {selector}, which matches nothing — this \
+                         citation points at no fragment in this document or any it reads.\n  \
+                         Next step: fix the selector, or give the fragment that id. A \
+                         citation nobody can follow reads exactly like one they can.",
+                        doc.display()
                     );
                 }
                 CheckFailure::Unverifiable { doc, cell, reason } => {
@@ -1676,6 +1690,12 @@ fn cmd_cites(args: ContextArgs) -> Result<ExitCode> {
         );
         if c.to.is_empty() {
             println!("    (nothing matches — a dangling citation)");
+        }
+        // Named one by one. A list where four of five resolve used to print
+        // four lines and say nothing about the fifth, so a claim sourced to
+        // nothing was indistinguishable from a claim sourced to something.
+        for missing in &c.dangling {
+            println!("    {missing}  — MATCHES NOTHING, this citation is dangling");
         }
         for t in &c.to {
             println!(
