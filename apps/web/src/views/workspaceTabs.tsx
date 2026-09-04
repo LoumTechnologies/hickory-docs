@@ -214,6 +214,8 @@ export function DocTabBody({
               if (expression) debug.addWatch(expression);
             });
         }}
+        exceptionFilters={debug.exceptionFilters}
+        onToggleExceptionFilter={debug.toggleExceptionFilter}
         onRemoveWatch={debug.removeWatch}
       />
       {/* A session file opens in the same editor as every other document —

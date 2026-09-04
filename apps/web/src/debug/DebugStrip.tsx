@@ -173,6 +173,9 @@ export interface DebugStripProps {
   onStop: () => void;
   /** Ask the person for an expression to watch (the strip's "+ watch"). */
   onAddWatch: () => void;
+  /** The adapter's exception filters that are switched on, by id. */
+  exceptionFilters: string[];
+  onToggleExceptionFilter: (id: string) => void;
   onRemoveWatch: (expression: string) => void;
 }
 
@@ -337,6 +340,25 @@ export function DebugStrip(props: DebugStripProps) {
           ))}
         </select>
       )}
+      {/* The adapter's OWN exception filters. Never a list written here:
+          Python offers "raised" and "uncaught", a JVM offers caught and
+          uncaught, and an adapter with none draws nothing. */}
+      {(props.capabilities?.exception_filters ?? []).map((filter) => {
+        const on = props.exceptionFilters.includes(filter.id);
+        return (
+          <button
+            key={filter.id}
+            type="button"
+            role="switch"
+            aria-checked={on}
+            className={`debug-strip__exception${on ? " on" : ""}`}
+            data-tip={`Stop when an exception is ${filter.label.toLowerCase()}`}
+            onClick={() => props.onToggleExceptionFilter(filter.id)}
+          >
+            {filter.label}
+          </button>
+        );
+      })}
       <button
         type="button"
         className="debug-strip__watch-add"

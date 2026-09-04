@@ -244,6 +244,17 @@ export class DebugClient {
     this.send({ op: "children", session, reference });
   }
 
+  /**
+   * Stop when an exception is thrown, by the adapter's OWN filter ids.
+   *
+   * The ids come from `capabilities.exception_filters` and are never
+   * invented here: "raised" and "uncaught" are Python's words, and another
+   * adapter's are its own.
+   */
+  setExceptionBreakpoints(session: string, filters: string[]) {
+    this.send({ op: "exception_breakpoints", session, filters });
+  }
+
   setVariable(session: string, container: number, name: string, value: string) {
     this.send({ op: "set_variable", session, container, name, value });
   }

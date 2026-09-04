@@ -765,6 +765,8 @@ export function PlainFilePane({
             if (expression) debug.addWatch(expression);
           });
         }}
+        exceptionFilters={debug.exceptionFilters}
+        onToggleExceptionFilter={debug.toggleExceptionFilter}
         onRemoveWatch={debug.removeWatch}
       />
       {!file && <p className="muted">Loading {path}…</p>}

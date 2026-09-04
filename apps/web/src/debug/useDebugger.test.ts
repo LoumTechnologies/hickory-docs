@@ -641,3 +641,51 @@ describe("a breakpoint carries what the person attached to it", () => {
     });
   });
 });
+
+// Protects docs/guarantees/debugging/an-exception-breakpoint-uses-the-adapters-own-filters.md
+describe("exception breakpoints", () => {
+  it("sends the filters that are on, by id", async () => {
+    const { socket, hook } = open();
+    act(() => hook.result.current.start());
+    act(() => socket.deliver(STARTED));
+    await waitFor(() => expect(hook.result.current.status).toBe("running"));
+
+    act(() => hook.result.current.toggleExceptionFilter("uncaught"));
+    expect(socket.sent.at(-1)).toEqual({
+      op: "exception_breakpoints",
+      session: "dbg-0",
+      filters: ["uncaught"],
+    });
+
+    act(() => hook.result.current.toggleExceptionFilter("raised"));
+    expect(socket.sent.at(-1)).toMatchObject({ filters: ["uncaught", "raised"] });
+
+    act(() => hook.result.current.toggleExceptionFilter("uncaught"));
+    expect(socket.sent.at(-1)).toMatchObject({ filters: ["raised"] });
+    expect(hook.result.current.exceptionFilters).toEqual(["raised"]);
+  });
+
+  it("keeps them across runs and re-applies them to the next session", async () => {
+    // A standing "stop on uncaught" that quietly stopped applying on the
+    // second run would be worse than never having offered it.
+    const { socket, hook } = open();
+    act(() => hook.result.current.start());
+    act(() => socket.deliver(STARTED));
+    await waitFor(() => expect(hook.result.current.status).toBe("running"));
+    act(() => hook.result.current.toggleExceptionFilter("uncaught"));
+
+    act(() => socket.deliver({ event: "finished", session: "dbg-0", exit_code: 0 }));
+    await waitFor(() => expect(hook.result.current.status).toBe("finished"));
+    expect(hook.result.current.exceptionFilters).toEqual(["uncaught"]);
+
+    act(() => hook.result.current.start());
+    act(() => socket.deliver({ ...STARTED, session: "dbg-1" }));
+    await waitFor(() =>
+      expect(socket.sent).toContainEqual({
+        op: "exception_breakpoints",
+        session: "dbg-1",
+        filters: ["uncaught"],
+      }),
+    );
+  });
+});

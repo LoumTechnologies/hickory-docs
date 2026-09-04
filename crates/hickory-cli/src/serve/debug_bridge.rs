@@ -89,6 +89,16 @@ pub enum Request {
         session: String,
         reference: i64,
     },
+    /// Stop when an exception is thrown, by the adapter's own filter ids.
+    ///
+    /// The ids are never invented here: they come from the adapter's
+    /// `exceptionBreakpointFilters`, which is how a Python "raised" differs
+    /// from a Java "caught". A client sends back the subset it wants on.
+    SetExceptionBreakpoints {
+        session: String,
+        #[serde(default)]
+        filters: Vec<String>,
+    },
     /// Change a value in the running program.
     SetVariable {
         session: String,
@@ -304,6 +314,7 @@ fn about_of(request: &Request) -> &'static str {
         Request::Jump { .. } => "jump",
         Request::RunTo { .. } => "run_to",
         Request::Children { .. } => "children",
+        Request::SetExceptionBreakpoints { .. } => "exception_breakpoints",
         Request::SetVariable { .. } => "set_variable",
         Request::Stop { .. } => "stop",
     }
@@ -500,6 +511,18 @@ async fn handle_inner(
             // display should show, and recomputing it here saves the client
             // from knowing that.
             Ok(position(root, &session, &live).await)
+        }
+
+        Request::SetExceptionBreakpoints { session, filters } => {
+            let live = registry
+                .get(&session)
+                .await
+                .map_err(|e| (Some(session.clone()), e))?;
+            live.session
+                .set_exception_breakpoints(&filters)
+                .await
+                .map_err(|e| (Some(session.clone()), e))?;
+            Ok(Vec::new())
         }
 
         Request::Stop { session } => {
@@ -702,7 +725,7 @@ pub fn describe() -> Value {
         "channel": CHANNEL_DEBUG,
         "requests": [
             "start", "breakpoints", "state", "eval", "step", "jump", "run_to",
-            "children", "set_variable", "stop"
+            "children", "exception_breakpoints", "set_variable", "stop"
         ],
         "responses": [
             "started", "stopped", "breakpoints", "value", "children",

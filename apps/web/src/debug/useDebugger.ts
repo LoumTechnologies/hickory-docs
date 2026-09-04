@@ -58,6 +58,14 @@ export interface DebugSession {
   lastValue: { expression: string; value: string; type: string | null } | null;
   /** Expressions re-evaluated on every pause and frame change. */
   watches: Watch[];
+  /**
+   * The adapter's exception filters that are switched on.
+   *
+   * Ids, not names — `capabilities.exception_filters` carries the labels a
+   * person reads. Kept across runs like breakpoints are: "stop on uncaught
+   * exceptions" is a standing preference, not a property of one session.
+   */
+  exceptionFilters: string[];
 
   /** Debug one generated file. Omitted means the first debuggable one. */
   start(program?: string): void;
@@ -66,6 +74,8 @@ export interface DebugSession {
   jumpTo(line: number): void;
   runTo(line: number): void;
   toggleBreakpoint(line: number): void;
+  /** Turn one of the adapter's exception filters on or off. */
+  toggleExceptionFilter(id: string): void;
   /**
    * Attach a condition, a hit count, or a log message to the breakpoint on
    * this line — or clear them, by passing empty strings.
@@ -201,12 +211,14 @@ export const IDLE_SESSION: DebugSession = {
   buildOutput: [],
   lastValue: null,
   watches: [],
+  exceptionFilters: [],
   start() {},
   stop() {},
   step() {},
   jumpTo() {},
   runTo() {},
   toggleBreakpoint() {},
+  toggleExceptionFilter() {},
   setBreakpointCondition() {},
   selectFrame() {},
   evaluate() {},
@@ -299,6 +311,12 @@ export function useDebuggerOver(client: DebugClient | null, docPath: string): De
   const [lastValue, setLastValue] =
     useState<{ expression: string; value: string; type: string | null } | null>(null);
   const [watches, setWatches] = useState<Watch[]>([]);
+  // Kept across runs, like breakpoints: "stop on uncaught exceptions" is a
+  // standing preference, not a property of one session.
+  const [exceptionFilters, setExceptionFilters] = useState<string[]>([]);
+  // Read from the `started` handler, which is not re-created per render.
+  const exceptionFiltersRef = useRef<string[]>([]);
+  exceptionFiltersRef.current = exceptionFilters;
   const [exitCode, setExitCode] = useState<number | null>(null);
   const [buildOutput, setBuildOutput] = useState<TranscriptEvent[]>([]);
 
@@ -328,14 +346,22 @@ export function useDebuggerOver(client: DebugClient | null, docPath: string): De
           // ran it, and the last one is the one on screen.
           setBuildOutput(event.events);
           break;
-        case "started":
+        case "started": {
           sessionRef.current = event.session;
           setCapabilities(event.capabilities);
           setBreakpoints((current) => followMoves(current, event.breakpoints));
           setStatus("running");
           clearFailure();
           setExitCode(null);
+          // Re-applied to the new session. A standing "stop on uncaught"
+          // that quietly stopped applying on the second run would be worse
+          // than never having offered it.
+          const standing = exceptionFiltersRef.current;
+          if (client && standing.length > 0) {
+            client.setExceptionBreakpoints(event.session, standing);
+          }
           break;
+        }
         case "stopped":
           setStatus("paused");
           setPausedLine(event.line);
@@ -462,6 +488,26 @@ export function useDebuggerOver(client: DebugClient | null, docPath: string): De
           client.setBreakpoints(session, onTheWire(next));
         }
         return next.sort((a, b) => a.line - b.line);
+      });
+    },
+    [client],
+  );
+
+  const toggleExceptionFilter = useCallback(
+    (id: string) => {
+      setExceptionFilters((current) => {
+        const next = current.includes(id)
+          ? current.filter((one) => one !== id)
+          : [...current, id];
+        const session = sessionRef.current;
+        if (
+          client &&
+          session &&
+          (statusRef.current === "paused" || statusRef.current === "running")
+        ) {
+          client.setExceptionBreakpoints(session, next);
+        }
+        return next;
       });
     },
     [client],
@@ -683,12 +729,14 @@ export function useDebuggerOver(client: DebugClient | null, docPath: string): De
       buildOutput,
       lastValue,
       watches,
+      exceptionFilters,
       start,
       stop,
       step,
       jumpTo,
       runTo,
       toggleBreakpoint,
+      toggleExceptionFilter,
       setBreakpointCondition,
       selectFrame,
       evaluate,
@@ -712,12 +760,14 @@ export function useDebuggerOver(client: DebugClient | null, docPath: string): De
       buildOutput,
       lastValue,
       watches,
+      exceptionFilters,
       start,
       stop,
       step,
       jumpTo,
       runTo,
       toggleBreakpoint,
+      toggleExceptionFilter,
       setBreakpointCondition,
       selectFrame,
       evaluate,

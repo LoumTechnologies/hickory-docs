@@ -61,31 +61,36 @@ describe("the function keys the tooltips promise", () => {
   });
 });
 
+// Shared by every strip test, including the ones below this file's first
+// describe — it was scoped inside that one and the next block could not see it.
+const base = (over: Partial<DebugStripProps> = {}): DebugStripProps => ({
+  status: "paused",
+  program: "orders.py",
+  message: null,
+  capabilities: null,
+  exceptionFilters: [],
+  onToggleExceptionFilter: () => {},
+  frames: [
+    { id: 2, name: "line_total", line: 14, source: "orders.py", in_document: true },
+    { id: 3, name: "<module>", line: 20, source: "orders.py", in_document: true },
+  ],
+  selectedFrame: 2,
+  watches: [],
+  onSelectFrame: () => {},
+  onStep: () => {},
+  onJumpHere: () => {},
+  onStart: () => {},
+  onStop: () => {},
+  onAddWatch: () => {},
+  onRemoveWatch: () => {},
+  ...over,
+});
+
 describe("the strip on the debugged block", () => {
   // Without cleanup, a strip from an earlier test keeps its key listener and
   // preventDefaults the F10 the next test fires.
   afterEach(cleanup);
 
-  const base = (over: Partial<DebugStripProps> = {}): DebugStripProps => ({
-    status: "paused",
-    program: "orders.py",
-    message: null,
-    capabilities: null,
-    frames: [
-      { id: 2, name: "line_total", line: 14, source: "orders.py", in_document: true },
-      { id: 3, name: "<module>", line: 20, source: "orders.py", in_document: true },
-    ],
-    selectedFrame: 2,
-    watches: [],
-    onSelectFrame: () => {},
-    onStep: () => {},
-    onJumpHere: () => {},
-    onStart: () => {},
-    onStop: () => {},
-    onAddWatch: () => {},
-    onRemoveWatch: () => {},
-    ...over,
-  });
 
   it("shows the build in a terminal while starting, and keeps it when the start failed", () => {
     // The spinner is the wrong answer: a build that fails says why in its
@@ -263,5 +268,68 @@ describe("the strip on the debugged block", () => {
     );
     fireEvent.click(screen.getByLabelText("Stop watching quantity"));
     expect(onRemoveWatch).toHaveBeenCalledWith("quantity");
+  });
+});
+
+// Protects docs/guarantees/debugging/an-exception-breakpoint-uses-the-adapters-own-filters.md
+describe("stopping on exceptions", () => {
+  afterEach(cleanup);
+
+  const caps = (filters: { id: string; label: string }[]) => ({
+    conditional_breakpoints: true,
+    hit_conditional_breakpoints: true,
+    log_points: true,
+    set_variable: true,
+    restart_frame: false,
+    step_in_targets: true,
+    goto_targets: true,
+    step_back: false,
+    exception_filters: filters,
+  });
+
+  it("offers the adapter's own filters, in the adapter's own words", () => {
+    render(
+      <DebugStrip
+        {...base({
+          capabilities: caps([
+            { id: "raised", label: "Raised Exceptions" },
+            { id: "uncaught", label: "Uncaught Exceptions" },
+          ]),
+        })}
+      />,
+    );
+    const switches = screen.getAllByRole("switch");
+    expect(switches.map((s) => s.textContent)).toEqual([
+      "Raised Exceptions",
+      "Uncaught Exceptions",
+    ]);
+    expect(switches.every((s) => s.getAttribute("aria-checked") === "false")).toBe(true);
+  });
+
+  it("draws nothing for an adapter that has none", () => {
+    render(<DebugStrip {...base({ capabilities: caps([]) })} />);
+    expect(screen.queryAllByRole("switch")).toHaveLength(0);
+  });
+
+  it("shows which are on, and toggles by id", () => {
+    const toggled: string[] = [];
+    render(
+      <DebugStrip
+        {...base({
+          capabilities: caps([
+            { id: "raised", label: "Raised Exceptions" },
+            { id: "uncaught", label: "Uncaught Exceptions" },
+          ]),
+          exceptionFilters: ["uncaught"],
+          onToggleExceptionFilter: (id) => toggled.push(id),
+        })}
+      />,
+    );
+    const on = screen.getByRole("switch", { name: "Uncaught Exceptions" });
+    expect(on.getAttribute("aria-checked")).toBe("true");
+    fireEvent.click(screen.getByRole("switch", { name: "Raised Exceptions" }));
+    // The id, never the label: the label is what a person reads and the id is
+    // what the adapter answers to.
+    expect(toggled).toEqual(["raised"]);
   });
 });

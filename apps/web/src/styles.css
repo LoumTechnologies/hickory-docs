@@ -5390,6 +5390,25 @@ button.fleet-grant {
   font-family: ui-monospace, Menlo, monospace;
   font-size: 0.72rem;
 }
+/* The adapter's own exception filters, as switches. Off is the resting
+   state and has to look like it: a filter that reads as enabled while the
+   debugger runs straight past a throw is worse than no control. */
+.debug-strip__exception {
+  padding: 0 0.35rem;
+  border: 1px solid color-mix(in srgb, var(--fg-muted) 40%, transparent);
+  border-radius: 3px;
+  background: transparent;
+  color: var(--fg-muted);
+  font-size: 0.72rem;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.debug-strip__exception:hover { color: var(--fg); }
+.debug-strip__exception.on {
+  border-color: var(--danger);
+  background: color-mix(in srgb, var(--danger) 14%, transparent);
+  color: var(--fg);
+}
 .debug-strip__watch-add {
   border: 1px dashed var(--border);
   border-radius: 4px;

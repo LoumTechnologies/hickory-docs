@@ -107,7 +107,8 @@ Every JetBrains IDE ships roughly the same editor; these rows are what
 | A missing debugger installs itself | **built** | `a-missing-debugger-is-a-button.md` |
 | Run a single test from its gutter | **built** | `a-test-runs-from-the-line-it-is-written-on.md` |
 | Terminal | **built** | the whole `docs/guarantees/terminal/` tree |
-| **Exception breakpoints** | **partial** | reachable in `hick-dap`; no UI |
+| Exception breakpoints | **built** | `an-exception-breakpoint-uses-the-adapters-own-filters.md` |
+| **Variables pane** | **missing** | values are drawn inline, not in a pane — which is also why set-variable, whose whole path exists, has nowhere to live |
 | **Code coverage** | **missing** | — |
 | **Profiler (dotTrace/dotMemory)** | **missing** | — |
 | **Remote debug / attach to process** | **missing** | — |
