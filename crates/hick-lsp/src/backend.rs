@@ -19,6 +19,25 @@ use crate::staging::{StagingArea, StagingError};
 /// Accumulated child diagnostics: hick document URI -> (virtual file URI -> diagnostics).
 type ChildDiagnosticsStore = Arc<RwLock<HashMap<Url, HashMap<Url, Vec<Diagnostic>>>>>;
 
+/// One hierarchy item as the child produced it, with where to send it back.
+#[derive(Clone)]
+struct PreparedHierarchyItem {
+    vf_uri: Url,
+    language: String,
+    /// The item verbatim, in the child's coordinates.
+    item: serde_json::Value,
+}
+
+/// A short unique-enough key for one prepared item.
+///
+/// Not a UUID and does not need to be: it names an entry in this process's
+/// own map for the life of one hierarchy exploration.
+fn uuid_ish() -> String {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static NEXT: AtomicU64 = AtomicU64::new(1);
+    format!("{:x}", NEXT.fetch_add(1, Ordering::Relaxed))
+}
+
 pub struct HickBackend {
     client: Client,
     /// Open document states, keyed by URI.
@@ -43,6 +62,21 @@ pub struct HickBackend {
     /// remember which one that was. An editor resolves the item it is showing,
     /// which is always from the completion it just asked for.
     last_completion_language: Arc<RwLock<Option<(String, String)>>>,
+    /// Hierarchy items this server handed the client, in the child's OWN
+    /// coordinates, keyed by the id planted in each item's `data`.
+    ///
+    /// Call and type hierarchy are three-step protocols: `prepare…` answers
+    /// with items, and the client hands one back to ask for its callers or
+    /// its supertypes. The item it hands back is the one it was shown —
+    /// document coordinates — and the child needs the one it produced.
+    ///
+    /// Rather than translate an item BACKWARDS, which means guessing which
+    /// virtual file a document range belongs to and getting `selectionRange`
+    /// right as well, the item the child produced is simply kept. Every item
+    /// a client can hold came from a `prepare`, so there is always one to
+    /// find. This is the same reasoning as `last_completion_language`: some
+    /// requests carry no position, only a thing we handed out.
+    prepared_hierarchy: Arc<RwLock<HashMap<String, PreparedHierarchyItem>>>,
     /// The folder the editor opened, from `initialize`.
     ///
     /// A `.hick` document's code is staged and its children rooted there; a
@@ -97,6 +131,7 @@ impl HickBackend {
             vfile_index: Arc::new(RwLock::new(HashMap::new())),
             child_diagnostics: Arc::new(RwLock::new(HashMap::new())),
             last_completion_language: Arc::new(RwLock::new(None)),
+            prepared_hierarchy: Arc::new(RwLock::new(HashMap::new())),
             staging: StagingArea::new(),
             staging_failure_shown: Arc::new(RwLock::new(false)),
             workspace_root: Arc::new(RwLock::new(None)),
@@ -713,6 +748,124 @@ impl HickBackend {
             }
         }
         None
+    }
+
+    /// Remember each item the child produced, plant a key in its `data`, and
+    /// hand back the same items in DOCUMENT coordinates.
+    ///
+    /// The key replaces whatever the child had in `data`, and the original is
+    /// kept in the stored copy — so the child still sees its own `data` when
+    /// the item comes back, and the client sees only ours.
+    async fn remember_hierarchy(
+        &self,
+        result: serde_json::Value,
+        vf_uri: &Url,
+        language: &str,
+    ) -> serde_json::Value {
+        let serde_json::Value::Array(items) = result else {
+            return serde_json::Value::Null;
+        };
+        let index = self.index_snapshot().await;
+        let mut out = Vec::with_capacity(items.len());
+        for item in items {
+            out.push(self.remember_one(item, vf_uri, language, &index).await);
+        }
+        serde_json::Value::Array(out)
+    }
+
+    /// One item: stored as the child made it, returned in document lines.
+    async fn remember_one(
+        &self,
+        item: serde_json::Value,
+        vf_uri: &Url,
+        language: &str,
+        index: &HashMap<String, (Url, PositionMap)>,
+    ) -> serde_json::Value {
+        // The child's own uri is preferred over the request's: an outgoing
+        // call lands in whatever file defines the callee, which need not be
+        // the file the question was asked in.
+        let owner = item
+            .get("uri")
+            .and_then(|u| u.as_str())
+            .and_then(|u| Url::parse(u).ok())
+            .unwrap_or_else(|| vf_uri.clone());
+        let key = format!("hick-{}", uuid_ish());
+        self.prepared_hierarchy.write().await.insert(
+            key.clone(),
+            PreparedHierarchyItem {
+                vf_uri: owner,
+                language: language.to_string(),
+                item: item.clone(),
+            },
+        );
+        // `selectionRange` is translated explicitly, against the map for the
+        // item's OWN file and before `uri` is rewritten. `translate_locations`
+        // knows `range` and a LocationLink's target ranges, and returns as
+        // soon as it has done them — so this one would be left in the child's
+        // coordinates, pointing at a line of the staged file, which is a line
+        // of nothing. It is the name of the symbol in the hierarchy tree, so
+        // clicking it would land somewhere arbitrary.
+        let selection = item
+            .get("uri")
+            .and_then(|u| u.as_str())
+            .and_then(|u| index.get(&uri_key(u)))
+            .zip(item.get("selectionRange").cloned())
+            .map(|((_, map), range)| translate_bare_ranges(range, map));
+
+        let mut translated = translate_locations(item, index);
+        if let Some(object) = translated.as_object_mut() {
+            if let Some(selection) = selection {
+                object.insert("selectionRange".into(), selection);
+            }
+            object.insert("data".into(), serde_json::json!({ "hick": key }));
+        }
+        translated
+    }
+
+    /// The item the child produced, for an item the client handed back.
+    async fn recall_hierarchy(&self, item: &serde_json::Value) -> Option<PreparedHierarchyItem> {
+        let key = item.pointer("/data/hick")?.as_str()?.to_string();
+        self.prepared_hierarchy.read().await.get(&key).cloned()
+    }
+
+    /// Ask the child a hierarchy follow-up about an item it produced.
+    async fn hierarchy_followup(
+        &self,
+        method: &str,
+        item: &serde_json::Value,
+    ) -> Option<serde_json::Value> {
+        let prepared = self.recall_hierarchy(item).await?;
+        let root_uri = self.root_of(&prepared.vf_uri).await?;
+        let handle = {
+            let dispatcher = self.dispatcher.lock().await;
+            dispatcher
+                .get_child(&prepared.language, &root_uri)
+                .ok()?
+                .clone()
+        };
+        let answered = handle
+            .request(method, serde_json::json!({ "item": prepared.item }))
+            .await
+            .ok()?;
+        let index = self.index_snapshot().await;
+        let mut result = translate_locations(answered, &index);
+        // Each answer carries another item the client may drill into, so
+        // every one of them is remembered too.
+        if let serde_json::Value::Array(entries) = &mut result {
+            for entry in entries.iter_mut() {
+                for field in ["from", "to"] {
+                    if let Some(nested) = entry.get(field).cloned() {
+                        let remembered = self
+                            .remember_one(nested, &prepared.vf_uri, &prepared.language, &index)
+                            .await;
+                        if let Some(object) = entry.as_object_mut() {
+                            object.insert(field.into(), remembered);
+                        }
+                    }
+                }
+            }
+        }
+        Some(result)
     }
 
     async fn child_request(
@@ -1388,6 +1541,17 @@ impl LanguageServer for HickBackend {
                 type_definition_provider: Some(TypeDefinitionProviderCapability::Simple(true)),
                 implementation_provider: Some(ImplementationProviderCapability::Simple(true)),
                 document_highlight_provider: Some(OneOf::Left(true)),
+                // "Where is this called from" — one of the most-used
+                // navigations in an IDE, forwarded like every other request.
+                //
+                // TYPE hierarchy is not here, and not because it is hard: it
+                // is the same three-step shape and the same store would serve
+                // it. `lsp-types` 0.94.1 has no `type_hierarchy_provider`
+                // field on `ServerCapabilities` at all — not even behind its
+                // `proposed` feature — so the capability cannot be declared,
+                // and a client never asks for what a server does not
+                // advertise. Handlers for it would be code nothing can reach.
+                call_hierarchy_provider: Some(CallHierarchyServerCapability::Simple(true)),
                 document_symbol_provider: Some(OneOf::Left(true)),
                 workspace_symbol_provider: Some(OneOf::Left(true)),
                 code_action_provider: Some(CodeActionProviderCapability::Simple(true)),
@@ -1576,6 +1740,59 @@ impl LanguageServer for HickBackend {
         let result = match map {
             Some(map) => translate_bare_ranges(result, &map),
             None => result,
+        };
+        Ok(serde_json::from_value(result).ok())
+    }
+
+    async fn prepare_call_hierarchy(
+        &self,
+        params: CallHierarchyPrepareParams,
+    ) -> Result<Option<Vec<CallHierarchyItem>>> {
+        let uri = params.text_document_position_params.text_document.uri;
+        let pos = params.text_document_position_params.position;
+        let Some((vf_uri, lang, vpos)) = self.virtual_target(&uri, pos).await else {
+            return Ok(None);
+        };
+        let Some(result) = self
+            .child_request(
+                "textDocument/prepareCallHierarchy",
+                &vf_uri,
+                &lang,
+                vpos,
+                None,
+            )
+            .await
+        else {
+            return Ok(None);
+        };
+        let remembered = self.remember_hierarchy(result, &vf_uri, &lang).await;
+        Ok(serde_json::from_value(remembered).ok())
+    }
+
+    async fn incoming_calls(
+        &self,
+        params: CallHierarchyIncomingCallsParams,
+    ) -> Result<Option<Vec<CallHierarchyIncomingCall>>> {
+        let item = serde_json::to_value(&params.item).unwrap_or_default();
+        let Some(result) = self
+            .hierarchy_followup("callHierarchy/incomingCalls", &item)
+            .await
+        else {
+            return Ok(None);
+        };
+        Ok(serde_json::from_value(result).ok())
+    }
+
+    async fn outgoing_calls(
+        &self,
+        params: CallHierarchyOutgoingCallsParams,
+    ) -> Result<Option<Vec<CallHierarchyOutgoingCall>>> {
+        let item = serde_json::to_value(&params.item).unwrap_or_default();
+        let Some(result) = self
+            .hierarchy_followup("callHierarchy/outgoingCalls", &item)
+            .await
+        else {
+            return Ok(None);
         };
         Ok(serde_json::from_value(result).ok())
     }

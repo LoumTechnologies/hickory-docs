@@ -91,8 +91,8 @@ Every JetBrains IDE ships roughly the same editor; these rows are what
 | Go to definition, references, rename | **built** | `prepareRename`, `textDocument/references` forwarded |
 | Search everywhere / go to file | **built** | `a-typed-path-opens-that-file.md` — the 2026-09-02 ranking defect is fixed |
 | Project-wide index across generated files | **built** | `an-index-answers-in-documents.md` |
-| **Call hierarchy** | **missing** | `callHierarchy` appears nowhere |
-| **Type hierarchy** | **missing** | `typeHierarchy` appears nowhere |
+| Call hierarchy | **built, server side** | `call-hierarchy-answers-in-documents.md` — no panel in the app yet |
+| **Type hierarchy** | **blocked** | `lsp-types` 0.94.1 cannot declare the server capability |
 | Extract method/variable, change signature, safe delete | **missing** | only the server's own code actions are surfaced |
 
 ### Run, debug, test
@@ -199,8 +199,9 @@ Ranked by how much daily work each unblocks, not by size:
    tree**: js-debug answers `launch`, marks the breakpoint provisional, and
    asks the client to start a second session where breakpoints actually
    bind.
-5. **Call hierarchy and type hierarchy** — two LSP requests, forwarded and
-   drawn. Small, and among the most-used IntelliJ navigation.
+5. ~~**Call hierarchy**~~ — **server side done 2026-09-04**; the app still
+   needs a panel to draw it. **Type hierarchy** is blocked on `lsp-types`,
+   which cannot declare the capability, so a client would never ask.
 6. **Structure view and breadcrumbs** — `documentSymbol` is already
    forwarded; this is a pane, not a protocol.
 7. ~~**The command bar's ranking defect**~~ — **done 2026-09-03**. It was two

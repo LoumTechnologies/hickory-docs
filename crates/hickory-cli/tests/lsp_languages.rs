@@ -391,6 +391,7 @@ fn drive_one_language(language: &Language) -> bool {
         "definitionProvider",
         "referencesProvider",
         "documentSymbolProvider",
+        "callHierarchyProvider",
         "semanticTokensProvider",
         "renameProvider",
     ] {
@@ -489,8 +490,55 @@ fn drive_one_language(language: &Language) -> bool {
         );
     }
 
+    // Call hierarchy: three steps, and the interesting one is the third —
+    // the client hands back an item it was shown, in DOCUMENT coordinates,
+    // and the server has to reach the child with the item the CHILD made.
+    let prepared = client.request_until(
+        "textDocument/prepareCallHierarchy",
+        json!({"textDocument": {"uri": uri}, "position": {"line": line, "character": character}}),
+        budget,
+    );
+    if let Some(items) = prepared
+        .as_ref()
+        .and_then(|r| r.as_array())
+        .filter(|a| !a.is_empty())
+    {
+        let item = &items[0];
+        assert_eq!(
+            item["uri"].as_str(),
+            Some(uri.as_str()),
+            "{}: a prepared item names the staged file, not the document: {item}",
+            language.id
+        );
+        // Every range on the item is a document line. `selectionRange` is
+        // the one that is easy to leave behind, and it is the range an
+        // editor puts the cursor on.
+        for field in ["range", "selectionRange"] {
+            let line = item[field]["start"]["line"].as_u64();
+            assert!(
+                line.is_some_and(|l| l < 200),
+                "{}: {field} is not a document line: {item}",
+                language.id
+            );
+        }
+        assert!(
+            item.pointer("/data/hick").is_some(),
+            "{}: nothing was remembered for this item: {item}",
+            language.id
+        );
+        // And the follow-up reaches the child at all, which it cannot do
+        // unless the item was recalled.
+        let calls =
+            client.request_until("callHierarchy/incomingCalls", json!({"item": item}), budget);
+        assert!(
+            calls.is_some(),
+            "{}: incomingCalls answered nothing at all",
+            language.id
+        );
+    }
+
     eprintln!(
-        "OK {}: hover, definition and outline in document coordinates",
+        "OK {}: hover, definition, outline and call hierarchy in document coordinates",
         language.id
     );
     true
