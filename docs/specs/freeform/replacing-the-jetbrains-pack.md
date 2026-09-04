@@ -168,18 +168,26 @@ the reason to make it at all:
 
 Ranked by how much daily work each unblocks, not by size:
 
-1. **A JVM debug adapter** — Java and Kotlin. It is the pack's centre and the
-   biggest single hole. Blocked on a licence check: `java-debug` is EPL, and
-   the no-copyleft rule has to be applied to it explicitly rather than
-   assumed either way.
-2. **Audit the debugger UI against the engine.** ~~Conditional breakpoints and
+1. **A session tree, for JavaScript and TypeScript.** js-debug is fetched and
+   connected to and still cannot be driven: it answers `launch`, marks the
+   breakpoint provisional, and asks the client to start a SECOND session
+   where breakpoints bind. `Session` owns one adapter and one event stream.
+   First because it is the only *withdrawn* capability on this list, and
+   because this repository is itself a Rust and TypeScript project — the app
+   in `apps/web` is the thing its author cannot currently debug.
+2. **A JVM debug adapter** — Java and Kotlin, the pack's centre and the
+   biggest single hole. **No longer blocked:** the licence is decided and the
+   design is `debugging-the-jvm.md`. Its own first step is a measurement, not
+   a build — whether jdt.ls will import a scratch tree with no build file —
+   and that answer decides everything after it.
+3. **Audit the debugger UI against the engine.** ~~Conditional breakpoints and
    logpoints~~ — **done 2026-09-03**, and the prediction held exactly: the
    engine was complete, `debugStateEffects` hardcoded `conditional: false`,
    and the gutter's own conditional styling had never been reachable. Watches,
    evaluate and step-back are exposed. Still unreached: **exception
    breakpoints**, which `hick-dap` carries as `exception_filters` and no UI
    offers, and **set-variable**, which the wire supports and nothing calls.
-3. ~~**Prove the unproven Silvers.**~~ **Done 2026-09-04, and all four were
+4. ~~**Prove the unproven Silvers.**~~ **Done 2026-09-04, and all four were
    broken.** Every language with a live test worked; every language without
    one did not, exactly. Go and C/C++ now work and have tests
    (`an-adapter-that-listens-is-connected-to.md`); JavaScript, TypeScript and
@@ -188,16 +196,22 @@ Ranked by how much daily work each unblocks, not by size:
    tree**: js-debug answers `launch`, marks the breakpoint provisional, and
    asks the client to start a second session where breakpoints actually
    bind.
-4. **Call hierarchy and type hierarchy** — two LSP requests, forwarded and
+5. **Call hierarchy and type hierarchy** — two LSP requests, forwarded and
    drawn. Small, and among the most-used IntelliJ navigation.
-5. **Structure view and breadcrumbs** — `documentSymbol` is already
+6. **Structure view and breadcrumbs** — `documentSymbol` is already
    forwarded; this is a pane, not a protocol.
-6. ~~**The command bar's ranking defect**~~ — **done 2026-09-03**. It was two
+7. ~~**The command bar's ranking defect**~~ — **done 2026-09-03**. It was two
    defects: no ranking at all, and a result cap applied during the tree walk
    rather than after ranking, which threw the best match away unscored.
-7. **The HTTP client**, which is nearly free given cells.
-8. **The database tool**, which is not free at all and is its own design.
+8. **The HTTP client**, which is nearly free given cells.
+9. **The database tool**, which is not free at all and is its own design.
 
-Rows 1–6 are what "ready to replace the pack" means for one engineer's daily
-loop. Rows 7–8 are two of its products, and should be designed rather than
+Rows 1–7 are what "ready to replace the pack" means for one engineer's daily
+loop. Rows 8–9 are two of its products, and should be designed rather than
 squeezed in.
+
+**The rule that earned its place on 2026-09-04, and applies to every row
+above: write the live test first.** Four languages claimed a debugger and
+none of them had one, and the thing that distinguished the three that worked
+from the four that did not was, exactly and only, whether a test had ever
+driven them to a stop.
