@@ -66,6 +66,22 @@ enum Build {
         /// What a person is told is missing when no `project` file exists.
         needs: &'static str,
     },
+    /// One translation unit: the source itself IS the compiler's input.
+    ///
+    /// The spec said the signal to stop extending the `Command` table is a
+    /// second compiled language needing a fourth field. C is not that: it
+    /// needs one field FEWER. There is no universal C project file — a
+    /// Makefile, a CMakeLists.txt and a bare `cc main.c` are all normal —
+    /// and a one-file program is a complete program, which is exactly what a
+    /// literate document generates. Inventing a CMakeLists.txt on somebody's
+    /// behalf would be the same mistake as writing them a `.csproj`.
+    Compile {
+        /// Compilers to try, in order. The first one on PATH wins.
+        compilers: &'static [&'static str],
+        /// Flags that make the result debuggable at all: symbols, and no
+        /// optimisation to step through.
+        flags: &'static [&'static str],
+    },
 }
 
 fn build_for(language: &str) -> Build {
@@ -89,8 +105,82 @@ fn build_for(language: &str) -> Build {
             needs: "a `hick:file path=\"app/Cargo.toml\"` block with a `[package]`, beside a \
                     `src/main.rs`",
         },
+        // C and C++ were reported as debuggable — Silver — for as long as an
+        // adapter was discoverable for them, and fell through to `None`
+        // here. That meant `build` handed the debugger `main.c` as the
+        // program. A `.c` file is not a program, and codelldb was being
+        // asked to launch source.
+        "c" => Build::Compile {
+            compilers: &["cc", "gcc", "clang"],
+            flags: &["-g", "-O0"],
+        },
+        "cpp" => Build::Compile {
+            compilers: &["c++", "g++", "clang++"],
+            flags: &["-g", "-O0"],
+        },
         _ => Build::None,
     }
+}
+
+/// The first of `compilers` on PATH.
+fn first_on_path(compilers: &[&str]) -> Option<String> {
+    let paths = std::env::var_os("PATH")?;
+    for name in compilers {
+        for dir in std::env::split_paths(&paths) {
+            if dir.join(name).is_file() {
+                return Some((*name).to_string());
+            }
+        }
+    }
+    None
+}
+
+/// Compile one source file into something a debugger can launch.
+///
+/// The binary lands beside the other build outputs this app owns, under
+/// `.hick-cache/`, for the reason cargo's target directory does: a scratch
+/// tree is deleted with the session, and a debugger that is still holding
+/// the binary it is stepping through should not be racing that.
+async fn compile_one(
+    source: &Path,
+    compilers: &'static [&'static str],
+    flags: &'static [&'static str],
+    cache_root: &Path,
+    display_root: &Path,
+    on_output: &mut (dyn FnMut(BuildOutput) + Send),
+) -> Result<PathBuf> {
+    let name = source.file_name().unwrap_or_default().to_string_lossy();
+    let compiler = first_on_path(compilers).with_context(|| {
+        format!(
+            "{name} is compiled, and none of {} is on this machine's PATH, so there is nothing              to build it with.
+Next step: install a C toolchain — `apt install build-essential`,              `xcode-select --install`, or your platform's equivalent.",
+            compilers.join(", ")
+        )
+    })?;
+    let out_dir = cache_root.join(".hick-cache/cc-out");
+    std::fs::create_dir_all(&out_dir).with_context(|| format!("creating {}", out_dir.display()))?;
+    let stem = source.file_stem().unwrap_or_default();
+    let out = out_dir.join(stem);
+
+    let mut argv: Vec<String> = vec![compiler];
+    argv.extend(flags.iter().map(|f| (*f).to_string()));
+    argv.push("-o".into());
+    argv.push(out.to_string_lossy().into_owned());
+    argv.push(source.to_string_lossy().into_owned());
+
+    on_output(BuildOutput::Cmd(argv.join(" ")));
+    let borrowed: Vec<&str> = argv.iter().map(String::as_str).collect();
+    let dir = source.parent().unwrap_or(display_root);
+    let code = run(&borrowed, dir, &BuildEnv::Own, on_output).await?;
+    on_output(BuildOutput::Exit(code));
+    if code != 0 {
+        bail!(
+            "compiling {} failed (exit {code}). The compiler's own output says why — it named \
+             the file and the line, and that is what to read.",
+            display_relative(source, display_root)
+        );
+    }
+    Ok(out)
 }
 
 /// Where a build's artifact lands, for `artifact` to be read relative to.
@@ -169,12 +259,16 @@ pub async fn build(
     let Some(language) = crate::program::language_of(source) else {
         return Ok(source.to_path_buf());
     };
+    let build = build_for(language);
+    if let Build::Compile { compilers, flags } = build {
+        return compile_one(source, compilers, flags, cache_root, scratch, on_output).await;
+    }
     let Build::Command {
         project,
         argv,
         artifact,
         needs,
-    } = build_for(language)
+    } = build
     else {
         return Ok(source.to_path_buf());
     };

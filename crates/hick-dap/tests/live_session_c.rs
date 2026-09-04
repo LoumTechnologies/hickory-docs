@@ -1,14 +1,9 @@
-//! A real Rust debug session, against codelldb or lldb-dap, over a real
-//! document.
+//! A real C debug session, against codelldb or lldb-dap, over a real document.
 //!
 //! Protects docs/guarantees/debugging/a-compiled-language-launches-what-a-build-produced.md
 //!
-//! The second compiled language. What is launched is the binary `cargo build`
-//! wrote into the app's target directory, not `src/main.rs`; the breakpoint a
-//! person set on a document line has to arrive in the right frame through
-//! DWARF rather than a pdb. Skipped loudly for each thing it needs — cargo to
-//! build, an adapter to debug — because "skipped" and "passed" must never
-//! look alike.
+//! `hick lang` reports C and C++ as debuggable — Silver — because an adapter
+//! is discoverable for them. This is the test that says whether that is true.
 
 use std::path::Path;
 use std::sync::Arc;
@@ -18,38 +13,29 @@ use hick_dap::{Breakpoint, Launch, Mapping, Session};
 
 const DOC: &str = r##"<?xml version="1.0" encoding="UTF-8"?>
 <hick:doc xmlns:hick="http://www.hickorydocs.com/1.0" weave="out.md">
-# Pricing, in Rust
+# Pricing, in C
 
 Every line is quantity times unit price.
 
-<hick:file path="app/Cargo.toml">
-[package]
-name = "pricing"
-version = "0.1.0"
-edition = "2021"
+<hick:file path="app/main.c">
+#include <stdio.h>
 
-[dependencies]
-</hick:file>
-
-<hick:file path="app/src/main.rs">
-fn line_total(quantity: u32, unit_price: f64) -> f64 {
-    let subtotal = quantity as f64 * unit_price;
-    subtotal
+double line_total(int quantity, double unit_price) {
+    double subtotal = quantity * unit_price;
+    return subtotal;
 }
 
-fn main() {
-    println!("{}", line_total(3, 1.25));
+int main(void) {
+    printf("%f\n", line_total(3, 1.25));
+    return 0;
 }
 </hick:file>
 </hick:doc>
 "##;
 
-/// 0-based document line of `    let subtotal = quantity as f64 * unit_price;`.
-const SUBTOTAL_LINE: u32 = 17;
+/// 0-based document line of `    double subtotal = quantity * unit_price;`.
+const SUBTOTAL_LINE: u32 = 10;
 
-/// Point the scratch project at the adapter this repository installed, so a
-/// developer who ran `hick dap install rust` once at the top of the repo
-/// exercises this file instead of skipping it.
 #[cfg(unix)]
 fn borrow_this_repos_adapters(into: &Path) {
     let cache = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../.hick-cache");
@@ -75,9 +61,9 @@ fn have(program: &str) -> bool {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn a_breakpoint_on_a_rust_document_line_stops_inside_the_binary() {
-    if !have("cargo") {
-        eprintln!("SKIPPED: no cargo on this machine, so nothing can be built");
+async fn a_breakpoint_on_a_c_document_line_stops_inside_the_binary() {
+    if !have("cc") && !have("gcc") {
+        eprintln!("SKIPPED: no C compiler on this machine, so nothing can be built");
         return;
     }
     let dir = tempfile::tempdir().expect("scratch");
@@ -87,14 +73,14 @@ async fn a_breakpoint_on_a_rust_document_line_stops_inside_the_binary() {
     let mapping =
         Arc::new(Mapping::for_document(Path::new("doc.hick"), DOC, root).expect("mapping"));
     let files = hick_dap::weave_into(DOC, root).expect("the document weaves");
-    let entry = hick_dap::entry_point(&files).expect("main.rs is debuggable");
-    assert!(entry.ends_with("main.rs"), "{entry:?}");
+    let entry = hick_dap::entry_point(&files).expect("main.c is debuggable");
+    assert!(entry.ends_with("main.c"), "{entry:?}");
 
     borrow_this_repos_adapters(root);
-    let Some(adapter) = hick_dap::discover("rust", root) else {
+    let Some(adapter) = hick_dap::discover("c", root) else {
         eprintln!(
-            "SKIPPED: no Rust debug adapter on this machine.\n{}",
-            hick_dap::how_to_get("rust")
+            "SKIPPED: no C debug adapter on this machine.\n{}",
+            hick_dap::how_to_get("c")
         );
         return;
     };
@@ -109,18 +95,9 @@ async fn a_breakpoint_on_a_rust_document_line_stops_inside_the_binary() {
     .await
     .unwrap_or_else(|e| panic!("the build failed:\n{e:#}\n{}", said.join("\n")));
 
-    // The claim this test exists to make: the binary, not the source.
-    assert_ne!(program, entry, "the source was launched, not the binary");
-    assert!(
-        program
-            .file_name()
-            .is_some_and(|n| n == "pricing" || n == "pricing.exe"),
-        "{program:?}"
-    );
-    assert!(
-        program.starts_with(root.join(".hick-cache/cargo-target")),
-        "the build did not land in the app's target directory: {program:?}"
-    );
+    // The claim: the executable, not the source. A `.c` file handed to a
+    // debugger as a program is not a program.
+    assert_ne!(program, entry, "the source was launched, not a binary");
 
     let breakpoints = vec![Breakpoint {
         line: SUBTOTAL_LINE,
@@ -144,6 +121,12 @@ async fn a_breakpoint_on_a_rust_document_line_stops_inside_the_binary() {
     .expect("the session starts");
     assert_eq!(statuses.len(), 1);
     assert_eq!(statuses[0].line, SUBTOTAL_LINE);
+    assert_ne!(
+        statuses[0].state,
+        hick_dap::BindState::Refused,
+        "the adapter refused the breakpoint: {:?}",
+        statuses[0]
+    );
 
     let stopped = session
         .wait_for_stop(Duration::from_secs(60))
@@ -174,5 +157,5 @@ async fn a_breakpoint_on_a_rust_document_line_stops_inside_the_binary() {
     );
 
     session.shutdown().await;
-    eprintln!("OK rust: built with cargo, stopped on the document line, read a value");
+    eprintln!("OK c: compiled, stopped on the document line, read a value");
 }

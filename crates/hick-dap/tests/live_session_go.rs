@@ -1,14 +1,12 @@
-//! A real Rust debug session, against codelldb or lldb-dap, over a real
-//! document.
+//! A real Go debug session, against delve, over a real document.
 //!
 //! Protects docs/guarantees/debugging/a-compiled-language-launches-what-a-build-produced.md
 //!
-//! The second compiled language. What is launched is the binary `cargo build`
-//! wrote into the app's target directory, not `src/main.rs`; the breakpoint a
-//! person set on a document line has to arrive in the right frame through
-//! DWARF rather than a pdb. Skipped loudly for each thing it needs — cargo to
-//! build, an adapter to debug — because "skipped" and "passed" must never
-//! look alike.
+//! `hick lang` reports Go as debuggable. Nothing had ever run it. Go is
+//! compiled, but unlike C# and Rust its debugger does its own building —
+//! `dlv dap` takes a launch request naming the package and compiles it —
+//! so the interesting question is whether hick hands delve something it
+//! accepts, not whether hick built anything.
 
 use std::path::Path;
 use std::sync::Arc;
@@ -18,55 +16,39 @@ use hick_dap::{Breakpoint, Launch, Mapping, Session};
 
 const DOC: &str = r##"<?xml version="1.0" encoding="UTF-8"?>
 <hick:doc xmlns:hick="http://www.hickorydocs.com/1.0" weave="out.md">
-# Pricing, in Rust
+# Pricing, in Go
 
 Every line is quantity times unit price.
 
-<hick:file path="app/Cargo.toml">
-[package]
-name = "pricing"
-version = "0.1.0"
-edition = "2021"
+<hick:file path="app/go.mod">
+module pricing
 
-[dependencies]
+go 1.21
 </hick:file>
 
-<hick:file path="app/src/main.rs">
-fn line_total(quantity: u32, unit_price: f64) -> f64 {
-    let subtotal = quantity as f64 * unit_price;
-    subtotal
+<hick:file path="app/main.go">
+package main
+
+import "fmt"
+
+func lineTotal(quantity int, unitPrice float64) float64 {
+	subtotal := float64(quantity) * unitPrice
+	return subtotal
 }
 
-fn main() {
-    println!("{}", line_total(3, 1.25));
+func main() {
+	fmt.Println(lineTotal(3, 1.25))
 }
 </hick:file>
 </hick:doc>
 "##;
 
-/// 0-based document line of `    let subtotal = quantity as f64 * unit_price;`.
-const SUBTOTAL_LINE: u32 = 17;
-
-/// Point the scratch project at the adapter this repository installed, so a
-/// developer who ran `hick dap install rust` once at the top of the repo
-/// exercises this file instead of skipping it.
-#[cfg(unix)]
-fn borrow_this_repos_adapters(into: &Path) {
-    let cache = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../.hick-cache");
-    if cache
-        .join("adapters/codelldb/extension/adapter/codelldb")
-        .exists()
-    {
-        let _ = std::os::unix::fs::symlink(cache, into.join(".hick-cache"));
-    }
-}
-
-#[cfg(not(unix))]
-fn borrow_this_repos_adapters(_into: &Path) {}
+/// 0-based document line of `\tsubtotal := float64(quantity) * unitPrice`.
+const SUBTOTAL_LINE: u32 = 18;
 
 fn have(program: &str) -> bool {
     std::process::Command::new(program)
-        .arg("--version")
+        .arg("version")
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null())
         .status()
@@ -75,9 +57,9 @@ fn have(program: &str) -> bool {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn a_breakpoint_on_a_rust_document_line_stops_inside_the_binary() {
-    if !have("cargo") {
-        eprintln!("SKIPPED: no cargo on this machine, so nothing can be built");
+async fn a_breakpoint_on_a_go_document_line_stops_inside_the_program() {
+    if !have("go") {
+        eprintln!("SKIPPED: no go on this machine, so nothing can be built");
         return;
     }
     let dir = tempfile::tempdir().expect("scratch");
@@ -87,14 +69,13 @@ async fn a_breakpoint_on_a_rust_document_line_stops_inside_the_binary() {
     let mapping =
         Arc::new(Mapping::for_document(Path::new("doc.hick"), DOC, root).expect("mapping"));
     let files = hick_dap::weave_into(DOC, root).expect("the document weaves");
-    let entry = hick_dap::entry_point(&files).expect("main.rs is debuggable");
-    assert!(entry.ends_with("main.rs"), "{entry:?}");
+    let entry = hick_dap::entry_point(&files).expect("main.go is debuggable");
+    assert!(entry.ends_with("main.go"), "{entry:?}");
 
-    borrow_this_repos_adapters(root);
-    let Some(adapter) = hick_dap::discover("rust", root) else {
+    let Some(adapter) = hick_dap::discover("go", root) else {
         eprintln!(
-            "SKIPPED: no Rust debug adapter on this machine.\n{}",
-            hick_dap::how_to_get("rust")
+            "SKIPPED: no Go debug adapter on this machine.\n{}",
+            hick_dap::how_to_get("go")
         );
         return;
     };
@@ -108,19 +89,6 @@ async fn a_breakpoint_on_a_rust_document_line_stops_inside_the_binary() {
     })
     .await
     .unwrap_or_else(|e| panic!("the build failed:\n{e:#}\n{}", said.join("\n")));
-
-    // The claim this test exists to make: the binary, not the source.
-    assert_ne!(program, entry, "the source was launched, not the binary");
-    assert!(
-        program
-            .file_name()
-            .is_some_and(|n| n == "pricing" || n == "pricing.exe"),
-        "{program:?}"
-    );
-    assert!(
-        program.starts_with(root.join(".hick-cache/cargo-target")),
-        "the build did not land in the app's target directory: {program:?}"
-    );
 
     let breakpoints = vec![Breakpoint {
         line: SUBTOTAL_LINE,
@@ -144,9 +112,18 @@ async fn a_breakpoint_on_a_rust_document_line_stops_inside_the_binary() {
     .expect("the session starts");
     assert_eq!(statuses.len(), 1);
     assert_eq!(statuses[0].line, SUBTOTAL_LINE);
+    // Asserted, because echoing back the line that was asked for is not
+    // evidence: a breakpoint on a blank line comes back looking identical
+    // and then never fires.
+    assert_ne!(
+        statuses[0].state,
+        hick_dap::BindState::Refused,
+        "delve refused the breakpoint: {:?}",
+        statuses[0]
+    );
 
     let stopped = session
-        .wait_for_stop(Duration::from_secs(60))
+        .wait_for_stop(Duration::from_secs(90))
         .await
         .expect("waiting works")
         .expect("the program stopped");
@@ -155,7 +132,7 @@ async fn a_breakpoint_on_a_rust_document_line_stops_inside_the_binary() {
     let frames = session.stack(stopped.thread_id).await.expect("a stack");
     let top = frames.first().expect("a top frame");
     assert!(
-        top.name.contains("line_total"),
+        top.name.contains("lineTotal"),
         "stopped in the wrong frame: {top:?}"
     );
     assert_eq!(
@@ -174,5 +151,5 @@ async fn a_breakpoint_on_a_rust_document_line_stops_inside_the_binary() {
     );
 
     session.shutdown().await;
-    eprintln!("OK rust: built with cargo, stopped on the document line, read a value");
+    eprintln!("OK go: stopped on the document line, read a value");
 }

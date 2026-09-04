@@ -150,6 +150,8 @@ impl Registry {
 
         let (session, statuses) = Session::start(
             Launch {
+                transport: adapter.transport,
+                adapter_extra: adapter.launch_extra.clone(),
                 adapter: adapter.command,
                 program: program.clone(),
                 cwd: scratch.path().to_path_buf(),
@@ -198,6 +200,8 @@ impl Registry {
         let cwd = project_dir_of(root, file);
         let (session, statuses) = Session::start(
             Launch {
+                transport: adapter.transport,
+                adapter_extra: adapter.launch_extra.clone(),
                 adapter: adapter.command,
                 program,
                 cwd,

@@ -176,6 +176,8 @@ pub async fn run(
 
     let (session, statuses) = Session::start(
         Launch {
+            transport: adapter.transport,
+            adapter_extra: adapter.launch_extra.clone(),
             adapter: adapter.command,
             program,
             cwd: scratch.path().to_path_buf(),

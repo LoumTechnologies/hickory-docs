@@ -35,10 +35,10 @@ omitted because nothing has reached Gold.
 | RustRover | rust | yes | yes | yes | **Silver, proven end to end** (2026-09-02) |
 | PyCharm | python | yes | yes | yes | **Silver, proven end to end** |
 | Rider | csharp | yes | get | yes | **Silver, proven end to end** (2026-08-27) |
-| WebStorm | typescript, javascript, tsx, jsx | yes | get | get | Silver, **debugger unproven** |
-| GoLand | go | yes | get | get | Silver, **unproven** |
-| CLion | c, cpp | yes | get | yes | Silver, **unproven** |
-| RubyMine | ruby | yes | get | get | Silver, **unproven** |
+| GoLand | go | yes | get | yes | **Silver, proven end to end** (2026-09-04) |
+| CLion | c, cpp | yes | get | yes | **Silver, proven end to end** (2026-09-04) |
+| WebStorm | typescript, javascript, tsx, jsx | yes | get | — | **Bronze — js-debug is multi-session; see below** |
+| RubyMine | ruby | yes | get | — | **Bronze — rdbg does not fit the adapter shape** |
 | DataGrip | sql | yes | get | n/a | Silver as a *language*; the tool is missing (below) |
 | IntelliJ | java | yes | get | — | **Bronze — no debug adapter** |
 | IntelliJ | kotlin | yes | get | — | **Bronze — no debug adapter** |
@@ -169,8 +169,15 @@ Ranked by how much daily work each unblocks, not by size:
    evaluate and step-back are exposed. Still unreached: **exception
    breakpoints**, which `hick-dap` carries as `exception_filters` and no UI
    offers, and **set-variable**, which the wire supports and nothing calls.
-3. **Prove the unproven Silvers.** Go, TypeScript, Ruby and C/C++ claim a
-   debugger nobody has run. Each needs the end-to-end test C# and Rust got.
+3. ~~**Prove the unproven Silvers.**~~ **Done 2026-09-04, and all four were
+   broken.** Every language with a live test worked; every language without
+   one did not, exactly. Go and C/C++ now work and have tests
+   (`an-adapter-that-listens-is-connected-to.md`); JavaScript, TypeScript and
+   Ruby are now reported as **not** debuggable, because they are not. The
+   next thing that would make WebStorm's languages real is a **session
+   tree**: js-debug answers `launch`, marks the breakpoint provisional, and
+   asks the client to start a second session where breakpoints actually
+   bind.
 4. **Call hierarchy and type hierarchy** — two LSP requests, forwarded and
    drawn. Small, and among the most-used IntelliJ navigation.
 5. **Structure view and breadcrumbs** — `documentSymbol` is already

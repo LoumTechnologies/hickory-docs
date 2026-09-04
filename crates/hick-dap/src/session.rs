@@ -428,12 +428,23 @@ fn same_file(a: &Path, b: &Path) -> bool {
 pub struct Launch {
     /// The adapter command, from discovery.
     pub adapter: Vec<String>,
+    /// How that adapter is talked to. `Transport::Stdio` is the default,
+    /// which is what every caller meant before some adapters turned out to
+    /// be servers.
+    pub transport: crate::adapter::Transport,
+    /// Launch keys this ADAPTER requires, from discovery. Merged under
+    /// `extra`, which is the caller's.
+    pub adapter_extra: Value,
     /// The program the cell runs, as the adapter's `launch` wants it.
     pub program: PathBuf,
     /// Working directory — the session's own scratch clone, never the one a
     /// run would write outputs from.
     pub cwd: PathBuf,
     /// Language-specific launch arguments merged over the defaults.
+    ///
+    /// The adapter's OWN required keys come from discovery
+    /// (`Discovered::launch_extra`) and are merged first, so a caller's
+    /// `extra` can still override them.
     pub extra: Value,
 }
 
@@ -445,7 +456,7 @@ impl Session {
         mapping: Arc<Mapping>,
         breakpoints: &[Breakpoint],
     ) -> Result<(Self, Vec<BreakpointStatus>)> {
-        let adapter = Adapter::spawn(&launch.adapter).await?;
+        let adapter = Adapter::start(&launch.adapter, launch.transport).await?;
         // Subscribed BEFORE initialize: `initialized` arrives as an event and
         // routinely beats the response to the request that caused it.
         let mut events = adapter.events();
@@ -476,6 +487,7 @@ impl Session {
             "justMyCode": true,
             "console": "internalConsole",
         });
+        merge(&mut launch_args, &launch.adapter_extra);
         merge(&mut launch_args, &launch.extra);
 
         // SENT, NOT AWAITED, and this is the one ordering that must be right.

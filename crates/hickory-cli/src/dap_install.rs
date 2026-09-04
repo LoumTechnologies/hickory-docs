@@ -41,18 +41,14 @@ const INSTALLERS: &[Installer] = &[
         assets: &[],
         reason: "Microsoft's Python debugger, and the reference DAP implementation",
     },
-    Installer {
-        language: "typescript",
-        tool: "npm",
-        package: "@vscode/js-debug",
-        // The same adapter VS Code uses for Node, published standalone. It
-        // is a JavaScript entry point rather than a binary, which is why
-        // discovery looks for a script to hand to `node` rather than a name
-        // on PATH.
-        command: "npm install --no-fund --no-audit --prefix {prefix}/node @vscode/js-debug",
-        assets: &[],
-        reason: "the Node debugger VS Code ships, usable outside it",
-    },
+    // The js-debug installer lived here and worked, after being changed
+    // from `npm install @vscode/js-debug` (which 404s: the package is not
+    // published to npm) to the archive shape. It is removed rather than kept
+    // because `hick lang` reads this catalogue: an installer here is a claim
+    // that the language is one command away from being debuggable, and
+    // js-debug cannot yet be driven — see `hick_dap::discovery`'s note on
+    // multi-session adapters. The pinned asset is in this file's history,
+    // ready for the session tree that would make it true.
     Installer {
         language: "csharp",
         tool: "curl",

@@ -14,11 +14,25 @@
 
 use std::path::{Path, PathBuf};
 
+use crate::adapter::Transport;
+
 /// Where an adapter was found, for reporting to a person.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Discovered {
-    /// Command and arguments, ready to spawn.
+    /// Command and arguments, ready to spawn. For a socket adapter the
+    /// arguments carry `{port}`, which `Adapter::connect_tcp` fills in.
     pub command: Vec<String>,
+    /// How this adapter expects to be talked to.
+    pub transport: Transport,
+    /// Launch keys this adapter requires, merged under the caller's own.
+    ///
+    /// Most adapters need none: `program` and `cwd` are the whole request.
+    /// js-debug refuses a config with no `type` at all — "Unknown config",
+    /// listing back everything it was sent — because it multiplexes several
+    /// debuggers behind one server and the type is how it picks one. That is
+    /// adapter knowledge, so it belongs beside the adapter rather than in
+    /// every caller that starts a session.
+    pub launch_extra: serde_json::Value,
     /// `project` or `machine`.
     pub origin: &'static str,
     /// The adapter's own name, for the report and for `<hick:needs>`.
@@ -34,28 +48,68 @@ enum Recipe {
     },
     /// A Python module: `<python> -m debugpy.adapter`.
     PythonModule { module: &'static str },
-    /// A JavaScript entry point run by node, relative to a package root.
-    NodeScript {
-        package: &'static str,
-        entry: &'static str,
-    },
 }
 
 struct Candidate {
     adapter: &'static str,
     recipe: Recipe,
+    /// stdio unless the adapter is a server. See `adapter::Transport` for why
+    /// this had to exist: three of the four ecosystems here listen on a
+    /// socket and never read stdin.
+    transport: Transport,
+    /// Launch keys this adapter requires, as a JSON object literal.
+    launch: &'static str,
 }
 
+/// Language to the adapters that can debug it, and the ONLY statement of
+/// either.
+///
+/// It was a `match` beside a hand-written `known_languages()` list, which is
+/// the shape of bug this repository has shipped six times — and it had
+/// already happened here once, with the React ids served by `candidates` and
+/// missing from the list. Now one table answers both directions.
+const LANGUAGES: &[(&str, &[Candidate])] = &[
+    ("python", C_PYTHON),
+    // JavaScript and TypeScript are deliberately absent, and this is the
+    // most expensive absence here because WebStorm's whole subject is behind
+    // it. js-debug is reachable now — it is fetched as an archive and
+    // connected to over TCP, both of which had to be built — and it still
+    // cannot be driven, because it is a MULTI-SESSION adapter. Measured on
+    // 2026-09-04: `launch` answers, the breakpoint comes back
+    // `verified: false, "breakpoint.provisionalBreakpoint"`, and the server
+    // then sends a `startDebugging` REVERSE REQUEST carrying a
+    // `__pendingTargetId`. The client is expected to open a SECOND
+    // connection and run a whole second session for the child, and that
+    // child is where breakpoints bind and stops happen.
+    //
+    // `Session` owns one adapter and one event stream, so this is a session
+    // tree, not a flag. Until it exists, saying nothing beats offering a
+    // debugger that attaches to a program and never stops in it.
+    ("go", C_GO),
+    ("rust", C_NATIVE),
+    ("c", C_NATIVE),
+    ("cpp", C_NATIVE),
+    // C# is here only because the build step that makes it launchable landed
+    // with it. On its own, this entry would make `hick dap list` and
+    // `language_of` offer C#, pick `Program.cs`, and fail at launch — worse
+    // than saying nothing. See `build.rs`.
+    ("csharp", C_CSHARP),
+    // Ruby is deliberately absent. `rdbg` does not fit this shape at all:
+    // `rdbg --open target.rb` RUNS the program and opens a UNIX domain
+    // socket, so the program is chosen when the adapter is spawned rather
+    // than by a `launch` request, and there is nothing for `Launch.program`
+    // to mean. It was listed here and reported as debuggable for months
+    // while `rdbg --open --stop-at-load` — no program, no DAP over stdio —
+    // could not have worked. Saying nothing is better than saying that.
+    // What it needs is written down in `how_to_get`.
+];
+
 fn candidates(language: &str) -> &'static [Candidate] {
-    match language {
-        "python" => C_PYTHON,
-        "typescript" | "javascript" | "typescriptreact" | "javascriptreact" => C_NODE,
-        "go" => C_GO,
-        "rust" | "c" | "cpp" => C_NATIVE,
-        "ruby" => C_RUBY,
-        "csharp" => C_CSHARP,
-        _ => &[],
-    }
+    LANGUAGES
+        .iter()
+        .find(|(name, _)| *name == language)
+        .map(|(_, candidates)| *candidates)
+        .unwrap_or(&[])
 }
 
 const C_PYTHON: &[Candidate] = &[Candidate {
@@ -63,20 +117,20 @@ const C_PYTHON: &[Candidate] = &[Candidate {
     recipe: Recipe::PythonModule {
         module: "debugpy.adapter",
     },
+    transport: Transport::Stdio,
+    launch: "{}",
 }];
-const C_NODE: &[Candidate] = &[Candidate {
-    adapter: "js-debug",
-    recipe: Recipe::NodeScript {
-        package: "@vscode/js-debug",
-        entry: "src/dapDebugServer.js",
-    },
-}];
+// "Starts a headless TCP server communicating via Debug Adaptor Protocol
+// (DAP)" — delve's own help. `dlv dap` with no `--listen` picks its own port
+// and tells nobody; given one, it is an ordinary DAP server.
 const C_GO: &[Candidate] = &[Candidate {
     adapter: "delve",
     recipe: Recipe::Binary {
         bin: "dlv",
-        args: &["dap"],
+        args: &["dap", "--listen=127.0.0.1:{port}"],
     },
+    transport: Transport::Tcp,
+    launch: "{}",
 }];
 const C_NATIVE: &[Candidate] = &[
     Candidate {
@@ -85,6 +139,8 @@ const C_NATIVE: &[Candidate] = &[
             bin: "codelldb",
             args: &[],
         },
+        transport: Transport::Stdio,
+        launch: "{}",
     },
     Candidate {
         // `lldb-dap` is what LLVM ships now; the older name is `lldb-vscode`.
@@ -93,6 +149,8 @@ const C_NATIVE: &[Candidate] = &[
             bin: "lldb-dap",
             args: &[],
         },
+        transport: Transport::Stdio,
+        launch: "{}",
     },
 ];
 // netcoredbg (Samsung, MIT) is the C# adapter. Microsoft's `vsdbg` is
@@ -110,15 +168,9 @@ const C_CSHARP: &[Candidate] = &[Candidate {
         bin: "netcoredbg",
         args: &["--interpreter=vscode"],
     },
+    transport: Transport::Stdio,
+    launch: "{}",
 }];
-const C_RUBY: &[Candidate] = &[Candidate {
-    adapter: "rdbg",
-    recipe: Recipe::Binary {
-        bin: "rdbg",
-        args: &["--open", "--stop-at-load"],
-    },
-}];
-
 /// How to get an adapter for `language`, when discovery found none.
 ///
 /// This is adapter knowledge, so it lives beside the candidates rather than
@@ -137,7 +189,7 @@ pub fn how_to_get(language: &str) -> String {
     // prints "no installer for go" and costs a person a shell round trip to
     // find out.
     match language {
-        "python" | "typescript" | "javascript" | "typescriptreact" | "javascriptreact"
+        "python"
         // netcoredbg ships as per-platform release archives rather than as
         // one installable command, which is why the catalogue grew an
         // archive shape rather than this row staying an exception.
@@ -159,8 +211,21 @@ pub fn how_to_get(language: &str) -> String {
                         (`apt install lldb`, `brew install llvm`); codelldb is the other one \
                         hick looks for. Either on PATH is enough."
             .to_string(),
-        "ruby" => "rdbg comes from Ruby's debug gem: `gem install debug`, and hick will find \
-                   `rdbg` on PATH."
+        "typescript" | "javascript" | "typescriptreact" | "javascriptreact" => {
+            "hick cannot debug JavaScript or TypeScript yet, and would rather say so than \
+             attach to a program and never stop in it. js-debug is reachable — it installs \
+             as an archive and is connected to over TCP — but it is a MULTI-SESSION \
+             adapter: it answers `launch`, marks the breakpoint provisional, and then asks \
+             the client to start a SECOND session for the program's own target, which is \
+             where breakpoints actually bind. That is a session tree, not a flag."
+                .to_string()
+        }
+        "ruby" => "hick cannot debug Ruby yet, and would rather say so than offer something \
+                   that fails at launch. `rdbg` from the debug gem does not fit the shape \
+                   every other adapter here has: `rdbg --open target.rb` RUNS the program \
+                   and opens a UNIX domain socket, so the program is chosen when the \
+                   adapter starts rather than by a `launch` request. Supporting it means a \
+                   third adapter shape, not a catalogue row."
             .to_string(),
         // A language with no candidates at all cannot get here through
         // `adapter_for`, but a caller asking directly deserves an answer.
@@ -179,29 +244,7 @@ pub fn suggests_hick_install(language: &str) -> bool {
 
 /// Every language this build can debug, for reporting and for tests.
 pub fn known_languages() -> Vec<&'static str> {
-    [
-        "python",
-        "typescript",
-        // The React flavours, which `candidates` has always served through
-        // the Node adapter and this list omitted — so a `.tsx` file was
-        // reported as undebuggable while the adapter that debugs it was
-        // installed. Same drift as `lang_detect`'s missing `cs`, on the other
-        // side of the same feature.
-        "typescriptreact",
-        "javascript",
-        "javascriptreact",
-        "go",
-        "rust",
-        "c",
-        "cpp",
-        "ruby",
-        // C# is listed only because the build step that makes it launchable
-        // landed with it. On its own, this entry would make `hick dap list`
-        // and `language_of` offer C#, pick `Program.cs`, and fail at launch —
-        // worse than saying nothing. See `build.rs`.
-        "csharp",
-    ]
-    .into()
+    LANGUAGES.iter().map(|(name, _)| *name).collect()
 }
 
 /// Find an adapter for `language`, preferring one the project provides.
@@ -219,6 +262,14 @@ pub fn discover(language: &str, root: &Path) -> Option<Discovered> {
     None
 }
 
+/// An adapter's own launch keys, parsed once at the point of use.
+///
+/// A malformed literal here is a bug in this file, not in a user's document,
+/// so it degrades to "no extra keys" rather than panicking a debug session.
+fn launch_extra(candidate: &Candidate) -> serde_json::Value {
+    serde_json::from_str(candidate.launch).unwrap_or_else(|_| serde_json::json!({}))
+}
+
 fn resolve(candidate: &Candidate, root: &Path, project_only: bool) -> Option<Discovered> {
     let origin = if project_only { "project" } else { "machine" };
     match &candidate.recipe {
@@ -234,6 +285,8 @@ fn resolve(candidate: &Candidate, root: &Path, project_only: bool) -> Option<Dis
                     .collect(),
                 origin,
                 adapter: candidate.adapter,
+                transport: candidate.transport,
+                launch_extra: launch_extra(candidate),
             })
         }
         Recipe::PythonModule { module } => {
@@ -255,19 +308,8 @@ fn resolve(candidate: &Candidate, root: &Path, project_only: bool) -> Option<Dis
                 command: vec![python, "-m".into(), (*module).into()],
                 origin,
                 adapter: candidate.adapter,
-            })
-        }
-        Recipe::NodeScript { package, entry } => {
-            let script = if project_only {
-                node_script(&project_dirs(root), package, entry)?
-            } else {
-                node_script(&machine_dirs(), package, entry)?
-            };
-            let node = search(&machine_dirs(), "node")?;
-            Some(Discovered {
-                command: vec![node, script],
-                origin,
-                adapter: candidate.adapter,
+                transport: candidate.transport,
+                launch_extra: launch_extra(candidate),
             })
         }
     }
@@ -293,22 +335,6 @@ fn python_has_module(python: &str, module: &str) -> bool {
         .status()
         .map(|status| status.success())
         .unwrap_or(false)
-}
-
-fn node_script(dirs: &[PathBuf], package: &str, entry: &str) -> Option<String> {
-    for dir in dirs {
-        // `<…>/node_modules/.bin` -> `<…>/node_modules`
-        let modules = if dir.ends_with(".bin") {
-            dir.parent()?.to_path_buf()
-        } else {
-            dir.join("node_modules")
-        };
-        let candidate = modules.join(package).join(entry);
-        if candidate.is_file() {
-            return Some(candidate.to_string_lossy().to_string());
-        }
-    }
-    None
 }
 
 fn search(dirs: &[PathBuf], name: &str) -> Option<String> {
@@ -346,6 +372,9 @@ fn project_dirs(root: &Path) -> Vec<PathBuf> {
         // codelldb ships as a VS Code extension archive, unpacked whole so
         // the lldb it bundles stays beside the adapter that loads it.
         dirs.push(ancestor.join(".hick-cache/adapters/codelldb/extension/adapter"));
+        // The adapters directory itself, for an archive that unpacks to a
+        // directory of scripts rather than to a binary or an npm package.
+        dirs.push(ancestor.join(".hick-cache/adapters"));
         for layout in [
             "node_modules/.bin",
             ".venv/bin",
@@ -425,11 +454,26 @@ mod tests {
                 "`{language}` is advertised as debuggable and has no adapter candidate"
             );
         }
-        for language in ["typescriptreact", "javascriptreact"] {
+        // The other direction, which is the one that has bitten: a
+        // language must not be advertised without an adapter that can
+        // actually drive it. JavaScript and TypeScript were, for as long as
+        // the claim existed — js-debug is multi-session and `Session` is
+        // not — and so was Ruby.
+        for language in [
+            "typescript",
+            "typescriptreact",
+            "javascript",
+            "javascriptreact",
+            "ruby",
+        ] {
             assert!(
-                known_languages().contains(&language),
-                "`{language}` has an adapter and must be advertised, or `hick lang` \
-                 calls a debuggable file undebuggable"
+                !known_languages().contains(&language),
+                "`{language}` is advertised as debuggable and nothing here can drive its \
+                 adapter yet. See `how_to_get` for what it needs."
+            );
+            assert!(
+                !how_to_get(language).is_empty(),
+                "`{language}` must still say what it would take"
             );
         }
     }
@@ -475,7 +519,19 @@ mod tests {
         let found = discover("go", dir.path()).expect("found the project's dlv");
         assert_eq!(found.origin, "project");
         assert_eq!(found.adapter, "delve");
-        assert_eq!(found.command.last().unwrap(), "dap");
+        // `dlv dap` is a TCP server, so the command carries the port
+        // placeholder the adapter fills in.
+        assert_eq!(found.command[1], "dap");
+        assert_eq!(found.transport, Transport::Tcp);
+        assert!(
+            found
+                .command
+                .last()
+                .unwrap()
+                .contains(crate::adapter::PORT_PLACEHOLDER),
+            "{:?}",
+            found.command
+        );
     }
 
     #[test]
@@ -534,36 +590,6 @@ mod tests {
         assert!(
             found.as_ref().is_none_or(|f| f.origin != "project"),
             "a python that cannot import debugpy was offered: {found:?}"
-        );
-    }
-
-    #[test]
-    fn a_node_adapter_is_a_script_run_by_node_not_a_binary() {
-        // js-debug is a JavaScript file. Looking for an executable of that
-        // name finds nothing, forever, on a machine where it is installed.
-        let dir = tempfile::tempdir().unwrap();
-        fs::create_dir_all(dir.path().join(".git")).unwrap();
-        let pkg = dir.path().join("node_modules/@vscode/js-debug/src");
-        fs::create_dir_all(&pkg).unwrap();
-        fs::write(pkg.join("dapDebugServer.js"), "// stand-in\n").unwrap();
-        if search(&machine_dirs(), "node").is_none() {
-            eprintln!("SKIPPED: no node on this machine to run it with");
-            return;
-        }
-        let found = discover("typescript", dir.path()).expect("found js-debug");
-        // `node` on Unix, `node.exe` on Windows — the stem is the claim.
-        assert_eq!(
-            Path::new(&found.command[0])
-                .file_stem()
-                .and_then(|stem| stem.to_str()),
-            Some("node"),
-            "{:?}",
-            found.command
-        );
-        assert!(
-            found.command[1].ends_with("dapDebugServer.js"),
-            "{:?}",
-            found.command
         );
     }
 

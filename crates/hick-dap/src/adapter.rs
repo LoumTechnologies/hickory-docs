@@ -16,8 +16,8 @@ use std::sync::atomic::{AtomicI64, Ordering};
 
 use anyhow::{Context, Result, bail};
 use serde_json::{Value, json};
-use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
-use tokio::process::{Child, ChildStdin};
+use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, BufReader};
+use tokio::process::Child;
 use tokio::sync::{Mutex, broadcast, oneshot};
 
 use crate::protocol::{Event, Incoming, Response, ReverseRequest, content_length, frame};
@@ -30,16 +30,76 @@ use crate::protocol::{Event, Incoming, Response, ReverseRequest, content_length,
 /// terminal output and is why `stopped` is also tracked separately.
 const EVENT_BUFFER: usize = 512;
 
+/// How long to keep trying to reach an adapter that listens on a socket.
+///
+/// Generous because the first connection can be behind a compile: `dlv dap`
+/// answers at once, but a cold `node` start on a slow machine is seconds.
+const CONNECT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
+
+/// How an adapter expects to be talked to.
+///
+/// Three of the four ecosystems this product most wants to debug do NOT
+/// speak DAP over stdio, which is the single reason Go, JavaScript,
+/// TypeScript and Ruby were reported as debuggable and could not work:
+///
+/// * `dlv dap` — "Starts a headless TCP server communicating via Debug
+///   Adaptor Protocol", in delve's own help text.
+/// * `js-debug` — prints "Debug server listening at ::1:8123" and never
+///   reads stdin.
+/// * `rdbg --open` — a UNIX domain socket, or TCP with `--port`.
+///
+/// Only debugpy, netcoredbg and codelldb speak stdio, and those are exactly
+/// the three that had a live test and worked. Everything without one was
+/// broken.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Transport {
+    /// The adapter reads requests on stdin and writes on stdout.
+    #[default]
+    Stdio,
+    /// The adapter listens on a TCP port and is connected to. The command's
+    /// arguments carry `{port}` where the port belongs.
+    Tcp,
+}
+
+/// The `{port}` placeholder an adapter's arguments use.
+pub const PORT_PLACEHOLDER: &str = "{port}";
+
+/// A port nothing is listening on, released immediately so the adapter can
+/// take it.
+///
+/// The gap between releasing and the adapter binding is a race, and it is the
+/// same race every editor takes: DAP servers take a port number, not a
+/// listening socket. Nothing here can close it, so it is named rather than
+/// hidden.
+fn free_port() -> Result<u16> {
+    let listener = std::net::TcpListener::bind("127.0.0.1:0")
+        .context("finding a free port for the debug adapter")?;
+    let port = listener.local_addr()?.port();
+    drop(listener);
+    Ok(port)
+}
+
 pub struct Adapter {
-    stdin: Arc<Mutex<ChildStdin>>,
+    writer: Arc<Mutex<Box<dyn AsyncWrite + Send + Unpin>>>,
     next_seq: AtomicI64,
     pending: Arc<Mutex<HashMap<i64, oneshot::Sender<Response>>>>,
     events: broadcast::Sender<Event>,
-    process: Arc<Mutex<Child>>,
+    /// The adapter process, when hick started one. Always `Some` today;
+    /// `Option` because an adapter reached over a socket need not be ours to
+    /// kill, and that is the shape the Java plugin will need.
+    process: Arc<Mutex<Option<Child>>>,
 }
 
 impl Adapter {
-    /// Spawn `command` and start reading it.
+    /// Start `command` over the transport it speaks.
+    pub async fn start(command: &[String], transport: Transport) -> Result<Self> {
+        match transport {
+            Transport::Stdio => Adapter::spawn(command).await,
+            Transport::Tcp => Adapter::connect_tcp(command).await,
+        }
+    }
+
+    /// Spawn `command` and talk to it over its own stdin and stdout.
     pub async fn spawn(command: &[String]) -> Result<Self> {
         let (program, args) = command
             .split_first()
@@ -58,6 +118,62 @@ impl Adapter {
 
         let stdin = child.stdin.take().context("adapter stdin")?;
         let stdout = child.stdout.take().context("adapter stdout")?;
+        Ok(Adapter::wire(Box::new(stdin), stdout, Some(child)))
+    }
+
+    /// Spawn a server that listens, then connect to it.
+    ///
+    /// `{port}` anywhere in the arguments is replaced with a free port. The
+    /// process's stdout is left inherited along with its stderr: a listening
+    /// adapter uses stdout for its own log lines ("Debug server listening
+    /// at…"), and reading them as DAP frames would be wrong.
+    pub async fn connect_tcp(command: &[String]) -> Result<Self> {
+        let (program, args) = command
+            .split_first()
+            .context("a debug adapter command cannot be empty")?;
+        let port = free_port()?;
+        let args: Vec<String> = args
+            .iter()
+            .map(|arg| arg.replace(PORT_PLACEHOLDER, &port.to_string()))
+            .collect();
+
+        let child = tokio::process::Command::new(program)
+            .args(&args)
+            .stdin(Stdio::null())
+            .stdout(Stdio::inherit())
+            .stderr(Stdio::inherit())
+            .spawn()
+            .with_context(|| format!("spawning the debug adapter `{program}`"))?;
+
+        let deadline = std::time::Instant::now() + CONNECT_TIMEOUT;
+        let stream = loop {
+            match tokio::net::TcpStream::connect(("127.0.0.1", port)).await {
+                Ok(stream) => break stream,
+                Err(error) => {
+                    if std::time::Instant::now() >= deadline {
+                        return Err(anyhow::Error::new(error).context(format!(
+                            "`{program}` never listened on port {port} within {}s. Its own \
+                             output, above, is where it says why.",
+                            CONNECT_TIMEOUT.as_secs()
+                        )));
+                    }
+                    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+                }
+            }
+        };
+        // Nagle off: DAP is many small frames and a request that waits 40ms
+        // for a coalescing buffer reads as a slow debugger.
+        let _ = stream.set_nodelay(true);
+        let (read, write) = stream.into_split();
+        Ok(Adapter::wire(Box::new(write), read, Some(child)))
+    }
+
+    /// The half both transports share: one writer, one reader, one loop.
+    fn wire<R>(writer: Box<dyn AsyncWrite + Send + Unpin>, reader: R, child: Option<Child>) -> Self
+    where
+        R: AsyncRead + Send + Unpin + 'static,
+    {
+        let stdout = reader;
         let (events, _) = broadcast::channel(EVENT_BUFFER);
         let pending: Arc<Mutex<HashMap<i64, oneshot::Sender<Response>>>> =
             Arc::new(Mutex::new(HashMap::new()));
@@ -97,13 +213,13 @@ impl Adapter {
             reader_pending.lock().await.clear();
         });
 
-        Ok(Self {
-            stdin: Arc::new(Mutex::new(stdin)),
+        Self {
+            writer: Arc::new(Mutex::new(writer)),
             next_seq: AtomicI64::new(1),
             pending,
             events,
             process: Arc::new(Mutex::new(child)),
-        })
+        }
     }
 
     /// Subscribe to the event stream. Do this BEFORE the request that causes
@@ -150,7 +266,7 @@ impl Adapter {
     }
 
     async fn send(&self, message: &Value) -> Result<()> {
-        let mut stdin = self.stdin.lock().await;
+        let mut stdin = self.writer.lock().await;
         stdin
             .write_all(&frame(message))
             .await
@@ -170,6 +286,9 @@ impl Adapter {
         // A short grace period, then the hammer: a debug adapter that will
         // not exit holds the debuggee, and the debuggee holds a workdir.
         let mut process = self.process.lock().await;
+        let Some(process) = process.as_mut() else {
+            return;
+        };
         for _ in 0..20 {
             match process.try_wait() {
                 Ok(Some(_)) => return,

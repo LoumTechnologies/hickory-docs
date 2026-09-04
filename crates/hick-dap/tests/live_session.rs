@@ -82,6 +82,8 @@ fn fixture() -> Option<Fixture> {
     eprintln!("using adapter {} ({})", adapter.adapter, adapter.origin);
     Some(Fixture {
         launch: Launch {
+            transport: adapter.transport,
+            adapter_extra: adapter.launch_extra.clone(),
             adapter: adapter.command,
             program: root.join("pricing.py"),
             cwd: root.to_path_buf(),
