@@ -97,17 +97,40 @@ fn at_least_one_language_can_actually_be_debugged_here() {
     );
 }
 
-/// Every language with a live suite must be one `hick lang` calls debuggable.
+/// The two lists must be the SAME list, in both directions.
 ///
-/// The two lists drifting apart is how a suite ends up testing a language the
-/// product does not offer, or the product offering one nothing exercises.
+/// One direction stops a suite testing a language the product does not offer.
+/// The other is the one that has actually bitten, twice in a day: `cpp`
+/// claimed a debugger with no suite anywhere — its own compilers and its own
+/// build-table row, never once driven — and `typescriptreact` and
+/// `javascriptreact` claimed one that could not work at all, because node
+/// cannot execute either file.
+///
+/// Asking the question in both directions is what makes "is every language
+/// covered?" answerable by running the tests rather than by reading them.
 #[test]
-fn every_live_suite_is_for_a_language_hick_claims() {
+fn the_languages_hick_debugs_and_the_ones_it_exercises_are_the_same_set() {
     let known = hick_dap::known_languages();
+    // Listed once each. A duplicate row is how a list of nine reads as
+    // covering nine while covering eight, which happened while this very
+    // table was being written.
+    let mut seen: Vec<&str> = LIVE.iter().map(|(l, _)| *l).collect();
+    let before = seen.len();
+    seen.sort_unstable();
+    seen.dedup();
+    assert_eq!(before, seen.len(), "a language is listed twice: {seen:?}");
     for (language, _) in LIVE {
         assert!(
             known.contains(language),
             "`{language}` has a live debug suite and is not advertised as debuggable"
+        );
+    }
+    for language in &known {
+        assert!(
+            LIVE.iter().any(|(live, _)| live == language),
+            "`{language}` is advertised as debuggable and no live suite drives it. Either \
+             add `live_session_{language}.rs`, or stop claiming it — those are the only two \
+             honest options."
         );
     }
 }

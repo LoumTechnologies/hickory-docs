@@ -96,9 +96,21 @@ struct Candidate {
 const LANGUAGES: &[(&str, &[Candidate])] = &[
     ("python", C_PYTHON),
     ("typescript", C_NODE),
-    ("typescriptreact", C_NODE),
     ("javascript", C_NODE),
-    ("javascriptreact", C_NODE),
+    // `.tsx` and `.jsx` are deliberately absent, and they were here until
+    // 2026-09-04 — an earlier guarantee even celebrates adding them, on the
+    // reasoning that the adapter which debugs TypeScript debugs React too.
+    // It does not, and the reason is one level below the adapter: node runs
+    // the program, and node cannot execute either. Measured — `node app.tsx`
+    // is a syntax error on the first type annotation (type stripping covers
+    // `.ts`, not `.tsx`), and `node app.jsx` runs only while the file
+    // contains no JSX at all, which is to say only while it is not really
+    // JSX.
+    //
+    // The conceptual answer agrees with the measurement: **a React component
+    // file is not a program**. What you debug in a React app is its entry
+    // point — a `.ts` or `.js` — and that still works. Offering to debug a
+    // component would attach to nothing and fail at launch.
     ("go", C_GO),
     ("rust", C_NATIVE),
     ("c", C_NATIVE),
@@ -250,7 +262,7 @@ pub fn how_to_get(language: &str) -> String {
         // fetched as a tarball and connected to. TypeScript additionally
         // needs a node new enough to run it (v23.6+, where type stripping is
         // on by default) unless the document generates JavaScript.
-        | "typescript" | "javascript" | "typescriptreact" | "javascriptreact"
+        | "typescript" | "javascript"
         // netcoredbg ships as per-platform release archives rather than as
         // one installable command, which is why the catalogue grew an
         // archive shape rather than this row staying an exception.
@@ -285,6 +297,17 @@ pub fn how_to_get(language: &str) -> String {
             .to_string(),
         // A language with no candidates at all cannot get here through
         // `adapter_for`, but a caller asking directly deserves an answer.
+        // Worth its own sentence rather than the catch-all below: somebody
+        // asking why a `.tsx` file has no Debug button has a reasonable
+        // expectation, and "no adapter" is the wrong answer — there is one,
+        // and node is what cannot run the file.
+        "typescriptreact" | "javascriptreact" => "hick does not debug React component files, \
+             and node is why: it cannot execute either. `node app.tsx` is a syntax error on \
+             the first type annotation — type stripping covers `.ts`, not `.tsx` — and \
+             `node app.jsx` runs only while the file contains no JSX at all. A component is \
+             not a program: debug the entry point that imports it, which is a `.ts` or `.js` \
+             and works."
+            .to_string(),
         _ => format!(
             "hick has no debug adapter for {language}. `hick dap list` names the ones it does."
         ),

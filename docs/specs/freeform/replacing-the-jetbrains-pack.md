@@ -36,8 +36,9 @@ omitted because nothing has reached Gold.
 | PyCharm | python | yes | yes | yes | **Silver, proven end to end** |
 | Rider | csharp | yes | get | yes | **Silver, proven end to end** (2026-08-27) |
 | GoLand | go | yes | get | yes | **Silver, proven end to end** (2026-09-04) |
-| CLion | c, cpp | yes | get | yes | **Silver, proven end to end** (2026-09-04) |
-| WebStorm | typescript, javascript, tsx, jsx | yes | get | yes | **Silver, proven end to end** (2026-09-04) |
+| CLion | c, cpp | yes | get | yes | **Silver, both proven end to end** (2026-09-04) |
+| WebStorm | typescript, javascript | yes | get | yes | **Silver, proven end to end** (2026-09-04) |
+| WebStorm | tsx, jsx | yes | get | — | **Bronze — node cannot run either; a component is not a program** |
 | RubyMine | ruby | yes | get | — | **Bronze — rdbg does not fit the adapter shape** |
 | DataGrip | sql | yes | get | n/a | Silver as a *language*; the tool is missing (below) |
 | IntelliJ | java | yes | yes | yes | **Silver, proven end to end** (2026-09-04) |

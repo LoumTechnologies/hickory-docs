@@ -70,7 +70,36 @@ struct Language {
     scaffold: &'static [(&'static str, &'static str)],
 }
 
+/// Let a temp project see the servers this repository has installed.
+///
+/// `hick lsp install <language>` writes into the PROJECT's `.hick-cache`, and
+/// discovery finds a project server by walking up from the file. A temp
+/// directory is not under this repository, so until this existed the sweep
+/// could only ever cover servers that happened to be on PATH — which is to
+/// say, nothing the product's own installer provides. Java was the language
+/// that made that visible: installed, working, and reported as absent.
+#[cfg(unix)]
+fn borrow_this_repos_servers(into: &std::path::Path) {
+    let cache = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../.hick-cache");
+    if cache.is_dir() {
+        let _ = std::os::unix::fs::symlink(cache, into.join(".hick-cache"));
+    }
+}
+
+#[cfg(not(unix))]
+fn borrow_this_repos_servers(_into: &std::path::Path) {}
+
 const LANGUAGES: &[Language] = &[
+    Language {
+        id: "java",
+        file: "Main.java",
+        code: "public class Main {\n    static int summarise(String path) {\n        return path.length();\n    }\n\n    public static void main(String[] args) {\n        System.out.println(summarise(\"x\"));\n    }\n}\n",
+        symbol: "summarise",
+        // No build file on purpose: jdt.ls makes an "invisible project" for a
+        // bare directory, which is what a document's scratch tree is. Proved
+        // when the debugger was built — see debugging-the-jvm.md.
+        scaffold: &[],
+    },
     Language {
         id: "python",
         file: "app.py",
@@ -127,6 +156,7 @@ fn scaffold(language: &Language) -> (tempfile::TempDir, PathBuf, u32) {
     let dir = tempfile::tempdir().expect("a temp project");
     // A repository root, because discovery's walk is bounded by one.
     std::fs::create_dir_all(dir.path().join(".git")).unwrap();
+    borrow_this_repos_servers(dir.path());
     for (path, contents) in language.scaffold {
         let full = dir.path().join(path);
         if let Some(parent) = full.parent() {
@@ -605,6 +635,7 @@ fn every_installed_language_answers_in_document_coordinates() {
 fn drive_one_plain_file(language: &Language) -> bool {
     let dir = tempfile::tempdir().expect("a temp project");
     std::fs::create_dir_all(dir.path().join(".git")).unwrap();
+    borrow_this_repos_servers(dir.path());
     for (path, contents) in language.scaffold {
         let full = dir.path().join(path);
         if let Some(parent) = full.parent() {

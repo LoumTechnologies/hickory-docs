@@ -97,3 +97,33 @@ Last LLM verification:
   race no DAP client can close (adapters take a port number, not a listening
   socket) and is named in the code rather than hidden. Only `linux-x86_64`
   has been exercised.
+
+---
+
+## Amendment, 2026-09-04: the same question asked of every language
+
+"Is there equivalent coverage for all languages?" was asked and measured
+rather than answered from memory, and two more asymmetries fell out.
+
+**C++ claimed a debugger no test had ever driven.** The C suite covers `cc`
+and a `.c` file; C++ is a different row of the build table — its own
+compilers (`c++`, `g++`, `clang++`) and its own extension — and nothing
+exercised it. `live_session_cpp.rs` does now.
+
+**`.tsx` and `.jsx` claimed a debugger that cannot work.** They were served
+by the Node adapter on the reasoning that whatever debugs TypeScript debugs
+React, and an earlier guarantee celebrates adding them. The failure is one
+level below the adapter: node runs the program, and node cannot execute
+either. Measured — `node app.tsx` is a syntax error on the first type
+annotation, because type stripping covers `.ts` and not `.tsx`; and
+`node app.jsx` runs only while the file contains no JSX at all. The
+conceptual answer agrees: **a React component file is not a program.** What
+you debug in a React app is its entry point, a `.ts` or `.js`, and that
+works. Both are withdrawn, with a sentence that says node is the reason
+rather than "no adapter".
+
+The guard is now **bidirectional**: `debug_coverage.rs` asserts the languages
+hick advertises and the languages a live suite drives are the *same set*, and
+that no language is listed twice. Either half alone would have missed one of
+these two. It is what makes "is every language covered?" answerable by
+running the tests instead of by reading them.

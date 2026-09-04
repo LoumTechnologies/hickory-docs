@@ -86,6 +86,12 @@ jobs:
       # can. Without this the suite still runs — every document simply fails
       # with a refusal — and the failure looks like a product bug rather than
       # a runner that changed under us.
+      # jdt.ls, which `hick lsp install` writes into the project's own cache
+      # rather than onto PATH. The sweep could not see a server installed that
+      # way at all until it learned to borrow this repository's cache, so Java
+      # was installed, working, and reported as absent.
+      - name: Install the Java language server, which lives in the project cache
+        run: cargo run -p hickory-cli --bin hick -- lsp install java
       - name: Verify the sandbox works on this runner
         run: |
           bwrap --unshare-all --ro-bind / / --tmpfs /tmp --proc /proc --dev /dev \
