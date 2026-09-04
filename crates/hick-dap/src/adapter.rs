@@ -88,6 +88,13 @@ pub struct Adapter {
     /// `Option` because an adapter reached over a socket need not be ours to
     /// kill, and that is the shape the Java plugin will need.
     process: Arc<Mutex<Option<Child>>>,
+    /// The port this adapter was reached on, when it was reached over TCP.
+    ///
+    /// Kept so a **sibling** connection can be opened to the same server,
+    /// which is what a multi-session adapter requires: js-debug does not run
+    /// the program on the connection that launched it, it asks the client to
+    /// open another one.
+    port: Option<u16>,
 }
 
 impl Adapter {
@@ -165,7 +172,28 @@ impl Adapter {
         // for a coalescing buffer reads as a slow debugger.
         let _ = stream.set_nodelay(true);
         let (read, write) = stream.into_split();
-        Ok(Adapter::wire(Box::new(write), read, Some(child)))
+        let mut adapter = Adapter::wire(Box::new(write), read, Some(child));
+        adapter.port = Some(port);
+        Ok(adapter)
+    }
+
+    /// A second connection to the same server, sharing its process.
+    ///
+    /// The process handle stays with the connection that spawned it: killing
+    /// the server twice is not better than killing it once, and a sibling
+    /// that outlived its parent would be talking to nothing.
+    pub async fn sibling(&self) -> Result<Self> {
+        let port = self
+            .port
+            .context("this adapter was not reached over a socket, so it has no sibling")?;
+        let stream = tokio::net::TcpStream::connect(("127.0.0.1", port))
+            .await
+            .with_context(|| format!("opening a second connection to the adapter on {port}"))?;
+        let _ = stream.set_nodelay(true);
+        let (read, write) = stream.into_split();
+        let mut adapter = Adapter::wire(Box::new(write), read, None);
+        adapter.port = Some(port);
+        Ok(adapter)
     }
 
     /// The half both transports share: one writer, one reader, one loop.
@@ -214,6 +242,7 @@ impl Adapter {
         });
 
         Self {
+            port: None,
             writer: Arc::new(Mutex::new(writer)),
             next_seq: AtomicI64::new(1),
             pending,
@@ -250,6 +279,26 @@ impl Adapter {
             bail!("the debug adapter refused `{command}`: {detail}");
         }
         Ok(response.body)
+    }
+
+    /// Answer a request the ADAPTER made of us.
+    ///
+    /// DAP is bidirectional, and an adapter that asks something and is never
+    /// answered may simply stop. Until this existed every reverse request was
+    /// turned into an event and dropped, which is fine for the advisory ones
+    /// (`runInTerminal` is declined by capability) and not fine for
+    /// `startDebugging`, which is a question js-debug waits on.
+    pub async fn respond(&self, request_seq: i64, command: &str, body: Value) -> Result<()> {
+        let seq = self.next_seq.fetch_add(1, Ordering::SeqCst);
+        self.send(&json!({
+            "seq": seq,
+            "type": "response",
+            "request_seq": request_seq,
+            "success": true,
+            "command": command,
+            "body": body,
+        }))
+        .await
     }
 
     /// Send a request and do not wait. For `disconnect`, where waiting for a

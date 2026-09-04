@@ -288,6 +288,12 @@ pub struct Session {
     /// because an adapter may have slid the breakpoint to another line.
     bound_ids: Arc<std::sync::Mutex<HashMap<i64, u32>>>,
     adapter: Adapter,
+    /// The supervising connection of a multi-session adapter, held open.
+    ///
+    /// js-debug's launching connection owns the server process and does not
+    /// run the program; dropping it would take the server down with the
+    /// session still using it. Shut down after the child, never used.
+    parent: Option<Adapter>,
     capabilities: Capabilities,
     /// Maps the generated file back to the document, and the document to it.
     mapping: Arc<Mapping>,
@@ -435,6 +441,8 @@ pub struct Launch {
     /// Launch keys this ADAPTER requires, from discovery. Merged under
     /// `extra`, which is the caller's.
     pub adapter_extra: Value,
+    /// Whether this adapter runs the program on a SECOND connection.
+    pub multi_session: bool,
     /// The program the cell runs, as the adapter's `launch` wants it.
     pub program: PathBuf,
     /// Working directory — the session's own scratch clone, never the one a
@@ -448,6 +456,48 @@ pub struct Launch {
     pub extra: Value,
 }
 
+/// Wait for the adapter to ask us to start a child session, and answer it.
+///
+/// The answer matters: DAP is bidirectional and js-debug waits on this one
+/// before it will do anything further. Returning the `configuration`
+/// unchanged is deliberate — it carries `__pendingTargetId`, which is the
+/// adapter's own name for the target, and inventing any part of it would
+/// attach the child to nothing.
+async fn wait_for_start_debugging(
+    events: &mut broadcast::Receiver<Event>,
+    adapter: &Adapter,
+) -> Result<Value> {
+    let deadline = Duration::from_secs(30);
+    let found = tokio::time::timeout(deadline, async {
+        loop {
+            let event = match events.recv().await {
+                Ok(event) => event,
+                // Lagged: the burst of telemetry js-debug emits can overrun a
+                // slow subscriber, and the request may have been in it.
+                Err(broadcast::error::RecvError::Lagged(_)) => continue,
+                Err(_) => return None,
+            };
+            if event.event == "hick/reverseRequest/startDebugging" {
+                return Some(event);
+            }
+        }
+    })
+    .await
+    .ok()
+    .flatten();
+    let event = found.context("no `startDebugging` request arrived")?;
+    // `reverse_as_event` carries the request's own seq, which is what a
+    // response has to name.
+    adapter
+        .respond(event.seq, "startDebugging", json!({}))
+        .await?;
+    Ok(event
+        .body
+        .get("configuration")
+        .cloned()
+        .unwrap_or_else(|| json!({})))
+}
+
 impl Session {
     /// Start an adapter, launch the program, and stop at the first
     /// breakpoint.
@@ -457,9 +507,33 @@ impl Session {
         breakpoints: &[Breakpoint],
     ) -> Result<(Self, Vec<BreakpointStatus>)> {
         let adapter = Adapter::start(&launch.adapter, launch.transport).await?;
+        let extra = launch.extra.clone();
+        Self::start_on(adapter, None, &launch, extra, mapping, breakpoints).await
+    }
+
+    /// Start a session on one connection, following a child if the adapter
+    /// asks for one.
+    ///
+    /// `parent` is the supervising connection of a multi-session adapter,
+    /// held only so that it stays alive and can be shut down: js-debug's
+    /// launching connection owns the server process, and the program runs on
+    /// a sibling.
+    #[allow(clippy::too_many_arguments)]
+    async fn start_on(
+        adapter: Adapter,
+        parent: Option<Adapter>,
+        launch: &Launch,
+        extra: Value,
+        mapping: Arc<Mapping>,
+        breakpoints: &[Breakpoint],
+    ) -> Result<(Self, Vec<BreakpointStatus>)> {
         // Subscribed BEFORE initialize: `initialized` arrives as an event and
         // routinely beats the response to the request that caused it.
         let mut events = adapter.events();
+        // A separate subscription for the same reason, one step later:
+        // `startDebugging` can arrive before `configurationDone` is answered,
+        // and a receiver created after the fact would have missed it.
+        let mut child_watch = adapter.events();
 
         let body = adapter
             .request(
@@ -473,6 +547,10 @@ impl Session {
                     "pathFormat": "path",
                     "supportsVariableType": true,
                     "supportsRunInTerminalRequest": false,
+                    // Declared, because it is now true: a `startDebugging`
+                    // request is answered and followed. An adapter that
+                    // multiplexes decides what to send from this.
+                    "supportsStartDebuggingRequest": true,
                 }),
             )
             .await
@@ -488,7 +566,10 @@ impl Session {
             "console": "internalConsole",
         });
         merge(&mut launch_args, &launch.adapter_extra);
-        merge(&mut launch_args, &launch.extra);
+        // For a child this is the configuration the adapter handed back,
+        // `__pendingTargetId` and all — which is what names the target this
+        // connection is for.
+        merge(&mut launch_args, &extra);
 
         // SENT, NOT AWAITED, and this is the one ordering that must be right.
         //
@@ -588,10 +669,12 @@ impl Session {
             let _ = tx.send(None);
         });
 
+        let is_supervisor = launch.multi_session && parent.is_none();
         let session = Self {
+            parent,
             adapter,
             capabilities,
-            mapping,
+            mapping: mapping.clone(),
             statuses,
             bound_ids,
             last_stopped: tokio::sync::Mutex::new(None),
@@ -605,7 +688,37 @@ impl Session {
             .adapter
             .request("configurationDone", json!({}))
             .await?;
+
+        // A multi-session adapter has not run anything yet. This connection
+        // launched a supervisor, whose answer is a request back: "start
+        // debugging this target". The breakpoints just set on it came back
+        // `provisionalBreakpoint` and will never fire; the ones that matter
+        // are set on the sibling below, by the recursion.
+        if is_supervisor {
+            let configuration = wait_for_start_debugging(&mut child_watch, &session.adapter)
+                .await
+                .context(
+                    "this adapter runs the program on a second connection and never asked \
+                     for one",
+                )?;
+            let sibling = session.adapter.sibling().await?;
+            let parent = session.into_parent();
+            return Box::pin(Self::start_on(
+                sibling,
+                Some(parent),
+                launch,
+                configuration,
+                mapping.clone(),
+                breakpoints,
+            ))
+            .await;
+        }
         Ok((session, statuses))
+    }
+
+    /// Give up everything but the connection, so it can be held open.
+    fn into_parent(self) -> Adapter {
+        self.adapter
     }
 
     pub fn capabilities(&self) -> &Capabilities {
@@ -1157,7 +1270,13 @@ impl Session {
     }
 
     pub async fn shutdown(&self) {
+        // The child first, then the connection that owns the server process.
+        // The other order kills the server while the session it is running
+        // is still being told to stop.
         self.adapter.shutdown().await;
+        if let Some(parent) = &self.parent {
+            parent.shutdown().await;
+        }
     }
 }
 

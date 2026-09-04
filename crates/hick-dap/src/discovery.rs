@@ -24,6 +24,8 @@ pub struct Discovered {
     pub command: Vec<String>,
     /// How this adapter expects to be talked to.
     pub transport: Transport,
+    /// Whether the program runs on a second connection to the same adapter.
+    pub multi_session: bool,
     /// Launch keys this adapter requires, merged under the caller's own.
     ///
     /// Most adapters need none: `program` and `cwd` are the whole request.
@@ -48,6 +50,11 @@ enum Recipe {
     },
     /// A Python module: `<python> -m debugpy.adapter`.
     PythonModule { module: &'static str },
+    /// A JavaScript entry point run by node, relative to a package root.
+    NodeScript {
+        package: &'static str,
+        entry: &'static str,
+    },
 }
 
 struct Candidate {
@@ -59,6 +66,13 @@ struct Candidate {
     transport: Transport,
     /// Launch keys this adapter requires, as a JSON object literal.
     launch: &'static str,
+    /// Whether this adapter runs the program on a SECOND connection.
+    ///
+    /// js-debug does: the connection that launches is a supervisor, and it
+    /// asks the client to open another one for the program's own target.
+    /// Declared per adapter rather than detected, so no other language pays
+    /// for a wait that only one of them needs.
+    multi_session: bool,
 }
 
 /// Language to the adapters that can debug it, and the ONLY statement of
@@ -70,21 +84,10 @@ struct Candidate {
 /// missing from the list. Now one table answers both directions.
 const LANGUAGES: &[(&str, &[Candidate])] = &[
     ("python", C_PYTHON),
-    // JavaScript and TypeScript are deliberately absent, and this is the
-    // most expensive absence here because WebStorm's whole subject is behind
-    // it. js-debug is reachable now — it is fetched as an archive and
-    // connected to over TCP, both of which had to be built — and it still
-    // cannot be driven, because it is a MULTI-SESSION adapter. Measured on
-    // 2026-09-04: `launch` answers, the breakpoint comes back
-    // `verified: false, "breakpoint.provisionalBreakpoint"`, and the server
-    // then sends a `startDebugging` REVERSE REQUEST carrying a
-    // `__pendingTargetId`. The client is expected to open a SECOND
-    // connection and run a whole second session for the child, and that
-    // child is where breakpoints bind and stops happen.
-    //
-    // `Session` owns one adapter and one event stream, so this is a session
-    // tree, not a flag. Until it exists, saying nothing beats offering a
-    // debugger that attaches to a program and never stops in it.
+    ("typescript", C_NODE),
+    ("typescriptreact", C_NODE),
+    ("javascript", C_NODE),
+    ("javascriptreact", C_NODE),
     ("go", C_GO),
     ("rust", C_NATIVE),
     ("c", C_NATIVE),
@@ -119,7 +122,26 @@ const C_PYTHON: &[Candidate] = &[Candidate {
     },
     transport: Transport::Stdio,
     launch: "{}",
+    multi_session: false,
 }];
+// js-debug is NOT on npm — `npm install @vscode/js-debug` 404s, and always
+// has — so it is fetched as a tarball from its own releases and lands beside
+// the other adapters with no `node_modules` above it. It does not speak
+// stdio either: it prints "Debug server listening at…" and waits.
+const C_NODE: &[Candidate] = &[Candidate {
+    adapter: "js-debug",
+    recipe: Recipe::NodeScript {
+        package: "js-debug",
+        entry: "src/dapDebugServer.js",
+    },
+    transport: Transport::Tcp,
+    // Without a `type` js-debug answers "Unknown config" and lists back
+    // everything it was sent. `pwa-node` is the Node debugger; the browser
+    // ones are a different product decision and are not offered.
+    launch: r#"{"type": "pwa-node", "request": "launch"}"#,
+    multi_session: true,
+}];
+
 // "Starts a headless TCP server communicating via Debug Adaptor Protocol
 // (DAP)" — delve's own help. `dlv dap` with no `--listen` picks its own port
 // and tells nobody; given one, it is an ordinary DAP server.
@@ -131,6 +153,7 @@ const C_GO: &[Candidate] = &[Candidate {
     },
     transport: Transport::Tcp,
     launch: "{}",
+    multi_session: false,
 }];
 const C_NATIVE: &[Candidate] = &[
     Candidate {
@@ -141,6 +164,7 @@ const C_NATIVE: &[Candidate] = &[
         },
         transport: Transport::Stdio,
         launch: "{}",
+        multi_session: false,
     },
     Candidate {
         // `lldb-dap` is what LLVM ships now; the older name is `lldb-vscode`.
@@ -151,6 +175,7 @@ const C_NATIVE: &[Candidate] = &[
         },
         transport: Transport::Stdio,
         launch: "{}",
+        multi_session: false,
     },
 ];
 // netcoredbg (Samsung, MIT) is the C# adapter. Microsoft's `vsdbg` is
@@ -170,6 +195,7 @@ const C_CSHARP: &[Candidate] = &[Candidate {
     },
     transport: Transport::Stdio,
     launch: "{}",
+    multi_session: false,
 }];
 /// How to get an adapter for `language`, when discovery found none.
 ///
@@ -190,6 +216,11 @@ pub fn how_to_get(language: &str) -> String {
     // find out.
     match language {
         "python"
+        // js-debug is not on npm at all and does not speak stdio; it is
+        // fetched as a tarball and connected to. TypeScript additionally
+        // needs a node new enough to run it (v23.6+, where type stripping is
+        // on by default) unless the document generates JavaScript.
+        | "typescript" | "javascript" | "typescriptreact" | "javascriptreact"
         // netcoredbg ships as per-platform release archives rather than as
         // one installable command, which is why the catalogue grew an
         // archive shape rather than this row staying an exception.
@@ -211,15 +242,6 @@ pub fn how_to_get(language: &str) -> String {
                         (`apt install lldb`, `brew install llvm`); codelldb is the other one \
                         hick looks for. Either on PATH is enough."
             .to_string(),
-        "typescript" | "javascript" | "typescriptreact" | "javascriptreact" => {
-            "hick cannot debug JavaScript or TypeScript yet, and would rather say so than \
-             attach to a program and never stop in it. js-debug is reachable — it installs \
-             as an archive and is connected to over TCP — but it is a MULTI-SESSION \
-             adapter: it answers `launch`, marks the breakpoint provisional, and then asks \
-             the client to start a SECOND session for the program's own target, which is \
-             where breakpoints actually bind. That is a session tree, not a flag."
-                .to_string()
-        }
         "ruby" => "hick cannot debug Ruby yet, and would rather say so than offer something \
                    that fails at launch. `rdbg` from the debug gem does not fit the shape \
                    every other adapter here has: `rdbg --open target.rb` RUNS the program \
@@ -286,6 +308,31 @@ fn resolve(candidate: &Candidate, root: &Path, project_only: bool) -> Option<Dis
                 origin,
                 adapter: candidate.adapter,
                 transport: candidate.transport,
+                multi_session: candidate.multi_session,
+                launch_extra: launch_extra(candidate),
+            })
+        }
+        Recipe::NodeScript { package, entry } => {
+            let script = if project_only {
+                node_script(&project_dirs(root), package, entry)?
+            } else {
+                node_script(&machine_dirs(), package, entry)?
+            };
+            let node = search(&machine_dirs(), "node")?;
+            // `dapDebugServer.js <port> [host]`. Without a port it picks
+            // 8123 and tells only its own stdout, which is how two debug
+            // sessions collide.
+            Some(Discovered {
+                command: vec![
+                    node,
+                    script,
+                    crate::adapter::PORT_PLACEHOLDER.to_string(),
+                    "127.0.0.1".to_string(),
+                ],
+                origin,
+                adapter: candidate.adapter,
+                transport: candidate.transport,
+                multi_session: candidate.multi_session,
                 launch_extra: launch_extra(candidate),
             })
         }
@@ -309,6 +356,7 @@ fn resolve(candidate: &Candidate, root: &Path, project_only: bool) -> Option<Dis
                 origin,
                 adapter: candidate.adapter,
                 transport: candidate.transport,
+                multi_session: candidate.multi_session,
                 launch_extra: launch_extra(candidate),
             })
         }
@@ -335,6 +383,31 @@ fn python_has_module(python: &str, module: &str) -> bool {
         .status()
         .map(|status| status.success())
         .unwrap_or(false)
+}
+
+/// A JavaScript entry point under one of `dirs`.
+fn node_script(dirs: &[PathBuf], package: &str, entry: &str) -> Option<String> {
+    for dir in dirs {
+        // `<…>/node_modules/.bin` -> `<…>/node_modules`
+        let modules = if dir.ends_with(".bin") {
+            dir.parent()?.to_path_buf()
+        } else {
+            dir.join("node_modules")
+        };
+        let candidate = modules.join(package).join(entry);
+        if candidate.is_file() {
+            return Some(candidate.to_string_lossy().to_string());
+        }
+        // Not everything that runs under node is an npm package. js-debug
+        // ships as a plain tarball on its own releases — it is not published
+        // to npm at all — so it unpacks beside the other adapters with no
+        // `node_modules` anywhere above it.
+        let unpacked = dir.join(package).join(entry);
+        if unpacked.is_file() {
+            return Some(unpacked.to_string_lossy().to_string());
+        }
+    }
+    None
 }
 
 fn search(dirs: &[PathBuf], name: &str) -> Option<String> {
@@ -456,26 +529,18 @@ mod tests {
         }
         // The other direction, which is the one that has bitten: a
         // language must not be advertised without an adapter that can
-        // actually drive it. JavaScript and TypeScript were, for as long as
-        // the claim existed — js-debug is multi-session and `Session` is
-        // not — and so was Ruby.
-        for language in [
-            "typescript",
-            "typescriptreact",
-            "javascript",
-            "javascriptreact",
-            "ruby",
-        ] {
-            assert!(
-                !known_languages().contains(&language),
-                "`{language}` is advertised as debuggable and nothing here can drive its \
-                 adapter yet. See `how_to_get` for what it needs."
-            );
-            assert!(
-                !how_to_get(language).is_empty(),
-                "`{language}` must still say what it would take"
-            );
-        }
+        // actually drive it. JavaScript and TypeScript were, until the
+        // session tree existed; Ruby still is.
+        let language = "ruby";
+        assert!(
+            !known_languages().contains(&language),
+            "`{language}` is advertised as debuggable and nothing here can drive its \
+             adapter yet. See `how_to_get` for what it needs."
+        );
+        assert!(
+            !how_to_get(language).is_empty(),
+            "`{language}` must still say what it would take"
+        );
     }
     use super::*;
     use std::fs;

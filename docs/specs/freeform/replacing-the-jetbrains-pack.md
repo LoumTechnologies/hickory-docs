@@ -37,7 +37,7 @@ omitted because nothing has reached Gold.
 | Rider | csharp | yes | get | yes | **Silver, proven end to end** (2026-08-27) |
 | GoLand | go | yes | get | yes | **Silver, proven end to end** (2026-09-04) |
 | CLion | c, cpp | yes | get | yes | **Silver, proven end to end** (2026-09-04) |
-| WebStorm | typescript, javascript, tsx, jsx | yes | get | — | **Bronze — js-debug is multi-session; see below** |
+| WebStorm | typescript, javascript, tsx, jsx | yes | get | yes | **Silver, proven end to end** (2026-09-04) |
 | RubyMine | ruby | yes | get | — | **Bronze — rdbg does not fit the adapter shape** |
 | DataGrip | sql | yes | get | n/a | Silver as a *language*; the tool is missing (below) |
 | IntelliJ | java | yes | get | — | **Bronze — no debug adapter** |
@@ -168,13 +168,13 @@ the reason to make it at all:
 
 Ranked by how much daily work each unblocks, not by size:
 
-1. **A session tree, for JavaScript and TypeScript.** js-debug is fetched and
-   connected to and still cannot be driven: it answers `launch`, marks the
-   breakpoint provisional, and asks the client to start a SECOND session
-   where breakpoints bind. `Session` owns one adapter and one event stream.
-   First because it is the only *withdrawn* capability on this list, and
-   because this repository is itself a Rust and TypeScript project — the app
-   in `apps/web` is the thing its author cannot currently debug.
+1. ~~**A session tree, for JavaScript and TypeScript.**~~ **Done 2026-09-04.**
+   hick answers `startDebugging`, opens a sibling connection, and runs the
+   real session on it. Seven languages now debug live — Python, C, C#, Go,
+   JavaScript, Rust, TypeScript — and each has a test that stops on a
+   document line and reads a value out of the frame
+   (`an-adapter-that-runs-on-a-second-connection-is-followed.md`). One child
+   is followed; a target that spawns further targets is not.
 2. **A JVM debug adapter** — Java and Kotlin, the pack's centre and the
    biggest single hole. **No longer blocked:** the licence is decided and the
    design is `debugging-the-jvm.md`. Its own first step is a measurement, not

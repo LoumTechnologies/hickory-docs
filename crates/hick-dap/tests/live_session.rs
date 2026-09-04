@@ -83,6 +83,7 @@ fn fixture() -> Option<Fixture> {
     Some(Fixture {
         launch: Launch {
             transport: adapter.transport,
+            multi_session: adapter.multi_session,
             adapter_extra: adapter.launch_extra.clone(),
             adapter: adapter.command,
             program: root.join("pricing.py"),

@@ -41,14 +41,22 @@ const INSTALLERS: &[Installer] = &[
         assets: &[],
         reason: "Microsoft's Python debugger, and the reference DAP implementation",
     },
-    // The js-debug installer lived here and worked, after being changed
-    // from `npm install @vscode/js-debug` (which 404s: the package is not
-    // published to npm) to the archive shape. It is removed rather than kept
-    // because `hick lang` reads this catalogue: an installer here is a claim
-    // that the language is one command away from being debuggable, and
-    // js-debug cannot yet be driven — see `hick_dap::discovery`'s note on
-    // multi-session adapters. The pinned asset is in this file's history,
-    // ready for the session tree that would make it true.
+    Installer {
+        language: "typescript",
+        tool: "curl",
+        package: "js-debug",
+        // Nothing to run: an archive install builds its command from the
+        // matching asset below.
+        //
+        // This was `npm install @vscode/js-debug`, which 404s and always
+        // has: the package is not published to npm. `hick dap install
+        // typescript` therefore failed on every machine, for as long as it
+        // existed, while `hick lang` reported JavaScript and TypeScript as
+        // having a debugger one command away.
+        command: "",
+        assets: JS_DEBUG,
+        reason: "the Node debugger VS Code ships, usable outside it",
+    },
     Installer {
         language: "csharp",
         tool: "curl",
@@ -74,6 +82,61 @@ const INSTALLERS: &[Installer] = &[
         reason: "the LLDB-based debugger VS Code's Rust users run, usable outside it",
     },
 ];
+
+/// js-debug v1.117.0.
+///
+/// One tarball for every platform: it is JavaScript, so the bytes really are
+/// identical everywhere and the same checksum is the honest answer for each
+/// row rather than a copy-paste. The archive carries its own `js-debug/`
+/// top-level directory, so it unpacks into the prefix itself.
+///
+/// The checksum was taken on 2026-09-04 by fetching the asset. Only
+/// `linux-x86_64` has been unpacked and run.
+const JS_DEBUG: &[Asset] = &[
+    Asset {
+        os: "linux",
+        arch: "x86_64",
+        url: JS_DEBUG_URL,
+        sha256: JS_DEBUG_SHA256,
+        unpack: "tar",
+        into: "",
+    },
+    Asset {
+        os: "linux",
+        arch: "aarch64",
+        url: JS_DEBUG_URL,
+        sha256: JS_DEBUG_SHA256,
+        unpack: "tar",
+        into: "",
+    },
+    Asset {
+        os: "macos",
+        arch: "aarch64",
+        url: JS_DEBUG_URL,
+        sha256: JS_DEBUG_SHA256,
+        unpack: "tar",
+        into: "",
+    },
+    Asset {
+        os: "macos",
+        arch: "x86_64",
+        url: JS_DEBUG_URL,
+        sha256: JS_DEBUG_SHA256,
+        unpack: "tar",
+        into: "",
+    },
+    Asset {
+        os: "windows",
+        arch: "x86_64",
+        url: JS_DEBUG_URL,
+        sha256: JS_DEBUG_SHA256,
+        unpack: "tar",
+        into: "",
+    },
+];
+
+const JS_DEBUG_URL: &str = "https://github.com/microsoft/vscode-js-debug/releases/download/v1.117.0/js-debug-dap-v1.117.0.tar.gz";
+const JS_DEBUG_SHA256: &str = "ad8d04ede9d4b75cc290fd5438a65047a06f786d04f604b6112485b36f090772";
 
 /// codelldb v1.12.3, pinned per platform.
 ///

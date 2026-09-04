@@ -134,6 +134,7 @@ async fn a_breakpoint_on_a_csharp_document_line_stops_inside_the_assembly() {
     let (session, statuses) = Session::start(
         Launch {
             transport: adapter.transport,
+            multi_session: adapter.multi_session,
             adapter_extra: adapter.launch_extra.clone(),
             adapter: adapter.command,
             program: program.clone(),

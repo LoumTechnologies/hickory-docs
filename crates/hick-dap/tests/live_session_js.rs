@@ -1,9 +1,12 @@
-//! A real C debug session, against codelldb or lldb-dap, over a real document.
+//! A real JavaScript debug session, against js-debug, over a real document.
 //!
-//! Protects docs/guarantees/debugging/a-compiled-language-launches-what-a-build-produced.md
+//! Protects docs/guarantees/debugging/an-adapter-that-runs-on-a-second-connection-is-followed.md
 //!
-//! `hick lang` reports C and C++ as debuggable — Silver — because an adapter
-//! is discoverable for them. This is the test that says whether that is true.
+//! js-debug does not run the program on the connection that launched it. It
+//! answers `launch`, marks the breakpoint `provisionalBreakpoint`, and asks
+//! the client — with a `startDebugging` reverse request carrying a
+//! `__pendingTargetId` — to open a second connection and run the session
+//! there. This is the test that says whether hick follows it.
 
 use std::path::Path;
 use std::sync::Arc;
@@ -13,42 +16,29 @@ use hick_dap::{Breakpoint, Launch, Mapping, Session};
 
 const DOC: &str = r##"<?xml version="1.0" encoding="UTF-8"?>
 <hick:doc xmlns:hick="http://www.hickorydocs.com/1.0" weave="out.md">
-# Pricing, in C
+# Pricing, in JavaScript
 
 Every line is quantity times unit price.
 
-<hick:file path="app/main.c">
-#include <stdio.h>
-
-double line_total(int quantity, double unit_price) {
-    double subtotal = quantity * unit_price;
-    return subtotal;
+<hick:file path="app/main.js">
+function lineTotal(quantity, unitPrice) {
+  const subtotal = quantity * unitPrice;
+  return subtotal;
 }
 
-int main(void) {
-    printf("%f\n", line_total(3, 1.25));
-    return 0;
-}
+console.log(lineTotal(3, 1.25));
 </hick:file>
 </hick:doc>
 "##;
 
-/// 0-based document line of `    double subtotal = quantity * unit_price;`.
-const SUBTOTAL_LINE: u32 = 10;
-
-#[cfg(unix)]
-fn borrow_this_repos_adapters(into: &Path) {
-    let cache = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../.hick-cache");
-    if cache
-        .join("adapters/codelldb/extension/adapter/codelldb")
-        .exists()
-    {
-        let _ = std::os::unix::fs::symlink(cache, into.join(".hick-cache"));
-    }
+/// Found in the document rather than written down. A constant here was wrong
+/// twice while these tests were being written — both times pointing at a
+/// blank line, and both times the status assertion passed anyway.
+fn subtotal_line() -> u32 {
+    DOC.lines()
+        .position(|line| line.contains("const subtotal ="))
+        .expect("the document has that line") as u32
 }
-
-#[cfg(not(unix))]
-fn borrow_this_repos_adapters(_into: &Path) {}
 
 fn have(program: &str) -> bool {
     std::process::Command::new(program)
@@ -60,10 +50,24 @@ fn have(program: &str) -> bool {
         .unwrap_or(false)
 }
 
+#[cfg(unix)]
+fn borrow_this_repos_adapters(into: &Path) {
+    let cache = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../.hick-cache");
+    if cache
+        .join("adapters/js-debug/src/dapDebugServer.js")
+        .exists()
+    {
+        let _ = std::os::unix::fs::symlink(cache, into.join(".hick-cache"));
+    }
+}
+
+#[cfg(not(unix))]
+fn borrow_this_repos_adapters(_into: &Path) {}
+
 #[tokio::test(flavor = "multi_thread")]
-async fn a_breakpoint_on_a_c_document_line_stops_inside_the_binary() {
-    if !have("cc") && !have("gcc") {
-        eprintln!("SKIPPED: no C compiler on this machine, so nothing can be built");
+async fn a_breakpoint_on_a_javascript_document_line_stops() {
+    if !have("node") {
+        eprintln!("SKIPPED: no node on this machine");
         return;
     }
     let dir = tempfile::tempdir().expect("scratch");
@@ -73,34 +77,26 @@ async fn a_breakpoint_on_a_c_document_line_stops_inside_the_binary() {
     let mapping =
         Arc::new(Mapping::for_document(Path::new("doc.hick"), DOC, root).expect("mapping"));
     let files = hick_dap::weave_into(DOC, root).expect("the document weaves");
-    let entry = hick_dap::entry_point(&files).expect("main.c is debuggable");
-    assert!(entry.ends_with("main.c"), "{entry:?}");
+    let entry = hick_dap::entry_point(&files).expect("main.js is debuggable");
+    assert!(entry.ends_with("main.js"), "{entry:?}");
 
     borrow_this_repos_adapters(root);
-    let Some(adapter) = hick_dap::discover("c", root) else {
+    let Some(adapter) = hick_dap::discover("javascript", root) else {
         eprintln!(
-            "SKIPPED: no C debug adapter on this machine.\n{}",
-            hick_dap::how_to_get("c")
+            "SKIPPED: no JavaScript debug adapter on this machine.\n{}",
+            hick_dap::how_to_get("javascript")
         );
         return;
     };
     eprintln!("using adapter {} ({})", adapter.adapter, adapter.origin);
+    assert!(
+        adapter.multi_session,
+        "js-debug runs the program on a second connection"
+    );
 
-    let mut said: Vec<String> = Vec::new();
-    let program = hick_dap::build(&entry, root, root, &mut |line| {
-        if let hick_dap::BuildOutput::Out(t) | hick_dap::BuildOutput::Err(t) = line {
-            said.push(t);
-        }
-    })
-    .await
-    .unwrap_or_else(|e| panic!("the build failed:\n{e:#}\n{}", said.join("\n")));
-
-    // The claim: the executable, not the source. A `.c` file handed to a
-    // debugger as a program is not a program.
-    assert_ne!(program, entry, "the source was launched, not a binary");
-
+    let line = subtotal_line();
     let breakpoints = vec![Breakpoint {
-        line: SUBTOTAL_LINE,
+        line,
         condition: None,
         hit_condition: None,
         log_message: None,
@@ -111,8 +107,8 @@ async fn a_breakpoint_on_a_c_document_line_stops_inside_the_binary() {
             multi_session: adapter.multi_session,
             adapter_extra: adapter.launch_extra.clone(),
             adapter: adapter.command,
-            program: program.clone(),
-            cwd: program.parent().unwrap().to_path_buf(),
+            program: entry.clone(),
+            cwd: entry.parent().unwrap().to_path_buf(),
             extra: serde_json::json!({}),
         },
         mapping,
@@ -121,7 +117,9 @@ async fn a_breakpoint_on_a_c_document_line_stops_inside_the_binary() {
     .await
     .expect("the session starts");
     assert_eq!(statuses.len(), 1);
-    assert_eq!(statuses[0].line, SUBTOTAL_LINE);
+    assert_eq!(statuses[0].line, line);
+    // The parent's breakpoints came back provisional. These are the child's,
+    // which is the whole point: a provisional breakpoint never fires.
     assert_ne!(
         statuses[0].state,
         hick_dap::BindState::Refused,
@@ -139,14 +137,10 @@ async fn a_breakpoint_on_a_c_document_line_stops_inside_the_binary() {
     let frames = session.stack(stopped.thread_id).await.expect("a stack");
     let top = frames.first().expect("a top frame");
     assert!(
-        top.name.contains("line_total"),
+        top.name.contains("lineTotal"),
         "stopped in the wrong frame: {top:?}"
     );
-    assert_eq!(
-        top.line,
-        Some(SUBTOTAL_LINE),
-        "the frame is not on the document line the breakpoint was set on: {top:?}"
-    );
+    assert_eq!(top.line, Some(line), "wrong document line: {top:?}");
 
     let value = session
         .evaluate("quantity", Some(top.id), "watch")
@@ -158,5 +152,5 @@ async fn a_breakpoint_on_a_c_document_line_stops_inside_the_binary() {
     );
 
     session.shutdown().await;
-    eprintln!("OK c: compiled, stopped on the document line, read a value");
+    eprintln!("OK javascript: followed the child session, stopped, read a value");
 }
