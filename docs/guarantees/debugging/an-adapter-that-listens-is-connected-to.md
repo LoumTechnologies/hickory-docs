@@ -79,8 +79,12 @@ Last LLM verification:
   **both** directions, including that JavaScript, TypeScript, the React ids
   and Ruby are NOT advertised while nothing can drive their adapters.
 - Caveat requiring LLM review: the live tests are skipped loudly when a
-  toolchain is missing, so a CI machine without Go or a C compiler proves
-  nothing about those two — the same weakness every live test here has.
+  toolchain is missing. That weakness was not theoretical — CI installed no
+  debug adapter at all, `.hick-cache` is gitignored, and every live debug
+  suite skipped while the job went green. `crates/hick-dap/tests/debug_coverage.rs`
+  now fails when nothing was debuggable, and CI installs the adapters before
+  the tests. C# is still uncovered there, because netcoredbg needs the .NET
+  SDK that the runner deletes for disk space.
   `{port}` is claimed and released before the adapter binds it, which is a
   race no DAP client can close (adapters take a port number, not a listening
   socket) and is named in the code rather than hidden. Only `linux-x86_64`

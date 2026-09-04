@@ -55,6 +55,11 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - run: cargo fmt --all -- --check
       - run: cargo clippy --workspace --all-targets -- -D warnings
+      # The web app's language table is EMITTED from the server's routing
+      # table, and this is what stops the two drifting apart again. It was in
+      # `just ci` and not here, which is precisely the gap
+      # .instructions/pre-commit-ci-parity.md exists to forbid.
+      - run: scripts/check-codegen.sh
       - run: cargo build --workspace
       # The language-server system tests cover whichever languages this
       # machine can serve, and skip the rest LOUDLY. Without this step CI
@@ -85,6 +90,33 @@ jobs:
         run: |
           bwrap --unshare-all --ro-bind / / --tmpfs /tmp --proc /proc --dev /dev \
                 --die-with-parent -- /bin/sh -c 'echo confined'
+      # uv is needed BEFORE the tests, not after: `clap_help_live.rs` and the
+      # `uv` half of `serve_scaffold.rs` read what `uv init --help` actually
+      # prints. Installed below the tests, they skipped every run.
+      - name: Install uv (the pinned Python for the grand tour, and a scaffolder the tests read)
+        run: |
+          curl -LsSf https://astral.sh/uv/install.sh | sh
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+      # The debug adapters, for the same reason as the language servers above
+      # and with a sharper edge. Every `live_session_*.rs` skips loudly when
+      # its adapter is missing, `.hick-cache` is gitignored, and no adapter
+      # was ever installed here — so all eight live debug suites skipped and
+      # this job went green. The product's largest claim was covered by
+      # nothing. `debug_coverage.rs` now fails when that happens, and this is
+      # what keeps it passing honestly.
+      #
+      # C# is deliberately absent: netcoredbg needs the .NET SDK, which the
+      # disk-reclaim step above deletes to make room for this build. That is
+      # a real trade and is written down rather than left as an absence.
+      - name: Install the debug adapters the live suites need
+        run: |
+          go install github.com/go-delve/delve/cmd/dlv@latest
+          cargo run -p hickory-cli --bin hick -- dap install python
+          cargo run -p hickory-cli --bin hick -- dap install rust        # codelldb, which also serves C and C++
+          cargo run -p hickory-cli --bin hick -- dap install typescript  # js-debug, for JavaScript and TypeScript
+          cargo run -p hickory-cli --bin hick -- lsp install java        # the Java debugger runs INSIDE the language server,
+          cargo run -p hickory-cli --bin hick -- dap install java        # so Java needs both halves or neither works
+          df -h / | tail -1
       - run: cargo test --workspace -- --test-threads=1
       - name: Install DuckDB CLI (pinned to the version the examples expect)
         run: |
@@ -92,10 +124,6 @@ jobs:
             https://github.com/duckdb/duckdb/releases/download/v1.5.5/duckdb_cli-linux-amd64.zip
           sudo unzip -o /tmp/duckdb.zip -d /usr/local/bin
           duckdb --version
-      - name: Install uv (provides the pinned Python + Polars for the grand tour)
-        run: |
-          curl -LsSf https://astral.sh/uv/install.sh | sh
-          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
       - name: Install R + ggplot2 (for the grand tour's with-r feature)
         run: |
           sudo apt-get update
@@ -254,6 +282,12 @@ jobs:
       - run: rustup component add rust-analyzer
       - run: cargo clippy --workspace --all-targets -- -D warnings
       - run: cargo build --workspace
+      # One adapter, for the same reason as rust-analyzer above: without it
+      # every live debug suite skips here and `debug_coverage.rs` fails
+      # saying so. codelldb is the cheap one — it bundles its own lldb and
+      # serves Rust, C and C++ — and running it here is the only place this
+      # product's debugger is exercised on macOS at all.
+      - run: cargo run -p hickory-cli --bin hick -- dap install rust
       # Prove confinement works BEFORE testing as though it does — and prove it
       # where it actually broke.
       #

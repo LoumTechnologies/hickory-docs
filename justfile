@@ -23,22 +23,12 @@ test:
 # extensions' worth — which is the same class of bug that has made a language
 # server unreachable here twice before.
 codegen:
-    cargo run -q -p hick-lsp --bin emit-languages > apps/web/src/editor/generated/languages.ts
+    scripts/check-codegen.sh --write
 
 # Fail if anything generated is out of date with its source. Runs in CI and in
 # the pre-commit hook, so drift cannot reach master.
 check-codegen:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    out=apps/web/src/editor/generated/languages.ts
-    cargo run -q -p hick-lsp --bin emit-languages > "$out.check"
-    if ! diff -u "$out" "$out.check"; then
-      rm -f "$out.check"
-      echo >&2
-      echo "$out is stale. Run \`just codegen\` and commit the result." >&2
-      exit 1
-    fi
-    rm -f "$out.check"
+    scripts/check-codegen.sh
 
 # Lint (warnings are errors, matching CI).
 clippy:

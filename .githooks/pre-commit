@@ -22,6 +22,9 @@ for check in "${checks[@]}"; do
     rust)
       cargo fmt --all -- --check || status=1
       cargo clippy --workspace --all-targets -- -D warnings || status=1
+      # The same script CI runs. A generated file that drifts from its source
+      # is the bug class this repository has shipped most often.
+      scripts/check-codegen.sh || status=1
       ;;
     web)
       (cd apps/web && npm test && npm run build) || status=1
