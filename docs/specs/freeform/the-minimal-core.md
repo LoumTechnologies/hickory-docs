@@ -82,9 +82,13 @@ What that cost, measured rather than assumed:
    two-caller crates, until an element needs them — parked, not deleted,
    until told otherwise.
 
-Alongside: a file-length lint, the licence contradiction resolved, and
-`AGENTS.md` rewritten to describe the core and point at the changelog it
-currently is.
+Alongside: a file-length lint (*built* as a ratchet,
+`scripts/check-file-length.sh`: no source file passes a thousand lines and
+the twenty-five already past it may only shrink), the licence
+contradiction resolved (*not done* — the product's licence is the owner's
+decision, and it is flagged rather than changed), and `AGENTS.md` given a
+one-screen entry point that describes the core and points here (*done*;
+the record beneath it is kept, because each paragraph is a decision).
 
 ## What changes for a person, and what does not
 

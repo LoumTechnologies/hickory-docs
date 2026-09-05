@@ -6,6 +6,22 @@ transcripts and their AI summaries ingested as ordinary notes, and an AI agent
 whose output is literate-programming files in git. Notes can run, and an AI
 summary in one can be proven to still describe what it summarized.
 
+**Start here (2026-09-05).** The core is small and is meant to stay so:
+`hick-lang` parses text plus namespaced tags (and runs in the editor as
+WebAssembly, so there is one parser); `hick-blocks` is the element
+registry, where a tag is declared once — name, attributes, how it renders
+to `{kind, span, …props}`, which children the walk visits, which actions
+it answers; `hick-literate` registers the elements over a run's facts; the
+server has one route for every element's actions and one that lists the
+vocabulary; and `apps/web/src/elements` is the mirror, one folder per
+kind. Everything else is an extension over that seam or is parked. The
+plan, what is built and what is not, and the bins every crate falls into
+are `docs/specs/freeform/the-minimal-core.md`; the rest of this file is
+the record of how the product got here, kept because each paragraph is a
+decision, and it is long because there were many. A file-length ratchet
+(`scripts/check-file-length.sh`) now stops any source file passing a
+thousand lines, and the ones already past it may only shrink.
+
 Read three documents before changing anything:
 `docs/specs/freeform/notes-ide.md` for what the product is **for** (notes are
 documents; meetings are inputs; the phone reads and captures but never

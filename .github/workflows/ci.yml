@@ -66,6 +66,10 @@ jobs:
       # `just ci` and not here, which is precisely the gap
       # .instructions/pre-commit-ci-parity.md exists to forbid.
       - run: scripts/check-codegen.sh
+      # No source file over a thousand lines; the ones already over only
+      # shrink (scripts/check-file-length.sh). Also in the web job, so a
+      # web-only PR is held to it too.
+      - run: scripts/check-file-length.sh
       - run: cargo build --workspace
       # The language-server system tests cover whichever languages this
       # machine can serve, and skip the rest LOUDLY. Without this step CI
@@ -478,6 +482,10 @@ jobs:
           cache-dependency-path: apps/web/package-lock.json
       - run: npm ci
       - run: npm test
+      # The file-length ratchet, from the repository root (this job's
+      # working directory is the web package).
+      - run: scripts/check-file-length.sh
+        working-directory: .
       - run: npm run build
 
   # `just dev` is what every developer here sees the product through, and its

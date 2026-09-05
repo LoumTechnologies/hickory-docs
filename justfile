@@ -30,6 +30,12 @@ codegen:
 check-codegen:
     scripts/check-codegen.sh
 
+# No source file over a thousand lines, and the ones already over only
+# shrink — see scripts/check-file-length.sh. `--write` lowers a baseline
+# after a split.
+check-file-length *ARGS:
+    scripts/check-file-length.sh {{ARGS}}
+
 # Lint (warnings are errors, matching CI).
 clippy:
     cargo clippy --workspace -- -D warnings
@@ -50,6 +56,7 @@ fmt:
 # produce, and without it they fail claiming no language server is installed.
 ci:
     just check-codegen
+    just check-file-length
     cargo fmt --all -- --check
     cargo clippy --workspace --all-targets -- -D warnings
     cargo build --workspace

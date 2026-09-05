@@ -25,9 +25,11 @@ for check in "${checks[@]}"; do
       # The same script CI runs. A generated file that drifts from its source
       # is the bug class this repository has shipped most often.
       scripts/check-codegen.sh || status=1
+      scripts/check-file-length.sh || status=1
       ;;
     web)
       (cd apps/web && npm test && npm run build) || status=1
+      scripts/check-file-length.sh || status=1
       ;;
     desktop)
       # The desktop crate lives outside the workspace, so it gets its own
