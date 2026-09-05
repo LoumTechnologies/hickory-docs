@@ -14,6 +14,8 @@ import { useCallback, useEffect, useMemo, useState, type MouseEvent } from "reac
 import { api } from "../api/client";
 import type { FileNode, FilesResponse } from "../api/types";
 import { TreeContextMenu } from "./TreeContextMenu";
+import { TreePrompt } from "./TreePrompt";
+import { useDired } from "./useDired";
 import { TreeFindReplace } from "./TreeFindReplace";
 import {
   copyText,
@@ -79,6 +81,16 @@ export function fileAction(node: FileNode, openable: ReadonlySet<string>): FileA
   if (openable.has(node.path)) return { kind: "generated", path: node.path };
   if (isLikelyBinaryPath(node.path)) return { kind: "inert" };
   return { kind: "file", path: node.path };
+}
+
+/** The path of the document with this id, anywhere in the tree. */
+export function docPathOf(nodes: readonly FileNode[], docId: string): string | null {
+  for (const node of nodes) {
+    if (node.doc_id === docId) return node.path;
+    const inner = node.children ? docPathOf(node.children, docId) : null;
+    if (inner) return inner;
+  }
+  return null;
 }
 
 // ---------------------------------------------------------------------------
@@ -272,7 +284,7 @@ export function directoryPaths(nodes: readonly FileNode[]): Set<string> {
  * root-relative path the row names, and whether it is a directory — so the
  * menu is built in one place from one shape rather than per row type.
  */
-export type OnRowMenu = (event: MouseEvent, path: string, dir: boolean) => void;
+export type OnRowMenu = (event: MouseEvent, path: string, dir: boolean, plainText?: boolean) => void;
 
 export interface FolderTreePaneProps {
   roots: readonly FolderTree[];
@@ -470,18 +482,28 @@ function FolderRoot({
     y: number;
     path: string;
     dir: boolean;
+    plainText: boolean;
   } | null>(null);
   // A failed reveal (no file manager on a headless Linux box, a file deleted
   // between the listing and the click) says so in the pane. The alternative is
   // a menu item that appears to do nothing at all.
   const [notice, setNotice] = useState<string | null>(null);
 
-  const openMenu = useCallback<OnRowMenu>((event, path, dir) => {
+  const openMenu = useCallback<OnRowMenu>((event, path, dir, plainText = false) => {
     event.preventDefault();
     event.stopPropagation();
     setNotice(null);
-    setMenu({ x: event.clientX, y: event.clientY, path, dir });
+    setMenu({ x: event.clientX, y: event.clientY, path, dir, plainText });
   }, []);
+
+  // Dired: the marks, the prompt a verb asks through, and the verbs.
+  const dired = useDired(setNotice);
+  // The focused document, for "Ingest into …": found in this tree by id
+  // rather than passed in, because the tree already knows every document.
+  const activeDoc = useMemo(() => {
+    const path = activeDocId ? docPathOf(folder.tree, activeDocId) : null;
+    return path ? { path, name: path.split("/").pop() ?? path } : undefined;
+  }, [folder.tree, activeDocId]);
 
   /** A right-click on a terminal icon: its own short menu, not the row's. */
   const [termMenu, setTermMenu] = useState<{
@@ -518,11 +540,40 @@ function FolderRoot({
       onCloseTerminal?.(action.id);
       return;
     }
+    if (action.kind === "literate" || action.kind === "ingest") {
+      // Byte-exact adoption, then the document it landed in opens: the
+      // person asked for a document, not a file that changed under them.
+      const into = action.kind === "ingest" ? action.into : undefined;
+      void api.adopt(action.path, into).then(
+        (outcome) => {
+          window.dispatchEvent(new Event(FILES_CHANGED_EVENT));
+          onOpen({ kind: "doc", id: outcome.doc_id });
+        },
+        (e: unknown) => setNotice(e instanceof Error ? e.message : String(e)),
+      );
+      return;
+    }
+    if (action.kind === "rename") {
+      dired.run({ kind: "rename", path: action.path });
+      return;
+    }
+    if (action.kind === "move" || action.kind === "delete") {
+      dired.run({ kind: action.kind, paths: action.paths });
+      return;
+    }
+    if (action.kind === "copy-to") {
+      dired.run({ kind: "copy", paths: action.paths });
+      return;
+    }
+    if (action.kind === "create" || action.kind === "mkdir") {
+      dired.run({ kind: action.kind, dir: action.dir });
+      return;
+    }
     const call = action.kind === "reveal" ? api.reveal(action.path) : api.openExternal(action.path);
     void call.catch((e: unknown) =>
       setNotice(e instanceof Error ? e.message : String(e)),
     );
-  }, [onNewTerminal, onNewWorktree, onCloseTerminal]);
+  }, [onNewTerminal, onNewWorktree, onCloseTerminal, onOpen, dired]);
 
   const name = folder.root.replace(/\/+$/, "").split("/").pop() || folder.root;
   return (
@@ -552,7 +603,29 @@ function FolderRoot({
         <p className="muted folder-tree__truncated">Large folder — not everything is listed.</p>
       )}
       {notice && <p className="error folder-tree__notice">{notice}</p>}
-      <ul className="folder-tree__list" role="tree">
+      {dired.prompt && (
+        <TreePrompt
+          label={dired.prompt.label}
+          verb={dired.prompt.verb}
+          initial={dired.prompt.initial}
+          onSubmit={dired.answer}
+          onCancel={dired.cancel}
+          error={dired.promptError}
+          busy={dired.busy}
+        />
+      )}
+      <ul
+        className="folder-tree__list"
+        role="tree"
+        // The dired keys — m, u, U, D, R, C, M, +, n — act on the focused
+        // row. Read off the row's own attributes so the tree, not each row,
+        // owns the one handler.
+        onKeyDown={(event) => {
+          const row = (event.target as HTMLElement).closest<HTMLElement>("[data-tree-path]");
+          if (!row) return;
+          dired.onKey(event, row.dataset.treePath ?? "", row.dataset.treeDir === "true");
+        }}
+      >
         {folder.tree.map((node) => (
           <TreeRow
             key={node.path}
@@ -569,6 +642,8 @@ function FolderRoot({
             root={folder.root}
             onRowMenu={openMenu}
             onTermMenu={openTermMenu}
+            marked={dired.marked}
+            onMark={dired.toggle}
           />
         ))}
       </ul>
@@ -577,7 +652,11 @@ function FolderRoot({
           x={menu.x}
           y={menu.y}
           subject={menu.path === "" ? name : menu.path}
-          items={treeMenuItems(info, menu.path, menu.dir)}
+          items={treeMenuItems(info, menu.path, menu.dir, {
+            marked: dired.marked,
+            activeDoc,
+            plainText: menu.plainText,
+          })}
           onPick={runItem}
           onClose={() => setMenu(null)}
         />
@@ -613,6 +692,8 @@ function TreeRow({
   root,
   onRowMenu,
   onTermMenu,
+  marked,
+  onMark,
 }: {
   node: FileNode;
   depth: number;
@@ -629,8 +710,14 @@ function TreeRow({
   onRowMenu: OnRowMenu;
   /** A right-click on one of this row's terminal icons. */
   onTermMenu?: (event: MouseEvent, session: TreeSession) => void;
+  /** The dired marks, and the Ctrl+click that toggles one. */
+  marked: ReadonlySet<string>;
+  onMark: (path: string) => void;
 }) {
   const indent = { paddingLeft: `${depth * 0.85 + 0.4}rem` };
+  const isMarked = marked.has(node.path);
+  const mark = <span className="folder-tree__mark" aria-hidden>{isMarked ? "*" : ""}</span>;
+  const withMark = (className: string) => (isMarked ? `${className} marked` : className);
   if (node.dir) {
     const open = expanded.has(node.path);
     const here = placement.get(node.path.replace(/\/+$/, "")) ?? [];
@@ -652,15 +739,19 @@ function TreeRow({
       <li role="treeitem" aria-expanded={open}>
         <button
           type="button"
-          className="folder-tree__dir mono"
+          className={withMark("folder-tree__dir mono")}
           style={indent}
-          onClick={() => onToggle(node.path)}
+          onClick={(event) => (event.ctrlKey || event.metaKey ? onMark(node.path) : onToggle(node.path))}
           onContextMenu={(event) => onRowMenu(event, node.path, true)}
           data-tip={node.path}
+          data-tree-path={node.path}
+          data-tree-dir="true"
+          aria-selected={isMarked || undefined}
         >
           <span className="folder-tree__disclosure" aria-hidden>
             {open ? "▾" : "▸"}
           </span>
+          {mark}
           {node.name}
           {/* Open: the terminals working in THIS directory, as icons.
               Collapsed: a count, because a folded directory would otherwise
@@ -699,6 +790,8 @@ function TreeRow({
                 root={root}
                 onRowMenu={onRowMenu}
                 onTermMenu={onTermMenu}
+                marked={marked}
+                onMark={onMark}
               />
             ))}
           </ul>
@@ -717,13 +810,16 @@ function TreeRow({
     return (
       <li role="treeitem">
         <span
-          className="folder-tree__file folder-tree__file--inert mono"
+          className={withMark("folder-tree__file folder-tree__file--inert mono")}
           style={indent}
           data-tip={node.path}
           data-tree-path={node.path}
           data-tree-kind="inert"
+          tabIndex={0}
+          onClick={(event) => (event.ctrlKey || event.metaKey) && onMark(node.path)}
           onContextMenu={(event) => onRowMenu(event, node.path, false)}
         >
+          {mark}
           {node.name}
         </span>
       </li>
@@ -734,19 +830,21 @@ function TreeRow({
     <li role="treeitem">
       <button
         type="button"
-        className={`folder-tree__file mono${active ? " on" : ""}`}
+        className={withMark(`folder-tree__file mono${active ? " on" : ""}`)}
         style={indent}
         data-tip={node.path}
         // The ribbon overlay finds this row by path: a connection to a file
         // that is not open but IS visible here lands on this row's edge.
         data-tree-path={node.path}
         data-tree-kind={action.kind}
-        onClick={() => onOpen(action)}
+        aria-selected={isMarked || undefined}
+        onClick={(event) => (event.ctrlKey || event.metaKey ? onMark(node.path) : onOpen(action))}
         // A file this app cannot or will not open in a pane still has a
         // machine that can: the same menu is on every row, inert ones
         // included.
-        onContextMenu={(event) => onRowMenu(event, node.path, false)}
+        onContextMenu={(event) => onRowMenu(event, node.path, false, action.kind === "file")}
       >
+        {mark}
         {node.name}
         {node.diverged && (
           // The disk does not hold what the document produces, and the loop

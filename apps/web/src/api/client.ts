@@ -11,6 +11,7 @@ import type {
   DocSummary,
   ElementDescription,
   ExecutorInfo,
+  FileOpRequest,
   FilesResponse,
   FindOptions,
   FindResponse,
@@ -215,6 +216,13 @@ export const api = {
    * verifies the new document weaves the file's exact bytes before writing
    * anything. `into` appends to an existing document instead of creating
    * `<stem>.hick` beside the file. */
+  /** One dired verb: rename, move, copy, delete, a new file or folder. */
+  fileOp: (op: FileOpRequest) =>
+    request<{ op: string; from?: string; to?: string; path?: string }>(
+      "POST",
+      "/api/files/op",
+      op,
+    ),
   adopt: (path: string, into?: string) =>
     request<AdoptResponse>("POST", "/api/adopt", {
       path,

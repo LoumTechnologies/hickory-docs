@@ -777,6 +777,14 @@ The two registries are not yet one list (`math`/`table` are editor-only),
 and the Insert menu is still hand-written. The plan is
 `docs/specs/freeform/the-minimal-core.md`.
 
+**The tree is a dired, and ingest is a verb of the tree (2026-09-05,
+`the-tree-is-a-dired.md`, `a-file-is-ingested-from-the-tree.md`).** Marks
+by Ctrl+click or `m`/`u`/`U`; `D`, `R`, `C`, `M`, `+`, `n` and the same
+verbs on the row's menu, each one filesystem call on `POST /api/files/op`
+with the refusals said plainly and no trash, so a delete asks once. A plain
+text file's menu offers *Make literate* and *Ingest into <focused
+document>*, both the adoption `hick ingest --from file` performs.
+
 ## Stack (settled — do not relitigate)
 
 - CLI + language + local server: Rust (edition 2024), axum, tokio. No database.

@@ -32,6 +32,7 @@ pub mod anchored;
 pub mod api;
 pub mod asset;
 pub mod debug_bridge;
+pub mod files_ops;
 pub mod find;
 pub mod formula;
 pub mod git;
@@ -523,6 +524,7 @@ fn router(state: LocalState) -> Router {
             get(history::get_continuity).put(history::put_continuity),
         )
         .route("/files", get(api::files))
+        .route("/files/op", post(files_ops::file_op))
         .route("/pick-folder", post(shell::pick_folder))
         .route("/reveal", post(reveal::reveal))
         .route("/open-external", post(reveal::open_external))

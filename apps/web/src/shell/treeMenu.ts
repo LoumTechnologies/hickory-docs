@@ -37,7 +37,22 @@ export type TreeMenuAction =
   | { kind: "worktree"; path: string }
   /** Stop this session. The only place a terminal can be closed now that
    * they have no list of their own. */
-  | { kind: "close-terminal"; id: string; title: string };
+  | { kind: "close-terminal"; id: string; title: string }
+  // The dired verbs (docs/guarantees/authoring/the-tree-is-a-dired.md).
+  // Each acts on `paths`: the marked rows when the row is marked, else the
+  // row alone — the way `D` in dired acts on the marks if there are any.
+  | { kind: "rename"; path: string }
+  | { kind: "move"; paths: string[] }
+  | { kind: "copy-to"; paths: string[] }
+  | { kind: "delete"; paths: string[] }
+  /** New file / new folder inside this directory (`""` for the root). */
+  | { kind: "create"; dir: string }
+  | { kind: "mkdir"; dir: string }
+  // Ingest (docs/guarantees/authoring/a-file-is-ingested-from-the-tree.md).
+  /** A new document beside the file, owning its bytes — "Make literate". */
+  | { kind: "literate"; path: string }
+  /** The file's bytes appended to an existing document as a block. */
+  | { kind: "ingest"; path: string; into: string };
 
 export interface TreeMenuItem {
   /** Stable across renders and platforms; what a test clicks by. */
@@ -87,15 +102,65 @@ export function baseName(path: string): string {
  * "Copy absolute path" is left out entirely when the server did not say where
  * the folder is, rather than offered and then quietly copying a relative path.
  */
+/** What else the menu knows about the row: the marks, and the document a
+ * file could be ingested into. */
+export interface TreeMenuContext {
+  /** Every marked row, root-relative. */
+  marked?: ReadonlySet<string>;
+  /** The focused document, if there is one, for "Ingest into …". */
+  activeDoc?: { path: string; name: string };
+  /** Whether this row is a plain text file some document does not already
+   * write — the only kind that can be made literate or ingested. */
+  plainText?: boolean;
+}
+
+/** The rows a verb acts on: the marks when this row is one of them, else
+ * the row alone. */
+export function subjects(path: string, marked?: ReadonlySet<string>): string[] {
+  return marked && marked.has(path) ? [...marked] : [path];
+}
+
 export function treeMenuItems(
   folder: TreeFolder,
   path: string,
   dir: boolean,
+  context: TreeMenuContext = {},
 ): TreeMenuItem[] {
   const items: TreeMenuItem[] = [];
+  const many = subjects(path, context.marked);
+  const count = many.length > 1 ? ` (${many.length} marked)` : "";
+  if (path !== "" && !dir && context.plainText) {
+    items.push({
+      id: "literate",
+      label: "Make literate — a new document owning this file",
+      action: { kind: "literate", path },
+    });
+    if (context.activeDoc && context.activeDoc.path !== path) {
+      items.push({
+        id: "ingest",
+        label: `Ingest into ${context.activeDoc.name}`,
+        action: { kind: "ingest", path, into: context.activeDoc.path },
+      });
+    }
+  }
+  if (dir) {
+    items.push({ id: "new-file", label: "New file…", action: { kind: "create", dir: path }, group: items.length > 0 });
+    items.push({ id: "new-folder", label: "New folder…", action: { kind: "mkdir", dir: path } });
+  }
+  if (path !== "") {
+    items.push({ id: "rename", label: "Rename…", action: { kind: "rename", path }, group: true });
+    items.push({ id: "move", label: `Move to…${count}`, action: { kind: "move", paths: many } });
+    items.push({ id: "copy-to", label: `Copy to…${count}`, action: { kind: "copy-to", paths: many } });
+    items.push({ id: "delete", label: `Delete${count}`, action: { kind: "delete", paths: many } });
+  }
   const absolute = absolutePath(folder, path);
   if (absolute) {
-    items.push({ id: "copy-absolute", label: "Copy absolute path", action: { kind: "copy", text: absolute } });
+    items.push({
+      id: "copy-absolute",
+      label: "Copy absolute path",
+      action: { kind: "copy", text: absolute },
+      group: items.length > 0,
+    });
   }
   if (path !== "") {
     items.push({

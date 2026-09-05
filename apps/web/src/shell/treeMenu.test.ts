@@ -54,6 +54,11 @@ describe("treeMenuItems", () => {
   it("offers the three copies, the file manager, and the default program for a file", () => {
     const items = treeMenuItems(POSIX, "src/main.rs", false);
     expect(items.map((i) => i.id)).toEqual([
+      // The dired verbs first: they are what a right-click on a row is for.
+      "rename",
+      "move",
+      "copy-to",
+      "delete",
       "copy-absolute",
       "copy-relative",
       "copy-name",
@@ -84,6 +89,12 @@ describe("treeMenuItems", () => {
   it("gives a directory no default-program item, and calls the name a folder", () => {
     const items = treeMenuItems(POSIX, "src", true);
     expect(items.map((i) => i.id)).toEqual([
+      "new-file",
+      "new-folder",
+      "rename",
+      "move",
+      "copy-to",
+      "delete",
       "copy-absolute",
       "copy-relative",
       "copy-name",
@@ -100,6 +111,10 @@ describe("treeMenuItems", () => {
     // something anyone wants on their clipboard.
     const items = treeMenuItems(POSIX, "", true);
     expect(items.map((i) => i.id)).toEqual([
+      // A new entry can go in the root; the root itself cannot be renamed,
+      // moved or deleted from inside the app that is open on it.
+      "new-file",
+      "new-folder",
       "copy-absolute",
       "reveal",
       "new-terminal",
@@ -111,10 +126,45 @@ describe("treeMenuItems", () => {
     // An older server, or the mock: offering "Copy absolute path" and then
     // quietly copying `src/main.rs` is the failure worth avoiding.
     expect(treeMenuItems({}, "src/main.rs", false).map((i) => i.id)).toEqual([
+      "rename",
+      "move",
+      "copy-to",
+      "delete",
       "copy-relative",
       "copy-name",
       "reveal",
       "open-external",
     ]);
+  });
+});
+
+// docs/guarantees/authoring/the-tree-is-a-dired.md and
+// docs/guarantees/authoring/a-file-is-ingested-from-the-tree.md
+describe("the dired and ingest verbs", () => {
+  it("offers Make literate and Ingest into the focused document for a plain text file only", () => {
+    const active = { path: "notes/today.hick", name: "today.hick" };
+    const plain = treeMenuItems(POSIX, "src/main.rs", false, { plainText: true, activeDoc: active });
+    expect(plain.slice(0, 2).map((i) => i.id)).toEqual(["literate", "ingest"]);
+    expect(plain[1].label).toBe("Ingest into today.hick");
+    expect(plain[1].action).toEqual({ kind: "ingest", path: "src/main.rs", into: "notes/today.hick" });
+    // No focused document: nothing to ingest into, but a new document is
+    // always possible.
+    expect(treeMenuItems(POSIX, "src/main.rs", false, { plainText: true }).map((i) => i.id)[0]).toBe("literate");
+    // A generated file, a binary, a document: neither verb.
+    expect(treeMenuItems(POSIX, "a.png", false, { activeDoc: active }).map((i) => i.id)).not.toContain("ingest");
+    // A directory: neither.
+    expect(treeMenuItems(POSIX, "src", true, { plainText: true, activeDoc: active }).map((i) => i.id)).not.toContain("literate");
+  });
+
+  it("acts on the marks when the row is marked, and says how many", () => {
+    const marked = new Set(["a.md", "b.md", "c.md"]);
+    const onMarked = treeMenuItems(POSIX, "a.md", false, { marked });
+    expect(onMarked.find((i) => i.id === "delete")?.label).toBe("Delete (3 marked)");
+    expect(onMarked.find((i) => i.id === "move")?.action).toEqual({ kind: "move", paths: ["a.md", "b.md", "c.md"] });
+    // A rename is one name, whatever is marked.
+    expect(onMarked.find((i) => i.id === "rename")?.action).toEqual({ kind: "rename", path: "a.md" });
+    const offMarks = treeMenuItems(POSIX, "z.md", false, { marked });
+    expect(offMarks.find((i) => i.id === "delete")?.label).toBe("Delete");
+    expect(offMarks.find((i) => i.id === "delete")?.action).toEqual({ kind: "delete", paths: ["z.md"] });
   });
 });

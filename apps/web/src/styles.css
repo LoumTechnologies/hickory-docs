@@ -6078,6 +6078,54 @@ button.fleet-grant {
 /* A file the app has no way to open: named, present, not pretending to be a
    link. */
 .folder-tree__file--inert { color: var(--fg-muted); cursor: default; }
+/* A dired mark: the row is one of the set the next verb acts on. */
+.folder-tree__dir.marked,
+.folder-tree__file.marked {
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+}
+.folder-tree__mark {
+  display: inline-block;
+  width: 0.9em;
+  color: var(--accent);
+  font-weight: 600;
+}
+/* The one question a verb asks, drawn in the pane under the header. */
+.tree-prompt {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem;
+  margin: 0.25rem 0.5rem;
+  padding: 0.35rem 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg-sunken);
+  font-size: 0.85rem;
+}
+.tree-prompt__label { flex: 1 1 100%; color: var(--fg-muted); }
+.tree-prompt__input {
+  flex: 1 1 10rem;
+  min-width: 0;
+  font: inherit;
+  padding: 0.15rem 0.35rem;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  background: var(--bg);
+  color: var(--fg);
+}
+.tree-prompt__error { flex: 1 1 100%; color: var(--danger); }
+.tree-prompt__buttons { display: flex; gap: 0.35rem; }
+.tree-prompt__buttons button {
+  font: inherit;
+  font-size: 0.8rem;
+  padding: 0.1rem 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  background: none;
+  color: var(--fg);
+  cursor: pointer;
+}
+.tree-prompt__verb { border-color: var(--accent) !important; color: var(--accent) !important; }
 .folder-tree__file--inert:hover { background: none; }
 
 /* The untitled buffer keeps the folder in view: an aside beside the editor,

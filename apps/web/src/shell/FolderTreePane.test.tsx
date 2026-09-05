@@ -427,3 +427,86 @@ describe("showing a terminal from the tree", () => {
     expect(screen.queryByRole("button", { name: /elsewhere/ })).toBeNull();
   });
 });
+
+// docs/guarantees/authoring/the-tree-is-a-dired.md
+describe("the tree as dired", () => {
+  it("marks rows with Ctrl+click, deletes the marks through one prompt, and refetches", async () => {
+    const ops: unknown[] = [];
+    installMockHandler(async (method, path, body) => {
+      if (method === "GET" && path === "/api/files") return RESPONSE;
+      if (method === "POST" && path === "/api/files/op") {
+        ops.push(body);
+        return { op: "delete" };
+      }
+      throw new Error(`unexpected ${method} ${path}`);
+    });
+    render(<Harness />);
+    const readme = await screen.findByText("readme.txt");
+    fireEvent.click(readme, { ctrlKey: true });
+    fireEvent.click(screen.getByText("src"));
+    fireEvent.click(await screen.findByText("main.rs"), { ctrlKey: true });
+    expect(readme.closest("button")?.className).toContain("marked");
+
+    fireEvent.contextMenu(readme);
+    fireEvent.click(await screen.findByText("Delete (2 marked)"));
+    const prompt = await screen.findByRole("dialog");
+    expect(prompt.textContent).toContain("Delete 2 items?");
+    fireEvent.click(screen.getByRole("button", { name: "Delete" }));
+    await vi.waitFor(() => expect(ops).toHaveLength(2));
+    expect(ops).toEqual([
+      { op: "delete", path: "readme.txt" },
+      { op: "delete", path: "src/main.rs" },
+    ]);
+    // The prompt is gone and the marks are cleared.
+    await vi.waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(readme.closest("button")?.className).not.toContain("marked");
+  });
+
+  it("renames through the prompt with the new name, and says why when refused", async () => {
+    const ops: unknown[] = [];
+    installMockHandler(async (method, path, body) => {
+      if (method === "GET" && path === "/api/files") return RESPONSE;
+      if (method === "POST" && path === "/api/files/op") {
+        ops.push(body);
+        if ((body as { to: string }).to === "taken.txt") throw new Error("taken.txt already exists");
+        return { op: "rename" };
+      }
+      throw new Error(`unexpected ${method} ${path}`);
+    });
+    render(<Harness />);
+    const readme = await screen.findByText("readme.txt");
+    fireEvent.keyDown(readme, { key: "R" });
+    const input = await screen.findByRole("textbox", { name: "Rename readme.txt" });
+    fireEvent.change(input, { target: { value: "taken.txt" } });
+    fireEvent.click(screen.getByRole("button", { name: "Rename" }));
+    await screen.findByText("taken.txt already exists");
+    fireEvent.change(input, { target: { value: "notes.txt" } });
+    fireEvent.click(screen.getByRole("button", { name: "Rename" }));
+    await vi.waitFor(() => expect(ops).toHaveLength(2));
+    expect(ops[1]).toEqual({ op: "rename", path: "readme.txt", to: "notes.txt" });
+  });
+});
+
+// docs/guarantees/authoring/a-file-is-ingested-from-the-tree.md
+describe("ingest from the tree", () => {
+  it("makes a plain file literate and opens the document it became", async () => {
+    const adopted: unknown[] = [];
+    installMockHandler(async (method, path, body) => {
+      if (method === "GET" && path === "/api/files") return RESPONSE;
+      if (method === "POST" && path === "/api/adopt") {
+        adopted.push(body);
+        return { doc_id: "d9", doc_path: "readme.hick", file_path: "readme.txt" };
+      }
+      throw new Error(`unexpected ${method} ${path}`);
+    });
+    const onOpen = vi.fn();
+    render(<Harness onOpen={onOpen} />);
+    fireEvent.contextMenu(await screen.findByText("readme.txt"));
+    fireEvent.click(await screen.findByText(/Make literate/));
+    await vi.waitFor(() => expect(onOpen).toHaveBeenCalledWith({ kind: "doc", id: "d9" }));
+    expect(adopted).toEqual([{ path: "readme.txt" }]);
+    // A binary and a document get no such verb.
+    fireEvent.contextMenu(screen.getByText("logo.png"));
+    expect(screen.queryByText(/Make literate/)).toBeNull();
+  });
+});

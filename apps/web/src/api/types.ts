@@ -84,20 +84,9 @@ export interface RenderResponse {
   blocks: Block[];
 }
 
-/** One element as the server declares it (`GET /api/elements`). */
-export interface ElementDescription {
-  name: string;
-  /** The block kind its view draws. */
-  kind: string;
-  attributes: { name: string; required: boolean; doc: string }[];
-  actions: string[];
-}
+export type { FileOpRequest } from "./files";
 
-/** What an element's action came to (`POST /api/docs/:id/blocks/:at/:action`). */
-export type BlockActionOutcome =
-  | { outcome: "answer"; value: unknown }
-  | { outcome: "run"; run_id: string; cells: string[] }
-  | { outcome: "edit"; span: [number, number]; doc: Doc };
+export type { BlockActionOutcome, ElementDescription } from "./elements";
 
 export type RunStatus = "queued" | "running" | "ok" | "failed" | "stopped";
 
