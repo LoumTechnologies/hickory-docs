@@ -1,4 +1,4 @@
-import { Suspense, lazy, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { EditorState, Transaction } from "@codemirror/state";
 import { EditorView, keymap, placeholder } from "@codemirror/view";
@@ -46,11 +46,10 @@ import {
   expectRangeOf,
   proseFences,
   verbatimRanges,
-  type HickDocStructure,
 } from "./hickDoc";
 import { lineHighlightField } from "./lineHighlight";
-import { assetUrl, mdLinks } from "./mdLinks";
-import { resolveTarget } from "../lib/mdLinks";
+import { mdLinks } from "./mdLinks";
+import { matchExecBlock } from "../lib/blockMatch";
 import { base64Of, mdPaste } from "./mdPaste";
 import { RightRail } from "./RightRail";
 import { CardRail, type CardState } from "./CardRail";
@@ -68,18 +67,10 @@ import {
 import { popoverTop } from "../lib/cardRail";
 import { actionsFor, hasReplay } from "../lib/railActions";
 import type { RailAction } from "../lib/railActions";
-import { DiagramPanel } from "../components/DiagramPanel";
-// Lazy for the same reason mermaid is: the canvas library must never reach
-// the marketing site's bundle, which builds from this tree.
-const GraphEditorPanel = lazy(() => import("../components/graph/GraphEditorPanel"));
-import { MathPanel } from "../components/MathPanel";
-import { PicturePanel } from "../components/PicturePanel";
-import { TablePanel, type TableLayout } from "../components/TablePanel";
-import { tableKey } from "../lib/uiState";
+import type { TableLayout } from "../components/TablePanel";
+import { elementViews, type SlotContext } from "../elements";
 import { FenceTable, tableElementFor } from "../components/FenceTable";
 import { isTabularFence } from "../lib/csv";
-import { CellPanel } from "../components/CellPanel";
-import { Engaged } from "../components/Engaged";
 import { FenceConvert } from "../components/FenceConvert";
 import { EnvCard } from "../components/EnvCard";
 import { api } from "../api/client";
@@ -149,71 +140,9 @@ export function sameCards(a: readonly DocCard[], b: readonly DocCard[]): boolean
 }
 
 /** Overlap length of two [from, to) spans. */
-function overlap(a: [number, number], b: [number, number]): number {
-  return Math.max(0, Math.min(a[1], b[1]) - Math.max(a[0], b[0]));
-}
-
-/**
- * Match a widget slot (source span of the exec block as currently typed) to
- * the server-rendered exec block: best span overlap first, ordinal fallback
- * (spans drift while the user edits above a cell).
- */
-export function matchExecBlock(
-  slot: { span: [number, number]; index: number },
-  blocks: ExecBlock[],
-): ExecBlock | undefined {
-  return matchBlock(slot, blocks);
-}
-
-/** The span-overlap-else-ordinal match, for any server block list. */
-function matchBlock<T extends { span: [number, number] }>(
-  slot: { span: [number, number]; index: number },
-  blocks: readonly T[],
-): T | undefined {
-  let best: T | undefined;
-  let bestOverlap = 0;
-  for (const b of blocks) {
-    const o = overlap(slot.span, b.span);
-    if (o > bestOverlap) {
-      bestOverlap = o;
-      best = b;
-    }
-  }
-  return best ?? blocks[slot.index];
-}
-
-/**
- * Live state of a diagram's assertions: each `asserts` id resolved to the
- * exec cell carrying that id in the SOURCE (the server's exec ids are
- * `container:line`, not the tag's own id), then that cell's last run status.
- * Unknown when the id names no cell, the cell has never run or is running,
- * or its result is stale — the panel says "checked by", never "passing",
- * about anything it does not know.
- */
-export function assertionStates(
-  structure: HickDocStructure,
-  execBlocks: ExecBlock[],
-  asserts: readonly string[],
-  runningCells: Set<string>,
-): { id: string; state: "passing" | "failing" | "unknown" }[] {
-  const execs = execBlocksOf(structure);
-  return asserts.map((id) => {
-    const index = execs.findIndex((exec) => exec.attrs.id === id);
-    const source = index >= 0 ? execs[index] : undefined;
-    const block = source
-      ? matchExecBlock({ span: [source.from, source.to], index }, execBlocks)
-      : undefined;
-    const state =
-      !block || runningCells.has(block.id)
-        ? ("unknown" as const)
-        : block.status === "ok"
-          ? ("passing" as const)
-          : block.status === "failed"
-            ? ("failing" as const)
-            : ("unknown" as const);
-    return { id, state };
-  });
-}
+// Kept as exports here for the callers that always found them here; the
+// code lives beside the other block matching in lib/blockMatch.ts.
+export { assertionStates, matchExecBlock } from "../lib/blockMatch";
 
 /**
  * The Document view: ONE CodeMirror instance over the raw .hick source with
@@ -906,6 +835,21 @@ export function DocumentEditor({
     return () => observer.disconnect();
   }, [open, railView]);
 
+  // What every rendered element is handed, beside its own slot. One object
+  // so a view's signature never grows a parameter per element.
+  const slotContext: SlotContext = {
+    view: railView,
+    path: path ?? null,
+    execBlocks,
+    diagramBlocks: diagramBlocks ?? [],
+    runningCells,
+    replaying,
+    executor: executorInfo ?? undefined,
+    tableLayouts,
+    onTableLayout,
+    replaceBlockContent,
+  };
+
   return (
     <>
       {/* The bordered box holds the editor, its right line-number rail, and
@@ -985,116 +929,9 @@ export function DocumentEditor({
           </div>
         )}
       </div>
-      {renderedSlots.map((slot) => {
-        if (slot.kind === "diagram") {
-          // The asserting cells' live run state, so the panel can say
-          // "out of date" the moment a named cell fails — not just at weave.
-          const states = railView
-            ? assertionStates(
-                structureOf(railView.state),
-                execBlocks,
-                slot.asserts,
-                runningCells,
-              )
-            : slot.asserts.map((id) => ({ id, state: "unknown" as const }));
-          // A derived diagram's source holds a `<hick:paste>` where its edges
-          // should be; the server's block carries the body with the fragment
-          // inlined. Only then — the raw text is live while the user types,
-          // and the resolved copy is only as fresh as the last render.
-          const resolved = slot.text.includes("<hick:paste")
-            ? (matchBlock({ span: slot.span, index: slot.index }, diagramBlocks ?? [])?.body ??
-              null)
-            : null;
-          if (slot.renderer === "graph") {
-            return createPortal(
-              <div className="rendered-diagram">
-                <Suspense fallback={<div className="graph-editor graph-editor--loading" />}>
-                  <GraphEditorPanel
-                    source={slot.text}
-                    resolved={resolved}
-                    assertions={states}
-                    onCommit={(text) => replaceBlockContent(slot, text, "input.diagram")}
-                  />
-                </Suspense>
-              </div>,
-              slot.el,
-              slot.key,
-            );
-          }
-          const source = resolved ?? slot.text;
-          return createPortal(
-            <div className="rendered-diagram">
-              <DiagramPanel
-                renderer={slot.renderer}
-                source={source}
-                domId={`hick-diagram-${slot.index}`}
-                assertions={states}
-              />
-            </div>,
-            slot.el,
-            slot.key,
-          );
-        }
-        if (slot.kind === "table") {
-          // Named by the table's own `path` where it has one, so the size
-          // survives prose being written above it — see `tableKey`.
-          const key = tableKey(path, slot.index, slot.table?.path);
-          return createPortal(
-            // Behind the engage gate: at rest the wheel scrolls the DOCUMENT
-            // through the grid; clicking into the table is what buys its own
-            // scrolling (styles.css hides the internal overflow until then).
-            <Engaged className="rendered-table rendered-table--laned">
-              <TablePanel
-                laneRight
-                layout={tableLayouts?.[key]}
-                onLayout={(size) => onTableLayout?.(key, size)}
-                source={slot.text}
-                header={slot.table?.header ?? true}
-                delimiter={slot.table?.delimiter}
-                language={slot.table?.language}
-                // An edit in the grid rewrites the CSV in the document, in
-                // place. The document stays the source of truth — there is
-                // no second copy of the table anywhere — which is what keeps
-                // the file a file somebody reviews in a diff.
-                onChange={(csv) => replaceBlockContent(slot, csv)}
-              />
-            </Engaged>,
-            slot.el,
-            slot.key,
-          );
-        }
-        if (slot.kind === "picture") {
-          const target = resolveTarget(path, slot.picture?.path ?? "");
-          return createPortal(
-            <PicturePanel
-              src={target ? assetUrl(target) : null}
-              path={slot.picture?.path ?? ""}
-            />,
-            slot.el,
-            slot.key,
-          );
-        }
-        if (slot.kind === "math") {
-          return createPortal(
-            <div className="rendered-math">
-              <MathPanel source={slot.text} />
-            </div>,
-            slot.el,
-            slot.key,
-          );
-        }
-        const block = matchExecBlock({ span: slot.span, index: slot.index }, execBlocks);
-        return createPortal(
-          <CellPanel
-            block={block}
-            running={block ? runningCells.has(block.id) : false}
-            command={slot.text}
-            replay={replaying.includes(slot.at)}
-          />,
-          slot.el,
-          slot.key,
-        );
-      })}
+      {renderedSlots.map((slot) =>
+        createPortal(elementViews[slot.kind].render(slot, slotContext), slot.el, slot.key),
+      )}
       {envSlots.map((slot) =>
         createPortal(
           <EnvCard

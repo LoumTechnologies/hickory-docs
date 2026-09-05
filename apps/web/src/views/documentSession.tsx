@@ -456,7 +456,14 @@ function useDocumentSession(
         startedCellsRef.current.delete(execId);
         setRunningCells((prev) => new Set(prev).add(execId));
         try {
-          await api.run(docId, [execId]);
+          // A cell the server has rendered is run as an ACTION on its
+          // element, addressed by the byte its tag starts at — the one
+          // route every element's verbs go through. A cell the render has
+          // not caught up with yet has no span to address, and runs the
+          // older way.
+          const block = blocksRef.current?.find((b) => b.kind === "exec" && b.id === execId);
+          if (block) await api.blockAction(docId, block.span[0], "run");
+          else await api.run(docId, [execId]);
         } catch (e) {
           setRunningCells((prev) => {
             const next = new Set(prev);

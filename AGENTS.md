@@ -752,8 +752,14 @@ routes (`an-action-is-asked-of-the-element.md`):** `GET /api/elements` is
 the vocabulary as data and `POST /api/docs/:id/blocks/:at/:action` is one
 route for every element's verbs — the element answers with an
 `ActionOutcome` (answer / run / edit) and the server carries it out with
-the machinery the older routes use; an element never runs anything. The
-plan is `docs/specs/freeform/the-minimal-core.md`.
+the machinery the older routes use; an element never runs anything. **Step
+4 (`an-element-is-drawn-by-its-view.md`):** `apps/web/src/elements` is the
+mirror — one folder per block kind, a `Record<SlotKind, ElementView>`
+keyed by the wire's `kind`, the editor's branch chain replaced by a lookup
+and one `SlotContext`; a rendered cell's Run goes through the action route.
+The two registries are not yet one list (`math`/`table` are editor-only),
+and the Insert menu is still hand-written. The plan is
+`docs/specs/freeform/the-minimal-core.md`.
 
 ## Stack (settled — do not relitigate)
 

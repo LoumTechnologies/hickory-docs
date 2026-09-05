@@ -26,8 +26,10 @@ import { Decoration, EditorView, WidgetType } from "@codemirror/view";
 import type { DecorationSet } from "@codemirror/view";
 
 import { SlotRegistry, structureOf } from "./wysiwyg";
-import { blocksNamed, codeRangesOf, execBlocksOf, pictureBlocksOf } from "./hickDoc";
+import { blocksNamed, codeRangesOf, pictureBlocksOf } from "./hickDoc";
 import type { HickBlock, HickDocStructure } from "./hickDoc";
+import { renderableBlocks, slotKindOf } from "../elements";
+import type { SlotKind } from "../elements";
 
 /** Render this block (identified by the offset its source starts at). */
 export const renderBlock = StateEffect.define<number>();
@@ -70,15 +72,7 @@ export function isRendered(state: EditorState, at: number): boolean {
 
 /** Every exec, diagram, math, table, and picture block of a document, in
  * order — the blocks that have something to render. */
-export function renderableBlocks(structure: HickDocStructure): HickBlock[] {
-  return [
-    ...execBlocksOf(structure),
-    ...blocksNamed(structure, "diagram"),
-    ...blocksNamed(structure, "math"),
-    ...blocksNamed(structure, "table"),
-    ...pictureBlocksOf(structure),
-  ].sort((a, b) => a.from - b.from || b.to - a.to);
-}
+export { renderableBlocks } from "../elements";
 
 // ---------------------------------------------------------------------------
 // Slots: the bridge to React, the same one the environment chip uses.
@@ -88,7 +82,7 @@ export interface RenderedSlot {
   key: string;
   el: HTMLElement;
   index: number;
-  kind: "exec" | "diagram" | "math" | "table" | "picture";
+  kind: SlotKind;
   /** The block's start offset — what a toggle effect carries. */
   at: number;
   /** The block's whole source span, for matching the server's exec blocks. */
@@ -239,7 +233,7 @@ function buildRendered(state: EditorState, registry: RenderedRegistry): Decorati
   const structure = structureOf(state);
   const doc = state.doc;
   const ranges: Range<Decoration>[] = [];
-  const counts = { exec: 0, diagram: 0, math: 0, table: 0, picture: 0 };
+  const counts: Record<SlotKind, number> = { exec: 0, diagram: 0, math: 0, table: 0, picture: 0 };
   // A picture block has TWO states and there is no third: the picture, or the
   // code that draws it — editable, as text, the way you would fix it.
   //
@@ -254,16 +248,9 @@ function buildRendered(state: EditorState, registry: RenderedRegistry): Decorati
     pictureSpans.some(([from, to]) => block.from > from && block.from < to);
 
   for (const block of renderableBlocks(structure)) {
-    const kind =
-      block.name === "diagram"
-        ? "diagram"
-        : block.name === "math"
-          ? "math"
-          : block.name === "table"
-            ? "table"
-            : block.name === "file"
-              ? "picture"
-              : "exec";
+    // Which view draws it is the registry's answer, never a guess here.
+    const kind = slotKindOf(block);
+    if (kind === null) continue;
     const index = counts[kind]++;
     if (!rendered.includes(block.from)) continue;
     if (insidePicture(block)) continue;

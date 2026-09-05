@@ -2,8 +2,9 @@
 
 *Status: adopted 2026-09-05. Steps 1 and 2 built the same day
 (`the-editor-reads-with-the-parser-the-server-uses.md`,
-`an-element-is-declared-once.md`), and step 3's routes
-(`an-action-is-asked-of-the-element.md`); the rest is in progress; each is shippable on its own and each deletes more than it
+`an-element-is-declared-once.md`), step 3's routes
+(`an-action-is-asked-of-the-element.md`), and step 4's registry
+(`an-element-is-drawn-by-its-view.md`); the rest is in progress; each is shippable on its own and each deletes more than it
 adds. Nothing here changes what a document is, what it means, or what any
 `.hick` file on disk does.*
 
@@ -67,7 +68,12 @@ What that cost, measured rather than assumed:
 4. **The frontend mirror.** A component registry keyed by the same `kind`,
    one generic document editor that draws lines and mounts components, and
    each element a folder pair — Rust beside TSX. The hardcoded panel chain
-   and the mock server go away.
+   goes away. *Built:* `apps/web/src/elements`, one folder per kind, the
+   editor's branch chain replaced by a lookup, a cell's Run through the
+   action route. *Kept on purpose:* the demo's mock server — the site's
+   demos stay and now run the real parser, which was the requirement.
+   *Not yet:* the Insert menu read from `GET /api/elements`, and the two
+   registries as one list (see the guarantee's boundary).
 5. **Three bins for everything else.** *Element*: exec, file, diagram,
    table, math, picture, ingested, sample, session turns. *Extension outside
    the core*: the git pane and lenses, the LSP and DAP bridges, terminals,
