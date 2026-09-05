@@ -18,3 +18,13 @@ interface ImportMetaEnv {
 interface ImportMeta {
   readonly env: ImportMetaEnv;
 }
+
+/**
+ * The one Node module the test setup reads: the parser's WebAssembly bytes
+ * come off the disk there, because a test has a filesystem and no fetch.
+ * Declared by hand rather than through `@types/node`, which this app does
+ * not take on — nothing that ships to a browser may reach for Node.
+ */
+declare module "node:fs" {
+  export function readFileSync(path: string): Uint8Array<ArrayBuffer>;
+}

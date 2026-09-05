@@ -11,6 +11,7 @@ members = [
     "crates/hick-grove",
     "crates/hick-handlers",
     "crates/hick-lang",
+    "crates/hick-lang-wasm",
     "crates/hick-dap",
     "crates/hick-lsp",
     "crates/hick-structure",

@@ -7,12 +7,18 @@ import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { LandingView } from "./views/LandingView";
 import { applyStoredTheme } from "./lib/theme";
+import { loadHickLang } from "./editor/hickLang";
 import "./styles.css";
 
 applyStoredTheme();
 
-createRoot(document.getElementById("root")!).render(
-  <StrictMode>
-    <LandingView />
-  </StrictMode>,
-);
+// The demos run the real parser in the browser — the same `hick-lang` the
+// product ships, as WebAssembly — so a document the site shows is drawn the
+// way the app draws it.
+void loadHickLang().then(() => {
+  createRoot(document.getElementById("root")!).render(
+    <StrictMode>
+      <LandingView />
+    </StrictMode>,
+  );
+});

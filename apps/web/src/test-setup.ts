@@ -1,3 +1,15 @@
+// The parser is WebAssembly, loaded from disk here because a test has a
+// filesystem and no fetch. Every test that parses a document needs it, and
+// loading it once here is what lets `parseHickDoc` stay synchronous.
+import { readFileSync } from "node:fs";
+import { loadHickLangSync } from "./editor/hickLang";
+
+// Under the jsdom environment `import.meta.url` is the page's, not a file
+// URL, so the path is taken from the working directory — Vitest's root,
+// which is this package.
+const cwd = (globalThis as { process?: { cwd(): string } }).process?.cwd() ?? ".";
+loadHickLangSync(readFileSync(`${cwd}/src/editor/generated/hick-lang/hick_lang_bg.wasm`));
+
 // jsdom gaps that CodeMirror measures through.
 //
 // CodeMirror asks the DOM how big a character is by putting a Range around

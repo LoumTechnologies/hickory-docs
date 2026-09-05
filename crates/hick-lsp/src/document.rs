@@ -68,6 +68,7 @@ mod tests {
             frontmatter: None,
             volatile: false,
             span_files: Vec::new(),
+            root_tag: None,
         }
     }
 
@@ -81,6 +82,7 @@ mod tests {
             source_line: 1,
             source_column: 0,
             source_span: None,
+            close_span: None,
         };
 
         let doc = make_doc(vec![HickNode::Tag(copy_tag)]);
@@ -98,6 +100,7 @@ mod tests {
             source_line: 2,
             source_column: 0,
             source_span: None,
+            close_span: None,
         };
 
         let wrapper = HickTag {
@@ -108,6 +111,7 @@ mod tests {
             source_line: 1,
             source_column: 0,
             source_span: None,
+            close_span: None,
         };
 
         let doc = make_doc(vec![HickNode::Tag(wrapper)]);
@@ -125,6 +129,7 @@ mod tests {
             source_line: 1,
             source_column: 0,
             source_span: None,
+            close_span: None,
         };
 
         let doc = make_doc(vec![HickNode::Tag(copy_tag)]);
@@ -142,6 +147,7 @@ mod tests {
             source_line: 1,
             source_column: 0,
             source_span: None,
+            close_span: None,
         };
         let copy2 = HickTag {
             name: "copy".to_string(),
@@ -151,6 +157,7 @@ mod tests {
             source_line: 2,
             source_column: 0,
             source_span: None,
+            close_span: None,
         };
 
         let doc = make_doc(vec![HickNode::Tag(copy1), HickNode::Tag(copy2)]);

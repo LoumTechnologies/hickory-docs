@@ -1,0 +1,22 @@
+[package]
+name = "hick-lang-wasm"
+version = "0.1.0"
+edition.workspace = true
+publish.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "The hick parser for the editor: hick-lang compiled to WebAssembly"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+hick-lang = { workspace = true, features = ["serde"] }
+serde_json = "1"
+wasm-bindgen = "0.2"
+
+# The distribution's `wasm-opt` (binaryen) refuses features the current
+# toolchain emits, and the parser is 80 KB unoptimised — not worth a second
+# toolchain to shave. The release profile's LTO already applies.
+[package.metadata.wasm-pack.profile.release]
+wasm-opt = false

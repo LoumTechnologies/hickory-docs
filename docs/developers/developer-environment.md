@@ -14,6 +14,12 @@ in dev mode, on a folder of documents.
 - Node.js 22+
 - [`just`](https://github.com/casey/just)
 - `cargo-tauri` — `cargo install tauri-cli --version '^2' --locked`
+- The WebAssembly target and `wasm-pack`, which build the editor's parser
+  (`crates/hick-lang-wasm` → `apps/web/src/editor/generated/hick-lang`):
+  `rustup target add wasm32-unknown-unknown` and
+  `cargo install wasm-pack --version 0.15.0 --locked`. The built parser is
+  committed, so these are needed to *change* the parser, and by the
+  pre-commit hook's codegen check — not to run the app.
 - On Linux, the system webview and bundler dependencies:
   `sudo apt install libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf`
 

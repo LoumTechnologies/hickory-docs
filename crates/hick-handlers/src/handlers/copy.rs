@@ -207,6 +207,7 @@ mod tests {
             source_line: 1,
             source_column: 0,
             source_span: None,
+            close_span: None,
         }
     }
 
@@ -316,6 +317,7 @@ mod tests {
             source_line: 2,
             source_column: 0,
             source_span: None,
+            close_span: None,
         };
 
         let tag = make_tag(
@@ -355,6 +357,7 @@ mod tests {
             source_line: 2,
             source_column: 0,
             source_span: None,
+            close_span: None,
         };
 
         let tag = make_tag(
@@ -428,6 +431,7 @@ mod tests {
             source_line: 2,
             source_column: 0,
             source_span: None,
+            close_span: None,
         };
 
         let tag = make_tag(

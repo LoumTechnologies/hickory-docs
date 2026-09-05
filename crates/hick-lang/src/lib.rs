@@ -10,6 +10,9 @@
 
 use std::fmt;
 
+pub mod structure;
+pub use structure::{Structure, StructureBlock, StructureTag, structure};
+
 /// The XML namespace URI that identifies hick elements.
 pub const HICK_NAMESPACE: &str = "http://www.hickorydocs.com/1.0";
 
@@ -91,6 +94,10 @@ pub struct HickTag {
     pub source_column: usize,
     /// Byte-level span covering the opening tag (from `<` to closing `>`).
     pub source_span: Option<SourceSpan>,
+    /// Byte-level span of the closing tag (`</prefix:name>`), when the element
+    /// has one: `None` for a self-closing tag, for a tag built by hand, and —
+    /// under [`parse_lenient`] — for a tag nobody closed.
+    pub close_span: Option<SourceSpan>,
 }
 
 impl HickTag {
@@ -161,6 +168,10 @@ pub struct HickDocument {
     /// [`resolve_includes`] runs, and stays empty for a document that
     /// includes nothing.
     pub span_files: Vec<String>,
+    /// The root element of a wrapped document (`<hick:doc …>`), with its
+    /// attributes and both spans and no children — so a reader that draws
+    /// the document's tags can draw this one too. `None` for a bare document.
+    pub root_tag: Option<HickTag>,
 }
 
 // ---------------------------------------------------------------------------
@@ -680,6 +691,26 @@ pub fn parse(source: &str) -> Result<HickDocument, ParseError> {
     parser.parse_document()
 }
 
+/// Parse a document that may be malformed, and say what was wrong with it.
+///
+/// This is the parse an editor runs on every keystroke, where the document is
+/// malformed most of the time — a tag is half typed, its closer not yet
+/// written. It never fails: an unclosed element extends to the end of the
+/// document, a closing tag that matches nothing is text, a tag that does not
+/// parse is text from its `<` onward, and an unclosed comment is text. The
+/// second half of the answer is the first error [`parse`] would have reported,
+/// so a reader can both draw the document and say where it stops being one.
+///
+/// The recovered tree is for *reading* a document's structure. It must never
+/// be run or woven: [`parse`] is what decides whether a document is one.
+pub fn parse_lenient(source: &str) -> (HickDocument, Option<ParseError>) {
+    let mut parser = Parser::new_lenient(source);
+    let doc = parser
+        .parse_document()
+        .expect("a lenient parse recovers from every error");
+    (doc, parser.recovered.take())
+}
+
 /// Parse a `.hick` file that came from `doc_path`, resolving the weave default.
 ///
 /// This is [`parse`] plus the one thing a parser cannot know on its own: which
@@ -833,6 +864,7 @@ pub fn attach_contribution(
         source_line: line,
         source_column: 0,
         source_span: None,
+        close_span: None,
     }));
     Ok(())
 }
@@ -1179,6 +1211,10 @@ struct Parser<'a> {
     open_marker: String,
     /// Closing tag marker, e.g. `"</hick:"`.
     close_marker: String,
+    /// Recover from malformed input instead of failing. See [`parse_lenient`].
+    lenient: bool,
+    /// The first error a lenient parse recovered from, or `None`.
+    recovered: Option<ParseError>,
 }
 
 /// A leading UTF-8 byte-order mark, which is an encoding signature rather than
@@ -1220,7 +1256,31 @@ impl<'a> Parser<'a> {
             prefix,
             open_marker,
             close_marker,
+            lenient: false,
+            recovered: None,
         }
+    }
+
+    fn new_lenient(input: &'a str) -> Self {
+        Self {
+            lenient: true,
+            ..Self::new(input)
+        }
+    }
+
+    /// Remember the first error a lenient parse recovered from.
+    fn recover(&mut self, error: ParseError) {
+        if self.recovered.is_none() {
+            self.recovered = Some(error);
+        }
+    }
+
+    fn checkpoint(&self) -> (usize, usize, usize) {
+        (self.pos, self.line, self.col)
+    }
+
+    fn restore(&mut self, at: (usize, usize, usize)) {
+        (self.pos, self.line, self.col) = at;
     }
 
     fn remaining(&self) -> &'a str {
@@ -1292,17 +1352,25 @@ impl<'a> Parser<'a> {
         self.advance(root_start);
 
         // Parse the opening tag attributes and consume `>`
-        let tag = self.parse_open_tag()?;
-        if tag.name != "doc" {
-            return Err(ParseError::MissingRoot);
-        }
+        let tag = match self.parse_open_tag() {
+            Ok(tag) if tag.name == "doc" => tag,
+            Ok(_) => return Err(ParseError::MissingRoot),
+            // A root tag that does not parse is not a root: read the whole
+            // file as a bare document, with the tag's bytes as text.
+            Err(error) if self.lenient => {
+                self.recover(error);
+                self.restore((0, 1, 0));
+                return self.parse_bare_document();
+            }
+            Err(error) => return Err(error),
+        };
 
         // Extract weave path from the doc tag attributes
         let weave_path = tag.get_attribute("weave").map(|s| s.to_string());
         let volatile = tag.get_attribute("volatile") == Some("true");
 
         // Parse children until </PREFIX:doc>
-        let nodes = self.parse_children(Some("doc"), tag.source_line)?;
+        let (nodes, close_span) = self.parse_children(Some("doc"), tag.source_line)?;
 
         Ok(HickDocument {
             nodes,
@@ -1312,6 +1380,7 @@ impl<'a> Parser<'a> {
             volatile,
             frontmatter: None,
             span_files: Vec::new(),
+            root_tag: Some(HickTag { close_span, ..tag }),
         })
     }
 
@@ -1335,7 +1404,7 @@ impl<'a> Parser<'a> {
             .map(str::to_string);
         let volatile = frontmatter.as_ref().and_then(|fm| fm.get("volatile")) == Some("true");
 
-        let nodes = self.parse_children(None, 1)?;
+        let (nodes, _) = self.parse_children(None, 1)?;
 
         Ok(HickDocument {
             nodes,
@@ -1345,6 +1414,7 @@ impl<'a> Parser<'a> {
             volatile,
             frontmatter,
             span_files: Vec::new(),
+            root_tag: None,
         })
     }
 
@@ -1366,7 +1436,7 @@ impl<'a> Parser<'a> {
 
         let start_time = tag.get_attribute("start").map(|s| s.to_string());
 
-        let raw_nodes = self.parse_children(Some("session"), tag.source_line)?;
+        let (raw_nodes, _) = self.parse_children(Some("session"), tag.source_line)?;
         let nodes = extract_session_nodes(&raw_nodes);
 
         Ok(SessionDocument {
@@ -1392,24 +1462,13 @@ impl<'a> Parser<'a> {
         &mut self,
         close_name: Option<&str>,
         open_line: usize,
-    ) -> Result<Vec<HickNode>, ParseError> {
+    ) -> Result<(Vec<HickNode>, Option<SourceSpan>), ParseError> {
         let mut nodes = Vec::new();
         let mut text_start = self.pos;
         let mut text_start_line = self.line;
         let mut text_start_col = self.col;
 
         loop {
-            if self.is_eof() {
-                let Some(close_name) = close_name else {
-                    return Ok(nodes);
-                };
-                return Err(ParseError::UnclosedTag {
-                    prefix: self.prefix.clone(),
-                    name: close_name.to_string(),
-                    line: open_line,
-                });
-            }
-
             // Look for the next opening marker, closing marker, or comment
             let rem = self.remaining();
             let next_open = rem.find(self.open_marker.as_str());
@@ -1422,83 +1481,72 @@ impl<'a> Parser<'a> {
                 .flatten()
                 .min();
 
-            match nearest {
-                None => {
-                    let Some(close_name) = close_name else {
-                        // A bare document's trailing prose is text, not the
-                        // symptom of a tag nobody closed.
-                        let end = self.input.len();
-                        if end > text_start {
-                            let span =
-                                SourceSpan::new(text_start, end, text_start_line, text_start_col);
-                            nodes.push(HickNode::Text(
-                                self.input[text_start..end].to_string(),
-                                Some(span),
-                            ));
-                        }
-                        self.advance(end - self.pos);
-                        return Ok(nodes);
-                    };
-                    // No more tags -- rest is text (will be caught as unclosed)
-                    return Err(ParseError::UnclosedTag {
+            let Some(offset) = nearest else {
+                // No more markers. For a bare document's body that is the
+                // end; for an element it means nobody closed it.
+                if let Some(close_name) = close_name {
+                    let error = ParseError::UnclosedTag {
                         prefix: self.prefix.clone(),
                         name: close_name.to_string(),
                         line: open_line,
-                    });
+                    };
+                    if !self.lenient {
+                        return Err(error);
+                    }
+                    self.recover(error);
                 }
-                Some(offset) => {
-                    let abs = self.pos + offset;
+                let end = self.input.len();
+                if end > text_start {
+                    let span = SourceSpan::new(text_start, end, text_start_line, text_start_col);
+                    nodes.push(HickNode::Text(
+                        self.input[text_start..end].to_string(),
+                        Some(span),
+                    ));
+                }
+                self.advance(end - self.pos);
+                return Ok((nodes, None));
+            };
 
-                    // Is this a comment?
-                    if self.input[abs..].starts_with("<!--") {
-                        // Flush text before the comment
-                        if abs > text_start {
-                            let span =
-                                SourceSpan::new(text_start, abs, text_start_line, text_start_col);
-                            nodes.push(HickNode::Text(
-                                self.input[text_start..abs].to_string(),
-                                Some(span),
-                            ));
-                        }
-                        self.advance(offset);
-                        self.skip_comment()?;
-                        text_start = self.pos;
-                        text_start_line = self.line;
-                        text_start_col = self.col;
+            let abs = self.pos + offset;
+            let before_marker = self.checkpoint();
+
+            // Is this a comment?
+            if self.input[abs..].starts_with("<!--") {
+                self.advance(offset);
+                match self.skip_comment() {
+                    Ok(_) => {}
+                    // An unclosed comment is text from its `<` onward.
+                    Err(error) if self.lenient => {
+                        self.recover(error);
+                        self.restore(before_marker);
+                        self.advance(offset + 1);
                         continue;
                     }
+                    Err(error) => return Err(error),
+                }
+                // Flush text before the comment
+                if abs > text_start {
+                    let span = SourceSpan::new(text_start, abs, text_start_line, text_start_col);
+                    nodes.push(HickNode::Text(
+                        self.input[text_start..abs].to_string(),
+                        Some(span),
+                    ));
+                }
+                text_start = self.pos;
+                text_start_line = self.line;
+                text_start_col = self.col;
+                continue;
+            }
 
-                    // Is this a closing tag?
-                    if self.input[abs..].starts_with(&self.close_marker) {
-                        // Flush text before this closing tag
-                        if abs > text_start {
-                            let span =
-                                SourceSpan::new(text_start, abs, text_start_line, text_start_col);
-                            nodes.push(HickNode::Text(
-                                self.input[text_start..abs].to_string(),
-                                Some(span),
-                            ));
-                        }
-                        self.advance(offset);
-
-                        // Parse closing tag name
-                        let (name, _) = self.parse_close_tag()?;
-                        // In a bare document `close_name` is `None`, so every
-                        // closing tag is unexpected — there is no root that
-                        // could have opened it.
-                        if close_name == Some(name.as_str()) {
-                            return Ok(nodes);
-                        } else {
-                            return Err(ParseError::UnexpectedClose {
-                                prefix: self.prefix.clone(),
-                                name,
-                                line: self.line,
-                            });
-                        }
-                    }
-
-                    // It's an opening tag
-                    // Flush text before this tag
+            // Is this a closing tag?
+            if self.input[abs..].starts_with(&self.close_marker) {
+                self.advance(offset);
+                let (name, line, span) = self.parse_close_tag();
+                // In a bare document `close_name` is `None`, so every
+                // closing tag is unexpected — there is no root that
+                // could have opened it.
+                if close_name == Some(name.as_str()) {
+                    // Flush text before this closing tag
                     if abs > text_start {
                         let span =
                             SourceSpan::new(text_start, abs, text_start_line, text_start_col);
@@ -1507,47 +1555,107 @@ impl<'a> Parser<'a> {
                             Some(span),
                         ));
                     }
-                    self.advance(offset);
+                    return Ok((nodes, Some(span)));
+                }
+                let error = ParseError::UnexpectedClose {
+                    prefix: self.prefix.clone(),
+                    name,
+                    line,
+                };
+                if !self.lenient {
+                    return Err(error);
+                }
+                // A closer that matches nothing is text: the run of text
+                // that was open before it simply continues through it.
+                self.recover(error);
+                continue;
+            }
 
-                    let tag = self.parse_open_tag()?;
+            // It's an opening tag. Parse it before flushing the text in
+            // front of it, so a tag that does not parse can be left as text.
+            self.advance(offset);
+            let tag = match self.parse_open_tag() {
+                Ok(tag) => tag,
+                Err(error) if self.lenient => {
+                    self.recover(error);
+                    self.restore(before_marker);
+                    self.advance(offset + 1);
+                    continue;
+                }
+                Err(error) => return Err(error),
+            };
 
-                    if tag.self_closing {
-                        nodes.push(HickNode::Tag(tag));
-                    } else if is_raw_content_tag(&tag.name) {
-                        // Verbatim-capture element (session vocabulary:
-                        // tool payloads and tool results): content is raw
-                        // text up to the next matching close marker, so
-                        // captured fragments containing unbalanced
-                        // hick-like markers cannot break the parse.
-                        let close = format!("{}{}>", self.close_marker, tag.name);
-                        let rem = self.remaining();
-                        let end = rem.find(&close).ok_or_else(|| ParseError::UnclosedTag {
+            // Flush text before this tag
+            if abs > text_start {
+                let span = SourceSpan::new(text_start, abs, text_start_line, text_start_col);
+                nodes.push(HickNode::Text(
+                    self.input[text_start..abs].to_string(),
+                    Some(span),
+                ));
+            }
+
+            if tag.self_closing {
+                nodes.push(HickNode::Tag(tag));
+            } else if is_raw_content_tag(&tag.name) {
+                // Verbatim-capture element (session vocabulary:
+                // tool payloads and tool results): content is raw
+                // text up to the next matching close marker, so
+                // captured fragments containing unbalanced
+                // hick-like markers cannot break the parse.
+                let close = format!("{}{}>", self.close_marker, tag.name);
+                let rem = self.remaining();
+                let (end, close_span) = match rem.find(&close) {
+                    Some(end) => {
+                        let close_start = self.pos + end;
+                        // The closer's line is the content's last line; it
+                        // is recomputed below once the cursor is past it.
+                        (end, Some((close_start, close_start + close.len())))
+                    }
+                    None => {
+                        let error = ParseError::UnclosedTag {
                             prefix: self.prefix.clone(),
                             name: tag.name.clone(),
                             line: tag.source_line,
-                        })?;
-                        let raw = rem[..end].to_string();
-                        let span =
-                            SourceSpan::new(self.pos, self.pos + raw.len(), self.line, self.col);
-                        self.advance(end + close.len());
-                        let mut children = Vec::new();
-                        if !raw.is_empty() {
-                            children.push(HickNode::Text(raw, Some(span)));
+                        };
+                        if !self.lenient {
+                            return Err(error);
                         }
-                        nodes.push(HickNode::Tag(HickTag { children, ..tag }));
-                    } else {
-                        // Parse nested children
-                        let tag_name = tag.name.clone();
-                        let tag_line = tag.source_line;
-                        let children = self.parse_children(Some(&tag_name), tag_line)?;
-                        nodes.push(HickNode::Tag(HickTag { children, ..tag }));
+                        self.recover(error);
+                        (rem.len(), None)
                     }
-
-                    text_start = self.pos;
-                    text_start_line = self.line;
-                    text_start_col = self.col;
+                };
+                let raw = rem[..end].to_string();
+                let span = SourceSpan::new(self.pos, self.pos + raw.len(), self.line, self.col);
+                self.advance(end);
+                let close_span = close_span.map(|(start, close_end)| {
+                    let span = SourceSpan::new(start, close_end, self.line, self.col);
+                    self.advance(close.len());
+                    span
+                });
+                let mut children = Vec::new();
+                if !raw.is_empty() {
+                    children.push(HickNode::Text(raw, Some(span)));
                 }
+                nodes.push(HickNode::Tag(HickTag {
+                    children,
+                    close_span,
+                    ..tag
+                }));
+            } else {
+                // Parse nested children
+                let tag_name = tag.name.clone();
+                let tag_line = tag.source_line;
+                let (children, close_span) = self.parse_children(Some(&tag_name), tag_line)?;
+                nodes.push(HickNode::Tag(HickTag {
+                    children,
+                    close_span,
+                    ..tag
+                }));
             }
+
+            text_start = self.pos;
+            text_start_line = self.line;
+            text_start_col = self.col;
         }
     }
 
@@ -1657,12 +1765,19 @@ impl<'a> Parser<'a> {
                 tag_line,
                 tag_col,
             )),
+            close_span: None,
         })
     }
 
     /// Parse a closing tag. Cursor must be at the closing marker.
-    fn parse_close_tag(&mut self) -> Result<(String, usize), ParseError> {
+    ///
+    /// Returns the tag's name, the line it starts on, and its span. A closing
+    /// tag cannot fail to parse: whatever follows the marker up to `>` (or
+    /// whitespace) is its name.
+    fn parse_close_tag(&mut self) -> (String, usize, SourceSpan) {
         let line = self.line;
+        let start = self.pos;
+        let col = self.col;
         // Skip the closing marker (e.g. `</hick:` or `</h:`)
         self.advance(self.close_marker.len());
 
@@ -1685,7 +1800,7 @@ impl<'a> Parser<'a> {
             self.advance(1);
         }
 
-        Ok((name, line))
+        (name, line, SourceSpan::new(start, self.pos, line, col))
     }
 
     fn skip_ws(&mut self) {

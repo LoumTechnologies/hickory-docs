@@ -549,6 +549,7 @@ fn expand_transcript(tag: &mut HickTag) {
             source_line: line,
             source_column: column,
             source_span: None,
+            close_span: None,
         }));
     }
     tag.children = children;

@@ -1,18 +1,23 @@
-// Hand-rolled incremental-friendly structure parser for .hick source, used by
-// the Typora-style Document view to compute decorations.
+// Structure of a .hick source for the Typora-style Document view: which
+// tags and blocks are where, plus the markdown prose scan the decorations
+// need.
 //
-// The hick no-escaping invariant is sacred: ONLY namespace-prefixed tags
-// (`<hick:...>` / `</hick:...>`) are structure. Every other character —
-// including raw `<`, `>`, `&`, and non-hick tags like `<div>` — is plain
-// text, byte for byte. This parser therefore recognises hick: tags with a
-// single regex and treats absolutely everything else as prose/markdown.
+// The tags and blocks come from `hick-lang` itself, running as WebAssembly
+// (see hickLang.ts) — the same parser `hick run` uses, so the editor cannot
+// disagree with the server about what is structure. The no-escaping
+// invariant is the parser's: ONLY namespace-prefixed tags are structure, and
+// every other character — raw `<`, `>`, `&`, `<div>` — is text, byte for
+// byte. The parse is lenient and never throws: an unclosed block extends to
+// the end of the document, a stray closer is text, and a tag that does not
+// parse is text from its `<` onward. What a strict parse would have refused
+// is reported in `error` beside the structure it drew anyway.
 //
-// It must NEVER throw, whatever the input: malformed tags simply aren't tags,
-// unclosed blocks extend to the end of the document, stray closers are
-// rendered as tag chrome without forming a block.
+// The markdown scan (headings, quotes, tasks, inline marks) stays here: it is
+// about prose, not about hick, and the language has no opinion on it.
 
 import { languageFromPath, normalizeLanguage } from "./languages";
 import type { LanguageId } from "./languages";
+import { rawStructure } from "./hickLang";
 
 export interface HickTag {
   from: number;
@@ -22,7 +27,7 @@ export interface HickTag {
   closing: boolean;
   selfClosing: boolean;
   attrs: Record<string, string>;
-  /** Offsets of each attribute name within the doc (for chrome styling). */
+  /** Where each attribute NAME sits in the source, for chrome styling. */
   attrNames: { from: number; to: number }[];
 }
 
@@ -95,106 +100,100 @@ export interface HickDocStructure {
   inline: InlineMark[];
   quotes: QuoteLine[];
   tasks: TaskItem[];
+  /** The namespace prefix the document binds — `hick` unless a root element
+   * rebinds it. */
+  prefix: string;
+  /** The first thing `hick run` would refuse about this document, or
+   * undefined when it is well formed. The structure above is drawn either
+   * way. */
+  error?: string;
 }
 
-// Open/close/self-closing hick: tags including quoted attributes. Quoted
-// strings may contain `>`; unquoted attr chars may not.
-const TAG_RE = /<(\/?)hick:([\w.-]+)((?:\s+(?:"[^"]*"|'[^']*'|[^<>"'])*)?)\s*(\/?)>/g;
-const ATTR_RE = /([\w.:-]+)\s*=\s*("[^"]*"|'[^']*'|[^\s/>]+)/g;
-
-export function parseTags(text: string): HickTag[] {
-  const tags: HickTag[] = [];
-  TAG_RE.lastIndex = 0;
-  let m: RegExpExecArray | null;
-  while ((m = TAG_RE.exec(text)) !== null) {
-    const [whole, slash, name, attrText] = m;
-    // The attr chunk can swallow a trailing `/`; detect self-closing from the
-    // tag text itself.
-    const selfClosing = slash !== "/" && whole.endsWith("/>");
-    const attrs: Record<string, string> = {};
-    const attrNames: { from: number; to: number }[] = [];
-    if (attrText) {
-      const attrBase = m.index + whole.indexOf(attrText, 1 + slash.length + 5 + name.length);
-      ATTR_RE.lastIndex = 0;
-      let a: RegExpExecArray | null;
-      while ((a = ATTR_RE.exec(attrText)) !== null) {
-        let value = a[2];
-        if (
-          (value.startsWith('"') && value.endsWith('"')) ||
-          (value.startsWith("'") && value.endsWith("'"))
-        ) {
-          value = value.slice(1, -1);
-        }
-        attrs[a[1]] = value;
-        attrNames.push({ from: attrBase + a.index, to: attrBase + a.index + a[1].length });
-      }
-    }
-    tags.push({
-      from: m.index,
-      to: m.index + whole.length,
-      name,
-      closing: slash === "/",
-      selfClosing,
-      attrs,
-      attrNames,
-    });
+/**
+ * Byte offset → UTF-16 index for `text`. Identity for ASCII; otherwise one
+ * table built per parse, because the structure holds hundreds of offsets
+ * and each conversion would otherwise walk the string from the start.
+ */
+function byteToUnit(text: string): (byte: number) => number {
+  // eslint-disable-next-line no-control-regex
+  if (!/[^\x00-\x7f]/.test(text)) return (b) => b;
+  const table: number[] = [];
+  let unit = 0;
+  while (unit < text.length) {
+    const cp = text.codePointAt(unit)!;
+    const bytes = cp < 0x80 ? 1 : cp < 0x800 ? 2 : cp < 0x10000 ? 3 : 4;
+    const units = cp < 0x10000 ? 1 : 2;
+    for (let i = 0; i < bytes; i++) table.push(unit);
+    unit += units;
   }
-  return tags;
+  table.push(text.length);
+  return (b) => table[Math.min(b, table.length - 1)];
 }
 
-/** Pair open/close tags into blocks. Unclosed blocks run to end of doc. */
-export function buildBlocks(text: string, tags: HickTag[]): HickBlock[] {
-  const blocks: HickBlock[] = [];
-  const stack: HickTag[] = [];
-  for (const tag of tags) {
-    if (tag.closing) {
-      // Find the nearest matching open tag on the stack; ignore stray closers.
-      for (let i = stack.length - 1; i >= 0; i--) {
-        if (stack[i].name === tag.name) {
-          const open = stack[i];
-          stack.length = i;
-          blocks.push({
-            name: open.name,
-            from: open.from,
-            to: tag.to,
-            open,
-            close: tag,
-            attrs: open.attrs,
-            contentFrom: open.to,
-            contentTo: tag.from,
-          });
-          break;
-        }
-      }
-    } else if (tag.selfClosing) {
-      blocks.push({
-        name: tag.name,
-        from: tag.from,
-        to: tag.to,
-        open: tag,
-        close: undefined,
-        attrs: tag.attrs,
-        contentFrom: tag.to,
-        contentTo: tag.to,
-      });
-    } else {
-      stack.push(tag);
-    }
+/**
+ * Where each attribute's name sits inside one tag's text. Styling only: the
+ * parser has already decided what the attributes ARE; this finds the bytes
+ * it read them from, in order, so the chrome can tint the names. A name the
+ * scan cannot place (it never happens for a tag the parser accepted, but the
+ * chrome must not throw) is skipped.
+ */
+function attrNameRanges(
+  text: string,
+  from: number,
+  to: number,
+  name: string,
+  attrs: [string, string][],
+): { from: number; to: number }[] {
+  const out: { from: number; to: number }[] = [];
+  let cursor = text.indexOf(name, from) + name.length;
+  for (const [attr] of attrs) {
+    const at = text.indexOf(attr, cursor);
+    if (at < 0 || at + attr.length > to) break;
+    out.push({ from: at, to: at + attr.length });
+    cursor = at + attr.length;
   }
-  // Unclosed opens: block extends to end of doc (never throw on malformed docs).
-  for (const open of stack) {
-    blocks.push({
-      name: open.name,
-      from: open.from,
-      to: text.length,
+  return out;
+}
+
+/** Tags and blocks of `text`, from the parser, in UTF-16 offsets. */
+export function parseStructure(text: string): {
+  tags: HickTag[];
+  blocks: HickBlock[];
+  prefix: string;
+  error?: string;
+} {
+  const raw = rawStructure(text);
+  const at = byteToUnit(text);
+  const tags: HickTag[] = raw.tags.map((t) => {
+    const from = at(t.from);
+    const to = at(t.to);
+    return {
+      from,
+      to,
+      name: t.name,
+      closing: t.closing,
+      selfClosing: t.self_closing,
+      attrs: Object.fromEntries(t.attrs),
+      attrNames: attrNameRanges(text, from, to, t.name, t.attrs),
+    };
+  });
+  const tagAt = new Map(tags.map((t) => [t.from, t]));
+  const blocks: HickBlock[] = raw.blocks.map((b) => {
+    const from = at(b.from);
+    const contentTo = at(b.content_to);
+    const open = tagAt.get(from)!;
+    return {
+      name: b.name,
+      from,
+      to: at(b.to),
       open,
+      close: b.closed ? tagAt.get(contentTo) : undefined,
       attrs: open.attrs,
-      contentFrom: open.to,
-      contentTo: text.length,
-    });
-  }
-  blocks.sort((a, b) => a.from - b.from || b.to - a.to);
-  return blocks;
+      contentFrom: at(b.content_from),
+      contentTo,
+    };
+  });
+  return { tags, blocks, prefix: raw.prefix, error: raw.error ?? undefined };
 }
 
 /**
@@ -359,22 +358,16 @@ export function scanMarkdownProse(
 }
 
 /**
- * Full structure parse. Linear in doc size (regex passes + one line walk);
- * cheap enough to run on every doc change for document-sized inputs, and the
- * view layer only materialises decorations for visible ranges.
+ * Full structure parse: the parser for tags and blocks, one line walk for
+ * the prose. Linear in document size and run on every change; the view
+ * layer only materialises decorations for visible ranges.
  */
 export function parseHickDoc(text: string): HickDocStructure {
-  try {
-    const tags = parseTags(text);
-    const blocks = buildBlocks(text, tags);
-    const verbatim = verbatimRanges(blocks);
-    const tagRanges: [number, number][] = tags.map((t) => [t.from, t.to]);
-    const { headings, inline, quotes, tasks } = scanMarkdownProse(text, verbatim, tagRanges);
-    return { tags, blocks, headings, inline, quotes, tasks };
-  } catch {
-    // The document view must keep working on any input.
-    return { tags: [], blocks: [], headings: [], inline: [], quotes: [], tasks: [] };
-  }
+  const { tags, blocks, prefix, error } = parseStructure(text);
+  const verbatim = verbatimRanges(blocks);
+  const tagRanges: [number, number][] = tags.map((t) => [t.from, t.to]);
+  const { headings, inline, quotes, tasks } = scanMarkdownProse(text, verbatim, tagRanges);
+  return { tags, blocks, headings, inline, quotes, tasks, prefix, error };
 }
 
 /** Exec blocks in document order (the widget/cell list). */

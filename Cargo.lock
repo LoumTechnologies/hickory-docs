@@ -3141,6 +3141,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "hick-lang-wasm"
+version = "0.1.0"
+dependencies = [
+ "hick-lang",
+ "serde_json",
+ "wasm-bindgen",
+]
+
+[[package]]
 name = "hick-literate"
 version = "0.1.0"
 dependencies = [

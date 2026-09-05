@@ -202,6 +202,7 @@ mod tests {
             source_line: 1,
             source_column: 0,
             source_span: None,
+            close_span: None,
         }
     }
 

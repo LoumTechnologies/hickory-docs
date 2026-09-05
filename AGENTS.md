@@ -730,6 +730,20 @@ already used, with one report sentence (`describe_difference`) for all of
 them (`one-comparison-behind-test-equiv-pin-and-merge.md`). All five steps
 of `three-axes.md` are built.
 
+**The editor reads with the parser the server uses (2026-09-05,
+`the-editor-reads-with-the-parser-the-server-uses.md`).** The web app
+carried a second hick parser — one regular expression — and a differential
+run over this repository's documents found it disagreeing with `hick-lang`
+on 22 of 29: a rebound prefix gave a document no structure, the guide to
+hick showed its examples as live tags, and session files grew phantom blocks
+from tool results. `crates/hick-lang-wasm` is `hick-lang` compiled to
+WebAssembly (the parser as a library, not a runtime; the rule against a wasm
+*container* stands), loaded once at boot; `hick_lang::parse_lenient` and
+`structure` are the never-failing parse an editor needs on every keystroke,
+reporting the first strict error beside what they drew. The built parser is
+a generated file under `just codegen`, and byte-for-byte reproducible.
+Spans stay bytes; provenance is byte-precise and nothing here changes that.
+
 ## Stack (settled — do not relitigate)
 
 - CLI + language + local server: Rust (edition 2024), axum, tokio. No database.

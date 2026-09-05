@@ -52,11 +52,17 @@ jobs:
           sudo apt-get clean
           df -h / | tail -1
       - uses: dtolnay/rust-toolchain@1.96.1
+        with:
+          # The editor's parser is `hick-lang` compiled to WebAssembly and
+          # committed; check-codegen rebuilds it to prove it is current.
+          targets: wasm32-unknown-unknown
       - uses: Swatinem/rust-cache@v2
+      - run: cargo install wasm-pack --version 0.15.0 --locked
       - run: cargo fmt --all -- --check
       - run: cargo clippy --workspace --all-targets -- -D warnings
       # The web app's language table is EMITTED from the server's routing
-      # table, and this is what stops the two drifting apart again. It was in
+      # table, and the editor's parser is BUILT from the server's parser;
+      # this is what stops either drifting from its source again. It was in
       # `just ci` and not here, which is precisely the gap
       # .instructions/pre-commit-ci-parity.md exists to forbid.
       - run: scripts/check-codegen.sh

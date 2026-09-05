@@ -171,6 +171,7 @@ mod tests {
             frontmatter: None,
             volatile: false,
             span_files: Vec::new(),
+            root_tag: None,
         }
     }
 
@@ -183,6 +184,7 @@ mod tests {
             source_line: 1,
             source_column: 0,
             source_span: Some(SourceSpan::new(0, 10, 1, 0)),
+            close_span: None,
         }
     }
 
@@ -216,6 +218,7 @@ mod tests {
             source_line: 3,
             source_column: 4,
             source_span: Some(SourceSpan::new(40, 70, 3, 4)),
+            close_span: None,
         };
 
         let doc = make_doc(vec![HickNode::Tag(make_file_tag(
@@ -248,6 +251,7 @@ mod tests {
             source_line: 1,
             source_column: 0,
             source_span: None,
+            close_span: None,
         };
         let doc = make_doc(vec![HickNode::Tag(tag)]);
         let files = build_virtual_files(&doc, &HashMap::new());
@@ -290,6 +294,7 @@ mod tests {
             source_line: 2,
             source_column: 0,
             source_span: None,
+            close_span: None,
         };
 
         let doc = make_doc(vec![HickNode::Tag(make_file_tag(
