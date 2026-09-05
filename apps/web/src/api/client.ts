@@ -28,6 +28,7 @@ import type {
   GitReplay,
   GitSaid,
   GitStatus,
+  InitOutcome,
   MergeDriverStatus,
   MergedViewResponse,
   OpenTerminal,
@@ -501,6 +502,8 @@ export const api = {
       "GET",
       "/api/git/merge-driver",
     ),
+  /** Run `hick init` on the open folder — the banner's button. */
+  initRepository: () => request<InitOutcome>("POST", "/api/git/merge-driver"),
 
   /** What a merged view can be opened over. */
   worktrees: () =>

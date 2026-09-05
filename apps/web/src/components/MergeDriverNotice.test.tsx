@@ -28,7 +28,7 @@ describe("a clone whose merge driver is not defined", () => {
     answer({});
     render(<MergeDriverNotice />);
     await waitFor(() => expect(screen.getByText(/SILENTLY/)).toBeTruthy());
-    expect(screen.getByText(/hick init/)).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Run hick init" })).toBeTruthy();
   });
 
   it("can be dismissed for this window", async () => {
@@ -56,5 +56,45 @@ describe("a clone that is wired up", () => {
     vi.spyOn(api, "mergeDriver").mockRejectedValue(new Error("not a repository"));
     const { container } = render(<MergeDriverNotice />);
     await waitFor(() => expect(container.textContent).toBe(""));
+  });
+});
+
+// docs/guarantees/collaboration/a-missing-merge-driver-is-a-button.md
+describe("the banner's button", () => {
+  it("runs hick init in the engine and says what it wrote", async () => {
+    answer({});
+    const init = vi.spyOn(api, "initRepository").mockResolvedValue({
+      changed: {
+        hook: true,
+        gitignore: false,
+        gitattributes: false,
+        merge_driver: true,
+        agents_md: false,
+        mcp_json: false,
+      },
+      hook_path: ".git/hooks/pre-commit",
+      status: { repository: true, attributes: true, configured: true, summary: "ok" },
+      ok: true,
+    });
+    render(<MergeDriverNotice />);
+    await waitFor(() => expect(screen.getByText(/SILENTLY/)).toBeTruthy());
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Run hick init" }));
+    });
+    expect(init).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(screen.getByText(/hick init ran: hook, merge.driver/)).toBeTruthy());
+    expect(screen.queryByText(/SILENTLY/)).toBeNull();
+  });
+
+  it("keeps the warning and says why when hick init fails", async () => {
+    answer({});
+    vi.spyOn(api, "initRepository").mockRejectedValue(new Error("not a git work tree"));
+    render(<MergeDriverNotice />);
+    await waitFor(() => expect(screen.getByText(/SILENTLY/)).toBeTruthy());
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Run hick init" }));
+    });
+    await waitFor(() => expect(screen.getByText(/hick init failed: not a git work tree/)).toBeTruthy());
+    expect(screen.getByRole("button", { name: "Run hick init" })).toBeTruthy();
   });
 });

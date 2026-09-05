@@ -921,72 +921,18 @@ export type ReplayResponse =
       output?: { path: string; content: string; provenance: Provenance[] };
     };
 
-/** Whether `.hick` documents merge through hick in THIS clone.
- *
- * The routing (`*.hick merge=hick`) is committed; the driver definition
- * cannot be, because git will not let a repository hand a clone an executable
- * command. An undefined driver makes git fall back to its line merge
- * silently, which is why this is checked at project open. */
-export interface MergeDriverStatus {
-  repository: boolean;
-  attributes: boolean;
-  configured: boolean;
-  summary: string;
-}
-
-export interface GitStatus {
-  repository: boolean;
-  branch?: string;
-  staged?: number;
-  unstaged?: number;
-  untracked?: number;
-}
-
-/** One changed file in the working tree: what the index says of it and what
- * the tree says, as git's two porcelain columns (` `, `M`, `A`, `D`, `R`,
- * `?`). A file can be on both sides at once. */
-export interface GitChangeFile {
-  path: string;
-  from?: string;
-  index: string;
-  tree: string;
-}
-
-/** GET /api/git/changes. */
-export interface GitChanges {
-  repository: boolean;
-  branch?: string;
-  upstream?: string | null;
-  ahead?: number;
-  behind?: number;
-  files: GitChangeFile[];
-}
-
-/** GET /api/git/diff — one file's diff, as git prints it. */
-export interface GitDiff {
-  path: string;
-  diff: string;
-  binary: boolean;
-}
-
-export interface GitBranch {
-  name: string;
-  upstream: string | null;
-  current: boolean;
-}
-
-/** What a git verb answered: `ok`, and what git said on the way. */
-export interface GitSaid {
-  ok: boolean;
-  said?: string;
-  branch?: string;
-}
-
-export interface GitCommitResult {
-  sha: string;
-  short: string;
-  subject: string;
-}
+// The Git pane's types live in ./git.ts; importers keep finding them here.
+export type {
+  MergeDriverStatus,
+  InitOutcome,
+  GitStatus,
+  GitChangeFile,
+  GitChanges,
+  GitDiff,
+  GitBranch,
+  GitSaid,
+  GitCommitResult,
+} from "./git";
 
 /** Where an image dropped into a note was written (POST /api/asset). */
 export interface SavedAsset {

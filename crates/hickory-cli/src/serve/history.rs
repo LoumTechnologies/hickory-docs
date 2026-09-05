@@ -205,6 +205,39 @@ pub async fn merge_driver(State(state): State<LocalState>) -> ApiResult<Json<Val
     Ok(Json(json!({ "status": status, "ok": status.ok() })))
 }
 
+/// `POST /api/git/merge-driver` — run `hick init` on the open folder.
+///
+/// The banner that reports a missing driver used to end with "run `hick
+/// init` in this repository", which is a command to go and type; the rule in
+/// `a-missing-debugger-is-a-button.md` is that a fixable failure is a button.
+/// This is the same `run_init` the CLI runs — the hook, `.gitignore`,
+/// `.gitattributes`, the driver definition, the editor and agent files — in
+/// process, so the desktop app needs no `hick` on its `PATH` to do it. The
+/// answer says what changed and re-reads the status the banner asked about.
+pub async fn run_init(State(state): State<LocalState>) -> ApiResult<Json<Value>> {
+    let root = state.index.root().to_path_buf();
+    let (report, status) = tokio::task::spawn_blocking(move || {
+        let report = crate::init::run_init(&root).map_err(|e| format!("{e:#}"))?;
+        Ok::<_, String>((report, crate::merge_driver::status(&root)))
+    })
+    .await
+    .map_err(|e| ApiError::internal(format!("the init task failed: {e}")))?
+    .map_err(ApiError::unprocessable)?;
+    Ok(Json(json!({
+        "changed": {
+            "hook": report.hook_changed,
+            "gitignore": report.gitignore_changed,
+            "gitattributes": report.gitattributes_changed,
+            "merge_driver": report.merge_driver_changed,
+            "agents_md": report.agents_md_changed,
+            "mcp_json": report.mcp_json_changed,
+        },
+        "hook_path": report.hook_path.display().to_string(),
+        "status": status,
+        "ok": status.ok(),
+    })))
+}
+
 // ---------------------------------------------------------------------------
 // The continuity switch
 // ---------------------------------------------------------------------------

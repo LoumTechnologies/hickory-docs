@@ -583,7 +583,10 @@ fn router(state: LocalState) -> Router {
         // from the recorded before-bytes of every one of them.
         .route("/merged/write", post(merged::write))
         .route("/merged/undo", post(merged::undo))
-        .route("/git/merge-driver", get(history::merge_driver))
+        .route(
+            "/git/merge-driver",
+            get(history::merge_driver).post(history::run_init),
+        )
         // The fleet: a roster, not a presence list — nothing is reachable.
         .route("/fleet", get(history::fleet))
         // Enrolling and granting are done STANDING AT a machine: these are

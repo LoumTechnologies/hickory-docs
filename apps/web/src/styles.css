@@ -2077,6 +2077,23 @@ textarea:focus {
 .banner__dismiss:hover {
   color: var(--fg);
 }
+/* The banner's verb: the fix itself, beside the sentence that names it. A
+   fixable failure is a button, never a command to go and type. */
+.banner__action {
+  flex: none;
+  background: var(--accent);
+  border: 1px solid var(--accent);
+  border-radius: 4px;
+  padding: 0.1rem 0.6rem;
+  font: inherit;
+  font-size: 0.78rem;
+  color: var(--bg);
+  cursor: pointer;
+}
+.banner__action:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
 
 /* The time slider. It sits above the columns rather than beside them: it
    changes WHICH picture you are looking at, which is not the same kind of
