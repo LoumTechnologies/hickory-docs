@@ -40,6 +40,7 @@ pub mod history;
 pub mod install;
 pub mod lsp_bridge;
 pub mod merged;
+pub mod outputs;
 pub mod plain_file;
 pub mod refactor;
 pub mod reveal;
@@ -481,9 +482,9 @@ fn router(state: LocalState) -> Router {
         .route("/docs/{id}/render", get(api::render_doc))
         .route("/elements", get(api::elements))
         .route("/docs/{id}/blocks/{at}/{action}", post(api::block_action))
-        .route("/docs/{id}/outputs", get(api::list_outputs))
-        .route("/docs/{id}/outputs/file", get(api::get_output_file))
-        .route("/docs/{id}/outputs/edit", post(api::edit_outputs))
+        .route("/docs/{id}/outputs", get(outputs::list_outputs))
+        .route("/docs/{id}/outputs/file", get(outputs::get_output_file))
+        .route("/docs/{id}/outputs/edit", post(outputs::edit_outputs))
         .route("/docs/{id}/context", get(api::get_context))
         .route("/docs/{id}/cites", get(api::get_cites))
         // Replay: exact lineage at any commit, recomputed by weaving that

@@ -30,10 +30,14 @@ Two properties hold it up:
 
 ## Boundary
 
-The driver definition `hick init` writes still names a `hick` command for
-git to run at merge time; a machine without the CLI on its `PATH` will
-have the definition and still not be able to merge through it. That is a
-separate gap, not closed here.
+The driver definition names the executable `hick init` ran from — from
+the app, the app's own binary, whose `main` answers `merge-driver` and
+`merge-generated` before opening any window
+(`hickory_cli::merge_driver::run_argv`). From an AppImage that path is the
+image itself (`APPIMAGE`), never the `/tmp/.mount_*` directory that
+exists only while that launch is running — which is what the first
+version wrote, and which git would have reported as a command not found
+the day after.
 
 ---
 
@@ -45,7 +49,10 @@ Last LLM verification:
   as `POST /git/merge-driver` in `serve/mod.rs`;
   `apps/web/src/components/MergeDriverNotice.tsx` (`runInit`, the three
   states); `apps/web/src/api/client.ts` `initRepository`;
-  `apps/web/src/api/types.ts` `InitOutcome`.
+  `apps/web/src/api/types.ts` `InitOutcome`;
+  `crates/hickory-cli/src/merge_driver.rs` `driver_exe` and `run_argv`
+  with `driver_definition_tests`; `apps/desktop/src-tauri/src/main.rs`
+  dispatching the two git verbs.
 - Test coverage: `apps/web/src/components/MergeDriverNotice.test.tsx`
   ("the banner's button"); `crates/hickory-cli/tests/merge_driver_button.rs`
   drives the route over real HTTP on a fresh repository.

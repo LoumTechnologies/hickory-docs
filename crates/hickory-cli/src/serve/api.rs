@@ -378,23 +378,6 @@ pub async fn render_doc(
 // Outputs — the lineage ribbons
 // ---------------------------------------------------------------------------
 
-/// `GET /api/docs/:id/outputs`
-pub async fn list_outputs(
-    State(state): State<LocalState>,
-    Path(id): Path<String>,
-) -> ApiResult<Json<Value>> {
-    let run = state.weave(&id).await?;
-    let mut files: Vec<Value> = run
-        .result
-        .files
-        .iter()
-        .filter(|(_, content)| content.as_text().is_some())
-        .map(|(path, _)| json!({ "path": path, "language": language_of(path) }))
-        .collect();
-    files.sort_by(|a, b| a["path"].as_str().cmp(&b["path"].as_str()));
-    Ok(Json(json!({ "files": files })))
-}
-
 /// `GET /api/structure` — definitions, references, and the links between
 /// them, for every generated file in the session.
 ///
@@ -950,47 +933,6 @@ fn sort_tree(nodes: &mut [TreeNode]) {
     }
 }
 
-#[derive(Deserialize)]
-pub struct FileQuery {
-    pub path: String,
-}
-
-/// `GET /api/docs/:id/outputs/file?path=…` — content plus byte-precise
-/// provenance. This is what the ribbon layer draws.
-pub async fn get_output_file(
-    State(state): State<LocalState>,
-    Path(id): Path<String>,
-    Query(q): Query<FileQuery>,
-) -> ApiResult<Json<Value>> {
-    let run = state.weave(&id).await?;
-    let content = run
-        .result
-        .files
-        .get(&q.path)
-        .and_then(|c| c.as_text())
-        .ok_or_else(|| {
-            let mut available: Vec<&str> = run.result.files.keys().map(String::as_str).collect();
-            available.sort();
-            ApiError::not_found(format!(
-                "this document produces no output named {:?} — it produces: {}",
-                q.path,
-                if available.is_empty() {
-                    "(nothing)".to_string()
-                } else {
-                    available.join(", ")
-                }
-            ))
-        })?
-        .to_string();
-    let provenance = crate::output_lineage(&run, &q.path)?;
-    Ok(Json(json!({
-        "path": q.path,
-        "language": language_of(&q.path),
-        "content": content,
-        "provenance": provenance,
-    })))
-}
-
 /// `GET /api/docs/:id/context` — context provenance: every run of lines an
 /// agent wrote in this document, with what was in front of the model when it
 /// wrote them, derived from the session files near the document. A second
@@ -1115,81 +1057,6 @@ pub async fn session_view(
         .map(|p| p.display().to_string())
         .unwrap_or(q.path.clone());
     Ok(Json(json!({ "path": rel_path, "view": view })))
-}
-
-#[derive(Deserialize)]
-pub struct EditRequest {
-    pub path: String,
-    pub edits: Vec<hickory_lineage::OutputEdit>,
-}
-
-/// `POST /api/docs/:id/outputs/edit` — edit the generated file; the change is
-/// mapped back into the documents that produced it.
-///
-/// Simpler than the hosted counterpart in one way that matters: the weave was
-/// computed from the files in this same request, so the "doc changed since the
-/// run this output came from" conflict cannot arise. There is no stale
-/// provenance to guard against, because there is no stored run.
-pub async fn edit_outputs(
-    State(state): State<LocalState>,
-    Path(id): Path<String>,
-    Json(body): Json<EditRequest>,
-) -> ApiResult<Json<Value>> {
-    let run = state.weave(&id).await?;
-    let content = run
-        .result
-        .files
-        .get(&body.path)
-        .and_then(|c| c.as_text())
-        .ok_or_else(|| ApiError::not_found(format!("no output named {:?}", body.path)))?
-        .to_string();
-    let provenance = crate::output_lineage(&run, &body.path)?;
-
-    let source_edits =
-        hickory_lineage::map_edits(&content, &body.edits, &provenance).map_err(|e| match e {
-            hickory_lineage::LineageError::SyntheticOverlap { start, end } => {
-                ApiError::unprocessable(format!(
-                    "edit overlaps a synthetic (non-editable) output range at bytes {start}..{end}"
-                ))
-                .with_detail(json!({ "range": { "start": start, "end": end } }))
-            }
-            hickory_lineage::LineageError::InvalidEdit(m) => ApiError::bad_request(m),
-            hickory_lineage::LineageError::Conflict(m) => ApiError::unprocessable(m),
-        })?;
-
-    // Provenance names documents by the path the weave knew them as; read each
-    // one from disk.
-    let mut sources: std::collections::HashMap<String, String> = std::collections::HashMap::new();
-    for edit in &source_edits {
-        if sources.contains_key(&edit.doc_path) {
-            continue;
-        }
-        let text = state.read_source_by_doc_path(&edit.doc_path)?;
-        sources.insert(edit.doc_path.clone(), text);
-    }
-
-    let updated = hickory_lineage::apply_source_edits(&sources, &source_edits)
-        .map_err(|e| ApiError::unprocessable(e.to_string()))?;
-
-    // Reject an edit that breaks the document: the next run must reproduce it.
-    for (doc_path, new_source) in &updated {
-        hick_lang::parse(new_source).map_err(|e| {
-            ApiError::unprocessable(format!("edit would make {doc_path} unparseable: {e}"))
-        })?;
-    }
-
-    for (doc_path, new_source) in &updated {
-        let target_id = state.id_for_doc_path(doc_path);
-        state.write_source_by_doc_path(doc_path, new_source)?;
-        state
-            .rooms
-            .apply_external_source(&target_id, new_source)
-            .await;
-    }
-
-    Ok(Json(
-        json!({ "source_edits": source_edits, "applied": true }),
-    ))
 }
 
 /// Language tag for an output path, matching the hosted server's mapping.

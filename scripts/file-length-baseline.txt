@@ -18,7 +18,7 @@ crates/hickory-cli/src/ingest.rs 1107
 crates/hickory-cli/src/lib.rs 2403
 crates/hickory-cli/src/main.rs 4464
 crates/hickory-cli/src/mcp.rs 1307
-crates/hickory-cli/src/serve/api.rs 1818
+crates/hickory-cli/src/serve/api.rs 1685
 crates/hickory-executor-sandbox/src/policy.rs 1164
 crates/hickory-executor/src/lib.rs 2262
 crates/hickory-lineage/src/lib.rs 1002

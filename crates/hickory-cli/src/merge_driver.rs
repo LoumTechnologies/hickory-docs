@@ -296,9 +296,32 @@ pub fn ensure_generated_driver_config(root: &Path) -> Result<bool> {
 
 /// This binary's path, for a command git will run with git's own `PATH`.
 fn current_exe_path() -> String {
-    std::env::current_exe()
-        .ok()
-        .and_then(|p| p.to_str().map(str::to_string))
+    driver_exe(
+        |key| std::env::var(key).ok(),
+        || {
+            std::env::current_exe()
+                .ok()
+                .and_then(|p| p.to_str().map(str::to_string))
+        },
+    )
+}
+
+/// The executable a driver definition should name.
+///
+/// Inside an AppImage `current_exe()` is a path under a `/tmp/.mount_*`
+/// directory that exists only while that launch of the app is running — a
+/// driver written that way works until the app quits and never again, and
+/// git says only that the command was not found. The runtime publishes the
+/// image's real path as `APPIMAGE`, which is what a person double-clicked
+/// and what will still be there tomorrow.
+fn driver_exe(
+    env: impl Fn(&str) -> Option<String>,
+    current_exe: impl Fn() -> Option<String>,
+) -> String {
+    env("APPIMAGE")
+        .map(|p| p.trim().to_string())
+        .filter(|p| !p.is_empty())
+        .or_else(current_exe)
         .unwrap_or_else(|| "hick".to_string())
 }
 
@@ -335,10 +358,7 @@ fn ensure_config(root: &Path, want: &[(String, String)]) -> Result<bool> {
 /// merge git starts has whatever `PATH` git inherited, which is not
 /// necessarily the one the person who ran `hick init` had.
 pub fn ensure_driver_config(root: &Path) -> Result<bool> {
-    let exe = std::env::current_exe()
-        .ok()
-        .and_then(|p| p.to_str().map(str::to_string))
-        .unwrap_or_else(|| "hick".to_string());
+    let exe = current_exe_path();
     // %O base, %A ours (and the file the result MUST be written to), %B
     // theirs, %L conflict-marker size, %P the path in the work tree.
     let command =
@@ -386,6 +406,70 @@ pub enum MergeOutcome {
     /// Conflicted; `ours` holds the result with conflict markers, which is
     /// git's contract for a driver that exits non-zero.
     Conflicted { reason: String },
+}
+
+/// The two subcommands git runs, parsed from a raw argument list.
+///
+/// `hick init` writes a driver definition naming the executable it ran
+/// from. Run from the desktop app, that is the app's own binary, which has
+/// no clap and no `hick` on its `PATH` — so the app's `main` hands its
+/// arguments here first. `None` when the arguments are not one of the two
+/// git verbs, in which case the caller carries on as itself.
+///
+/// The flags are exactly what [`ensure_driver_config`] writes: `--base`,
+/// `--ours`, `--theirs`, `--marker-size`, `--path` for `merge-driver`, and
+/// `--path` for `merge-generated`. Anything else is an error, not a guess.
+pub fn run_argv(args: &[String]) -> Option<Result<i32>> {
+    let verb = args.first()?.as_str();
+    if verb != "merge-driver" && verb != "merge-generated" {
+        return None;
+    }
+    let mut flags = std::collections::HashMap::new();
+    let mut it = args[1..].iter();
+    while let Some(flag) = it.next() {
+        let Some(name) = flag.strip_prefix("--") else {
+            return Some(Err(anyhow::anyhow!(
+                "unexpected argument {flag:?} to {verb}"
+            )));
+        };
+        let Some(value) = it.next() else {
+            return Some(Err(anyhow::anyhow!("--{name} needs a value")));
+        };
+        flags.insert(name.to_string(), value.clone());
+    }
+    let need = |name: &str| -> Result<String> {
+        flags
+            .get(name)
+            .cloned()
+            .ok_or_else(|| anyhow::anyhow!("{verb} needs --{name}"))
+    };
+    Some((|| {
+        let path = need("path")?;
+        if verb == "merge-generated" {
+            eprintln!(
+                "hick merge: kept your copy of {path} — it is generated, so there is nothing \
+                 here to merge by hand. Resolve the document it comes from, then `hick run` \
+                 it; `hick test` checks that you did."
+            );
+            return Ok(0);
+        }
+        let marker_size: usize = need("marker-size")?
+            .parse()
+            .map_err(|e| anyhow::anyhow!("--marker-size: {e}"))?;
+        match run(
+            Path::new(&need("base")?),
+            Path::new(&need("ours")?),
+            Path::new(&need("theirs")?),
+            marker_size,
+            &path,
+        )? {
+            MergeOutcome::Clean => Ok(0),
+            MergeOutcome::Conflicted { reason } => {
+                eprintln!("hick merge: {reason}");
+                Ok(1)
+            }
+        }
+    })())
 }
 
 /// Run the merge driver over the three files git handed us.
@@ -541,6 +625,54 @@ mod generated_attribute_tests {
         assert!(
             body.contains(&format!("\"my notes.md\" {GENERATED_ATTRS}")),
             "{body}"
+        );
+    }
+}
+
+#[cfg(test)]
+mod driver_definition_tests {
+    use super::*;
+
+    // Protects docs/guarantees/collaboration/a-missing-merge-driver-is-a-button.md
+    // (boundary): a driver written from inside an AppImage names the image,
+    // not the mount that disappears when the app quits.
+    #[test]
+    fn a_driver_written_from_an_appimage_names_the_image() {
+        let exe = driver_exe(
+            |k| (k == "APPIMAGE").then(|| "/home/me/Apps/hickory.AppImage".to_string()),
+            || Some("/tmp/.mount_hickXYZ/usr/bin/hickory-desktop".to_string()),
+        );
+        assert_eq!(exe, "/home/me/Apps/hickory.AppImage");
+        let plain = driver_exe(|_| None, || Some("/usr/local/bin/hick".to_string()));
+        assert_eq!(plain, "/usr/local/bin/hick");
+        assert_eq!(driver_exe(|_| Some("  ".into()), || None), "hick");
+    }
+
+    #[test]
+    fn the_git_verbs_are_recognised_from_raw_arguments() {
+        assert!(run_argv(&["up".to_string()]).is_none());
+        assert!(run_argv(&[]).is_none());
+        let generated = run_argv(&[
+            "merge-generated".to_string(),
+            "--path".into(),
+            "a.md".into(),
+        ]);
+        assert_eq!(generated.unwrap().unwrap(), 0);
+        let missing = run_argv(&["merge-driver".to_string(), "--path".into(), "a.hick".into()]);
+        assert!(
+            missing
+                .unwrap()
+                .unwrap_err()
+                .to_string()
+                .contains("needs --marker-size")
+        );
+        let stray = run_argv(&["merge-driver".to_string(), "oops".into()]);
+        assert!(
+            stray
+                .unwrap()
+                .unwrap_err()
+                .to_string()
+                .contains("unexpected argument")
         );
     }
 }
