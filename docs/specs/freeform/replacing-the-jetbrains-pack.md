@@ -74,18 +74,30 @@ adapter to a stop — not that the code exists.
 | Java | yes | yes | yes |
 | C | yes | yes (clangd) | yes |
 | C++ | yes | yes (clangd) | yes |
-| C# | yes (own job) | **no — see below** | yes (own job) |
+| C# | yes (own job) | yes (own job) | yes (own job) |
 | PHP | — | yes (intelephense) | yes |
 | Ruby, Kotlin, Scala | — | not covered | not covered |
 
-**C# has a debugger in a document and no language server in one.** csharp-ls
-resolves a compilation from the projects under `rootUri`, and a document's
-code is staged elsewhere — so the file it is asked about belongs to no
-project it loaded. Measured three ways on 2026-09-04: with the `.csproj`
-beside the document, generated into the staged tree, and with the request
-budget raised to 180 seconds. Empty every time. The plain-file path works and
-is covered. What would fix it is a server that accepts a loose translation
-unit the way clangd does, or staging a whole project rather than a file.
+**A project-loading server needs the project where the code actually is.**
+This was recorded on 2026-09-04 as "C# cannot work in a document", and that
+was wrong — the wrong configuration had been measured. Corrected 2026-09-05
+by driving `hick-lsp` by hand and watching csharp-ls's own log.
+
+A document's code is staged into a temp directory, and the child server is
+rooted **there**, not at the folder holding the `.hick` file. So a `.csproj`
+written beside the document is a project the server never sees, and one the
+document *generates* is staged next to the code it describes and loads
+normally. With that, hover answers `int Lib.Summarise(string path)` on the
+first attempt.
+
+That is not a testing trick: a real C# document generates its own `.csproj`,
+because that is exactly what `hick ingest` writes when it takes in what
+`dotnet new` produced. The fixture that had one placed beside it was the
+artificial case.
+
+The rule generalises to any server that loads a project before it will
+answer — and C# is the only one here that does, which is why nothing else
+needed it.
 
 Ruby, Kotlin and Scala have servers hick can discover and no fixture drives
 them. That is the remaining gap in this table, and it is honest rather than

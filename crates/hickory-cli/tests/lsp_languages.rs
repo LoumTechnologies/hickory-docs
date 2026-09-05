@@ -69,20 +69,19 @@ struct Language {
     /// Extra files that make this a real project of its ecosystem, written
     /// beside the document.
     scaffold: &'static [(&'static str, &'static str)],
-    /// Whether this server can answer inside a DOCUMENT, as opposed to only
-    /// for a plain file.
+    /// Extra files the DOCUMENT generates, as `hick:file` blocks of its own.
     ///
-    /// True for every server here but one. csharp-ls resolves a compilation
-    /// from the projects it finds under `rootUri`, and a document's code is
-    /// staged somewhere else entirely — so the file it is asked about belongs
-    /// to no project it loaded, and it answers nothing. Measured on
-    /// 2026-09-04 with the `.csproj` beside the document, generated INTO the
-    /// staged tree, and with the budget raised to 180s; empty every time.
+    /// Not the same as `scaffold`, and the difference is the whole reason C#
+    /// works. A document's code is staged into a temp directory and the child
+    /// server is rooted THERE — so a project file written beside the document
+    /// is a project the server never sees, while one the document generates
+    /// is staged next to the code it describes.
     ///
-    /// Recorded rather than hidden: C# in a document has a debugger and no
-    /// language server, and that is worth knowing. The plain-file sweep still
-    /// covers csharp, so this is a narrowing, not a hole.
-    in_document: bool,
+    /// This is not a testing trick. A real C# document generates its own
+    /// `.csproj`: that is exactly what `hick ingest` writes when it takes in
+    /// what `dotnet new` produced. The fixture without one was the artificial
+    /// case.
+    generates: &'static [(&'static str, &'static str)],
 }
 
 /// Let a temp project see the servers this repository has installed.
@@ -104,19 +103,26 @@ fn borrow_this_repos_servers(into: &std::path::Path) {
 #[cfg(not(unix))]
 fn borrow_this_repos_servers(_into: &std::path::Path) {}
 
+/// The project file C# needs, in both of the places it needs to be.
+const CSPROJ: &str = "<Project Sdk=\"Microsoft.NET.Sdk\">\n  <PropertyGroup>\n    <OutputType>Exe</OutputType>\n    <TargetFramework>net10.0</TargetFramework>\n  </PropertyGroup>\n</Project>\n";
+
 const LANGUAGES: &[Language] = &[
     Language {
         id: "csharp",
         file: "Lib.cs",
         code: "public static class Lib\n{\n    public static int Summarise(string path) => path.Length;\n\n    public static int Main() => Summarise(\"x\");\n}\n",
         symbol: "Summarise",
-        // csharp-ls loads a project, not a loose file: without a csproj it
-        // answers nothing and the failure reads as a broken server.
-        scaffold: &[(
-            "app.csproj",
-            "<Project Sdk=\"Microsoft.NET.Sdk\">\n  <PropertyGroup>\n    <OutputType>Exe</OutputType>\n    <TargetFramework>net10.0</TargetFramework>\n  </PropertyGroup>\n</Project>\n",
-        )],
-        in_document: false,
+        // csharp-ls loads a project, not a loose file — and the project has
+        // to be in BOTH places, which is not redundancy but the two paths
+        // having two different roots. A plain file is debugged and served
+        // where it really lives, so the project goes beside it. A document's
+        // code is STAGED, and the child is rooted there, so the project has
+        // to be staged too — which means the document must generate it.
+        //
+        // Nothing else here needs both, because nothing else loads a project
+        // before it will answer.
+        scaffold: &[("app.csproj", CSPROJ)],
+        generates: &[("app.csproj", CSPROJ)],
     },
     Language {
         id: "php",
@@ -124,7 +130,7 @@ const LANGUAGES: &[Language] = &[
         code: "<?php\nfunction summarise(string $path): int {\n    return strlen($path);\n}\n\necho summarise(\"x\");\n",
         symbol: "summarise",
         scaffold: &[],
-        in_document: true,
+        generates: &[],
     },
     Language {
         id: "c",
@@ -134,7 +140,7 @@ const LANGUAGES: &[Language] = &[
         // Free: clangd serves C and C++ both, so the second row costs an
         // install of nothing and covers a language the C suite debugs.
         scaffold: &[],
-        in_document: true,
+        generates: &[],
     },
     Language {
         id: "cpp",
@@ -145,7 +151,7 @@ const LANGUAGES: &[Language] = &[
         // would pin the flags and is not needed for one file with no
         // includes.
         scaffold: &[],
-        in_document: true,
+        generates: &[],
     },
     Language {
         id: "java",
@@ -156,7 +162,7 @@ const LANGUAGES: &[Language] = &[
         // bare directory, which is what a document's scratch tree is. Proved
         // when the debugger was built — see debugging-the-jvm.md.
         scaffold: &[],
-        in_document: true,
+        generates: &[],
     },
     Language {
         id: "python",
@@ -169,7 +175,7 @@ const LANGUAGES: &[Language] = &[
             "pyproject.toml",
             "[project]\nname = \"fixture\"\nversion = \"0.1.0\"\n",
         )],
-        in_document: true,
+        generates: &[],
     },
     Language {
         id: "rust",
@@ -180,7 +186,7 @@ const LANGUAGES: &[Language] = &[
             "Cargo.toml",
             "[package]\nname = \"fixture\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
         )],
-        in_document: true,
+        generates: &[],
     },
     Language {
         id: "typescript",
@@ -197,7 +203,7 @@ const LANGUAGES: &[Language] = &[
                 "{\n  \"compilerOptions\": { \"strict\": true, \"target\": \"ES2020\" }\n}\n",
             ),
         ],
-        in_document: true,
+        generates: &[],
     },
     Language {
         id: "go",
@@ -205,7 +211,7 @@ const LANGUAGES: &[Language] = &[
         code: "package main\n\nimport \"fmt\"\n\nfunc double(value int) int {\n\treturn value * 2\n}\n\nfunc main() {\n\tfmt.Println(double(21))\n}\n",
         symbol: "double",
         scaffold: &[("go.mod", "module fixture\n\ngo 1.22\n")],
-        in_document: true,
+        generates: &[],
     },
 ];
 
@@ -227,11 +233,20 @@ fn scaffold(language: &Language) -> (tempfile::TempDir, PathBuf, u32) {
         std::fs::write(full, contents).unwrap();
     }
 
+    // Anything the document generates besides the code under test goes
+    // first, so the code's own block is last and the line arithmetic below
+    // stays "every line above it".
+    let mut generated = String::new();
+    for (path, contents) in language.generates {
+        generated.push_str(&format!(
+            "<hick:file path=\"{path}\">\n{contents}</hick:file>\n\n"
+        ));
+    }
     let header = format!(
         "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n\
          <hick:doc xmlns:hick=\"http://www.hickorydocs.com/1.0\" weave=\"out.md\">\n\
          # A document with {} in it\n\n\
-         <hick:file path=\"{}\">\n",
+         {generated}<hick:file path=\"{}\">\n",
         language.id, language.file
     );
     // The line the block's first line of code lands on, 0-based: every line
@@ -675,17 +690,6 @@ fn every_installed_language_answers_in_document_coordinates() {
             eprintln!(
                 "SKIPPED rust on Windows: rust-analyzer does not answer about a staged \
                  file there — see issue #24"
-            );
-            continue;
-        }
-        if !language.in_document {
-            // Not a skip for a missing server: this one is installed and
-            // answers for a plain file. It cannot answer for a document, and
-            // saying which of the two is the point of the flag.
-            eprintln!(
-                "NOT COVERED {}: its server cannot answer about a staged file — see the \
-                 `in_document` note beside its fixture. The plain-file sweep covers it.",
-                language.id
             );
             continue;
         }
