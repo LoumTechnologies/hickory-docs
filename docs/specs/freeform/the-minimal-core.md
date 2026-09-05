@@ -1,8 +1,9 @@
 # The minimal core: line-numbered documents, React components, Rust backends
 
-*Status: adopted 2026-09-05. Step 1 built the same day
-(`the-editor-reads-with-the-parser-the-server-uses.md`). Steps 2 to 5 are
-in progress; each is shippable on its own and each deletes more than it
+*Status: adopted 2026-09-05. Steps 1 and 2 built the same day
+(`the-editor-reads-with-the-parser-the-server-uses.md`,
+`an-element-is-declared-once.md`), and step 3's routes
+(`an-action-is-asked-of-the-element.md`); the rest is in progress; each is shippable on its own and each deletes more than it
 adds. Nothing here changes what a document is, what it means, or what any
 `.hick` file on disk does.*
 
@@ -52,11 +53,17 @@ What that cost, measured rather than assumed:
    declaring its tag name, its attribute schema, how it renders to block
    props, and the actions it owns. The registry replaces the string matches,
    and the block model becomes uniform: `{kind, span, props}` for every
-   element, `kind` resolved by the registry.
+   element, `kind` resolved by the registry. *Built:* `hick-blocks`, with
+   the four elements the app already drew registered from `hick-literate`
+   and the wire shape unchanged.
 3. **A generic server** (`hick-server`). Read and write a document, render
    its blocks, subscribe to changes, and one action route dispatched to the
    element's backend. `hickory-cli` shrinks to argument parsing and the
    commands. Routes an element does not own migrate or stay as extensions.
+   *Built so far:* `GET /api/elements` and
+   `POST /api/docs/:id/blocks/:at/:action`, with `exec`'s `run` as the
+   first action through it, beside the older routes. *Not yet:* the crate
+   split, which waits on `LocalState` being separable from the CLI.
 4. **The frontend mirror.** A component registry keyed by the same `kind`,
    one generic document editor that draws lines and mounts components, and
    each element a folder pair — Rust beside TSX. The hardcoded panel chain

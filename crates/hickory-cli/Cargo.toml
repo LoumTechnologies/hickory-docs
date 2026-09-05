@@ -60,6 +60,7 @@ hick-term = { path = "../hick-term" }
 # needs no `hick-lsp` on PATH to answer a language question.
 tower-lsp = "0.20"
 hick-literate = { path = "../hick-literate" }
+hick-blocks.workspace = true
 # The merged view's N-way alignment: which regions N worktrees agree on.
 hick-merge = { path = "../hick-merge" }
 # Project-wide search (semble-shaped: lexical always, Model2Vec semantic when

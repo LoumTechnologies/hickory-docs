@@ -287,6 +287,78 @@ pub async fn put_doc(
     Ok(Json(doc_json(&state, &id)?))
 }
 
+/// `GET /api/elements` — the vocabulary the app draws, as data: every
+/// element's name, the component that draws it, its attributes and its
+/// actions. Read from the registry, so it cannot disagree with `/render`.
+pub async fn elements() -> Json<Value> {
+    Json(json!({ "elements": hick_literate::render::describe_elements() }))
+}
+
+/// `POST /api/docs/:id/blocks/:at/:action` — one action on one element,
+/// addressed by the byte offset its tag starts at.
+///
+/// The element answers with what it wants (`hick_blocks::ActionOutcome`)
+/// and this handler carries it out with the machinery the older routes
+/// already use: a `run` starts a run exactly as `POST /run` does and
+/// answers `202` with the run id; an `edit` writes the document as `PUT`
+/// does; an `answer` is returned as is. An element that does not know the
+/// action is a `404` naming the element; one that refuses is a `422` in its
+/// own words.
+pub async fn block_action(
+    State(state): State<LocalState>,
+    Path((id, at, action)): Path<(String, usize, String)>,
+    body: Option<Json<Value>>,
+) -> ApiResult<(StatusCode, Json<Value>)> {
+    use hick_blocks::{ActionError, ActionOutcome};
+    let run = state.weave(&id).await?;
+    let body = body.map(|Json(v)| v).unwrap_or(Value::Null);
+    let outcome = crate::block_action(&run, at, &action, body).map_err(|e| match e {
+        ActionError::Unknown { .. } => ApiError::not_found(e.to_string()),
+        ActionError::Refused(_) => ApiError::unprocessable(e.to_string()),
+        ActionError::Failed(_) => ApiError::internal(e.to_string()),
+    })?;
+    match outcome {
+        ActionOutcome::Answer { value } => Ok((
+            StatusCode::OK,
+            Json(json!({ "outcome": "answer", "value": value })),
+        )),
+        ActionOutcome::Run { cells } => {
+            let run_id = state.start_run(&id, false).await?;
+            Ok((
+                StatusCode::ACCEPTED,
+                Json(json!({ "outcome": "run", "run_id": run_id, "cells": cells })),
+            ))
+        }
+        ActionOutcome::Edit { span, replacement } => {
+            let source = run.doc.source.clone();
+            if span.0 > span.1
+                || span.1 > source.len()
+                || !source.is_char_boundary(span.0)
+                || !source.is_char_boundary(span.1)
+            {
+                return Err(ApiError::unprocessable(format!(
+                    "the element asked to replace bytes {}..{} of a {}-byte document",
+                    span.0,
+                    span.1,
+                    source.len()
+                )));
+            }
+            let mut next = String::with_capacity(source.len() + replacement.len());
+            next.push_str(&source[..span.0]);
+            next.push_str(&replacement);
+            next.push_str(&source[span.1..]);
+            state.write_source(&id, &next)?;
+            state.rooms.apply_external_source(&id, &next).await;
+            Ok((
+                StatusCode::OK,
+                Json(
+                    json!({ "outcome": "edit", "span": [span.0, span.1], "doc": doc_json(&state, &id)? }),
+                ),
+            ))
+        }
+    }
+}
+
 /// `GET /api/docs/:id/render` — the block model for the current source.
 ///
 /// Weave, never execute: the client asks for this on every load and after

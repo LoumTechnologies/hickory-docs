@@ -2010,6 +2010,31 @@ pub fn block_model(run: &DocRun) -> Vec<Block> {
     })
 }
 
+/// One action on the element whose tag starts at byte `at` of the run's
+/// document, answered by the element registry over the run's facts.
+///
+/// The element only says what it wants ([`hick_blocks::ActionOutcome`]);
+/// carrying it out — starting a run, writing the document — is the caller's,
+/// which is what keeps the registry from ever executing anything.
+pub fn block_action(
+    run: &DocRun,
+    at: usize,
+    action: &str,
+    body: serde_json::Value,
+) -> std::result::Result<hick_blocks::ActionOutcome, hick_blocks::ActionError> {
+    let never_run = run.result.never_run.clone();
+    let stale = run.result.stale.clone();
+    let input = BlockModelInput {
+        doc: &run.doc,
+        transcripts: &run.result.transcripts,
+        expectations: &run.result.expectations,
+        files: Some(&run.result.files),
+        never_run: &never_run,
+        stale: &stale,
+    };
+    hick_literate::render::registry().act(&run.doc, at, action, &input, body)
+}
+
 /// The block model as the JSON body the server's render endpoint returns.
 pub fn block_model_json(run: &DocRun) -> Result<serde_json::Value> {
     Ok(serde_json::json!({ "blocks": block_model(run) }))

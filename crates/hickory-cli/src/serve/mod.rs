@@ -479,6 +479,8 @@ fn router(state: LocalState) -> Router {
         )
         .route("/docs/{id}", get(api::get_doc).put(api::put_doc))
         .route("/docs/{id}/render", get(api::render_doc))
+        .route("/elements", get(api::elements))
+        .route("/docs/{id}/blocks/{at}/{action}", post(api::block_action))
         .route("/docs/{id}/outputs", get(api::list_outputs))
         .route("/docs/{id}/outputs/file", get(api::get_output_file))
         .route("/docs/{id}/outputs/edit", post(api::edit_outputs))

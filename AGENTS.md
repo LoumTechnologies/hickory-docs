@@ -743,6 +743,17 @@ WebAssembly (the parser as a library, not a runtime; the rule against a wasm
 reporting the first strict error beside what they drew. The built parser is
 a generated file under `just codegen`, and byte-for-byte reproducible.
 Spans stay bytes; provenance is byte-precise and nothing here changes that.
+**Step 2 the same day (`an-element-is-declared-once.md`):** `hick-blocks`
+is the element registry — one `Element<Cx>` per tag declaring name,
+attributes, render, descent and actions; `Registry::blocks` is the walk —
+and `hick-literate`'s block model is four elements and a prose renderer
+registered over the run's facts. The wire shape is unchanged. **Step 3's
+routes (`an-action-is-asked-of-the-element.md`):** `GET /api/elements` is
+the vocabulary as data and `POST /api/docs/:id/blocks/:at/:action` is one
+route for every element's verbs — the element answers with an
+`ActionOutcome` (answer / run / edit) and the server carries it out with
+the machinery the older routes use; an element never runs anything. The
+plan is `docs/specs/freeform/the-minimal-core.md`.
 
 ## Stack (settled — do not relitigate)
 

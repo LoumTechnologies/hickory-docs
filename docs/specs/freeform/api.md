@@ -40,6 +40,16 @@ type TranscriptEvent =
 `span` is byte offsets into the doc source (provenance — clicking a block
 selects its source).
 
+## Elements (`the-minimal-core.md`, 2026-09-05)
+- `GET /api/elements` → `{elements: [{name, kind, attributes: [{name, required, doc}], actions: string[]}]}`
+  — the registry's vocabulary, the same one `/render` draws from.
+- `POST /api/docs/:id/blocks/:at/:action` (`:at` = the byte the tag starts
+  at, i.e. `span[0]` of its block; body optional JSON) → one of
+  `{outcome: "answer", value}` (200), `{outcome: "run", run_id, cells}`
+  (202, a run like `POST /run` starts), `{outcome: "edit", span, doc}`
+  (200, the document written like `PUT` writes it). An action the element
+  does not know is `404`; one it refuses is `422`, in its own words.
+
 ## Execution
 - `POST /api/docs/:id/run` `{cells?: string[]}` → `{run_id}` (202)
 - `GET  /api/runs/:id` → `{id, status: "queued"|"running"|"ok"|"failed", started_at,

@@ -3,16 +3,27 @@
 //!
 //! This is the shared code path between the CLI's `--json` output and the
 //! server's render endpoint: both call [`build_block_model`].
+//!
+//! The elements themselves — what an `exec`, a `file`, a `diagram` and the
+//! prose between them look like as blocks — are declared here as
+//! [`hick_blocks::Element`]s over the run's facts ([`BlockModelInput`]) and
+//! registered once in [`registry`]. The walk is the registry's; this module
+//! only says what each element means.
 
 use std::collections::HashMap;
 
+use hick_blocks::{
+    ActionError, ActionOutcome, AttrSpec, Descend, Element, Registry, attr, span_of,
+};
 use hick_exec::node::FileContent;
 use hick_lang::{HickDocument, HickNode, HickTag};
-use hickory_executor::{TranscriptEvent, Transcripts};
+use hickory_executor::Transcripts;
 use serde::Serialize;
 
 use crate::expect::ExpectationOutcome;
 use crate::tag_attr;
+
+pub use hick_blocks::Block;
 
 /// Expectation metadata attached to an exec block.
 #[derive(Debug, Clone, Serialize)]
@@ -37,51 +48,7 @@ pub struct IngestedInfo {
     pub skipped: String,
 }
 
-/// One block of the document, per the v0 API contract.
-#[derive(Debug, Clone, Serialize)]
-#[serde(tag = "kind", rename_all = "kebab-case")]
-pub enum Block {
-    Prose {
-        html: String,
-        span: (usize, usize),
-    },
-    Exec {
-        id: String,
-        container: String,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        image: Option<String>,
-        command: String,
-        span: (usize, usize),
-        #[serde(skip_serializing_if = "Option::is_none")]
-        transcript: Option<Vec<TranscriptEvent>>,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        expect: Option<ExpectInfo>,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        // Boxed: `IngestedInfo`'s five `String` fields would otherwise make
-        // this variant the largest in `Block` by a wide margin for the
-        // common (no ingest) case every OTHER exec cell hits.
-        ingested: Option<Box<IngestedInfo>>,
-        status: String,
-    },
-    File {
-        path: String,
-        language: String,
-        body: String,
-        span: (usize, usize),
-    },
-    Diagram {
-        renderer: String,
-        /// The body with `<hick:paste>` fragments from THIS document inlined
-        /// — what a notebook draws. The raw source, paste tags and all, stays
-        /// in the document; a derived diagram is unreadable without this.
-        body: String,
-        /// Ids named by `asserts`, `#` stripped.
-        asserts: Vec<String>,
-        span: (usize, usize),
-    },
-}
-
-/// Inputs for [`build_block_model`].
+/// The facts a run produced, which the elements render from.
 pub struct BlockModelInput<'a> {
     /// Parsed document (spans intact).
     pub doc: &'a HickDocument,
@@ -101,30 +68,225 @@ pub struct BlockModelInput<'a> {
 
 /// Build the block model for one document.
 pub fn build_block_model(input: &BlockModelInput<'_>) -> Vec<Block> {
-    // container name -> image, from <hick:container> declarations.
-    let mut images: HashMap<String, String> = HashMap::new();
-    collect_images(&input.doc.nodes, &mut images);
-
-    let mut blocks = Vec::new();
-    walk(&input.doc.nodes, input, &images, &mut blocks);
-    blocks
+    registry().blocks(input.doc, input)
 }
 
-fn collect_images(nodes: &[HickNode], images: &mut HashMap<String, String>) {
-    for node in nodes {
-        if let HickNode::Tag(tag) = node {
-            if tag.name == "container"
-                && let (Some(name), Some(image)) = (tag_attr(tag, "name"), tag_attr(tag, "image"))
-            {
-                images.insert(name, image);
-            }
-            collect_images(&tag.children, images);
+/// The elements the app draws, over a run's facts.
+///
+/// Built per call: it is five zero-sized elements and a closure, and a
+/// registry generic over a borrowed context cannot be a static.
+pub fn registry<'a>() -> Registry<BlockModelInput<'a>> {
+    let mut registry = Registry::new();
+    registry
+        .register(ExecElement)
+        .register(FileElement)
+        .register(DiagramElement)
+        .register(WhenElement)
+        .text(Box::new(|text, span, _| {
+            (!text.trim().is_empty())
+                .then(|| Block::new("prose", span).with("html", markdown_to_html(text)))
+        }));
+    registry
+}
+
+/// The vocabulary the app draws, for anything that needs it as data.
+pub fn describe_elements() -> Vec<hick_blocks::ElementDescription> {
+    registry().describe()
+}
+
+// ---------------------------------------------------------------------------
+// The elements
+// ---------------------------------------------------------------------------
+
+/// `<hick:exec>`: a cell. Renders as the command, its transcript and its
+/// verdict; then shows the files it `ingested`, which are file blocks of
+/// their own right after it.
+struct ExecElement;
+
+impl<'a> Element<BlockModelInput<'a>> for ExecElement {
+    fn name(&self) -> &'static str {
+        "exec"
+    }
+
+    fn attributes(&self) -> &'static [AttrSpec] {
+        const ATTRS: &[AttrSpec] = &[
+            AttrSpec::required("container", "the container the command runs in"),
+            AttrSpec::optional(
+                "image",
+                "the image that creates the container, on its first cell",
+            ),
+            AttrSpec::optional("mount", "volumes mounted into the container, `name:path,…`"),
+            AttrSpec::optional("timeout", "how long the cell may run"),
+            AttrSpec::optional("show", "which parts of the transcript the weave shows"),
+        ];
+        ATTRS
+    }
+
+    fn descend(&self) -> Descend {
+        // What the run produced and this document now owns sits at
+        // `exec > ingested > file`. The cell renders as a cell; the files it
+        // brought in render as the file blocks they are, right after it.
+        Descend::Named(&["ingested"])
+    }
+
+    fn render(&self, tag: &HickTag, input: &BlockModelInput<'a>) -> Option<Block> {
+        Some(exec_block(tag, input))
+    }
+
+    fn actions(&self) -> &'static [&'static str] {
+        &["run"]
+    }
+
+    /// `run`: ask the host to execute this cell. The element does not run
+    /// it — the host does, through the executor and the run record the Run
+    /// button already uses — which is what keeps a render endpoint from
+    /// ever being a way to execute a document.
+    fn act(
+        &self,
+        action: &str,
+        tag: &HickTag,
+        _: &BlockModelInput<'a>,
+        _: serde_json::Value,
+    ) -> Result<ActionOutcome, ActionError> {
+        match action {
+            "run" => Ok(ActionOutcome::Run {
+                cells: vec![cell_id(tag)],
+            }),
+            other => Err(ActionError::Unknown {
+                element: "exec",
+                action: other.to_string(),
+            }),
         }
     }
 }
 
-fn span_of_tag(tag: &HickTag) -> (usize, usize) {
-    tag.source_span.map(|s| (s.start, s.end)).unwrap_or((0, 0))
+/// The id an exec block carries: `container:line`.
+fn cell_id(tag: &HickTag) -> String {
+    format!(
+        "{}:{}",
+        tag_attr(tag, "container").unwrap_or_default(),
+        tag.source_line
+    )
+}
+
+/// `<hick:file>`: a generated file. Its body is what the run wove when the
+/// run is in hand, else the source text; the cells nested in it are blocks
+/// after it.
+struct FileElement;
+
+impl<'a> Element<BlockModelInput<'a>> for FileElement {
+    fn name(&self) -> &'static str {
+        "file"
+    }
+
+    fn attributes(&self) -> &'static [AttrSpec] {
+        const ATTRS: &[AttrSpec] = &[
+            AttrSpec::required(
+                "path",
+                "where the file is written, relative to the document",
+            ),
+            AttrSpec::optional(
+                "language",
+                "how the body highlights, when the path does not say",
+            ),
+        ];
+        ATTRS
+    }
+
+    fn descend(&self) -> Descend {
+        Descend::All
+    }
+
+    fn render(&self, tag: &HickTag, input: &BlockModelInput<'a>) -> Option<Block> {
+        let path = attr(tag, "path").unwrap_or_default();
+        let body = input
+            .files
+            .and_then(|files| files.get(&path))
+            .map(|content| match content {
+                FileContent::Text(s) => s.clone(),
+                FileContent::Binary(_) => "[binary]".to_string(),
+            })
+            .unwrap_or_else(|| tag.text_content());
+        Some(
+            Block::new("file", span_of(tag))
+                .with("language", crate::weave::extension_to_language(&path))
+                .with("path", path)
+                .with("body", body),
+        )
+    }
+}
+
+/// `<hick:diagram>`: a picture drawn from text, with this document's
+/// pasted fragments inlined so a notebook can draw it without running
+/// anything.
+struct DiagramElement;
+
+impl<'a> Element<BlockModelInput<'a>> for DiagramElement {
+    fn name(&self) -> &'static str {
+        "diagram"
+    }
+
+    fn attributes(&self) -> &'static [AttrSpec] {
+        const ATTRS: &[AttrSpec] = &[
+            AttrSpec::optional("renderer", "`mermaid` (the default) or `graph`"),
+            AttrSpec::optional("asserts", "the `#id`s of the cells that prove this picture"),
+        ];
+        ATTRS
+    }
+
+    fn render(&self, tag: &HickTag, input: &BlockModelInput<'a>) -> Option<Block> {
+        Some(diagram_block(tag, input.doc))
+    }
+}
+
+/// `<hick:when>`: a gate. Draws nothing; what it gates is drawn.
+struct WhenElement;
+
+impl<'a> Element<BlockModelInput<'a>> for WhenElement {
+    fn name(&self) -> &'static str {
+        "when"
+    }
+
+    fn attributes(&self) -> &'static [AttrSpec] {
+        const ATTRS: &[AttrSpec] = &[AttrSpec::optional(
+            "feature",
+            "the condition under which the content applies",
+        )];
+        ATTRS
+    }
+
+    fn descend(&self) -> Descend {
+        Descend::All
+    }
+
+    fn render(&self, _: &HickTag, _: &BlockModelInput<'a>) -> Option<Block> {
+        None
+    }
+}
+
+// ---------------------------------------------------------------------------
+// How each element reads its tag
+// ---------------------------------------------------------------------------
+
+/// Container name → image, from `<hick:container>` declarations anywhere in
+/// the document.
+fn images_of(doc: &HickDocument) -> HashMap<String, String> {
+    fn collect(nodes: &[HickNode], images: &mut HashMap<String, String>) {
+        for node in nodes {
+            if let HickNode::Tag(tag) = node {
+                if tag.name == "container"
+                    && let (Some(name), Some(image)) =
+                        (tag_attr(tag, "name"), tag_attr(tag, "image"))
+                {
+                    images.insert(name, image);
+                }
+                collect(&tag.children, images);
+            }
+        }
+    }
+    let mut images = HashMap::new();
+    collect(&doc.nodes, &mut images);
+    images
 }
 
 /// Command text of an exec tag: all text content excluding the expect and
@@ -156,66 +318,9 @@ fn markdown_to_html(md: &str) -> String {
     html
 }
 
-fn walk(
-    nodes: &[HickNode],
-    input: &BlockModelInput<'_>,
-    images: &HashMap<String, String>,
-    blocks: &mut Vec<Block>,
-) {
-    for node in nodes {
-        match node {
-            HickNode::Text(text, span) => {
-                if text.trim().is_empty() {
-                    continue;
-                }
-                blocks.push(Block::Prose {
-                    html: markdown_to_html(text),
-                    span: span.map(|s| (s.start, s.end)).unwrap_or((0, 0)),
-                });
-            }
-            HickNode::Tag(tag) => match tag.name.as_str() {
-                "exec" => {
-                    blocks.push(exec_block(tag, input, images));
-                    // What the run produced and this document now owns sits
-                    // at `exec > ingested > file`. The cell renders as a
-                    // cell; the files it brought in render as the file blocks
-                    // they are, right after it.
-                    for child in tag.child_tags() {
-                        if child.name == "ingested" {
-                            walk(&child.children, input, images, blocks);
-                        }
-                    }
-                }
-                "file" => {
-                    let path = tag_attr(tag, "path").unwrap_or_default();
-                    let body = input
-                        .files
-                        .and_then(|files| files.get(&path))
-                        .map(|content| match content {
-                            FileContent::Text(s) => s.clone(),
-                            FileContent::Binary(_) => "[binary]".to_string(),
-                        })
-                        .unwrap_or_else(|| tag.text_content());
-                    blocks.push(Block::File {
-                        language: crate::weave::extension_to_language(&path).to_string(),
-                        path,
-                        body,
-                        span: span_of_tag(tag),
-                    });
-                    // Execs nested in the file still appear as blocks after it.
-                    walk(&tag.children, input, images, blocks);
-                }
-                "diagram" => blocks.push(diagram_block(tag, input.doc)),
-                "when" => walk(&tag.children, input, images, blocks),
-                _ => {}
-            },
-        }
-    }
-}
-
 fn diagram_block(tag: &HickTag, doc: &HickDocument) -> Block {
     let renderer = tag_attr(tag, "renderer").unwrap_or_else(|| "mermaid".to_string());
-    let asserts = tag_attr(tag, "asserts")
+    let asserts: Vec<String> = tag_attr(tag, "asserts")
         .unwrap_or_default()
         .split_whitespace()
         .map(|s| s.trim_start_matches('#').to_string())
@@ -223,12 +328,10 @@ fn diagram_block(tag: &HickTag, doc: &HickDocument) -> Block {
         .collect();
     let mut body = String::new();
     resolve_diagram_children(&tag.children, doc, tag.source_column, &mut body);
-    Block::Diagram {
-        renderer,
-        body,
-        asserts,
-        span: span_of_tag(tag),
-    }
+    Block::new("diagram", span_of(tag))
+        .with("renderer", renderer)
+        .with("body", body)
+        .with("asserts", asserts)
 }
 
 /// Inline `<hick:paste>` fragments from this document into a diagram body.
@@ -290,14 +393,10 @@ fn selector_matches(selector: &str, fragment: &HickTag) -> bool {
     })
 }
 
-fn exec_block(
-    tag: &HickTag,
-    input: &BlockModelInput<'_>,
-    images: &HashMap<String, String>,
-) -> Block {
+fn exec_block(tag: &HickTag, input: &BlockModelInput<'_>) -> Block {
     let container = tag_attr(tag, "container").unwrap_or_default();
     let line = tag.source_line;
-    let id = format!("{container}:{line}");
+    let id = cell_id(tag);
 
     let expect = tag
         .child_tags()
@@ -312,14 +411,12 @@ fn exec_block(
     let ingested = tag
         .child_tags()
         .find(|t| t.name == "ingested" && t.get_attribute("key").is_none())
-        .map(|t| {
-            Box::new(IngestedInfo {
-                from: tag_attr(t, "from").unwrap_or_default(),
-                at: tag_attr(t, "at").unwrap_or_default(),
-                sha256: tag_attr(t, "sha256").unwrap_or_default(),
-                files: tag_attr(t, "files").unwrap_or_default(),
-                skipped: tag_attr(t, "skipped").unwrap_or_default(),
-            })
+        .map(|t| IngestedInfo {
+            from: tag_attr(t, "from").unwrap_or_default(),
+            at: tag_attr(t, "at").unwrap_or_default(),
+            sha256: tag_attr(t, "sha256").unwrap_or_default(),
+            files: tag_attr(t, "files").unwrap_or_default(),
+            skipped: tag_attr(t, "skipped").unwrap_or_default(),
         });
 
     let entry = input
@@ -348,17 +445,15 @@ fn exec_block(
         "ok"
     };
 
-    Block::Exec {
-        id,
-        image: images.get(&container).cloned(),
-        command: command_text(tag).trim().to_string(),
-        container,
-        span: span_of_tag(tag),
-        transcript,
-        expect,
-        ingested,
-        status: status.to_string(),
-    }
+    Block::new("exec", span_of(tag))
+        .with("id", id)
+        .with("image", images_of(input.doc).get(&container))
+        .with("command", command_text(tag).trim())
+        .with("container", container)
+        .with("transcript", transcript)
+        .with("expect", expect)
+        .with("ingested", ingested)
+        .with("status", status)
 }
 
 #[cfg(test)]
@@ -395,24 +490,16 @@ mod tests {
         let blocks = model_of(source);
         let diagram = blocks
             .iter()
-            .find_map(|b| match b {
-                Block::Diagram {
-                    renderer,
-                    body,
-                    asserts,
-                    ..
-                } => Some((renderer, body, asserts)),
-                _ => None,
-            })
+            .find(|b| b.kind == "diagram")
             .expect("a diagram block");
-        assert_eq!(diagram.0, "mermaid");
-        assert!(
-            diagram.1.contains("a --> b"),
-            "paste inlined: {}",
-            diagram.1
+        assert_eq!(diagram.str_prop("renderer"), Some("mermaid"));
+        let body = diagram.str_prop("body").unwrap();
+        assert!(body.contains("a --> b"), "paste inlined: {body}");
+        assert!(!body.contains("hick:paste"));
+        assert_eq!(
+            diagram.prop("asserts").unwrap(),
+            &serde_json::json!(["row-count", "edge-count"])
         );
-        assert!(!diagram.1.contains("hick:paste"));
-        assert_eq!(diagram.2, &["row-count", "edge-count"]);
     }
 
     // Protects docs/guarantees/editor-intelligence/an-ingested-cell-names-itself-in-the-document-view.md
@@ -430,16 +517,14 @@ scaffold
         let blocks = model_of(source);
         let ingested = blocks
             .iter()
-            .find_map(|b| match b {
-                Block::Exec { ingested, .. } => ingested.as_ref(),
-                _ => None,
-            })
+            .find(|b| b.kind == "exec")
+            .and_then(|b| b.prop("ingested"))
             .expect("the exec block carries ingested info");
-        assert_eq!(ingested.from, "#scaffold");
-        assert_eq!(ingested.sha256, "abc123def456");
-        assert_eq!(ingested.at, "2026-09-01");
-        assert_eq!(ingested.files, "2");
-        assert_eq!(ingested.skipped, "5");
+        assert_eq!(ingested["from"], "#scaffold");
+        assert_eq!(ingested["sha256"], "abc123def456");
+        assert_eq!(ingested["at"], "2026-09-01");
+        assert_eq!(ingested["files"], "2");
+        assert_eq!(ingested["skipped"], "5");
     }
 
     #[test]
@@ -448,15 +533,45 @@ scaffold
              <hick:exec container=\"c\">\necho hi\n</hick:exec>\n\
              </hick:doc>\n";
         let blocks = model_of(source);
-        let ingested = blocks.iter().find_map(|b| match b {
-            Block::Exec { ingested, .. } => Some(ingested.clone()),
-            _ => None,
-        });
+        let exec = blocks
+            .iter()
+            .find(|b| b.kind == "exec")
+            .expect("an exec block");
         assert_eq!(
-            ingested,
-            Some(None),
+            exec.prop("ingested"),
+            None,
             "a plain exec block has no ingested info"
         );
+    }
+
+    // The wire shape the app has always read: flat, `kind` first, `span` as
+    // a pair, an absent prop absent rather than null.
+    #[test]
+    fn a_block_serialises_to_the_v0_contract() {
+        let source = "# Hi\n<hick:exec container=\"c\">\necho hi\n</hick:exec>\n";
+        let blocks = model_of(source);
+        let json = serde_json::to_value(&blocks).unwrap();
+        assert_eq!(json[0]["kind"], "prose");
+        assert!(json[0]["html"].as_str().unwrap().contains("<h1>Hi</h1>"));
+        let exec = &json[1];
+        assert_eq!(exec["kind"], "exec");
+        assert_eq!(exec["span"], serde_json::json!([5, 30]));
+        assert_eq!(exec["id"], "c:2");
+        assert_eq!(exec["container"], "c");
+        assert_eq!(exec["command"], "echo hi");
+        assert_eq!(exec["status"], "unrecorded");
+        for absent in ["image", "transcript", "expect", "ingested"] {
+            assert!(
+                exec.get(absent).is_none(),
+                "{absent} should be absent, not null"
+            );
+        }
+    }
+
+    #[test]
+    fn the_registry_describes_the_vocabulary_it_draws() {
+        let names: Vec<&str> = describe_elements().iter().map(|d| d.name).collect();
+        assert_eq!(names, vec!["diagram", "exec", "file", "when"]);
     }
 
     #[test]
@@ -467,10 +582,8 @@ scaffold
         let blocks = model_of(source);
         let body = blocks
             .iter()
-            .find_map(|b| match b {
-                Block::Diagram { body, .. } => Some(body),
-                _ => None,
-            })
+            .find(|b| b.kind == "diagram")
+            .and_then(|b| b.str_prop("body"))
             .expect("a diagram block");
         assert!(!body.contains("hick:paste"));
     }

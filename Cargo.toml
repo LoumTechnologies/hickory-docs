@@ -12,6 +12,7 @@ members = [
     "crates/hick-handlers",
     "crates/hick-lang",
     "crates/hick-lang-wasm",
+    "crates/hick-blocks",
     "crates/hick-dap",
     "crates/hick-lsp",
     "crates/hick-structure",
@@ -52,6 +53,7 @@ repository = "https://github.com/LoumTechnologies/hickory-docs"
 hick-lang = { version = "0.1", path = "crates/hick-lang" }
 hick-transcript = { version = "0.1", path = "crates/hick-transcript" }
 hick-exec = { version = "0.1", path = "crates/hick-exec" }
+hick-blocks = { version = "0.1", path = "crates/hick-blocks" }
 
 # Settings for the binaries people download. `cargo build` and CI's test run
 # use the dev profile, so the inner loop is unaffected.
