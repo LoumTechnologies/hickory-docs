@@ -37,6 +37,23 @@ export function navigate(path: string) {
   location.hash = path;
 }
 
+/** Fired on `window` whenever somebody asks for a new document. */
+export const NEW_DOCUMENT_EVENT = "hickory-new-document";
+
+/**
+ * Ask for a new document: File → New, the tree's +, the welcome verb.
+ *
+ * Not just `navigate("/new")`. The hash is a place, and setting it to where
+ * we already are is a no-op — so after the first Untitled tab was opened and
+ * closed, every further New Document did nothing at all, because the address
+ * still said `#/new`. The event is the act; the route stays so a deep link
+ * and a restart still land on an untitled buffer.
+ */
+export function newDocument() {
+  window.dispatchEvent(new CustomEvent(NEW_DOCUMENT_EVENT));
+  navigate("/new");
+}
+
 /** Navigate without a history entry — for hops the Back button must not
  * revisit (the landing decision, the untitled buffer becoming a real doc). */
 export function redirect(path: string) {

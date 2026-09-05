@@ -49,7 +49,7 @@ import {
   resolveSearchHit,
   type SearchNavigation,
 } from "../lib/searchNavigation";
-import { insertTarget, requestMenuAction, type MenuAction } from "../lib/menuBridge";
+import { insertTarget, type MenuAction } from "../lib/menuBridge";
 import { insertElement } from "../editor/insertElement";
 import { loadRibbonStyle, type RibbonStyle } from "../lib/ribbonStyle";
 import {
@@ -98,7 +98,9 @@ import {
 } from "../shell/layout";
 import { regionsOf } from "../shell/layouts";
 import type { Region } from "../shell/layout";
-import { navigate, redirect, type Route } from "../router";
+import { navigate, redirect, type Route, newDocument } from "../router";
+import { useNewDocument } from "./useNewDocument";
+import { welcomeActionsFor } from "./welcomeActions";
 import {
   activateDocTab,
   adoptPlainFileTab,
@@ -108,7 +110,6 @@ import {
   findFileTab,
   focusedDocId,
   initialWorkspace,
-  openChatTab,
   isWorkspaceEmpty,
   openDocTab,
   openFileTab,
@@ -125,8 +126,6 @@ import {
   GIT_TAB,
   FLEET_TAB,
   MERGED_TAB,
-  openFleetTab,
-  openMergedTab,
 } from "./workspaceState";
 import {
   DocSessionHost,
@@ -205,6 +204,7 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
   // What the window is arranged as. Session state, owned HERE, above any
   // document: navigating between documents must leave it untouched.
   const [layout, setLayout] = useState<Layout>(initialWorkspace);
+  useNewDocument(setLayout);
   const layoutRef = useRef(layout);
   layoutRef.current = layout;
   // Read through refs by the welcome page's actions and the top field's
@@ -396,78 +396,14 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
       : null;
   })();
 
-  /** What the welcome page offers. Every one of them does something — a row
-   * here is a verb, never a link to a tour. */
   const welcomeActions: WelcomeAction[] = useMemo(
-    () => [
-      {
-        id: "new",
-        label: "New document…",
-        hint: "An untitled buffer, adopted into a document on its first save",
-        run: () => navigate("/new"),
-      },
-      {
-        id: "new-project",
-        label: "New project…",
-        hint: "Scaffold from `dotnet new`, and own every byte it writes",
-        run: () => requestMenuAction("new-project"),
-      },
-      {
-        id: "scratchpad",
-        label: "Scratchpad",
-        hint: "Text on its way to becoming a note",
-        run: () => navigate("/scratchpad"),
-      },
-      {
-        id: "agent",
-        label: "Agent — show the conversation",
-        hint: "The chat pane about the focused document; /tree zooms out, /rewind branches",
-        run: () => setLayout(openChatTab),
-      },
-      {
-        id: "terminal",
-        label: "Open a terminal",
-        hint: "In this folder; it appears on the folder's row in the tree",
-        run: () => {
-          void openTerminalRef.current();
-        },
-      },
-      {
-        id: "history",
-        label: "History",
-        hint: "The commit graph, with every commit's files",
-        run: () => setLayout(openGitTab),
-      },
-      {
-        id: "story",
-        label: "History as a story",
-        hint: "The same commits, oldest first, drawn as cards — a lens, read-only",
-        run: () => setLayout(openStoryTab),
-      },
-      {
-        id: "fleet",
-        label: "Machines",
-        hint: "Pair another of your machines, and choose what each may do here",
-        run: () => setLayout(openFleetTab),
-      },
-      {
-        id: "merged",
-        label: "Compare across worktrees",
-        hint: "One file as it exists in several worktrees at once — open a file first",
-        run: () => {
-          // The view is OF a path, so it needs one. With nothing focused this
-          // opens the fleet's sibling question instead of an empty pane.
-          const path = focusedPathRef.current;
-          if (path) setLayout((current) => openMergedTab(current, path));
-        },
-      },
-      {
-        id: "find",
-        label: "Find in folder…",
-        hint: "Exhaustive find and replace across every file",
-        run: () => focusTreeRef.current(),
-      },
-    ],
+    () =>
+      welcomeActionsFor({
+        setLayout,
+        openTerminal: () => openTerminalRef.current(),
+        focusedPath: () => focusedPathRef.current,
+        focusTree: () => focusTreeRef.current(),
+      }),
     [],
   );
 
@@ -1761,7 +1697,7 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
           error={folderError}
           openable={new Set(openableOutputs.keys())}
           activeDocId={focusedId ?? undefined}
-          onNewDocument={() => navigate("/new")}
+          onNewDocument={newDocument}
           // What is running, shown where it is running. The tree
           // already knows the folder; the sessions already know
           // their directory; this is the join.

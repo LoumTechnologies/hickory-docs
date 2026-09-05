@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { navigate, redirect, useRoute } from "./router";
+import { navigate, redirect, useRoute, newDocument } from "./router";
 import { LineageView } from "./views/LineageView";
 import { SettingsView } from "./views/SettingsView";
 import { WorkspaceView } from "./views/WorkspaceView";
@@ -102,7 +102,7 @@ export function App() {
       }
       switch (action) {
         case "new":
-          navigate("/new");
+          newDocument();
           return;
         case "new-project":
           setNewProject(true);

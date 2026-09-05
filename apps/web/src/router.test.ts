@@ -44,3 +44,21 @@ describe("the scratchpad route", () => {
     expect(parseRoute("#/scratchpad")).toEqual({ name: "scratchpad" });
   });
 });
+
+// Protects docs/guarantees/authoring/new-document-is-an-act.md: asking for a
+// new document works however many times, including when the address already
+// says #/new — which is exactly when `navigate("/new")` alone did nothing.
+describe("newDocument", () => {
+  it("fires the event even when the hash is already #/new", async () => {
+    const { NEW_DOCUMENT_EVENT, newDocument } = await import("./router");
+    location.hash = "#/new";
+    let fired = 0;
+    const listener = () => fired++;
+    window.addEventListener(NEW_DOCUMENT_EVENT, listener);
+    newDocument();
+    newDocument();
+    window.removeEventListener(NEW_DOCUMENT_EVENT, listener);
+    expect(fired).toBe(2);
+    expect(location.hash).toBe("#/new");
+  });
+});
