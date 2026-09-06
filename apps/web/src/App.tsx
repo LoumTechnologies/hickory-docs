@@ -110,6 +110,9 @@ export function App() {
         case "files":
           window.dispatchEvent(new CustomEvent("hickory-show-files"));
           break;
+        case "show-agent":
+          window.dispatchEvent(new CustomEvent("hickory-show-agent"));
+          break;
         case "terminal":
         case "attention":
           // Terminals belong to the workspace, which owns the layout they

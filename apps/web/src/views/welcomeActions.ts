@@ -7,7 +7,6 @@ import { requestMenuAction } from "../lib/menuBridge";
 import type { Layout } from "../shell/layout";
 import type { WelcomeAction } from "./WelcomePane";
 import {
-  openChatTab,
   openFleetTab,
   openGitTab,
   openMergedTab,
@@ -51,7 +50,7 @@ export function welcomeActionsFor({
       id: "agent",
       label: "Agent — show the conversation",
       hint: "The chat pane about the focused document; /tree zooms out, /rewind branches",
-      run: () => setLayout(openChatTab),
+      run: () => window.dispatchEvent(new CustomEvent("hickory-show-agent")),
     },
     {
       id: "terminal",

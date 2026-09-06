@@ -27,6 +27,8 @@ export type MenuAction =
   | "blame"
   | "settings"
   | "files"
+  /** View → Agent: the conversation about the focused document. */
+  | "show-agent"
   // Terminals: open one, and walk the attention queue.
   | "terminal"
   | "attention"
@@ -57,6 +59,7 @@ const ACTIONS: ReadonlySet<string> = new Set([
   "blame",
   "settings",
   "files",
+  "show-agent",
   "insert",
   "terminal",
   "attention",

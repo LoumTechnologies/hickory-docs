@@ -104,6 +104,11 @@ import { useNewDocument } from "./useNewDocument";
 import { lensSources, onLensChange } from "../lib/lensSources";
 import { welcomeActionsFor } from "./welcomeActions";
 import {
+  FLEET_TAB,
+  GIT_TAB,
+  MERGED_TAB,
+  STORY_TAB,
+  WELCOME_TAB,
   activateDocTab,
   adoptPlainFileTab,
   adoptUntitledTab,
@@ -113,21 +118,17 @@ import {
   focusedDocId,
   initialWorkspace,
   isWorkspaceEmpty,
+  openChatTab,
   openDocTab,
   openFileTab,
   openGeneratedTab,
+  openGitTab,
   openIntoDeclared,
-  openTerminalTab,
   openScratchpadTab,
+  openStoryTab,
+  openTerminalTab,
   openUntitledTab,
   openWelcomeTab,
-  openGitTab,
-  openStoryTab,
-  STORY_TAB,
-  WELCOME_TAB,
-  GIT_TAB,
-  FLEET_TAB,
-  MERGED_TAB,
 } from "./workspaceState";
 import {
   DocSessionHost,
@@ -1323,6 +1324,9 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
       }
     };
     const onFiles = () => focusTreeRef.current();
+    // View → Agent, its key, and the welcome verb: the conversation about
+    // the focused document, in its pane.
+    const onAgent = () => setLayout(openChatTab);
     // File > Open File… picked something inside this folder: find its tree
     // entry and open it in place — one more tab, never a session restart.
     const onOpenPath = (e: Event) => {
@@ -1346,11 +1350,13 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
     window.addEventListener("hickory-doc-command", onCommand);
     window.addEventListener("keydown", onKey);
     window.addEventListener("hickory-show-files", onFiles);
+    window.addEventListener("hickory-show-agent", onAgent);
     window.addEventListener("hickory-open-path", onOpenPath);
     return () => {
       window.removeEventListener("hickory-doc-command", onCommand);
       window.removeEventListener("keydown", onKey);
       window.removeEventListener("hickory-show-files", onFiles);
+      window.removeEventListener("hickory-show-agent", onAgent);
       window.removeEventListener("hickory-open-path", onOpenPath);
     };
   }, [registry, openPlainFile, openInsert]);

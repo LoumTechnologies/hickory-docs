@@ -62,6 +62,7 @@ export const ACTIONS: readonly ActionSpec[] = [
   { id: "view.terminal", label: "New terminal", scope: "menu", menuId: "terminal", keys: { hickory: "Mod+Shift+T", jetbrains: "Alt+F12", visualstudio: "Mod+`" } },
   { id: "view.attention", label: "Next terminal needing attention", scope: "menu", menuId: "attention", keys: { hickory: "Mod+J" } },
   { id: "view.files", label: "Show files", scope: "menu", menuId: "files", keys: { hickory: "Mod+Shift+E", jetbrains: "Alt+1", visualstudio: "Mod+Alt+L" } },
+  { id: "view.agent", label: "Agent pane", scope: "menu", menuId: "show-agent", keys: { hickory: "Mod+Shift+I" } },
   { id: "view.settings", label: "Settings", scope: "menu", menuId: "settings", keys: { hickory: "Mod+,", jetbrains: "Mod+Alt+S" } },
   { id: "view.blame", label: "Show blame column", scope: "menu", menuId: "blame", keys: { hickory: "Mod+Alt+B" } },
   { id: "edit.insert", label: "Insert element", scope: "menu", menuId: "insert", keys: { hickory: "Mod+I" } },

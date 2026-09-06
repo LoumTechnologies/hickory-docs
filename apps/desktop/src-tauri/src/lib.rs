@@ -192,6 +192,13 @@ fn app_menu(handle: &AppHandle) -> tauri::Result<Menu<Wry>> {
         .item(&item(
             handle,
             &keys,
+            "show-agent",
+            "Agent",
+            "CmdOrCtrl+Shift+I",
+        )?)
+        .item(&item(
+            handle,
+            &keys,
             "settings",
             "Settings…",
             "CmdOrCtrl+,",
@@ -382,7 +389,7 @@ fn insert_menu(
 fn on_menu(app: &AppHandle, id: &str) {
     match id {
         "new" | "new-project" | "save" | "save-as" | "save-all" | "print" | "settings"
-        | "files" | "terminal" | "attention" => dispatch_to_ui(app, id),
+        | "files" | "show-agent" | "terminal" | "attention" => dispatch_to_ui(app, id),
         // Zoom, both scopes. Handled by the page rather than by the webview's
         // own zoom: this app sizes in `rem`, so moving the root font size
         // RE-LAYS-OUT at the new size, where a webview zoom scales rendered
