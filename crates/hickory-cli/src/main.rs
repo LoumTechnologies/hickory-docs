@@ -162,15 +162,15 @@ enum Command {
     Search(SearchArgs),
     /// Deduce a folder's architecture from its code — no model, no toolchain
     /// — and print a diagram topology (scene JSON for `renderer="graph"`, or
-    /// mermaid). Name-resolved via tree-sitter, so it is a place to start
-    /// looking, not a compiler's call graph; SCIP in a `hick:exec` cell is
-    /// the precise version, and both emit the same shape.
+    /// mermaid). Name-resolved via tree-sitter: a place to start looking,
+    /// not a compiler's call graph; SCIP in a `hick:exec` cell is the
+    /// precise version, and both emit the same shape. Every node carries a
+    /// `path` — its directory or file, relative to the WORKING DIRECTORY, so
+    /// run this from beside the document that pastes the result.
     ///
     /// `--refresh DOC` rewrites the named `<hick:copy>` fragment in DOC with
-    /// the fresh topology instead of printing — the deterministic sibling of
-    /// `hick refresh`. A diagram pasting that fragment keeps its layout: the
-    /// layout lives in the diagram's own body, keyed by node id, and this
-    /// command never touches it.
+    /// the fresh topology instead of printing. A diagram pasting it keeps
+    /// its layout: that lives in the diagram's own body, keyed by node id.
     Diagram(DiagramArgs),
     /// Show the commits a re-emission of this folder's documents WOULD
     /// produce. Emits nothing.

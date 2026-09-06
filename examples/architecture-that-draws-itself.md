@@ -47,10 +47,12 @@ $ hick diagram demo --group dir --format scene
 {
   "nodes": [
     {
-      "id": "app"
+      "id": "app",
+      "path": "demo/app"
     },
     {
-      "id": "lib"
+      "id": "lib",
+      "path": "demo/lib"
     }
   ],
   "edges": [
@@ -72,6 +74,8 @@ changes shape, refresh it deterministically with:
 hick diagram demo --refresh architecture-that-draws-itself.hick --fragment arch-topology
 ```
 
+{"nodes":[{"id":"app","path":"demo/app"},{"id":"lib","path":"demo/lib"}],"edges":[{"from":"app","to":"lib"}]}
+
 ## The picture
 
 A `renderer="graph"` diagram whose topology is PASTED, not drawn: in the app
@@ -81,7 +85,7 @@ edges belong to the scan. The weave you are reading renders it as an SVG the
 weave itself drew — the same boxes, in the same places.
 
 
-![diagram](diagram-f16290a0.svg)
+![diagram](diagram-34f46ab0.svg)
 
 
 ## The precise version, when you have a toolchain

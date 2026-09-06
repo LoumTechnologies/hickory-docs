@@ -21,7 +21,15 @@ fn fixture(dir: &Path) {
 fn emits_a_scene_topology_with_no_layout() {
     let dir = tempfile::tempdir().unwrap();
     fixture(dir.path());
-    let out = hick().arg("diagram").arg(dir.path()).output().unwrap();
+    // Run FROM the folder, the way a cell mounting it does: a node's `path`
+    // is spelled relative to the working directory, because that is where
+    // the document pasting this topology lives.
+    let out = hick()
+        .current_dir(dir.path())
+        .arg("diagram")
+        .arg(".")
+        .output()
+        .unwrap();
     assert!(
         out.status.success(),
         "{}",
@@ -34,6 +42,49 @@ fn emits_a_scene_topology_with_no_layout() {
     assert!(stdout.contains("\"lib\""), "{stdout}");
     assert!(stdout.contains("\"edges\""), "{stdout}");
     assert!(!stdout.contains("layout"), "{stdout}");
+    // Every node says where it lives, so a box in the picture is a way in.
+    assert!(stdout.contains("\"path\": \"app\""), "{stdout}");
+    assert!(stdout.contains("\"path\": \"lib\""), "{stdout}");
+}
+
+/// Protects docs/guarantees/authoring/a-diagram-node-opens-what-it-stands-for.md
+#[test]
+fn a_scanned_folder_is_named_from_the_working_directory() {
+    let parent = tempfile::tempdir().unwrap();
+    let dir = parent.path().join("demo");
+    std::fs::create_dir_all(&dir).unwrap();
+    fixture(&dir);
+    // `hick diagram demo` beside the document: the paths read `demo/app`,
+    // which is exactly how the document names the same folder.
+    let out = hick()
+        .current_dir(parent.path())
+        .arg("diagram")
+        .arg("demo")
+        .output()
+        .unwrap();
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let stdout = String::from_utf8(out.stdout).unwrap();
+    assert!(stdout.contains("\"path\": \"demo/app\""), "{stdout}");
+    assert!(stdout.contains("\"path\": \"demo/lib\""), "{stdout}");
+
+    // `--group file` names the file itself, same rule.
+    let out = hick()
+        .current_dir(parent.path())
+        .arg("diagram")
+        .arg("demo")
+        .arg("--group")
+        .arg("file")
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8(out.stdout).unwrap();
+    assert!(
+        stdout.contains("\"path\": \"demo/app/main.py\""),
+        "{stdout}"
+    );
 }
 
 #[test]
@@ -41,8 +92,9 @@ fn mermaid_output_is_the_same_downgrade_the_weave_uses() {
     let dir = tempfile::tempdir().unwrap();
     fixture(dir.path());
     let out = hick()
+        .current_dir(dir.path())
         .arg("diagram")
-        .arg(dir.path())
+        .arg(".")
         .arg("--format")
         .arg("mermaid")
         .output()
@@ -51,6 +103,9 @@ fn mermaid_output_is_the_same_downgrade_the_weave_uses() {
     let stdout = String::from_utf8(out.stdout).unwrap();
     assert!(stdout.starts_with("flowchart TD"), "{stdout}");
     assert!(stdout.contains("app --> lib"), "{stdout}");
+    // The downgrade drops where a node lives, as it drops every other thing
+    // markdown has nowhere honest to keep.
+    assert!(!stdout.contains("path"), "{stdout}");
 }
 
 #[test]
@@ -70,10 +125,11 @@ fn refresh_rewrites_the_fragment_and_leaves_the_layout_alone() {
     .unwrap();
 
     let out = hick()
+        .current_dir(dir.path())
         .arg("diagram")
-        .arg(dir.path())
+        .arg(".")
         .arg("--refresh")
-        .arg(&doc)
+        .arg("arch.hick")
         .output()
         .unwrap();
     assert!(
@@ -111,6 +167,11 @@ fn refresh_rewrites_the_fragment_and_leaves_the_layout_alone() {
         svg.contains(">app</text>") && svg.contains(">lib</text>"),
         "{svg}"
     );
+    // …and each node is a LINK in the woven picture, so the markdown
+    // navigates on GitHub too. The href is relative to the woven file's own
+    // directory, which is where the weave puts both the `.md` and this SVG.
+    assert!(svg.contains(r#"<a href="app">"#), "{svg}");
+    assert!(svg.contains(r#"<a href="lib">"#), "{svg}");
 }
 
 #[test]

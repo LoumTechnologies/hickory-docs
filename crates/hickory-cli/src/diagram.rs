@@ -15,7 +15,7 @@
 //! the same derived diagram consumes either.
 
 use std::collections::BTreeMap;
-use std::path::Path;
+use std::path::{Component, Path};
 
 use hick_literate::scene::{Scene, SceneEdge, SceneNode, Topology, to_mermaid};
 
@@ -31,8 +31,77 @@ pub enum Grouping {
 /// Files too large to be source worth parsing (generated bundles, data).
 const MAX_FILE_BYTES: u64 = 512 * 1024;
 
-/// Walk `root` and deduce a topology from its code.
+/// How a node's `path` is spelled: relative to the **current working
+/// directory the command runs in**.
+///
+/// That rule is not arbitrary. `hick diagram demo` is run from beside the
+/// document that will paste the result — the shell in the folder, or a cell
+/// whose container mounts the folder at the same name — and a scene's `path`
+/// is resolved against the DOCUMENT's directory. Making the two the same
+/// place is what lets the scanner's output be pasted into a diagram and have
+/// every box lead to the right folder with nothing rewritten in between. So
+/// `hick diagram demo --group dir` from the document's folder emits
+/// `demo/app`, and `--group file` emits `demo/app/main.py`.
+///
+/// A root outside the working directory gets the honest answer — `../lib` —
+/// rather than a path that silently means somewhere else.
+fn prefix_from_cwd(root: &Path) -> String {
+    let cwd = std::env::current_dir().unwrap_or_default();
+    relative_prefix(&cwd, root)
+}
+
+/// `root` as `base` would name it: shared components dropped, one `..` for
+/// each component of `base` left over. Empty when they are the same place.
+fn relative_prefix(base: &Path, root: &Path) -> String {
+    // Canonical where possible (both are directories that exist by the time
+    // this runs); the raw paths otherwise, so a scan never fails over a
+    // spelling question.
+    let base = base.canonicalize().unwrap_or_else(|_| base.to_path_buf());
+    let root = root.canonicalize().unwrap_or_else(|_| root.to_path_buf());
+    let named = |p: &Path| -> Vec<String> {
+        p.components()
+            .filter_map(|c| match c {
+                Component::Normal(part) => Some(part.to_string_lossy().to_string()),
+                _ => None,
+            })
+            .collect()
+    };
+    let (from, to) = (named(&base), named(&root));
+    let shared = from
+        .iter()
+        .zip(to.iter())
+        .take_while(|(a, b)| a == b)
+        .count();
+    let mut parts: Vec<String> = vec!["..".to_string(); from.len() - shared];
+    parts.extend(to[shared..].iter().cloned());
+    parts.join("/")
+}
+
+/// Join the prefix onto a node's root-relative id, as a document would name
+/// the place: `demo` + `app` is `demo/app`, and no prefix leaves `app`.
+fn node_path(prefix: &str, id: &str) -> String {
+    if prefix.is_empty() {
+        id.to_string()
+    } else {
+        format!("{prefix}/{id}")
+    }
+}
+
+/// Walk `root` and deduce a topology from its code, with every node's `path`
+/// spelled relative to the working directory (see [`prefix_from_cwd`]).
 pub fn generate_topology(root: &Path, group: Grouping) -> std::io::Result<Topology> {
+    let prefix = prefix_from_cwd(root);
+    generate_topology_named_from(root, group, &prefix)
+}
+
+/// The same scan, with the prefix stated rather than read from the process —
+/// which is what makes the path rule testable without moving the whole test
+/// runner's working directory.
+pub fn generate_topology_named_from(
+    root: &Path,
+    group: Grouping,
+    prefix: &str,
+) -> std::io::Result<Topology> {
     let mut files = Vec::new();
     for entry in ignore::WalkBuilder::new(root).build().flatten() {
         let path = entry.path();
@@ -107,6 +176,10 @@ pub fn generate_topology(root: &Path, group: Grouping) -> std::io::Result<Topolo
         nodes: order
             .into_iter()
             .map(|id| SceneNode {
+                // Where the node LIVES, so a reader can click the box and
+                // land in it. Topology: a scanner deduced it, so it belongs
+                // beside the ids and never in the layout a person owns.
+                path: Some(node_path(prefix, &id)),
                 id,
                 ..SceneNode::default()
             })
@@ -219,6 +292,65 @@ mod tests {
         );
     }
 
+    // Protects docs/guarantees/authoring/a-diagram-node-opens-what-it-stands-for.md
+    #[test]
+    fn every_scanned_node_says_where_it_lives() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join("app")).unwrap();
+        std::fs::create_dir_all(dir.path().join("lib")).unwrap();
+        std::fs::write(dir.path().join("lib/util.py"), "def load():\n    pass\n").unwrap();
+        std::fs::write(dir.path().join("app/main.py"), "load()\n").unwrap();
+
+        // `--group dir`: the directory, named as the document beside the
+        // scanned folder would name it.
+        let by_dir = generate_topology_named_from(dir.path(), Grouping::Dir, "demo").unwrap();
+        let paths: Vec<_> = by_dir
+            .nodes
+            .iter()
+            .map(|n| n.path.as_deref().unwrap_or(""))
+            .collect();
+        assert_eq!(paths, vec!["demo/app", "demo/lib"]);
+
+        // `--group file`: the file itself.
+        let by_file = generate_topology_named_from(dir.path(), Grouping::File, "demo").unwrap();
+        assert!(
+            by_file
+                .nodes
+                .iter()
+                .any(|n| n.path.as_deref() == Some("demo/app/main.py")),
+            "{:?}",
+            by_file.nodes
+        );
+
+        // Scanned in place — the working directory IS the folder — and the
+        // node's path is the id itself, with no leading `./`.
+        let here = generate_topology_named_from(dir.path(), Grouping::Dir, "").unwrap();
+        assert_eq!(here.nodes[0].path.as_deref(), Some("app"));
+
+        // A generator states topology only: no positions, ever.
+        assert!(by_dir.nodes.iter().all(|n| n.doc.is_none()));
+    }
+
+    // Protects docs/guarantees/authoring/a-diagram-node-opens-what-it-stands-for.md
+    #[test]
+    fn a_scanned_folder_is_named_from_the_working_directory() {
+        let base = Path::new("/home/nate/notes");
+        assert_eq!(
+            relative_prefix(base, Path::new("/home/nate/notes/demo")),
+            "demo"
+        );
+        assert_eq!(relative_prefix(base, Path::new("/home/nate/notes")), "");
+        assert_eq!(
+            relative_prefix(base, Path::new("/home/nate/notes/demo/app")),
+            "demo/app"
+        );
+        // Outside the working directory: said honestly, not silently wrong.
+        assert_eq!(
+            relative_prefix(base, Path::new("/home/nate/other")),
+            "../other"
+        );
+    }
+
     #[test]
     fn a_generated_topology_never_carries_a_layout() {
         // The generator's half is topology; positions are the person's. The
@@ -235,7 +367,7 @@ mod tests {
         std::fs::create_dir_all(dir.path().join("lib")).unwrap();
         std::fs::write(dir.path().join("lib/util.py"), "def load():\n    pass\n").unwrap();
         std::fs::write(dir.path().join("app/main.py"), "load()\n").unwrap();
-        let by_dir = generate_topology(dir.path(), Grouping::Dir).unwrap();
+        let by_dir = generate_topology_named_from(dir.path(), Grouping::Dir, "demo").unwrap();
         let ids: Vec<_> = by_dir.nodes.iter().map(|n| n.id.as_str()).collect();
         assert!(ids.contains(&"app") && ids.contains(&"lib"), "{ids:?}");
         assert!(
@@ -246,7 +378,7 @@ mod tests {
             "{:?}",
             by_dir.edges
         );
-        let by_file = generate_topology(dir.path(), Grouping::File).unwrap();
+        let by_file = generate_topology_named_from(dir.path(), Grouping::File, "demo").unwrap();
         assert!(
             by_file
                 .edges

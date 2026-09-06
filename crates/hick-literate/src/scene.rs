@@ -59,6 +59,19 @@ pub struct Topology {
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct SceneNode {
     pub id: String,
+    /// What this node STANDS FOR on disk: a file or a directory, spelled
+    /// relative to the document's own directory. Topology, not layout — a
+    /// generator can deduce it (`hick diagram` emits one per node), it sits
+    /// beside the join key rather than in `layout`, and the editor never
+    /// writes it. It is what makes a box in an architecture diagram a way
+    /// INTO the code it describes, in the app and in the woven markdown.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub path: Option<String>,
+    /// The `.hick` document ABOUT this node — "the literate document for
+    /// this subsystem" — relative to the document's directory. Topology for
+    /// the same reasons `path` is.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub doc: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub label: Option<String>,
     /// rect (default), round, pill, circle, diamond, hexagon, cylinder.
@@ -275,6 +288,11 @@ fn esc(text: &str) -> String {
     text.replace('&', "&amp;")
         .replace('<', "&lt;")
         .replace('>', "&gt;")
+}
+
+/// The same, plus the quote — for an attribute value such as an `<a href>`.
+fn esc_attr(text: &str) -> String {
+    esc(text).replace('"', "&quot;").replace('\'', "&#39;")
 }
 
 struct Box_ {
@@ -609,7 +627,20 @@ pub fn to_svg(scene: &Scene) -> String {
     }
     for node in nodes {
         if let Some(b) = boxes.get(&node.id) {
-            body.push_str(&node_svg(node, b));
+            let drawn = node_svg(node, b);
+            // A node that stands for something on disk is a LINK to it in the
+            // woven picture too, not only in the app. The href is written
+            // exactly as the scene spells it — relative to the document's own
+            // directory — which is also the directory the weave writes the
+            // markdown and this `diagram-<hash>.svg` into, so the same string
+            // resolves from either. That is why nothing has to be rebased
+            // here: the picture sits beside the prose that pointed at it.
+            match node.path.as_deref().filter(|p| !p.is_empty()) {
+                Some(path) => {
+                    body.push_str(&format!("<a href=\"{}\">{drawn}</a>", esc_attr(path)));
+                }
+                None => body.push_str(&drawn),
+            }
         }
     }
 
@@ -724,6 +755,78 @@ mod tests {
             svg.contains("L 150.0 217.0 Q 150.0 225.0 158.0 225.0"),
             "{svg}"
         );
+    }
+
+    // Protects docs/guarantees/authoring/a-diagram-node-opens-what-it-stands-for.md
+    #[test]
+    fn a_nodes_path_and_doc_survive_a_round_trip_and_lead_the_line() {
+        let s = scene(
+            r#"{
+              "nodes": [
+                {"id": "app", "path": "demo/app", "doc": "app.hick", "label": "App"},
+                {"id": "lib", "path": "demo/lib/orders.py"}
+              ],
+              "edges": [{"from": "app", "to": "lib"}]
+            }"#,
+        );
+        assert_eq!(s.nodes[0].path.as_deref(), Some("demo/app"));
+        assert_eq!(s.nodes[0].doc.as_deref(), Some("app.hick"));
+        assert_eq!(s.nodes[1].doc, None);
+        // Canonical order: the two are the join key's siblings, so they are
+        // written straight after `id` and before anything a person styled.
+        let json = serde_json::to_string(&s.nodes[0]).unwrap();
+        assert_eq!(
+            json,
+            r#"{"id":"app","path":"demo/app","doc":"app.hick","label":"App"}"#
+        );
+        // A node with neither carries neither: the keys are absent, not null.
+        assert_eq!(
+            serde_json::to_string(&SceneNode {
+                id: "bare".into(),
+                ..SceneNode::default()
+            })
+            .unwrap(),
+            r#"{"id":"bare"}"#
+        );
+    }
+
+    // Protects docs/guarantees/authoring/a-diagram-node-opens-what-it-stands-for.md
+    #[test]
+    fn the_mermaid_downgrade_ignores_where_a_node_lives() {
+        let s = scene(
+            r#"{"nodes": [{"id": "app", "path": "demo/app", "doc": "app.hick"}], "edges": []}"#,
+        );
+        let mermaid = to_mermaid(&s);
+        assert!(!mermaid.contains("demo/app"), "{mermaid}");
+        assert!(!mermaid.contains("app.hick"), "{mermaid}");
+        assert_eq!(mermaid, "flowchart TD\n  app[\"app\"]\n");
+    }
+
+    // Protects docs/guarantees/authoring/a-diagram-node-opens-what-it-stands-for.md
+    #[test]
+    fn a_node_with_a_path_is_a_link_in_the_woven_svg() {
+        let s = scene(
+            r#"{
+              "nodes": [
+                {"id": "app", "path": "demo/app", "label": "App"},
+                {"id": "plain"}
+              ],
+              "edges": [],
+              "layout": {"app": {"x": 0, "y": 0}, "plain": {"x": 300, "y": 0}}
+            }"#,
+        );
+        let svg = to_svg(&s);
+        // The link is written as the scene spells it — the SVG lands beside
+        // the woven markdown, so a document-relative path already resolves.
+        assert!(svg.contains(r#"<a href="demo/app">"#), "{svg}");
+        assert!(svg.contains("</a>"), "{svg}");
+        // …and exactly once: a node with no path is drawn bare.
+        assert_eq!(svg.matches("<a href=").count(), 1, "{svg}");
+        // The anchor WRAPS the whole node, shape and label together.
+        let anchor = svg.split(r#"<a href="demo/app">"#).nth(1).unwrap();
+        let inner = anchor.split("</a>").next().unwrap();
+        assert!(inner.contains("<rect"), "{inner}");
+        assert!(inner.contains(">App</text>"), "{inner}");
     }
 
     #[test]

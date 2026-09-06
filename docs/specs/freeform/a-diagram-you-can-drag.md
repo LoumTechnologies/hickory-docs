@@ -189,6 +189,48 @@ no-escaping invariant except in one case: a string containing the literal
 **refuses to commit** such a label and says why, the same rule the session
 payload format already has for `</hick:input>`.
 
+## Navigation: a box is a way in (2026-09-06)
+
+A node may carry two more topology fields, and they are the reason a
+generated architecture diagram is worth drawing at all: `path` — the file or
+directory the node stands for — and `doc` — the `.hick` document about it.
+Both are spelled relative to the document's own directory, the way a markdown
+link in the same document is, and both sit beside the join key rather than in
+`layout`, because a generator can deduce them and a person must therefore not
+have to maintain them.
+
+```
+{"id": "app", "path": "demo/app", "doc": "app-notes.hick", "label": "App"}
+```
+
+`hick diagram` emits `path` on **every** node: the directory for
+`--group dir`, the file for `--group file`, both **relative to the working
+directory the command runs in**. That rule is the whole join — the command is
+run from beside the document that will paste the topology (a shell in the
+folder, or a cell whose container mounts it at the same name), so
+`hick diagram demo` emits `demo/app`, which is exactly how the document names
+the same folder.
+
+Double-clicking a node opens it. A document opens as a tab, another text file
+as a pane, and a **directory** reveals itself in the folder tree — expanded
+down to it, scrolled to, lit — because a directory has nothing to put in a
+pane. A held modifier opens the node's `doc` instead. The node draws a small
+corner glyph saying it is a door, and the selection inspector spells the
+destination out with an Open button; the label edit a linked node's
+double-click gave up moves to that same row.
+
+A **derived** scene is the case this exists for rather than an exception to
+it. `path` is topology, so the scanner writes it and the canvas never does; a
+picture that is topology read-only is still fully navigable, and following a
+link is reading, not editing.
+
+The weave keeps it too: a node with a `path` is wrapped in an `<a href>` in
+the SVG the weave draws, so the woven markdown navigates on GitHub and on any
+static host. Nothing is rebased — the weave writes the `.md` and the
+`diagram-<hash>.svg` into the same directory, which is the document's own, so
+the string the scene holds already resolves. The mermaid downgrade drops both
+fields, as it drops everything markdown has nowhere honest to keep.
+
 ## Assertions, unchanged
 
 `asserts` works on a scene exactly as on mermaid — the warnings match the tag,
