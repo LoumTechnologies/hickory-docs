@@ -26,10 +26,35 @@ Properties:
    because git holds the durable before-state.
 3. **Ending is explicit.** "Done" (`…/refactor/end`) drops the baseline;
    nothing expires it behind the person's back.
+4. **Two documents at different paths can be compared** (2026-09-06). Every
+   document weaves a `.md` of its own name (`bare-documents.md`), so `hick
+   equiv a.hick b.hick` differed on `a.md` and `b.md` before anything the
+   documents GENERATE was looked at — two different files were never
+   equivalent, whatever they produced. `--ignore-weave` drops each side's own
+   weave and compares the rest, and the report says it did. It is a flag
+   rather than the default because the ordinary use is one file before and
+   after, where its own weave moving IS a difference worth failing on.
 
 ---
 
 Last LLM verification:
+- Date: 2026-09-06
+- Reviewer: Claude (Fable 5.1)
+- Result: verified for property 4 only; 1–3 are unchanged since the
+  verification below.
+- Evidence: `crates/hickory-cli/src/main.rs` — `EquivArgs::ignore_weave`,
+  `without_own_weave` (which drops exactly `doc.weave_path`, the resolved
+  one, and nothing else), and the report line naming what it left out.
+- Test coverage: `crates/hickory-cli/tests/equiv_cli.rs` —
+  `two_basenames_differ_on_their_own_weaves_alone` (the failure the flag
+  exists for), `ignore_weave_compares_what_the_documents_generate`, and
+  `ignore_weave_still_reports_a_real_difference`.
+- Caveat requiring LLM review: the flag is the CLI's.
+  `hick_literate::equiv::check_equivalence`, which runs both sources under
+  one name, is unchanged, and so is the refactor badge — neither has the
+  problem, because both compare one document with itself.
+
+Previous verification:
 - Date: 2026-08-17
 - Reviewer: Claude (Fable 5)
 - Result: verified (implemented and reviewed in the same change)

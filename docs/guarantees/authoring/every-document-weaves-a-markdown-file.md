@@ -73,11 +73,16 @@ Last LLM verification:
     document in `examples/` and in any user's tree that omits `weave=` will
     produce a new file on its next run. Nothing warns about this, and no
     migration path exists beyond running the tool.
-  - **`hick equiv` now depends on both sides sharing a document name.**
-    `check_equivalence` runs both sources as `document.hick` so their default
-    weave paths coincide, which is semantically right — the refactor gate is
-    about one file before and after — but it means the function is no longer
-    meaningful for comparing documents that genuinely live at different paths.
+  - **`hick equiv` depends on both sides sharing a document name** — closed
+    2026-09-06 for the CLI. `check_equivalence` runs both sources as
+    `document.hick` so their default weave paths coincide, which is
+    semantically right when the two are one file before and after. The CLI
+    weaves each at its real path, so `a.hick` and `b.hick` differed on `a.md`
+    and `b.md` before anything they generate was looked at, and were never
+    equivalent. `hick equiv --ignore-weave` drops each side's own weave and
+    compares what the documents GENERATE, which is the question worth asking
+    when the two genuinely live at different paths. The library function is
+    unchanged.
   - **No decision has been made about whether a notes repository wants the
     pre-commit drift gate `hick init` installs.** A commit blocked because a
     meeting summary is stale is defensible for code and questionable for notes;
