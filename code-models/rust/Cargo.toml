@@ -1,0 +1,44 @@
+# `hick-model-rust` — Rust's code model server.
+#
+# Its own workspace on purpose. It is built by whoever wants it, with the
+# toolchain they already have, the way `code-models/go` is built with
+# `go build` — and it must not drag `async-graphql` into the product's own
+# dependency graph, which is the whole argument for a model server being a
+# separate process.
+[workspace]
+
+[package]
+name = "hick-model-rust"
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+publish = false
+description = "The Rust code model server: a Cargo workspace's own type system, over GraphQL."
+
+[[bin]]
+name = "hick-model-rust"
+path = "src/main.rs"
+
+[dependencies]
+# The schema, its resolvers, and — the reason not to hand-roll one —
+# introspection, which is how this schema documents itself.
+async-graphql = { version = "7.2", default-features = false }
+# `block_on`: the protocol is one question at a time on a pipe, so there is
+# nothing to be concurrent about and no reason to carry a runtime.
+futures-executor = "0.3"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+# The parser. `full` because a model that cannot see a function body cannot
+# see the `impl` block it is in.
+syn = { version = "2", features = ["full", "extra-traits", "visit", "clone-impls", "printing", "parsing"] }
+# `span-locations` is what turns a span into a line and a column. Without it
+# every `Span` in this schema would be zeroes.
+proc-macro2 = { version = "1", features = ["span-locations"] }
+quote = "1"
+# The workspace's own account of itself: which packages exist and where each
+# crate root is. Guessing that from the directory tree is how a model ends up
+# reading `target/` and missing a `path = "../shared"` member.
+cargo_metadata = "0.19"
+
+[profile.release]
+opt-level = 2
