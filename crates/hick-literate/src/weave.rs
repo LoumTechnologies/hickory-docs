@@ -20,7 +20,7 @@ mod sample;
 
 use crate::tag_attr;
 use crate::text::interpolate_path;
-use body::resolved_body;
+use body::{FirstLine, resolved_body};
 use sample::weave_sample;
 
 /// Map file extension to markdown code fence language identifier.
@@ -318,7 +318,7 @@ fn process_weave_tag(
             // reader sees what is there instead of nothing; the warning about
             // it is emitted at validation time, beside the asserts warnings.
             if renderer == crate::scene::GRAPH_RENDERER {
-                let body = resolved_body(tag, state);
+                let body = resolved_body(tag, state, FirstLine::Verbatim);
                 match crate::scene::parse_scene(&body) {
                     Ok(scene) => {
                         // The woven picture IS the drawn picture: an SVG the
@@ -381,7 +381,10 @@ fn process_weave_tag(
         "table" => {
             let delimiter = crate::csv_table::delimiter_of(tag_attr(tag, "delimiter").as_deref());
             let header = crate::csv_table::header_of(tag_attr(tag, "header").as_deref());
-            let rows = crate::csv_table::parse_csv(&resolved_body(tag, state), delimiter);
+            let rows = crate::csv_table::parse_csv(
+                &resolved_body(tag, state, FirstLine::AfterTheTagsOwnBreak),
+                delimiter,
+            );
             let table = crate::csv_table::to_markdown(&rows, header);
             if !table.is_empty() {
                 weave_ip.add(Arc::new(StringNode::new(format!("\n{table}\n"))));

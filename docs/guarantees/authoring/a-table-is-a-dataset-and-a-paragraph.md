@@ -287,6 +287,12 @@ not, so a multi-line table wrote `region,units` as the CSV header and wove a
 table with an **empty** header and `region,units` as its first data row.
 Documents holding such a table weave differently now, and correctly.
 
+The shared `resolved_body` takes which of the two the caller means
+(`FirstLine`), because a graph scene means the other one: its body is JSON,
+where the break says nothing to the parser, and the scene's bytes are hashed
+to NAME the SVG the weave draws — so dropping a byte there would rename a
+committed file to no effect.
+
 ## Boundary
 
 The reader is forgiving on purpose, in both languages. A bare quote in the

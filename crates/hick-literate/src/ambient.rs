@@ -40,6 +40,30 @@ pub(crate) fn attach_ambient_contributors(
     name: &str,
     base_dir: &std::path::Path,
 ) -> std::io::Result<()> {
+    for (path, source) in contributors(doc, name, base_dir)? {
+        if let Err(e) = hick_lang::attach_contribution(doc, &path, &source, 0) {
+            debug!("{}: not contributing to {name}: {e}", path.display());
+        }
+    }
+    Ok(())
+}
+
+/// The documents beside this one that DO contribute, with their bytes, in the
+/// order they contribute in.
+///
+/// Readable, parseable, not `<hick:private />`, and not already spliced in by
+/// an `include` or `upstream` the author wrote. A sibling that cannot be read
+/// or does not PARSE is skipped rather than failing this run: that is the
+/// other document's error, reported when it is run, and it must not stop an
+/// unrelated document from weaving.
+///
+/// Two callers: the splice above, and the warning that names an ambient
+/// binding a document never asked for.
+pub fn contributors(
+    doc: &HickDocument,
+    name: &str,
+    base_dir: &std::path::Path,
+) -> std::io::Result<Vec<(std::path::PathBuf, String)>> {
     // Every file already spliced into this document, by include or by
     // upstream, at any depth. `span_files` is the right record because both
     // branches stamp it; the resolver's `seen` set is a cycle-detection
@@ -84,6 +108,7 @@ pub(crate) fn attach_ambient_contributors(
     // could weave two different files on two machines.
     siblings.sort();
 
+    let mut out = Vec::new();
     for path in siblings {
         let Ok(source) = std::fs::read_to_string(&path) else {
             continue;
@@ -95,11 +120,9 @@ pub(crate) fn attach_ambient_contributors(
             debug!("{}: private, not contributing to {name}", path.display());
             continue;
         }
-        if let Err(e) = hick_lang::attach_contribution(doc, &path, &source, 0) {
-            debug!("{}: not contributing to {name}: {e}", path.display());
-        }
+        out.push((path, source));
     }
-    Ok(())
+    Ok(out)
 }
 
 /// Record `id` → element kind for every tag in `nodes`, at any depth.
@@ -111,4 +134,113 @@ pub(crate) fn register_element_kinds(nodes: &[HickNode], state: &Arc<MultiDocume
         }
         register_element_kinds(&tag.children, state);
     }
+}
+
+/// Say when a `#id` paste bound to a sibling this document never named.
+///
+/// Fragments are discovered folder-wide, and that is the feature: many
+/// documents contribute to one file without any of them naming the others
+/// (`docs/specs/freeform/many-documents-contribute-to-one-file.md`). The
+/// hazard is the same mechanism read the other way. When a document's OWN
+/// fragment for `#imports` is renamed or deleted and a sibling in the folder
+/// happens to declare `#imports` too, the paste keeps resolving — to somebody
+/// else's bytes — and the tangled file is quietly wrong. It happened twice in
+/// one repository, both times on a generic id (`#comment`, `#imports`).
+///
+/// Only `#id`, and only through an AMBIENT contribution:
+///
+/// - A `.class` selector is multi-match by design. Collecting a sibling's
+///   contribution is the whole point of writing one, and warning about it
+///   would make the feature unusable.
+/// - A `<hick:upstream>` or `<hick:include>` the author wrote IS the document
+///   naming it. Those fragments are already spliced before this looks, so
+///   they never reach the sibling scan.
+///
+/// A warning, never an error: the binding may well be what the author wants,
+/// and refusing to weave would break every folder that already relies on it.
+/// What it must not be is silent.
+pub fn ambient_id_paste_warnings(doc_path: &std::path::Path, source: &str) -> Vec<String> {
+    let Ok(mut doc) = hick_lang::parse(source) else {
+        return Vec::new();
+    };
+    let base_dir = doc_path
+        .parent()
+        .unwrap_or_else(|| std::path::Path::new("."));
+    let mut seen = std::collections::HashSet::new();
+    if let Ok(canonical) = std::fs::canonicalize(doc_path) {
+        seen.insert(canonical);
+    }
+    // A document whose includes do not resolve has a louder problem than
+    // this, and it is reported where includes are resolved.
+    if hick_lang::resolve_includes(&mut doc, base_dir, &mut seen).is_err() {
+        return Vec::new();
+    }
+    let wanted = unresolved_own_id_pastes(&doc);
+    if wanted.is_empty() {
+        return Vec::new();
+    }
+    let name = doc_path.to_string_lossy().to_string();
+    let Ok(siblings) = contributors(&doc, &name, base_dir) else {
+        return Vec::new();
+    };
+    let mut out = Vec::new();
+    for (id, line) in wanted {
+        let selector = format!("#{id}");
+        for (path, sibling_source) in &siblings {
+            let Ok(sibling) = hick_lang::parse(sibling_source) else {
+                continue;
+            };
+            if hick_lang::fragments_matching(&sibling, &selector).is_empty() {
+                continue;
+            }
+            let file = path
+                .file_name()
+                .map(|f| f.to_string_lossy().to_string())
+                .unwrap_or_else(|| path.display().to_string());
+            out.push(format!(
+                "paste \"{selector}\" at {}:{line} resolved from sibling {file}, which this \
+                 document does not name (declare <hick:upstream file=\"{file}\" /> to mean it, \
+                 or a .class selector to collect)",
+                doc_path.display()
+            ));
+            // The first contributor wins the id, exactly as resolution does.
+            break;
+        }
+    }
+    out
+}
+
+/// This document's own `#id` pastes that nothing it declares or names answers
+/// — the only ones an ambient sibling can be answering.
+fn unresolved_own_id_pastes(doc: &HickDocument) -> Vec<(String, usize)> {
+    let mut out = Vec::new();
+    let mut stack: Vec<&hick_lang::HickTag> = doc.tags().collect();
+    while let Some(tag) = stack.pop() {
+        for child in &tag.children {
+            if let HickNode::Tag(t) = child {
+                stack.push(t);
+            }
+        }
+        // Spliced pastes belong to the file that wrote them.
+        if tag.name != "paste" || tag.source_span.is_some_and(|s| s.file_id.is_some()) {
+            continue;
+        }
+        let Some(select) = tag_attr(tag, "select") else {
+            continue;
+        };
+        let select = select.trim();
+        let Some(id) = select.strip_prefix('#') else {
+            continue;
+        };
+        if id.is_empty() || select.contains(',') {
+            continue;
+        }
+        if !hick_lang::fragments_matching(doc, select).is_empty() {
+            continue;
+        }
+        out.push((id.to_string(), tag.source_line));
+    }
+    out.sort_by_key(|(_, line)| *line);
+    out.dedup();
+    out
 }

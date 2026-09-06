@@ -13,6 +13,23 @@ use hick_lang::{HickNode, dedent};
 
 use crate::tag_attr;
 
+/// What the body's first line break means to the element reading it.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum FirstLine {
+    /// The break that ends the open tag's line is the TAG's formatting and is
+    /// dropped, exactly as the file-output pass drops it. A table needs this:
+    /// its first line is the header row, and keeping the break wove a table
+    /// with an EMPTY header and the real header as its first data row — while
+    /// the CSV written to `path=` had the header in the right place, the two
+    /// halves of one block disagreeing about their own first line.
+    AfterTheTagsOwnBreak,
+    /// Kept as written. A graph scene's body is JSON, where the break means
+    /// nothing to the parser — and the scene's bytes are HASHED to name the
+    /// SVG the weave draws, so dropping it would rename a committed file to
+    /// no effect.
+    Verbatim,
+}
+
 /// An element's body, resolved synchronously: text children dedented,
 /// `<hick:paste>` children answered from the run state's fragments — which is
 /// what lets a derived scene's topology, or a table's rows, arrive from the
@@ -22,7 +39,11 @@ use crate::tag_attr;
 /// woven, and both callers must read: a scene must be parsed to be
 /// downgraded to mermaid, and CSV must be parsed to be laid out as a
 /// markdown table.
-pub(crate) fn resolved_body(tag: &hick_lang::HickTag, state: &Arc<MultiDocumentState>) -> String {
+pub(crate) fn resolved_body(
+    tag: &hick_lang::HickTag,
+    state: &Arc<MultiDocumentState>,
+    first_line: FirstLine,
+) -> String {
     let mut body = String::new();
     for (position, child) in tag.children.iter().enumerate() {
         match child {
@@ -34,8 +55,10 @@ pub(crate) fn resolved_body(tag: &hick_lang::HickTag, state: &Arc<MultiDocumentS
                 // CSV's first line and wove a table with an EMPTY header and
                 // `region,units` as its first DATA row: the two halves of one
                 // block disagreeing about their own first line.
-                let text = match position {
-                    0 => crate::strip_opening_break(text, span.as_ref()).0,
+                let text = match (position, first_line) {
+                    (0, FirstLine::AfterTheTagsOwnBreak) => {
+                        crate::strip_opening_break(text, span.as_ref()).0
+                    }
                     _ => text.as_str(),
                 };
                 body.push_str(&dedent(text, tag.source_column));

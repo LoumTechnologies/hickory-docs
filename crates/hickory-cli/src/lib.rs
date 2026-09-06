@@ -6,6 +6,7 @@
 
 pub mod adopt;
 mod cites;
+mod warnings;
 pub use cites::{CitePlace, DeclaredCite, declared_cites};
 pub mod agent_cell_runner;
 pub mod agent_lineage;
@@ -760,28 +761,7 @@ pub async fn run_doc_subset(
 
     // Warn BEFORE executing. The failure this predicts kills the run, so a
     // warning emitted afterwards is a warning nobody ever sees.
-    for warning in escaping_warnings(&doc) {
-        log::warn!("{}: {warning}", doc_path.display());
-    }
-    // Not gated on the executor: both resolve mounts under the workdir.
-    for warning in absolute_mount_warnings(&doc) {
-        log::warn!("{}: {warning}", doc_path.display());
-    }
-    // A cell that mounts its own output silently loses every recording it
-    // makes, and the symptom (`[never run]` over a real run) points nowhere
-    // near the cause.
-    // A silent clobber or an unrelated exit code, either far from the
-    // second declaration that actually caused it.
-    for warning in output_collision_warnings(&doc) {
-        log::warn!("{}: {warning}", doc_path.display());
-    }
-    // A drawing nobody checks is the thing this feature exists to prevent.
-    for warning in claim_warnings(&doc) {
-        log::warn!("{}: {warning}", doc_path.display());
-    }
-    for warning in diagram_assertion_warnings(&doc) {
-        log::warn!("{}: {warning}", doc_path.display());
-    }
+    crate::warnings::warn_before_run(doc_path, &source, &doc);
     if executor_choice == ExecutorChoice::Local
         && mode.executes()
         && let Some(warning) = ignored_image_warning(&doc)

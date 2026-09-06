@@ -26,6 +26,9 @@ Four rules hold it up:
 3. **Local wins, ambient adds.** Contributions are appended, so `#id`
    resolution — first match — keeps the document's own declaration, while
    `.class` collects both. A document can be added to; it cannot be overridden.
+   The day a document's own `#id` goes away, a sibling's answers it instead
+   and nothing fails; that case is warned about, and is
+   `an-ambient-id-paste-is-named.md`.
 4. **A sibling already reached is not reached twice.** A file spliced by
    `hick:include` or `hick:upstream` is skipped, found through the document's
    `span_files` — the resolver's `seen` set is a cycle-detection *stack* and

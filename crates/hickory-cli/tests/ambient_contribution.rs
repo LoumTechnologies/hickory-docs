@@ -171,3 +171,115 @@ fn a_local_fragment_wins_over_a_contributed_one_of_the_same_id() {
         "a contributed fragment overrode the document's own declaration"
     );
 }
+
+/// The same mechanism read the other way round.
+///
+/// Folder-wide discovery is the feature; an `#id` that binds to a sibling
+/// nobody named is its hazard. When a document's own `#imports` is renamed or
+/// deleted and a sibling happens to declare one too, the paste keeps
+/// resolving — to somebody else's bytes — and the tangled file is quietly
+/// wrong. Twice in one repository, both times on a generic id.
+// Protects docs/guarantees/authoring/an-ambient-id-paste-is-named.md
+mod an_ambient_id_paste_is_named {
+    use super::{folder, weave};
+
+    const SIBLING: &str = r##"<hick:doc xmlns:hick="http://www.hickorydocs.com/1.0" weave="other.md">
+<hick:copy id="imports" class="imports">import os</hick:copy>
+</hick:doc>
+"##;
+
+    fn stderr(out: &std::process::Output) -> String {
+        assert!(
+            out.status.success(),
+            "the warning must not stop the weave: {}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        String::from_utf8_lossy(&out.stderr).to_string()
+    }
+
+    #[test]
+    fn an_id_that_resolved_from_a_sibling_is_named() {
+        let dir = folder(&[
+            (
+                "owner.hick",
+                r##"<hick:doc xmlns:hick="http://www.hickorydocs.com/1.0" weave="owner.md">
+<hick:file path="dist/out.txt"><hick:paste select="#imports" /></hick:file>
+</hick:doc>
+"##,
+            ),
+            ("other.hick", SIBLING),
+        ]);
+        let text = stderr(&weave(&dir, "owner.hick"));
+        assert!(text.contains("paste \"#imports\""), "{text}");
+        assert!(text.contains("resolved from sibling other.hick"), "{text}");
+        assert!(
+            text.contains("<hick:upstream file=\"other.hick\" />"),
+            "the warning says how to mean it: {text}"
+        );
+        // Still a warning: the bytes are written, because the binding may
+        // well be what the author wants.
+        let tangled = std::fs::read_to_string(dir.path().join("dist/out.txt")).unwrap();
+        assert_eq!(tangled, "import os");
+    }
+
+    #[test]
+    fn a_class_selector_is_never_warned_about() {
+        // Collecting a sibling's contribution is what a `.class` is FOR.
+        let dir = folder(&[
+            (
+                "owner.hick",
+                r##"<hick:doc xmlns:hick="http://www.hickorydocs.com/1.0" weave="owner.md">
+<hick:file path="dist/out.txt"><hick:paste select=".imports" /></hick:file>
+</hick:doc>
+"##,
+            ),
+            ("other.hick", SIBLING),
+        ]);
+        assert!(
+            !stderr(&weave(&dir, "owner.hick")).contains("resolved from sibling"),
+            "a class paste must not warn"
+        );
+    }
+
+    #[test]
+    fn a_declared_upstream_is_the_document_naming_it() {
+        let dir = folder(&[
+            (
+                "owner.hick",
+                r##"<hick:doc xmlns:hick="http://www.hickorydocs.com/1.0" weave="owner.md">
+<hick:upstream file="other.hick" />
+<hick:file path="dist/out.txt"><hick:paste select="#imports" /></hick:file>
+</hick:doc>
+"##,
+            ),
+            ("other.hick", SIBLING),
+        ]);
+        assert!(
+            !stderr(&weave(&dir, "owner.hick")).contains("resolved from sibling"),
+            "an upstream the author wrote IS naming it"
+        );
+    }
+
+    #[test]
+    fn a_documents_own_fragment_is_not_a_sibling_binding() {
+        let dir = folder(&[
+            (
+                "owner.hick",
+                r##"<hick:doc xmlns:hick="http://www.hickorydocs.com/1.0" weave="owner.md">
+<hick:copy id="imports">import mine</hick:copy>
+<hick:file path="dist/out.txt"><hick:paste select="#imports" /></hick:file>
+</hick:doc>
+"##,
+            ),
+            ("other.hick", SIBLING),
+        ]);
+        let dir_out = weave(&dir, "owner.hick");
+        assert!(
+            !stderr(&dir_out).contains("resolved from sibling"),
+            "the document declares it itself"
+        );
+        // And the local declaration is what it got.
+        let tangled = std::fs::read_to_string(dir.path().join("dist/out.txt")).unwrap();
+        assert_eq!(tangled, "import mine");
+    }
+}
