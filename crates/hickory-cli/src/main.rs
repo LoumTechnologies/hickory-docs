@@ -742,6 +742,10 @@ struct RunArgs {
     /// `hick test --freeze`, which never records.
     #[arg(long)]
     freeze: bool,
+    /// Which cells to run: `push` (the default — every cell) or `commit`
+    /// (skip a `tier="push"` cell unless a recording answers it).
+    #[arg(long = "tier", value_parser = parse_tier_gate)]
+    tier: Option<hickory_cli::TierGate>,
     /// Emit the block model as JSON on stdout instead of a summary.
     #[arg(long)]
     json: bool,
@@ -772,6 +776,13 @@ struct TestArgs {
     /// against. Record with `hick run <doc>`.
     #[arg(long)]
     freeze: bool,
+    /// Which cells to run: `push` (the default — every cell) or `commit`,
+    /// the pre-commit hook's gate, where a `tier="push"` cell is verified
+    /// from its recording when one matches and skipped otherwise. A skipped
+    /// cell's expectations and woven page are not checked; every other
+    /// output of the document still is, and the run still exits 0.
+    #[arg(long = "tier", value_parser = parse_tier_gate)]
+    tier: Option<hickory_cli::TierGate>,
     /// Emit the block model as JSON on stdout in addition to failures.
     #[arg(long)]
     json: bool,
@@ -1274,6 +1285,11 @@ fn params_with_features(params: &[(String, String)], features: &[String]) -> Vec
     params
 }
 
+/// `--tier commit` / `--tier push`, refused by name when it is neither.
+fn parse_tier_gate(raw: &str) -> Result<hickory_cli::TierGate, String> {
+    hickory_cli::TierGate::parse(raw)
+}
+
 async fn cmd_run(args: RunArgs) -> Result<ExitCode> {
     let executor_choice = ExecutorChoice::from_env()?;
     let docs = expand_docs(&args.path)?;
@@ -1286,6 +1302,7 @@ async fn cmd_run(args: RunArgs) -> Result<ExitCode> {
             RunMode::Execute,
             executor_choice,
             hick_literate::cache_mode(args.cache, args.freeze),
+            args.tier.unwrap_or_default(),
         )
         .await?;
         let outputs = write_outputs_detailed(&run, args.out.as_deref())?;
@@ -1321,6 +1338,7 @@ async fn cmd_test(args: TestArgs) -> Result<ExitCode> {
     }
     let params = params_with_features(&args.params, &args.features);
     let mut worst = CheckOutcome::Verified;
+    let mut skipped = 0usize;
     let mut json_blocks = Vec::new();
     for doc_path in &docs {
         // Verify, not Execute: a cell with no baseline must be REPORTED as
@@ -1339,8 +1357,10 @@ async fn cmd_test(args: TestArgs) -> Result<ExitCode> {
             } else {
                 CacheMode::Off
             },
+            args.tier.unwrap_or_default(),
         )
         .await?;
+        skipped += hickory_cli::tier::report_skips(&run);
         let mut failures = check_failures(&run, args.out.as_deref())?;
         // Transform passages are checked from the SOURCE, not from a re-run:
         // no model is called, so this stays free and deterministic in CI.
@@ -1458,6 +1478,9 @@ async fn cmd_test(args: TestArgs) -> Result<ExitCode> {
         if status.repository && !status.ok() {
             eprintln!("hick test: merge driver — {}", status.summary);
         }
+    }
+    if let Some(line) = hickory_cli::tier::skip_summary(skipped) {
+        eprintln!("{line}");
     }
     match worst {
         CheckOutcome::Verified => {}
@@ -4234,51 +4257,5 @@ async fn cmd_doc(cmd: DocCommand) -> Result<ExitCode> {
 }
 
 #[cfg(test)]
-mod restamp_tests {
-    use super::restamp;
-
-    /// Guarantee: docs/guarantees/verification/a-transform-is-checked-against-the-bytes-it-read.md
-    #[test]
-    fn restamp_rewrites_an_existing_fingerprint_and_inserts_the_model() {
-        let src =
-            "<hick:transform select=\"#a\" from=\"old\" instruct=\"x\">\nbody\n</hick:transform>";
-        let body = src.find('>').unwrap() + 1;
-        let out = restamp(
-            src,
-            0,
-            body,
-            &[
-                ("from", "new1"),
-                ("provider", "anthropic"),
-                ("model", "claude-sonnet-5"),
-            ],
-        );
-        assert!(out.starts_with(
-            "<hick:transform provider=\"anthropic\" model=\"claude-sonnet-5\" select=\"#a\" from=\"new1\" instruct=\"x\">\nbody"
-        ), "{out}");
-    }
-
-    /// The passage's own `#id` mentions, filtered to what it was shown,
-    /// become `cites=` — declared, and only ever what the input labelled.
-    #[test]
-    fn cited_ids_keeps_only_ids_the_input_labelled() {
-        let input = "[#m1] Sentence.\n\n[#transcript-u3] Sam: The SLO.\n\n[#p95] 212 ms.";
-        let passage = "BACKED by [#transcript-u3] and #p95; also #p95 again and #nope and #m1.";
-        assert_eq!(super::cited_ids(passage, input), "#transcript-u3,#p95,#m1");
-        assert_eq!(super::cited_ids("nothing here", input), "");
-    }
-
-    /// A document may bind any prefix to the namespace; refresh must find the
-    /// tag it is rewriting by its span, not by the spelling `<hick:transform`.
-    #[test]
-    fn restamp_works_under_a_rebound_prefix() {
-        let src = "intro\n<slack:transform select=\"#a\" instruct=\"x\">\nbody\n</slack:transform>";
-        let open = src.find("<slack:").unwrap();
-        let body = src.find('>').unwrap() + 1;
-        let out = restamp(src, open, body, &[("from", "abcd1234")]);
-        assert!(
-            out.contains("<slack:transform from=\"abcd1234\" select=\"#a\""),
-            "{out}"
-        );
-    }
-}
+#[path = "main_tests.rs"]
+mod main_tests;

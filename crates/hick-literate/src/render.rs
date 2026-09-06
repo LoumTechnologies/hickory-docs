@@ -156,6 +156,14 @@ impl<'a> Element<BlockModelInput<'a>> for ExecElement {
             ),
             AttrSpec::optional("mount", "volumes mounted into the container, `name:path,…`"),
             AttrSpec::optional("timeout", "how long the cell may run"),
+            AttrSpec::optional(
+                "freeze",
+                "answer this cell from its recording instead of running it",
+            ),
+            AttrSpec::optional(
+                "tier",
+                "which gate runs this cell: `commit` (the default) or `push`",
+            ),
             AttrSpec::optional("show", "which parts of the transcript the weave shows"),
         ];
         ATTRS

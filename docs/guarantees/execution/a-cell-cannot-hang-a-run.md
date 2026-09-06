@@ -37,7 +37,7 @@ agent scripts have their own in-container `timeout` (see
 
 **Verification notes (2026-08-16).** The limit is carried as
 `ExecInfo::timeout_secs` (parsed by `parse_timeout` in
-`crates/hick-exec/src/dag.rs`, malformed values →
+`crates/hick-exec/src/attrs.rs`, malformed values →
 `DagValidationError::InvalidTimeout`), resolved against the run-wide default
 by `CellTimeoutDefault::for_cell` in
 `crates/hick-literate/src/cell_timeout.rs` (env resolution:
@@ -53,8 +53,9 @@ around stdin/stdout/stderr/wait together, and `kill_hard` (SIGKILL to `-pid`,
 then `start_kill` + reap) on expiry. Tests, each commented with this file's
 path: `crates/hickory-executor/src/lib.rs` (timeout fails fast with next
 steps, process-group leaves no survivor, unbounded still finishes, blocked
-stdin is covered), `crates/hick-exec/src/dag.rs` (attribute parses, absent
-means inherit, malformed rejected loudly),
+stdin is covered), `crates/hick-exec/src/attrs.rs` (attribute parses, absent
+means inherit, malformed rejected loudly — moved there with the other
+cell attributes when `tier=` landed),
 `crates/hick-literate/src/cell_timeout.rs` (env parsing via injected lookup —
 no process-global env mutation), `crates/hick-literate/tests/cell_timeout_tests.rs`
 (default bounds a cell, attribute overrides upward, `timeout="0"` unbounded,

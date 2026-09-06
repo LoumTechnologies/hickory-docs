@@ -98,6 +98,7 @@ async fn run(
         on_exec: None,
         on_volume_flush: None,
         subset: None,
+        tier: Default::default(),
         collect_unverifiable,
         agent_runner: runner,
         max_agent_reprepares: 0,

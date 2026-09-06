@@ -7,6 +7,7 @@
 pub mod agent_cell;
 pub mod cache;
 pub mod capture;
+mod cell;
 pub mod cell_timeout;
 pub mod compact;
 pub mod config;
@@ -23,6 +24,7 @@ pub mod scene;
 pub mod session_elements;
 pub mod store_config;
 mod text;
+pub mod tier;
 pub mod volume_state;
 pub mod watch;
 mod weave;
@@ -56,125 +58,11 @@ pub use hickory_executor::{
     TranscriptEvent, Transcripts,
 };
 
+pub use crate::cell::{CellId, NeverRun, NoBaseline};
+use crate::cell::{cell_id_of, first_command_line};
 use crate::expect::ExpectationOutcome;
+pub use crate::tier::{SkippedCells, TierGate};
 use hick_condition::Condition;
-
-// ---------------------------------------------------------------------------
-// Cell identity and missing baselines
-// ---------------------------------------------------------------------------
-
-/// Identity of one cell in a document.
-///
-/// An `<hick:exec>` cell names the container it runs in. A cell with **no**
-/// container — the agent cell described in
-/// `docs/specs/freeform/agent-cells.md` — leaves `container` `None`. That is
-/// why this is a struct rather than the `(container, source_line)` tuple it
-/// replaces: a key that assumes a container cannot name a cell that has none.
-#[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub struct CellId {
-    /// The container this cell executes in, when it has one.
-    pub container: Option<String>,
-    /// Line of the cell's opening tag in its source document.
-    pub source_line: usize,
-}
-
-impl CellId {
-    /// A cell that runs inside a container (`<hick:exec container="…">`).
-    pub fn exec(container: impl Into<String>, source_line: usize) -> Self {
-        Self {
-            container: Some(container.into()),
-            source_line,
-        }
-    }
-
-    /// A cell with no container of its own.
-    pub fn containerless(source_line: usize) -> Self {
-        Self {
-            container: None,
-            source_line,
-        }
-    }
-
-    /// The container name, when this cell has one.
-    pub fn container(&self) -> Option<&str> {
-        self.container.as_deref()
-    }
-}
-
-impl std::fmt::Display for CellId {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match &self.container {
-            Some(c) => write!(f, "line {} (container '{c}')", self.source_line),
-            None => write!(f, "line {}", self.source_line),
-        }
-    }
-}
-
-/// Why a cell has no baseline to be verified against.
-///
-/// This is the *unverifiable* half of `check`'s verdict: nothing was ever
-/// established for the cell, which is a different fact from "what was
-/// established has since changed" (drift). See
-/// `docs/guarantees/verification/test-separates-unverifiable-from-drifted.md`.
-#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
-pub enum NoBaseline {
-    /// Weave or dry-run: nothing is executed, and no recording answered this
-    /// cell.
-    NotExecuted,
-    /// The cell is frozen and no recording exists for it, in a mode that may
-    /// not establish one (`hick test`). `frozen_by_cell` distinguishes
-    /// `freeze="true"` on the cell itself from a run-wide freeze the cell
-    /// merely inherited.
-    FrozenWithoutRecording {
-        /// First non-empty command line, so a report can name the cell.
-        command: String,
-        frozen_by_cell: bool,
-    },
-    /// The cell declares `freeze="true"`, but this run has no cache directory
-    /// at all — there is nowhere for a recording to live.
-    FrozenWithoutCacheDirectory { command: String },
-    /// The cell is a `<hick:agent>` cell, no recording answered it, and this
-    /// run has no agent runner configured — no model credentials, so nothing
-    /// could have run it.
-    ///
-    /// This is the ordinary state of CI and of any machine without an API key,
-    /// and it is deliberately *unverifiable* rather than fatal: the rest of
-    /// the document still runs, and the one cell nothing was established for
-    /// is named. `model_declared` records whether the cell says which model it
-    /// wants, because a cell that does can be replayed from a recording with
-    /// no runner at all, and a cell that does not never can.
-    AgentWithoutRunner {
-        prompt: String,
-        model_declared: bool,
-    },
-}
-
-/// Cells with no baseline, keyed by cell.
-pub type NeverRun = std::collections::BTreeMap<CellId, NoBaseline>;
-
-/// The [`CellId`] of a DAG vertex.
-///
-/// An agent cell is containerless — that is what `CellId::container` being an
-/// `Option` is for — even though `ExecInfo` gives it a reserved synthetic
-/// container name so the container-keyed plumbing (recording directory,
-/// transcript map) stays addressable.
-fn cell_id_of(info: &dag::ExecInfo) -> CellId {
-    if info.is_agent() {
-        CellId::containerless(info.source_line)
-    } else {
-        CellId::exec(&info.container, info.source_line)
-    }
-}
-
-/// The first non-empty line of a command, for naming a cell in a report.
-fn first_command_line(command: &str) -> String {
-    command
-        .lines()
-        .map(str::trim)
-        .find(|l| !l.is_empty())
-        .unwrap_or("?")
-        .to_string()
-}
 
 // ---------------------------------------------------------------------------
 // Pipeline result
@@ -205,6 +93,12 @@ pub struct PipelineResult {
     /// weave-without-cache modes always, and by the live pipeline when
     /// [`PipelineConfig::collect_unverifiable`] is set.
     pub never_run: NeverRun,
+    /// Cells this run declined to execute because of their `tier=`, with the
+    /// first line of each command. A skipped cell is a decision the document
+    /// made — not a missing baseline — so it is reported apart from
+    /// [`PipelineResult::never_run`] and costs no exit code. See
+    /// [`crate::tier`].
+    pub skipped: SkippedCells,
     /// Cells answered from a recording whose key no longer matches their
     /// inputs — recorded, but *stale*. The weave shows the last recorded
     /// output rather than a marker; a run brings it forward; `hick test`
@@ -245,52 +139,6 @@ pub struct PipelineResult {
     /// name these as an edit's destination, so a caller that guards against
     /// stale documents needs the full list.
     pub span_files: Vec<String>,
-}
-
-impl PipelineResult {
-    /// Output paths that carry bytes from a cell with no baseline.
-    ///
-    /// A weave never executes: a cell whose recording it cannot find is woven
-    /// as `[never run]`, and every file that cell fed then *says* the cell
-    /// never ran. As a statement about this weave that is honest; as bytes
-    /// written over a committed artifact it is destruction — the SVG a real
-    /// run produced is replaced by a marker, and the app, which executes,
-    /// goes on rendering the chart. Disk and app disagree, silently.
-    ///
-    /// So the writer needs to know which files those are, and provenance
-    /// already knows: a span whose origin is the exec cell named in
-    /// [`PipelineResult::never_run`] is exactly a byte the cell contributed.
-    ///
-    /// **Agent cells are not covered.** `SourceOrigin::Agent` carries the
-    /// session and turn rather than a source line, so an agent cell's bytes
-    /// cannot be matched back to its [`CellId`]. Agent cells write into
-    /// documents rather than into `hick:file` products, so this has no
-    /// bearing on the artifact case; it is stated because the omission is
-    /// deliberate rather than overlooked.
-    pub fn outputs_missing_a_recording(&self) -> std::collections::BTreeSet<String> {
-        if self.never_run.is_empty() {
-            return std::collections::BTreeSet::new();
-        }
-        let mut affected = std::collections::BTreeSet::new();
-        for (path, map) in &self.provenance_maps {
-            let missing = map.spans().iter().any(|span| match &span.origin {
-                hick_exec::node::SourceOrigin::Exec {
-                    container,
-                    tag_line,
-                } => self
-                    .never_run
-                    .contains_key(&CellId::exec(container.as_ref(), *tag_line)),
-                hick_exec::node::SourceOrigin::Script { tag_line } => self
-                    .never_run
-                    .contains_key(&CellId::containerless(*tag_line)),
-                _ => false,
-            });
-            if missing {
-                affected.insert(path.clone());
-            }
-        }
-        affected
-    }
 }
 
 // ---------------------------------------------------------------------------
@@ -1708,6 +1556,9 @@ pub async fn run_pipeline_with_authority(
     // Build dry-run transcripts: collect commands per container in DAG order
     let mut transcripts: HashMap<String, Vec<ExecTranscriptEntry>> = HashMap::new();
     let mut never_run: NeverRun = NeverRun::new();
+    // A dry run and a weave execute nothing, so no cell is skipped for
+    // its tier: a tier decides what to RUN, and this ran nothing.
+    let skipped = SkippedCells::new();
     for (_, doc) in &documents {
         let flow_dag = dag::build_dag(doc).unwrap();
         for exec_id in flow_dag.topological_order() {
@@ -1743,6 +1594,7 @@ pub async fn run_pipeline_with_authority(
         transcripts,
         expectations: Vec::new(),
         never_run,
+        skipped,
         stale: std::collections::BTreeMap::new(),
         keys: std::collections::BTreeMap::new(),
         refreshed: Vec::new(),
@@ -1799,6 +1651,14 @@ pub struct PipelineConfig {
     /// `crate::run_pipeline_live`'s exec loop, and `hickory_cli::run_doc_subset`
     /// for the one caller that sets this (`hick ingest --from`).
     pub subset: Option<std::collections::HashSet<hick_exec::dag::ExecId>>,
+    /// The gate this run is: the most expensive cell tier it will execute.
+    ///
+    /// [`TierGate::Push`] (the default) executes everything, which is every
+    /// caller that does not pass `--tier`. [`TierGate::Commit`] is the
+    /// pre-commit hook's gate: a `tier="push"` cell is answered from a
+    /// recording when one matches its key, and otherwise skipped into
+    /// [`PipelineResult::skipped`] rather than executed.
+    pub tier: TierGate,
     /// Collect cells with no baseline into [`PipelineResult::never_run`]
     /// instead of aborting the run (default: abort).
     ///
@@ -1946,6 +1806,10 @@ pub async fn run_pipeline_live(
     // them. Only ever non-empty when `config.collect_unverifiable` is set;
     // otherwise the same conditions abort the run.
     let mut never_run: NeverRun = NeverRun::new();
+    // Cells this run declined to execute for their tier. Only ever
+    // non-empty when `config.tier` is a gate that admits less than
+    // everything, i.e. `--tier commit`.
+    let mut skipped = SkippedCells::new();
 
     // Volume declarations were collected during preparation (their access
     // rules are part of container capabilities); set up the store over them.
@@ -2035,6 +1899,16 @@ pub async fn run_pipeline_live(
                 // point of exec placement is that an agent cell is covered by
                 // the same machinery, not by a parallel one.
                 let cell_mode = cache::cell_mode(cache_config, exec_info.freeze);
+                // …and so is tier. A cell this gate will not execute still
+                // consults its recording, so `Require` is the mode it takes
+                // whatever it declared: look, and on a miss skip rather than
+                // run.
+                let tier_skipped = config.tier.skips(exec_info.tier);
+                let cell_mode = if tier_skipped {
+                    cache::CacheMode::Require
+                } else {
+                    cell_mode
+                };
 
                 if exec_info.freeze == Some(true) && cache_config.is_none() {
                     // No recording directory: the declaration cannot be
@@ -2086,6 +1960,13 @@ pub async fn run_pipeline_live(
                             .or_default()
                             .push(exec_info.source_line);
                         served = true;
+                    } else if tier_skipped {
+                        // The document said this cell is not what a commit
+                        // waits for, and no recording answered it. Skipped,
+                        // not unverifiable: nothing is missing that anyone
+                        // asked for here.
+                        skipped.insert(cell, first_command_line(&agent.prompt));
+                        continue;
                     } else if cell_mode == cache::CacheMode::Require && config.collect_unverifiable
                     {
                         // A verifier stops here; `run` falls through to the
@@ -2108,6 +1989,16 @@ pub async fn run_pipeline_live(
                     }
                 }
                 if served {
+                    continue;
+                }
+                if tier_skipped {
+                    // No recording directory at all, so nothing could have
+                    // answered it. Still skipped rather than run: the gate is
+                    // the gate whether or not a cache exists.
+                    skipped.insert(
+                        CellId::containerless(exec_info.source_line),
+                        first_command_line(&agent.prompt),
+                    );
                     continue;
                 }
 
@@ -2278,6 +2169,16 @@ pub async fn run_pipeline_live(
             // `freeze="false"` keeps a cell live even under `hick run
             // --freeze`.
             let cell_mode = cache::cell_mode(cache_config, exec_info.freeze);
+            // Tier is the other axis, and it is decided the same way: a cell
+            // this gate will not execute still consults its recording, so it
+            // takes `Require` whatever it declared. On a hit it verifies
+            // exactly as a frozen cell does; on a miss it is skipped.
+            let tier_skipped = config.tier.skips(exec_info.tier);
+            let cell_mode = if tier_skipped {
+                cache::CacheMode::Require
+            } else {
+                cell_mode
+            };
 
             if exec_info.freeze == Some(true) && cache_config.is_none() {
                 // Embedded run paths — the server's live preview, watch mode,
@@ -2403,6 +2304,16 @@ pub async fn run_pipeline_live(
                         hook(&exec_info.container, exec_info.source_line, entry);
                     }
                     continue;
+                } else if tier_skipped {
+                    // Tiered out of this gate, and no recording answered it.
+                    // Skipped — a decision the document made — rather than
+                    // unverifiable, which would say a baseline is missing
+                    // that somebody wanted.
+                    skipped.insert(
+                        CellId::exec(&exec_info.container, exec_info.source_line),
+                        first_command_line(&exec_info.command),
+                    );
+                    continue;
                 } else if cell_mode == cache::CacheMode::Require && config.collect_unverifiable {
                     // Frozen, and nothing was ever recorded for it: no
                     // baseline exists. Not drift — drift needs a baseline to
@@ -2425,6 +2336,16 @@ pub async fn run_pipeline_live(
                     );
                     continue;
                 }
+            }
+
+            if tier_skipped {
+                // Reached only with no cache config at all — the lookup above
+                // `continue`s in every other case. The gate still holds.
+                skipped.insert(
+                    CellId::exec(&exec_info.container, exec_info.source_line),
+                    first_command_line(&exec_info.command),
+                );
+                continue;
             }
 
             // Cache miss or caching disabled — execute for real
@@ -2838,6 +2759,7 @@ pub async fn run_pipeline_live(
         transcripts,
         expectations,
         never_run,
+        skipped,
         stale: std::collections::BTreeMap::new(),
         keys: cell_keys,
         refreshed,
@@ -2903,6 +2825,9 @@ pub async fn run_pipeline_weave(
 
     let mut transcripts: Transcripts = HashMap::new();
     let mut never_run: NeverRun = NeverRun::new();
+    // A dry run and a weave execute nothing, so no cell is skipped for
+    // its tier: a tier decides what to RUN, and this ran nothing.
+    let skipped = SkippedCells::new();
     let mut stale: std::collections::BTreeMap<CellId, String> = std::collections::BTreeMap::new();
     let mut cell_keys: std::collections::BTreeMap<CellId, String> =
         std::collections::BTreeMap::new();
@@ -3074,6 +2999,7 @@ pub async fn run_pipeline_weave(
         transcripts,
         expectations: Vec::new(),
         never_run,
+        skipped,
         stale,
         keys: cell_keys,
         refreshed: Vec::new(),

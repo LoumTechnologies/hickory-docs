@@ -3,6 +3,7 @@
 //! Ports `DynamicCombineLatest`, `Node`, `InsertionPoint`, and related types from
 //! HickoryDocs, and adds information-flow DAG construction and validation.
 
+pub mod attrs;
 pub mod combine_latest;
 pub mod dag;
 pub mod node;
@@ -11,6 +12,9 @@ pub mod volume;
 
 /// Combines multiple async streams, emitting the latest merged value whenever any source updates.
 pub use combine_latest::DynamicCombineLatest;
+
+/// When a cell is meant to run: `tier="commit"` (the default) or `tier="push"`.
+pub use attrs::CellTier;
 
 /// What a `<hick:agent>` cell declares: prompt, model, turn budget, identity.
 pub use dag::AgentCell;

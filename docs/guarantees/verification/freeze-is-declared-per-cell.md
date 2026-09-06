@@ -57,6 +57,12 @@ is listed in one pass, and writes nothing. A frozen cell that DOES have a
 recording is verified, not unverifiable — the recording is its baseline. See
 `test-separates-unverifiable-from-drifted.md`.
 
+**A cell tiered out of the gate is skipped before any of this applies.** Under
+`hick test --tier commit` a `tier="push"` cell with no recording is *skipped*,
+not reported unverifiable, even when it also declares `freeze="true"`: the
+gate was told not to run it. Plain `hick test` still reports it. See
+`a-push-tier-cell-is-skipped-at-commit.md`.
+
 ---
 
 Last LLM verification:
@@ -64,7 +70,7 @@ Last LLM verification:
 - Reviewer: Claude (Opus 5)
 - Result: verified
 - Evidence: the attribute is parsed by `parse_freeze` in
-  `crates/hick-exec/src/dag.rs` into `ExecInfo.freeze: Option<bool>`, rejecting
+  `crates/hick-exec/src/attrs.rs` into `ExecInfo.freeze: Option<bool>`, rejecting
   non-boolean values with `DagValidationError::InvalidFreeze`. The three-valued
   setting is `cache::CacheMode` (`crates/hick-literate/src/cache.rs`);
   `CacheConfig::mode` is the run-wide default and `CacheConfig::mode_for`
@@ -101,7 +107,7 @@ Last LLM verification:
   (`crates/hickory-cli/tests/test_command_tests.rs`). Attribute parsing is
   covered by `freeze_attribute_parses_both_values`,
   `freeze_attribute_defaults_to_inherit`, and
-  `freeze_attribute_rejects_non_boolean` in `crates/hick-exec/src/dag.rs`.
+  `freeze_attribute_rejects_non_boolean` in `crates/hick-exec/src/attrs.rs`.
 - Caveat requiring LLM review: the "honest cost" above is a documentation
   guarantee, not a mechanical one — nothing in the code stops an author from
   freezing every cell in a document and reading the resulting green run as

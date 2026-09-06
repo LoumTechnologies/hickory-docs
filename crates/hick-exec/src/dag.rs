@@ -8,6 +8,7 @@ use std::fmt;
 
 use hick_lang::{HickDocument, HickNode, HickTag};
 
+use crate::attrs::{CellTier, parse_freeze, parse_tier, parse_timeout};
 use crate::volume::{VolumeAccess, VolumeAccessRule, VolumeDeclaration, VolumeKind};
 
 // ---------------------------------------------------------------------------
@@ -204,6 +205,14 @@ pub struct ExecInfo {
     /// always executed and never satisfied from a recording, even under a
     /// run-wide freeze.
     pub freeze: Option<bool>,
+    /// When this cell is meant to run, from `tier="commit"`/`tier="push"`.
+    ///
+    /// [`CellTier::Commit`] (the default) runs at every gate. `Push` means
+    /// the cell is skipped under `hick test --tier commit` unless a
+    /// recording can answer it — the pre-commit hook's tier — and runs
+    /// normally everywhere else. See
+    /// `docs/guarantees/verification/a-push-tier-cell-is-skipped-at-commit.md`.
+    pub tier: CellTier,
     /// Per-cell execution time limit from `timeout="<seconds>"`.
     ///
     /// `None` means the cell inherits the run-wide default
@@ -346,6 +355,17 @@ pub enum DagValidationError {
          and `on` are not accepted."
     )]
     InvalidFreeze { line: usize, value: String },
+
+    #[error(
+        "the cell at line {line} has tier=\"{value}\", which is not a tier.\n\
+         Next steps: write tier=\"commit\" for a cell cheap enough to run at every gate \
+         (the default, and what an omitted attribute means), or tier=\"push\" for a cell \
+         `hick test --tier commit` may skip when it has no recording — the pre-push and CI \
+         gates still run it.\n\
+         Accepted values are exactly `commit` and `push` (case-insensitive); there is no \
+         third tier."
+    )]
+    InvalidTier { line: usize, value: String },
 
     #[error(
         "the cell at line {line} has timeout=\"{value}\", which is not a whole number of \
@@ -663,46 +683,6 @@ pub fn build_dag(doc: &HickDocument) -> Result<FlowDag, DagValidationError> {
 // Extraction helpers
 // ---------------------------------------------------------------------------
 
-/// Parse a `freeze="…"` attribute into a per-cell freeze declaration.
-///
-/// Absent means "inherit the run-wide default"; anything other than an exact
-/// `true`/`false` is rejected rather than silently treated as false, because a
-/// typo in a verification switch that quietly disables verification is the
-/// worst possible failure mode for this attribute.
-fn parse_freeze(tag: &HickTag) -> Result<Option<bool>, DagValidationError> {
-    match tag.get_attribute("freeze") {
-        None => Ok(None),
-        Some(raw) => match raw.trim().to_ascii_lowercase().as_str() {
-            "true" => Ok(Some(true)),
-            "false" => Ok(Some(false)),
-            _ => Err(DagValidationError::InvalidFreeze {
-                line: tag.source_line,
-                value: raw.to_string(),
-            }),
-        },
-    }
-}
-
-/// Parse a `timeout="…"` attribute into a per-cell limit in whole seconds.
-///
-/// Absent means "inherit the run-wide default"; `0` means "this cell runs
-/// unbounded" — allowed, but only as an explicit declaration. Anything that
-/// is not a whole number of seconds is rejected rather than silently
-/// ignored, because a typo in a time limit that quietly removes the limit
-/// is precisely the hang this attribute exists to prevent.
-fn parse_timeout(tag: &HickTag) -> Result<Option<u64>, DagValidationError> {
-    match tag.get_attribute("timeout") {
-        None => Ok(None),
-        Some(raw) => match raw.trim().parse::<u64>() {
-            Ok(n) => Ok(Some(n)),
-            Err(_) => Err(DagValidationError::InvalidTimeout {
-                line: tag.source_line,
-                value: raw.to_string(),
-            }),
-        },
-    }
-}
-
 fn extract_exec_info(tag: &HickTag, index: usize) -> Result<ExecInfo, DagValidationError> {
     let container = tag
         .get_attribute("container")
@@ -783,6 +763,7 @@ fn extract_exec_info(tag: &HickTag, index: usize) -> Result<ExecInfo, DagValidat
         is_script: false,
         toolchain: None,
         freeze: parse_freeze(tag)?,
+        tier: parse_tier(tag)?,
         timeout_secs: parse_timeout(tag)?,
         agent: None,
     })
@@ -833,6 +814,7 @@ fn extract_script_info(tag: &HickTag, index: usize) -> Result<ExecInfo, DagValid
         is_script: true,
         toolchain,
         freeze: parse_freeze(tag)?,
+        tier: parse_tier(tag)?,
         timeout_secs: parse_timeout(tag)?,
         agent: None,
     })
@@ -887,6 +869,7 @@ fn extract_agent_info(
         is_script: false,
         toolchain: None,
         freeze: parse_freeze(tag)?,
+        tier: parse_tier(tag)?,
         // An agent cell is bounded by `max-turns`, not by wall-clock: it
         // never reaches the executor's spawn path, so a `timeout=` here
         // would be a knob that does nothing.
@@ -1122,123 +1105,6 @@ mod tests {
     fn parse_and_build(src: &str) -> Result<FlowDag, DagValidationError> {
         let doc = hick_lang::parse(src).expect("parse failed");
         build_dag(&doc)
-    }
-
-    // The three tests below protect
-    // docs/guarantees/verification/freeze-is-declared-per-cell.md — the
-    // attribute-parsing half of it.
-
-    #[test]
-    fn freeze_attribute_parses_both_values() {
-        let src = r#"<?xml version="1.0" encoding="UTF-8"?>
-<hick:doc xmlns:hick="http://www.hickorydocs.com/1.0">
-<hick:exec container="frozen" image="alpine" freeze="true">
-cat lockfile
-</hick:exec>
-<hick:exec container="live" image="alpine" freeze="FALSE">
-run the integration test
-</hick:exec>
-</hick:doc>"#;
-        let dag = parse_and_build(src).unwrap();
-        assert_eq!(dag.execs[0].freeze, Some(true));
-        assert_eq!(dag.execs[1].freeze, Some(false));
-    }
-
-    #[test]
-    fn freeze_attribute_defaults_to_inherit() {
-        let src = r#"<?xml version="1.0" encoding="UTF-8"?>
-<hick:doc xmlns:hick="http://www.hickorydocs.com/1.0">
-<hick:exec container="demo" image="alpine">
-echo hello
-</hick:exec>
-</hick:doc>"#;
-        let dag = parse_and_build(src).unwrap();
-        assert_eq!(
-            dag.execs[0].freeze, None,
-            "an absent attribute must mean 'inherit the run-wide default', \
-             not 'live' — otherwise --freeze would stop working"
-        );
-    }
-
-    #[test]
-    fn freeze_attribute_rejects_non_boolean() {
-        let src = r#"<?xml version="1.0" encoding="UTF-8"?>
-<hick:doc xmlns:hick="http://www.hickorydocs.com/1.0">
-<hick:exec container="demo" image="alpine" freeze="yes">
-echo hello
-</hick:exec>
-</hick:doc>"#;
-        let err = parse_and_build(src).expect_err("freeze=\"yes\" must not be accepted");
-        assert!(
-            matches!(err, DagValidationError::InvalidFreeze { ref value, .. } if value == "yes"),
-            "unexpected error: {err}"
-        );
-        let msg = err.to_string();
-        assert!(msg.contains("freeze=\"true\"") && msg.contains("freeze=\"false\""));
-    }
-
-    // The three tests below protect
-    // docs/guarantees/execution/a-cell-cannot-hang-a-run.md — the
-    // attribute-parsing half of it.
-
-    #[test]
-    fn timeout_attribute_parses_seconds_and_zero() {
-        let src = r#"<?xml version="1.0" encoding="UTF-8"?>
-<hick:doc xmlns:hick="http://www.hickorydocs.com/1.0">
-<hick:exec container="slow" image="alpine" timeout="300">
-run the long benchmark
-</hick:exec>
-<hick:exec container="endless" image="alpine" timeout="0">
-serve until killed by hand
-</hick:exec>
-</hick:doc>"#;
-        let dag = parse_and_build(src).unwrap();
-        assert_eq!(dag.execs[0].timeout_secs, Some(300));
-        assert_eq!(
-            dag.execs[1].timeout_secs,
-            Some(0),
-            "timeout=\"0\" is an explicit 'unbounded', distinct from the attribute being absent"
-        );
-    }
-
-    #[test]
-    fn timeout_attribute_defaults_to_inherit() {
-        let src = r#"<?xml version="1.0" encoding="UTF-8"?>
-<hick:doc xmlns:hick="http://www.hickorydocs.com/1.0">
-<hick:exec container="demo" image="alpine">
-echo hello
-</hick:exec>
-</hick:doc>"#;
-        let dag = parse_and_build(src).unwrap();
-        assert_eq!(
-            dag.execs[0].timeout_secs, None,
-            "an absent attribute must mean 'inherit the run-wide default', \
-             not 'unbounded' — otherwise the default timeout would stop working"
-        );
-    }
-
-    #[test]
-    fn timeout_attribute_rejects_non_integer_values() {
-        for bad in ["1.5", "2m", "-1", "", "unbounded"] {
-            let src = format!(
-                r#"<?xml version="1.0" encoding="UTF-8"?>
-<hick:doc xmlns:hick="http://www.hickorydocs.com/1.0">
-<hick:exec container="demo" image="alpine" timeout="{bad}">
-echo hello
-</hick:exec>
-</hick:doc>"#
-            );
-            let err = parse_and_build(&src).expect_err("a malformed timeout must not be accepted");
-            assert!(
-                matches!(err, DagValidationError::InvalidTimeout { ref value, .. } if value == bad),
-                "timeout=\"{bad}\": unexpected error: {err}"
-            );
-            let msg = err.to_string();
-            assert!(
-                msg.contains("timeout=\"0\"") && msg.contains("HICKORY_CELL_TIMEOUT"),
-                "the error must name the valid shapes and the env default: {msg}"
-            );
-        }
     }
 
     // The five tests below protect

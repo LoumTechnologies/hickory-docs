@@ -406,6 +406,9 @@ pub async fn ingest_from_exec(
         RunMode::Execute,
         executor,
         CacheMode::Off,
+        // Every tier: an ingest runs the one cell it was pointed at, and a
+        // gate that skipped it would leave nothing to ingest.
+        crate::TierGate::default(),
         Some(subset),
     )
     .await
