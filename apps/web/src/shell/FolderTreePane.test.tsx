@@ -475,7 +475,7 @@ describe("the tree as dired", () => {
     });
     render(<Harness />);
     const readme = await screen.findByText("readme.txt");
-    fireEvent.keyDown(readme, { key: "R" });
+    fireEvent.keyDown(readme, { key: "R", shiftKey: true });
     const input = await screen.findByRole("textbox", { name: "Rename readme.txt" });
     fireEvent.change(input, { target: { value: "taken.txt" } });
     fireEvent.click(screen.getByRole("button", { name: "Rename" }));

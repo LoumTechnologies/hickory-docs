@@ -10,19 +10,19 @@ describe("the dired keys", () => {
   it("mark, unmark and unmark-all are m, u and U", () => {
     expect(diredIntent({ key: "m" }, "x.md", false, none)).toEqual({ kind: "mark", path: "x.md" });
     expect(diredIntent({ key: "u" }, "x.md", false, marks)).toEqual({ kind: "unmark", path: "x.md" });
-    expect(diredIntent({ key: "U" }, "", true, marks)).toEqual({ kind: "unmark-all" });
+    expect(diredIntent({ key: "U", shiftKey: true }, "", true, marks)).toEqual({ kind: "unmark-all" });
   });
 
   it("D, C and M act on the marks when the row is marked, else on the row", () => {
-    expect(diredIntent({ key: "D" }, "a.md", false, marks)).toEqual({ kind: "delete", paths: ["a.md", "b.md"] });
-    expect(diredIntent({ key: "D" }, "c.md", false, marks)).toEqual({ kind: "delete", paths: ["c.md"] });
+    expect(diredIntent({ key: "D", shiftKey: true }, "a.md", false, marks)).toEqual({ kind: "delete", paths: ["a.md", "b.md"] });
+    expect(diredIntent({ key: "D", shiftKey: true }, "c.md", false, marks)).toEqual({ kind: "delete", paths: ["c.md"] });
     expect(diredIntent({ key: "Delete" }, "c.md", false, none)).toEqual({ kind: "delete", paths: ["c.md"] });
-    expect(diredIntent({ key: "C" }, "a.md", false, marks)).toEqual({ kind: "copy", paths: ["a.md", "b.md"] });
-    expect(diredIntent({ key: "M" }, "c.md", false, none)).toEqual({ kind: "move", paths: ["c.md"] });
+    expect(diredIntent({ key: "C", shiftKey: true }, "a.md", false, marks)).toEqual({ kind: "copy", paths: ["a.md", "b.md"] });
+    expect(diredIntent({ key: "M", shiftKey: true }, "c.md", false, none)).toEqual({ kind: "move", paths: ["c.md"] });
   });
 
   it("R renames the row, never the marks: a rename is one name", () => {
-    expect(diredIntent({ key: "R" }, "a.md", false, marks)).toEqual({ kind: "rename", path: "a.md" });
+    expect(diredIntent({ key: "R", shiftKey: true }, "a.md", false, marks)).toEqual({ kind: "rename", path: "a.md" });
   });
 
   it("+ and n create in the row's directory, or beside a file", () => {
@@ -35,7 +35,7 @@ describe("the dired keys", () => {
   it("is silent with a modifier held, on other keys, and on the header with nothing marked", () => {
     expect(diredIntent({ key: "m", ctrlKey: true }, "x.md", false, none)).toBeNull();
     expect(diredIntent({ key: "j" }, "x.md", false, none)).toBeNull();
-    expect(diredIntent({ key: "D" }, "", true, none)).toBeNull();
+    expect(diredIntent({ key: "D", shiftKey: true }, "", true, none)).toBeNull();
     expect(diredIntent({ key: "m" }, "", true, none)).toBeNull();
   });
 });

@@ -51,7 +51,53 @@ pub fn run() {
 /// only this process can (Open, which restarts the session on another folder,
 /// and Quit). Edit and Window are the platform's own items, predefined so
 /// cut/copy/paste behave exactly as the OS says they should.
+/// The menu bar's accelerators, as the person configured them in Settings →
+/// Keyboard: the page resolves its keymap to the shell's spelling and writes
+/// `native_accelerators` into ui.json, and this reads them at launch. An item
+/// the file does not name keeps its built-in key. Launch-time only, like the
+/// window title: the page has no IPC back into this shell, so a change lands
+/// at the next launch, and the Settings page says so.
+struct Accelerators(std::collections::BTreeMap<String, String>);
+
+impl Accelerators {
+    fn load(handle: &AppHandle) -> Self {
+        let map = handle
+            .path()
+            .app_config_dir()
+            .ok()
+            .map(|dir| server::ui_settings_file(&dir))
+            .and_then(|path| hickory_cli::serve::UiStore::load(&path).ok())
+            .map(|ui| ui.native_accelerators)
+            .unwrap_or_default();
+        Self(map)
+    }
+
+    /// The accelerator for a menu id, or the built-in one. `""` in the file
+    /// means "no key", which an item may legitimately have in a profile.
+    fn get<'a>(&'a self, id: &str, built_in: &'a str) -> &'a str {
+        self.0.get(id).map(String::as_str).unwrap_or(built_in)
+    }
+}
+
+/// A menu item with its accelerator, when it has one: Tauri refuses an empty
+/// accelerator string, so "no key" means not calling `.accelerator` at all.
+fn item(
+    handle: &AppHandle,
+    keys: &Accelerators,
+    id: &str,
+    label: &str,
+    built_in: &str,
+) -> tauri::Result<tauri::menu::MenuItem<Wry>> {
+    let mut builder = MenuItemBuilder::with_id(id, label);
+    let key = keys.get(id, built_in);
+    if !key.is_empty() {
+        builder = builder.accelerator(key);
+    }
+    builder.build(handle)
+}
+
 fn app_menu(handle: &AppHandle) -> tauri::Result<Menu<Wry>> {
+    let keys = Accelerators::load(handle);
     // On macOS the first submenu is the application menu; without it, "File"
     // would be renamed to the app and lose its own items.
     #[cfg(target_os = "macos")]
@@ -68,77 +114,83 @@ fn app_menu(handle: &AppHandle) -> tauri::Result<Menu<Wry>> {
         .build()?;
 
     let file = SubmenuBuilder::new(handle, "File")
-        .item(
-            &MenuItemBuilder::with_id("new", "New Document")
-                .accelerator("CmdOrCtrl+N")
-                .build(handle)?,
-        )
+        .item(&item(handle, &keys, "new", "New Document", "CmdOrCtrl+N")?)
         .item(
             // Not a mode of New Document: this one writes a real file and
             // runs a generator, and the page answers it with its own dialog.
-            &MenuItemBuilder::with_id("new-project", "New Project…")
-                .accelerator("CmdOrCtrl+Shift+N")
-                .build(handle)?,
+            &item(
+                handle,
+                &keys,
+                "new-project",
+                "New Project…",
+                "CmdOrCtrl+Shift+N",
+            )?,
         )
-        .item(
-            &MenuItemBuilder::with_id("open-file", "Open File…")
-                .accelerator("CmdOrCtrl+O")
-                .build(handle)?,
-        )
-        .item(
-            &MenuItemBuilder::with_id("open-folder", "Open Folder…")
-                .accelerator("CmdOrCtrl+Shift+O")
-                .build(handle)?,
-        )
-        .item(
-            &MenuItemBuilder::with_id("save", "Save")
-                .accelerator("CmdOrCtrl+S")
-                .build(handle)?,
-        )
-        .item(
-            &MenuItemBuilder::with_id("save-as", "Save As…")
-                .accelerator("CmdOrCtrl+Shift+S")
-                .build(handle)?,
-        )
+        .item(&item(
+            handle,
+            &keys,
+            "open-file",
+            "Open File…",
+            "CmdOrCtrl+O",
+        )?)
+        .item(&item(
+            handle,
+            &keys,
+            "open-folder",
+            "Open Folder…",
+            "CmdOrCtrl+Shift+O",
+        )?)
+        .item(&item(handle, &keys, "save", "Save", "CmdOrCtrl+S")?)
+        .item(&item(
+            handle,
+            &keys,
+            "save-as",
+            "Save As…",
+            "CmdOrCtrl+Shift+S",
+        )?)
         .item(
             // Every open buffer at once. The app already saves as you type,
             // so this is "flush everything now" rather than "or else it is
             // lost" — which is why it has no urgent accelerator.
-            &MenuItemBuilder::with_id("save-all", "Save All")
-                .accelerator("CmdOrCtrl+Alt+S")
-                .build(handle)?,
+            &item(handle, &keys, "save-all", "Save All", "CmdOrCtrl+Alt+S")?,
         )
         .separator()
-        .item(
-            &MenuItemBuilder::with_id("print", "Print…")
-                .accelerator("CmdOrCtrl+P")
-                .build(handle)?,
-        )
+        .item(&item(handle, &keys, "print", "Print…", "CmdOrCtrl+P")?)
         .separator()
-        .item(
-            &MenuItemBuilder::with_id("terminal", "New Terminal")
-                .accelerator("CmdOrCtrl+Shift+T")
-                .build(handle)?,
-        )
+        .item(&item(
+            handle,
+            &keys,
+            "terminal",
+            "New Terminal",
+            "CmdOrCtrl+Shift+T",
+        )?)
         .item(
             // The one key that answers "what needs me?" — it walks the
             // attention queue in the order the server ranks it, and says so
             // when nothing is left.
-            &MenuItemBuilder::with_id("attention", "Next Needing Attention")
-                .accelerator("CmdOrCtrl+J")
-                .build(handle)?,
+            &item(
+                handle,
+                &keys,
+                "attention",
+                "Next Needing Attention",
+                "CmdOrCtrl+J",
+            )?,
         )
         .separator()
-        .item(
-            &MenuItemBuilder::with_id("files", "Show Files")
-                .accelerator("CmdOrCtrl+Shift+E")
-                .build(handle)?,
-        )
-        .item(
-            &MenuItemBuilder::with_id("settings", "Settings…")
-                .accelerator("CmdOrCtrl+,")
-                .build(handle)?,
-        )
+        .item(&item(
+            handle,
+            &keys,
+            "files",
+            "Show Files",
+            "CmdOrCtrl+Shift+E",
+        )?)
+        .item(&item(
+            handle,
+            &keys,
+            "settings",
+            "Settings…",
+            "CmdOrCtrl+,",
+        )?)
         .separator()
         .quit()
         .build()?;
@@ -157,49 +209,53 @@ fn app_menu(handle: &AppHandle) -> tauri::Result<Menu<Wry>> {
     // already has in their fingers from browsers and editors; adding Alt
     // narrows it to the focused tab, which is the rarer request.
     let view = SubmenuBuilder::new(handle, "View")
-        .item(
-            &MenuItemBuilder::with_id("zoom-in", "Zoom In")
-                .accelerator("CmdOrCtrl+=")
-                .build(handle)?,
-        )
-        .item(
-            &MenuItemBuilder::with_id("zoom-out", "Zoom Out")
-                .accelerator("CmdOrCtrl+-")
-                .build(handle)?,
-        )
-        .item(
-            &MenuItemBuilder::with_id("zoom-reset", "Actual Size")
-                .accelerator("CmdOrCtrl+0")
-                .build(handle)?,
-        )
+        .item(&item(handle, &keys, "zoom-in", "Zoom In", "CmdOrCtrl+=")?)
+        .item(&item(handle, &keys, "zoom-out", "Zoom Out", "CmdOrCtrl+-")?)
+        .item(&item(
+            handle,
+            &keys,
+            "zoom-reset",
+            "Actual Size",
+            "CmdOrCtrl+0",
+        )?)
         .separator()
-        .item(
-            &MenuItemBuilder::with_id("zoom-tab-in", "Zoom In This Tab")
-                .accelerator("CmdOrCtrl+Alt+=")
-                .build(handle)?,
-        )
-        .item(
-            &MenuItemBuilder::with_id("zoom-tab-out", "Zoom Out This Tab")
-                .accelerator("CmdOrCtrl+Alt+-")
-                .build(handle)?,
-        )
-        .item(
-            &MenuItemBuilder::with_id("zoom-tab-reset", "Actual Size In This Tab")
-                .accelerator("CmdOrCtrl+Alt+0")
-                .build(handle)?,
-        )
+        .item(&item(
+            handle,
+            &keys,
+            "zoom-tab-in",
+            "Zoom In This Tab",
+            "CmdOrCtrl+Alt+=",
+        )?)
+        .item(&item(
+            handle,
+            &keys,
+            "zoom-tab-out",
+            "Zoom Out This Tab",
+            "CmdOrCtrl+Alt+-",
+        )?)
+        .item(&item(
+            handle,
+            &keys,
+            "zoom-tab-reset",
+            "Actual Size In This Tab",
+            "CmdOrCtrl+Alt+0",
+        )?)
         .separator()
         .item(
             // Off by default: a blame column is a permanent indent on every
             // line of every file, answering a question nobody asks most of
             // the time. It earns its place when you are asking it.
-            &MenuItemBuilder::with_id("blame", "Show Blame Column")
-                .accelerator("CmdOrCtrl+Alt+B")
-                .build(handle)?,
+            &item(
+                handle,
+                &keys,
+                "blame",
+                "Show Blame Column",
+                "CmdOrCtrl+Alt+B",
+            )?,
         )
         .build()?;
 
-    let insert = insert_menu(handle)?;
+    let insert = insert_menu(handle, &keys)?;
 
     let window = SubmenuBuilder::new(handle, "Window")
         .minimize()
@@ -290,12 +346,17 @@ pub fn insert_menu_elements() -> InsertGroups {
 /// panel already on that element — the attributes still get filled in there,
 /// because a menu item cannot ask for a container name. The first item opens
 /// the panel with nothing chosen, which is what the accelerator is for.
-fn insert_menu(handle: &AppHandle) -> tauri::Result<tauri::menu::Submenu<Wry>> {
-    let mut insert = SubmenuBuilder::new(handle, "Insert").item(
-        &MenuItemBuilder::with_id("insert", "Insert Element…")
-            .accelerator("CmdOrCtrl+I")
-            .build(handle)?,
-    );
+fn insert_menu(
+    handle: &AppHandle,
+    keys: &Accelerators,
+) -> tauri::Result<tauri::menu::Submenu<Wry>> {
+    let mut insert = SubmenuBuilder::new(handle, "Insert").item(&item(
+        handle,
+        keys,
+        "insert",
+        "Insert Element…",
+        "CmdOrCtrl+I",
+    )?);
     insert = insert.separator();
     for (group, elements) in INSERT_GROUPS {
         let mut sub = SubmenuBuilder::new(handle, *group);

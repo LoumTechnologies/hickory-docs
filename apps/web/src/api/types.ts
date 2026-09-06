@@ -538,6 +538,11 @@ export interface UiSettings {
   window_title: string | null;
   /** Run the file's formatter when Save is chosen. */
   format_on_save: boolean;
+  /** The keyboard profile and overrides, as lib/keymap.ts keeps them. */
+  keymap?: { profile?: unknown; overrides?: Record<string, unknown> } | null;
+  /** The menu bar's resolved accelerators, by menu id; the shell reads
+   * these at launch. */
+  native_accelerators?: Record<string, string | null>;
 }
 
 // --- terminals ---------------------------------------------------------------

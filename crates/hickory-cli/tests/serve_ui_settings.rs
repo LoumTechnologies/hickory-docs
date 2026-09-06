@@ -92,7 +92,7 @@ async fn a_saved_window_title_is_live_and_survives_a_restart() {
     assert_eq!(status, 200);
     assert_eq!(
         body,
-        json!({ "window_title": null, "format_on_save": false })
+        json!({ "window_title": null, "format_on_save": false, "keymap": null, "native_accelerators": {} })
     );
 
     let (status, body) = put(
@@ -104,7 +104,7 @@ async fn a_saved_window_title_is_live_and_survives_a_restart() {
     assert_eq!(status, 200);
     assert_eq!(
         body,
-        json!({ "window_title": "My Lab Notebook", "format_on_save": false })
+        json!({ "window_title": "My Lab Notebook", "format_on_save": false, "keymap": null, "native_accelerators": {} })
     );
 
     // Live immediately, no restart.
@@ -112,7 +112,7 @@ async fn a_saved_window_title_is_live_and_survives_a_restart() {
     assert_eq!(status, 200);
     assert_eq!(
         body,
-        json!({ "window_title": "My Lab Notebook", "format_on_save": false })
+        json!({ "window_title": "My Lab Notebook", "format_on_save": false, "keymap": null, "native_accelerators": {} })
     );
 
     // Persisted where the desktop shell reads it at launch.
@@ -155,7 +155,7 @@ async fn null_or_blank_clears_the_custom_title() {
     assert_eq!(status, 200);
     assert_eq!(
         body,
-        json!({ "window_title": null, "format_on_save": false })
+        json!({ "window_title": null, "format_on_save": false, "keymap": null, "native_accelerators": {} })
     );
 
     let (_, _) = put(
@@ -173,7 +173,7 @@ async fn null_or_blank_clears_the_custom_title() {
     assert_eq!(status, 200);
     assert_eq!(
         body,
-        json!({ "window_title": null, "format_on_save": false })
+        json!({ "window_title": null, "format_on_save": false, "keymap": null, "native_accelerators": {} })
     );
 
     let on_disk = UiStore::load(&session.ui_path).expect("ui.json parses");
@@ -203,7 +203,7 @@ async fn a_bad_put_changes_nothing() {
         let (_, body) = get(&session, "/api/settings/ui").await;
         assert_eq!(
             body,
-            json!({ "window_title": "Keep me", "format_on_save": false })
+            json!({ "window_title": "Keep me", "format_on_save": false, "keymap": null, "native_accelerators": {} })
         );
     }
 }
@@ -247,10 +247,50 @@ async fn without_a_path_the_routes_answer_in_memory() {
     assert_eq!(status, 200);
     assert_eq!(
         body,
-        json!({ "window_title": "Ephemeral", "format_on_save": false })
+        json!({ "window_title": "Ephemeral", "format_on_save": false, "keymap": null, "native_accelerators": {} })
     );
     assert!(
         !session.ui_path.exists(),
         "no file may appear without a path"
     );
+}
+
+// docs/guarantees/editor-intelligence/every-shortcut-is-a-setting.md: the
+// keymap and the resolved menu accelerators ride the same file as the title.
+#[tokio::test]
+async fn the_keymap_and_native_accelerators_round_trip() {
+    let session = start().await;
+    let (status, body) = put(
+        &session,
+        "/api/settings/ui",
+        json!({
+            "keymap": { "profile": "jetbrains", "overrides": { "editor.format": "Ctrl+Alt+L" } },
+            "native_accelerators": { "save": "CmdOrCtrl+S", "save-all": null, "settings": "CmdOrCtrl+Alt+S" }
+        }),
+    )
+    .await;
+    assert_eq!(status, 200, "{body}");
+    assert_eq!(body["keymap"]["profile"], "jetbrains");
+    assert_eq!(body["keymap"]["overrides"]["editor.format"], "Ctrl+Alt+L");
+    assert_eq!(body["native_accelerators"]["save"], "CmdOrCtrl+S");
+    assert!(
+        body["native_accelerators"].get("save-all").is_none(),
+        "null drops the entry: {body}"
+    );
+
+    let (_, again) = get(&session, "/api/settings/ui").await;
+    assert_eq!(again["keymap"]["profile"], "jetbrains");
+    assert_eq!(again["native_accelerators"]["settings"], "CmdOrCtrl+Alt+S");
+    let stored = UiStore::load(&session.ui_path).unwrap();
+    assert_eq!(
+        stored.native_accelerators.get("save").map(String::as_str),
+        Some("CmdOrCtrl+S")
+    );
+
+    let (status, body) = put(&session, "/api/settings/ui", json!({ "keymap": "vscode" })).await;
+    assert_eq!(status, 400, "{body}");
+    let (status, _) = put(&session, "/api/settings/ui", json!({ "keymap": null })).await;
+    assert_eq!(status, 200);
+    let (_, cleared) = get(&session, "/api/settings/ui").await;
+    assert!(cleared["keymap"].is_null());
 }

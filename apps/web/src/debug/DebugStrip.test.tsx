@@ -1,3 +1,4 @@
+import { isAction } from "../lib/keymap";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { DebugStrip, debugKeysActive, frameLabel, stepForKey } from "./DebugStrip";
@@ -37,7 +38,9 @@ describe("the combo box's line for a frame", () => {
 
 describe("the function keys the tooltips promise", () => {
   it("maps F5, F10 and F11 to the steps their tooltips name", () => {
-    expect(stepForKey("F5", false)).toBe("continue");
+    // Continue is the keymap's (`debug.continue`), not this table's.
+    expect(stepForKey("F5", false)).toBeNull();
+    expect(isAction({ key: "F5", ctrlKey: false, metaKey: false, altKey: false, shiftKey: false }, "debug.continue")).toBe(true);
     expect(stepForKey("F10", false)).toBe("over");
     expect(stepForKey("F11", false)).toBe("in");
     expect(stepForKey("F11", true)).toBe("out");

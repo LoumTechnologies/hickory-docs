@@ -785,6 +785,15 @@ with the refusals said plainly and no trash, so a delete asks once. A plain
 text file's menu offers *Make literate* and *Ingest into <focused
 document>*, both the adoption `hick ingest --from file` performs.
 
+**Every shortcut is a setting (2026-09-05,
+`every-shortcut-is-a-setting.md`).** One catalogue in
+`apps/web/src/lib/keymap.ts` — menu bar, editor, workspace, dired — with
+profiles (Hickory = VS Code keys, VS Code, JetBrains, Visual Studio) and
+per-action overrides, persisted in ui.json as `keymap` plus the resolved
+`native_accelerators` the desktop shell reads at launch. Consumers ask
+`isAction`/`cmKeyOf`, never a literal; chords work in the page, never in
+the menu bar; menu changes land at the next launch and Settings says so.
+
 ## Stack (settled — do not relitigate)
 
 - CLI + language + local server: Rust (edition 2024), axum, tokio. No database.

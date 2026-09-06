@@ -8658,3 +8658,38 @@ button.status-bar__item:hover { background: var(--bg-sunken); color: var(--fg); 
 .story-tail__form { display: flex; flex-direction: column; gap: 0.4rem; margin-top: 0.5rem; }
 .story-tail__recipe { border-top: 1px dashed var(--border); padding-top: 0.5rem; }
 
+/* Settings → Keyboard. A table of actions and the key each is on; a key is a
+   button that records the next keystroke when pressed. */
+.keymap-scope { margin: 0.75rem 0; }
+.keymap-scope__title { font-size: 0.9rem; margin: 0.25rem 0; }
+.keymap-scope__note { font-weight: 400; color: var(--fg-muted); }
+.keymap-table { border-collapse: collapse; width: 100%; font-size: 0.85rem; }
+.keymap-table td { padding: 0.2rem 0.4rem; border-top: 1px solid var(--border); }
+.keymap-table__label { width: 45%; }
+.keymap-table__actions button {
+  font: inherit;
+  font-size: 0.78rem;
+  margin-right: 0.3rem;
+  padding: 0.05rem 0.4rem;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  background: none;
+  color: var(--fg-muted);
+  cursor: pointer;
+}
+.keymap-key {
+  font: inherit;
+  font-family: var(--mono, monospace);
+  font-size: 0.8rem;
+  min-width: 8rem;
+  padding: 0.1rem 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  background: var(--bg-sunken);
+  color: var(--fg);
+  cursor: pointer;
+  text-align: left;
+}
+.keymap-key--recording { border-color: var(--accent); color: var(--accent); }
+.keymap-row--clash .keymap-key { border-color: var(--danger); }
+.settings__warning { color: var(--danger); font-size: 0.85rem; }

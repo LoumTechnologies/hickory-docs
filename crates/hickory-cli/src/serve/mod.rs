@@ -212,6 +212,19 @@ pub struct UiStore {
     /// this product's documents are prose as much as code.
     #[serde(default)]
     pub format_on_save: bool,
+    /// The keyboard profile and the person's own overrides, as the page
+    /// keeps them (`{"profile": "vscode", "overrides": {"editor.format":
+    /// "Ctrl+Alt+L", …}}`). Opaque here: the catalogue of actions and the
+    /// profiles are the page's (apps/web/src/lib/keymap.ts), and the engine
+    /// only carries them between launches.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub keymap: Option<serde_json::Value>,
+    /// The resolved accelerator for each native menu item, by menu id, in
+    /// the shell's spelling (`CmdOrCtrl+S`). Written by the page whenever
+    /// the keymap changes; read by the desktop shell when it builds the
+    /// menu bar at launch. An item absent here keeps its built-in key.
+    #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    pub native_accelerators: std::collections::BTreeMap<String, String>,
 }
 
 impl UiStore {

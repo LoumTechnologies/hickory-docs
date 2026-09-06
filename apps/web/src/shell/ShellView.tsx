@@ -7,6 +7,7 @@
 //
 // See docs/specs/freeform/shell-layouts.md.
 
+import { isAction } from "../lib/keymap";
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 
 import {
@@ -866,18 +867,19 @@ function useTabDrag(layout: Layout, onLayout: (next: Layout) => void): TabDraggi
 function useShellKeys(layout: Layout, onLayout: (next: Layout) => void, onSearch?: () => void) {
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
-      const chord = event.metaKey || event.ctrlKey;
-      if (!chord) return;
-      const pane = layout.focus;
-      if (event.shiftKey && (event.key === "f" || event.key === "F")) {
-        // Mod-Shift-F asks about the whole folder, so it works from anywhere
-        // — including with an editor focused, which is why the editors leave
-        // the shifted chord alone and keep plain Mod-F for themselves.
+      if (isAction(event, "search.inFolder")) {
+        // Find in folder asks about the whole folder, so it works from
+        // anywhere — including with an editor focused, which is why the
+        // editors leave this binding alone and keep plain Find for
+        // themselves. Bound through the keymap (lib/keymap.ts).
         if (!onSearch) return;
         event.preventDefault();
         onSearch();
         return;
       }
+      const chord = event.metaKey || event.ctrlKey;
+      if (!chord) return;
+      const pane = layout.focus;
       if (event.key === "\\") {
         // Cmd-\ splits right, Cmd-Shift-\ splits down: the pair VS Code and
         // Zed both use, so the muscle memory people arrive with works.

@@ -10,6 +10,7 @@
 // present and silently does nothing is worse than one that is absent, and the
 // two backwards controls are the sharp case: most adapters have exactly one.
 
+import { isAction } from "../lib/keymap";
 import { useEffect, useState } from "react";
 import type { TranscriptEvent } from "../api/types";
 import { WatchingTerminal } from "../terminal/WatchingTerminal";
@@ -44,7 +45,6 @@ export function frameLabel(frame: Frame): string {
  * reload), never on an event something else already handled.
  */
 export function stepForKey(key: string, shift: boolean): Step | null {
-  if (key === "F5" && !shift) return "continue";
   if (key === "F10" && !shift) return "over";
   if (key === "F11") return shift ? "out" : "in";
   return null;
@@ -213,8 +213,15 @@ export function DebugStrip(props: DebugStripProps) {
   useEffect(() => {
     if (!debugKeysActive(status)) return;
     const onKey = (event: KeyboardEvent) => {
-      if (event.defaultPrevented || event.metaKey || event.ctrlKey || event.altKey) return;
-      const how = stepForKey(event.key, event.shiftKey);
+      if (event.defaultPrevented) return;
+      // Continue is the keymap's (`debug.continue`, F5 by default, and may
+      // carry a modifier if rebound); the stepping keys are the debugger's
+      // own, plain F10 and F11, and stay put.
+      const how = isAction(event, "debug.continue")
+        ? "continue"
+        : event.metaKey || event.ctrlKey || event.altKey
+          ? null
+          : stepForKey(event.key, event.shiftKey);
       if (!how) return;
       event.preventDefault();
       onStep(how);

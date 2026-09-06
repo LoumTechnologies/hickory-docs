@@ -10,6 +10,8 @@
 // Pure: a key and the state in, an intent out. The pane owns the marks and
 // runs the intents (docs/guarantees/authoring/the-tree-is-a-dired.md).
 
+import { isAction } from "../lib/keymap";
+
 export type DiredIntent =
   | { kind: "mark"; path: string }
   | { kind: "unmark"; path: string }
@@ -21,12 +23,13 @@ export type DiredIntent =
   | { kind: "mkdir"; dir: string }
   | { kind: "create"; dir: string };
 
-export interface DiredKey {
+export type DiredKey = {
   key: string;
   ctrlKey?: boolean;
   metaKey?: boolean;
   altKey?: boolean;
-}
+  shiftKey?: boolean;
+};
 
 /** The rows a verb acts on: the marks when the row is one of them, else
  * the row alone. */
@@ -45,7 +48,8 @@ export function containing(path: string, dir: boolean): string {
 /**
  * What a key on a focused row means, or null when it is not a dired key.
  * `path` is the focused row (`""` for the folder header), `dir` whether it
- * is a directory.
+ * is a directory. The keys are the keymap's `tree.*` actions
+ * (lib/keymap.ts), so a person can move them; Delete always deletes.
  */
 export function diredIntent(
   event: DiredKey,
@@ -53,30 +57,27 @@ export function diredIntent(
   dir: boolean,
   marked: ReadonlySet<string>,
 ): DiredIntent | null {
-  if (event.ctrlKey || event.metaKey || event.altKey) return null;
-  switch (event.key) {
-    case "m":
-      return path === "" ? null : { kind: "mark", path };
-    case "u":
-      return path === "" ? null : { kind: "unmark", path };
-    case "U":
-      return { kind: "unmark-all" };
-    case "D":
-    case "Delete":
-      return path === "" && marked.size === 0 ? null : { kind: "delete", paths: targets(path, marked) };
-    case "R":
-      return path === "" ? null : { kind: "rename", path };
-    case "C":
-      return path === "" && marked.size === 0 ? null : { kind: "copy", paths: targets(path, marked) };
-    case "M":
-      return path === "" && marked.size === 0 ? null : { kind: "move", paths: targets(path, marked) };
-    case "+":
-      return { kind: "mkdir", dir: containing(path, dir) };
-    case "n":
-      return { kind: "create", dir: containing(path, dir) };
-    default:
-      return null;
-  }
+  const full = {
+    key: event.key,
+    ctrlKey: !!event.ctrlKey,
+    metaKey: !!event.metaKey,
+    altKey: !!event.altKey,
+    shiftKey: !!event.shiftKey,
+  };
+  const is = (id: string) => isAction(full, id);
+  const onRow = path !== "";
+  const something = onRow || marked.size > 0;
+  if (is("tree.mark")) return onRow ? { kind: "mark", path } : null;
+  if (is("tree.unmark")) return onRow ? { kind: "unmark", path } : null;
+  if (is("tree.unmarkAll")) return { kind: "unmark-all" };
+  if (is("tree.delete") || (full.key === "Delete" && !full.ctrlKey && !full.metaKey && !full.altKey))
+    return something ? { kind: "delete", paths: targets(path, marked) } : null;
+  if (is("tree.rename")) return onRow ? { kind: "rename", path } : null;
+  if (is("tree.copy")) return something ? { kind: "copy", paths: targets(path, marked) } : null;
+  if (is("tree.move")) return something ? { kind: "move", paths: targets(path, marked) } : null;
+  if (is("tree.newFolder")) return { kind: "mkdir", dir: containing(path, dir) };
+  if (is("tree.newFile")) return { kind: "create", dir: containing(path, dir) };
+  return null;
 }
 
 /** The marks after a mark/unmark intent; other intents leave them alone. */

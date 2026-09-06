@@ -99,6 +99,7 @@ import {
 import { regionsOf } from "../shell/layouts";
 import type { Region } from "../shell/layout";
 import { navigate, redirect, type Route, newDocument } from "../router";
+import { beginsChord, isAction } from "../lib/keymap";
 import { useNewDocument } from "./useNewDocument";
 import { welcomeActionsFor } from "./welcomeActions";
 import {
@@ -345,7 +346,13 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
   // still answers "take me to the next one".
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
-      if (event.key !== "F8" || event.metaKey || event.ctrlKey || event.altKey) return;
+      // The first stroke of any chord is swallowed here so it reaches no
+      // editor as a stray Ctrl+K; the second completes the action.
+      if (beginsChord(event)) {
+        event.preventDefault();
+        return;
+      }
+      if (!isAction(event, "view.problems")) return;
       event.preventDefault();
       goToNextProblem();
     };

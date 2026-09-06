@@ -1308,6 +1308,8 @@ fn ui_listing(store: &crate::serve::UiStore) -> Value {
     json!({
         "window_title": store.window_title,
         "format_on_save": store.format_on_save,
+        "keymap": store.keymap,
+        "native_accelerators": store.native_accelerators,
     })
 }
 
@@ -1362,10 +1364,39 @@ pub async fn put_settings_ui(
                     "format_on_save must be true or false",
                 ));
             }
+            ("keymap", Value::Null) => staged.keymap = None,
+            ("keymap", v @ Value::Object(_)) => staged.keymap = Some(v.clone()),
+            ("keymap", _) => {
+                return Err(ApiError::bad_request(
+                    "keymap must be an object ({\"profile\": …, \"overrides\": {…}}), or null to reset",
+                ));
+            }
+            ("native_accelerators", Value::Object(map)) => {
+                let mut next = std::collections::BTreeMap::new();
+                for (id, accel) in map {
+                    match accel {
+                        Value::String(a) if !a.trim().is_empty() => {
+                            next.insert(id.clone(), a.trim().to_string());
+                        }
+                        Value::Null | Value::String(_) => {}
+                        _ => {
+                            return Err(ApiError::bad_request(format!(
+                                "native_accelerators[{id:?}] must be a string like \"CmdOrCtrl+S\", or null"
+                            )));
+                        }
+                    }
+                }
+                staged.native_accelerators = next;
+            }
+            ("native_accelerators", _) => {
+                return Err(ApiError::bad_request(
+                    "native_accelerators must be an object of menu id → accelerator",
+                ));
+            }
             (other, _) => {
                 return Err(ApiError::bad_request(format!(
-                    "unknown UI setting {other:?}; the settings are \"window_title\" \
-                     and \"format_on_save\""
+                    "unknown UI setting {other:?}; the settings are \"window_title\", \
+                     \"format_on_save\", \"keymap\" and \"native_accelerators\""
                 )));
             }
         }

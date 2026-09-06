@@ -17,6 +17,7 @@ import { useEffect, useState } from "react";
 
 import { api } from "../api/client";
 import { setFormatOnSave } from "../lib/formatOnSave";
+import { KeyboardSection } from "./KeyboardSection";
 import { navigate } from "../router";
 import type { ProviderId, ProviderKey } from "../api/types";
 import {
@@ -528,6 +529,7 @@ export function SettingsView() {
 
         <AppearanceSection />
         <EditingSection />
+        <KeyboardSection />
       </div>
     </div>
   );

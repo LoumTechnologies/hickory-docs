@@ -17,6 +17,7 @@
 // bargain of a meta-LSP over many children, since one document's Python and
 // Rust blocks routinely have different capabilities.
 
+import { cmKeyOf } from "../lib/keymap";
 import { foldService } from "@codemirror/language";
 import { Facet, RangeSetBuilder, StateEffect, StateField } from "@codemirror/state";
 import type { Extension } from "@codemirror/state";
@@ -206,17 +207,21 @@ export function lspFeatures(opts: LspFeatureOptions): Extension[] {
     refreshPlugin(opts),
     signatureHelpTooltip(opts),
     foldFromServer(opts),
-    keymap.of([
-      { key: "F2", run: (view) => renameAt(view, opts) },
-      { key: "Mod-.", run: (view) => codeActionAt(view, opts) },
-      {
-        key: "Shift-Alt-f",
-        run: (view) => {
-          void formatDocument(view, opts);
-          return true;
+    // Bound through the keymap (lib/keymap.ts), read when the editor is
+    // built: a rebinding in Settings reaches editors opened after it.
+    keymap.of(
+      [
+        { key: cmKeyOf("editor.rename"), run: (view: EditorView) => renameAt(view, opts) },
+        { key: cmKeyOf("editor.codeAction"), run: (view: EditorView) => codeActionAt(view, opts) },
+        {
+          key: cmKeyOf("editor.format"),
+          run: (view: EditorView) => {
+            void formatDocument(view, opts);
+            return true;
+          },
         },
-      },
-    ]),
+      ].filter((binding): binding is { key: string; run: (view: EditorView) => boolean } => binding.key !== null),
+    ),
     formatter.of((view) => formatDocument(view, opts)),
     EditorView.theme({
       ".cm-lsp-inlay": {
