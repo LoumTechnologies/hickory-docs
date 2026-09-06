@@ -259,6 +259,12 @@ impl Element<SessionFacts> for ToolElement {
         ) else {
             return vec![];
         };
+        // `read_doc` with no argument reads the conversation's own document
+        // and records "." — a place, not a file; the `read` the harness
+        // writes after it names the file.
+        if file.is_empty() || file == "." {
+            return vec![];
+        }
         if READ_TOOLS.contains(&name.as_str()) {
             // Claude Code's Read takes an offset and a limit; hick's names lines.
             let lines = tool_arg(tag, &["lines"])

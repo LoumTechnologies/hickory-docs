@@ -8712,6 +8712,12 @@ button.status-bar__item:hover { background: var(--bg-sunken); color: var(--fg); 
 /* The lens reads as a conversation: wrapped prose, the file's chrome folded
    to nothing, the record's bookkeeping drawn as nothing. */
 .session-lens .cm-content { max-width: 60rem; }
+/* The lens grows to its conversation and the pane's log scrolls, the way
+   the cards always scrolled — never a second scrollbar inside the pane. The
+   editor still virtualises against the log, so a long record stays cheap. */
+.session-lens .editor-cm-host { display: block; flex: none; min-height: 0; }
+.session-lens .cm-editor { height: auto; max-height: none; }
+.session-lens .cm-scroller { overflow: visible; height: auto; scrollbar-gutter: auto; }
 .session-lens__chrome, .session-meta { display: inline-block; height: 0; }
 .session-lens .chat-agent--silent { display: none; }
 .session-lens .chat-step, .session-lens .chat-reasoning { margin-left: 0.5rem; }

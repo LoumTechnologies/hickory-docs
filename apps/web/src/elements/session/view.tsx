@@ -92,11 +92,11 @@ export const sessionUserView = view("session-user", "user", (slot, cx) => (
 /** The blocks nested inside this one — an answer's reasoning and tool
  * calls — in order, with a slot each so their own views draw them. */
 function nested(slot: RenderedSlot, cx: SlotContext): { block: Block; slot: RenderedSlot }[] {
-  const mine = serverBlock(slot, cx, "session-assistant");
-  if (!mine) return [];
-  const [from, to] = mine.span;
+  // The slot's own span, in the editor's units; the lens hands the server's
+  // blocks over in the same units.
+  const [from, to] = slot.span;
   return (cx.sessionBlocks ?? [])
-    .filter((b) => b !== mine && b.span[0] > from && b.span[1] <= to)
+    .filter((b) => b.kind !== "session-assistant" && b.span[0] > from && b.span[1] <= to)
     .map((block) => ({
       block,
       slot: { ...slot, span: block.span, at: block.span[0], text: "", key: `${slot.key}:${block.span[0]}` },

@@ -12,7 +12,7 @@ import { Decoration, EditorView, WidgetType, lineNumbers } from "@codemirror/vie
 import type { DecorationSet } from "@codemirror/view";
 
 import { api } from "../api/client";
-import type { SessionLink, SessionViewResponse } from "../api/types";
+import type { Block, SessionLink, SessionViewResponse } from "../api/types";
 import { editorChrome } from "../editor/chrome";
 import { RenderedRegistry, renderableBlocks, renderedBlocks, setRenderedBlocks } from "../editor/rendered";
 import type { RenderedSlot } from "../editor/rendered";
@@ -20,6 +20,7 @@ import { structureOf } from "../editor/wysiwyg";
 import { elementViews } from "../elements";
 import type { SlotContext } from "../elements";
 import { registerLens, ribbonLinksOf } from "../lib/lensSources";
+import { byteToChar } from "../lib/offsets";
 
 /** Nothing: what the file's own chrome is drawn as. */
 class Blank extends WidgetType {
@@ -100,6 +101,15 @@ export function SessionLens({ path, stamp }: SessionLensProps) {
   const [slots, setSlots] = useState<RenderedSlot[]>([]);
   const [data, setData] = useState<SessionViewResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // What the cards read, settled once the editor exists: the server's blocks
+  // with their spans in the editor's own units (characters, not bytes —
+  // the difference is every em dash the model wrote), and the links under
+  // each answer.
+  const [facts, setFacts] = useState<{
+    blocks: Block[];
+    linksAt: Map<number, SessionLink[]>;
+    view: EditorView;
+  } | null>(null);
 
   useEffect(() => registry.subscribe(() => setSlots(registry.list())), [registry]);
 
@@ -151,6 +161,18 @@ export function SessionLens({ path, stamp }: SessionLensProps) {
     // the source is one click away on any card, as in a document.
     const blocks = renderableBlocks(structureOf(view.state));
     view.dispatch({ effects: setRenderedBlocks.of(blocks.map((b) => b.from)) });
+    // A conversation opens at its newest turn, the way the cards always
+    // did; the log is the pane's, so it is the log that scrolls.
+    const log = host.closest<HTMLElement>(".chat-log");
+    if (log) requestAnimationFrame(() => log.scrollTo({ top: log.scrollHeight }));
+    setFacts({
+      blocks: data.blocks.map((b) => ({
+        ...b,
+        span: [byteToChar(data.source, b.span[0]), byteToChar(data.source, b.span[1])] as [number, number],
+      })),
+      linksAt: linksByAnswer(view.state, data.links),
+      view,
+    });
     return registerLens({
       path: data.path,
       view,
@@ -169,17 +191,17 @@ export function SessionLens({ path, stamp }: SessionLensProps) {
 
   const cx: SlotContext = useMemo(
     () => ({
-      view: viewRef.current,
+      view: facts?.view ?? null,
       path,
       execBlocks: [],
       diagramBlocks: [],
-      sessionBlocks: data?.blocks ?? [],
-      sessionLinksAt: viewRef.current && data ? linksByAnswer(viewRef.current.state, data.links) : undefined,
+      sessionBlocks: facts?.blocks ?? [],
+      sessionLinksAt: facts?.linksAt,
       runningCells: new Set(),
       replaying: [],
       replaceBlockContent: () => {},
     }),
-    [path, data],
+    [path, facts],
   );
 
   return (
