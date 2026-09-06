@@ -1,6 +1,6 @@
 # A Silent Tag Does Not Double A Blank Line
 
-Given a `<hick:copy>`, `<hick:cut>`, `<hick:container>`, `<hick:volume>`,
+Given a `<hick:cut>`, `<hick:container>`, `<hick:volume>`,
 `<hick:feature>`, `<hick:needs>`, or `<hick:allow>` tag standing alone
 between two paragraphs, when the document is woven, then exactly one blank
 line separates the paragraphs — never the three or more a naive
@@ -9,14 +9,14 @@ leave behind.
 
 ## Why
 
-None of these seven tags contribute a single byte to the woven markdown:
-`copy`/`cut` register content for a later `hick:paste` and return
+None of these six tags contribute a single byte to the woven markdown:
+`cut` registers content for a later `hick:paste` and returns
 `TagResult::Declaration` (confirmed by reading
 `crates/hick-handlers/src/handlers/copy.rs` directly); `container`,
 `volume`, `feature`, `needs`, and `allow` have no registered weave handler
 at all — they are pipeline/DAG declarations with nothing to render. But the
 prose immediately before and after the tag still carries its own paragraph
-break: `"prose A.\n\n<hick:copy…/>\n\nprose B"` concatenates, with the tag
+break: `"prose A.\n\n<hick:cut…/>\n\nprose B"` concatenates, with the tag
 contributing nothing, to `"prose A.\n\n\n\nprose B"` — three blank lines
 where a human who left the declaration out entirely would have written one.
 
@@ -30,7 +30,7 @@ whitespace, with zero change to any other content.
 ## The fix, and what it deliberately does not touch
 
 `process_weave_content` (`crates/hick-literate/src/weave.rs`) tracks whether
-the node just processed was one of the seven `SILENT_DECLARATION_TAGS`; if
+the node just processed was one of the six `SILENT_DECLARATION_TAGS`; if
 so, the NEXT text node strips up to one blank line's worth of its own
 leading newlines (`strip_up_to_one_blank_line`) before being added — the
 same span-adjustment shape as the pre-existing `strip_opening_break`, so
@@ -53,9 +53,17 @@ closed list, so real content's own spacing is never touched.
 ---
 
 Last LLM verification:
-- Date: 2026-09-01
-- Reviewer: Claude (Sonnet 5)
-- Result: verified
+- Date: 2026-09-06
+- Reviewer: Claude (Fable 5.1)
+- Result: verified, with the list one name shorter than it was
+- Amendment (2026-09-06): `copy` LEFT this list. It was never silent by
+  intent — the guide has always said a copy keeps its content in the output
+  — and weaving it silently made `hick:copy` and `hick:cut` the same tag
+  with two names. See
+  `docs/guarantees/authoring/a-copy-weaves-where-it-is-declared.md`. The
+  spacing rule itself is unchanged: `cut` and the five pipeline
+  declarations still strip, and the integration tests that used `hick:copy`
+  as their stand-in silent tag now use `hick:cut`.
 - Evidence: `crates/hick-literate/src/weave.rs`'s `SILENT_DECLARATION_TAGS`,
   the `pending_blank_strip` tracking in `process_weave_content`, and
   `strip_up_to_one_blank_line`. Verified end to end against a real

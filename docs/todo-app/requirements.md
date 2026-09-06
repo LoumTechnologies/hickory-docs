@@ -54,6 +54,37 @@ tangled from these fragments — the requirement and the ticket are the same
 bytes, so they cannot drift. Editing the requirement IS editing the ticket.
 
 
+`todo add "<title>"` creates an open task and prints its id. The id is short,
+opaque, and assigned at creation; it is never derived from the title.
+
+
+
+`todo list` prints every task in creation order as `<id> <state> <title>`.
+Dropped and blocked tasks are included — retaining them is pointless if the
+default view hides them. `--state open|blocked|done|dropped` filters.
+
+
+
+`todo done <id>` moves a task to done. `todo drop <id>` moves it to dropped.
+`todo block <id>` moves it to blocked. All are idempotent: re-running on a
+task already in that state succeeds and changes nothing, so a retried
+command is never an error.
+
+
+
+Tasks persist to `tasks.json` in the working directory, created on first
+write. A missing file reads as an empty list, not an error — the first run of
+a fresh install must behave like every later run.
+
+
+
+`todo rename <id> "<new title>"` changes a task's title, leaving its id and
+state untouched. This is the requirement the opaque-id decision exists for:
+anything referencing a task must survive a retitle. An unknown id exits
+nonzero, like the other commands that take one.
+
+
+
 ### `work/task-rename.task.md`
 
 ```markdown

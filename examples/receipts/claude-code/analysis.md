@@ -31,3 +31,8 @@ the rest of the pipeline can quote. They are typed, not pasted from the cell
 keeps them honest: change the data and the cell fails before anyone reads a
 stale finding.
 
+Checkout p95 was 489 ms between the 2026-08-12 deploy and the fix at noon on 2026-08-21, and 212 ms from the fix through 2026-08-23 (mean of four-hour p95 buckets, load-test window excluded).
+
+The 2026-08-18 10:00–12:00 load-test bucket is excluded from every number here, as Priya asked.
+
+Before the 2026-08-12 deploy the same measure was 203 ms, so the fix returned checkout to where it was, not somewhere new.

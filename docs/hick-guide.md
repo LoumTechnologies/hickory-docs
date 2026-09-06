@@ -317,8 +317,21 @@ Content reuse across the document uses an id-based clipboard.
 - **cut** — stores content but removes it from output
 - **paste** — inserts stored content by id selector
 
+A copy weaves **where it is declared**, which is the whole difference
+between it and a cut. Add `language` and it weaves as a fenced code block in
+that language — no heading, because a fragment has no path — which is what
+a literate document wants: the prose explains a function, the fragment shows
+it, and a `hick:file` further down assembles the file from pastes. Without
+`language` the fragment's content weaves as ordinary prose.
+
 ```xml
 <hick:copy id="version">2.0.0</hick:copy>
+
+<hick:copy id="save" language="rust">
+pub fn save(&self) -> Result<()> {
+    Ok(())
+}
+</hick:copy>
 
 <hick:cut id="internal-notes">
 This text is available to paste but not in the output.

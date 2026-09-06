@@ -17,6 +17,16 @@ drift from the facts it summarizes.
 
 ## The facts (the transform's only inputs)
 
+2026-08-14 15:53 UTC  release pipeline red: dist-desktop.sh fails on macOS (bash 3.2, unbound array)
+2026-08-14 17:03 UTC  second failure mode confirmed: Windows bundle missing icon.ico
+2026-08-14 17:56 UTC  third: release smoke test lacks bubblewrap, hick test refuses to run
+2026-08-16 07:10 UTC  all three fixed; apex domain re-attached; installer falls back to unstable channel
+
+
+Impact: no release published for 2 days; hickorydocs.com apex served HTTP 522
+throughout; the advertised curl installer failed for every visitor.
+
+
 ## The summary (written by a model, pinned to the facts)
 
 The release pipeline failed due to three separate issues: the macOS packaging script broke on bash 3.2 with an unbound array, the Windows bundle was missing icon.ico, and the release smoke test couldn't run without bubblewrap. As a result, no release was published for two days, hickorydocs.com's apex served HTTP 522 throughout, and the advertised curl installer failed for every visitor. All three faults were fixed on 2026-08-16, the apex domain was re-attached, and the installer now falls back to the unstable channel.

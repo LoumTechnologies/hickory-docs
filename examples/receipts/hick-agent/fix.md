@@ -37,3 +37,10 @@ def pool_settings(env=os.environ):
 
 ## Findings
 
+
+The fix raises the connection pool from 10 to 40 connections and adds a 2-second acquire timeout. The change is gated behind the CHECKOUT_POOL_FIX=1 environment variable.
+
+
+
+Forty connections per replica is safe: the Postgres instance is configured for 200 connections, three app replicas at 40 each totals 120, which is within capacity.
+

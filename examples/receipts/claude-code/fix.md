@@ -39,3 +39,6 @@ def pool_settings(env=os.environ):
 
 ## Findings
 
+The fix raises the checkout DB pool from 10 to 40 connections with a 2 s acquire timeout, behind the CHECKOUT_POOL_FIX flag; off, the old settings apply.
+
+Forty per replica across three replicas is 120 connections against an instance configured for 200, per Sam.

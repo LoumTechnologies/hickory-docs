@@ -20,5 +20,12 @@ Excluded 1 rows (load-test window 2026-08-18 10:00-12:00)
 
 
 ## Findings
+The export has columns bucket_start, p95_ms, and requests, where each row represents a four-hour bucket.
+
+Baseline p95 latency (2026-08-10 to 2026-08-12): 202.6 ms
+
+The pool fix reduced p95 latency from 488.7 ms (broken window) to 212.5 ms (after fix)
+
+Excluded 1 row covering the 2026-08-18 10:00-12:00 load test
 # Checkout latency: before and after the pool fix
 

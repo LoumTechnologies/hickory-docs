@@ -17,7 +17,7 @@ satisfying the requirements it was written from.
 
 ## Storage
 
-<hick:copy id="c-storage" class="todo-py">
+<hick:copy id="c-storage" class="todo-py" language="python">
 """A todo list. Tangled from docs/todo-app/implementation.hick — edit the
 document, not this file."""
 import json
@@ -44,7 +44,7 @@ def save(tasks):
 
 ## Commands
 
-<hick:copy id="c-commands" class="todo-py">
+<hick:copy id="c-commands" class="todo-py" language="python">
 
 
 def add(title):
@@ -86,7 +86,7 @@ def rename(task_id, new_title):
 
 ## Entry point
 
-<hick:copy id="c-main" class="todo-py">
+<hick:copy id="c-main" class="todo-py" language="python">
 
 
 def main(argv):

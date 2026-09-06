@@ -10,6 +10,27 @@ document below this one goes stale together when it changes.
 
 ## Terms
 
+
+**Task** — one thing to do. Has an id, a title, and a state. Nothing else;
+every field anyone proposed beyond these was left as an open question.
+
+
+
+**State** — which of open, blocked, done, or dropped a task is in. Exactly one at a
+time; there is no "partially done".
+
+
+
+**Dropped** — decided against, deliberately retained. Distinct from deleted,
+which the app does not offer. Dropping is a decision worth keeping a record
+of.
+
+
+
+**List** — the whole set of tasks, in creation order. There is one list; the
+app has no concept of multiple lists or projects.
+
+
 ## Decisions this model rests on
 
 

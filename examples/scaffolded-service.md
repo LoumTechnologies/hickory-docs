@@ -82,6 +82,8 @@ export function greet(who) {
 
 The block below was written by:
 
+hick ingest --from '#scaffold' examples/scaffolded-service.hick
+
 Three things about it are worth reading rather than skimming.
 
 **`node_modules/` is not in it.** The repository's own `.gitignore` is the

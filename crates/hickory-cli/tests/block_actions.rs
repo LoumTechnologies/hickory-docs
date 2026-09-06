@@ -89,8 +89,8 @@ async fn the_elements_route_lists_the_vocabulary_the_render_route_draws() {
         .iter()
         .map(|e| e["name"].as_str().unwrap())
         .collect();
-    assert_eq!(names, vec!["diagram", "exec", "file", "when"]);
-    let exec = &elements[1];
+    assert_eq!(names, vec!["copy", "diagram", "exec", "file", "when"]);
+    let exec = &elements[2];
     assert_eq!(exec["kind"], "exec");
     assert_eq!(exec["actions"], serde_json::json!(["run"]));
     let attrs: Vec<&str> = exec["attributes"]

@@ -78,6 +78,7 @@ pub fn build_block_model(input: &BlockModelInput<'_>) -> Vec<Block> {
 pub fn registry<'a>() -> Registry<BlockModelInput<'a>> {
     let mut registry = Registry::new();
     registry
+        .register(CopyElement)
         .register(ExecElement)
         .register(FileElement)
         .register(DiagramElement)
@@ -97,6 +98,44 @@ pub fn describe_elements() -> Vec<hick_blocks::ElementDescription> {
 // ---------------------------------------------------------------------------
 // The elements
 // ---------------------------------------------------------------------------
+
+/// `<hick:copy>`: a named fragment. It draws no block of its own — the app
+/// shows a copy's body as the document lines it is — but it is declared here
+/// because its attributes are part of the vocabulary, and `language` in
+/// particular changes what the weave does with it: with one, the fragment
+/// weaves as a fenced code block; without one, as prose. An attribute the
+/// weave reads and the registry does not name is exactly the string-matched
+/// vocabulary `hick-blocks` exists to end.
+struct CopyElement;
+
+impl<'a> Element<BlockModelInput<'a>> for CopyElement {
+    fn name(&self) -> &'static str {
+        "copy"
+    }
+
+    fn attributes(&self) -> &'static [AttrSpec] {
+        const ATTRS: &[AttrSpec] = &[
+            AttrSpec::optional("id", "the name a `#id` paste selects this by"),
+            AttrSpec::optional("class", "names a `.class` paste selects this by"),
+            AttrSpec::optional(
+                "language",
+                "weave the fragment as a fenced block in this language, not as prose",
+            ),
+        ];
+        ATTRS
+    }
+
+    /// Its children are the fragment's own bytes, not blocks: descending
+    /// would draw the body of a `hick:copy` twice, once here and once where
+    /// it is pasted.
+    fn descend(&self) -> Descend {
+        Descend::None
+    }
+
+    fn render(&self, _: &HickTag, _: &BlockModelInput<'a>) -> Option<Block> {
+        None
+    }
+}
 
 /// `<hick:exec>`: a cell. Renders as the command, its transcript and its
 /// verdict; then shows the files it `ingested`, which are file blocks of
@@ -571,7 +610,7 @@ scaffold
     #[test]
     fn the_registry_describes_the_vocabulary_it_draws() {
         let names: Vec<&str> = describe_elements().iter().map(|d| d.name).collect();
-        assert_eq!(names, vec!["diagram", "exec", "file", "when"]);
+        assert_eq!(names, vec!["copy", "diagram", "exec", "file", "when"]);
     }
 
     #[test]

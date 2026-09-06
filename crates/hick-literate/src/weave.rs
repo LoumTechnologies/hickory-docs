@@ -15,8 +15,11 @@ use hick_lang::{HickDocument, HickNode, dedent};
 
 use hick_handlers::{ProcessingContext, ProcessingPhase, TagRegistry, TagResult, TranscriptEntry};
 
+mod sample;
+
 use crate::tag_attr;
 use crate::text::interpolate_path;
+use sample::weave_sample;
 
 /// Map file extension to markdown code fence language identifier.
 pub(crate) fn extension_to_language(path: &str) -> &'static str {
@@ -91,20 +94,21 @@ fn origin_file(doc_path: &str, span_files: &[Arc<str>], span: &hick_lang::Source
 /// has no registered weave handler at all (`container`, `volume`, `feature`,
 /// `needs`, `allow`: pipeline/DAG declarations with nothing to render) or a
 /// handler whose only job is registering content for a LATER `hick:paste`
-/// (`copy`, `cut`: `TagResult::Declaration`, verified by reading
+/// (`cut`: `TagResult::Declaration`, verified by reading
 /// `hick-handlers/src/handlers/copy.rs` directly). A closed, verified list
 /// rather than a general "did this add anything" check — `InsertionPoint`
 /// exposes no count to test that against from outside, and this covers every
 /// tag actually observed to cause the problem below.
-const SILENT_DECLARATION_TAGS: [&str; 7] = [
-    "copy",
-    "cut",
-    "container",
-    "volume",
-    "feature",
-    "needs",
-    "allow",
-];
+///
+/// **`copy` is deliberately not here.** The guide has always said what the
+/// pair means — *copy stores content and keeps it in the output; cut stores
+/// content and removes it* — and weaving a copy silently made the two the
+/// same tag with two names, which showed up as a heading in
+/// `docs/todo-app/implementation.md` with nothing under it. A copy weaves
+/// where it is declared; see
+/// `docs/guarantees/authoring/a-copy-weaves-where-it-is-declared.md`.
+const SILENT_DECLARATION_TAGS: [&str; 6] =
+    ["cut", "container", "volume", "feature", "needs", "allow"];
 
 /// Process document nodes for weave output.
 ///
@@ -397,6 +401,64 @@ fn process_weave_tag(
             );
             weave_ip.add(Arc::new(StringNode::new("$$\n".to_string())));
         }
+        // A fragment somebody will paste later — and, unlike `hick:cut`,
+        // one the reader is meant to see HERE, where the prose introduces it.
+        //
+        // That is the whole difference between the two tags, and the weave
+        // used to erase it: both were in `SILENT_DECLARATION_TAGS`, so a
+        // document that named a fragment, explained it, and pasted it into a
+        // file three screens later wove the heading and the explanation with
+        // a hole where the code should be. A literate document whose function
+        // bodies are `hick:copy` fragments — the shape a large codebase takes
+        // when it becomes a `.hick` — wove as prose about code nobody could
+        // read.
+        //
+        // Two renderings, chosen by whether the author said what language it
+        // is:
+        //
+        // - `language="rust"` → a fenced block, exactly as `hick:file` weaves
+        //   one but with NO `### path` heading, because a fragment has no
+        //   path. It goes through `process_file_children_to_weave`, which is
+        //   what makes the fence clean: the line break that ends the open
+        //   tag's line is dropped and a leading BOM with it
+        //   (`docs/guarantees/verification/a-woven-fenced-block-has-no-leading-bom.md`),
+        //   the body is dedented by the tag's own column, and each piece
+        //   keeps the span it came from so a ribbon still points at it and an
+        //   edit in the woven markdown still lands in the `.hick`.
+        // - no `language` → the children weave as ordinary prose, the way
+        //   `hick:claim` weaves its own, so a copy can hold a paragraph the
+        //   document quotes elsewhere without turning it into code.
+        //
+        // Either way the children go through a recursive path, so a
+        // `<hick:paste>` inside a copy resolves — a fragment assembled from
+        // other fragments weaves assembled.
+        "copy" => match tag_attr(tag, "language") {
+            Some(language) => {
+                weave_ip.add(Arc::new(StringNode::new(format!("\n```{language}\n"))));
+                process_file_children_to_weave(
+                    &tag.children,
+                    weave_ip,
+                    transcripts,
+                    state,
+                    tag.source_column,
+                    registry,
+                    doc_path,
+                    span_files,
+                    None,
+                );
+                weave_ip.add(Arc::new(StringNode::new("```\n".to_string())));
+            }
+            None => process_weave_content(
+                &tag.children,
+                weave_ip,
+                transcripts,
+                state,
+                tag.source_column,
+                registry,
+                doc_path,
+                span_files,
+            ),
+        },
         // A window onto what a cell just generated.
         //
         // The point of generating code is not reading it, so a document that
@@ -602,74 +664,6 @@ fn process_weave_tag(
             // Skip declaration-phase tags (var, copy, cut, substitute, etc.)
         }
     }
-}
-
-/// Weave one `<hick:sample>`: a window onto a few lines of what a cell
-/// generated.
-fn weave_sample(
-    tag: &hick_lang::HickTag,
-    weave_ip: &Arc<InsertionPoint>,
-    state: &Arc<MultiDocumentState>,
-    doc_path: &str,
-) {
-    let raw_path = tag_attr(tag, "path").unwrap_or_default();
-    let path = interpolate_path(&raw_path, state);
-    let caption = tag_attr(tag, "caption").unwrap_or_default();
-    let from: usize = tag_attr(tag, "from")
-        .and_then(|v| v.parse().ok())
-        .unwrap_or(1);
-    let to: usize = tag_attr(tag, "to")
-        .and_then(|v| v.parse().ok())
-        .unwrap_or(usize::MAX);
-
-    let base = std::path::Path::new(doc_path)
-        .parent()
-        .unwrap_or(std::path::Path::new("."));
-    let full = base.join(&path);
-    let language = extension_to_language(&path);
-
-    // This run's own bytes first: an output volume is not on disk
-    // until after the weave, so reading the file would show the
-    // PREVIOUS run's output — and, on a first run, nothing at all.
-    let produced = state.produced_file(&path);
-
-    let mut block = String::new();
-    if !caption.is_empty() {
-        block.push_str(&format!("\n*{caption}*\n"));
-    }
-    match produced
-        .ok_or(())
-        .or_else(|()| std::fs::read_to_string(&full))
-    {
-        Ok(text) => {
-            let lines: Vec<&str> = text.lines().collect();
-            let last = to.min(lines.len());
-            let first = from.max(1);
-            if first > last {
-                // Named rather than shown empty: a sample whose range
-                // has slid off the end of a file it no longer matches
-                // is exactly the stale illustration this element
-                // exists to make impossible.
-                block.push_str(&format!(
-                    "\n> `{path}` has {} line(s), so lines {from}–{to} are not there \
-                             any more. Re-pick the sample.\n\n",
-                    lines.len()
-                ));
-            } else {
-                block.push_str(&format!("\n```{language}\n"));
-                block.push_str(&lines[first - 1..last].join("\n"));
-                block.push_str(&format!(
-                    "\n```\n\n<sub>{path} lines {first}–{last}, generated — \
-                             shown here, not stored here.</sub>\n\n"
-                ));
-            }
-        }
-        Err(_) => block.push_str(&format!(
-            "\n> `{path}` has not been generated yet, so there is nothing to show. \
-                     Run the document.\n\n"
-        )),
-    }
-    weave_ip.add(Arc::new(StringNode::new(block)));
 }
 
 /// Weave one `<hick:ingested>` block: an attribution line naming the run,

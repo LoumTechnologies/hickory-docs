@@ -1,7 +1,7 @@
 //! Two small "reads more naturally" fixes to woven markdown, found comparing
 //! a real `.hick` tutorial against a plain-Markdown control:
 //!
-//! - A silent declaration tag (`hick:copy`, `hick:cut`, `hick:container`,
+//! - A silent declaration tag (`hick:cut`, `hick:container`,
 //!   `hick:volume`, `hick:feature`, `hick:needs`, `hick:allow`) contributes
 //!   zero bytes, but the prose on either side still carries its OWN
 //!   paragraph-break newlines — three or more blank lines where a human who
@@ -32,7 +32,7 @@ fn a_silent_tag_between_two_paragraphs_leaves_exactly_one_blank_line() {
 <hick:doc xmlns:hick="http://www.hickorydocs.com/1.0" weave="report.md">
 First paragraph.
 
-<hick:copy id="unused">some text nobody pastes anywhere</hick:copy>
+<hick:cut id="unused">some text nobody pastes anywhere</hick:cut>
 
 Second paragraph.
 </hick:doc>
@@ -65,9 +65,9 @@ fn two_consecutive_silent_tags_still_leave_exactly_one_blank_line() {
 <hick:doc xmlns:hick="http://www.hickorydocs.com/1.0" weave="report.md">
 Before both.
 
-<hick:copy id="a">fragment a</hick:copy>
+<hick:cut id="a">fragment a</hick:cut>
 
-<hick:copy id="b">fragment b</hick:copy>
+<hick:cut id="b">fragment b</hick:cut>
 
 After both.
 </hick:doc>
