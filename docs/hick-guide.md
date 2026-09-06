@@ -174,6 +174,31 @@ curl --version
 If the container hasn't been declared with a `container` tag, providing
 `image` on the first exec creates it implicitly.
 
+### Where a cell runs, and where its document is
+
+A cell's working directory is a scratch directory, not the folder the
+document lives in. That is what makes a run reproducible and what stops a
+document from writing into your project by accident.
+
+So that a document can still act on the project it belongs to without
+writing an absolute path into a file you send to somebody else, every cell
+is given two environment variables:
+
+- `HICK_DOC_DIR` — the absolute directory the document is in.
+- `HICK_DOC_PATH` — the absolute path of the document file.
+
+```xml
+<hick:exec container="ci" image="rust:1">
+cd "$HICK_DOC_DIR" &amp;&amp; cargo test --workspace
+</hick:exec>
+```
+
+Under the default sandbox that directory is normally **not readable** — the
+variables say where the document is, not that the cell may open it. A cell
+that has to reach the project is a cell for `HICKORY_EXECUTOR=local`. Docker
+and canopy set neither variable: a host path means nothing on the other
+machine.
+
 ### Volumes
 
 Shared volumes let containers exchange data. The first exec to mount a

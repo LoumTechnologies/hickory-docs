@@ -125,7 +125,7 @@ pub async fn run_doc_tool(req: &DocToolRequest) -> Result<ToolOutcome> {
     // `hick doc verify` identical to `hick run` rather than quietly
     // local-only.
     let executor = ExecutorChoice::from_env()?
-        .build_for(req.doc.parent())
+        .build_for_document(&req.doc)
         .await?;
     let outcome = execute_tool(&mut session, executor.clone(), &invocation).await;
     executor.shutdown().await.ok();

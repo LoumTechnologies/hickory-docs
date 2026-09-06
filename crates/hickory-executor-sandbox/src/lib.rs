@@ -138,6 +138,21 @@ impl SandboxedExecutor {
         Self::new_stable_for(None)
     }
 
+    /// Name the document whose cells this executor runs, so `HICK_DOC_DIR`
+    /// and `HICK_DOC_PATH` reach them — see
+    /// [`LocalExecutor::for_document`], which does the work, because the
+    /// sandbox runs its cells through it.
+    ///
+    /// **The directory is normally not readable from inside the sandbox**,
+    /// and the variables are still true: they say where the document is,
+    /// not that this cell may read it. A cell that has to act on the
+    /// project it belongs to is a cell for `HICKORY_EXECUTOR=local`, which
+    /// is the decision that trade always was.
+    pub fn for_document(mut self, document: &std::path::Path) -> Self {
+        self.inner = self.inner.for_document(document);
+        self
+    }
+
     fn build(inner: LocalExecutor, project: Option<&std::path::Path>) -> Result<Self> {
         let sandbox = Sandbox::detect();
         if sandbox == Sandbox::None {

@@ -19,6 +19,7 @@ pub mod diagram;
 pub mod doc_tools;
 pub mod editor_lsp;
 pub mod emission;
+mod executor_choice;
 pub mod floor;
 pub mod history;
 pub mod index_install;
@@ -59,6 +60,10 @@ pub use agent_lineage::{AgentLineage, Authorship, Reasoning};
 /// provider key is available so the cell is unverifiable rather than fatal.
 pub use agent_cell_runner::LlmAgentRunner;
 
+/// Which executor backend runs a document's cells. See
+/// [`executor_choice`], where it lives.
+pub use executor_choice::ExecutorChoice;
+
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -67,88 +72,9 @@ use anyhow::{Context as _, Result, bail};
 use hick_exec::node::FileContent;
 use hick_literate::render::{Block, BlockModelInput, build_block_model};
 use hick_literate::{
-    CellId, Executor, LocalExecutor, NoBaseline, PipelineConfig, PipelineResult, cache,
-    expand_path_arg, run_pipeline_live, run_pipeline_weave,
+    CellId, NoBaseline, PipelineConfig, PipelineResult, cache, expand_path_arg, run_pipeline_live,
+    run_pipeline_weave,
 };
-
-/// Which executor backend to use, from `HICKORY_EXECUTOR`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ExecutorChoice {
-    Local,
-    /// The local executor, with each cell confined to its own workdir.
-    /// See `hickory-executor-sandbox`.
-    Sandbox,
-    Docker,
-    Canopy,
-}
-
-impl ExecutorChoice {
-    /// The name this backend is known by — the `HICKORY_EXECUTOR` value, the
-    /// `GET /api/executor` field, and what the `hick serve` banner prints.
-    pub fn as_str(self) -> &'static str {
-        match self {
-            ExecutorChoice::Local => "local",
-            ExecutorChoice::Sandbox => "sandbox",
-            ExecutorChoice::Docker => "docker",
-            ExecutorChoice::Canopy => "canopy",
-        }
-    }
-
-    /// Read `HICKORY_EXECUTOR` (default: `sandbox`).
-    ///
-    /// The default is the confined one, and it refuses to run where it cannot
-    /// confine anything. A document is a file people send each other and
-    /// agents write; "read every cell before running it" is advice nobody
-    /// follows twice, so the safe execution has to be the one you get without
-    /// asking. `HICKORY_EXECUTOR=local` is still there, one variable away,
-    /// and says plainly what it gives up.
-    pub fn from_env() -> Result<Self> {
-        match std::env::var("HICKORY_EXECUTOR").as_deref() {
-            Err(_) | Ok("") | Ok("sandbox") => Ok(ExecutorChoice::Sandbox),
-            Ok("local") => Ok(ExecutorChoice::Local),
-            Ok("docker") => Ok(ExecutorChoice::Docker),
-            Ok("canopy") => Ok(ExecutorChoice::Canopy),
-            Ok(other) => bail!(
-                "unknown HICKORY_EXECUTOR value '{other}' (expected \"local\", \"sandbox\", \
-                 \"docker\", or \"canopy\")"
-            ),
-        }
-    }
-
-    /// Build the executor. Canopy reads its `CANOPY_*` env config here
-    /// (connection to the node agent is lazy — first use).
-    ///
-    /// Docker probes the daemon eagerly, so an unreachable Docker is a clear
-    /// startup error rather than a cell that fails halfway through a run —
-    /// which means this is `async`.
-    pub async fn build(self) -> Result<Arc<dyn Executor>> {
-        self.build_for(None).await
-    }
-
-    /// [`build`](Self::build), naming the project the run belongs to.
-    ///
-    /// The local executors derive a scratch directory from this so a cell
-    /// that prints its own path reproduces. `None` means "use the working
-    /// directory", which is right for a caller serving a folder and wrong for
-    /// one that was handed a document elsewhere — see
-    /// [`LocalExecutor::new_stable_for`].
-    pub async fn build_for(self, project: Option<&Path>) -> Result<Arc<dyn Executor>> {
-        match self {
-            // The derived scratch directory: `hick` is one executor in one
-            // process, which is the case it is safe and useful for.
-            ExecutorChoice::Local => Ok(Arc::new(LocalExecutor::new_stable_for(project)?)),
-            ExecutorChoice::Sandbox => Ok(Arc::new(
-                hickory_executor_sandbox::SandboxedExecutor::new_stable_for(project)?,
-            )),
-            ExecutorChoice::Docker => Ok(Arc::new(
-                hickory_executor_docker::DockerExecutor::new().await?,
-            )),
-            ExecutorChoice::Canopy => Ok(Arc::new(
-                hickory_executor_canopy::CanopyExecutor::from_env()?,
-            )),
-        }
-    }
-}
 
 /// How to obtain transcripts for a document.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1031,7 +957,7 @@ pub async fn run_doc_subset(
             // ../other/doc.hick` is an ordinary thing to type, and keying the
             // scratch root on where the person was standing gave two
             // unrelated documents one name to fight over.
-            let executor = executor_choice.build_for(doc_path.parent()).await?;
+            let executor = executor_choice.build_for_document(doc_path).await?;
             // An agent cell needs a model, and only `hick run` may buy one.
             //
             // `hick test` deliberately gets NO runner even on a machine
