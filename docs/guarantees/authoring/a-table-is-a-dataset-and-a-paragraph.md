@@ -268,6 +268,25 @@ into my notes" to "the dataset this document owns", and it is worth being an
 explicit act rather than something that happens to a fence when nobody was
 looking. The CSV is carried across untouched, so the promotion is checkable.
 
+## The body may be derived (2026-09-06)
+
+A table's body goes through the same child processing every other element's
+body goes through, so `<hick:table path="x.csv"><hick:paste select="#csv"
+/></hick:table>` weaves the table its rows describe. Before this, the
+`path=` half processed children — the file-output pass always did — and the
+weave read the tag's literal text, which a pasted body has none of. So a
+derived table wrote correct CSV to disk and wove an EMPTY markdown table:
+the two halves of one block disagreeing about their own content, which is
+exactly what rule 1 above exists to prevent. A table you can derive from the
+cell that produced the numbers is most of the reason to put a `path=` on one.
+
+The same change stops the two halves disagreeing about their FIRST LINE. The
+line break that ends the open tag's line is the tag's formatting, and the
+file output has always dropped it (`strip_opening_break`); the weave did
+not, so a multi-line table wrote `region,units` as the CSV header and wove a
+table with an **empty** header and `region,units` as its first data row.
+Documents holding such a table weave differently now, and correctly.
+
 ## Boundary
 
 The reader is forgiving on purpose, in both languages. A bare quote in the
@@ -293,6 +312,24 @@ cells.
 ---
 
 Last LLM verification:
+- Date: 2026-09-06
+- Reviewer: Claude (Fable 5.1)
+- Result: verified for the derived-body half only; the rest is unchanged
+  since the verification below.
+- Evidence: `crates/hick-literate/src/weave.rs` — the `"table"` arm reading
+  `resolved_body(tag, state)` instead of `tag.text_content()`, and
+  `resolved_body` itself (renamed from `resolved_scene_body`, now shared with
+  the graph-diagram renderer) resolving `<hick:paste>` children through
+  `MultiDocumentState::resolve_paste` and dropping the opening line break.
+- Test coverage: `crates/hickory-cli/tests/tables.rs` —
+  `a_table_whose_rows_are_pasted_weaves_the_same_markdown` (every table line
+  the literal form weaves is present in the derived form, and the CSV file is
+  still CSV), beside the unchanged literal-form tests.
+- Caveat requiring LLM review: this is the WEAVE. The block the app draws
+  (`crates/hick-literate/src/render.rs`) still reads the tag's text for a
+  table's props, so a derived table's grid in the editor is not covered here.
+
+Previous verification:
 - Date: 2026-08-21
 - Reviewer: Claude (Opus 5)
 - Result: verified (implemented and reviewed in the same change)

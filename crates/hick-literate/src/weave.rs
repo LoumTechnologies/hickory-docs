@@ -15,10 +15,12 @@ use hick_lang::{HickDocument, HickNode, dedent};
 
 use hick_handlers::{ProcessingContext, ProcessingPhase, TagRegistry, TagResult, TranscriptEntry};
 
+mod body;
 mod sample;
 
 use crate::tag_attr;
 use crate::text::interpolate_path;
+use body::resolved_body;
 use sample::weave_sample;
 
 /// Map file extension to markdown code fence language identifier.
@@ -316,7 +318,7 @@ fn process_weave_tag(
             // reader sees what is there instead of nothing; the warning about
             // it is emitted at validation time, beside the asserts warnings.
             if renderer == crate::scene::GRAPH_RENDERER {
-                let body = resolved_scene_body(tag, state);
+                let body = resolved_body(tag, state);
                 match crate::scene::parse_scene(&body) {
                     Ok(scene) => {
                         // The woven picture IS the drawn picture: an SVG the
@@ -368,10 +370,18 @@ fn process_weave_tag(
         // Weaving the CSV in a fenced block instead would show a reader the
         // commas; storing markdown instead would leave a file nothing else
         // can read.
+        //
+        // The body is RESOLVED first, exactly as a graph diagram's is: a
+        // table whose rows come from a `<hick:paste>` wrote correct CSV to
+        // `path=` — the file-output pass has always processed children —
+        // and wove an EMPTY markdown table, because this arm read
+        // `text_content()`, which is the tag's literal text and nothing
+        // else. A derived table is the whole reason to put a `path=` on one,
+        // so the two halves have to see the same bytes.
         "table" => {
             let delimiter = crate::csv_table::delimiter_of(tag_attr(tag, "delimiter").as_deref());
             let header = crate::csv_table::header_of(tag_attr(tag, "header").as_deref());
-            let rows = crate::csv_table::parse_csv(&tag.text_content(), delimiter);
+            let rows = crate::csv_table::parse_csv(&resolved_body(tag, state), delimiter);
             let table = crate::csv_table::to_markdown(&rows, header);
             if !table.is_empty() {
                 weave_ip.add(Arc::new(StringNode::new(format!("\n{table}\n"))));
@@ -846,29 +856,6 @@ fn process_file_children_to_weave(
             }
         }
     }
-}
-
-/// A graph diagram's body, resolved synchronously: text children dedented,
-/// `<hick:paste>` children answered from the run state's fragments — which is
-/// what lets a derived scene's topology arrive from the cell that proved it.
-/// The streaming path the other renderers use cannot be parsed as JSON before
-/// it is woven, and a scene must be parsed to be downgraded.
-fn resolved_scene_body(tag: &hick_lang::HickTag, state: &Arc<MultiDocumentState>) -> String {
-    let mut body = String::new();
-    for child in &tag.children {
-        match child {
-            HickNode::Text(text, _) => body.push_str(&dedent(text, tag.source_column)),
-            HickNode::Tag(child_tag) if child_tag.name == "paste" => {
-                if let Some(select) = tag_attr(child_tag, "select")
-                    && let Some(resolved) = state.resolve_paste(&select, None, false)
-                {
-                    body.push_str(&resolved);
-                }
-            }
-            HickNode::Tag(_) => {}
-        }
-    }
-    body
 }
 
 /// Process weave output for all documents if weave is enabled.

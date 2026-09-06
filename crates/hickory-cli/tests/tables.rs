@@ -129,3 +129,40 @@ fn the_prose_around_a_table_is_untouched() {
     let (_dir, woven) = run(INLINE);
     assert!(woven.contains("# Sales"), "{woven}");
 }
+
+/// A table whose rows come from a copy fragment weaves the SAME markdown as
+/// the literal form.
+///
+/// The `path=` half always processed children, so a derived table wrote
+/// correct CSV and wove an empty markdown table: the weave read the tag's
+/// literal text, and a pasted body has none. A table you can derive from the
+/// cell that produced the numbers is most of the reason to write one.
+#[test]
+fn a_table_whose_rows_are_pasted_weaves_the_same_markdown() {
+    let derived = r##"<?xml version="1.0" encoding="UTF-8"?>
+<hick:doc xmlns:hick="http://www.hickorydocs.com/1.0" weave="sales.md">
+# Sales
+
+<hick:copy id="csv">region,units
+north,120
+south,90
+</hick:copy>
+
+<hick:table path="sales.csv"><hick:paste select="#csv" /></hick:table>
+</hick:doc>
+"##;
+    let (dir, woven) = run(derived);
+    let (_literal_dir, literal) = run(ENTANGLED);
+    assert!(woven.contains("| region | units |"), "no header:\n{woven}");
+    assert!(woven.contains("| north | 120 |"), "no data row:\n{woven}");
+    assert!(woven.contains("| south | 90 |"), "no data row:\n{woven}");
+    // The copy block itself weaves above the table, so compare the table
+    // rather than the whole document: every line the literal form wove is
+    // present here, in order.
+    for line in literal.lines().filter(|l| l.starts_with('|')) {
+        assert!(woven.contains(line), "missing {line:?} in:\n{woven}");
+    }
+    // The dataset half is unchanged: the file still holds CSV.
+    let csv = std::fs::read_to_string(dir.path().join("sales.csv")).unwrap();
+    assert!(csv.contains("north,120"), "not CSV:\n{csv}");
+}
