@@ -8708,3 +8708,29 @@ button.status-bar__item:hover { background: var(--bg-sunken); color: var(--fg); 
   border-top: 1px solid var(--border);
 }
 .chat-turn-strip__turn { display: inline-flex; gap: 0.4rem; align-items: baseline; }
+
+/* The lens reads as a conversation: wrapped prose, the file's chrome folded
+   to nothing, the record's bookkeeping drawn as nothing. */
+.session-lens .cm-content { max-width: 60rem; }
+.session-lens__chrome, .session-meta { display: inline-block; height: 0; }
+.session-lens .chat-agent--silent { display: none; }
+.session-lens .chat-step, .session-lens .chat-reasoning { margin-left: 0.5rem; }
+.session-lens details > pre { white-space: pre-wrap; word-break: break-word; max-height: 24em; overflow: auto; }
+/* What an answer rests on: the three families, in words, under the bubble. */
+.chat-sources { display: flex; flex-wrap: wrap; gap: 0.3rem; margin-top: 0.4rem; }
+.chat-source {
+  font: inherit;
+  font-size: 0.78rem;
+  padding: 0.05rem 0.45rem;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: none;
+  color: var(--fg);
+  cursor: pointer;
+}
+.chat-source:hover { background: var(--bg-sunken); }
+.chat-source__verb { color: var(--fg-muted); }
+.chat-source--context { border-color: var(--ribbon-context, var(--border)); }
+.chat-source--declared { border-style: dashed; }
+.chat-source--lineage { border-color: var(--accent); }
+.chat-source__lines { color: var(--fg-muted); }

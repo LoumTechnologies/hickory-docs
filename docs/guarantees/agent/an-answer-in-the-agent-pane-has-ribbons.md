@@ -39,6 +39,22 @@ chat special case (`docs/specs/freeform/the-minimal-core.md`):
    overlay as one more source with its links, and nothing in the overlay
    knows what a chat is.
 
+## How it reads (amended 2026-09-06, from using it)
+
+The first version showed the file: the XML declaration, the root tags and
+every `<hick:usage>` line sat as raw source between the cards, three
+elements the harness writes — `reasoning`, `next`, `usage` — were not
+registered at all, an answer that only called a tool said "no answer
+recorded", nothing wrapped, and the only provenance was the hover-revealed
+ribbon. Now: the file's chrome and the record's bookkeeping are folded to
+nothing (`sessionChrome`, the `session-meta` kind); the lens wraps; an
+answer's reasoning and tool calls are drawn **inside its card**, folded,
+the reasoning labelled as such and never mixed with the answer
+(`reasoning-is-shown-apart-from-the-answer.md`); and under every answer sit
+**source chips** — *read*, *wrote*, *cites* — one per file the turn rested
+on, each opening the file at its lines (`linksByAnswer`, `SourceChips`).
+The chips and the ribbons are the same links in two forms.
+
 ## Boundary
 
 The far end lands on chrome (tab, tree row, port), not on the target's
@@ -60,7 +76,10 @@ Last LLM verification:
   `crates/hick-literate/src/session_elements.rs` (the elements, `mentions`,
   `session_blocks`, `session_links`); `crates/hickory-cli/src/serve/api.rs`
   `session_view`; `apps/web/src/elements/session/view.tsx`;
-  `apps/web/src/views/SessionLens.tsx`; `apps/web/src/lib/lensSources.ts`;
+  `apps/web/src/views/SessionLens.tsx` (`sessionChrome`, `linksByAnswer`);
+  `apps/web/src/elements/session/view.tsx` (`SourceChips`, `nested`,
+  `INNER`); `apps/web/src/editor/rendered.ts` (a block inside a drawn block
+  is not drawn twice); `apps/web/src/lib/lensSources.ts`;
   `apps/web/src/components/ChatDock.tsx` (`sessionPath`, `inLens`);
   `apps/web/src/views/WorkspaceView.tsx` (`lensSources()` in
   `ribbonSources` and `ribbonLinks`).

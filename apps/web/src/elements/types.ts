@@ -14,7 +14,7 @@
 import type { ReactNode } from "react";
 import type { EditorView } from "@codemirror/view";
 
-import type { Block, DiagramBlock, ExecBlock, ExecutorInfo } from "../api/types";
+import type { Block, DiagramBlock, ExecBlock, ExecutorInfo, SessionLink } from "../api/types";
 import type { HickBlock } from "../editor/hickDoc";
 import type { RenderedSlot } from "../editor/rendered";
 import type { TableLayout } from "../components/TablePanel";
@@ -34,7 +34,10 @@ export type SlotKind =
   | "session-wrote"
   | "session-context"
   | "session-observation"
-  | "session-action";
+  | "session-action"
+  | "session-reasoning"
+  | "session-input"
+  | "session-meta";
 
 /** What the document around a rendered block knows, handed to every view. */
 export interface SlotContext {
@@ -48,6 +51,9 @@ export interface SlotContext {
   diagramBlocks: DiagramBlock[];
   /** A session's blocks from the server, for the conversation's cards. */
   sessionBlocks?: Block[];
+  /** The provenance each answer rests on, keyed by the answer's block
+   * start: what the turn read, wrote and pointed at, as chips under it. */
+  sessionLinksAt?: ReadonlyMap<number, readonly SessionLink[]>;
   runningCells: Set<string>;
   /** Block starts whose transcript is revealed (the rail's Replay). */
   replaying: readonly number[];

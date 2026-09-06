@@ -62,7 +62,11 @@ pub fn session_registry() -> Registry<SessionFacts> {
         .register(WroteElement)
         .register(ContextElement)
         .register(ObservationElement)
-        .register(ActionElement);
+        .register(ActionElement)
+        .register(ReasoningElement)
+        .register(InputElement)
+        .register(MetaElement("usage"))
+        .register(MetaElement("next"));
     registry
 }
 
@@ -442,6 +446,56 @@ impl Element<SessionFacts> for ActionElement {
                 .with("lang", attr(tag, "lang").or_else(|| attr(tag, "language")))
                 .with("body", tag.text_content().trim()),
         )
+    }
+}
+
+/// `<hick:reasoning>`: the model's reasoning, kept apart from its answer and
+/// drawn folded (`reasoning-is-shown-apart-from-the-answer.md`).
+struct ReasoningElement;
+impl Element<SessionFacts> for ReasoningElement {
+    fn name(&self) -> &'static str {
+        "reasoning"
+    }
+    fn kind(&self) -> &'static str {
+        "session-reasoning"
+    }
+    fn render(&self, tag: &HickTag, _: &SessionFacts) -> Option<Block> {
+        Some(Block::new("session-reasoning", span_of(tag)).with("body", tag.text_content().trim()))
+    }
+}
+
+/// `<hick:input>`: a tool's multi-line payload, raw.
+struct InputElement;
+impl Element<SessionFacts> for InputElement {
+    fn name(&self) -> &'static str {
+        "input"
+    }
+    fn kind(&self) -> &'static str {
+        "session-input"
+    }
+    fn render(&self, tag: &HickTag, _: &SessionFacts) -> Option<Block> {
+        Some(
+            Block::new("session-input", span_of(tag))
+                .with("name", attr(tag, "name"))
+                .with("body", tag.text_content().trim()),
+        )
+    }
+}
+
+/// The harness's bookkeeping — `<hick:usage>` totals and the `<hick:next>`
+/// protocol marker. Facts of the record, not of the conversation: drawn as
+/// nothing, so the lens folds them away rather than showing raw markup
+/// between the cards.
+struct MetaElement(&'static str);
+impl Element<SessionFacts> for MetaElement {
+    fn name(&self) -> &'static str {
+        self.0
+    }
+    fn kind(&self) -> &'static str {
+        "session-meta"
+    }
+    fn render(&self, tag: &HickTag, _: &SessionFacts) -> Option<Block> {
+        Some(Block::new("session-meta", span_of(tag)).with("element", self.0))
     }
 }
 

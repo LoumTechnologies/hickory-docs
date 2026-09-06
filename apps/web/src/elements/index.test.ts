@@ -22,6 +22,9 @@ const KINDS: SlotKind[] = [
   "session-context",
   "session-observation",
   "session-action",
+  "session-reasoning",
+  "session-input",
+  "session-meta",
 ];
 
 describe("the element views", () => {

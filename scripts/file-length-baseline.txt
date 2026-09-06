@@ -1,4 +1,4 @@
-apps/web/src/api/types.ts 1254
+apps/web/src/api/types.ts 1258
 apps/web/src/components/TablePanel.tsx 1768
 apps/web/src/debug/cmDebug.ts 1049
 apps/web/src/editor/wysiwyg.ts 1067

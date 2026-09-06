@@ -7,11 +7,12 @@
 // See docs/guarantees/agent/an-answer-in-the-agent-pane-has-ribbons.md.
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { EditorState } from "@codemirror/state";
-import { EditorView, lineNumbers } from "@codemirror/view";
+import { EditorState, StateField } from "@codemirror/state";
+import { Decoration, EditorView, WidgetType, lineNumbers } from "@codemirror/view";
+import type { DecorationSet } from "@codemirror/view";
 
 import { api } from "../api/client";
-import type { SessionViewResponse } from "../api/types";
+import type { SessionLink, SessionViewResponse } from "../api/types";
 import { editorChrome } from "../editor/chrome";
 import { RenderedRegistry, renderableBlocks, renderedBlocks, setRenderedBlocks } from "../editor/rendered";
 import type { RenderedSlot } from "../editor/rendered";
@@ -19,6 +20,71 @@ import { structureOf } from "../editor/wysiwyg";
 import { elementViews } from "../elements";
 import type { SlotContext } from "../elements";
 import { registerLens, ribbonLinksOf } from "../lib/lensSources";
+
+/** Nothing: what the file's own chrome is drawn as. */
+class Blank extends WidgetType {
+  toDOM() {
+    const el = document.createElement("span");
+    el.className = "session-lens__chrome";
+    return el;
+  }
+}
+
+/**
+ * The lines that are the FILE's, not the conversation's — the XML
+ * declaration and the root element's open and close tags — folded away.
+ * The record is still the record; a reader of the conversation is not
+ * reading XML.
+ */
+const sessionChrome = StateField.define<DecorationSet>({
+  create: (state) => chromeDecorations(state),
+  update: (value, tr) => (tr.docChanged ? chromeDecorations(tr.state) : value),
+  provide: (field) => EditorView.decorations.from(field),
+});
+
+function chromeDecorations(state: EditorState): DecorationSet {
+  const doc = state.doc;
+  const structure = structureOf(state);
+  const lines = new Set<number>();
+  if (doc.lines > 0 && doc.line(1).text.startsWith("<?xml")) lines.add(1);
+  for (const tag of structure.tags) {
+    if (tag.name === "session") {
+      lines.add(doc.lineAt(tag.from).number);
+      lines.add(doc.lineAt(Math.max(tag.to - 1, tag.from)).number);
+    }
+  }
+  const ranges = [...lines]
+    .sort((a, b) => a - b)
+    .map((n) => doc.line(n))
+    .filter((line) => line.to > line.from)
+    .map((line) => Decoration.replace({ widget: new Blank(), block: true }).range(line.from, line.to));
+  return Decoration.set(ranges, true);
+}
+
+/**
+ * The provenance under each answer: every link whose source lies between
+ * this answer's first line and the next speaker's — what the turn read,
+ * wrote and pointed at — keyed by the answer's block start.
+ */
+export function linksByAnswer(
+  state: EditorState,
+  links: readonly SessionLink[],
+): Map<number, SessionLink[]> {
+  const doc = state.doc;
+  const speakers = structureOf(state)
+    .blocks.filter((b) => b.name === "assistant" || b.name === "user")
+    .sort((a, b) => a.from - b.from);
+  const out = new Map<number, SessionLink[]>();
+  speakers.forEach((block, i) => {
+    if (block.name !== "assistant") return;
+    const startLine = doc.lineAt(block.from).number;
+    const next = speakers[i + 1];
+    const endLine = next ? doc.lineAt(next.from).number : doc.lines + 1;
+    const mine = links.filter((link) => link.lines[0] >= startLine && link.lines[0] < endLine);
+    if (mine.length > 0) out.set(block.from, mine);
+  });
+  return out;
+}
 
 export interface SessionLensProps {
   /** The session file, folder-relative. */
@@ -66,8 +132,11 @@ export function SessionLens({ path, stamp }: SessionLensProps) {
           extensions: [
             editorChrome("document"),
             lineNumbers(),
+            // A conversation reads as prose: it wraps at the pane's edge.
+            EditorView.lineWrapping,
             EditorState.readOnly.of(true),
             EditorView.editable.of(false),
+            sessionChrome,
             renderedBlocks(registry),
           ],
         }),
@@ -105,6 +174,7 @@ export function SessionLens({ path, stamp }: SessionLensProps) {
       execBlocks: [],
       diagramBlocks: [],
       sessionBlocks: data?.blocks ?? [],
+      sessionLinksAt: viewRef.current && data ? linksByAnswer(viewRef.current.state, data.links) : undefined,
       runningCells: new Set(),
       replaying: [],
       replaceBlockContent: () => {},

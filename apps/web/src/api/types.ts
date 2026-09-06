@@ -80,7 +80,11 @@ export type Block =
   | { kind: "session-wrote"; file?: string; lines?: string; span: [number, number] }
   | { kind: "session-context"; context_kind?: string; body: string; span: [number, number] }
   | { kind: "session-observation"; source?: string; exit?: string; body: string; span: [number, number] }
-  | { kind: "session-action"; lang?: string; body: string; span: [number, number] };
+  | { kind: "session-action"; lang?: string; body: string; span: [number, number] }
+  | { kind: "session-reasoning"; body: string; span: [number, number] }
+  | { kind: "session-input"; name?: string; body: string; span: [number, number] }
+  /** The harness's bookkeeping (`usage`, `next`): drawn as nothing. */
+  | { kind: "session-meta"; element: string; span: [number, number] };
 
 /** One provenance connection an element of a session declares
  * (`hick_blocks::Link`, with the lines its span covers). */

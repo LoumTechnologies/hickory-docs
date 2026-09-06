@@ -250,6 +250,10 @@ function buildRendered(state: EditorState, registry: RenderedRegistry): Decorati
   const insidePicture = (block: HickBlock) =>
     pictureSpans.some(([from, to]) => block.from > from && block.from < to);
 
+  // A block inside a block already drawn is that block's to draw: an
+  // assistant's reasoning and tool calls are part of its card, and two
+  // replacements over the same rows is something CodeMirror refuses.
+  let drawnTo = -1;
   for (const block of renderableBlocks(structure)) {
     // Which view draws it is the registry's answer, never a guess here.
     const kind = slotKindOf(block);
@@ -257,6 +261,7 @@ function buildRendered(state: EditorState, registry: RenderedRegistry): Decorati
     const index = counts[kind]++;
     if (!rendered.includes(block.from)) continue;
     if (insidePicture(block)) continue;
+    if (block.from < drawnTo) continue;
     // A cell that OWNS ingested files stops rendering where they begin.
     //
     // `hick ingest` puts a scaffolder's output inside the cell that produced
@@ -317,6 +322,7 @@ function buildRendered(state: EditorState, registry: RenderedRegistry): Decorati
         last.to,
       ),
     );
+    drawnTo = Math.max(drawnTo, end);
   }
   ranges.sort((a, b) => a.from - b.from);
   return Decoration.set(ranges, true);
