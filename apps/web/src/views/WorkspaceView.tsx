@@ -61,7 +61,7 @@ import { loadChannelWidth } from "../lib/channelWidth";
 import { windowTitle } from "../lib/windowTitle";
 import { deriveRibbons } from "../lib/ribbons";
 import { flashTab } from "../lib/flashTab";
-import { nodeForAbsolutePath } from "../lib/openPath";
+import { nodeForAbsolutePath, revealDirectory } from "../lib/openPath";
 import { ShellView, type ShellPort } from "../shell/ShellView";
 import {
   RibbonOverlay,
@@ -1337,13 +1337,13 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
         if (node?.doc_id) {
           navigate(`/docs/${node.doc_id}`);
         } else if (node && !node.dir && !isLikelyBinaryPath(node.path)) {
-          // Any other text file opens as a plain-file pane, same as a
-          // click on its tree row would.
+          // Any other text file opens as a plain-file pane, as a click on
+          // its tree row would; a DIRECTORY is revealed in the tree below.
           openPlainFile(node.path);
         } else {
-          // A binary, a directory, or nothing the walk saw: the tree is
-          // the way to it.
+          // A binary, or nothing the walk saw: the tree is the way to it.
           focusTreeRef.current();
+          revealDirectory(files.tree, absolute);
         }
       });
     };

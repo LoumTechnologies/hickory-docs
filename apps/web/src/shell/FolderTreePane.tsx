@@ -12,6 +12,7 @@
 import { useCallback, useEffect, useMemo, useState, type MouseEvent } from "react";
 
 import { api } from "../api/client";
+import { REVEAL_PATH_EVENT } from "../lib/openPath";
 import type { FileNode, FilesResponse } from "../api/types";
 import { TreeContextMenu } from "./TreeContextMenu";
 import { TreePrompt } from "./TreePrompt";
@@ -134,6 +135,26 @@ export function toggleExpanded(expanded: ReadonlySet<string>, path: string): Set
 /** The event anything that changes files on disk may dispatch to refresh
  * every mounted tree without a page-wide state channel. */
 export const FILES_CHANGED_EVENT = "hickory:files-changed";
+
+/**
+ * "Show me this directory." The detail is a root-relative directory path.
+ *
+ * A directory is the one thing `hickory-open-path` cannot answer with a pane
+ * — there is nothing to put in one — so the useful answer is the tree opened
+ * to it: every ancestor expanded, the row scrolled into view, and lit so the
+ * eye finds it. Dispatched by the workspace (`lib/openPath.ts`'s
+ * `revealDirectory`) when an open request resolves to a folder — a graph
+ * diagram's node standing for a subsystem is the case this exists for.
+ * Declared beside the resolver so this pane and the workspace cannot come to
+ * disagree about the name; re-exported because this is where it is answered.
+ */
+export { REVEAL_PATH_EVENT };
+
+/** Every ancestor of `path`, and `path` itself, as expand-state entries. */
+export function ancestorsOf(path: string): string[] {
+  const parts = path.replace(/^\/+|\/+$/g, "").split("/").filter(Boolean);
+  return parts.map((_, i) => parts.slice(0, i + 1).join("/"));
+}
 
 /**
  * The open folder's tree, kept fresh: fetched on mount, refetched when the
@@ -449,6 +470,43 @@ function FolderRoot({
   onCloseTerminal?: (id: string) => void;
 }) {
   const [expanded, setExpanded] = useState<Set<string>>(() => loadExpanded(folder.root));
+  // The directory a reveal asked for, lit until the next one. Kept as state
+  // rather than done imperatively so a reveal that arrives before the tree
+  // has loaded still lands when it does.
+  const [revealed, setRevealed] = useState<string | null>(null);
+
+  useEffect(() => {
+    const onReveal = (event: Event) => {
+      const detail = (event as CustomEvent<string>).detail;
+      if (typeof detail !== "string") return;
+      const path = detail.replace(/^\/+|\/+$/g, "");
+      if (path === "") return;
+      setExpanded((current) => {
+        const next = new Set(current);
+        for (const ancestor of ancestorsOf(path)) next.add(ancestor);
+        saveExpanded(folder.root, next);
+        return next;
+      });
+      setRevealed(path);
+    };
+    window.addEventListener(REVEAL_PATH_EVENT, onReveal);
+    return () => window.removeEventListener(REVEAL_PATH_EVENT, onReveal);
+  }, [folder.root]);
+
+  // Scroll to it once the expansion has actually drawn the row. Depending on
+  // `expanded` and on the tree is what makes this survive a folder that was
+  // collapsed, or a listing that arrived after the request.
+  useEffect(() => {
+    if (!revealed) return;
+    // Escaped by hand rather than with CSS.escape, which is not everywhere
+    // this code runs (jsdom has no CSS object): a path only ever needs its
+    // quotes and backslashes escaped inside an attribute selector.
+    const row = document.querySelector<HTMLElement>(
+      `[data-tree-path="${revealed.replace(/["\\]/g, "\\$&")}"]`,
+    );
+    row?.scrollIntoView?.({ block: "center" });
+  }, [revealed, expanded, folder.tree]);
+
   const toggle = useCallback(
     (path: string) => {
       setExpanded((current) => {
@@ -632,6 +690,7 @@ function FolderRoot({
             node={node}
             depth={0}
             expanded={expanded}
+            revealed={revealed}
             onToggle={toggle}
             openable={openable}
             onOpen={onOpen}
@@ -682,6 +741,7 @@ function TreeRow({
   node,
   depth,
   expanded,
+  revealed,
   onToggle,
   openable,
   onOpen,
@@ -698,6 +758,8 @@ function TreeRow({
   node: FileNode;
   depth: number;
   expanded: ReadonlySet<string>;
+  /** The directory a reveal pointed at, lit so the eye finds it. */
+  revealed: string | null;
   onToggle: (path: string) => void;
   openable: ReadonlySet<string>;
   onOpen: FolderTreePaneProps["onOpen"];
@@ -739,7 +801,9 @@ function TreeRow({
       <li role="treeitem" aria-expanded={open}>
         <button
           type="button"
-          className={withMark("folder-tree__dir mono")}
+          className={`${withMark("folder-tree__dir mono")}${
+            revealed === node.path.replace(/\/+$/, "") ? " folder-tree__dir--revealed" : ""
+          }`}
           style={indent}
           onClick={(event) => (event.ctrlKey || event.metaKey ? onMark(node.path) : onToggle(node.path))}
           onContextMenu={(event) => onRowMenu(event, node.path, true)}
@@ -780,6 +844,7 @@ function TreeRow({
                 node={child}
                 depth={depth + 1}
                 expanded={expanded}
+                revealed={revealed}
                 onToggle={onToggle}
                 openable={openable}
                 onOpen={onOpen}

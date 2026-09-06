@@ -529,3 +529,104 @@ describe("moving a line by its end", () => {
     expect(commit).not.toHaveBeenCalled();
   });
 });
+
+// Protects docs/guarantees/authoring/a-diagram-node-opens-what-it-stands-for.md
+describe("a node that stands for something on disk", () => {
+  const LINKED = `{
+  "nodes": [
+    {"id": "app", "path": "demo/app", "doc": "app-notes.hick", "label": "App"},
+    {"id": "lib", "path": "demo/lib/orders.py"},
+    {"id": "idea"}
+  ],
+  "edges": [],
+  "layout": {
+    "app": {"x": 0, "y": 0},
+    "lib": {"x": 0, "y": 160},
+    "idea": {"x": 240, "y": 0}
+  }
+}
+`;
+
+  const DERIVED_LINKED =
+    '{\n  "topology": <hick:paste select="#arch" />,\n  "layout": {\n    "app": {"x": 0, "y": 0}\n  }\n}\n';
+  const DERIVED_RESOLVED =
+    '{"nodes": [{"id": "app", "path": "demo/app"}], "edges": []}';
+
+  /** The paths the panel asked the shell to open, in order. */
+  function watchOpens(): { opened: string[]; stop: () => void } {
+    const opened: string[] = [];
+    const listener = (e: Event) => opened.push((e as CustomEvent<string>).detail);
+    window.addEventListener("hickory-open-path", listener);
+    return { opened, stop: () => window.removeEventListener("hickory-open-path", listener) };
+  }
+
+  type NodeDoubleClick = (
+    event: { metaKey?: boolean; ctrlKey?: boolean },
+    node: { id: string },
+  ) => void;
+
+  it("opens the code it stands for on double click, resolved against the document", async () => {
+    const watch = watchOpens();
+    render(
+      <GraphEditorPanel source={LINKED} docPath="notes/arch.hick" onCommit={vi.fn()} />,
+    );
+    await waitFor(() => expect(flowProps.onNodeDoubleClick).toBeTruthy());
+    const dblclick = flowProps.onNodeDoubleClick as NodeDoubleClick;
+
+    // A directory and a file both go through the one event the shell already
+    // answers; WHAT to do with each is the workspace's decision.
+    act(() => dblclick({}, { id: "app" }));
+    act(() => dblclick({}, { id: "lib" }));
+    // Relative to the DOCUMENT's directory, exactly as a markdown link is.
+    expect(watch.opened).toEqual(["/notes/demo/app", "/notes/demo/lib/orders.py"]);
+
+    // The modifier asks for the document ABOUT the node instead.
+    act(() => dblclick({ metaKey: true }, { id: "app" }));
+    expect(watch.opened.at(-1)).toBe("/notes/app-notes.hick");
+
+    // A node that stands for nothing opens nothing — and keeps its rename.
+    act(() => dblclick({}, { id: "idea" }));
+    expect(watch.opened).toHaveLength(3);
+    watch.stop();
+  });
+
+  it("stays navigable on a derived scene, where the path is the fragment's", async () => {
+    const watch = watchOpens();
+    render(
+      <GraphEditorPanel
+        source={DERIVED_LINKED}
+        resolved={DERIVED_RESOLVED}
+        docPath="arch.hick"
+        onCommit={vi.fn()}
+      />,
+    );
+    await waitFor(() => expect(flowProps.onNodeDoubleClick).toBeTruthy());
+    act(() => (flowProps.onNodeDoubleClick as NodeDoubleClick)({}, { id: "app" }));
+    expect(watch.opened).toEqual(["/demo/app"]);
+    watch.stop();
+  });
+
+  it("offers the way in from the inspector, and the label edit that the double click gave up", async () => {
+    const onCommit = vi.fn();
+    const watch = watchOpens();
+    render(<GraphEditorPanel source={LINKED} docPath="arch.hick" onCommit={onCommit} />);
+    await waitFor(() => expect(flowProps.onNodesChange).toBeTruthy());
+    act(() =>
+      (flowProps.onSelectionChange as (p: { nodes: { id: string }[]; edges: unknown[] }) => void)({
+        nodes: [{ id: "app" }],
+        edges: [],
+      }),
+    );
+    const open = await screen.findByLabelText("Open demo/app");
+    fireEvent.click(open);
+    expect(watch.opened).toEqual(["/demo/app"]);
+
+    // Renaming moved here, because the node's double click now goes places.
+    const label = screen.getByLabelText("Node label");
+    fireEvent.blur(label, { target: { value: "The app" } });
+    expect(onCommit.mock.calls[0][0]).toContain('"label": "The app"');
+    // …and `path` is topology: it survives the commit, untouched.
+    expect(onCommit.mock.calls[0][0]).toContain('"path": "demo/app"');
+    watch.stop();
+  });
+});

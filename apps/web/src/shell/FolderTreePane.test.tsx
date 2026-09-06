@@ -1,10 +1,12 @@
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { installMockHandler } from "../api/client";
 import type { FileNode, FilesResponse } from "../api/types";
 import {
   FolderTreePane,
+  REVEAL_PATH_EVENT,
+  ancestorsOf,
   fileAction,
   isLikelyBinaryPath,
   loadExpanded,
@@ -508,5 +510,46 @@ describe("ingest from the tree", () => {
     // A binary and a document get no such verb.
     fireEvent.contextMenu(screen.getByText("logo.png"));
     expect(screen.queryByText(/Make literate/)).toBeNull();
+  });
+});
+
+// Protects docs/guarantees/authoring/a-diagram-node-opens-what-it-stands-for.md
+describe("revealing a directory", () => {
+  it("names every ancestor an expansion has to open", () => {
+    expect(ancestorsOf("src/gen")).toEqual(["src", "src/gen"]);
+    expect(ancestorsOf("/src/gen/")).toEqual(["src", "src/gen"]);
+    expect(ancestorsOf("src")).toEqual(["src"]);
+    expect(ancestorsOf("")).toEqual([]);
+  });
+
+  it("expands down to the directory and lights it", async () => {
+    render(<Harness />);
+    await screen.findByText("paper.hick");
+    // Folded to start with: a nested directory is two expansions away.
+    expect(screen.queryByText("orders.py")).toBeNull();
+
+    await act(async () => {
+      window.dispatchEvent(
+        new CustomEvent<string>(REVEAL_PATH_EVENT, { detail: "src/gen" }),
+      );
+    });
+
+    // Every ancestor opened, and the directory itself, so its contents show.
+    expect(screen.getByText("orders.py")).toBeTruthy();
+    const row = document.querySelector('[data-tree-path="src/gen"]');
+    expect(row?.className).toContain("folder-tree__dir--revealed");
+    // Only the revealed one is lit.
+    expect(
+      document.querySelector('[data-tree-path="src"]')?.className,
+    ).not.toContain("folder-tree__dir--revealed");
+  });
+
+  it("ignores a reveal of nothing", async () => {
+    render(<Harness />);
+    await screen.findByText("paper.hick");
+    await act(async () => {
+      window.dispatchEvent(new CustomEvent<string>(REVEAL_PATH_EVENT, { detail: "/" }));
+    });
+    expect(document.querySelector(".folder-tree__dir--revealed")).toBeNull();
   });
 });

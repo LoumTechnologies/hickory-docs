@@ -37,6 +37,8 @@ import { SceneNodeView } from "./SceneNodeView";
 import type { SceneNodeData } from "./SceneNodeView";
 import { SceneEdgeView } from "./SceneEdgeView";
 import { FILLS, SHAPES, STROKES } from "./palette";
+import { nodeTarget, openNode, wantsDoc } from "./openNode";
+import { NodeLink } from "./NodeLink";
 import { autoLayout } from "./layout";
 import {
   DEFAULT_H,
@@ -62,6 +64,10 @@ export interface GraphEditorPanelProps {
   resolved?: string | null;
   /** Ids named by `asserts`, with live pass/fail state. */
   assertions?: DiagramPanelProps["assertions"];
+  /** The document this diagram is in, root-relative — what a node's `path`
+   * and `doc` resolve against, the same base a markdown link in the same
+   * document uses. Null for an untitled buffer, which resolves at the root. */
+  docPath?: string | null;
   /** Write the scene back into the document — the only save there is. */
   onCommit: (text: string) => void;
 }
@@ -194,7 +200,13 @@ function canvasHeight(scene: Scene): number {
   return Math.min(640, Math.max(280, bottom - top + 140));
 }
 
-function GraphEditor({ source, resolved, assertions, onCommit }: GraphEditorPanelProps) {
+function GraphEditor({
+  source,
+  resolved,
+  assertions,
+  docPath = null,
+  onCommit,
+}: GraphEditorPanelProps) {
   // The last byte form THIS panel wrote. A source that comes back equal is
   // our own commit echoing through the registry; anything else is an external
   // edit — undo, a collaborator, the agent — and the document wins.
@@ -576,6 +588,27 @@ function GraphEditor({ source, resolved, assertions, onCommit }: GraphEditorPane
     [],
   );
 
+  // A double-click on a node that stands for something GOES there: the box
+  // in the picture and the folder it describes are one gesture apart. Held
+  // modifier: the `.hick` document about the node instead of the code.
+  //
+  // Derived scenes are the point of this rather than an exception to it —
+  // `path` is topology, so the scanner writes it and the canvas never does,
+  // which is exactly why a read-only picture can still be navigable.
+  //
+  // A node with neither field keeps the double-click it always had (rename),
+  // and SceneNodeView declines to open the rename input for one that has a
+  // path, so the two meanings never fire at once.
+  const onNodeDoubleClick = useCallback(
+    (event: { metaKey?: boolean; ctrlKey?: boolean } | undefined, flowNode: Node) => {
+      const scene = sceneRef.current;
+      const node = scene?.nodes.find((n) => n.id === flowNode.id);
+      if (!node) return;
+      openNode(node, docPath, wantsDoc(event));
+    },
+    [docPath],
+  );
+
   // Editing travels to the one edge through its data, and the flag flips
   // without rebuilding the scene: the document has not changed yet.
   useEffect(() => {
@@ -690,6 +723,23 @@ function GraphEditor({ source, resolved, assertions, onCommit }: GraphEditorPane
       <div className="graph-inspector">
         {!derived && selectedNode ? (
           <span className="graph-inspector__row" data-testid="node-inspector">
+            <NodeLink node={selectedNode} docPath={docPath} />
+            {/* A node that LEADS somewhere spends its double-click on going
+                there, so its name is renamed here instead — the same place
+                a line's label is edited. */}
+            {nodeTarget(selectedNode, false) !== undefined && (
+              <input
+                aria-label="Node label"
+                className="graph-inspector__label"
+                placeholder="label…"
+                key={selectedNode.id}
+                defaultValue={selectedNode.label ?? ""}
+                onBlur={(e) => styleNodes({ label: e.target.value.trim() || undefined })}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") (e.target as HTMLInputElement).blur();
+                }}
+              />
+            )}
             <label className="graph-inspector__group">
               Shape
               <select
@@ -748,6 +798,17 @@ function GraphEditor({ source, resolved, assertions, onCommit }: GraphEditorPane
               }}
             />
           </span>
+        ) : derived && selectedNode ? (
+          // Derived: nothing here is stylable, but where the node lives is
+          // the fragment's own statement and following it is reading, not
+          // editing — so the row still offers the way in.
+          <span className="graph-inspector__row" data-testid="derived-node-inspector">
+            <NodeLink node={selectedNode} docPath={docPath} />
+            <span className="graph-inspector__hint muted">
+              Sizes and positions are yours; shapes and colours come from the
+              fragment.
+            </span>
+          </span>
         ) : (
           <span className="graph-inspector__hint muted">
             {derived
@@ -775,6 +836,7 @@ function GraphEditor({ source, resolved, assertions, onCommit }: GraphEditorPane
           onNodesDelete={onNodesDelete}
           onEdgesDelete={onEdgesDelete}
           onEdgeDoubleClick={onEdgeDoubleClick}
+          onNodeDoubleClick={onNodeDoubleClick}
           onSelectionChange={onSelectionChange}
           nodesConnectable={!derived}
           edgesReconnectable={!derived}

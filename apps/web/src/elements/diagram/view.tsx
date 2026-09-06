@@ -34,6 +34,10 @@ export const diagramView: ElementView = {
               source={slot.text}
               resolved={resolved}
               assertions={states}
+              // What a node's `path` / `doc` resolves against: this
+              // document's own directory, the same base a markdown link in
+              // it uses.
+              docPath={cx.path}
               onCommit={(text) => cx.replaceBlockContent(slot, text, "input.diagram")}
             />
           </Suspense>

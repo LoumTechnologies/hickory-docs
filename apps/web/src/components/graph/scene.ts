@@ -17,6 +17,14 @@
 
 export interface SceneNode {
   id: string;
+  /** What this node STANDS FOR on disk — a file or a directory — relative to
+   * the document's own directory. Topology, not layout: a generator emits it
+   * (`hick diagram` puts one on every node), it sits beside the join key, and
+   * the canvas never edits it. It is what makes a box a way INTO the code. */
+  path?: string;
+  /** The `.hick` document ABOUT this node, relative to the document's
+   * directory. Topology for the same reason `path` is. */
+  doc?: string;
   label?: string;
   /** rect (default), round, pill, circle, diamond, hexagon, cylinder. */
   shape?: string;
@@ -123,7 +131,15 @@ export function withResolvedTopology(scene: Scene, resolved: string): Scene {
  * label carrying `</hick:` would close the diagram from inside its own JSON. */
 export function uncommittableText(scene: Scene): string | null {
   const strings = [
-    ...scene.nodes.flatMap((n) => [n.id, n.label ?? "", n.shape ?? "", n.fill ?? "", n.stroke ?? ""]),
+    ...scene.nodes.flatMap((n) => [
+      n.id,
+      n.path ?? "",
+      n.doc ?? "",
+      n.label ?? "",
+      n.shape ?? "",
+      n.fill ?? "",
+      n.stroke ?? "",
+    ]),
     ...scene.edges.flatMap((e) => [e.id ?? "", e.from, e.to, e.label ?? "", e.style ?? "", e.arrow ?? ""]),
   ];
   return strings.find((s) => s.includes("</hick:")) ?? null;
@@ -136,6 +152,11 @@ function jsonField(key: string, value: string | undefined): string | null {
 function nodeLine(node: SceneNode): string {
   const fields = [
     jsonField("id", node.id),
+    // Where it lives comes straight after WHICH it is — the two are the join
+    // key's siblings, and the Rust struct writes them in the same order, so a
+    // scanned fragment and a hand-edited scene read alike.
+    jsonField("path", node.path),
+    jsonField("doc", node.doc),
     jsonField("label", node.label),
     jsonField("shape", node.shape),
     jsonField("fill", node.fill),

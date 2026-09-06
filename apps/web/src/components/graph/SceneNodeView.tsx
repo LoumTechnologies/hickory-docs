@@ -47,6 +47,10 @@ export function SceneNodeView({ data, selected }: NodeProps) {
   };
 
   const shape = node.shape ?? "rect";
+  // Where this box leads, if anywhere: the code it stands for, or the
+  // document about it. Topology, so a derived node has it just as often as a
+  // hand-drawn one — usually more often, since the scanner writes it.
+  const leads = (node.path?.trim() || node.doc?.trim()) ?? "";
   return (
     <div
       className={`graph-node graph-node--${shape}${selected ? " graph-node--selected" : ""}${connecting ? " graph-node--connecting" : ""}`}
@@ -63,7 +67,11 @@ export function SceneNodeView({ data, selected }: NodeProps) {
         } as React.CSSProperties
       }
       onDoubleClick={() => {
-        if (!derived) setEditing(true);
+        // A node that stands for something on disk spends its double-click
+        // GOING there (the panel's `onNodeDoubleClick` handles that); the
+        // rename is offered in the inspector row instead. Only a node that
+        // leads nowhere keeps the old meaning, so the two never fire at once.
+        if (!derived && !leads) setEditing(true);
       }}
       data-testid={`graph-node-${node.id}`}
     >
@@ -126,6 +134,19 @@ export function SceneNodeView({ data, selected }: NodeProps) {
         />
       ) : (
         <span className="graph-node__label">{node.label ?? node.id}</span>
+      )}
+      {/* The door, said quietly: a box you can go through looks different
+          from one you cannot, and the tooltip names where. Not a button —
+          the gesture is the double-click, and a second clickable target
+          inside a draggable node would fight the drag for its pixels. */}
+      {leads !== "" && (
+        <span
+          className="graph-node__leads"
+          aria-hidden
+          data-tip={`Double-click to open ${leads}`}
+        >
+          ↗
+        </span>
       )}
     </div>
   );

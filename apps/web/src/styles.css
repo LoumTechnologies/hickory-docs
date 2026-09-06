@@ -1679,6 +1679,24 @@ textarea:focus {
 .graph-inspector__label {
   width: 9rem;
 }
+/* "This box leads to that place": the path itself, because the fact worth
+   reading before following a link is where it goes. */
+/* A directory the tree was asked to reveal: lit, so the eye lands on it after
+   the scroll rather than searching the rows it just expanded. */
+.folder-tree__dir--revealed {
+  outline: 1px solid var(--accent);
+  background: var(--bg-raised);
+}
+.graph-inspector__open {
+  max-width: 18rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.graph-inspector__open:hover {
+  outline: 1px solid var(--accent);
+}
 .graph-swatch {
   width: 16px;
   height: 16px;
@@ -1883,6 +1901,21 @@ textarea:focus {
 /* A generated picture is a door back to its source. */
 .cm-md-image--sourced img {
   cursor: pointer;
+}
+/* The door, said quietly: a corner glyph on a box that stands for something
+   on disk. Ink, not a control — the gesture is the double-click, and a
+   clickable target inside a draggable node would fight the drag. */
+.graph-node__leads {
+  position: absolute;
+  top: 2px;
+  right: 4px;
+  font-size: 0.7rem;
+  line-height: 1;
+  opacity: 0.5;
+  pointer-events: none;
+}
+.graph-node:hover .graph-node__leads {
+  opacity: 1;
 }
 .graph-node__rename {
   font: inherit;
