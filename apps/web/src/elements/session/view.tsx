@@ -115,17 +115,28 @@ export const sessionAssistantView = view("session-assistant", "assistant", (slot
   if (!body && links.length === 0 && work.length === 0) {
     return <div className="chat-msg chat-agent chat-agent--silent" />;
   }
+  // The work — reasoning, tool calls — is not speech: it sits above the
+  // bubble as plain folds with no tail. The bubble, with its tail, holds
+  // only what the agent said and what it rests on.
   return (
     <div className="chat-msg chat-agent">
-      <span className="chat-role">agent</span>
-      <div className="chat-bubble">
-        {work.map(({ block, slot: inner }) => {
-          const drawer = INNER[block.kind];
-          return drawer ? <div key={inner.key}>{drawer(inner, cx)}</div> : null;
-        })}
-        {body ? <p className="chat-answer">{body}</p> : null}
-        <SourceChips links={links} />
-      </div>
+      {work.length > 0 && (
+        <div className="chat-work">
+          {work.map(({ block, slot: inner }) => {
+            const drawer = INNER[block.kind];
+            return drawer ? <div key={inner.key}>{drawer(inner, cx)}</div> : null;
+          })}
+        </div>
+      )}
+      {(body || links.length > 0) && (
+        <>
+          <span className="chat-role">agent</span>
+          <div className="chat-bubble">
+            {body ? <p className="chat-answer">{body}</p> : null}
+            <SourceChips links={links} />
+          </div>
+        </>
+      )}
     </div>
   );
 });

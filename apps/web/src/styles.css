@@ -8742,3 +8742,27 @@ button.status-bar__item:hover { background: var(--bg-sunken); color: var(--fg); 
 .chat-source--declared { border-style: dashed; }
 .chat-source--lineage { border-color: var(--accent); }
 .chat-source__lines { color: var(--fg-muted); }
+
+/* In the lens the cards are the conversation, not cells: no frame around
+   a bubble, no clipping (the tails hang outside the bubble), and the page
+   colour behind them so a tail is cut with the right colour. Two voices,
+   two colours, two tails: yours on the right in the accent, the agent's on
+   the left in the second accent, the way a messages app tells who spoke —
+   and nothing else in the conversation (reasoning, a tool call, a result)
+   is a bubble at all. */
+.session-lens .cm-rendered-frame:has(> .cm-rendered[class*="cm-rendered-session-"]) { padding: 0.15rem 0; }
+.session-lens .cm-rendered[class*="cm-rendered-session-"] {
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  overflow: visible;
+}
+.session-lens .chat-msg { --chat-bg: var(--bg); }
+.session-lens .chat-agent .chat-bubble {
+  --bubble: color-mix(in srgb, var(--accent-2) 22%, var(--bg));
+  border-bottom-left-radius: 4px;
+}
+.session-lens .chat-user .chat-bubble { border-bottom-right-radius: 4px; }
+.session-lens .chat-agent .chat-answer { color: var(--fg); }
+/* The agent's work above its bubble: folds, muted, no tail, no box. */
+.session-lens .chat-agent .chat-work { align-self: stretch; padding: 0 0.55rem; color: var(--fg-muted); }
