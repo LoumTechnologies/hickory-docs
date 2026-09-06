@@ -28,19 +28,59 @@ pub fn tokens<T: ToTokens>(node: &T) -> String {
     let raw = node.to_token_stream().to_string();
     let chars: Vec<char> = raw.chars().collect();
     let mut out = String::with_capacity(raw.len());
-    for (i, &ch) in chars.iter().enumerate() {
+    // A literal is ONE token, and its bytes are what an author typed. The
+    // spacing rules below are for a token DUMP — `Vec < String >` — and a
+    // doc comment lowers to `#[doc = " Rounds run (each a checkpoint)."]`,
+    // so a rule that closes `n (` up to `n(` rewrites prose if it is allowed
+    // to reach inside one. Literals are copied through untouched.
+    let mut i = 0;
+    while i < chars.len() {
+        let ch = chars[i];
+        if ch == '"' || (ch == '\'' && is_char_literal(&chars, i)) {
+            let end = literal_end(&chars, i);
+            out.extend(&chars[i..end]);
+            i = end;
+            continue;
+        }
         if ch != ' ' {
             out.push(ch);
+            i += 1;
             continue;
         }
         let prev = out.chars().last();
         let next = chars.get(i + 1).copied();
-        if drop_space(prev, next, out.ends_with("::")) {
-            continue;
+        if !drop_space(prev, next, out.ends_with("::")) {
+            out.push(' ');
         }
-        out.push(' ');
+        i += 1;
     }
     out
+}
+
+/// `\'a` is a lifetime and `\'a\'` is a character — the difference is whether a
+/// closing quote follows, which is the same test the lexer makes.
+fn is_char_literal(chars: &[char], start: usize) -> bool {
+    match chars.get(start + 1) {
+        Some('\\') => true,
+        Some(_) => chars.get(start + 2) == Some(&'\''),
+        None => false,
+    }
+}
+
+/// One past the closing quote of the literal opening at `start`, honouring
+/// backslash escapes. An unterminated literal runs to the end, which is what
+/// a token dump of unparseable input would do anyway.
+fn literal_end(chars: &[char], start: usize) -> usize {
+    let quote = chars[start];
+    let mut i = start + 1;
+    while i < chars.len() {
+        match chars[i] {
+            '\\' => i += 2,
+            c if c == quote => return i + 1,
+            _ => i += 1,
+        }
+    }
+    chars.len()
 }
 
 fn drop_space(prev: Option<char>, next: Option<char>, out_ends_with_path_separator: bool) -> bool {
@@ -460,5 +500,24 @@ mod tests {
         let read = attrs("x.rs", std::slice::from_ref(&attribute));
         assert_eq!(read.docs, "The sku.");
         assert!(read.attributes[0].is_doc);
+    }
+
+    #[test]
+    fn prose_inside_a_literal_is_not_respaced_like_a_token_dump() {
+        let attribute: syn::Attribute =
+            syn::parse_quote!(#[doc = " Rounds run (each a checkpoint). ## Why"]);
+        let read = attrs("x.rs", std::slice::from_ref(&attribute));
+        assert_eq!(read.docs, "Rounds run (each a checkpoint). ## Why");
+
+        let attribute: syn::Attribute =
+            syn::parse_quote!(#[ts(type = "Record<string, number> | null")]);
+        let read = attrs("x.rs", std::slice::from_ref(&attribute));
+        assert_eq!(read.attributes[0].tokens, "type = \"Record<string, number> | null\"");
+    }
+
+    #[test]
+    fn a_lifetime_is_not_mistaken_for_a_character() {
+        let ty: syn::Type = syn::parse_quote!(&'a mut Vec<String>);
+        assert_eq!(tokens(&ty), "&'a mut Vec<String>");
     }
 }
