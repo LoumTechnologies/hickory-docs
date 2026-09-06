@@ -8718,6 +8718,8 @@ button.status-bar__item:hover { background: var(--bg-sunken); color: var(--fg); 
 .session-lens .editor-cm-host { display: block; flex: none; min-height: 0; }
 .session-lens .cm-editor { height: auto; max-height: none; }
 .session-lens .cm-scroller { overflow: visible; height: auto; scrollbar-gutter: auto; }
+/* The record's bookkeeping is drawn as nothing — not as an empty card. */
+.session-lens .cm-rendered-frame:has(> .cm-rendered-session-meta) { display: none; }
 .session-lens__chrome, .session-meta { display: inline-block; height: 0; }
 .session-lens .chat-agent--silent { display: none; }
 .session-lens .chat-step, .session-lens .chat-reasoning { margin-left: 0.5rem; }

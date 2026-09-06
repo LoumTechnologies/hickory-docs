@@ -164,7 +164,14 @@ export function SessionLens({ path, stamp }: SessionLensProps) {
     // A conversation opens at its newest turn, the way the cards always
     // did; the log is the pane's, so it is the log that scrolls.
     const log = host.closest<HTMLElement>(".chat-log");
-    if (log) requestAnimationFrame(() => log.scrollTo({ top: log.scrollHeight }));
+    if (log) {
+      // Once now, and again after the cards have measured: the editor
+      // virtualises against the log, so its height settles over a few
+      // frames as widgets mount.
+      const toEnd = () => log.scrollTo({ top: log.scrollHeight });
+      requestAnimationFrame(toEnd);
+      for (const ms of [120, 400, 900]) window.setTimeout(toEnd, ms);
+    }
     setFacts({
       blocks: data.blocks.map((b) => ({
         ...b,
