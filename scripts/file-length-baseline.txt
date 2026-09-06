@@ -16,7 +16,7 @@ crates/hickory-agent/src/tools/mod.rs 1583
 crates/hickory-cli/src/claude_code.rs 1195
 crates/hickory-cli/src/ingest.rs 1107
 crates/hickory-cli/src/lib.rs 2329
-crates/hickory-cli/src/main.rs 4464
+crates/hickory-cli/src/main.rs 4284
 crates/hickory-cli/src/mcp.rs 1307
 crates/hickory-cli/src/serve/api.rs 1724
 crates/hickory-executor-sandbox/src/policy.rs 1164

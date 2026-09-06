@@ -345,15 +345,16 @@ fn next_step(language: &str, tier: Tier, data: bool, have: &Capabilities) -> Opt
         ));
     }
     if !model.counts() {
-        return Some(format!(
-            "a code model server — `code-models/` has C#, TypeScript and Go; \
-             {language} needs one"
-        ));
+        // The one sentence that is actually actionable, computed from the
+        // build catalogue rather than written here — a second list beside a
+        // catalogue is the failure this whole file exists to avoid.
+        return Some(crate::code_model::install::how_to_get(language));
     }
     if !client.counts() {
         return Some(format!(
             "a typed-client emitter, so a generator can be written IN {language} — \
-             `typed_client::emit` has python, typescript, go and csharp"
+             `typed_client::emit` has {}",
+            crate::typed_client::emit::Target::names()
         ));
     }
     None

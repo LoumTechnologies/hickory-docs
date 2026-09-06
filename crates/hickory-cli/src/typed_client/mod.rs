@@ -34,6 +34,7 @@
 //! name** rather than silently dropped.
 
 pub mod emit;
+pub mod emit_rust;
 
 use std::collections::BTreeMap;
 

@@ -30,6 +30,9 @@
 //!
 //! See `docs/specs/freeform/language-tiers.md`.
 
+pub mod cmd;
+pub mod install;
+
 use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
@@ -80,9 +83,10 @@ impl ModelServer {
             format!(
                 "no code model server for {language}.\n  \
                  A model server answers questions about your source so a script can \
-                 generate from it.\n  \
-                 `hick lang` shows which languages have one; none ships yet, and \
-                 `code-models/csharp` in the hickory-docs checkout builds the first."
+                 generate from it, which is the second half of Gold.\n  \
+                 {}\n  \
+                 `hick lang` shows which languages have one on this machine.",
+                install::how_to_get(language)
             )
         })?;
         let child = Command::new(&binary)
@@ -431,6 +435,10 @@ mod tests {
         let text = format!("{err:#}");
         assert!(text.contains("no code model server for nonesuch"), "{text}");
         assert!(text.contains("hick lang"), "{text}");
+        // And it must not offer a build command for a language nothing can
+        // build — the drift the index catalogue's message already grew a
+        // test for.
+        assert!(!text.contains("--install"), "{text}");
     }
 
     #[test]
