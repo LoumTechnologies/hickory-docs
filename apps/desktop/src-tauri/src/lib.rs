@@ -31,10 +31,15 @@ use tauri_plugin_dialog::{DialogExt as _, MessageDialogKind};
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
-        .menu(app_menu)
         .on_menu_event(|app, event| on_menu(app, event.id().as_ref()))
         .setup(|app| {
             let handle = app.handle().clone();
+            // The menu is built here rather than through `.menu(...)`: it
+            // reads the person's accelerators from ui.json, which needs the
+            // app's config directory, and the path resolver exists only once
+            // setup runs. Built through `.menu` it panicked before the first
+            // window ("state() called before manage()").
+            app.set_menu(app_menu(&handle)?)?;
             // Off the main thread: everything below either blocks on a dialog
             // or blocks on the runtime, and both would wedge the event loop.
             std::thread::spawn(move || launch(handle));
