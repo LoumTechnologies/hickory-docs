@@ -101,6 +101,7 @@ import type { Region } from "../shell/layout";
 import { navigate, redirect, type Route, newDocument } from "../router";
 import { beginsChord, isAction } from "../lib/keymap";
 import { useNewDocument } from "./useNewDocument";
+import { lensSources, onLensChange } from "../lib/lensSources";
 import { welcomeActionsFor } from "./welcomeActions";
 import {
   activateDocTab,
@@ -206,6 +207,9 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
   // document: navigating between documents must leave it untouched.
   const [layout, setLayout] = useState<Layout>(initialWorkspace);
   useNewDocument(setLayout);
+  // Re-derive ribbon sources and links when a lens comes or goes.
+  const [lensTick, setLensTick] = useState(0);
+  useEffect(() => onLensChange(() => setLensTick((n) => n + 1)), []);
   const layoutRef = useRef(layout);
   layoutRef.current = layout;
   // Read through refs by the welcome page's actions and the top field's
@@ -848,10 +852,16 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
         });
       }
     }
-    return [primary, ...others.values()];
+    // The lenses on screen — the agent pane's session — draw from their own
+    // lines, with the links their elements declared.
+    const lenses: RibbonSource[] = lensSources()
+      .filter((lens) => !others.has(lens.path) && !samePath(lens.path, primary.docPath))
+      .map((lens) => ({ view: lens.view, docPath: lens.path, docSource: lens.source }));
+    return [primary, ...others.values(), ...lenses];
     // registry.version is what changes when another document opens or edits.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
+    lensTick,
     focused?.doc,
     focused?.docEditor,
     focused?.outputs,
@@ -1001,8 +1011,10 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
         }
       });
     });
-    return [...out, ...declaredLinks];
-  }, [focused?.doc, focused?.docId, contextWrites, declared]);
+    const lensLinks = lensSources().flatMap((lens) => lens.links);
+    return [...out, ...declaredLinks, ...lensLinks];
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [focused?.doc, focused?.docId, contextWrites, declared, lensTick]);
 
   // What is open, as `kind:target` — decided from the layout data, not the
   // DOM, because the layout is the truth about what has a tab.

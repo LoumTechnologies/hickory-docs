@@ -113,7 +113,7 @@ export type RibbonFamily = "lineage" | "context" | "declared";
  */
 export interface RibbonLink {
   key: string;
-  family: Exclude<RibbonFamily, "lineage">;
+  family: RibbonFamily;
   from: { path: string; lines: [number, number] };
   to: {
     path: string;

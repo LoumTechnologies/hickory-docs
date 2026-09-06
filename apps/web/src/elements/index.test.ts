@@ -6,7 +6,23 @@ import { parseHickDoc } from "../editor/hickDoc";
 import { elementViews, renderableBlocks, slotKindOf } from "./index";
 import type { SlotKind } from "./types";
 
-const KINDS: SlotKind[] = ["exec", "diagram", "math", "table", "picture"];
+const KINDS: SlotKind[] = [
+  "exec",
+  "diagram",
+  "math",
+  "table",
+  "picture",
+  // The conversation's elements: a session is a document, drawn by these.
+  "session-user",
+  "session-assistant",
+  "session-tool",
+  "session-tool-result",
+  "session-read",
+  "session-wrote",
+  "session-context",
+  "session-observation",
+  "session-action",
+];
 
 describe("the element views", () => {
   it("has exactly one view per kind, and each view names its kind", () => {

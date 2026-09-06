@@ -8693,3 +8693,18 @@ button.status-bar__item:hover { background: var(--bg-sunken); color: var(--fg); 
 .keymap-key--recording { border-color: var(--accent); color: var(--accent); }
 .keymap-row--clash .keymap-key { border-color: var(--danger); }
 .settings__warning { color: var(--danger); font-size: 0.85rem; }
+
+/* The agent pane's history as a lens over the session document. The cards
+   sit in place of their source; the numbers beside them are the file's. */
+.session-lens { margin: 0 0 0.5rem; }
+.session-lens .cm-editor { background: transparent; }
+.session-lens .chat-msg { margin: 0.25rem 0; }
+.chat-turn-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 1rem;
+  padding: 0.25rem 0.5rem;
+  font-size: 0.8rem;
+  border-top: 1px solid var(--border);
+}
+.chat-turn-strip__turn { display: inline-flex; gap: 0.4rem; align-items: baseline; }

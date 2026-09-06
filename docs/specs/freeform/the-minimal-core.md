@@ -52,7 +52,9 @@ What that cost, measured rather than assumed:
    conversion per parse. *Built.*
 2. **An element registry** (`hick-blocks`). An element is one Rust value
    declaring its tag name, its attribute schema, how it renders to block
-   props, and the actions it owns. The registry replaces the string matches,
+   props, the actions it owns — and, added 2026-09-05, the **links** it
+   declares about its own block (`an-answer-in-the-agent-pane-has-ribbons.md`):
+   provenance is something an element knows, not something a view derives. The registry replaces the string matches,
    and the block model becomes uniform: `{kind, span, props}` for every
    element, `kind` resolved by the registry. *Built:* `hick-blocks`, with
    the four elements the app already drew registered from `hick-literate`
@@ -89,6 +91,15 @@ contradiction resolved (*not done* — the product's licence is the owner's
 decision, and it is flagged rather than changed), and `AGENTS.md` given a
 one-screen entry point that describes the core and points here (*done*;
 the record beneath it is kept, because each paragraph is a decision).
+
+## The framework, said plainly (2026-09-05)
+
+A document is lines plus elements. An element is a Rust backend (render,
+act, links) plus a React view. A lens is that machinery over something
+that is not a `.hick` file, and the agent pane is the first: a read-only
+view of the session document with the same cards, line numbers and ribbons
+every other view gets. Anything that wants provenance drawn declares it
+per block; the overlay draws lines and knows nothing else.
 
 ## What changes for a person, and what does not
 

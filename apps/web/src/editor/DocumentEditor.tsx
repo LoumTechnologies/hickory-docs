@@ -68,7 +68,7 @@ import { popoverTop } from "../lib/cardRail";
 import { actionsFor, hasReplay } from "../lib/railActions";
 import type { RailAction } from "../lib/railActions";
 import type { TableLayout } from "../components/TablePanel";
-import { elementViews, type SlotContext } from "../elements";
+import { elementViews, slotKindOf, type SlotContext } from "../elements";
 import { FenceTable, tableElementFor } from "../components/FenceTable";
 import { isTabularFence } from "../lib/csv";
 import { FenceConvert } from "../components/FenceConvert";
@@ -342,7 +342,12 @@ export function DocumentEditor({
     const seedRendered = (target: EditorView) => {
       if (seeded || target.state.doc.length === 0) return;
       seeded = true;
-      const blocks = renderableBlocks(structureOf(target.state));
+      // A session opened as a DOCUMENT keeps its framed text (see
+      // editor/session.test.tsx); the cards are the lens's way of drawing
+      // it (views/SessionLens.tsx). Everything else renders by default.
+      const blocks = renderableBlocks(structureOf(target.state)).filter(
+        (b) => !slotKindOf(b)?.startsWith("session-"),
+      );
       if (blocks.length === 0) return;
       // Out of the update that triggered it: dispatching from inside an
       // updateListener re-enters CodeMirror mid-update.

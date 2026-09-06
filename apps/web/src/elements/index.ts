@@ -6,6 +6,7 @@ import { diagramView } from "./diagram/view";
 import { execView } from "./exec/view";
 import { mathView } from "./math/view";
 import { pictureView } from "./picture/view";
+import { sessionViews } from "./session/view";
 import { tableView } from "./table/view";
 import type { ElementView, SlotKind } from "./types";
 
@@ -19,6 +20,10 @@ export const elementViews: Record<SlotKind, ElementView> = {
   math: mathView,
   table: tableView,
   picture: pictureView,
+  ...(Object.fromEntries(sessionViews.map((v) => [v.kind, v])) as Record<
+    Extract<SlotKind, `session-${string}`>,
+    ElementView
+  >),
 };
 
 const views = Object.values(elementViews);

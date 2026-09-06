@@ -14,13 +14,27 @@
 import type { ReactNode } from "react";
 import type { EditorView } from "@codemirror/view";
 
-import type { DiagramBlock, ExecBlock, ExecutorInfo } from "../api/types";
+import type { Block, DiagramBlock, ExecBlock, ExecutorInfo } from "../api/types";
 import type { HickBlock } from "../editor/hickDoc";
 import type { RenderedSlot } from "../editor/rendered";
 import type { TableLayout } from "../components/TablePanel";
 
 /** The kinds of block the editor renders in place of their source. */
-export type SlotKind = "exec" | "diagram" | "math" | "table" | "picture";
+export type SlotKind =
+  | "exec"
+  | "diagram"
+  | "math"
+  | "table"
+  | "picture"
+  | "session-user"
+  | "session-assistant"
+  | "session-tool"
+  | "session-tool-result"
+  | "session-read"
+  | "session-wrote"
+  | "session-context"
+  | "session-observation"
+  | "session-action";
 
 /** What the document around a rendered block knows, handed to every view. */
 export interface SlotContext {
@@ -32,6 +46,8 @@ export interface SlotContext {
   execBlocks: ExecBlock[];
   /** The server's rendered diagram blocks, pastes resolved. */
   diagramBlocks: DiagramBlock[];
+  /** A session's blocks from the server, for the conversation's cards. */
+  sessionBlocks?: Block[];
   runningCells: Set<string>;
   /** Block starts whose transcript is revealed (the rail's Replay). */
   replaying: readonly number[];

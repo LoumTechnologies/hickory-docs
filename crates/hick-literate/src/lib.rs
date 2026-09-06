@@ -20,6 +20,7 @@ pub mod pipeline;
 pub mod promote;
 pub mod render;
 pub mod scene;
+pub mod session_elements;
 pub mod store_config;
 mod text;
 pub mod volume_state;

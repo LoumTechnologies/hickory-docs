@@ -1056,7 +1056,15 @@ pub async fn session_view(
         .strip_prefix(&root_canon)
         .map(|p| p.display().to_string())
         .unwrap_or(q.path.clone());
-    Ok(Json(json!({ "path": rel_path, "view": view })))
+    // The session as the lens draws it: its blocks, and the provenance each
+    // element declares — context for what the model was shown, lineage for
+    // what a turn wrote, declared for what the prose points at. See
+    // docs/guarantees/agent/an-answer-in-the-agent-pane-has-ribbons.md.
+    let blocks = hick_literate::session_elements::session_blocks(&source, Some(&root_canon));
+    let links = hick_literate::session_elements::session_links(&source, Some(&root_canon));
+    Ok(Json(
+        json!({ "path": rel_path, "source": source, "view": view, "blocks": blocks, "links": links }),
+    ))
 }
 
 /// Language tag for an output path, matching the hosted server's mapping.

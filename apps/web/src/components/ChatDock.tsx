@@ -23,6 +23,7 @@ import type {
 } from "../api/types";
 import type { Realtime } from "../api/realtime";
 import { TurnCard } from "./SessionTurns";
+import { SessionLens } from "../views/SessionLens";
 import { ChatTree } from "./ChatTree";
 import { StopMark } from "./icons";
 
@@ -385,6 +386,18 @@ export function ChatDock({
   }, [docId, stopping]);
 
   const branch = useMemo(() => branchOf(turns, tip), [turns, tip]);
+  // The conversation's record, when a turn has been written to one. The
+  // lens draws every finished turn from the file; a turn still running, or
+  // one that failed before it was recorded, is drawn as a card until then.
+  const sessionPath = useMemo(
+    () => [...branch].reverse().find((turn) => turn.session)?.session ?? null,
+    [branch],
+  );
+  const inLens = useCallback(
+    (turn: AgentTurn) => !!sessionPath && turn.session === sessionPath && turn.status === "ok",
+    [sessionPath],
+  );
+  const lensStamp = turns.map((turn) => `${turn.id}:${turn.status}`).join(",");
 
   useEffect(() => {
     const log = logRef.current;
@@ -580,7 +593,39 @@ export function ChatDock({
               }}
             />
           ) : (
-            branch.map((turn) => {
+            <>
+              {/* The recorded turns, as the session document itself: line
+                  numbers, the same cards, and ribbons from what each turn
+                  read, wrote and pointed at. A lens, read-only. */}
+              {sessionPath && <SessionLens path={sessionPath} stamp={lensStamp} />}
+              {sessionPath && branch.some((turn) => inLens(turn)) && (
+                <div className="chat-turn-strip" aria-label="Turns">
+                  {branch.filter(inLens).map((turn) => (
+                    <span key={turn.id} className="chat-turn-strip__turn">
+                      <span className="muted">{turn.prompt.slice(0, 40)}</span>
+                      {turn.id !== tip && (
+                        <button
+                          className="btn-link chat-rewind"
+                          onClick={() => setTip(turn.id)}
+                          data-tip={REWIND_TIP}
+                        >
+                          rewind here
+                        </button>
+                      )}
+                    </span>
+                  ))}
+                  {onOpenSession && (
+                    <button
+                      className="btn-link chat-open-session"
+                      onClick={() => onOpenSession(sessionPath)}
+                      data-tip={`Open the session file this conversation is recorded in (${sessionPath})`}
+                    >
+                      session
+                    </button>
+                  )}
+                </div>
+              )}
+              {branch.filter((turn) => !inLens(turn)).map((turn) => {
               const kids = tip ? childrenOf(turns, turn.parent_id) : [];
               const siblings = kids.length > 1 ? kids : [];
               const at = siblings.findIndex((k) => k.id === turn.id);
@@ -686,7 +731,8 @@ export function ChatDock({
                   loadWork={loadWorkFor(turn)}
                 />
               );
-            })
+              })}
+            </>
           )}
         </div>
       )}

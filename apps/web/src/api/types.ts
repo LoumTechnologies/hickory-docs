@@ -71,11 +71,28 @@ export type Block =
       asserts: string[];
       span: [number, number];
     }
-  | {
-      kind: "session-user" | "session-assistant" | "session-observation";
-      body: string;
-      span: [number, number];
-    };
+  // The session vocabulary, as `hick_literate::session_elements` renders it.
+  | { kind: "session-user"; turn?: string; body: string; span: [number, number] }
+  | { kind: "session-assistant"; body: string; span: [number, number] }
+  | { kind: "session-tool"; name?: string; call?: string; args: [string, string][]; span: [number, number] }
+  | { kind: "session-tool-result"; name?: string; ok?: boolean; body: string; span: [number, number] }
+  | { kind: "session-read"; file?: string; lines?: string; sha256?: string; commit?: string; span: [number, number] }
+  | { kind: "session-wrote"; file?: string; lines?: string; span: [number, number] }
+  | { kind: "session-context"; context_kind?: string; body: string; span: [number, number] }
+  | { kind: "session-observation"; source?: string; exit?: string; body: string; span: [number, number] }
+  | { kind: "session-action"; lang?: string; body: string; span: [number, number] };
+
+/** One provenance connection an element of a session declares
+ * (`hick_blocks::Link`, with the lines its span covers). */
+export interface SessionLink {
+  family: "lineage" | "context" | "declared";
+  /** Byte span in the session source. */
+  span: [number, number];
+  to: { path: string; lines?: [number, number] };
+  title: string;
+  /** The 1-based lines of the session the span starts and ends on. */
+  lines: [number, number];
+}
 
 export type ExecBlock = Extract<Block, { kind: "exec" }>;
 export type DiagramBlock = Extract<Block, { kind: "diagram" }>;
@@ -978,7 +995,13 @@ export interface SessionView {
 
 export interface SessionViewResponse {
   path: string;
+  /** The session file's text — what the lens shows with line numbers. */
+  source: string;
   view: SessionView;
+  /** The session as blocks, for the lens. */
+  blocks: Block[];
+  /** What each element declares about where it came from. */
+  links: SessionLink[];
 }
 
 // ---- the merged view -----------------------------------------------------

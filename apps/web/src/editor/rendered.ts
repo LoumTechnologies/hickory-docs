@@ -28,7 +28,7 @@ import type { DecorationSet } from "@codemirror/view";
 import { SlotRegistry, structureOf } from "./wysiwyg";
 import { blocksNamed, codeRangesOf, pictureBlocksOf } from "./hickDoc";
 import type { HickBlock, HickDocStructure } from "./hickDoc";
-import { renderableBlocks, slotKindOf } from "../elements";
+import { elementViews, renderableBlocks, slotKindOf } from "../elements";
 import type { SlotKind } from "../elements";
 
 /** Render this block (identified by the offset its source starts at). */
@@ -233,7 +233,10 @@ function buildRendered(state: EditorState, registry: RenderedRegistry): Decorati
   const structure = structureOf(state);
   const doc = state.doc;
   const ranges: Range<Decoration>[] = [];
-  const counts: Record<SlotKind, number> = { exec: 0, diagram: 0, math: 0, table: 0, picture: 0 };
+  const counts = Object.fromEntries(Object.keys(elementViews).map((k) => [k, 0])) as Record<
+    SlotKind,
+    number
+  >;
   // A picture block has TWO states and there is no third: the picture, or the
   // code that draws it — editable, as text, the way you would fix it.
   //

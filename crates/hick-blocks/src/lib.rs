@@ -172,6 +172,12 @@ pub trait Element<Cx>: Send + Sync {
         &[]
     }
 
+    /// The provenance this element declares about its block. The default
+    /// declares none.
+    fn links(&self, _tag: &HickTag, _cx: &Cx) -> Vec<Link> {
+        Vec::new()
+    }
+
     /// Answer one action. The default answers none.
     fn act(
         &self,
@@ -207,6 +213,45 @@ pub enum ActionOutcome {
         span: (usize, usize),
         replacement: String,
     },
+}
+
+/// Which kind of provenance a link is. Kept apart on purpose — see
+/// `docs/specs/freeform/three-provenances.md`: lineage is derived from the
+/// weave, context from the session record, declared is what a block says
+/// about itself — and never drawn alike.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Family {
+    Lineage,
+    Context,
+    Declared,
+}
+
+/// Where a link's far end is: a path in the open folder, and lines in it
+/// when the record has them.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct LinkTarget {
+    pub path: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub lines: Option<(usize, usize)>,
+}
+
+/// One provenance connection an element declares about its own block: from
+/// a byte span of this document to a place in another (or the same) file.
+///
+/// An element says what it *knows*: a `read` knows the file it showed the
+/// model, a `wrote` knows the lines it left, an assistant's prose knows what
+/// it pointed at. What is drawn, and how, is the overlay's; what is true is
+/// the element's, which is why this is declared beside `render` rather than
+/// derived somewhere that has to know every element.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct Link {
+    pub family: Family,
+    /// Byte span of the source this link starts from.
+    pub span: (usize, usize),
+    pub to: LinkTarget,
+    /// What the link means, in one sentence, for the hover.
+    pub title: String,
 }
 
 /// Why an action was not carried out.
@@ -298,6 +343,35 @@ impl<Cx> Registry<Cx> {
         let mut out = Vec::new();
         self.walk(&doc.nodes, cx, &mut out);
         out
+    }
+
+    /// Every link every element declares, in source order, following the
+    /// same descent the block walk does.
+    pub fn links(&self, doc: &HickDocument, cx: &Cx) -> Vec<Link> {
+        let mut out = Vec::new();
+        self.walk_links(&doc.nodes, cx, &mut out);
+        out
+    }
+
+    fn walk_links(&self, nodes: &[HickNode], cx: &Cx, out: &mut Vec<Link>) {
+        for node in nodes {
+            let HickNode::Tag(tag) = node else { continue };
+            let Some(element) = self.get(&tag.name) else {
+                continue;
+            };
+            out.extend(element.links(tag, cx));
+            match element.descend() {
+                Descend::All => self.walk_links(&tag.children, cx, out),
+                Descend::None => {}
+                Descend::Named(names) => {
+                    for child in tag.child_tags() {
+                        if names.contains(&child.name.as_str()) {
+                            self.walk_links(&child.children, cx, out);
+                        }
+                    }
+                }
+            }
+        }
     }
 
     fn walk(&self, nodes: &[HickNode], cx: &Cx, out: &mut Vec<Block>) {
@@ -517,6 +591,46 @@ mod tests {
         assert_eq!(err.to_string(), "<hick:note> has no action 'whisper'");
         let err = r.act(&doc, 0, "shout", &(), Value::Null).unwrap_err();
         assert!(err.to_string().contains("no element starts at byte 0"));
+    }
+
+    struct Cites;
+    impl Element<()> for Cites {
+        fn name(&self) -> &'static str {
+            "cites"
+        }
+        fn render(&self, tag: &HickTag, _: &()) -> Option<Block> {
+            Some(Block::new("cites", span_of(tag)))
+        }
+        fn links(&self, tag: &HickTag, _: &()) -> Vec<Link> {
+            vec![Link {
+                family: Family::Declared,
+                span: span_of(tag),
+                to: LinkTarget {
+                    path: attr(tag, "file").unwrap_or_default(),
+                    lines: Some((1, 2)),
+                },
+                title: "says so".into(),
+            }]
+        }
+    }
+
+    #[test]
+    fn an_element_declares_its_own_links_and_the_walk_collects_them() {
+        let mut r: Registry<()> = Registry::new();
+        r.register(Cites).register(Gate).register(Inner);
+        let doc = hick_lang::parse(
+            "<hick:cites file=\"a.md\"/>\n<hick:gate><hick:inner><hick:cites file=\"b.md\"/></hick:inner></hick:gate>",
+        )
+        .unwrap();
+        let links = r.links(&doc, &());
+        let paths: Vec<&str> = links.iter().map(|l| l.to.path.as_str()).collect();
+        assert_eq!(paths, vec!["a.md", "b.md"]);
+        assert_eq!(links[0].family, Family::Declared);
+        assert_eq!(links[0].span, (0, "<hick:cites file=\"a.md\"/>".len()));
+        assert_eq!(
+            serde_json::to_value(&links[0]).unwrap()["family"],
+            "declared"
+        );
     }
 
     #[test]

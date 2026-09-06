@@ -794,6 +794,16 @@ per-action overrides, persisted in ui.json as `keymap` plus the resolved
 `isAction`/`cmKeyOf`, never a literal; chords work in the page, never in
 the menu bar; menu changes land at the next launch and Settings says so.
 
+**The agent pane is a lens, and an element declares its links (2026-09-05,
+`an-answer-in-the-agent-pane-has-ribbons.md`).** `Element::links` sits
+beside `render` and `act`; the session vocabulary is elements
+(`hick_literate::session_elements`) that declare context from `read` and
+read tools, lineage from `wrote` and edit tools, declared from the prose's
+links and `path:line` mentions — Claude Code transcripts included. The
+pane draws the session file itself through `SessionLens`, registers as a
+ribbon source (`lib/lensSources.ts`), and the overlay draws lines and
+knows nothing about chat. A lens is read-only and never saved.
+
 ## Stack (settled — do not relitigate)
 
 - CLI + language + local server: Rust (edition 2024), axum, tokio. No database.
