@@ -31,8 +31,8 @@ hick init
 1. installs a **pre-commit hook** (a sentinel-delimited `### HICKORY ###`
    block, appended to any hook you already have; `core.hooksPath` is
    respected). At commit time the hook discovers all tracked `*.hick` files
-   and runs `hick test` on each; any drift blocks the commit. No `.hick`
-   files, no-op.
+   and runs `hick test --tier commit` over the whole set in one process; any
+   drift blocks the commit. No `.hick` files, no-op.
 2. adds `.hick-cache/` to `.gitignore` (cached transcripts).
 3. writes a managed `<!-- HICKORY -->` section into `AGENTS.md` teaching
    coding agents the hick grammar and the golden rules (edit sources, run
@@ -251,8 +251,10 @@ a release does not carry the client yet.
   ones** — a doc drifted by someone else's change still blocks your commit,
   which is the point.
 - **`hick test` re-executes documents.** A slow document makes commits
-  slow; keep heavyweight docs out of the hook by not tracking them, or gate
-  them in CI only.
+  slow; give its expensive cells `tier="push"` and the hook
+  (`hick test --tier commit`) answers them from their recordings or skips
+  them and says so, while `hick test .` — pre-push and CI — still runs them.
+  Or keep heavyweight docs out of the hook by not tracking them.
 - **`.hick-cache/` is disposable** — never commit it; `hick weave` uses it
   to render without executing.
 - **Editing a file in your editor is still just a file.** `hick serve` adds

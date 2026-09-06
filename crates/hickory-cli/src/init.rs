@@ -25,6 +25,13 @@ pub const AGENTS_BLOCK_END: &str = "<!-- END HICKORY -->";
 /// are covered without re-running `hick init`), skips cleanly when there
 /// are none, and blocks the commit if `hick test` reports a failure.
 ///
+/// **One process at the commit tier**, not one per document: `hick test`
+/// walks the paths it is given, and a repository with 760 documents spent a
+/// minute of every commit on process spawns alone under the old loop. A cell
+/// declaring `tier="push"` is answered from its recording if one matches and
+/// skipped otherwise, so a document of half-minute cells still has its
+/// tangle and its weave verified here; `hick test .` runs the rest.
+///
 /// The message names which of the four outcomes actually happened. "Drift"
 /// used to be printed for every non-zero exit, which was wrong for two of
 /// them: an unverifiable cell was never checked against anything, and a
@@ -44,15 +51,19 @@ if [ -n "$hick_docs" ]; then
         # repair, and a rule with no escape hatch gets this hook disabled
         # entirely, taking the drift gate below down with it.
         hick repair || true
-        hick_worst=0
-        for hick_doc in $hick_docs; do
-            hick_code=0
-            hick test "$hick_doc" || hick_code=$?
-            if [ "$hick_code" -gt "$hick_worst" ]; then
-                hick_worst=$hick_code
-            fi
-        done
-        case "$hick_worst" in
+        # ONE process over every tracked document (`hick test <path>` walks a
+        # directory), at the COMMIT tier: a cell declaring tier="push" is
+        # verified from its recording when one matches and skipped otherwise,
+        # and the skips are named in the output above. A per-document loop
+        # spent a minute on process spawns alone in a large repository.
+        hick_code=0
+        hick_out=$(hick test --tier commit $hick_docs 2>&1) || hick_code=$?
+        printf '%s\n' "$hick_out" >&2
+        hick_skipped=$(printf '%s\n' "$hick_out" | grep -c '^SKIP ' || true)
+        if [ "$hick_skipped" -gt 0 ]; then
+            echo "pre-commit: $hick_skipped cell(s) tiered push were skipped; \`hick test .\` (the pre-push/CI gate) runs them." >&2
+        fi
+        case "$hick_code" in
             0) ;;
             1) echo "pre-commit: \`hick test\` found DRIFT (exit 1) — a committed output is out of date with what the document produces. Re-run \`hick run <doc>\` (or \`hick refresh <doc>\` for a stale hick:transform) and commit the result. Commit blocked." >&2
                exit 1 ;;
@@ -60,7 +71,7 @@ if [ -n "$hick_docs" ]; then
                exit 1 ;;
             3) echo "pre-commit: \`hick test\` found a FAILED EXPECTATION (exit 3) — a hick:expect did not hold, so the document claims something untrue of its own output. Do not regenerate this away: decide whether the claim or the code is wrong. Commit blocked." >&2
                exit 1 ;;
-            *) echo "pre-commit: \`hick test\` exited $hick_worst — see the output above. Commit blocked." >&2
+            *) echo "pre-commit: \`hick test\` exited $hick_code — see the output above. Commit blocked." >&2
                exit 1 ;;
         esac
     else
@@ -104,7 +115,10 @@ paste in verbatim.
 2. After editing a document, run `hick run <doc>` to regenerate outputs,
    then `hick test <doc>` and fix whatever fails before committing. `hick up`
    does the regenerating half continuously while you work; it does not
-   replace `hick test`.
+   replace `hick test`. A cell too slow to wait for at every commit can
+   declare `tier="push"`: the pre-commit hook (`hick test --tier commit`)
+   then answers it from its recording or skips it and says so, and plain
+   `hick test` — pre-push and CI — still runs it.
 3. Agent sessions live in `sessions/*.hick` (`hick:session` documents);
    `hick ingest --from session <session>` compacts one into a clean pipeline doc.
 

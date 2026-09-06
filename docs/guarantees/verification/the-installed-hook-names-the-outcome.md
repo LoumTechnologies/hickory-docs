@@ -32,14 +32,17 @@ Last LLM verification:
 - Date: 2026-08-10
 - Reviewer: Claude (Opus 5)
 - Result: verified
-- Evidence: `HOOK_BODY` in `crates/hickory-cli/src/init.rs` captures each
-  document's exit code (`hick test "$hick_doc" || hick_code=$?`, written
-  in that form so the block is safe to append to a user hook running under
-  `set -e`), keeps the numeric maximum in `hick_worst`, and branches on it in
-  a `case` with one message per outcome plus a catch-all for an unexpected
-  code. The numeric maximum is the same precedence `CheckOutcome`'s `Ord`
-  gives the CLI (`crates/hickory-cli/src/lib.rs`), because the exit codes are
-  assigned in that order. Verified live in a scratch repository: a hook
+- Evidence: `HOOK_BODY` in `crates/hickory-cli/src/init.rs` captures the exit
+  code of ONE `hick test --tier commit $hick_docs` over the whole tracked set
+  (`hick_out=$(…) || hick_code=$?`, written in that form so the block is safe
+  to append to a user hook running under `set -e`) and branches on it in a
+  `case` with one message per outcome plus a catch-all for an unexpected code.
+  `hick test` already takes the maximum outcome across the documents it was
+  given (`check_outcome` in `crates/hickory-cli/src/lib.rs`), which is where
+  the per-document loop's `hick_worst` maximum went: the precedence is
+  unchanged, it is just computed once, in the place that owns it. The hook
+  additionally counts the `SKIP` lines and says which gate runs those cells —
+  see `a-push-tier-cell-is-skipped-at-commit.md`. Verified live in a scratch repository: a hook
   containing a stale managed block was rewritten by `hick init` to the new
   body, and the surrounding user content was left untouched.
 - Test coverage: `crates/hickory-cli/tests/init_tests.rs` —
