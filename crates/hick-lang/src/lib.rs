@@ -11,6 +11,9 @@
 use std::fmt;
 
 mod bodies;
+mod select;
+use select::is_fragment_tag;
+pub use select::{element_kind_of_id, elements_matching, fragments_matching};
 
 use bodies::{holds_bytes, is_raw_content_tag};
 
@@ -895,40 +898,6 @@ fn collect_fragments_any(nodes: &[HickNode], out: &mut Vec<HickNode>) {
     }
 }
 
-/// Every fragment block (`copy`/`cut`) in `doc` matching `selector`, in
-/// document order. The selector grammar is `hick:paste`'s: `#id`, `.class`,
-/// or a comma-separated list.
-pub fn fragments_matching<'a>(doc: &'a HickDocument, selector: &str) -> Vec<&'a HickTag> {
-    let mut out = Vec::new();
-    collect_matching(&doc.nodes, selector, &mut out);
-    out
-}
-
-/// Elements whose content is a selectable fragment.
-///
-/// `transcript` and `said` join `copy`/`cut` because an ingested meeting is
-/// exactly the thing a `hick:transform` wants to point at — either whole
-/// (`select="#t"`) or one speaker's turns (`select=".said-sam"`). Without
-/// them the derived turns would be addressable in principle and selectable by
-/// nothing. See `docs/specs/freeform/ingest.md`.
-fn is_fragment_tag(name: &str) -> bool {
-    matches!(name, "copy" | "cut" | "transcript" | "said")
-}
-
-fn collect_matching<'a>(nodes: &'a [HickNode], selector: &str, out: &mut Vec<&'a HickTag>) {
-    for node in nodes {
-        if let HickNode::Tag(tag) = node {
-            if is_fragment_tag(&tag.name) && fragment_matches(tag, selector) {
-                // No recursion into a match: selecting a whole transcript must
-                // not also select each of its turns and count them twice.
-                out.push(tag);
-                continue;
-            }
-            collect_matching(&tag.children, selector, out);
-        }
-    }
-}
-
 /// The raw text directly inside a tag (its `Text` children, concatenated).
 pub fn tag_text(tag: &HickTag) -> String {
     let mut out = String::new();
@@ -982,23 +951,6 @@ pub fn passage_fingerprint(passage: &str) -> String {
         hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
     }
     format!("{:08x}", (hash ^ (hash >> 32)) as u32)
-}
-
-fn fragment_matches(tag: &HickTag, selector: &str) -> bool {
-    selector
-        .split(',')
-        .map(str::trim)
-        .filter(|s| !s.is_empty())
-        .any(|sel| {
-            if let Some(id) = sel.strip_prefix('#') {
-                tag.get_attribute("id") == Some(id)
-            } else if let Some(class) = sel.strip_prefix('.') {
-                tag.get_attribute("class")
-                    .is_some_and(|c| c.split_whitespace().any(|x| x == class))
-            } else {
-                false
-            }
-        })
 }
 
 /// Register `canonical` in the span-file table and return its id.

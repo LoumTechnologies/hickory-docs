@@ -120,6 +120,63 @@ fn a_citation_that_resolves_is_not_reported() {
     assert!(cites[0].dangling.is_empty());
 }
 
+/// A citation names what BACKS a sentence, and what backs it is usually not
+/// text: it is the cell whose expectations prove it. Resolving `cites=`
+/// against the pasteable set alone reported this as dangling while the exec
+/// it names sat two lines below it.
+// Protects docs/guarantees/lineage/a-citation-that-points-at-nothing-fails.md
+#[test]
+fn a_citation_resolves_to_any_element_carrying_the_id() {
+    let dir = tempfile::tempdir().unwrap();
+    let note = dir.path().join("note.hick");
+    std::fs::write(
+        &note,
+        "<hick:exec container=\"c\" id=\"cited-tests\">pytest -q</hick:exec>\n\n         <hick:table id=\"rows\" path=\"r.csv\">a,b\n1,2</hick:table>\n\n         <hick:file id=\"art\" path=\"x.txt\">hi</hick:file>\n\n         <hick:claim by=\"nate\" standing=\"report\" cites=\"#cited-tests,#rows,#art\">         Verified.</hick:claim>\n",
+    )
+    .unwrap();
+    let source = std::fs::read_to_string(&note).unwrap();
+    assert!(
+        dangling_citations(&note, &source).unwrap().is_empty(),
+        "an element that is present is not a dangling citation"
+    );
+    let cites = declared_cites(&note, &source).unwrap();
+    let kinds: Vec<&str> = cites[0].to.iter().map(|p| p.element.as_str()).collect();
+    // `hick cites` prints `{element} #{id}`, so the listing says `exec
+    // #cited-tests` rather than naming a fragment that does not exist.
+    assert!(kinds.contains(&"exec"), "{kinds:?}");
+    assert!(kinds.contains(&"table"), "{kinds:?}");
+    assert!(kinds.contains(&"file"), "{kinds:?}");
+    assert!(cites[0].dangling.is_empty(), "{:?}", cites[0].dangling);
+}
+
+/// The other half of the same rule: widening the CITATION resolver must not
+/// widen the paste resolver. An exec is a computation, not text.
+// Protects docs/guarantees/lineage/a-citation-that-points-at-nothing-fails.md
+#[test]
+fn a_paste_of_an_exec_is_refused_by_its_kind() {
+    let dir = tempfile::tempdir().unwrap();
+    let note = dir.path().join("note.hick");
+    std::fs::write(
+        &note,
+        "<hick:exec container=\"c\" id=\"cited-tests\" show=\"none\">true</hick:exec>\n\n         <hick:file path=\"out.txt\"><hick:paste select=\"#cited-tests\" /></hick:file>\n",
+    )
+    .unwrap();
+    let out = std::process::Command::new(env!("CARGO_BIN_EXE_hick"))
+        .args(["run", note.to_str().unwrap()])
+        .env("HICKORY_EXECUTOR", "local")
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
+    let text = format!(
+        "{}{}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert!(!out.status.success(), "{text}");
+    assert!(text.contains("hick:exec"), "the kind is named: {text}");
+    assert!(text.contains("#cited-tests"), "{text}");
+}
+
 // Protects docs/guarantees/lineage/an-edited-ai-passage-stops-claiming-the-model-wrote-it.md
 mod edited_passages {
     use hickory_cli::{CheckFailure, CheckOutcome, check_outcome, edited_transforms};

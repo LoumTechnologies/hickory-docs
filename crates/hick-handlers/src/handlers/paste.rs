@@ -180,11 +180,51 @@ impl TagHandler for PasteHandler {
             Ok(TagResult::Node(Arc::new(PasteNode::new(
                 dedented, &selector,
             ))))
+        } else if let Some(msg) = unpasteable_element(&selector, ctx) {
+            ctx.state.record_paste_failure(msg.clone());
+            anyhow::bail!("{msg}");
         } else {
             warn!("Paste selector '{}' not found", selector);
             Ok(TagResult::Declaration)
         }
     }
+}
+
+/// The elements a `hick:paste` can reproduce. Everything else with an `id`
+/// is a thing to POINT AT, not text to inline.
+const PASTEABLE: [&str; 4] = ["copy", "cut", "transcript", "said"];
+
+/// Why an `#id` paste found nothing, when the id exists but names something
+/// that is not text.
+///
+/// `cites=` resolves to any element with an id — an exec, a table, a file —
+/// because a citation names what backs a sentence. `hick:paste` deliberately
+/// does not: an exec cell is a computation, and inlining "the exec" has no
+/// meaning. Before this, such a paste resolved to nothing and logged
+/// `Paste selector '#x' not found`, which is false — it IS found, and it is
+/// the wrong kind of thing. Naming the kind is the whole difference between
+/// an author fixing a typo that does not exist and an author reading one
+/// sentence and understanding.
+fn unpasteable_element(selector: &str, ctx: &ProcessingContext) -> Option<String> {
+    let id = selector.trim().strip_prefix('#')?;
+    if id.is_empty() || id.contains(',') {
+        return None;
+    }
+    let kind = ctx.state.element_kinds.kind_of(id)?;
+    if PASTEABLE.contains(&kind.as_str()) {
+        return None;
+    }
+    let hint = if kind == "exec" {
+        "An exec cell is quotable only when it SHOWS its output: give it \
+         `show=\"stdout\"` (or `show=\"transcript\"`) and `#id` pastes what it printed."
+    } else {
+        "Put the text in a `<hick:copy id=\"...\">` (or `hick:cut`) and paste that."
+    };
+    Some(format!(
+        "paste selector '#{id}' names a `<hick:{kind}>`, and that is not text to paste.\n  \
+         {hint}\n  To point AT this element instead of reproducing it, cite it: \
+         `cites=\"#{id}\"` resolves to any element with that id."
+    ))
 }
 
 #[cfg(test)]

@@ -7,6 +7,7 @@ pub mod attrs;
 pub mod combine_latest;
 pub mod dag;
 pub mod node;
+pub mod selectors;
 pub mod state;
 pub mod volume;
 

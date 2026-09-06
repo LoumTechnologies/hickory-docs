@@ -1,6 +1,7 @@
 //! Multi-document state for tracking element outputs, file outputs, and
 //! cross-document references. Adapted from HickoryDocs `xml.rs`.
 
+use crate::selectors::{ElementKinds, has_all_classes, required_classes};
 use std::collections::HashMap;
 use std::sync::Mutex;
 use std::sync::atomic::AtomicUsize;
@@ -97,32 +98,6 @@ pub struct FeatureInfo {
 }
 
 // ---------------------------------------------------------------------------
-// Class selectors
-// ---------------------------------------------------------------------------
-
-/// The class names a class selector requires — ALL of them.
-///
-/// CSS has always read `.a.b` as "carries both", and hick's selectors are
-/// CSS-shaped, so this is the compound form rather than a new grammar. It is
-/// what replaces CodegenBot's name/value caret tags: matching on two
-/// properties at once is the load-bearing half, and bare names carry it.
-///
-/// Returns `None` for anything that is not a class selector, and for a bare
-/// `.` — which names no class and must match nothing rather than everything.
-pub(crate) fn required_classes(selector: &str) -> Option<Vec<&str>> {
-    let rest = selector.trim().strip_prefix('.')?;
-    let names: Vec<&str> = rest.split('.').filter(|s| !s.is_empty()).collect();
-    if names.is_empty() { None } else { Some(names) }
-}
-
-/// Whether a block carries every class a selector requires.
-pub(crate) fn has_all_classes(classes: &[String], required: &[&str]) -> bool {
-    required
-        .iter()
-        .all(|need| classes.iter().any(|have| have == need))
-}
-
-// ---------------------------------------------------------------------------
 // MultiDocumentState
 // ---------------------------------------------------------------------------
 
@@ -169,6 +144,11 @@ pub struct MultiDocumentState {
     /// document that asked to be told wove an empty file and exited 0. The
     /// pipeline reads these at the end and refuses.
     paste_failures: Mutex<Vec<String>>,
+    /// The element kind each `id=` in the run's documents belongs to, so a
+    /// paste that resolved to nothing can say WHY: `#cited-tests` is an
+    /// `exec`, and an exec is not text to paste. Populated in the
+    /// declaration phase; consulted only when a paste has already failed.
+    pub element_kinds: ElementKinds,
 }
 
 impl Default for MultiDocumentState {
@@ -189,6 +169,7 @@ impl Default for MultiDocumentState {
             container_id_counter: std::sync::atomic::AtomicU64::new(0),
             produced_files: Mutex::new(HashMap::new()),
             paste_failures: Mutex::new(Vec::new()),
+            element_kinds: ElementKinds::default(),
         }
     }
 }

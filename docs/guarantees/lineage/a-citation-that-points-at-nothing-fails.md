@@ -14,6 +14,19 @@ exists is entirely checkable, offline, and free.
 A selector that resolves is not reported, and two selectors resolving to one
 fragment list that place once.
 
+A `#id` selector resolves to **any element carrying that id** — `hick:exec`,
+`hick:table`, `hick:file`, `hick:diagram` — not only the pasteable fragments
+(`copy`, `cut`, `transcript`, `said`). A citation names what backs a
+sentence, and what backs it is most often the cell whose expectations prove
+it. `hick cites` lists the element's kind beside its id (`exec
+#cited-tests`).
+
+`hick:paste` is unchanged and deliberately narrower: it reproduces bytes, and
+an exec cell is a computation. A paste whose `#id` names an element of
+another kind is refused by kind, naming it — "paste selector '#cited-tests'
+names a `<hick:exec>`, and that is not text to paste" — instead of resolving
+to nothing.
+
 ## Why
 
 `cites=` was resolved as a **set**: the comma-separated list went to
@@ -61,6 +74,28 @@ recorded here rather than in a commit message so it is not lost.
 ---
 
 Last LLM verification:
+- Date: 2026-09-06
+- Reviewer: Claude (Fable 5.1)
+- Result: verified
+- Evidence: `crates/hick-lang/src/lib.rs` — `elements_matching` and the shared
+  `collect_matching_where`, beside `fragments_matching`, which keeps
+  `is_fragment_tag` and so keeps `hick:paste` and `hick:transform` narrow;
+  `crates/hickory-cli/src/lib.rs` — `declared_cites` resolving each selector
+  through `elements_matching`; `crates/hick-handlers/src/handlers/paste.rs` —
+  `unpasteable_element` and `PASTEABLE`, recorded through
+  `record_paste_failure` so the run refuses rather than weaving a hole;
+  `crates/hick-exec/src/state.rs` — `element_kinds` / `register_element_kind`,
+  populated by `register_element_kinds` in `crates/hick-literate/src/lib.rs`.
+- Test coverage: `crates/hickory-cli/tests/cites.rs` —
+  `a_citation_resolves_to_any_element_carrying_the_id` (exec, table and file
+  all resolve and none is dangling) and `a_paste_of_an_exec_is_refused_by_its_kind`
+  (the run fails and the message names `hick:exec` and the id).
+- Caveat requiring LLM review: the refusal is checked against a RUN, like the
+  other paste failures, so `hick weave` still resolves such a paste to
+  nothing silently. That is the same trade `refuse_on_paste_failures`
+  documents — a fragment a cell writes does not exist until the cell has run.
+
+Previous verification:
 - Date: 2026-09-04
 - Reviewer: Claude (Opus 5)
 - Result: verified

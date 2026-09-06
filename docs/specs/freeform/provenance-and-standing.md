@@ -151,6 +151,40 @@ distinctions do not fit these four is not stuck. An **unknown** standing is a
 the diagram rule: a tool that refused to weave would only teach people to stop
 marking anything.
 
+### What a citation points at (2026-09-06)
+
+`cites="#a,#b"` on a claim — or on anything else — is the author saying *this
+rests on those*. The pointer is checkable even though the assertion is not
+(`docs/guarantees/lineage/a-citation-that-points-at-nothing-fails.md`), and
+for a while it was checked against the wrong set.
+
+`cites=` resolves to **any element carrying that id**: an `hick:exec` whose
+expectations prove the sentence, a `hick:table` holding the rows, a
+`hick:file` that is the artefact under discussion, as well as the
+`hick:copy`, `hick:cut`, `hick:transcript` and `hick:said` fragments a paste
+can reproduce. It used to resolve only to that last, pasteable set, which
+meant `<hick:claim cites="#cited-tests">` over an `<hick:exec
+id="cited-tests">` two lines below reported as **dangling** — the one verdict
+this check must never get wrong, because a dangling citation fails `hick
+test` with exit 3. `hick cites` names the kind it found, `exec
+#cited-tests`, so the listing says what backs the sentence rather than
+implying it is text.
+
+`hick:paste` keeps the narrow set, and so does `hick:transform select=`: both
+read BYTES, and an exec cell is a computation, not a passage. A paste whose
+`#id` names an element of another kind is now **refused by kind** — "paste
+selector '#cited-tests' names a `<hick:exec>`, and that is not text to paste"
+— rather than resolving to nothing and logging that the selector was not
+found, which was false: it was found, and it was the wrong kind of thing. An
+exec is quotable when it shows its output (`show="stdout"`), and that path is
+unchanged.
+
+The two resolvers are `hick_lang::elements_matching` (citations) and
+`hick_lang::fragments_matching` (pastes and transforms), over one selector
+grammar. Widening the second would splice cells across documents through
+ambient contribution and change what every `.class` collects; the point here
+is that pointing at a thing and reproducing a thing are different acts.
+
 ### Sparse by design
 
 Most prose carries no `hick:claim` and never will. Unmarked prose is simply
