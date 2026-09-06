@@ -60,7 +60,7 @@ works as long as the xmlns points to the right URI.
 ```xml
 <?xml version="1.0" encoding="UTF-8"?>
 <hick:doc xmlns:hick="http://www.hickorydocs.com/1.0">
-  
+  <!-- your content here -->
 </hick:doc>
 ```
 
@@ -365,10 +365,10 @@ neither document names the other — they meet on the class. This is how several
 documents fill one generated file:
 
 ```xml
-
+<!-- bot-a.hick -->
 <hick:copy class="ignore">bin/</hick:copy>
 
-
+<!-- owner.hick, which names nobody -->
 <hick:file path=".gitignore"><hick:paste select=".ignore" distinct /></hick:file>
 ```
 
@@ -733,7 +733,7 @@ fed as sources to a subsequent pipeline stage. This enables containers
 to generate hick documents that drive further execution.
 
 ```xml
-
+<!-- Stage 1: a container generates a .hick file -->
 <hick:container name="scaffolder" image="alpine" />
 <hick:exec container="scaffolder">
 cat &gt; /output/build.hick &lt;&lt;'EOF'

@@ -10,6 +10,10 @@
 
 use std::fmt;
 
+mod bodies;
+
+use bodies::{holds_bytes, is_raw_content_tag};
+
 pub mod structure;
 pub use structure::{Structure, StructureBlock, StructureTag, structure};
 
@@ -1370,7 +1374,7 @@ impl<'a> Parser<'a> {
         let volatile = tag.get_attribute("volatile") == Some("true");
 
         // Parse children until </PREFIX:doc>
-        let (nodes, close_span) = self.parse_children(Some("doc"), tag.source_line)?;
+        let (nodes, close_span) = self.parse_children(Some("doc"), tag.source_line, true)?;
 
         Ok(HickDocument {
             nodes,
@@ -1404,7 +1408,7 @@ impl<'a> Parser<'a> {
             .map(str::to_string);
         let volatile = frontmatter.as_ref().and_then(|fm| fm.get("volatile")) == Some("true");
 
-        let (nodes, _) = self.parse_children(None, 1)?;
+        let (nodes, _) = self.parse_children(None, 1, true)?;
 
         Ok(HickDocument {
             nodes,
@@ -1436,7 +1440,7 @@ impl<'a> Parser<'a> {
 
         let start_time = tag.get_attribute("start").map(|s| s.to_string());
 
-        let (raw_nodes, _) = self.parse_children(Some("session"), tag.source_line)?;
+        let (raw_nodes, _) = self.parse_children(Some("session"), tag.source_line, true)?;
         let nodes = extract_session_nodes(&raw_nodes);
 
         Ok(SessionDocument {
@@ -1458,10 +1462,17 @@ impl<'a> Parser<'a> {
     /// content cannot contain is its own literal close tag.
     /// `close_name` is the element whose closing tag ends this run of
     /// children, or `None` for the body of a bare document, which ends at EOF.
+    ///
+    /// `comments` says whether `<!--` starts a comment here: true in PROSE,
+    /// false inside the body of an element that holds bytes, and once false
+    /// it stays false for everything nested inside — a `<hick:when>` inside
+    /// a `<hick:file>` does not turn commenting back on halfway down a file.
+    /// The reasoning, and both lists, are in [`bodies`].
     fn parse_children(
         &mut self,
         close_name: Option<&str>,
         open_line: usize,
+        comments: bool,
     ) -> Result<(Vec<HickNode>, Option<SourceSpan>), ParseError> {
         let mut nodes = Vec::new();
         let mut text_start = self.pos;
@@ -1473,7 +1484,7 @@ impl<'a> Parser<'a> {
             let rem = self.remaining();
             let next_open = rem.find(self.open_marker.as_str());
             let next_close = rem.find(self.close_marker.as_str());
-            let next_comment = rem.find("<!--");
+            let next_comment = comments.then(|| rem.find("<!--")).flatten();
 
             // Determine the nearest marker
             let nearest = [next_open, next_close, next_comment]
@@ -1511,7 +1522,7 @@ impl<'a> Parser<'a> {
             let before_marker = self.checkpoint();
 
             // Is this a comment?
-            if self.input[abs..].starts_with("<!--") {
+            if comments && self.input[abs..].starts_with("<!--") {
                 self.advance(offset);
                 match self.skip_comment() {
                     Ok(_) => {}
@@ -1645,7 +1656,11 @@ impl<'a> Parser<'a> {
                 // Parse nested children
                 let tag_name = tag.name.clone();
                 let tag_line = tag.source_line;
-                let (children, close_span) = self.parse_children(Some(&tag_name), tag_line)?;
+                let (children, close_span) = self.parse_children(
+                    Some(&tag_name),
+                    tag_line,
+                    comments && !holds_bytes(&tag_name),
+                )?;
                 nodes.push(HickNode::Tag(HickTag {
                     children,
                     close_span,
@@ -1884,22 +1899,6 @@ impl<'a> Parser<'a> {
 // ---------------------------------------------------------------------------
 // Session node extraction
 // ---------------------------------------------------------------------------
-
-/// Is `name` a verbatim-capture element? See the note on `parse_children`.
-fn is_raw_content_tag(name: &str) -> bool {
-    // `transcript` joins the session vocabulary here for the same reason: its
-    // content is bytes some other tool produced, and a meeting where somebody
-    // said "the hick:copy tag" is not a parse error. See
-    // `docs/specs/freeform/ingest.md` — the raw block is the source of truth,
-    // and speaker turns are derived from it rather than stored beside it.
-    // `context` is what a harness put in front of the model besides the
-    // conversation — a compaction summary, a hook's output, an attached file.
-    // Bytes another tool produced, like a tool result; see `hick ingest --from claude-code`.
-    matches!(
-        name,
-        "input" | "tool-result" | "transcript" | "reasoning" | "context"
-    )
-}
 
 /// Convert raw [`HickNode`]s (from a `hick:session` root) into typed
 /// [`SessionNode`]s.  Unknown tags are silently ignored.
