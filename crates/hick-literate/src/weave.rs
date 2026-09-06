@@ -434,7 +434,7 @@ fn process_weave_tag(
         // other fragments weaves assembled.
         "copy" => match tag_attr(tag, "language") {
             Some(language) => {
-                weave_ip.add(Arc::new(StringNode::new(format!("\n```{language}\n"))));
+                weave_ip.add(Arc::new(StringNode::new(format!("```{language}\n"))));
                 process_file_children_to_weave(
                     &tag.children,
                     weave_ip,
@@ -446,7 +446,18 @@ fn process_weave_tag(
                     span_files,
                     None,
                 );
-                weave_ip.add(Arc::new(StringNode::new("```\n".to_string())));
+                // A fragment written `<hick:copy>code</hick:copy>` — the tag
+                // closed on the code's last line, which is how a fragment
+                // that must paste without a trailing newline is written —
+                // has no line break of its own to end the fence on, so the
+                // weave supplies one. A fragment that ends in a newline keeps
+                // exactly that one.
+                let ends_with_break = tag
+                    .children
+                    .last()
+                    .is_some_and(|c| matches!(c, HickNode::Text(t, _) if t.ends_with('\n')));
+                let close = if ends_with_break { "```\n" } else { "\n```\n" };
+                weave_ip.add(Arc::new(StringNode::new(close.to_string())));
             }
             None => process_weave_content(
                 &tag.children,
