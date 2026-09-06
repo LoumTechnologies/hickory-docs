@@ -1,0 +1,136 @@
+# A Rust generator that reads its own workspace
+
+A Rust project can now ask questions about itself. `hick-model-rust` loads a
+Cargo workspace with `syn` and `cargo metadata` and answers GraphQL about it —
+packages, modules, items, `impl` blocks, derives, `cfg` gates — and
+`hick code-model rust --client` turns a query into Rust structs, so the
+generator that reads those answers is **also Rust**. That is the whole of
+`docs/specs/freeform/language-tiers.md`'s Gold rung, and Rust is the first
+language in this product to stand on it:
+
+```sh
+<hick:copy id="the-row">hick lang | head -4</hick:copy>
+```
+
+```
+  LANGUAGE  TIER  DRAW  LSP  DEBUG  INDEX  MODEL  CLIENT  NEXT
+  rust      GOLD  yes   yes  get    get    yes    yes
+```
+
+The workspace under `rust-generator/` is three small crates. `catalogue` is
+the domain; `describe-derive` is a marker; `describegen` is the generator,
+and it is 70 lines because everything underneath it was emitted.
+
+## The mark
+
+`#[derive(Describe)]` expands to **nothing at all**:
+
+```rust
+<hick:copy id="marker" class="explain">#[proc_macro_derive(Describe)]
+pub fn describe(_input: TokenStream) -> TokenStream {
+    TokenStream::new()
+}</hick:copy>
+```
+
+That is the point. The mark is data for a generator, not behaviour for the
+compiler. A derive that wrote the `describe` method itself would put the
+interesting decision inside a macro whose output nobody can read; writing an
+ordinary file instead means the bytes land in this document, where lineage
+and the drift gate already work.
+
+Two types carry it and one deliberately does not — the half of the
+demonstration that would pass silently if it were missing:
+
+```rust
+<hick:copy id="domain" class="explain">/// An order placed by a customer.
+#[derive(Debug, Clone, Describe)]
+pub struct Order { pub id: u64, pub sku: String, pub quantity: u32 }
+
+/// Not marked, and so not described.
+#[derive(Debug, Clone)]
+pub struct Ledger { pub balance_cents: i64 }</hick:copy>
+```
+
+## What the generator asks
+
+One query, in `describegen/queries.graphql`. `types(deriving: "Describe")` is
+a filter the **server** applies, which matters: `derives` is parsed from the
+attribute rather than left as raw tokens, so this matches `Describe` and not
+`NotDescribe`, and the generator never sees the rest of the workspace.
+
+```graphql
+<hick:copy id="query" class="explain">query DescribedTypes {
+  types(deriving: "Describe") {
+    __typename name module docs
+    ... on StructDecl { shape fields { name type { text } } }
+  }
+}</hick:copy>
+```
+
+`hick code-model rust <workspace> --client queries.graphql --target rust`
+emits the structs that read the answer, plus the query text itself, in one
+file — so a change to the query cannot drift from the type that reads it.
+`--runtime --target rust` writes `hick_model.rs` beside them: the transport,
+which every generator would otherwise re-implement.
+
+The interface selection survives as an interface. `types` returns `Item`, so
+the emitted Rust is an **internally tagged enum** over all ten declaration
+kinds — `#[serde(tag = "__typename")]`, which is exactly what GraphQL's
+discriminator is — and the generator's first line matches on it:
+
+```rust
+<hick:copy id="switch" class="explain">let DescribedTypesTypesKind::StructDecl(decl) = described else { continue };</hick:copy>
+```
+
+## Running it
+
+The model server is not on `PATH` here. Under the sandbox executor it would
+be — Hickory binds `.hick-cache/models` into the cell read-only and puts it
+there, which is what `<hick:needs bin="hick-model-rust" />` is for. This
+document mounts it as an ordinary volume instead, so the same two cells run
+under `HICKORY_EXECUTOR=local` as well, where nothing is bound for them.
+
+<hick:container name="rs" image="rust:1.90">
+<hick:needs bin="cargo" for="building and running the example workspace" />
+</hick:container>
+
+<hick:volume name="ws" input="rust-generator" />
+<hick:volume name="models" input="../.hick-cache/models" />
+
+`CARGO_TARGET_DIR` points at the cell's own directory because the mounted
+workspace is an input, and a build that wrote into it would be writing into
+the document's source. Diagnostics go to stderr — the server's "ready" line,
+cargo's progress — and the cell drops them, because its **stdout is the
+file**.
+
+<hick:file path="rust-generator/catalogue/src/describe.rs">
+<hick:exec container="rs" mount="ws:project,models:models" show="output">
+CARGO_TARGET_DIR="$PWD/target" cargo run -q --manifest-path project/Cargo.toml -p describegen -- models/hick-model-rust project 2>/dev/null
+</hick:exec>
+</hick:file>
+
+## And the result compiles and runs
+
+`describe.rs` above is an ordinary file of this document. The cell below
+builds the workspace with it and prints what it produced, pinned byte for
+byte: change a field in `catalogue/src/lib.rs` without re-running, and
+`hick test` fails here.
+
+<hick:exec container="rs" mount="ws:project">
+CARGO_TARGET_DIR="$PWD/target" cargo run -q --manifest-path project/Cargo.toml -p catalogue 2>/dev/null
+<hick:expect match="exact">Order { id: u64, sku: String, quantity: u32 }
+Customer { name: String, email: Option<String> }
+</hick:expect>
+</hick:exec>
+
+## What this is evidence for
+
+The generator is **in the team's language**
+(`docs/guarantees/languages/a-generator-is-written-in-the-team-s-language.md`).
+A Rust shop asking a Rust question about a Rust workspace writes Rust, and
+the file in `tools/` is one somebody on the team wants to own.
+
+And the model is **read only**. Nothing here wrote a byte through GraphQL:
+the server answered, the generator emitted text, and the document owns what
+landed on disk. That is the rule `code-models/README.md` states, and this is
+what it looks like when it is kept.

@@ -10,6 +10,7 @@ needs whatever its cells invoke to be installed locally.
 | `bootstrap-ci.hick` | `python3` (standard library only) | A small statistical paper that computes its own figure and verifies its own numbers |
 | `grand-tour.hick` | `python3` with `polars`, the `duckdb` CLI; optionally `Rscript` with `ggplot2` | Literate weaving with lineage, polyglot cells, generated interactive artifacts, feature gates |
 | `scaffolded-service.hick` | nothing beyond a POSIX shell | Owning what a generator wrote: `hick ingest --from`, the gitignore as the filter, and editing bytes you did not type |
+| `rust-generator.hick` | `cargo`, and `hick code-model rust --install` run once | Gold's second half: a Rust generator queries its own Cargo workspace through `hick-model-rust` and writes a file back into it |
 | `architecture-that-draws-itself.hick` | `hick` itself on the PATH | A diagram that fails when it lies: `hick diagram` deduces the topology (AI-free), an expect pins it, and a `renderer="graph"` diagram derives its picture from the pinned fragment |
 
 Start here — it works everywhere:
@@ -26,6 +27,16 @@ the `<hick:ingested>` block in it was written by:
 
 ```sh
 hick ingest --from '#scaffold' examples/scaffolded-service.hick
+```
+
+`rust-generator.hick` is the one to read if your project is Rust. It is a
+three-crate Cargo workspace whose generator asks the model server for every
+type marked `#[derive(Describe)]` and emits a `describe()` for each — in
+Rust, against Rust, with the transport and the result types both emitted by
+`hick code-model rust`. Install the server first, once:
+
+```sh
+hick code-model rust --install
 ```
 
 `hick test examples/` runs all of them and needs the full set above. The R

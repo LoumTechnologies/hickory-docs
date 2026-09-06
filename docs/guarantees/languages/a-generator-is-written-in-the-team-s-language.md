@@ -40,14 +40,14 @@ is why `50-review-surface.hick` prints it.
 ---
 
 Last LLM verification:
-- Date: 2026-08-30
+- Date: 2026-09-06
 - Reviewer: Claude (Opus 5)
 - Result: verified
 - Evidence:
   - `crates/hickory-cli/src/typed_client/emit.rs::Target::runtime` returns
     `(filename, source)` per target, `include_str!`'d from
-    `code-models/clients/{python,csharp}/`. Go and TypeScript return `None`
-    and `cmd_code_model` refuses with the list of what does ship.
+    `code-models/clients/{python,csharp,rust}/`. Go and TypeScript return
+    `None` and `code_model::cmd::run` refuses with the list of what does ship.
   - `code-models/clients/csharp/HickModel.cs` — `Model.Start`/`Query<T>`/
     `Dispose` plus `Emit`, written for a **file-based-app-adjacent** console
     project with no dependency beyond the BCL, because a NuGet package in a
@@ -66,9 +66,18 @@ Last LLM verification:
   mode is a wrong `include_str!` path, which would be silent) and
   `a_target_with_no_runtime_says_so_rather_than_serving_another_languages`.
   End to end, `hick test .` in the warehouse covers the whole path.
-- Caveat requiring LLM review: only two runtimes exist. Go and TypeScript get
-  types with no transport, which is a real gap for anyone generating from
-  those languages — `--sdl` and their own ecosystem's codegen is the stated
-  answer and has not been walked through by anybody. Nothing checks that a
-  runtime **compiles**; the C# one is proven by the warehouse building, and
-  a runtime for a language with no demo behind it would not be.
+  - **Rust, added 2026-09-06.** `code-models/clients/rust/hick_model.rs`,
+    with `Model::start`/`query`/`ask`/`Drop` plus `Emit`, depending on
+    nothing but `serde` and `serde_json`. Exercised end to end by
+    `examples/rust-generator.hick`, where a Rust generator queries a Rust
+    workspace through `hick-model-rust` and its output is compiled and run
+    against a pinned expectation. It is written **without let-chains** on
+    purpose: the file is dropped into whatever crate the generator lives in,
+    and that crate may be on edition 2021 — found by putting it in one.
+- Caveat requiring LLM review: three runtimes exist and two do not. Go and
+  TypeScript get types with no transport, which is a real gap for anyone
+  generating from those languages — `--sdl` and their own ecosystem's codegen
+  is the stated answer and has not been walked through by anybody. Nothing
+  checks in CI that a runtime **compiles**; the C# one is proven by the
+  warehouse building and the Rust one by `examples/rust-generator`, and a
+  runtime for a language with no demo behind it would not be.

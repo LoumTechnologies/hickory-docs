@@ -1,7 +1,12 @@
 # Gold, Silver, Bronze: how much Hickory knows about a language
 
 *Status: adopted 2026-08-28. Phase 0 (the ladder and `hick lang`) is built.
-The code model it names is designed here and not yet built.*
+The code model is built: four servers — C#, TypeScript, Go, Rust — and five
+typed-client emitters. **Rust is the first language to reach Gold** (2026-09-06),
+because it is the first with both halves: a model server and an emitter that
+lets a generator be written in it. `examples/rust-generator.hick` is the
+worked example, and `docs/guarantees/languages/a-rust-generator-reads-its-own-workspace.md`
+is the guarantee.*
 
 A document holds code in whatever language its author writes. What Hickory
 can *do* with that code varies enormously, and until now there was no way to
@@ -74,7 +79,9 @@ feature and should get a different name if it is ever built.
 
 ## The code model (Gold's second half)
 
-Not built. The shape it should take:
+Built, four times. The shape it took, which is the shape it was designed to
+take — the only amendment is the one recorded under "How a cell reaches it"
+below:
 
 **A spawned server, one per language**, installed the way language servers and
 indexers already are, into the same confined prefix. The process boundary is
@@ -90,9 +97,12 @@ and unions express a language's own type system exactly — a record is not a
 class with a flag — which is precisely what SCIP flattens.
 
 **A schema per language, and no universal model.** This is a feature, and
-after three servers the size of the shared core is known rather than
-estimated: **three types** — `ServerInfo`, `Span`, `UnresolvedReference` —
-about a dozen fields. Everything else that shares a *name* across two servers
+after **four** servers the size of the shared core is known rather than
+estimated, and it did not grow when the fourth arrived: **three types** —
+`ServerInfo`, `Span`, `UnresolvedReference` — about a dozen fields. Rust
+brought twenty-one types of its own and shares none of them, because it has
+`impl` blocks, real visibility keywords with paths in them, and enum variants
+that carry data. Everything else that shares a *name* across two servers
 has different *fields*, and the near-misses are the ones that would have hurt
 most to hoist: Go's `Method` returns several values, Go's `StructDecl` means
 something else than C#'s, and Go has no `Accessibility` at all because
@@ -138,6 +148,13 @@ Everything that looked expensive to retrofit then costs nothing:
 
 The only new surface is `<hick:needs bin="hick-model-csharp" />`, which
 already existed and now means what it says.
+
+*One honest footnote, from `examples/rust-generator.hick`:* only the
+**sandbox** executor binds `.hick-cache/models` onto the cell's `PATH`. Under
+`HICKORY_EXECUTOR=local` nothing is bound, so a document that must run under
+both mounts the models directory as an ordinary input volume as well. That is
+a gap in the local executor rather than in the design, and the example says so
+in as many words instead of only working one way.
 
 ## What this does not replace
 
@@ -197,6 +214,12 @@ Which means, concretely:
   pass, and the interesting queries join declaration facts to use facts —
   "properties marked `[NeverExpose]` that the audit layer nonetheless reads" —
   which is one conversation with a model and an awkward join against an index.
+* **For Rust, SCIP is also the reference graph.** `hick-model-rust` has no
+  `references` query and will not grow one: it parses with `syn` and has no
+  binder, so its answer would be an identifier match — `parse` in two crates
+  as one symbol, a trait-object call missed entirely — which is precisely the
+  confidently-wrong answer `unresolved` exists to forbid. rust-analyzer emits
+  SCIP itself, which is a real binder's answer, and that is the one to use.
 * **For navigation, SCIP still wins**, on three counts the model cannot
   answer at any price: a document that weaves C# *and* TypeScript has one
   reference graph and three servers cannot join it; an index is a file that

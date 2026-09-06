@@ -1,0 +1,9 @@
+# The example workspace `examples/rust-generator.hick` builds.
+#
+# Its own workspace, detached from the one above it: a generator that models
+# "the workspace it is in" has to be pointed at a real one, and a fixture
+# nested inside hickory-docs' own workspace would be modelling the wrong
+# thing.
+[workspace]
+resolver = "2"
+members = ["catalogue", "describe-derive", "describegen"]

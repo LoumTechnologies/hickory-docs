@@ -7,10 +7,17 @@ script can *generate* against your code instead of parsing it.
 
 One server per language, spawned like a language server or an indexer. The
 process boundary does two jobs: each model can only be built on its own
-ecosystem's compiler front end — Roslyn, the TypeScript compiler, `go/types` —
-and none of those is a Rust crate; and it is a licence firewall, since
+ecosystem's front end — Roslyn, the TypeScript compiler, `go/types`, `syn` —
+and only one of those is a Rust crate; and it is a licence firewall, since
 libclang, Sorbet and the Kotlin Analysis API carry their own terms and none of
 them ever links into this product.
+
+Rust is the interesting case for that boundary, because `syn` *is* a crate and
+could have been linked. It is still a separate process, and the reason is the
+rest of the dependency graph rather than the parser: a GraphQL server, an
+executor and `cargo metadata` are the price of the model, and none of them is
+a price this product should pay in its own binary for a feature four
+languages implement four ways.
 
 ## The protocol
 
@@ -53,20 +60,30 @@ DTO — which happened, and is why `csharp/Compilation.cs` filters
 compilation and believed it saw everything emits confidently wrong code. The
 `unresolved` field is not optional politeness.
 
-## What is shared, measured across three languages
+## What is shared, measured across four languages
 
 The plan said the shared core would be small. It is smaller than that, and
 the number is worth writing down because it is the whole argument for
-per-language schemas.
+per-language schemas. **A fourth language did not add to it.**
 
-Introspecting all three servers and diffing their type sets: **exactly three
-types are identical everywhere.**
+Introspecting all four servers and diffing their type sets: **exactly three
+types are identical everywhere**, the same three as when there were three
+servers.
 
-| shared by all three, identically | `ServerInfo`, `Span`, `UnresolvedReference` |
+| shared by all four, identically | `ServerInfo`, `Span`, `UnresolvedReference` |
 |---|---|
-| same name, different fields | `TypeRef`, `Method`, `InterfaceDecl`, `Query` |
-| two of three, different fields | `ClassDecl`, `EnumDecl`, `Property`, `Parameter`, `StructDecl` |
-| one language only | `RecordDecl`, `AppliedAttribute` · `TypeAliasDecl`, `Decorator` · `NamedDecl`, `StructTag`, `Field`, `Implementor` |
+| same name in all four, different fields | `TypeRef`, `Query` |
+| three of four, different fields | `Method`, `InterfaceDecl`, `Reference` · `StructDecl`, `EnumDecl` |
+| two of four, different fields | `ClassDecl`, `Property`, `Parameter`, `Accessibility`, `EnumMember`, `TypeDecl` · `TypeAliasDecl` · `Field`, `Param` |
+| one language only | 8 (C#) · 4 (TypeScript) · 5 (Go) · **21 (Rust)** |
+
+Rust owning twenty-one types of its own is not verbosity. Nine of them are
+the item kinds behind one interface, and the rest are things no other
+language in this list has: `Visibility` is an object because `pub(in
+crate::api)` carries a path; `Generics` and `GenericParam` exist because a
+`where` clause is text a generator has to emit back; `ImplBlock` exists
+because Rust has a declaration site that belongs to neither the type nor the
+trait, and no other schema here has anywhere to put it.
 
 The near-misses are the interesting part, because hoisting any of them would
 have been actively wrong:
@@ -82,17 +99,27 @@ have been actively wrong:
   struct is a value type with properties; a Go struct is a field list with
   tags and embedding. Same word, different concept, and the trap a universal
   schema walks straight into.
-* **`Accessibility`** is identical in C# and TypeScript and **absent from Go**,
-  which has no accessibility keyword at all — only spelling. That single
-  omission is the clearest evidence the C# enum was never universal.
+* **`Accessibility`** is identical in C# and TypeScript, **absent from Go**,
+  which has no accessibility keyword at all — only spelling — and **an object
+  in Rust**, where `pub(in crate::api)` carries a path an enum would throw
+  away. Three answers to one question, from four languages.
+* **`StructDecl`** is now in three servers and means three things: a C# value
+  type with properties, a Go field list with tags and embedding, and a Rust
+  product type that is `NAMED`, `TUPLE` or `UNIT` and whose tuple fields are
+  named by their index. The trap a universal schema walks straight into, and
+  it got worse rather than better with a fourth language.
+* **`EnumDecl`** is in three and is a different construct in one of them: a
+  Rust enum variant **carries data**, so `EnumVariant` has `fields` and a
+  `shape`, and the C# and TypeScript versions are lists of names.
 
 So the core is **the protocol and the rules, not the schema**. Three types,
 about a dozen fields.
 
 ## References, and the rule they exist for
 
-Every server answers `references(symbol)`, returning each use with **who
-used it** — a declaration name — and whether the use is a write.
+**Three servers of four** answer `references(symbol)`, returning each use with
+**who used it** — a declaration name — and whether the use is a write. Rust
+does not, and that is the rule being kept rather than a corner cut: see below.
 
 The referrer is the whole point. A generator makes a meta-pattern official,
 and a meta-pattern worth stating has exceptions worth stating:
@@ -115,11 +142,12 @@ pass.
 
 ## What is here
 
-| language | server | built on | needs at runtime |
-|---|---|---|---|
-| C# | `csharp/` | Roslyn (`Microsoft.CodeAnalysis.CSharp`) | the .NET runtime |
-| TypeScript | `typescript/` | ts-morph over the TS compiler API | `node` |
-| Go | `go/` | `go/packages` + `go/types` | `go` on PATH |
+| language | server | built on | needs at runtime | `references` |
+|---|---|---|---|---|
+| C# | `csharp/` | Roslyn (`Microsoft.CodeAnalysis.CSharp`) | the .NET runtime | yes |
+| TypeScript | `typescript/` | ts-morph over the TS compiler API | `node` | yes |
+| Go | `go/` | `go/packages` + `go/types` | `go` on PATH | yes |
+| Rust | `rust/` | `syn` + `cargo metadata` | `cargo` on PATH | no — see above |
 
 That last column is part of the contract: a model server may shell out to its
 own toolchain, so a document using one declares both —
@@ -128,11 +156,22 @@ own toolchain, so a document using one declares both —
 Building them:
 
 ```
+hick code-model rust --install          # builds code-models/rust, installs it
+hick code-model go   --install          # same, with `go build`
 cd csharp     && dotnet publish -c Release -o <somewhere>
 cd typescript && npm install                     # then hick-model-typescript
-cd go         && go build -o hick-model-go ./...
 ```
 
-Put the result on `PATH` or in the project's `.hick-cache/models/`. There is
-no installer yet — `hick code-model` finds it, and `hick lang` reports the
-language as Gold once it does.
+`--install` **builds** rather than fetches, because there is nowhere to
+publish four binaries in four ecosystems to; it needs a checkout of this
+repository, and `--from <path>` says which one. It offers only the two
+servers that produce a single self-contained binary. C# and TypeScript each
+publish a directory whose parts have to stay together — a `dotnet publish`
+output is an apphost beside its assemblies, and the TypeScript launcher
+resolves `server.js` relative to its own real path — so installing one file
+out of either would produce a server that starts and then fails, which is
+worse than not offering the command.
+
+Put the result on `PATH` or in the project's `.hick-cache/models/`.
+`hick code-model` finds it there, and `hick lang` reports the language as Gold
+once it does — measured, never declared.

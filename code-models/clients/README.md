@@ -44,6 +44,8 @@ memoised.
 
 ```
 hick code-model csharp src/Domain --client queries.graphql --target python -o client.py
+hick code-model rust   .          --client queries.graphql --target rust   -o src/model.rs
+hick code-model rust   .          --runtime --target rust -o src/
 ```
 
 Types and the query text are generated together, so they cannot drift the way
@@ -147,10 +149,25 @@ which is the shared core doing its job.
 | language | client | status |
 |---|---|---|
 | Python | `python/hick_model.py` | in use by the warehouse's generator |
+| C# | `csharp/HickModel.cs` | in use by the warehouse's `tools/ApiGen` |
+| Rust | `rust/hick_model.rs` | in use by `examples/rust-generator.hick` |
 | TypeScript | — | not written; the same four things |
 | Go | — | not written; the same four things |
 
 Python first because a generator can be written in any language and Python is
 the one most people reach for when the answer is "not the language I am
-generating". The other two are about a hundred and ninety lines each, and the
-measurement above is the case for writing them.
+generating". C# second, because a C# shop maintaining a Python script in
+`tools/` is the bad default that capability turned into. Rust third, and it
+paid for itself the same day: `examples/rust-generator.hick` is a Cargo
+workspace whose generator queries its own type system, and the generator is
+70 lines because the transport and the types were both emitted.
+
+The Rust runtime is written without let-chains, which is not a style note.
+It is dropped into whatever crate the generator lives in, and that crate may
+be on edition 2021 — where a let-chain is a syntax error rather than a
+preference. A runtime that only compiles on the newest edition is one
+somebody has to edit before they can use it, which is the opposite of the
+point. Found by running it, in an edition-2021 workspace, before shipping it.
+
+The other two are about a hundred and ninety lines each, and the measurement
+above is the case for writing them.

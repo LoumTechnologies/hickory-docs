@@ -1,0 +1,17 @@
+# What the generator asks the model. The types beside it are generated from
+# this file, so the query and the structs that read its answer cannot drift.
+query DescribedTypes {
+  types(deriving: "Describe") {
+    __typename
+    name
+    module
+    docs
+    ... on StructDecl {
+      shape
+      fields {
+        name
+        type { text }
+      }
+    }
+  }
+}

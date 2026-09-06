@@ -1,0 +1,12 @@
+[package]
+name = "describegen"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+# The whole dependency list. `hick_model.rs` is the emitted runtime and the
+# typed client is emitted beside it, so there is no package to restore for
+# either — which is what keeps this runnable in a cell with no network.
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"

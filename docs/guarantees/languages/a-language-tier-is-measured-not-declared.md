@@ -36,7 +36,7 @@ where a fact comes from, not about keeping two facts in step.
 ---
 
 Last LLM verification:
-- Date: 2026-08-28
+- Date: 2026-09-06
 - Reviewer: Claude (Opus 5)
 - Result: verified
 - Evidence: `crates/hickory-cli/src/language_tier.rs` — `survey` iterates
@@ -44,9 +44,20 @@ Last LLM verification:
   routing table, not a second list); `support` reads
   `hick_lsp::discovery::discover`/`known_languages`,
   `hick_dap::discovery::discover`/`known_languages`,
-  `index_install::discover`, and the three `tool_install::Catalogue`s.
+  `index_install::discover`, `code_model::discover`,
+  `typed_client::emit::Target::parse`, and the three `tool_install::Catalogue`s.
   `Have::NotApplicable` carries the data-language exemption and `counts()`
   treats it as satisfied while `tier` caps such languages at Silver.
+  **First Gold reached 2026-09-06:** Rust, because a model server was built
+  and an emitter written — the row flipped without a line of `language_tier.rs`
+  changing, which is the whole claim of this guarantee, tested. The MODEL
+  column deliberately offers no `Installable`: a server is BUILT from a
+  checkout of this repository rather than fetched
+  (`code_model::install`), so reporting `get` on a machine that has neither
+  the checkout nor the toolchain would be the fifth hand-maintained promise
+  in the list of four. The `next` sentence for a language without one is
+  computed from that catalogue by `code_model::install::how_to_get` rather
+  than written in `language_tier.rs`.
 - Test coverage: `language_tier::tests::every_installable_language_is_surveyed`
   (derives from all three catalogues),
   `every_ecosystem_indexed_language_is_surveyed`,
@@ -54,7 +65,11 @@ Last LLM verification:
   `hick_lsp::lang_detect::tests::every_routable_language_is_enumerable`;
   `hick_lsp::discovery::tests::known_languages_and_candidates_agree` and
   `hick_dap::discovery::tests::known_languages_and_candidates_agree` (both
-  directions, which is what closes the class).
+  directions, which is what closes the class);
+  `code_model::install::tests::every_server_is_named_the_way_discovery_looks_for_it`,
+  `every_server_is_a_language_the_survey_reports_on` and
+  `the_advice_names_a_command_that_exists` (the same three checks the index
+  catalogue grew, applied to the model catalogue before it could drift).
 - Caveat requiring LLM review: `indexed_by_the_ecosystem` is still a literal
   list, kept in step with `index_install::how_to_get` by a test that names the
   same languages. It is the one remaining hand-maintained row in this module
