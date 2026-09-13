@@ -12,13 +12,16 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render } from "@testing-library/react";
 
 import type { Doc } from "../api/types";
+import { api } from "../api/client";
 import { SessionRegistry, type DocSession } from "./documentSession";
-import { DocTabBody, GeneratedTabBody } from "./workspaceTabs";
+import { DocTabBody, GeneratedTabBody, UntitledTab } from "./workspaceTabs";
 
 // The editor and debugger chrome are heavyweight and irrelevant here; the
 // toolbar sits beside them in DocTabBody, not inside them.
 vi.mock("../editor/DocumentEditor", () => ({
-  DocumentEditor: () => <div data-testid="editor" />,
+  DocumentEditor: ({ onChange }: { onChange?: (source: string) => void }) => (
+    <button data-testid="editor" onClick={() => onChange?.("first thought")} />
+  ),
 }));
 vi.mock("../debug/DebugStrip", () => ({
   DebugStrip: () => <div data-testid="debug-strip" />,
@@ -118,5 +121,16 @@ describe("the document tab's toolbar", () => {
       <GeneratedTabBody registry={registry} docId="d1" path="src/hello.py" />,
     );
     expect(queryByRole("toolbar")).toBeNull();
+  });
+});
+
+describe("an untitled document", () => {
+  // Guarantee: docs/guarantees/authoring/new-document-is-an-act.md
+  it("does not create a project file on its first keystroke", () => {
+    const create = vi.spyOn(api, "createDoc");
+    const { getByTestId } = render(<UntitledTab tabId="new-note" />);
+    fireEvent.click(getByTestId("editor"));
+    expect(create).not.toHaveBeenCalled();
+    create.mockRestore();
   });
 });

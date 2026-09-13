@@ -17,7 +17,7 @@
 // lib/merge.ts, and the UI that asks about conflicts is
 // components/MergeView.tsx.
 
-import { useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef } from "react";
 
 import { api } from "../api/client";
 import type { WorkspaceDraft } from "../api/types";
@@ -90,17 +90,23 @@ export function useDraftKeeper({
   /** The buffer as it stands, and what the file held when this session began. */
   read: () => { contents: string; base: string };
   enabled?: boolean;
-}): void {
+}): () => void {
   const readRef = useRef(read);
   readRef.current = read;
+  // A buffer can become a real file immediately before its component
+  // unmounts. Remember that transition outside React state, so the cleanup
+  // below cannot race it by writing the just-saved buffer back as a draft.
+  const discardedRef = useRef(false);
 
   useEffect(() => {
     if (!enabled || !path) return;
+    discardedRef.current = false;
     // What we last put in the store, so an untouched buffer costs a string
     // comparison rather than a request.
     let written: string | null = null;
 
     const flush = () => {
+      if (discardedRef.current) return;
       const { contents, base } = readRef.current();
       if (contents === base) {
         if (written !== null) {
@@ -131,4 +137,10 @@ export function useDraftKeeper({
       flush();
     };
   }, [path, enabled]);
+
+  return useCallback(() => {
+    if (!path) return;
+    discardedRef.current = true;
+    void api.discardDraft(path).catch(() => {});
+  }, [path]);
 }

@@ -28,21 +28,28 @@ Two properties hold it up:
 ## Boundary
 
 One Untitled buffer at a time is deliberate, as with the scratchpad: a
-second unnamed buffer splits a thought across two places. A person who
-wants two new documents saves the first, which names it.
+second unnamed buffer splits a thought across two places. Its bytes are a
+draft in the user's per-project workspace state, outside the opened folder
+and unreachable by git. Typing never creates `untitled.md`; **Save** and
+**Save As** ask for a name and only then create the document. The draft is
+discarded once that save succeeds, so reopening the app restores an Untitled
+tab only while it is still genuinely unsaved.
 
 ---
 
 Last LLM verification:
-- Date: 2026-09-05
-- Reviewer: Claude (Fable 5.1)
+- Date: 2026-09-12
+- Reviewer: Codex (GPT-5)
 - Result: verified
 - Evidence: `apps/web/src/router.ts` — `NEW_DOCUMENT_EVENT`, `newDocument`;
   `apps/web/src/App.tsx` menu case `"new"`; `apps/web/src/views/WorkspaceView.tsx`
-  — the tree's `onNewDocument`, the welcome action, and the
-  `NEW_DOCUMENT_EVENT` listener beside the other window events;
-  `apps/web/src/views/workspaceState.ts` `openUntitledTab`.
+  — the new-document event, `saveUntitled`, and the native Save/Save As
+  routing; `apps/web/src/views/workspaceTabs.tsx` `UntitledTab`;
+  `apps/web/src/lib/drafts.ts` `useDraftKeeper`; `apps/web/src/views/workspaceState.ts`
+  `openUntitledTab`.
 - Test coverage: `apps/web/src/router.test.ts` ("fires the event even when
-  the hash is already #/new"). Found by reproducing in the built app on
-  2026-09-05: dispatching the menu's `hickory-menu: new` twice, and once
-  more after closing the Untitled tab.
+  the hash is already #/new"); `apps/web/src/views/workspaceTabs.test.tsx`
+  ("does not create a project file on its first keystroke"); and
+  `apps/web/src/components/PlainFilePane.test.tsx` (draft keeper behavior).
+  The native prompt and document-creation handoff are covered by typecheck
+  and implementation review; they do not yet have a browser-level test.

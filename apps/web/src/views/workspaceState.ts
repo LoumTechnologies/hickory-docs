@@ -325,7 +325,7 @@ export function adoptPlainFileTab(
 }
 
 /** Open (or re-activate) the untitled buffer. One at a time: an untitled tab
- * that already exists is what "#/new" means until its first edit names it. */
+ * that already exists is what "#/new" means until Save gives it a name. */
 export function openUntitledTab(layout: Layout): Layout {
   for (const pane of panes(layout.root)) {
     const index = pane.tabs.findIndex((t) => t.kind === "untitled");

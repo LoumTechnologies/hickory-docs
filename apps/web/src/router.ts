@@ -8,7 +8,7 @@ export type Route =
   | { name: "landing" }
   // File → New Window: a deliberate window with no folder or document open.
   | { name: "blank" }
-  // A document that does not exist yet: held in memory, created on first edit.
+  // A document that does not exist yet: an unsaved draft until Save names it.
   | { name: "new" }
   // The whole pipeline at once, one column per stage. Project-scoped because
   // a chain crosses documents, and a doc-scoped route could only ever show

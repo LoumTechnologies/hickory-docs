@@ -2,8 +2,8 @@
 //
 // The app never lands on a chooser: an empty folder lands in a new untitled
 // buffer, a folder with documents lands in the one touched last. The untitled
-// buffer holds only prose — the real file is created on the first edit, named
-// past whatever the folder already holds, and holding exactly what was typed.
+// buffer holds only prose. Save names the real file past whatever the folder
+// already holds, and it then holds exactly what was typed.
 
 import type { DocSummary } from "../api/types";
 
@@ -43,6 +43,17 @@ export function untitledPath(existing: string[]): string {
     const candidate = n === 1 ? "untitled.md" : `untitled-${n}.md`;
     if (!taken.has(candidate)) return candidate;
   }
+}
+
+/**
+ * The draft-store key for an untitled buffer.
+ *
+ * It is not a path in the project. The workspace store uses `path` as a
+ * stable, opaque key, and putting this under the project would turn an
+ * unsaved document into a file git can discover.
+ */
+export function untitledDraftKey(tabId: string): string {
+  return `untitled:${tabId}`;
 }
 
 /**

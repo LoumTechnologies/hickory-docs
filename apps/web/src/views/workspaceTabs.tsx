@@ -19,7 +19,8 @@ import type { ContextMenuItem } from "../components/ContextMenu";
 import { RefactorBadge, useBaseline } from "../components/RefactorBadge";
 import type { Baseline } from "../components/RefactorBadge";
 import { GeneratedFileView } from "../shell/views";
-import { untitledPath, wrapUntitled } from "../lib/newDoc";
+import { untitledDraftKey } from "../lib/newDoc";
+import { useDraftKeeper } from "../lib/drafts";
 import { useDocSession, type SessionRegistry } from "./documentSession";
 
 /**
@@ -284,7 +285,7 @@ export function GeneratedTabBody({
 // ---------------------------------------------------------------------------
 
 const PLACEHOLDER =
-  "Type markdown — # heading, **bold**, ```code```… It's saved as you type.";
+  "Type markdown — # heading, **bold**, ```code```… Save when you name it.";
 
 const NO_RUNNING_CELLS = new Set<string>();
 
@@ -294,19 +295,15 @@ const NO_RUNNING_CELLS = new Set<string>();
  *
  * The buffer holds only prose — no wrapper tags, no file on disk — so the
  * first thing a new person faces is a place to type markdown, not XML. The
- * real document is created on the FIRST edit: named `untitled.md`
- * (counting past whatever the folder already holds), containing the typed
- * prose unchanged — then `onCreated` lets the workspace adopt this very tab
- * as the created document's, in place.
- * Until that first keystroke, closing the app leaves nothing behind.
+ * real document is created only when the person saves and names it. Until
+ * then it is a draft in the user's workspace state — outside the folder and
+ * therefore outside git — so closing the app cannot lose a thought or turn
+ * one into an unexpected `untitled.md`.
  */
 export function UntitledTab({
   tabId,
-  onCreated,
 }: {
   tabId: string;
-  /** The buffer became a real document: adopt this tab. */
-  onCreated: (tabId: string, docId: string, path: string) => void;
 }) {
   // A local, client-seeded realtime: there is no server room to join until
   // the document exists, and the CRDT is happy with one writer.
@@ -314,47 +311,53 @@ export function UntitledTab({
   useEffect(() => () => realtime.close(), [realtime]);
 
   const viewRef = useRef<EditorView | null>(null);
-  // The create fires exactly once; a failure re-arms it so the next
-  // keystroke retries without ever touching the typed text.
-  const creatingRef = useRef(false);
-  const [error, setError] = useState<string | null>(null);
-  const onCreatedRef = useRef(onCreated);
-  onCreatedRef.current = onCreated;
+  // A draft is a buffer with no on-disk base. It is flushed every two seconds
+  // and on pagehide by the same keeper plain files use, but its opaque key
+  // cannot name a project file.
+  const discardDraft = useDraftKeeper({
+    path: untitledDraftKey(tabId),
+    read: () => ({ contents: viewRef.current?.state.doc.toString() ?? "", base: "" }),
+  });
+  useEffect(() => {
+    const onSaved = (event: Event) => {
+      if ((event as CustomEvent<string>).detail === tabId) discardDraft();
+    };
+    window.addEventListener("hickory-untitled-saved", onSaved);
+    return () => window.removeEventListener("hickory-untitled-saved", onSaved);
+  }, [tabId, discardDraft]);
 
-  const createFromFirstEdit = async () => {
-    try {
-      const projects = await api.projects();
-      const project = projects[0];
-      if (!project) throw new Error("no folder is open");
-      const docs = await api.projectDocs(project.id).catch(() => []);
-      const path = untitledPath(docs.map((d) => d.path));
-      const typed = viewRef.current?.state.doc.toString() ?? "";
-      const created = await api.createDoc(
-        project.id,
-        path,
-        wrapUntitled(typed),
-      );
-      // Keystrokes that landed while the create was in flight are replayed
-      // with a save; the room the document tab opens seeds from the server's
-      // copy, so it must hold everything typed before the handoff.
-      const latest = viewRef.current?.state.doc.toString() ?? typed;
-      if (latest !== typed) await api.saveDoc(created.id, wrapUntitled(latest));
-      onCreatedRef.current(tabId, created.id, created.path);
-    } catch (e) {
-      creatingRef.current = false;
-      setError(e instanceof Error ? e.message : String(e));
-    }
+  // The editor intentionally mounts before the draft request finishes so a
+  // new note is ready immediately. A restored draft only fills an EMPTY
+  // buffer: typing before the request returns is newer work, never something
+  // a late response may overwrite.
+  const restoredRef = useRef<string | null>(null);
+  const restore = (view: EditorView | null) => {
+    const source = restoredRef.current;
+    if (!view || !source || view.state.doc.length !== 0) return;
+    view.dispatch({ changes: { from: 0, insert: source } });
   };
+  useEffect(() => {
+    let live = true;
+    void api.drafts().then(
+      ({ drafts }) => {
+        if (!live) return;
+        const draft = drafts.find((candidate) => candidate.path === untitledDraftKey(tabId));
+        if (!draft?.contents) return;
+        restoredRef.current = draft.contents;
+        restore(viewRef.current);
+      },
+      () => {
+        // The window remains useful without a writable workspace store; it
+        // simply cannot recover an unsaved buffer after it closes.
+      },
+    );
+    return () => {
+      live = false;
+    };
+  }, [tabId]);
 
   return (
     <div className="untitled-tab">
-      {error && (
-        <div className="banner banner-fail" role="status">
-          Could not create the document — your text is still in this buffer.
-          Check that the app's folder is writable, then keep typing to retry. (
-          {error})
-        </div>
-      )}
       <DocumentEditor
         docId="untitled"
         initialSource=""
@@ -365,14 +368,10 @@ export function UntitledTab({
         onRunCell={() => {}}
         onViewReady={(view) => {
           viewRef.current = view;
+          restore(view);
           // Land ready to type — an empty editor you still have to click
           // into is a chooser with extra steps.
           view?.focus();
-        }}
-        onChange={(source) => {
-          if (creatingRef.current || source.length === 0) return;
-          creatingRef.current = true;
-          void createFromFirstEdit();
         }}
       />
     </div>

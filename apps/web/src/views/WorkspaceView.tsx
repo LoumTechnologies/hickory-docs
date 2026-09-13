@@ -16,7 +16,6 @@
 // and the ribbon overlay — the last two following the FOCUSED document.
 //
 // See docs/specs/freeform/shell-layouts.md.
-
 import {
   Suspense,
   lazy,
@@ -101,6 +100,7 @@ import type { Region } from "../shell/layout";
 import { navigate, redirect, type Route, newDocument } from "../router";
 import { beginsChord, isAction } from "../lib/keymap";
 import { useNewDocument } from "./useNewDocument";
+import { useUntitledSave } from "./useUntitledSave";
 import { lensSources, onLensChange } from "../lib/lensSources";
 import { welcomeActionsFor } from "./welcomeActions";
 import {
@@ -111,7 +111,6 @@ import {
   WELCOME_TAB,
   activateDocTab,
   adoptPlainFileTab,
-  adoptUntitledTab,
   docIdsIn,
   findDocTab,
   findFileTab,
@@ -706,16 +705,12 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [derivedFocus]);
 
-  // The untitled buffer earned a name: adopt its tab in place, then let the
-  // URL say so (a redirect, so Back never returns to a buffer that no
-  // longer exists).
-  const onUntitledCreated = useCallback(
-    (tabId: string, docId: string, path: string) => {
-      setLayout((current) => adoptUntitledTab(current, tabId, docId, path));
-      redirect(`/docs/${docId}`);
-    },
-    [],
-  );
+  const saveUntitled = useUntitledSave({
+    layoutRef,
+    setLayout,
+    askText: shellPrompt.askText,
+    onError: setInsertNotice,
+  });
 
   // The folder tree's data: one root today, an array so several folders can
   // sit side by side later without this view changing shape. Hoisted above
@@ -1302,7 +1297,12 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
         return;
       }
       const session = registry.get(focusedIdRef.current);
-      if (!session) return;
+      if (!session) {
+        if (detail === "save" || detail === "save-as") {
+          void formatFirst().then(() => saveUntitled(detail === "save-as"));
+        }
+        return;
+      }
       if (detail === "save") {
         void formatFirst().then(() => {
           session.menuSave();
@@ -1359,7 +1359,7 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
       window.removeEventListener("hickory-show-agent", onAgent);
       window.removeEventListener("hickory-open-path", onOpenPath);
     };
-  }, [registry, openPlainFile, openInsert]);
+  }, [registry, openPlainFile, openInsert, saveUntitled]);
 
   // ---- terminals ----------------------------------------------------------
   //
@@ -1639,7 +1639,7 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
       return <ScratchpadPane key={tab.id} />;
     }
     if (tab.kind === "untitled") {
-      return <UntitledTab tabId={tab.id} onCreated={onUntitledCreated} />;
+      return <UntitledTab tabId={tab.id} />;
     }
     if (tab.kind === "terminal") {
       // The emulator draws to a canvas, so the CSS zoom around it does

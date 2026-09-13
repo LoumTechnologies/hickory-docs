@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { landingTarget, untitledPath, wrapUntitled } from "./newDoc";
+import { landingTarget, untitledDraftKey, untitledPath, wrapUntitled } from "./newDoc";
 
 const doc = (id: string, updated_at: string) => ({
   id,
@@ -60,6 +60,12 @@ describe("naming the untitled document", () => {
     // skipping a number.
     expect(untitledPath(["notes/untitled.md"])).toBe("untitled-2.md");
     expect(untitledPath(["notes\\untitled.md"])).toBe("untitled-2.md");
+  });
+});
+
+describe("the unsaved buffer", () => {
+  it("uses an opaque workspace key, not a path in the project", () => {
+    expect(untitledDraftKey("tab-42")).toBe("untitled:tab-42");
   });
 });
 
