@@ -294,10 +294,10 @@ const NO_RUNNING_CELLS = new Set<string>();
  *
  * The buffer holds only prose — no wrapper tags, no file on disk — so the
  * first thing a new person faces is a place to type markdown, not XML. The
- * real document is created on the FIRST edit: named `untitled.hick`
- * (counting past whatever the folder already holds), wrapped in the standard
- * `<hick:doc>` envelope with the typed prose inside — then `onCreated` lets
- * the workspace adopt this very tab as the created document's, in place.
+ * real document is created on the FIRST edit: named `untitled.md`
+ * (counting past whatever the folder already holds), containing the typed
+ * prose unchanged — then `onCreated` lets the workspace adopt this very tab
+ * as the created document's, in place.
  * Until that first keystroke, closing the app leaves nothing behind.
  */
 export function UntitledTab({

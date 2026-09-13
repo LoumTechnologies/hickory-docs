@@ -28,11 +28,11 @@ function stamp(iso: string): number {
 }
 
 /**
- * The path the untitled document is created at: `untitled.hick`, then
- * `untitled-2.hick` and so on past whatever the folder already holds.
+ * The path the untitled document is created at: `untitled.md`, then
+ * `untitled-2.md` and so on past whatever the folder already holds.
  *
  * Taken-ness is judged on the final path segment so a nested
- * `notes/untitled.hick` still pushes the name along — two files a person can
+ * `notes/untitled.md` still pushes the name along — two files a person can
  * only tell apart by directory is a worse outcome than skipping a number.
  */
 export function untitledPath(existing: string[]): string {
@@ -40,7 +40,7 @@ export function untitledPath(existing: string[]): string {
     existing.map((p) => p.replace(/\\/g, "/").split("/").pop() ?? p),
   );
   for (let n = 1; ; n++) {
-    const candidate = n === 1 ? "untitled.hick" : `untitled-${n}.hick`;
+    const candidate = n === 1 ? "untitled.md" : `untitled-${n}.md`;
     if (!taken.has(candidate)) return candidate;
   }
 }

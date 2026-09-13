@@ -313,13 +313,13 @@ describe("untitled", () => {
     const untitled = pane.tabs.find((t) => t.kind === "untitled")!;
     const position = pane.tabs.findIndex((t) => t.id === untitled.id);
 
-    const adopted = adoptUntitledTab(layout, untitled.id, "d9", "untitled.hick");
+    const adopted = adoptUntitledTab(layout, untitled.id, "d9", "untitled.md");
     const after = panes(adopted.root).find((candidate) => candidate.id === pane.id)!;
     const tab = after.tabs[position];
     expect(tab.id).toBe(untitled.id);
     expect(tab.kind).toBe("document");
     expect(tab.docId).toBe("d9");
-    expect(tab.target).toBe("untitled.hick");
+    expect(tab.target).toBe("untitled.md");
     expect(findDocTab(adopted, "d1")).not.toBeNull();
   });
 });

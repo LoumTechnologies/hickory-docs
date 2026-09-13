@@ -38,28 +38,28 @@ describe("where the app lands", () => {
 });
 
 describe("naming the untitled document", () => {
-  it("starts at untitled.hick in an empty folder", () => {
-    expect(untitledPath([])).toBe("untitled.hick");
+  it("starts at untitled.md in an empty folder", () => {
+    expect(untitledPath([])).toBe("untitled.md");
   });
 
   it("counts past taken names", () => {
-    expect(untitledPath(["untitled.hick"])).toBe("untitled-2.hick");
-    expect(untitledPath(["untitled.hick", "untitled-2.hick"])).toBe(
-      "untitled-3.hick",
+    expect(untitledPath(["untitled.md"])).toBe("untitled-2.md");
+    expect(untitledPath(["untitled.md", "untitled-2.md"])).toBe(
+      "untitled-3.md",
     );
   });
 
   it("ignores unrelated documents", () => {
-    expect(untitledPath(["report.hick", "untitled-2.hick"])).toBe(
-      "untitled.hick",
+    expect(untitledPath(["report.md", "untitled-2.md"])).toBe(
+      "untitled.md",
     );
   });
 
   it("judges taken-ness on the final path segment", () => {
     // Two files a person can only tell apart by directory is worse than
     // skipping a number.
-    expect(untitledPath(["notes/untitled.hick"])).toBe("untitled-2.hick");
-    expect(untitledPath(["notes\\untitled.hick"])).toBe("untitled-2.hick");
+    expect(untitledPath(["notes/untitled.md"])).toBe("untitled-2.md");
+    expect(untitledPath(["notes\\untitled.md"])).toBe("untitled-2.md");
   });
 });
 
