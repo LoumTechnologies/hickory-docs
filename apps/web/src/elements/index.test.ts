@@ -8,6 +8,7 @@ import type { SlotKind } from "./types";
 
 const KINDS: SlotKind[] = [
   "exec",
+  "output",
   "diagram",
   "math",
   "table",
@@ -51,5 +52,12 @@ describe("the element views", () => {
       "table",
       "diagram",
     ]);
+  });
+
+  it("draws fenced exec and derived output blocks", () => {
+    const structure = parseHickDoc(
+      "```shell container=\"reporter\" show=\"output\"\necho hello\n```\n\n```output-for=\"#reporter-1\" hash=\"x\" input-hash=\"y\" exit=\"0\"\nhello\n```\n",
+    );
+    expect(renderableBlocks(structure).map((block) => block.name)).toEqual(["exec", "output"]);
   });
 });

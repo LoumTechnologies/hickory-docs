@@ -948,7 +948,7 @@ fn call_list_docs_tool(args: &Value) -> Result<String, String> {
     let mut docs: Vec<(String, String)> = Vec::new();
     for entry in ignore::WalkBuilder::new(&start).build().flatten() {
         let path = entry.path();
-        if path.extension().is_none_or(|e| e != "hick") {
+        if path.extension().is_none_or(|e| e != "md") {
             continue;
         }
         let rel = path
@@ -1053,7 +1053,7 @@ fn call_create_doc_tool(args: &Value) -> Result<String, String> {
         .filter(|p| !p.is_empty())
         .ok_or("pass `path`: where to create the document, relative to the project root")?;
     let mut rel = PathBuf::from(raw);
-    if rel.extension().is_none_or(|e| e != "hick") {
+    if rel.extension().is_none_or(|e| e != "md") {
         rel.set_extension("hick");
     }
     // A path that climbs out of the project is refused rather than

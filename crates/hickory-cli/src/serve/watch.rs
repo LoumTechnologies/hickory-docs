@@ -182,7 +182,7 @@ async fn run_loop(
         // an agent. Register it so the app can list and open it without a
         // restart; the weave below is `handle_batch`'s job.
         for path in &batch {
-            if path.extension().is_some_and(|e| e == "hick")
+            if path.extension().is_some_and(|e| e == "md")
                 && path.is_file()
                 && let Ok(rel) = path
                     .canonicalize()

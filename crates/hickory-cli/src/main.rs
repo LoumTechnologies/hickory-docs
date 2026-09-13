@@ -1328,6 +1328,7 @@ async fn cmd_run(args: RunArgs) -> Result<ExitCode> {
         )
         .await?;
         let outputs = write_outputs_detailed(&run, args.out.as_deref())?;
+        let refreshed_outputs = hickory_cli::output::refresh_outputs(&run)?;
         // A document that keeps recordings keeps them current: the cells this
         // run re-executed are written back into it. Never a cell it did not
         // already keep — a run never decides what a document keeps.
@@ -1339,6 +1340,9 @@ async fn cmd_run(args: RunArgs) -> Result<ExitCode> {
         )?;
         if refreshed > 0 && !args.json {
             eprintln!("  refreshed {refreshed} recording(s) kept in the document");
+        }
+        if refreshed_outputs > 0 && !args.json {
+            eprintln!("  refreshed {refreshed_outputs} output block(s) kept in the document");
         }
         if args.json {
             json_blocks.push(block_model_json(&run)?);
@@ -1474,6 +1478,19 @@ async fn cmd_test(args: TestArgs) -> Result<ExitCode> {
                     eprintln!(
                         "STALE {} {cell}: recorded, but an input has changed since — the last \
                          recording is shown, marked.\n  fix: hick run {}",
+                        doc.display(),
+                        doc.display()
+                    );
+                }
+                CheckFailure::OutputModified { doc, selector } => {
+                    eprintln!(
+                        "MODIFIED {} {selector}: the output body no longer matches its hash; Hickory will not overwrite it silently.",
+                        doc.display()
+                    );
+                }
+                CheckFailure::StaleOutput { doc, selector } => {
+                    eprintln!(
+                        "STALE {} {selector}: the cell inputs changed since this output was recorded.\n  fix: hick run {}",
                         doc.display(),
                         doc.display()
                     );

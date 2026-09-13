@@ -29,12 +29,12 @@ async fn start() -> Session {
     // gitignored file and folder, hidden files, the caches, and names whose
     // order only comes out right if directories sort before files and both
     // sort case-insensitively.
-    std::fs::write(root.join("notes.hick"), DOC).unwrap();
+    std::fs::write(root.join("notes.md"), DOC).unwrap();
     std::fs::write(root.join("README.md"), "hello").unwrap();
     std::fs::write(root.join("zeta.txt"), "z").unwrap();
     std::fs::create_dir_all(root.join("src/deep")).unwrap();
     std::fs::write(root.join("src/lib.rs"), "// code").unwrap();
-    std::fs::write(root.join("src/deep/inner.hick"), DOC).unwrap();
+    std::fs::write(root.join("src/deep/inner.md"), DOC).unwrap();
     std::fs::create_dir(root.join("Tools")).unwrap();
     std::fs::write(root.join("Tools/run.sh"), "#!/bin/sh").unwrap();
     // Excluded: gitignored (even though this is not a git repository yet),
@@ -126,7 +126,7 @@ async fn file_tree_lists_the_root_gitignore_aware_and_sorted() {
     // and nothing gitignored, hidden, cached, or vendored.
     assert_eq!(
         names(&body["tree"]),
-        ["src", "Tools", "notes.hick", "README.md", "zeta.txt"]
+        ["src", "Tools", "notes.md", "README.md", "zeta.txt"]
     );
 
     // Nesting: src holds a directory and a file, root-relative paths with
@@ -138,29 +138,29 @@ async fn file_tree_lists_the_root_gitignore_aware_and_sorted() {
     assert_eq!(lib["path"], "src/lib.rs");
     assert_eq!(lib["dir"], false);
 
-    // doc_id on .hick files only.
-    let notes = child(&body["tree"], "notes.hick");
+    // doc_id on Markdown documents only.
+    let notes = child(&body["tree"], "notes.md");
     assert!(notes["doc_id"].is_string(), "{notes}");
     let readme = child(&body["tree"], "README.md");
-    assert!(readme.get("doc_id").is_none(), "{readme}");
+    assert!(readme["doc_id"].is_string(), "{readme}");
     let sh = child(&child(&body["tree"], "Tools")["children"], "run.sh");
     assert!(sh.get("doc_id").is_none(), "{sh}");
 }
 
 #[tokio::test]
-async fn a_hick_file_found_by_the_tree_is_immediately_openable() {
+async fn a_markdown_document_found_by_the_tree_is_immediately_openable() {
     let session = start().await;
     let (_, body) = get(&session, "/api/files").await;
 
     let deep = child(&child(&body["tree"], "src")["children"], "deep");
-    let inner = child(&deep["children"], "inner.hick");
-    assert_eq!(inner["path"], "src/deep/inner.hick");
+    let inner = child(&deep["children"], "inner.md");
+    assert_eq!(inner["path"], "src/deep/inner.md");
     let id = inner["doc_id"].as_str().unwrap();
 
     // The id the tree hands out opens the document, even if the startup scan
     // never indexed it.
     let (status, doc) = get(&session, &format!("/api/docs/{id}")).await;
     assert_eq!(status, 200, "{doc}");
-    assert_eq!(doc["path"], "src/deep/inner.hick");
+    assert_eq!(doc["path"], "src/deep/inner.md");
     assert_eq!(doc["source"], DOC);
 }

@@ -5,6 +5,7 @@ import type { HickBlock, HickDocStructure } from "../editor/hickDoc";
 import { diagramView } from "./diagram/view";
 import { execView } from "./exec/view";
 import { mathView } from "./math/view";
+import { outputView } from "./output/view";
 import { pictureView } from "./picture/view";
 import { sessionViews } from "./session/view";
 import { tableView } from "./table/view";
@@ -16,6 +17,7 @@ export type { ElementView, SlotContext, SlotKind } from "./types";
  * a picture is claimed by the picture view and no other. */
 export const elementViews: Record<SlotKind, ElementView> = {
   exec: execView,
+  output: outputView,
   diagram: diagramView,
   math: mathView,
   table: tableView,

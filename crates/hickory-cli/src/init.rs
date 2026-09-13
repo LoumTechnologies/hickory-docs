@@ -569,7 +569,7 @@ fn generated_patterns(root: &Path) -> Vec<String> {
     let mut out = Vec::new();
     for entry in ignore::WalkBuilder::new(root).build().flatten() {
         let path = entry.path();
-        if path.extension().is_none_or(|e| e != "hick") {
+        if path.extension().is_none_or(|e| e != "md") {
             continue;
         }
         let Ok(rel) = path.strip_prefix(root) else {

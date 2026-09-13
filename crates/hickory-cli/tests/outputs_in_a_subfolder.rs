@@ -18,7 +18,7 @@ async fn a_generated_file_in_a_subfolder_is_found_by_its_folder_relative_path() 
     let root = dir.path().canonicalize().unwrap();
     std::fs::create_dir_all(root.join("tools")).unwrap();
     std::fs::write(
-        root.join("tools/app.hick"),
+        root.join("tools/app.md"),
         "# A tool\n\n<hick:file path=\"app.py\">\nprint(1)\n</hick:file>\n",
     )
     .unwrap();
@@ -60,7 +60,7 @@ async fn a_generated_file_in_a_subfolder_is_found_by_its_folder_relative_path() 
         .map(|f| f["path"].as_str().unwrap())
         .collect();
     assert!(paths.contains(&"tools/app.py"), "{listed}");
-    assert!(paths.contains(&"tools/app.md"), "{listed}");
+    assert!(!paths.contains(&"tools/app.md"), "{listed}");
 
     // Found by that name, and answered under it.
     let (status, file) = get(format!("/api/docs/{doc_id}/outputs/file?path=tools/app.py")).await;

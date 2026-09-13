@@ -335,7 +335,7 @@ fn tracing_adapter(found: &hick_dap::Discovered) {
 /// itself. By extension: the same line `hick-lsp` draws for a plain file's
 /// language server.
 pub fn is_document(path: &Path) -> bool {
-    path.extension().is_some_and(|ext| ext == "hick")
+    path.extension().is_some_and(|ext| ext == "md")
 }
 
 /// The nearest ancestor holding a `.git`, else the file's own directory.

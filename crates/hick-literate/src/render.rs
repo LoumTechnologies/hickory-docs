@@ -79,6 +79,7 @@ pub fn registry<'a>() -> Registry<BlockModelInput<'a>> {
     let mut registry = Registry::new();
     registry
         .register(ExecElement)
+        .register(OutputElement)
         .register(FileElement)
         .register(DiagramElement)
         .register(WhenElement)
@@ -157,6 +158,34 @@ impl<'a> Element<BlockModelInput<'a>> for ExecElement {
                 action: other.to_string(),
             }),
         }
+    }
+}
+
+/// `<hick:output>` (or its fenced spelling): a read-only result owned by the
+/// exec cell named in `output-for`.
+struct OutputElement;
+
+impl<'a> Element<BlockModelInput<'a>> for OutputElement {
+    fn name(&self) -> &'static str {
+        "output"
+    }
+
+    fn attributes(&self) -> &'static [AttrSpec] {
+        const ATTRS: &[AttrSpec] = &[
+            AttrSpec::required("output-for", "the id of the exec cell that produced this"),
+            AttrSpec::required("hash", "SHA-256 of the output body"),
+            AttrSpec::required("input-hash", "fingerprint of the cell inputs"),
+            AttrSpec::required("exit", "the recorded process exit code"),
+        ];
+        ATTRS
+    }
+
+    fn render(&self, tag: &HickTag, _: &BlockModelInput<'a>) -> Option<Block> {
+        Some(
+            Block::new("output", span_of(tag))
+                .with("outputFor", attr(tag, "output-for").unwrap_or_default())
+                .with("body", tag.text_content()),
+        )
     }
 }
 
@@ -571,7 +600,7 @@ scaffold
     #[test]
     fn the_registry_describes_the_vocabulary_it_draws() {
         let names: Vec<&str> = describe_elements().iter().map(|d| d.name).collect();
-        assert_eq!(names, vec!["diagram", "exec", "file", "when"]);
+        assert_eq!(names, vec!["diagram", "exec", "file", "output", "when"]);
     }
 
     #[test]

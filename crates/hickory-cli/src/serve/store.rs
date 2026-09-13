@@ -146,7 +146,7 @@ fn contains_hick(dir: &Path) -> bool {
             if contains_hick(&path) {
                 return true;
             }
-        } else if path.extension().is_some_and(|e| e == "hick") {
+        } else if path.extension().is_some_and(|e| e == "md") {
             return true;
         }
     }

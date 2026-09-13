@@ -113,7 +113,7 @@ fn resolve(root: &FsPath, rel: &str) -> Result<PathBuf, ApiError> {
             "path must be relative to the open folder, with no `..` — got {rel:?}"
         )));
     }
-    if rel.ends_with(".hick") {
+    if rel.ends_with(".md") {
         return Err(ApiError::bad_request(format!(
             "{rel} is a document — open it as one. Documents have live editing \
              rooms, and a whole-file write behind a room's back would lose edits."

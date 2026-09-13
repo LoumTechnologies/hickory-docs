@@ -243,7 +243,7 @@ pub fn sole_document(dir: &Path) -> Option<PathBuf> {
     let mut found = None;
     for entry in std::fs::read_dir(dir).ok()? {
         let path = entry.ok()?.path();
-        if path.extension().is_some_and(|e| e == "hick") {
+        if path.extension().is_some_and(|e| e == "md") {
             if found.is_some() {
                 return None;
             }

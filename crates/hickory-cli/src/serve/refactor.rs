@@ -88,9 +88,9 @@ pub async fn adopt(
     let outcome = match &body.into {
         Some(doc_rel) => {
             let doc = resolve_in_root(&root, doc_rel)?;
-            if !doc_rel.ends_with(".hick") {
+            if !doc_rel.ends_with(".md") {
                 return Err(ApiError::bad_request(format!(
-                    "{doc_rel} is not a document — --into takes a `.hick` file"
+                    "{doc_rel} is not a document — --into takes a `.md` file"
                 )));
             }
             crate::adopt::adopt_into(&file, &doc).await

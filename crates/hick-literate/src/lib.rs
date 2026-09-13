@@ -366,7 +366,7 @@ fn attach_ambient_contributors(
     let mut siblings: Vec<std::path::PathBuf> = Vec::new();
     for entry in std::fs::read_dir(dir)? {
         let path = entry?.path();
-        if path.extension().and_then(|e| e.to_str()) != Some("hick") {
+        if path.extension().and_then(|e| e.to_str()) != Some("md") {
             continue;
         }
         let canonical = std::fs::canonicalize(&path).ok();
@@ -417,11 +417,9 @@ fn prepare_pipeline<'a>(
     // Parse all sources and resolve includes
     let mut documents = Vec::new();
     for (name, source) in sources {
-        // `parse_from_path`, not `parse`: these are the documents whose outputs
-        // get written, so this is where a document with no `weave=` picks up
-        // the markdown file of its own name (`bare-documents.md`).
-        let mut doc = hick_lang::parse_from_path(source, std::path::Path::new(name))
-            .map_err(|e| anyhow::anyhow!("parse error in {name}: {e}"))?;
+        let mut doc =
+            hick_lang::parse(source).map_err(|e| anyhow::anyhow!("parse error in {name}: {e}"))?;
+        doc.weave_path = None;
 
         // Resolve includes relative to the source file's directory
         let base_dir = std::path::Path::new(name)
@@ -3919,7 +3917,7 @@ fn extract_verify_from_nodes(
 // Pipeline CLI helpers (shared between hick and hick-agent binaries)
 // ---------------------------------------------------------------------------
 
-/// Expand a CLI argument into a list of `.hick` files.
+/// Expand a CLI argument into a list of Markdown documents.
 ///
 /// - If `path` is a file, return it directly.
 /// - If `path` is a directory with `_hick.yml`, use that config to resolve files.
@@ -3928,6 +3926,15 @@ pub fn expand_path_arg(path: &Path) -> Result<(Vec<PathBuf>, Option<PathBuf>)> {
     use anyhow::{Context as _, bail};
     use config::HickConfig;
     if path.is_file() {
+        if path.extension().and_then(|e| e.to_str()) == Some("hick") {
+            bail!(
+                "{} is a legacy .hick document. Rename it to .md after removing its generated sibling; Hickory no longer writes a generated Markdown sibling.",
+                path.display()
+            );
+        }
+        if path.extension().and_then(|e| e.to_str()) != Some("md") {
+            bail!("{} is not a Markdown document (.md)", path.display());
+        }
         let parent_config = path
             .parent()
             .map(|p| p.join("_hick.yml"))
@@ -3939,9 +3946,18 @@ pub fn expand_path_arg(path: &Path) -> Result<(Vec<PathBuf>, Option<PathBuf>)> {
         if config_path.is_file() {
             let config = HickConfig::load(&config_path)?;
             let files = config.resolve_files(path)?;
+            if let Some(legacy) = files
+                .iter()
+                .find(|file| file.extension().and_then(|e| e.to_str()) == Some("hick"))
+            {
+                bail!(
+                    "{} is a legacy .hick document. Rename it to .md after removing its generated sibling; Hickory no longer writes a generated Markdown sibling.",
+                    legacy.display()
+                );
+            }
             return Ok((files, Some(config_path)));
         }
-        let pattern = path.join("**/*.hick");
+        let pattern = path.join("**/*.md");
         let pattern_str = pattern.to_string_lossy();
         let mut matches: Vec<PathBuf> = glob::glob(&pattern_str)
             .with_context(|| format!("invalid glob pattern: {}", pattern_str))?
@@ -3950,11 +3966,11 @@ pub fn expand_path_arg(path: &Path) -> Result<(Vec<PathBuf>, Option<PathBuf>)> {
         matches.sort();
         if matches.is_empty() {
             bail!(
-                "No .hick files found in '{}'\n\n\
+                "No .md documents found in '{}'\n\n\
                  To fix this, either:\n  \
-                 1. Create a _hick.yml config file listing your .hick files\n  \
-                 2. Add .hick files to the directory\n  \
-                 3. Specify files directly: hick run file1.hick file2.hick",
+                 1. Create a _hick.yml config file listing your .md documents\n  \
+                 2. Add .md documents to the directory\n  \
+                 3. Specify files directly: hick run file1.md file2.md",
                 path.display()
             );
         }

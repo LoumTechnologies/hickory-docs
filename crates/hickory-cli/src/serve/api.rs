@@ -147,9 +147,9 @@ pub(crate) fn new_doc_target(
             "a document's path must be inside this folder, and cannot be empty",
         ));
     }
-    if !rel.ends_with(".hick") {
+    if !rel.ends_with(".md") {
         return Err(ApiError::bad_request(
-            "a document's path must end in `.hick` — that is what makes it a document rather \
+            "a document's path must end in `.md` — Markdown is the document rather \
              than one of the files it generates",
         ));
     }
@@ -550,7 +550,7 @@ fn file_tree(root: &std::path::Path, index: &super::store::DocIndex) -> (Vec<Tre
         // Forward slashes even on Windows: the path is a tree key and a
         // display string, not an OS path.
         let rel = rel.to_string_lossy().replace('\\', "/");
-        if !dir && rel.ends_with(".hick") {
+        if !dir && rel.ends_with(".md") {
             documents.push((rel.clone(), entry.path().to_path_buf()));
         }
         insert_tree_node(&mut top, &rel, dir, index);
@@ -609,7 +609,7 @@ pub fn generated_outputs(
             continue;
         };
         let rel = rel.to_string_lossy().replace('\\', "/");
-        if rel.ends_with(".hick") {
+        if rel.ends_with(".md") {
             documents.push((rel, entry.path().to_path_buf()));
         }
     }
@@ -884,7 +884,7 @@ fn insert_tree_node(top: &mut Vec<TreeNode>, rel: &str, dir: bool, index: &super
             // `index.add` rather than `id_for_path`: the startup scan only saw
             // documents that existed then, and a `.hick` file it missed must
             // still be openable the moment the tree shows it.
-            let doc_id = (!dir && rel.ends_with(".hick")).then(|| index.add(rel));
+            let doc_id = (!dir && rel.ends_with(".md")).then(|| index.add(rel));
             siblings.push(TreeNode {
                 name: part.to_string(),
                 path: prefix.clone(),

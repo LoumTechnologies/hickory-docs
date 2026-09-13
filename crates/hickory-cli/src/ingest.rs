@@ -801,7 +801,7 @@ fn existing_note(notes_dir: &Path, fingerprint: &str) -> Option<PathBuf> {
     let entries = std::fs::read_dir(notes_dir).ok()?;
     for entry in entries.flatten() {
         let path = entry.path();
-        if path.extension().is_some_and(|e| e == "hick")
+        if path.extension().is_some_and(|e| e == "md")
             && let Ok(text) = std::fs::read_to_string(&path)
             && text.contains(&needle)
         {

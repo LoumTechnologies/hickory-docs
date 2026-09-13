@@ -33,6 +33,7 @@ pub mod lsp_install;
 pub mod mcp;
 pub mod merge_driver;
 pub mod open_app;
+pub mod output;
 pub mod recipe;
 pub mod replay;
 pub mod scaffold;
@@ -294,6 +295,14 @@ pub enum CheckFailure {
         /// The one selector that matched nothing.
         selector: String,
     },
+    OutputModified {
+        doc: PathBuf,
+        selector: String,
+    },
+    StaleOutput {
+        doc: PathBuf,
+        selector: String,
+    },
 }
 
 impl CheckFailure {
@@ -317,7 +326,9 @@ impl CheckFailure {
             CheckFailure::EditedTransform { .. } => CheckOutcome::Verified,
             CheckFailure::Drift { .. }
             | CheckFailure::StaleTransform { .. }
-            | CheckFailure::StaleRecording { .. } => CheckOutcome::Drifted,
+            | CheckFailure::StaleRecording { .. }
+            | CheckFailure::OutputModified { .. }
+            | CheckFailure::StaleOutput { .. } => CheckOutcome::Drifted,
         }
     }
 }
@@ -961,14 +972,9 @@ pub async fn run_doc_subset(
 ) -> Result<DocRun> {
     let source = std::fs::read_to_string(doc_path)
         .with_context(|| format!("failed to read {}", doc_path.display()))?;
-    // `parse_from_path`: this document is about to have its outputs written,
-    // so its `weave_path` must be the resolved one — the markdown file of its
-    // own name when it names none (`bare-documents.md`). The pipeline resolves
-    // it the same way, and a `DocRun` whose `doc` disagreed with the files it
-    // produced is how the adoption guard came to trip on a file it had itself
-    // just written.
-    let mut doc = hick_lang::parse_from_path(&source, doc_path)
+    let mut doc = hick_lang::parse(&source)
         .map_err(|e| anyhow::anyhow!("parse error in {}: {e}", doc_path.display()))?;
+    doc.weave_path = None;
     // The same projection the pipeline builds, so this `DocRun`'s document and
     // the run's own agree about what a transcript contains.
     hick_transcript::expand(&mut doc);
@@ -1528,6 +1534,20 @@ pub fn check_failures(run: &DocRun, out_dir: Option<&Path>) -> Result<Vec<CheckF
     for outcome in &run.result.expectations {
         if !outcome.passed {
             failures.push(CheckFailure::Expectation(outcome.clone()));
+        }
+    }
+    for issue in output::verify_outputs(run) {
+        match issue {
+            output::OutputIssue::Modified { selector } => {
+                failures.push(CheckFailure::OutputModified {
+                    doc: run.doc_path.clone(),
+                    selector,
+                })
+            }
+            output::OutputIssue::Stale { selector } => failures.push(CheckFailure::StaleOutput {
+                doc: run.doc_path.clone(),
+                selector,
+            }),
         }
     }
     if !run.result.never_run.is_empty() {
