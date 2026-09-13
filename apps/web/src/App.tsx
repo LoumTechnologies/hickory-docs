@@ -11,6 +11,7 @@ import { NewProjectDialog } from "./components/NewProjectDialog";
 import { showTerminalRequest } from "./lib/revealLine";
 import type { ScaffoldStarted } from "./api/types";
 import { FILES_CHANGED_EVENT } from "./shell/FolderTreePane";
+import { BlankWelcome } from "./views/BlankWelcome";
 
 /** How often the app asks whether a scaffold has landed, and for how long.
  * The person is watching the terminal; this is only so the tree and the
@@ -102,9 +103,17 @@ export function App() {
       }
       switch (action) {
         case "new":
+          if (routeRef.current.name === "blank") {
+            setNotice("Open a folder before creating a document.");
+            return;
+          }
           newDocument();
           return;
         case "new-project":
+          if (routeRef.current.name === "blank") {
+            setNotice("Open a folder before creating a project.");
+            return;
+          }
           setNewProject(true);
           return;
         case "files":
@@ -162,6 +171,8 @@ export function App() {
           <LineageView projectId={route.id} />
         ) : route.name === "settings" ? (
           <SettingsView />
+        ) : route.name === "blank" ? (
+          <BlankWelcome />
         ) : (
           <Landing />
         )}

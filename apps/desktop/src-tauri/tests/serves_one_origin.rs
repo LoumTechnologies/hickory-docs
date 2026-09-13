@@ -81,6 +81,32 @@ async fn an_unknown_path_returns_the_shell() {
     );
 }
 
+/// File → New Window is not a hidden empty workspace. It serves only the UI,
+/// leaving the document API unavailable until the person opens a folder.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_blank_window_has_a_page_but_no_workspace_api() {
+    let session = hickory_desktop_lib::server::start_blank()
+        .await
+        .expect("the blank page starts");
+    let http = reqwest::Client::new();
+
+    let page = http.get(&session.url).send().await.expect("GET /");
+    assert!(page.status().is_success());
+    assert!(
+        page.text()
+            .await
+            .expect("page body")
+            .contains("<div id=\"root\">")
+    );
+
+    let projects = http
+        .get(format!("{}/api/projects", session.url))
+        .send()
+        .await
+        .expect("GET /api/projects");
+    assert_eq!(projects.status(), reqwest::StatusCode::NOT_FOUND);
+}
+
 /// The app takes the same directory lock `hick up` takes, so one folder is
 /// never open in two writers at once.
 #[tokio::test(flavor = "multi_thread")]

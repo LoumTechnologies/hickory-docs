@@ -24,6 +24,7 @@ pub mod server;
 
 use std::path::{Path, PathBuf};
 
+use anyhow::Context as _;
 use tauri::menu::{Menu, MenuBuilder, MenuItemBuilder, SubmenuBuilder};
 use tauri::{AppHandle, Manager as _, WebviewUrl, WebviewWindowBuilder, Wry};
 use tauri_plugin_dialog::{DialogExt as _, MessageDialogKind};
@@ -119,6 +120,14 @@ fn app_menu(handle: &AppHandle) -> tauri::Result<Menu<Wry>> {
         .build()?;
 
     let file = SubmenuBuilder::new(handle, "File")
+        .item(&item(
+            handle,
+            &keys,
+            "new-window",
+            "New Window",
+            "CmdOrCtrl+Shift+N",
+        )?)
+        .separator()
         .item(&item(handle, &keys, "new", "New Document", "CmdOrCtrl+N")?)
         .item(
             // Not a mode of New Document: this one writes a real file and
@@ -128,7 +137,7 @@ fn app_menu(handle: &AppHandle) -> tauri::Result<Menu<Wry>> {
                 &keys,
                 "new-project",
                 "New Project…",
-                "CmdOrCtrl+Shift+N",
+                "CmdOrCtrl+Alt+Shift+N",
             )?,
         )
         .item(&item(
@@ -388,6 +397,11 @@ fn insert_menu(
 /// and the file watcher are per-process, so a new session is a restart).
 fn on_menu(app: &AppHandle, id: &str) {
     match id {
+        "new-window" => {
+            if let Err(e) = open_blank_window() {
+                fail(app, &format!("Could not open a new window.\n\n{e:#}"));
+            }
+        }
         "new" | "new-project" | "save" | "save-as" | "save-all" | "print" | "settings"
         | "files" | "show-agent" | "terminal" | "attention" => dispatch_to_ui(app, id),
         // Zoom, both scopes. Handled by the page rather than by the webview's
@@ -457,10 +471,25 @@ fn on_menu(app: &AppHandle, id: &str) {
 /// The folder this session serves, for "is that file already open here".
 struct OpenedDir(PathBuf);
 
-/// Switch the session to another folder: remember it and restart — the
-/// directory lock and the watcher are per-process, so a new session IS a
-/// restart.
+/// A process launched by File → New Window. Unlike an ordinary session, its
+/// command line carries `--blank-window`, so it must not use `restart()` to
+/// open a folder or it would launch blank again.
+struct BlankWindow;
+
+/// Switch the session to another folder. A workspace restarts; a blank window
+/// starts a normal app process and exits, leaving its `--blank-window` launch
+/// flag behind.
 fn switch_to(handle: &AppHandle, dir: &Path) {
+    if handle.try_state::<BlankWindow>().is_some() {
+        match open_folder_in_new_process(dir) {
+            Ok(()) => handle.exit(0),
+            Err(e) => fail(
+                handle,
+                &format!("Could not open {}\n\n{e:#}", dir.display()),
+            ),
+        }
+        return;
+    }
     if let Ok(config_dir) = handle.path().app_config_dir() {
         server::remember(&config_dir, dir);
     }
@@ -510,6 +539,16 @@ fn launch(handle: AppHandle) {
     };
 
     let config_dir = handle.path().app_config_dir().ok();
+
+    // File → New Window passes one explicit mode, rather than relying on the
+    // absence of a path (which normally means reopen the last workspace).
+    if std::env::args().skip(1).any(|arg| arg == "--blank-window") {
+        match runtime.block_on(server::start_blank()) {
+            Ok(session) => open_blank(&handle, runtime, session, config_dir.as_deref()),
+            Err(e) => fail(&handle, &format!("Could not open a blank window.\n\n{e:#}")),
+        }
+        return;
+    }
 
     // A folder named on the command line or in the environment is a deliberate
     // act, and is tried once: someone who typed a path wants that path, and
@@ -574,6 +613,22 @@ fn launch(handle: AppHandle) {
             }
         }
     }
+}
+
+/// Launch another copy of this app. A session is a process here, so this is
+/// also how File → New Project opens its completed project elsewhere.
+fn open_blank_window() -> anyhow::Result<()> {
+    let app = find_own_app()?;
+    hickory_cli::open_app::open_blank(&app)
+}
+
+fn open_folder_in_new_process(folder: &Path) -> anyhow::Result<()> {
+    hickory_cli::open_app::open(&find_own_app()?, folder)
+}
+
+fn find_own_app() -> anyhow::Result<hickory_cli::open_app::App> {
+    hickory_cli::open_app::find(|name| std::env::var(name).ok(), |path| path.exists())
+        .context("could not find this app's own executable to start a second copy of it")
 }
 
 /// The zero-ceremony workspace: `Documents/HickoryDocs` (home as fallback),
@@ -654,6 +709,34 @@ fn open(
     }
 }
 
+/// Open a window that has no folder and no engine state behind it.
+fn open_blank(
+    handle: &AppHandle,
+    runtime: tokio::runtime::Runtime,
+    session: server::Session,
+    config_dir: Option<&Path>,
+) {
+    let url = format!("{}#/blank", session.ui_url);
+    handle.manage(BlankWindow);
+    handle.manage(session);
+    handle.manage(runtime);
+    let built = url
+        .parse::<tauri::Url>()
+        .map_err(|e| e.to_string())
+        .and_then(|url| {
+            WebviewWindowBuilder::new(handle, "main", WebviewUrl::External(url))
+                .title(blank_native_title(config_dir))
+                .inner_size(1100.0, 780.0)
+                .min_inner_size(360.0, 480.0)
+                .disable_drag_drop_handler()
+                .build()
+                .map_err(|e| e.to_string())
+        });
+    if let Err(e) = built {
+        fail(handle, &format!("Could not open the window.\n\n{e}"));
+    }
+}
+
 /// The folder's own name, for the title bar. A full path makes a long and
 /// mostly useless title; the name is what the user calls the project.
 fn folder_name(dir: &Path) -> String {
@@ -676,6 +759,14 @@ fn native_title(config_dir: Option<&Path>, dir: &Path) -> String {
         .and_then(|path| hickory_cli::serve::UiStore::load(&path).ok())
         .and_then(|ui| ui.window_title)
         .unwrap_or_else(|| format!("Hickory Docs — {}", folder_name(dir)))
+}
+
+fn blank_native_title(config_dir: Option<&Path>) -> String {
+    config_dir
+        .map(server::ui_settings_file)
+        .and_then(|path| hickory_cli::serve::UiStore::load(&path).ok())
+        .and_then(|ui| ui.window_title)
+        .unwrap_or_else(|| "Hickory Docs".to_string())
 }
 
 /// Report a fatal startup failure, then exit.

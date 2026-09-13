@@ -6,6 +6,8 @@ export type Route =
   // The front door ("/"): decides which document to land in. Never a chooser —
   // the app opens like an editor, in a document you can type into.
   | { name: "landing" }
+  // File → New Window: a deliberate window with no folder or document open.
+  | { name: "blank" }
   // A document that does not exist yet: held in memory, created on first edit.
   | { name: "new" }
   // The whole pipeline at once, one column per stage. Project-scoped because
@@ -25,6 +27,7 @@ export function parseRoute(hash: string): Route {
     return { name: "lineage", id: decodeURIComponent(m[1]) };
   if ((m = path.match(/^\/docs\/([^/]+)$/))) return { name: "doc", id: m[1] };
   if (path === "/new") return { name: "new" };
+  if (path === "/blank") return { name: "blank" };
   if (path === "/settings") return { name: "settings" };
   if (path === "/scratchpad") return { name: "scratchpad" };
   // "/" and anything unrecognised — including a retired route like the old

@@ -51,8 +51,9 @@ export interface ActionSpec {
 
 export const ACTIONS: readonly ActionSpec[] = [
   // The menu bar.
+  { id: "file.newWindow", label: "New window", scope: "menu", menuId: "new-window", keys: { hickory: "Mod+Shift+N" } },
   { id: "file.new", label: "New document", scope: "menu", menuId: "new", keys: { hickory: "Mod+N" } },
-  { id: "file.newProject", label: "New project", scope: "menu", menuId: "new-project", keys: { hickory: "Mod+Shift+N" } },
+  { id: "file.newProject", label: "New project", scope: "menu", menuId: "new-project", keys: { hickory: "Mod+Alt+Shift+N" } },
   { id: "file.openFile", label: "Open file", scope: "menu", menuId: "open-file", keys: { hickory: "Mod+O" } },
   { id: "file.openFolder", label: "Open folder", scope: "menu", menuId: "open-folder", keys: { hickory: "Mod+Shift+O", jetbrains: "Mod+Alt+O" } },
   { id: "file.save", label: "Save", scope: "menu", menuId: "save", keys: { hickory: "Mod+S" } },

@@ -51,12 +51,23 @@ pub struct Session {
     /// hot reload rather than a rebuild. See dev.rs.
     pub ui_url: String,
     /// Held for the process's lifetime. Dropping it releases the directory.
-    _lock: DirectoryLock,
-    /// The in-app up-loop (`local-only.md`: "the desktop app runs the
-    /// up-loop and the rooms in one process"). Dropping it asks the loop to
-    /// stop and clear its read-only marks; if the process dies before that
-    /// lands, `write_outputs` clears marks defensively on the next run.
-    _watch: hickory_cli::serve::watch::WatchGuard,
+    _resources: SessionResources,
+}
+
+/// What keeps a local session alive. A workspace owns an engine, its lock,
+/// and its watcher; a blank window serves only the bundled UI. Keeping that
+/// distinction in the type prevents a blank window from acquiring (or merely
+/// appearing to acquire) a folder.
+enum SessionResources {
+    Workspace {
+        _lock: DirectoryLock,
+        /// The in-app up-loop (`local-only.md`: "the desktop app runs the
+        /// up-loop and the rooms in one process"). Dropping it asks the loop to
+        /// stop and clear its read-only marks; if the process dies before that
+        /// lands, `write_outputs` clears marks defensively on the next run.
+        _watch: hickory_cli::serve::watch::WatchGuard,
+    },
+    Blank,
 }
 
 /// A folder named explicitly by whoever started the app.
@@ -281,8 +292,54 @@ pub async fn start(
             .ui_origin
             .clone()
             .unwrap_or_else(|| format!("http://{bound}")),
-        _lock: lock,
-        _watch: watch,
+        _resources: SessionResources::Workspace {
+            _lock: lock,
+            _watch: watch,
+        },
+    })
+}
+
+/// Serve the welcome screen for a window that deliberately has no workspace.
+///
+/// This is not an empty temporary project: no directory is created, locked,
+/// watched, remembered, or exposed through `/api`. It is just enough local
+/// HTTP to give the embedded webview its normal one-origin page.
+pub async fn start_blank() -> Result<Session> {
+    let dev = crate::dev::from_env()?;
+    let router = axum::Router::new()
+        // The page fallback must not turn a failed document request into the
+        // app shell: a blank window has no document API at all.
+        .route(
+            "/api",
+            axum::routing::any(|| async { StatusCode::NOT_FOUND }),
+        )
+        .route(
+            "/api/{*path}",
+            axum::routing::any(|| async { StatusCode::NOT_FOUND }),
+        )
+        .fallback(ui_handler);
+    // `just dev` reserves its configured engine port for the workspace it is
+    // editing. The blank page has no API to proxy, so it always takes its own
+    // ephemeral port while still loading Vite for hot reload when configured.
+    let addr = SocketAddr::from((Ipv4Addr::LOCALHOST, 0));
+    let listener = tokio::net::TcpListener::bind(addr)
+        .await
+        .with_context(|| format!("binding {addr}"))?;
+    let bound = listener.local_addr()?;
+
+    tokio::spawn(async move {
+        if let Err(e) = axum::serve(listener, router.into_make_service()).await {
+            log::error!("blank-window server stopped: {e:#}");
+        }
+    });
+
+    Ok(Session {
+        url: format!("http://{bound}"),
+        ui_url: dev
+            .ui_origin
+            .clone()
+            .unwrap_or_else(|| format!("http://{bound}")),
+        _resources: SessionResources::Blank,
     })
 }
 

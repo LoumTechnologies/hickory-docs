@@ -26,6 +26,17 @@ const EXE: &str = if cfg!(windows) {
 /// What macOS calls the bundle, from `tauri.conf.json`'s `productName`.
 const MAC_APP: &str = "Hickory Docs";
 
+/// Development overrides describe the app process `just dev` started. A
+/// second process launched to open an explicit folder must not inherit them:
+/// that would replace its path with the seed project, compete for the dev
+/// port, and point its UI proxy at the first process's engine.
+const SESSION_ENV: &[&str] = &[
+    "HICKORY_PROJECT_DIR",
+    "HICKORY_SERVE_PORT",
+    "HICKORY_UI_ORIGIN",
+    "HICKORY_API_ORIGIN",
+];
+
 /// Where the app was found, so the failure can say which route was taken.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum App {
@@ -185,6 +196,12 @@ pub fn open(app: &App, target: &Path) -> Result<()> {
             c
         }
     };
+    // `target` is this launcher's explicit instruction. In particular, File →
+    // Open Folder from a blank window must win over `just dev`'s inherited
+    // `.dev/project` setting.
+    for name in SESSION_ENV {
+        command.env_remove(name);
+    }
     command
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::null())
@@ -197,6 +214,48 @@ pub fn open(app: &App, target: &Path) -> Result<()> {
     // `open -a` returns immediately once the app is launched, so it is the one
     // case worth reaping — leaving it would make a zombie of a process that
     // has already done its job.
+    if matches!(app, App::Bundle(_)) {
+        let _ = child.wait();
+    }
+    Ok(())
+}
+
+/// Start a second app process with no workspace open.
+///
+/// This intentionally takes no path: a blank window must not be smuggled into
+/// existence by creating a default folder or by reopening the last one.
+pub fn open_blank(app: &App) -> Result<()> {
+    let mut command = match app {
+        App::Bundle(bundle) => {
+            let mut c = std::process::Command::new("open");
+            c.arg("-n")
+                .arg("-a")
+                .arg(bundle)
+                .arg("--args")
+                .arg("--blank-window");
+            c
+        }
+        App::Exe(exe) => {
+            if !exe.exists() {
+                bail!(
+                    "HICKORY_DESKTOP names {}, which is not there.\n  \
+                     Point it at the app's executable, or unset it to let \
+                     Hickory Docs find the installed app.",
+                    exe.display()
+                );
+            }
+            let mut c = std::process::Command::new(exe);
+            c.arg("--blank-window");
+            c
+        }
+    };
+    command
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null());
+    let mut child = command
+        .spawn()
+        .context("could not start a blank Hickory Docs window")?;
     if matches!(app, App::Bundle(_)) {
         let _ = child.wait();
     }

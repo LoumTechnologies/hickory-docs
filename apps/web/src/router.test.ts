@@ -21,6 +21,10 @@ describe("routes", () => {
     expect(parseRoute("#/new")).toEqual({ name: "new" });
   });
 
+  it("routes a deliberately folderless window", () => {
+    expect(parseRoute("#/blank")).toEqual({ name: "blank" });
+  });
+
   it("routes settings (LLM API keys)", () => {
     expect(parseRoute("#/settings")).toEqual({ name: "settings" });
   });
