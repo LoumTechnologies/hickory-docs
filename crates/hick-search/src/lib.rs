@@ -720,6 +720,25 @@ mod tests {
     }
 
     #[test]
+    fn lexical_search_finds_case_insensitive_parts_of_identifiers_in_hick_files() {
+        let dir = tempfile::tempdir().unwrap();
+        write(
+            dir.path(),
+            "notes/program.md",
+            "<hick:file path=\"Program.cs\">\nConsole.WriteLine(\"hello\");\n</hick:file>\n",
+        );
+
+        let engine = SearchEngine::open(dir.path()).unwrap();
+        for query in ["write", "Write"] {
+            let hits = engine.search(query, 5);
+            assert!(
+                hits.iter().any(|hit| hit.path == "notes/program.md"),
+                "{query:?} did not find the hick:file body: {hits:#?}"
+            );
+        }
+    }
+
+    #[test]
     fn the_index_is_cached_and_survives_reopen() {
         let dir = tempfile::tempdir().unwrap();
         write(dir.path(), "x.txt", "alpha beta gamma\n");

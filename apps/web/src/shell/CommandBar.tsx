@@ -6,10 +6,10 @@
 // field that understands a prefix has one, and the prefixes are the same ones
 // every editor already taught people.
 //
-//   (nothing)   — documents and files in this folder, by name
+//   (nothing)   — search the folder's contents, ranked
 //   `>`         — a command
-//   `?`         — search the folder's CONTENTS, ranked (the same engine ⌘⇧F
-//                 has always used)
+//   `?`         — search the folder's contents, ranked (an explicit spelling
+//                 for people who learned the earlier prefix)
 //   `:`         — a line number in the file that is open
 //
 // The bar itself is dumb: it parses the prefix, asks whoever mounted it for
@@ -35,7 +35,7 @@ export function parseQuery(raw: string): { mode: CommandMode; term: string } {
   if (trimmed.startsWith(">")) return { mode: "command", term: trimmed.slice(1).trim() };
   if (trimmed.startsWith("?")) return { mode: "content", term: trimmed.slice(1).trim() };
   if (trimmed.startsWith(":")) return { mode: "line", term: trimmed.slice(1).trim() };
-  return { mode: "files", term: trimmed.trim() };
+  return { mode: "content", term: trimmed.trim() };
 }
 
 /** What the bar says it will do, so the prefixes are discoverable without a
@@ -45,11 +45,11 @@ export function modeHint(mode: CommandMode): string {
     case "command":
       return "Commands";
     case "content":
-      return "Search file contents";
+      return "Search this folder";
     case "line":
       return "Go to line";
     case "files":
-      return "Files — type > for commands, ? to search contents, : for a line";
+      return "Files";
   }
 }
 

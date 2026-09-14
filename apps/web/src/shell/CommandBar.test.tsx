@@ -8,8 +8,8 @@ afterEach(() => {
 });
 
 describe("one field, four questions", () => {
-  it("reads a bare query as looking for a file", () => {
-    expect(parseQuery("main.rs")).toEqual({ mode: "files", term: "main.rs" });
+  it("reads a bare query as a search of file contents", () => {
+    expect(parseQuery("Write")).toEqual({ mode: "content", term: "Write" });
   });
 
   it("reads the prefixes every editor already taught people", () => {
@@ -23,7 +23,7 @@ describe("one field, four questions", () => {
   });
 
   it("says what it will do, so the prefixes need no help page", () => {
-    expect(modeHint("files")).toMatch(/type > for commands/i);
+    expect(modeHint("content")).toMatch(/search this folder/i);
     expect(modeHint("command")).toBe("Commands");
     expect(modeHint("line")).toBe("Go to line");
   });
