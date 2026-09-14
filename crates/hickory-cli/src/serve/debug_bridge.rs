@@ -750,7 +750,7 @@ mod tests {
         // `build` makes without running anything, so this test needs no
         // .NET SDK to be meaningful.
         std::fs::write(
-            dir.path().join("a.hick"),
+            dir.path().join("a.md"),
             "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n\
              <hick:doc xmlns:hick=\"http://www.hickorydocs.com/1.0\" weave=\"o.md\">\n\
              <hick:file path=\"Program.cs\">\n\
@@ -765,7 +765,7 @@ mod tests {
             &registry,
             dir.path(),
             Request::Start {
-                doc: "hick:///a.hick".into(),
+                doc: "hick:///a.md".into(),
                 breakpoints: vec![],
                 program: None,
             },
@@ -838,18 +838,18 @@ mod tests {
         // the language channel.
         let root = std::path::Path::new("/home/u/project");
         assert_eq!(
-            resolve(root, "hick:///docs/a.hick"),
-            root.join("docs/a.hick")
+            resolve(root, "hick:///docs/a.md"),
+            root.join("docs/a.md")
         );
-        assert_eq!(resolve(root, "/docs/a.hick"), root.join("docs/a.hick"));
-        assert_eq!(resolve(root, "a.hick"), root.join("a.hick"));
+        assert_eq!(resolve(root, "/docs/a.md"), root.join("docs/a.md"));
+        assert_eq!(resolve(root, "a.md"), root.join("a.md"));
     }
 
     #[test]
     fn requests_parse_from_their_frame() {
         let mut frame = vec![CHANNEL_DEBUG];
         frame.extend_from_slice(
-            br#"{"op":"start","doc":"hick:///a.hick","breakpoints":[{"line":7}]}"#,
+            br#"{"op":"start","doc":"hick:///a.md","breakpoints":[{"line":7}]}"#,
         );
         let request = request_of(&frame).expect("parses");
         match request {
@@ -858,7 +858,7 @@ mod tests {
                 breakpoints,
                 program,
             } => {
-                assert_eq!(doc, "hick:///a.hick");
+                assert_eq!(doc, "hick:///a.md");
                 assert_eq!(breakpoints[0].line, 7);
                 // Optional fields are absent, not zero.
                 assert!(breakpoints[0].condition.is_none());

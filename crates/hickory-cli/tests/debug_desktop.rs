@@ -55,7 +55,7 @@ async fn open_app() -> App {
     let dir = tempfile::tempdir().expect("a temp project");
     let root = dir.path().to_path_buf();
     std::fs::create_dir_all(root.join(".git")).unwrap();
-    std::fs::write(root.join("doc.hick"), DOC).unwrap();
+    std::fs::write(root.join("doc.md"), DOC).unwrap();
 
     let prepared = prepare(ServeOptions {
         target: root.clone(),
@@ -191,7 +191,7 @@ async fn the_window_can_set_a_breakpoint_step_and_read_values() {
 
     send(
         &mut app.socket,
-        json!({ "op": "start", "doc": "hick:///doc.hick",
+        json!({ "op": "start", "doc": "hick:///doc.md",
                 "breakpoints": [{ "line": SUBTOTAL_LINE }] }),
     )
     .await;
@@ -285,11 +285,11 @@ async fn nothing_a_debugger_does_touches_the_project() {
         eprintln!("SKIPPED: no Python debug adapter (`hick dap install python`)");
         return;
     }
-    let before = std::fs::read_to_string(app.root.join("doc.hick")).unwrap();
+    let before = std::fs::read_to_string(app.root.join("doc.md")).unwrap();
 
     send(
         &mut app.socket,
-        json!({ "op": "start", "doc": "hick:///doc.hick",
+        json!({ "op": "start", "doc": "hick:///doc.md",
                 "breakpoints": [{ "line": SUBTOTAL_LINE }] }),
     )
     .await;
@@ -329,7 +329,7 @@ async fn nothing_a_debugger_does_touches_the_project() {
         "the session wove a file into the project; only a run may do that"
     );
     assert_eq!(
-        std::fs::read_to_string(app.root.join("doc.hick")).unwrap(),
+        std::fs::read_to_string(app.root.join("doc.md")).unwrap(),
         before,
         "the document changed while it was being debugged"
     );
@@ -345,7 +345,7 @@ async fn a_breakpoint_on_prose_is_reported_not_silently_dropped() {
     // Line 2 is the heading.
     send(
         &mut app.socket,
-        json!({ "op": "start", "doc": "hick:///doc.hick", "breakpoints": [{ "line": 2 }] }),
+        json!({ "op": "start", "doc": "hick:///doc.md", "breakpoints": [{ "line": 2 }] }),
     )
     .await;
     let started = wait_for(&mut app.socket, "started", Duration::from_secs(60))
@@ -392,7 +392,7 @@ async fn a_program_that_runs_to_completion_ends_its_own_session() {
 
     send(
         &mut app.socket,
-        json!({ "op": "start", "doc": "hick:///doc.hick",
+        json!({ "op": "start", "doc": "hick:///doc.md",
                 "breakpoints": [{ "line": SUBTOTAL_LINE }] }),
     )
     .await;
@@ -467,7 +467,7 @@ async fn reaping_a_finished_session_deletes_the_scratch_clone() {
     let dir = tempfile::tempdir().expect("a temp project");
     let root = dir.path().to_path_buf();
     std::fs::create_dir_all(root.join(".git")).unwrap();
-    std::fs::write(root.join("doc.hick"), DOC).unwrap();
+    std::fs::write(root.join("doc.md"), DOC).unwrap();
     if !python_available(&root) {
         eprintln!("SKIPPED: no Python debug adapter (`hick dap install python`)");
         return;
@@ -476,7 +476,7 @@ async fn reaping_a_finished_session_deletes_the_scratch_clone() {
     let registry = hickory_cli::debug_sessions::Registry::new();
     // No breakpoints: the program runs straight to the end.
     let (id, live, _statuses) = registry
-        .start(&root.join("doc.hick"), &[], None, &mut |_| {})
+        .start(&root.join("doc.md"), &[], None, &mut |_| {})
         .await
         .expect("the session starts");
     let scratch = live

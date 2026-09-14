@@ -331,7 +331,7 @@ fn tracing_adapter(found: &hick_dap::Discovered) {
 
 /// The language of a generated file, by extension, for adapter routing.
 ///
-/// Whether a path is a `.hick` document, as opposed to a file to debug as
+/// Whether a path is a Markdown document, as opposed to a file to debug as
 /// itself. By extension: the same line `hick-lsp` draws for a plain file's
 /// language server.
 pub fn is_document(path: &Path) -> bool {
@@ -424,7 +424,7 @@ mod tests {
     #[tokio::test]
     async fn a_document_with_nothing_debuggable_says_so() {
         let dir = tempfile::tempdir().unwrap();
-        let doc = dir.path().join("d.hick");
+        let doc = dir.path().join("d.md");
         std::fs::write(
             &doc,
             "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n\
@@ -440,6 +440,79 @@ mod tests {
         };
         assert!(error.contains("nothing to debug"), "{error}");
         assert!(error.contains("hick dap list"), "{error}");
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_markdown_csharp_document_builds_and_stops_on_its_own_line() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        std::fs::create_dir_all(root.join(".git")).unwrap();
+        #[cfg(unix)]
+        {
+            let cache = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../.hick-cache");
+            if cache.join("adapters/netcoredbg/netcoredbg").exists() {
+                std::os::unix::fs::symlink(cache, root.join(".hick-cache")).unwrap();
+            }
+        }
+        if hick_dap::discover("csharp", root).is_none() {
+            eprintln!("SKIPPED: no C# debug adapter (`hick dap install csharp`)");
+            return;
+        }
+        if std::process::Command::new("dotnet")
+            .arg("--version")
+            .status()
+            .map(|status| !status.success())
+            .unwrap_or(true)
+        {
+            eprintln!("SKIPPED: no .NET SDK on this machine");
+            return;
+        }
+        let doc = root.join("greeter.md");
+        std::fs::write(
+            &doc,
+            r#"# Greeter
+
+<hick:file path="app/Greeter.csproj">
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+  </PropertyGroup>
+</Project>
+</hick:file>
+
+<hick:file path="app/Program.cs">
+class Program
+{
+    static void Main()
+    {
+        System.Console.WriteLine("Hello");
+    }
+}
+</hick:file>
+"#,
+        )
+        .unwrap();
+
+        let registry = Registry::new();
+        let breakpoints = [Breakpoint {
+            line: 16,
+            condition: None,
+            hit_condition: None,
+            log_message: None,
+        }];
+        let (_id, live, _) = registry
+            .start(&doc, &breakpoints, None, &mut |_| {})
+            .await
+            .expect("the Markdown document's C# project starts");
+        let stopped = live
+            .session
+            .wait_for_stop(Duration::from_secs(60))
+            .await
+            .expect("the adapter answers")
+            .expect("the C# breakpoint stops the program");
+        let frames = live.session.stack(stopped.thread_id).await.unwrap();
+        assert_eq!(frames[0].line, Some(16), "{frames:?}");
     }
 
     #[test]
@@ -463,6 +536,6 @@ mod tests {
             loose.path().join("tools")
         );
         assert!(!is_document(&script));
-        assert!(is_document(Path::new("notes/a.hick")));
+        assert!(is_document(Path::new("notes/a.md")));
     }
 }
