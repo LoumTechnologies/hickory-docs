@@ -4,7 +4,7 @@
 // middle-click closes the tab it lands on, whatever kind of tab it is, and
 // the button that closes must not also start a drag.
 
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render } from "@testing-library/react";
 import { ShellView } from "./ShellView";
 import { freeform, open, tab, type Layout } from "./layout";
@@ -67,5 +67,26 @@ describe("middle-click closes a tab", () => {
     pointer(strip("a.hick"), "pointerdown", 1);
     pointer(strip("b.hick"), "pointerup", 1);
     expect(seen).toHaveLength(0);
+  });
+});
+
+// Guarantee: docs/guarantees/authoring/unsaved-work-survives-closing-the-app.md
+describe("unsaved tabs", () => {
+  it("draws the data-driven asterisk and asks its owner before closing", () => {
+    const dirty = tab("untitled", "untitled", "Untitled");
+    const layout = open(freeform(), dirty);
+    const request = vi.fn();
+    const { getByRole } = render(
+      <ShellView
+        layout={layout}
+        onLayout={() => {}}
+        render={() => null}
+        dirtyTabIds={new Set([dirty.id])}
+        onRequestCloseTab={request}
+      />,
+    );
+    expect(getByRole("tab").textContent).toBe("Untitled *");
+    fireEvent.click(getByRole("button", { name: "Close Untitled" }));
+    expect(request).toHaveBeenCalledWith(layout.focus, dirty.id);
   });
 });

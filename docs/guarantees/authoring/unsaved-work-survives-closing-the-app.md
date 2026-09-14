@@ -1,13 +1,20 @@
 # Unsaved Work Survives Closing The App
 
-Given a buffer holding text the file on disk does not have, when the app is
-closed — gracefully, by a crash, or by the operating system discarding the
-window — then that text is written down; and when the app is opened again, the
-buffer holds it, still unsaved, in the tab it was left in.
+Given a buffer that differs from its last explicit Save, the tab and the same
+file in the Files pane carry an asterisk. When its tab or the window closes,
+the app asks whether to save and says in that question whether closing without
+saving will retain the changes. A new, unnamed document is always retained.
+A file that has been saved before is retained only when **Settings → Editing →
+Retain unsaved changes** is on; that setting is off by default.
 
-Closing a window is not a decision to throw work away. An editor that treats
-it as one teaches people to be afraid of ⌘W, and the fear is the damage: it
-makes every close a small negotiation instead of a reflex.
+When retained work is opened again, the buffer holds it, still unsaved. A
+crash-recovery write and an explicit Save are different facts: making bytes
+durable must not silently remove the asterisk or answer the Save decision for
+the person.
+
+Closing a window is not an implicit decision either to save or to throw work
+away. The prompt is the decision, and its wording makes recovery visible
+rather than asking from the false premise that “not saved” means “lost.”
 
 Four rules make it true rather than mostly true:
 
@@ -67,10 +74,10 @@ existing answers each throw away one side's work.
 so on the route, and never blocks a start. `HICKORY_STATE_DIR` names the
 directory for a portable install.
 
-This covers **plain files**, which are the buffers that can genuinely hold
-unsaved text: a `.hick` document is a CRDT room that persists as you type, and
-a woven output saves through its document. If those ever grow an unsaved
-state, they use this same store; today they have none to keep.
+This covers unnamed documents and `.hick` document buffers. A `.hick` room may
+persist live bytes for crash recovery while the explicit-Save baseline stays
+put; those are still unsaved changes in the user-facing sense. Plain files
+retain their existing short debounced-save window and draft machinery.
 
 A draft is keyed by path. Renaming a file outside the app orphans its draft
 rather than following it — the draft is still there, under the old path, and
@@ -96,49 +103,24 @@ that guessed would silently throw away work.
 ---
 
 Last LLM verification:
-- Date: 2026-08-20
-- Reviewer: Claude (Opus 5)
-- Result: verified (implemented and reviewed in the same change)
-- Evidence: `crates/hickory-workspace/src/lib.rs` — the store, its header
-  explaining why not the project folder, `write_atomically` (temp + fsync +
-  rename, because "survives the app closing" includes closing badly), the
-  size caps, and `STATE_DIR_VAR`.
-  `crates/hickory-cli/src/serve/workspace.rs` — five routes, and `store()`
-  mapping a store that will not open to a 503 that says the app still works.
-  `apps/web/src/lib/drafts.ts` — `draftDisposition` (the three outcomes, in
-  the order that matters) and `useDraftKeeper` (poll + `pagehide`, read
-  through a callback).
-  `apps/web/src/lib/merge.ts` — diff3: `mergeThreeWay`, `mergeTwoWay`,
-  `mergedText` (unanswered conflicts read as ours), `matchedLines`.
-  `apps/web/src/components/MergeView.tsx` — the summary-first layout,
-  auto-resolved regions labelled rather than hidden, accept-with-unanswered.
-  `apps/web/src/components/PlainFilePane.tsx` — the load-time draft check,
-  `putInBuffer`, `useDraftKeeper`, and `openMerge`/`acceptMerge` including the
-  new third answer on the conflict banner.
-  `apps/web/src/lib/plainFileSave.ts` — `baseContent()`, the ancestor.
-- Test coverage: `crates/hickory-workspace/src/lib.rs` (11 tests) — including
-  `nothing_is_written_inside_the_project`, `a_partial_write_never_replaces_a_good_draft`,
-  `two_projects_with_the_same_name_do_not_share_a_store`, and the
-  damaged-layout and oversized-blob refusals.
-  `crates/hickory-cli/tests/serve_workspace.rs` (6 tests) — the routes over
-  real HTTP, including `nothing_is_written_inside_the_project_folder`.
-  `apps/web/src/lib/merge.test.ts` (41 tests) — the diff3 laws asserted over
-  seven awkward shapes (empty files, no trailing newline, whole-file deletion,
-  append plus prepend), what it resolves alone, what it must ask about, and
-  the two-way fallback.
-  `apps/web/src/lib/drafts.test.ts` (5 tests) — the disposition decision,
-  including a deleted file and a draft with no base.
-  `apps/web/src/components/MergeView.test.tsx` (11 tests) — the summary
-  count, auto-merged regions named, both sides labelled, accept with and
-  without answers, un-answering, and the two-way variant hiding "keep
-  neither".
-  `apps/web/src/components/PlainFilePane.test.tsx` (5 tests) — restore
-  quietly, discard a stale draft, open a merge, no draft, and an unreachable
-  store.
-- Caveat requiring review: the crash path is argued rather than tested — the
-  poll interval and the `pagehide` listener are asserted to exist by the
-  hook's shape, but no test kills a process mid-edit and reopens it. The
-  end-to-end "close the app, reopen it, the text is there" journey is likewise
-  not driven by a test; the two halves (the store round-trips over HTTP, the
-  pane restores from what that store answers) are each covered, and the join
-  between them was checked by hand.
+
+- Date: 2026-09-14
+- Reviewer: Codex (GPT-5)
+- Result: partially verified
+- Evidence: `apps/web/src/views/documentSession.tsx` — explicit-Save baseline,
+  dirty state, recovery draft restore, save and discard;
+  `useUnsavedLifecycle.ts` — the tab/window close decisions and dirty path/id
+  derivation; `WorkspaceView.tsx` — the shared wiring;
+  `workspaceTabs.tsx` — unconditional Untitled draft; `ShellView.tsx` and
+  `FolderTreePane.tsx` — the two asterisk surfaces; `SettingsView.tsx`,
+  `UiStore`, and `/api/settings/ui` — the off-by-default setting;
+  `apps/desktop/src-tauri/src/lib.rs` and `serve/shell.rs` — native close
+  interception and the approved-close handoff.
+- Test coverage: `useUnsavedLifecycle.test.tsx` (the retained-close wording,
+  draft write, and guarded close), `ShellView.test.tsx` (asterisk and guarded close),
+  `workspaceTabs.test.tsx` (unnamed draft adoption after reopening),
+  `FolderTreePane.test.tsx` (file-tree asterisk), `SettingsView.test.tsx`
+  (default and opt-in), and `serve_ui_settings.rs` (persisted schema).
+- Caveat requiring review: a browser-level test does not yet drive the whole
+  native window-close handshake, and the pre-existing plain-file autosave path
+  is not converted to an explicit-Save baseline by this guarantee.

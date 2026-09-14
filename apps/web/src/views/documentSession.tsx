@@ -24,6 +24,7 @@ import type { Block, DiagramBlock, Doc, ExecBlock, OutputFile, RunWsMessage, Sou
 import { flashSpans } from "../editor/changeFlash";
 import { usePrompt } from "../components/PromptPanel";
 import { byteToChar } from "../lib/offsets";
+import { useDraftKeeper } from "../lib/drafts";
 import { useLsp } from "../lsp/useLsp";
 import {
   lspSupport,
@@ -82,6 +83,10 @@ export interface DocSession {
   renderError: string | null;
   banner: Banner;
   syncState: "idle" | "editing" | "saved";
+  /** Changed since the last explicit Save, independent of crash recovery. */
+  dirty: boolean;
+  liveSource: string;
+  savedSource: string | null;
   runningCells: Set<string>;
   execBlocks: ExecBlock[];
   /** Diagram bodies with pastes resolved server-side — a derived diagram is
@@ -123,8 +128,9 @@ export interface DocSession {
   /** Reveal a range in a generated file's editor — now, or as soon as the
    * pane the caller just opened has one. */
   revealOutput: (path: string, range: [number, number]) => void;
-  menuSave: () => void;
+  menuSave: () => Promise<boolean>;
   menuSaveAs: () => void;
+  discardUnsaved: () => Promise<void>;
 }
 
 // ---------------------------------------------------------------------------
@@ -213,13 +219,15 @@ export const DocSessionHost = memo(function DocSessionHost({
   registry,
   docId,
   openGenerated,
+  retainUnsaved = false,
 }: {
   registry: SessionRegistry;
   docId: string;
   /** Open one of THIS document's generated files in the layout. */
   openGenerated: (docId: string, path: string) => void;
+  retainUnsaved?: boolean;
 }) {
-  const session = useDocumentSession(docId, openGenerated);
+  const session = useDocumentSession(docId, openGenerated, retainUnsaved);
   useEffect(() => {
     registry.publish(session);
   });
@@ -234,6 +242,7 @@ export const DocSessionHost = memo(function DocSessionHost({
 function useDocumentSession(
   docId: string,
   openGeneratedFor: (docId: string, path: string) => void,
+  retainUnsaved: boolean,
 ): DocSession {
   const openGenerated = useCallback(
     (path: string) => openGeneratedFor(docId, path),
@@ -247,6 +256,7 @@ function useDocumentSession(
   const [banner, setBanner] = useState<Banner>(null);
   const [selectSpan, setSelectSpan] = useState<[number, number] | null>(null);
   const [dirtySource, setDirtySource] = useState<string | null>(null);
+  const [savedSource, setSavedSource] = useState<string | null>(null);
   // "saved" once the CRDT room's debounced persist has certainly landed and
   // the server render caught up; "editing" while the user is still typing.
   const [syncState, setSyncState] = useState<"idle" | "editing" | "saved">("idle");
@@ -379,6 +389,38 @@ function useDocumentSession(
   }, [docId]);
 
   useEffect(refresh, [refresh]);
+  useEffect(() => {
+    if (doc && savedSource === null) setSavedSource(doc.source);
+  }, [doc, savedSource]);
+
+  // Recovery is a separate promise from saving: the room may make live
+  // bytes durable, but the explicit Save baseline stays where the person
+  // last put it. Previously saved files opt into this; Untitled never does.
+  useDraftKeeper({
+    path: doc?.path ?? null,
+    enabled: retainUnsaved && doc !== null && savedSource !== null,
+    read: () => ({
+      contents: dirtySource ?? doc?.source ?? "",
+      base: savedSource ?? doc?.source ?? "",
+    }),
+  });
+  const restoredDraft = useRef(false);
+  useEffect(() => {
+    if (!retainUnsaved || !doc || !docEditor || restoredDraft.current) return;
+    restoredDraft.current = true;
+    void api.drafts().then(({ drafts }) => {
+      const draft = drafts.find((candidate) => candidate.path === doc.path);
+      if (!draft || draft.contents === draft.base) return;
+      const current = docEditor.state.doc.toString();
+      if (current !== draft.contents) {
+        docEditor.dispatch({
+          changes: { from: 0, to: docEditor.state.doc.length, insert: draft.contents },
+        });
+      }
+      setSavedSource(draft.base);
+      setDirtySource(draft.contents);
+    });
+  }, [retainUnsaved, doc, docEditor]);
 
   // Live run events: append to the matching cell's transcript.
   useEffect(() => {
@@ -608,18 +650,31 @@ function useDocumentSession(
   // relative path via the same createDoc the untitled buffer uses.
   const menuStateRef = useRef({ doc, dirtySource });
   menuStateRef.current = { doc, dirtySource };
-  const menuSave = useCallback(() => {
+  const menuSave = useCallback(async () => {
     const { doc, dirtySource } = menuStateRef.current;
-    if (!doc) return;
+    if (!doc) return false;
     const source = dirtySource ?? doc.source;
-    api.saveDoc(doc.id, source).then(
-      (saved) => {
-        setDoc(saved);
-        setSyncState("saved");
-      },
-      (e) => setBanner({ kind: "fail", text: e instanceof Error ? e.message : String(e) }),
-    );
+    try {
+      const saved = await api.saveDoc(doc.id, source);
+      setDoc(saved);
+      setSavedSource(source);
+      setSyncState("saved");
+      void api.discardDraft(doc.path).catch(() => {});
+      return true;
+    } catch (e) {
+      setBanner({ kind: "fail", text: e instanceof Error ? e.message : String(e) });
+      return false;
+    }
   }, []);
+  const discardUnsaved = useCallback(async () => {
+    const current = menuStateRef.current.doc;
+    if (!current || savedSource === null) return;
+    const restored = await api.saveDoc(current.id, savedSource);
+    setDoc(restored);
+    setDirtySource(savedSource);
+    setSyncState("saved");
+    void api.discardDraft(current.path).catch(() => {});
+  }, [savedSource]);
   const menuSaveAs = useCallback(() => {
     const { doc, dirtySource } = menuStateRef.current;
     if (!doc) return;
@@ -822,6 +877,12 @@ function useDocumentSession(
     renderError,
     banner,
     syncState,
+    dirty:
+      dirtySource !== null &&
+      savedSource !== null &&
+      dirtySource !== savedSource,
+    liveSource: dirtySource ?? doc?.source ?? "",
+    savedSource,
     runningCells,
     execBlocks,
     diagramBlocks,
@@ -855,5 +916,6 @@ function useDocumentSession(
     revealOutput,
     menuSave,
     menuSaveAs,
+    discardUnsaved,
   };
 }

@@ -147,6 +147,7 @@ pub fn shell_hooks(handle: &tauri::AppHandle, config_dir: Option<&Path>) -> Shel
     let handle = handle.clone();
     let config_dir = config_dir.map(Path::to_path_buf);
     let picker = handle.clone();
+    let closer = handle.clone();
     Shell {
         // The same picker File → Open Folder uses, reached from the page
         // rather than from the menu bar. `blocking_pick_folder` blocks the
@@ -190,6 +191,16 @@ pub fn shell_hooks(handle: &tauri::AppHandle, config_dir: Option<&Path>) -> Shel
                 });
                 Ok(())
             }
+        }),
+        close_window: std::sync::Arc::new(move || {
+            if let Some(window) = closer.get_webview_window("main") {
+                window
+                    .state::<super::CloseGate>()
+                    .0
+                    .store(true, std::sync::atomic::Ordering::SeqCst);
+                window.close()?;
+            }
+            Ok(())
         }),
     }
 }

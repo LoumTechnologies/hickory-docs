@@ -1247,14 +1247,12 @@ fn keys_listing(store: &hickory_agent::KeyStore) -> Value {
         .collect();
     json!({ "providers": providers })
 }
-
 /// `GET /api/settings/keys` — every provider, whether a key is configured,
 /// and a masked fragment. Never the key itself.
 pub async fn get_settings_keys(State(state): State<LocalState>) -> Json<Value> {
     let store = state.keys.store.read().expect("key store lock poisoned");
     Json(keys_listing(&store))
 }
-
 /// `PUT /api/settings/keys` — set or clear keys for the named providers
 /// only: `{"anthropic": "sk-new", "openai": null}`. Everything is validated
 /// before anything is applied, the file is persisted (0600 on Unix), and the
@@ -1270,7 +1268,6 @@ pub async fn put_settings_keys(
              (to set) or null (to clear), e.g. {\"anthropic\": \"sk-…\"}",
         ));
     };
-
     // Stage on a copy so a bad entry — or a failed write — changes nothing:
     // the live store never holds half of a rejected request.
     let mut staged = state
@@ -1295,7 +1292,6 @@ pub async fn put_settings_keys(
             .set(id, key)
             .map_err(|e| ApiError::bad_request(format!("{e:#}")))?;
     }
-
     if let Some(path) = &state.keys.path {
         // The error carries the path and the OS failure, never key material.
         staged.save(path).map_err(|e| {
@@ -1305,29 +1301,26 @@ pub async fn put_settings_keys(
             ))
         })?;
     }
-
     let listing = keys_listing(&staged);
     *state.keys.store.write().expect("key store lock poisoned") = staged;
     Ok(Json(listing))
 }
-
 /// What GET and PUT `/api/settings/ui` both answer.
 fn ui_listing(store: &crate::serve::UiStore) -> Value {
     json!({
         "window_title": store.window_title,
         "format_on_save": store.format_on_save,
+        "retain_unsaved_saved_files": store.retain_unsaved_saved_files,
         "keymap": store.keymap,
         "native_accelerators": store.native_accelerators,
     })
 }
-
 /// `GET /api/settings/ui` — the UI settings: the custom window title, or
 /// null for the default. Mirrors `/api/settings/keys`.
 pub async fn get_settings_ui(State(state): State<LocalState>) -> Json<Value> {
     let store = state.ui.store.read().expect("ui settings lock poisoned");
     Json(ui_listing(&store))
 }
-
 /// `PUT /api/settings/ui` — set or clear the custom window title:
 /// `{"window_title": "My Notes"}` or `{"window_title": null}`. Everything is
 /// validated before anything is applied, the file is persisted (`ui.json`
@@ -1346,7 +1339,6 @@ pub async fn put_settings_ui(
              to set a custom window title or {\"window_title\": null} to clear it",
         ));
     };
-
     // Stage on a copy so a bad entry — or a failed write — changes nothing.
     let mut staged = state
         .ui
@@ -1370,6 +1362,14 @@ pub async fn put_settings_ui(
             ("format_on_save", _) => {
                 return Err(ApiError::bad_request(
                     "format_on_save must be true or false",
+                ));
+            }
+            ("retain_unsaved_saved_files", Value::Bool(on)) => {
+                staged.retain_unsaved_saved_files = *on
+            }
+            ("retain_unsaved_saved_files", _) => {
+                return Err(ApiError::bad_request(
+                    "retain_unsaved_saved_files must be true or false",
                 ));
             }
             ("keymap", Value::Null) => staged.keymap = None,
@@ -1404,12 +1404,12 @@ pub async fn put_settings_ui(
             (other, _) => {
                 return Err(ApiError::bad_request(format!(
                     "unknown UI setting {other:?}; the settings are \"window_title\", \
-                     \"format_on_save\", \"keymap\" and \"native_accelerators\""
+                     \"format_on_save\", \"retain_unsaved_saved_files\", \"keymap\" and \
+                     \"native_accelerators\""
                 )));
             }
         }
     }
-
     if let Some(path) = &state.ui.path {
         staged.save(path).map_err(|e| {
             ApiError::internal(format!(

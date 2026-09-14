@@ -33,12 +33,16 @@ draft in the user's per-project workspace state, outside the opened folder
 and unreachable by git. Typing never creates `untitled.md`; **Save** and
 **Save As** ask for a name and only then create the document. The draft is
 discarded once that save succeeds, so reopening the app restores an Untitled
-tab only while it is still genuinely unsaved.
+tab only while it is still genuinely unsaved. Once it contains text, its tab
+reads `Untitled *`. Closing the tab or window asks whether to save and says
+that closing without saving retains this unnamed draft; unlike recovery for a
+previously saved file, this is unconditional and has no setting that can turn
+it off.
 
 ---
 
 Last LLM verification:
-- Date: 2026-09-12
+- Date: 2026-09-14
 - Reviewer: Codex (GPT-5)
 - Result: verified
 - Evidence: `apps/web/src/router.ts` — `NEW_DOCUMENT_EVENT`, `newDocument`;
@@ -49,7 +53,10 @@ Last LLM verification:
   `openUntitledTab`.
 - Test coverage: `apps/web/src/router.test.ts` ("fires the event even when
   the hash is already #/new"); `apps/web/src/views/workspaceTabs.test.tsx`
-  ("does not create a project file on its first keystroke"); and
+  ("does not create a project file on its first keystroke" and draft adoption
+  when a closed Untitled tab reopens with a fresh id);
+  `apps/web/src/views/useUnsavedLifecycle.test.tsx` (retained-close wording and
+  persistence); and
   `apps/web/src/components/PlainFilePane.test.tsx` (draft keeper behavior).
   The native prompt and document-creation handoff are covered by typecheck
   and implementation review; they do not yet have a browser-level test.

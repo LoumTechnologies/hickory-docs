@@ -66,7 +66,7 @@ describe("reopening a file that had unsaved changes", () => {
     // The common case by a wide margin. A dialog here would train people to
     // dismiss dialogs, and the work is theirs — nothing was lost or decided.
     serve({ content: ON_DISK, drafts: [draft()] });
-    render(<PlainFilePane path="notes.md" />);
+    render(<PlainFilePane path="notes.md" retainUnsaved />);
     return waitFor(() => {
       expect(document.querySelector(".cm-content")?.textContent).toContain("MINE");
       expect(screen.queryByTestId("merge-view")).toBeNull();
@@ -78,7 +78,7 @@ describe("reopening a file that had unsaved changes", () => {
     const discard = vi.fn().mockResolvedValue({ ok: true });
     serve({ content: ON_DISK, drafts: [draft({ contents: ON_DISK, base: "older\n" })] });
     vi.spyOn(api, "discardDraft").mockImplementation(discard);
-    render(<PlainFilePane path="notes.md" />);
+    render(<PlainFilePane path="notes.md" retainUnsaved />);
     return waitFor(() => expect(discard).toHaveBeenCalledWith("notes.md"));
   });
 
@@ -87,7 +87,7 @@ describe("reopening a file that had unsaved changes", () => {
       content: "one\nTHEIRS\nthree\n",
       drafts: [draft({ contents: "one\nMINE\nthree\n", base: ON_DISK })],
     });
-    render(<PlainFilePane path="notes.md" />);
+    render(<PlainFilePane path="notes.md" retainUnsaved />);
     return waitFor(() => {
       const merge = screen.getByTestId("merge-view");
       expect(merge.textContent).toMatch(/changed while you were away/i);
@@ -363,4 +363,3 @@ describe("a plain file and the debugger", () => {
     expect(screen.getByRole("button", { name: "Step over" })).toBeDefined();
   });
 });
-

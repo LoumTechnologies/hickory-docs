@@ -92,7 +92,7 @@ async fn a_saved_window_title_is_live_and_survives_a_restart() {
     assert_eq!(status, 200);
     assert_eq!(
         body,
-        json!({ "window_title": null, "format_on_save": false, "keymap": null, "native_accelerators": {} })
+        json!({ "window_title": null, "format_on_save": false, "retain_unsaved_saved_files": false, "keymap": null, "native_accelerators": {} })
     );
 
     let (status, body) = put(
@@ -104,7 +104,7 @@ async fn a_saved_window_title_is_live_and_survives_a_restart() {
     assert_eq!(status, 200);
     assert_eq!(
         body,
-        json!({ "window_title": "My Lab Notebook", "format_on_save": false, "keymap": null, "native_accelerators": {} })
+        json!({ "window_title": "My Lab Notebook", "format_on_save": false, "retain_unsaved_saved_files": false, "keymap": null, "native_accelerators": {} })
     );
 
     // Live immediately, no restart.
@@ -112,7 +112,7 @@ async fn a_saved_window_title_is_live_and_survives_a_restart() {
     assert_eq!(status, 200);
     assert_eq!(
         body,
-        json!({ "window_title": "My Lab Notebook", "format_on_save": false, "keymap": null, "native_accelerators": {} })
+        json!({ "window_title": "My Lab Notebook", "format_on_save": false, "retain_unsaved_saved_files": false, "keymap": null, "native_accelerators": {} })
     );
 
     // Persisted where the desktop shell reads it at launch.
@@ -132,6 +132,28 @@ async fn a_saved_window_title_is_live_and_survives_a_restart() {
     .expect("session reloads");
     let store = reloaded.state.ui.store.read().unwrap();
     assert_eq!(store.window_title.as_deref(), Some("My Lab Notebook"));
+}
+
+// Guarantee: docs/guarantees/authoring/unsaved-work-survives-closing-the-app.md
+#[tokio::test(flavor = "multi_thread")]
+async fn retaining_saved_file_drafts_is_off_by_default_and_persists() {
+    let session = start().await;
+    let (_, initial) = get(&session, "/api/settings/ui").await;
+    assert_eq!(initial["retain_unsaved_saved_files"], false);
+
+    let (status, changed) = put(
+        &session,
+        "/api/settings/ui",
+        json!({ "retain_unsaved_saved_files": true }),
+    )
+    .await;
+    assert_eq!(status, 200, "{changed}");
+    assert_eq!(changed["retain_unsaved_saved_files"], true);
+    assert!(
+        UiStore::load(&session.ui_path)
+            .unwrap()
+            .retain_unsaved_saved_files
+    );
 }
 
 /// Clearing: an explicit null clears, and a blank string means "no custom
@@ -155,7 +177,7 @@ async fn null_or_blank_clears_the_custom_title() {
     assert_eq!(status, 200);
     assert_eq!(
         body,
-        json!({ "window_title": null, "format_on_save": false, "keymap": null, "native_accelerators": {} })
+        json!({ "window_title": null, "format_on_save": false, "retain_unsaved_saved_files": false, "keymap": null, "native_accelerators": {} })
     );
 
     let (_, _) = put(
@@ -173,7 +195,7 @@ async fn null_or_blank_clears_the_custom_title() {
     assert_eq!(status, 200);
     assert_eq!(
         body,
-        json!({ "window_title": null, "format_on_save": false, "keymap": null, "native_accelerators": {} })
+        json!({ "window_title": null, "format_on_save": false, "retain_unsaved_saved_files": false, "keymap": null, "native_accelerators": {} })
     );
 
     let on_disk = UiStore::load(&session.ui_path).expect("ui.json parses");
@@ -203,7 +225,7 @@ async fn a_bad_put_changes_nothing() {
         let (_, body) = get(&session, "/api/settings/ui").await;
         assert_eq!(
             body,
-            json!({ "window_title": "Keep me", "format_on_save": false, "keymap": null, "native_accelerators": {} })
+            json!({ "window_title": "Keep me", "format_on_save": false, "retain_unsaved_saved_files": false, "keymap": null, "native_accelerators": {} })
         );
     }
 }
@@ -247,7 +269,7 @@ async fn without_a_path_the_routes_answer_in_memory() {
     assert_eq!(status, 200);
     assert_eq!(
         body,
-        json!({ "window_title": "Ephemeral", "format_on_save": false, "keymap": null, "native_accelerators": {} })
+        json!({ "window_title": "Ephemeral", "format_on_save": false, "retain_unsaved_saved_files": false, "keymap": null, "native_accelerators": {} })
     );
     assert!(
         !session.ui_path.exists(),

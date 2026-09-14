@@ -53,7 +53,9 @@ export interface PlainSaver {
    * Save All asks of every pane holding a file. A buffer with nothing
    * pending, or one parked on a conflict, does nothing: forcing a conflicted
    * save from a menu item would overwrite somebody's work without asking. */
-  flushNow(): void;
+  flushNow(): Promise<boolean>;
+  /** Throw away edits that have not reached the file and return its text. */
+  discardPending(): string;
   /** Cancel the pending debounce (unmount). In-flight PUTs settle alone. */
   dispose(): void;
 }
@@ -72,7 +74,8 @@ export function createPlainSaver(options: PlainSaverOptions): PlainSaver {
   // previous exchange established.
   let chain: Promise<void> = Promise.resolve();
 
-  const flush = (force = false) => {
+  const flush = (force = false): Promise<boolean> => {
+    let succeeded = true;
     chain = chain.then(async () => {
       if (conflicted && !force) return;
       const target = latest;
@@ -85,6 +88,7 @@ export function createPlainSaver(options: PlainSaverOptions): PlainSaver {
         conflicted = false;
         options.onState(latest === target ? { kind: "saved" } : { kind: "saving" });
       } catch (e) {
+        succeeded = false;
         if ((e as { status?: number }).status === 409) {
           conflicted = true;
           options.onState({ kind: "conflict" });
@@ -96,6 +100,7 @@ export function createPlainSaver(options: PlainSaverOptions): PlainSaver {
         });
       }
     });
+    return chain.then(() => succeeded);
   };
 
   return {
@@ -119,7 +124,15 @@ export function createPlainSaver(options: PlainSaverOptions): PlainSaver {
         clearTimeout(timer);
         timer = null;
       }
-      flush();
+      return flush();
+    },
+    discardPending() {
+      if (timer !== null) clearTimeout(timer);
+      timer = null;
+      latest = null;
+      conflicted = false;
+      options.onState({ kind: "idle" });
+      return baseContent;
     },
     baseContent() {
       return baseContent;

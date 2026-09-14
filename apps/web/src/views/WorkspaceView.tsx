@@ -101,6 +101,7 @@ import { navigate, redirect, type Route, newDocument } from "../router";
 import { beginsChord, isAction } from "../lib/keymap";
 import { useNewDocument } from "./useNewDocument";
 import { useUntitledSave } from "./useUntitledSave";
+import { useUnsavedLifecycle } from "./useUnsavedLifecycle";
 import { lensSources, onLensChange } from "../lib/lensSources";
 import { welcomeActionsFor } from "./welcomeActions";
 import {
@@ -286,7 +287,28 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
   // rather than to a document — asking for a worktree's branch name, now that
   // terminals have no pane of their own to ask on.
   const shellPrompt = usePrompt();
-
+  // Untitled has no document session, so the workspace owns its explicit
+  // save baseline. One exists at a time today; keyed by tab id so the data
+  // model stays correct if that policy ever changes.
+  const [untitledSources, setUntitledSources] = useState<Record<string, string>>({});
+  const untitledSourcesRef = useRef(untitledSources);
+  untitledSourcesRef.current = untitledSources;
+  const forgetUntitled = useCallback((tabId: string) => {
+    setUntitledSources((current) => {
+      if (!(tabId in current)) return current;
+      const next = { ...current };
+      delete next[tabId];
+      return next;
+    });
+  }, []);
+  const [retainSavedDrafts, setRetainSavedDrafts] = useState(false);
+  const [plainDirtyTabs, setPlainDirtyTabs] = useState<ReadonlySet<string>>(new Set());
+  const plainUnsavedActions = useRef(
+    new Map<
+      string,
+      { save: () => Promise<boolean>; discard: () => void; retain: () => Promise<void> }
+    >(),
+  );
   // What the window looked like last time, and where each tab's prose measure
   // sits. Restored into an untouched workspace only — the same rule a
   // document's own declared layout follows — and the route's opener waits for
@@ -313,13 +335,11 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
     locations: LspLocation[];
     query: string;
   } | null>(null);
-
   /** Put the caret on the next error or warning in the focused document. */
   // The list behind the status bar's count. Open/closed is all that is held;
   // the rows are read from the sessions when it draws, so a diagnostic that
   // arrives while it is open appears without a subscription of its own.
   const [problemsOpen, setProblemsOpen] = useState(false);
-
   const goToNextProblem = useCallback(() => {
     const session = registry.get(focusedIdRef.current);
     const view = session?.docEditor;
@@ -343,7 +363,6 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
     });
     view.focus();
   }, [registry]);
-
   // F8 — "go to the next problem" in every editor that has the idea, and the
   // verb the status-bar click used to be. Keeping it as a key rather than
   // dropping it is the point: the click now answers "what is wrong", and this
@@ -363,7 +382,6 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [goToNextProblem]);
-
   // The branch, for the status bar. Refetched when files change — a commit,
   // a checkout, or a save can all move it.
   const [git, setGit] = useState<{ branch: string; dirty: number } | null>(
@@ -397,7 +415,6 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
       window.removeEventListener("focus", read);
     };
   }, []);
-
   /** The path of whatever tab is active in the focused pane. */
   const focusedPath: string | null = (() => {
     const pane = paneById(layout, layout.focus);
@@ -406,7 +423,6 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
       ? tab.target
       : null;
   })();
-
   const welcomeActions: WelcomeAction[] = useMemo(
     () =>
       welcomeActionsFor({
@@ -417,11 +433,9 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
       }),
     [],
   );
-
   const workspaceUi = useWorkspaceUi(layout, (restored) => {
     setLayout((current) => (isWorkspaceEmpty(current) ? restored : current));
   });
-
   // ⌘+ / ⌘- / ⌘0 size the whole window; adding Alt sizes only the focused
   // tab. See views/useZoom.ts for why that split, and why it is the root's
   // font size rather than a transform.
@@ -436,7 +450,6 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
     zoomOfTab: (target) => workspaceUi.zoomFor(target),
     setTabZoom: workspaceUi.setZoom,
   });
-
   // ---- which document the chrome follows ---------------------------------
   //
   // The focused pane's active tab names a document, or the one focused last
@@ -451,9 +464,7 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
   const focusedIdRef = useRef(focusedId);
   focusedIdRef.current = focusedId;
   const focused = registry.get(focusedId);
-
   // ---- opening --------------------------------------------------------------
-
   const openGeneratedFor = useCallback((docId: string, path: string) => {
     const already = panesOf(layoutRef.current.root).some((pane) =>
       pane.tabs.some((t) => t.kind === "generated" && t.target === path),
@@ -463,14 +474,12 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
     );
     if (already) flashTab("generated", path);
   }, []);
-
   /** Open a plain file — same "ensure open" a document gets, no owner. */
   const openPlainFile = useCallback((path: string) => {
     const already = findFileTab(layoutRef.current, path) !== null;
     setLayout((current) => openFileTab(current, path));
     if (already) flashTab("file", path);
   }, []);
-
   /**
    * "Ensure open": activate the document's tab wherever it is, or fetch its
    * path and add a tab in the focused pane. The ONE exception to "add, never
@@ -485,7 +494,6 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
     const tab = existing?.pane.tabs[existing.index];
     if (tab) flashTab("document", tab.target);
   }, []);
-
   const ensureDocOpen = useCallback((id: string) => {
     if (findDocTab(layoutRef.current, id)) {
       setLayout((current) => activateDocTab(current, id) ?? current);
@@ -522,7 +530,6 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
       },
     );
   }, []);
-
   /**
    * What the top field answers, in each of its modes.
    *
@@ -619,7 +626,6 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
     },
     [welcomeActions],
   );
-
   /**
    * Open a path and put the caret on a line.
    *
@@ -649,19 +655,16 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
     [ensureDocOpen, openGeneratedFor, openPlainFile],
   );
   openHitRef.current = openHit;
-
   // Whether Save formats first, read once; Settings keeps it current.
   useEffect(() => {
     void loadFormatOnSave();
   }, []);
-
   // A definition that landed in another file, asked from an editor that
   // cannot open tabs. The workspace can. See lib/revealLine.ts.
   useEffect(
     () => onOpenLocation(({ path, line }) => openHitRef.current?.(path, line)),
     [],
   );
-
   // The route is a REQUEST against the workspace, not its owner:
   // `#/docs/<id>` means "make sure this document is open and frontmost",
   // `#/new` means "make sure there is an untitled buffer". Back and forward
@@ -693,7 +696,6 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
     // routeKey stands in for the route object, which is rebuilt per render.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [routeKey, ensureDocOpen, hydrated]);
-
   // The other direction: focusing a different document's pane makes the URL
   // follow, replacing the current entry — focus flips are not history the
   // Back button should have to chew through.
@@ -704,20 +706,19 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
     // Only ever triggered by a real focus change.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [derivedFocus]);
-
   const saveUntitled = useUntitledSave({
     layoutRef,
     setLayout,
     askText: shellPrompt.askText,
     onError: setInsertNotice,
+    sourceFor: (tabId) => untitledSourcesRef.current[tabId],
+    onSaved: forgetUntitled,
   });
-
   // The folder tree's data: one root today, an array so several folders can
   // sit side by side later without this view changing shape. Hoisted above
   // the title effect: the root also names the window.
   const { roots: folderRoots, error: folderError } = useFolderTrees();
   folderRootsRef.current = folderRoots;
-
   // What the window calls itself: the custom override from Settings, else
   // the project folder's name, else the focused file (lib/windowTitle.ts).
   // The override is fetched once per mount — Settings is a different route,
@@ -733,7 +734,10 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
     let live = true;
     api.settingsUi().then(
       (ui) => {
-        if (live) setCustomTitle(ui.window_title);
+        if (live) {
+          setCustomTitle(ui.window_title);
+          setRetainSavedDrafts(ui.retain_unsaved_saved_files === true);
+        }
       },
       // A server without the route (or unreachable) means no override.
       () => {},
@@ -752,7 +756,6 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
       file: focusedFileName,
     });
   }, [customTitle, folderRoots, focusedFileName]);
-
   // The folder's documents, for search resolution. Refreshed with the tree.
   useEffect(() => {
     let live = true;
@@ -775,14 +778,12 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
       window.removeEventListener(FILES_CHANGED_EVENT, load);
     };
   }, []);
-
   // ---- sessions -------------------------------------------------------------
   //
   // One host per document the layout involves. A document stays alive while
   // ANY of its tabs is open — a generated file outliving its document's own
   // tab still needs the provenance, the saver, and the way back.
   const openDocIds = useMemo(() => docIdsIn(layout), [layout]);
-
   // ---- ribbons and ports (the focused document's outputs) -----------------
   //
   // The overlay draws the focused document's lineage: its outputs, back to
@@ -875,7 +876,6 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
         : [],
     [focused],
   );
-
   // ---- context provenance: what the model had in front of it -------------
   //
   // Fetched for the focused document and re-fetched when its text changes
@@ -908,7 +908,6 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
       window.clearTimeout(timer);
     };
   }, [contextDocId, contextDocSource, layers]);
-
   // ---- declared provenance: what the author says it rests on ------------
   const [declared, setDeclared] = useState<{
     docId: string;
@@ -933,7 +932,6 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
       window.clearTimeout(timer);
     };
   }, [contextDocId, contextDocSource, layers]);
-
   // The links the overlay draws: one per (agent write, input) for the
   // focused document, from the lines as they stand now to the input's home
   // — a file's tree row, a session's element, a document's tab — and one
@@ -1011,7 +1009,6 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
     return [...out, ...declaredLinks, ...lensLinks];
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [focused?.doc, focused?.docId, contextWrites, declared, lensTick]);
-
   // What is open, as `kind:target` — decided from the layout data, not the
   // DOM, because the layout is the truth about what has a tab.
   const openTargets = useMemo(() => {
@@ -1021,7 +1018,6 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
     }
     return set;
   }, [layout]);
-
   const reopenFocusedDocument = useCallback(() => {
     const session = registry.get(focusedIdRef.current);
     if (!session?.doc) return;
@@ -1030,7 +1026,6 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
     setLayout((current) => openDocTab(current, id, path));
     if (already) flashTab("document", path);
   }, [registry]);
-
   /**
    * Open another document by the path provenance reported for it — the
    * meeting note a message quotes — selecting `span` in it when its session
@@ -1056,7 +1051,6 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
     // registry.version is the signal; it is what changes when an editor mounts.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [registry, registry.version]);
-
   const openDocumentByPath = useCallback(
     (path: string, span?: [number, number]) => {
       const live = registry
@@ -1092,7 +1086,6 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
   }, []);
   focusTreeRef.current = focusTree;
   openTerminalRef.current = () => openTerminal();
-
   // The "open here" ports: one per file the focused document's ribbons reach
   // but no pane shows. They live in the shell's divider (or edge rail) —
   // chrome, not floating labels over content.
@@ -1176,7 +1169,6 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
     layers,
     openPlainFile,
   ]);
-
   // ---- the Insert menu -----------------------------------------------------
   //
   // The vocabulary of the language, as a thing you pick. It writes into
@@ -1194,7 +1186,6 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
     const { from, to } = view.state.selection.main;
     setInsertPanel({ id, selected: view.state.sliceDoc(from, to) });
   }, []);
-
   const applyInsert = useCallback(
     (
       element: Parameters<typeof insertElement>[1],
@@ -1212,7 +1203,6 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
     },
     [],
   );
-
   /**
    * Print whatever buffer has the focus.
    *
@@ -1237,7 +1227,6 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
       text: view.state.doc.toString(),
     });
   }, []);
-
   // The welcome page, once, and only into a workspace that has nothing open.
   // A workspace restored with work in it does not want a welcome screen in
   // front of it; that is the whole difference between "just launched" and
@@ -1251,13 +1240,11 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
       isWorkspaceEmpty(current) ? openWelcomeTab(current) : current,
     );
   }, [workspaceUi.hydrated]);
-
   useEffect(() => {
     if (insertNotice === null) return;
     const timer = window.setTimeout(() => setInsertNotice(null), 4000);
     return () => window.clearTimeout(timer);
   }, [insertNotice]);
-
   // ---- native menu: Save / Save As ---------------------------------------
   //
   // The desktop menu's Save and Save As arrive from App as one window event;
@@ -1271,11 +1258,6 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
         openInsert(insertTarget(detail));
         return;
       }
-      // Save All is the one command that is deliberately NOT about the
-      // focused buffer: every open document, plus every pane holding a file
-      // it saves itself. The panes are reached by an event rather than by a
-      // registry because a plain file has no session — it owns its own saver,
-      // and only it knows whether anything is pending.
       // Format first, when asked to: the focused buffer, through whatever
       // formatter its language server offers. Then the save — every save,
       // since a plain file's autosave and a document's room both answer
@@ -1296,13 +1278,18 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
         printFocusedBuffer();
         return;
       }
-      const session = registry.get(focusedIdRef.current);
-      if (!session) {
-        if (detail === "save" || detail === "save-as") {
-          void formatFirst().then(() => saveUntitled(detail === "save-as"));
-        }
+      const focusedPane = panesOf(layoutRef.current.root).find(
+        (pane) => pane.id === layoutRef.current.focus,
+      );
+      if (
+        (detail === "save" || detail === "save-as") &&
+        focusedPane?.tabs[focusedPane.active]?.kind === "untitled"
+      ) {
+        void formatFirst().then(() => saveUntitled(detail === "save-as"));
         return;
       }
+      const session = registry.get(focusedIdRef.current);
+      if (!session) return;
       if (detail === "save") {
         void formatFirst().then(() => {
           session.menuSave();
@@ -1360,7 +1347,6 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
       window.removeEventListener("hickory-open-path", onOpenPath);
     };
   }, [registry, openPlainFile, openInsert, saveUntitled]);
-
   // ---- terminals ----------------------------------------------------------
   //
   // The window's sessions, the queue across them, and the two keys that reach
@@ -1379,7 +1365,6 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [],
   );
-
   const [attentionAt, setAttentionAt] = useState<string | null>(null);
   const [nothingWaiting, setNothingWaiting] = useState(false);
   // The queue and the sessions change on every poll; the handlers below must
@@ -1392,20 +1377,17 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
   attentionAtRef.current = attentionAt;
   const terminalsRef = useRef(terminals);
   terminalsRef.current = terminals;
-
   const openTerminal = useCallback(async (spec: OpenTerminal = {}) => {
     const session = await terminalsRef.current.open(spec);
     if (!session) return;
     setLayout((current) => openTerminalTab(current, session.id, session.title));
   }, []);
-
   const showTerminal = useCallback((id: string) => {
     const session = sessionsRef.current.find((s) => s.id === id);
     setLayout((current) =>
       openTerminalTab(current, id, session?.title ?? "Terminal"),
     );
   }, []);
-
   /** ⌘J: the next thing claiming attention, or the news that there is none. */
   const nextAttention = useCallback(() => {
     const next = nextInQueue(attentionRef.current, attentionAtRef.current);
@@ -1413,13 +1395,11 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
     setAttentionAt(next);
     setNothingWaiting(next === null);
   }, []);
-
   useEffect(() => {
     if (!nothingWaiting) return;
     const timer = window.setTimeout(() => setNothingWaiting(false), 2000);
     return () => window.clearTimeout(timer);
   }, [nothingWaiting]);
-
   // The native menu's terminal verbs, arriving from App as one window event.
   useEffect(() => {
     const onTerminalCommand = (event: Event) => {
@@ -1436,7 +1416,6 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
     return () =>
       window.removeEventListener("hickory-terminal-command", onTerminalCommand);
   }, [openTerminal, nextAttention]);
-
   // The card follows the cursor, and lets go when what it was showing stops
   // claiming anything — answered here, answered in its own terminal, or
   // closed. A card for a settled session is a card you learn to ignore.
@@ -1448,7 +1427,6 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
       setAttentionAt(null);
     }
   }, [attentionAt, terminals.attention]);
-
   // ---- project search -----------------------------------------------------
   //
   // The shell owns the Mod-Shift-F key while it is mounted; this listener is
@@ -1466,7 +1444,6 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, []);
-
   const resolveHit = useCallback(
     (hit: SearchHit) =>
       resolveSearchHit(hit, {
@@ -1481,7 +1458,6 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
       }),
     [focused, folderDocs],
   );
-
   const onSearchNavigate = useCallback(
     (target: SearchNavigation) => {
       const session = registry.get(focusedIdRef.current);
@@ -1510,7 +1486,6 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
     },
     [registry, ensureDocOpen, openGeneratedFor],
   );
-
   // What a tree click can open beyond documents: any open document's
   // generated files, each owned by the document that made it.
   const openableOutputs = useMemo(() => {
@@ -1525,54 +1500,43 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [registry, registry.version]);
   openableOutputsRef.current = openableOutputs;
-
   // Continuity, for THIS project. `undefined` until the server answers (or
-
   // forever, if it cannot) — the toggle is hidden rather than shown in a
-
   // state nobody chose. Off is the answer to "I could not tell".
-
   const [continuity, setContinuity] = useState<boolean | undefined>(undefined);
-
   useEffect(() => {
-
     let live = true;
-
     api.continuity().then(
-
       (answer) => live && setContinuity(answer.enabled),
-
       () => {},
-
     );
-
     return () => {
-
       live = false;
-
     };
-
   }, []);
-
   const setContinuityEnabled = useCallback((enabled: boolean) => {
-
     setContinuity(enabled);
-
     api.setContinuity(enabled).catch(() => setContinuity(!enabled));
-
   }, []);
-
-
   const drawnLayers = useMemo(
-
     () => new Set([...layers].filter((l) => l !== "continuity") as RibbonFamily[]),
-
     [layers],
-
   );
-
+  const { dirtyTabIds, dirtyPaths, requestCloseTab } = useUnsavedLifecycle({
+    layout,
+    layoutRef,
+    setLayout,
+    registry,
+    retainSavedDrafts,
+    untitledSources,
+    untitledSourcesRef,
+    forgetUntitled,
+    saveUntitled,
+    prompt: shellPrompt,
+    plainDirtyTabs,
+    plainUnsavedActions,
+  });
   const banner = focused?.banner ?? null;
-
   /**
    * What one tab shows.
    *
@@ -1615,6 +1579,16 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
           onReferences={setFileReferences}
           askText={shellPrompt.askText}
           askChoice={shellPrompt.askChoice}
+          retainUnsaved={retainSavedDrafts}
+          onUnsaved={(dirty, actions) => {
+            plainUnsavedActions.current.set(tab.id, actions);
+            setPlainDirtyTabs((current) => {
+              const next = new Set(current);
+              if (dirty) next.add(tab.id);
+              else next.delete(tab.id);
+              return next;
+            });
+          }}
           onAdopted={(adopted) => {
             // The file gained an owner: this tab becomes a
             // generated tab in place, and the owning document
@@ -1639,7 +1613,16 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
       return <ScratchpadPane key={tab.id} />;
     }
     if (tab.kind === "untitled") {
-      return <UntitledTab tabId={tab.id} />;
+      return (
+        <UntitledTab
+          tabId={tab.id}
+          onSource={(tabId, source) =>
+            setUntitledSources((current) =>
+              current[tabId] === source ? current : { ...current, [tabId]: source },
+            )
+          }
+        />
+      );
     }
     if (tab.kind === "terminal") {
       // The emulator draws to a canvas, so the CSS zoom around it does
@@ -1722,6 +1705,7 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
           error={folderError}
           openable={new Set(openableOutputs.keys())}
           activeDocId={focusedId ?? undefined}
+          dirtyPaths={dirtyPaths}
           onNewDocument={newDocument}
           // What is running, shown where it is running. The tree
           // already knows the folder; the sessions already know
@@ -1815,6 +1799,7 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
               registry={registry}
               docId={docId}
               openGenerated={openGeneratedFor}
+              retainUnsaved={retainSavedDrafts}
             />
           ))}
           <ShellView
@@ -1824,6 +1809,8 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
             ports={ports}
             tabStyle={tabStyle}
             channelWidth={channelWidth}
+            dirtyTabIds={dirtyTabIds}
+            onRequestCloseTab={requestCloseTab}
             empty={
               <span>
                 Nothing open here.

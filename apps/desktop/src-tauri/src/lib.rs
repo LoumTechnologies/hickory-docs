@@ -26,14 +26,28 @@ use std::path::{Path, PathBuf};
 
 use anyhow::Context as _;
 use tauri::menu::{Menu, MenuBuilder, MenuItemBuilder, SubmenuBuilder};
-use tauri::{AppHandle, Manager as _, WebviewUrl, WebviewWindowBuilder, Wry};
+use tauri::{AppHandle, Manager as _, WebviewUrl, WebviewWindowBuilder, WindowEvent, Wry};
 use tauri_plugin_dialog::{DialogExt as _, MessageDialogKind};
 
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .on_menu_event(|app, event| on_menu(app, event.id().as_ref()))
+        .on_window_event(|window, event| {
+            if let WindowEvent::CloseRequested { api, .. } = event {
+                let gate = window.state::<CloseGate>();
+                if !gate.0.swap(false, std::sync::atomic::Ordering::SeqCst) {
+                    api.prevent_close();
+                    if let Some(webview) = window.app_handle().get_webview_window(window.label()) {
+                        let _ = webview.eval(
+                            "window.dispatchEvent(new Event('hickory-window-close-request'))",
+                        );
+                    }
+                }
+            }
+        })
         .setup(|app| {
+            app.manage(CloseGate(std::sync::atomic::AtomicBool::new(false)));
             let handle = app.handle().clone();
             // The menu is built here rather than through `.menu(...)`: it
             // reads the person's accelerators from ui.json, which needs the
@@ -49,6 +63,8 @@ pub fn run() {
         .run(tauri::generate_context!())
         .expect("error while running Hickory Docs");
 }
+
+struct CloseGate(std::sync::atomic::AtomicBool);
 
 /// The native menu bar.
 ///

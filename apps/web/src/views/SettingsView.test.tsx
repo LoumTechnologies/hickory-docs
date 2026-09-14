@@ -254,4 +254,16 @@ describe("the appearance section", () => {
     await waitFor(() => expect(uiPuts.at(-1)).toEqual({ format_on_save: true }));
     await waitFor(() => expect(box.checked).toBe(true));
   });
+
+  // Guarantee: docs/guarantees/authoring/unsaved-work-survives-closing-the-app.md
+  it("keeps saved-file recovery off by default and persists an opt-in", async () => {
+    render(<SettingsView />);
+    const box = (await screen.findByLabelText("Retain unsaved changes")) as HTMLInputElement;
+    expect(box.checked).toBe(false);
+    fireEvent.click(box);
+    await waitFor(() =>
+      expect(uiPuts.at(-1)).toEqual({ retain_unsaved_saved_files: true }),
+    );
+    expect(box.checked).toBe(true);
+  });
 });

@@ -212,6 +212,10 @@ pub struct UiStore {
     /// this product's documents are prose as much as code.
     #[serde(default)]
     pub format_on_save: bool,
+    /// Keep recovery drafts for buffers whose file already exists. Off by
+    /// default; unnamed documents are always drafts and do not consult this.
+    #[serde(default)]
+    pub retain_unsaved_saved_files: bool,
     /// The keyboard profile and the person's own overrides, as the page
     /// keeps them (`{"profile": "vscode", "overrides": {"editor.format":
     /// "Ctrl+Alt+L", …}}`). Opaque here: the catalogue of actions and the
@@ -539,6 +543,7 @@ fn router(state: LocalState) -> Router {
         .route("/files", get(api::files))
         .route("/files/op", post(files_ops::file_op))
         .route("/pick-folder", post(shell::pick_folder))
+        .route("/window/close", post(shell::close_window))
         .route("/reveal", post(reveal::reveal))
         .route("/open-external", post(reveal::open_external))
         .route("/file", get(plain_file::get_file).put(plain_file::put_file))

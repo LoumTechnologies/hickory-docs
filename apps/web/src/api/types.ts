@@ -529,10 +529,8 @@ export interface StructureResponse {
 // --- settings: LLM API keys --------------------------------------------------
 // GET/PUT /api/settings/keys. The server NEVER returns a full key — only
 // whether one is configured, and a masked hint for telling keys apart.
-
 export type ProviderId =
   "anthropic" | "openai" | "openrouter" | "deepseek" | "xai" | "gab";
-
 export interface ProviderKey {
   id: ProviderId;
   label: string;
@@ -540,41 +538,36 @@ export interface ProviderKey {
   /** e.g. "sk-a…f3" when configured; null otherwise. Never the full key. */
   masked: string | null;
 }
-
 export interface SettingsKeysResponse {
   providers: ProviderKey[];
 }
-
 /** PUT body: only the providers being changed — a string sets, null clears.
  * Untouched providers are simply absent. */
 export type SettingsKeysPatch = Partial<Record<ProviderId, string | null>>;
-
 // --- settings: UI ------------------------------------------------------------
 // GET/PUT /api/settings/ui. Persisted server-side (ui.json beside
 // llm-keys.json) so the desktop shell can read the custom window title at
 // launch, before any page has loaded.
-
 export interface UiSettings {
   /** Custom window title, or null for the default (folder / file name). */
   window_title: string | null;
   /** Run the file's formatter when Save is chosen. */
   format_on_save: boolean;
+  /** Recover unsaved buffers for files that already have a name. */
+  retain_unsaved_saved_files?: boolean;
   /** The keyboard profile and overrides, as lib/keymap.ts keeps them. */
   keymap?: { profile?: unknown; overrides?: Record<string, unknown> } | null;
   /** The menu bar's resolved accelerators, by menu id; the shell reads
    * these at launch. */
   native_accelerators?: Record<string, string | null>;
 }
-
 // --- terminals ---------------------------------------------------------------
 // /api/terminals. A terminal here is a SESSION: named work, in a directory,
 // on a branch, that knows whether it is busy, blocked, or done — and keeps
 // knowing while its pane is closed. See crates/hick-term.
-
 /** The five states. Working and idle make no claim on your attention. */
 export type SessionState =
   "needs-you" | "working" | "idle" | "finished" | "failed";
-
 /** Where a prompt came from, which decides how far it may be trusted:
  * "declared" is structural (the program said so, with its choices),
  * "guessed" is us recognising the shape of a question on a screen. */

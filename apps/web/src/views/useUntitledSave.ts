@@ -9,7 +9,7 @@ import type { Dispatch, MutableRefObject, SetStateAction } from "react";
 
 import { api } from "../api/client";
 import { untitledDraftKey, untitledPath, wrapUntitled } from "../lib/newDoc";
-import { focusedEditor } from "../editor/activeEditor";
+import { focusedEditor, untitledEditor } from "../editor/activeEditor";
 import { panes, type Layout } from "../shell/layout";
 import { redirect } from "../router";
 import { adoptUntitledTab } from "./workspaceState";
@@ -19,11 +19,15 @@ export function useUntitledSave({
   setLayout,
   askText,
   onError,
+  sourceFor,
+  onSaved,
 }: {
   layoutRef: MutableRefObject<Layout>;
   setLayout: Dispatch<SetStateAction<Layout>>;
   askText: (question: string, initial: string) => Promise<string | null>;
   onError: (message: string) => void;
+  sourceFor?: (tabId: string) => string | undefined;
+  onSaved?: (tabId: string) => void;
 }): (saveAs: boolean) => Promise<boolean> {
   return useCallback(
     async (saveAs: boolean) => {
@@ -32,7 +36,11 @@ export function useUntitledSave({
       );
       const tab = pane?.tabs[pane.active];
       if (!tab || tab.kind !== "untitled") return false;
-      const untitled = { tabId: tab.id, source: focusedEditor()?.state.doc.toString() ?? "" };
+      const editor = untitledEditor() ?? focusedEditor();
+      const untitled = {
+        tabId: tab.id,
+        source: sourceFor?.(tab.id) ?? editor?.state.doc.toString() ?? "",
+      };
       if (untitled.source.length === 0) return true;
       try {
         const project = (await api.projects())[0];
@@ -46,23 +54,25 @@ export function useUntitledSave({
           saveAs ? "Save note as (relative path):" : "Name this note (relative path):",
           suggested,
         );
-        if (!path) return true;
+        if (!path) return false;
         const created = await api.createDoc(project.id, path.trim(), wrapUntitled(untitled.source));
-        const latest = focusedEditor()?.state.doc.toString() ?? untitled.source;
+        const latest = untitledEditor()?.state.doc.toString() ?? untitled.source;
         if (latest !== untitled.source) await api.saveDoc(created.id, wrapUntitled(latest));
         // Tell the mounted keeper first: its unmount cleanup must not write
         // this now-real file back into the draft store after we discard it.
         window.dispatchEvent(new CustomEvent("hickory-untitled-saved", { detail: untitled.tabId }));
+        onSaved?.(untitled.tabId);
         void api.discardDraft(untitledDraftKey(untitled.tabId));
         setLayout((current) =>
           adoptUntitledTab(current, untitled.tabId, created.id, created.path),
         );
         redirect(`/docs/${created.id}`);
+        return true;
       } catch (e) {
         onError(e instanceof Error ? e.message : String(e));
+        return false;
       }
-      return true;
     },
-    [askText, layoutRef, onError, setLayout],
+    [askText, layoutRef, onError, onSaved, setLayout, sourceFor],
   );
 }

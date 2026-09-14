@@ -68,6 +68,8 @@ export function PlainFilePane({
   onReferences,
   askText,
   askChoice,
+  retainUnsaved = false,
+  onUnsaved,
 }: {
   path: string;
   /** Adoption succeeded: the file now has an owning document. The workspace
@@ -79,6 +81,16 @@ export function PlainFilePane({
   askText?: (title: string, initial: string) => Promise<string | null>;
   /** The window's prompt, for choosing a code action. */
   askChoice?: <T>(title: string, options: { label: string; value: T }[]) => Promise<T | null>;
+  /** Keep a recovery draft for this already-named file. */
+  retainUnsaved?: boolean;
+  onUnsaved?: (
+    dirty: boolean,
+    actions: {
+      save: () => Promise<boolean>;
+      discard: () => void;
+      retain: () => Promise<void>;
+    },
+  ) => void;
 }) {
   const hostRef = useRef<HTMLDivElement>(null);
   const viewRef = useRef<EditorView | null>(null);
@@ -120,6 +132,13 @@ export function PlainFilePane({
   askTextRef.current = askText;
   const askChoiceRef = useRef(askChoice);
   askChoiceRef.current = askChoice;
+  const onUnsavedRef = useRef(onUnsaved);
+  onUnsavedRef.current = onUnsaved;
+  const actionsRef = useRef<{
+    save: () => Promise<boolean>;
+    discard: () => void;
+    retain: () => Promise<void>;
+  }>({ save: async () => true, discard: () => {}, retain: async () => {} });
   // What the language server was last told — a refused rename, a code action
   // this editor cannot run — shown in the toolbar until the next one.
   const [notice, setNotice] = useState<string | null>(null);
@@ -177,10 +196,27 @@ export function PlainFilePane({
     () =>
       createPlainSaver({
         put: (content, baseHash, force) => api.saveFile(path, content, baseHash, force),
-        onState: setSaveState,
+        onState: (state) => {
+          setSaveState(state);
+          if (state.kind === "idle" || state.kind === "saved") {
+            onUnsavedRef.current?.(false, actionsRef.current);
+          }
+        },
       }),
     [path],
   );
+  actionsRef.current = {
+    save: () => saver.flushNow(),
+    discard: () => {
+      const base = saver.discardPending();
+      const view = viewRef.current;
+      if (view && view.state.doc.toString() !== base) syncAndFlash(view, base);
+    },
+    retain: async () => {
+      const contents = viewRef.current?.state.doc.toString() ?? lastTextRef.current;
+      await api.saveDraft({ path, contents, base: saver.baseContent(), saved_at: Date.now() });
+    },
+  };
   useEffect(() => () => saver.dispose(), [saver]);
   // File > Save All: this pane owns its saver, so it answers for its own
   // buffer. See lib/flushSaves.ts.
@@ -217,6 +253,7 @@ export function PlainFilePane({
             // route's own refusal is the backstop.
           },
         );
+        if (!retainUnsaved) return;
         // Was this buffer holding unsaved work when the app last closed?
         //
         // Three answers, and only one of them interrupts anybody. The file is
@@ -258,7 +295,7 @@ export function PlainFilePane({
     return () => {
       live = false;
     };
-  }, [path, saver]);
+  }, [path, saver, retainUnsaved]);
 
   // The view is created ONCE, when the first load lands. Later content
   // arrives through syncAndFlash below — rebuilding the editor would throw
@@ -442,6 +479,7 @@ export function PlainFilePane({
                   t.isUserEvent("redo"),
               )
             ) {
+              onUnsavedRef.current?.(true, actionsRef.current);
               saver.changed(u.state.doc.toString());
             }
           }),
@@ -484,7 +522,7 @@ export function PlainFilePane({
   // callback so this costs nothing on the typing path — see lib/drafts.ts.
   useDraftKeeper({
     path,
-    enabled: loaded,
+    enabled: loaded && retainUnsaved,
     read: () => ({
       // The view when it exists; what it last held when it does not. An
       // absent view is not an empty buffer.

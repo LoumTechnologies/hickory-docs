@@ -68,6 +68,10 @@ export interface ShellViewProps {
    * braces, and their links live. Persisted by lib/channelWidth.ts; the
    * shell clamps and obeys. */
   channelWidth?: number;
+  /** Tab ids whose buffers differ from their last explicit Save. */
+  dirtyTabIds?: ReadonlySet<string>;
+  /** Give the owner a chance to ask before removing a tab. */
+  onRequestCloseTab?: (paneId: string, tabId: string) => void;
 }
 
 export function ShellView({
@@ -79,8 +83,10 @@ export function ShellView({
   ports,
   tabStyle = "top",
   channelWidth = CHANNEL_WIDTH_DEFAULT,
+  dirtyTabIds = new Set(),
+  onRequestCloseTab,
 }: ShellViewProps) {
-  useShellKeys(layout, onLayout, onSearch);
+  useShellKeys(layout, onLayout, onSearch, onRequestCloseTab);
   const dragging = useTabDrag(layout, onLayout);
   // "Open" on an already-open file flashes its tab (lib/flashTab.ts) —
   // wherever the tab renders: top strip, side tree, or a collapsed strip.
@@ -111,6 +117,8 @@ export function ShellView({
         dragging={dragging}
         tabStyle={tabStyle}
         channelWidth={channelWidth}
+        dirtyTabIds={dirtyTabIds}
+        onRequestCloseTab={onRequestCloseTab}
       />
       {!rootHostsPorts && stacked && (
         <div className="shell-ports-rail" role="toolbar" aria-label="Files ribbons lead to">
@@ -155,7 +163,7 @@ interface NodeProps extends Omit<ShellViewProps, "layout"> {
   dragging: TabDragging;
 }
 
-function ShellNode({ node, layout, onLayout, render, empty, ports, dragging, tabStyle, channelWidth }: NodeProps) {
+function ShellNode({ node, layout, onLayout, render, empty, ports, dragging, tabStyle, channelWidth, dirtyTabIds, onRequestCloseTab }: NodeProps) {
   if (node.type === "pane") {
     if (node.collapsed) {
       return <CollapsedStrip pane={node} layout={layout} onLayout={onLayout} dragging={dragging} />;
@@ -169,6 +177,8 @@ function ShellNode({ node, layout, onLayout, render, empty, ports, dragging, tab
         empty={empty}
         dragging={dragging}
         tabStyle={tabStyle}
+        dirtyTabIds={dirtyTabIds}
+        onRequestCloseTab={onRequestCloseTab}
       />
     );
   }
@@ -183,11 +193,13 @@ function ShellNode({ node, layout, onLayout, render, empty, ports, dragging, tab
       dragging={dragging}
       tabStyle={tabStyle}
       channelWidth={channelWidth}
+      dirtyTabIds={dirtyTabIds}
+      onRequestCloseTab={onRequestCloseTab}
     />
   );
 }
 
-function SplitBox({ node, layout, onLayout, render, empty, ports, dragging, tabStyle, channelWidth }: NodeProps & { node: { type: "split" } & Node }) {
+function SplitBox({ node, layout, onLayout, render, empty, ports, dragging, tabStyle, channelWidth, dirtyTabIds, onRequestCloseTab }: NodeProps & { node: { type: "split" } & Node }) {
   const box = useRef<HTMLDivElement | null>(null);
   const split = node as Extract<Node, { type: "split" }>;
   const horizontal = split.direction === "row";
@@ -269,6 +281,8 @@ function SplitBox({ node, layout, onLayout, render, empty, ports, dragging, tabS
             dragging={dragging}
             tabStyle={tabStyle}
             channelWidth={channelWidth}
+            dirtyTabIds={dirtyTabIds}
+            onRequestCloseTab={onRequestCloseTab}
           />
         </FragmentWithDivider>
       ))}
@@ -330,6 +344,8 @@ function TabChip({
   dragging,
   side,
   depth = 0,
+  dirtyTabIds,
+  onRequestCloseTab,
 }: {
   tab: Tab;
   index: number;
@@ -339,6 +355,8 @@ function TabChip({
   dragging: TabDragging;
   side: boolean;
   depth?: number;
+  dirtyTabIds?: ReadonlySet<string>;
+  onRequestCloseTab?: (paneId: string, tabId: string) => void;
 }) {
   // Middle-click is a press and a release on the same tab; between them this
   // remembers that the press was ours (see onPointerDown below).
@@ -378,7 +396,8 @@ function TabChip({
       onPointerUp={(event) => {
         if (event.button !== 1 || !middlePress.current) return;
         middlePress.current = false;
-        onLayout(closeTab(layout, pane.id, tab.id));
+        if (onRequestCloseTab) onRequestCloseTab(pane.id, tab.id);
+        else onLayout(closeTab(layout, pane.id, tab.id));
       }}
       onPointerLeave={() => {
         middlePress.current = false;
@@ -397,6 +416,7 @@ function TabChip({
         data-tip={tab.target}
       >
         {tab.title ?? tab.target.split("/").pop()}
+        {dirtyTabIds?.has(tab.id) ? " *" : ""}
       </button>
       <button
         type="button"
@@ -404,7 +424,8 @@ function TabChip({
         aria-label={`Close ${tab.title ?? tab.target}`}
         onClick={(event) => {
           event.stopPropagation();
-          onLayout(closeTab(layout, pane.id, tab.id));
+          if (onRequestCloseTab) onRequestCloseTab(pane.id, tab.id);
+          else onLayout(closeTab(layout, pane.id, tab.id));
         }}
       >
         ×
@@ -512,6 +533,8 @@ function PaneBox({
   empty,
   dragging,
   tabStyle,
+  dirtyTabIds,
+  onRequestCloseTab,
 }: Omit<NodeProps, "node"> & { pane: Pane }) {
   const active = pane.tabs[pane.active] ?? null;
   const isFocused = layout.focus === pane.id;
@@ -559,6 +582,8 @@ function PaneBox({
                 onLayout={onLayout}
                 dragging={dragging}
                 side={false}
+                dirtyTabIds={dirtyTabIds}
+                onRequestCloseTab={onRequestCloseTab}
               />
             ))}
             {dropCaret && !dropCaret.vertical && (
@@ -642,6 +667,8 @@ function PaneBox({
                   dragging={dragging}
                   side
                   depth={row.depth}
+                  dirtyTabIds={dirtyTabIds}
+                  onRequestCloseTab={onRequestCloseTab}
                 />
               ),
             )}
@@ -864,7 +891,12 @@ function useTabDrag(layout: Layout, onLayout: (next: Layout) => void): TabDraggi
  * text: anything that edits belongs to the editor in the pane, which already
  * has its own keymap and its own idea of what has focus.
  */
-function useShellKeys(layout: Layout, onLayout: (next: Layout) => void, onSearch?: () => void) {
+function useShellKeys(
+  layout: Layout,
+  onLayout: (next: Layout) => void,
+  onSearch?: () => void,
+  onRequestCloseTab?: (paneId: string, tabId: string) => void,
+) {
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       if (isAction(event, "search.inFolder")) {
@@ -893,10 +925,11 @@ function useShellKeys(layout: Layout, onLayout: (next: Layout) => void, onSearch
         const tab = found?.tabs[found.active];
         if (!tab) return;
         event.preventDefault();
-        onLayout(closeTab(layout, pane, tab.id));
+        if (onRequestCloseTab) onRequestCloseTab(pane, tab.id);
+        else onLayout(closeTab(layout, pane, tab.id));
       }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [layout, onLayout, onSearch]);
+  }, [layout, onLayout, onSearch, onRequestCloseTab]);
 }

@@ -151,6 +151,18 @@ export function App() {
     });
   }, []);
   useEffect(() => {
+    const onClose = () => {
+      const current = routeRef.current;
+      if (current.name === "doc" || current.name === "new" || current.name === "scratchpad") {
+        window.dispatchEvent(new Event("hickory-workspace-close-request"));
+      } else {
+        void api.closeWindow();
+      }
+    };
+    window.addEventListener("hickory-window-close-request", onClose);
+    return () => window.removeEventListener("hickory-window-close-request", onClose);
+  }, []);
+  useEffect(() => {
     if (notice === null) return;
     const timer = setTimeout(() => setNotice(null), 2500);
     return () => clearTimeout(timer);

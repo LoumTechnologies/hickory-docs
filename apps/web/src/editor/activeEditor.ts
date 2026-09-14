@@ -56,6 +56,7 @@ export function activeEditor(): EditorView | null {
 // they are looking at.
 
 let focused: EditorView | null = null;
+let untitled: EditorView | null = null;
 
 /** Remember this editor as the last one the reader was in. Every editing
  * pane registers here, unlike `markActiveEditor`. */
@@ -73,8 +74,19 @@ export function focusedEditor(): EditorView | null {
   return focused;
 }
 
+/** The one unnamed note's editor. Its first Save must not depend on focus. */
+export function markUntitledEditor(view: EditorView | null): void {
+  untitled = view;
+}
+
+export function untitledEditor(): EditorView | null {
+  if (untitled && !untitled.dom.isConnected) untitled = null;
+  return untitled;
+}
+
 /** Test seam: drop whatever is remembered. */
 export function resetActiveEditor(): void {
   current = null;
   focused = null;
+  untitled = null;
 }

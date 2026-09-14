@@ -56,12 +56,14 @@ function Harness({
   onNew = () => {},
   sessions = [],
   onOpenTerminal,
+  dirtyPaths = new Set<string>(),
 }: {
   onOpen?: (action: Exclude<FileAction, { kind: "inert" }>) => void;
   openable?: Set<string>;
   onNew?: () => void;
   sessions?: readonly TreeSession[];
   onOpenTerminal?: (id: string) => void;
+  dirtyPaths?: ReadonlySet<string>;
 }) {
   const { roots, error } = useFolderTrees();
   return (
@@ -73,6 +75,7 @@ function Harness({
       onNewDocument={onNew}
       sessions={sessions}
       onOpenTerminal={onOpenTerminal}
+      dirtyPaths={dirtyPaths}
     />
   );
 }
@@ -84,6 +87,12 @@ beforeEach(() => {
 afterEach(cleanup);
 
 describe("rendering the folder", () => {
+  // Guarantee: docs/guarantees/authoring/unsaved-work-survives-closing-the-app.md
+  it("marks a file dirty from the buffer state supplied by the workspace", async () => {
+    render(<Harness dirtyPaths={new Set(["paper.hick"])} />);
+    expect(await screen.findByText("paper.hick *")).toBeTruthy();
+    expect(screen.getByText("readme.txt").textContent).toBe("readme.txt");
+  });
   it("names the folder after its last path segment and offers a new document", async () => {
     const onNew = vi.fn();
     render(<Harness onNew={onNew} />);

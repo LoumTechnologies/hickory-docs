@@ -330,6 +330,7 @@ function EditingSection() {
   // Format on save, as the server knows it. Off until the read lands: the
   // default, and the honest answer while nothing is known.
   const [formatSave, setFormatSave] = useState(false);
+  const [retainSavedDrafts, setRetainSavedDrafts] = useState(false);
   const [formatError, setFormatError] = useState<string | null>(null);
   useEffect(() => {
     let live = true;
@@ -337,6 +338,7 @@ function EditingSection() {
       (ui) => {
         if (!live) return;
         setFormatSave(ui.format_on_save === true);
+        setRetainSavedDrafts(ui.retain_unsaved_saved_files === true);
         setFormatOnSave(ui.format_on_save === true);
       },
       (e) => {
@@ -357,6 +359,28 @@ function EditingSection() {
       },
       (e) => {
         setFormatSave(!on);
+        setFormatError(e instanceof Error ? e.message : String(e));
+      },
+    );
+  };
+  const applyRetainSavedDrafts = (on: boolean) => {
+    setFormatError(null);
+    setRetainSavedDrafts(on);
+    api.saveSettingsUi({ retain_unsaved_saved_files: on }).then(
+      (ui) => {
+        setRetainSavedDrafts(ui.retain_unsaved_saved_files === true);
+        if (!on) {
+          void api.drafts().then(({ drafts }) =>
+            Promise.all(
+              drafts
+                .filter((draft) => !draft.path.startsWith("untitled:"))
+                .map((draft) => api.discardDraft(draft.path)),
+            ),
+          );
+        }
+      },
+      (e) => {
+        setRetainSavedDrafts(!on);
         setFormatError(e instanceof Error ? e.message : String(e));
       },
     );
@@ -410,6 +434,25 @@ function EditingSection() {
                 {formatError}
               </span>
             )}
+          </div>
+        </div>
+        <div className="settings-row settings-row--appearance">
+          <div className="settings-row__who">
+            <label className="settings-row__label" htmlFor="retain-unsaved-saved-files">
+              Retain unsaved changes
+            </label>
+          </div>
+          <div className="settings-row__actions">
+            <input
+              id="retain-unsaved-saved-files"
+              type="checkbox"
+              checked={retainSavedDrafts}
+              onChange={(event) => applyRetainSavedDrafts(event.target.checked)}
+            />
+            <span className="muted">
+              Keep recovery drafts after closing files that have been saved before.
+              New, unnamed documents are always retained.
+            </span>
           </div>
         </div>
       </div>

@@ -296,6 +296,8 @@ export interface FolderTreePaneProps {
   onNewDocument: () => void;
   /** The document currently on screen, to mark its row. */
   activeDocId?: string;
+  /** Project-relative paths whose open buffers differ from explicit Save. */
+  dirtyPaths?: ReadonlySet<string>;
   /** Terminal sessions, shown as icons on the directory each one is working
    * in. There is no separate list of terminals any more: a terminal has a
    * working directory, this tree already draws directories, and two trees
@@ -387,6 +389,7 @@ export function FolderTreePane({
   onOpen,
   onNewDocument,
   activeDocId,
+  dirtyPaths = new Set(),
   sessions = [],
   onOpenTerminal,
   onNewTerminal,
@@ -414,6 +417,7 @@ export function FolderTreePane({
           onOpen={onOpen}
           onNewDocument={onNewDocument}
           activeDocId={activeDocId}
+          dirtyPaths={dirtyPaths}
           sessions={sessions}
           onOpenTerminal={onOpenTerminal}
           onNewTerminal={onNewTerminal}
@@ -431,6 +435,7 @@ function FolderRoot({
   onOpen,
   onNewDocument,
   activeDocId,
+  dirtyPaths,
   sessions,
   onOpenTerminal,
   onNewTerminal,
@@ -442,6 +447,7 @@ function FolderRoot({
   onOpen: FolderTreePaneProps["onOpen"];
   onNewDocument: () => void;
   activeDocId?: string;
+  dirtyPaths: ReadonlySet<string>;
   sessions: readonly TreeSession[];
   onOpenTerminal?: (id: string) => void;
   onNewTerminal?: (path: string) => void;
@@ -636,6 +642,7 @@ function FolderRoot({
             openable={openable}
             onOpen={onOpen}
             activeDocId={activeDocId}
+            dirtyPaths={dirtyPaths}
             sessions={sessions}
             placement={placement}
             onOpenTerminal={onOpenTerminal}
@@ -686,6 +693,7 @@ function TreeRow({
   openable,
   onOpen,
   activeDocId,
+  dirtyPaths,
   sessions,
   placement,
   onOpenTerminal,
@@ -702,6 +710,7 @@ function TreeRow({
   openable: ReadonlySet<string>;
   onOpen: FolderTreePaneProps["onOpen"];
   activeDocId?: string;
+  dirtyPaths: ReadonlySet<string>;
   sessions: readonly TreeSession[];
   placement: ReadonlyMap<string, TreeSession[]>;
   onOpenTerminal?: (id: string) => void;
@@ -784,6 +793,7 @@ function TreeRow({
                 openable={openable}
                 onOpen={onOpen}
                 activeDocId={activeDocId}
+                dirtyPaths={dirtyPaths}
                 sessions={sessions}
                 placement={placement}
                 onOpenTerminal={onOpenTerminal}
@@ -845,7 +855,7 @@ function TreeRow({
         onContextMenu={(event) => onRowMenu(event, node.path, false, action.kind === "file")}
       >
         {mark}
-        {node.name}
+        {node.name}{dirtyPaths.has(node.path) ? " *" : ""}
         {node.diverged && (
           // The disk does not hold what the document produces, and the loop
           // is leaving it that way — said here rather than silently. The

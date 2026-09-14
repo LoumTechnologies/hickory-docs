@@ -21,6 +21,7 @@ import type { Baseline } from "../components/RefactorBadge";
 import { GeneratedFileView } from "../shell/views";
 import { untitledDraftKey } from "../lib/newDoc";
 import { useDraftKeeper } from "../lib/drafts";
+import { markUntitledEditor } from "../editor/activeEditor";
 import { useDocSession, type SessionRegistry } from "./documentSession";
 
 /**
@@ -302,8 +303,10 @@ const NO_RUNNING_CELLS = new Set<string>();
  */
 export function UntitledTab({
   tabId,
+  onSource,
 }: {
   tabId: string;
+  onSource?: (tabId: string, source: string) => void;
 }) {
   // A local, client-seeded realtime: there is no server room to join until
   // the document exists, and the CRDT is happy with one writer.
@@ -341,10 +344,24 @@ export function UntitledTab({
     void api.drafts().then(
       ({ drafts }) => {
         if (!live) return;
-        const draft = drafts.find((candidate) => candidate.path === untitledDraftKey(tabId));
+        const key = untitledDraftKey(tabId);
+        const draft =
+          drafts.find((candidate) => candidate.path === key) ??
+          drafts
+            .filter((candidate) => candidate.path.startsWith("untitled:"))
+            .sort((a, b) => b.saved_at - a.saved_at)[0];
         if (!draft?.contents) return;
         restoredRef.current = draft.contents;
         restore(viewRef.current);
+        // A closed tab gets a fresh id when Untitled is opened again. Move
+        // its one unnamed draft to that new key so the next close/reopen is
+        // not dependent on an id the layout no longer contains.
+        if (draft.path !== key) {
+          void api
+            .saveDraft({ ...draft, path: key })
+            .then(() => api.discardDraft(draft.path))
+            .catch(() => {});
+        }
       },
       () => {
         // The window remains useful without a writable workspace store; it
@@ -368,11 +385,13 @@ export function UntitledTab({
         onRunCell={() => {}}
         onViewReady={(view) => {
           viewRef.current = view;
+          markUntitledEditor(view);
           restore(view);
           // Land ready to type — an empty editor you still have to click
           // into is a chooser with extra steps.
           view?.focus();
         }}
+        onChange={(source) => onSource?.(tabId, source)}
       />
     </div>
   );

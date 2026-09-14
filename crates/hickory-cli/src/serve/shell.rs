@@ -53,6 +53,8 @@ pub struct Shell {
     /// never an error.
     #[allow(clippy::type_complexity)]
     pub pick_folder: Arc<dyn Fn(&Path) -> Result<Option<PathBuf>> + Send + Sync>,
+    /// Close this host window after the page has resolved unsaved buffers.
+    pub close_window: Arc<dyn Fn() -> Result<()> + Send + Sync>,
 }
 
 impl std::fmt::Debug for Shell {
@@ -93,6 +95,15 @@ impl LocalState {
                  Next step: open {} with `hick open`, or point another `hick up` at it.",
                 folder.display()
             ),
+        }
+    }
+
+    pub fn close_window(&self) -> Result<()> {
+        match self.hook(|s| s.close_window.clone()) {
+            Some(close) => close(),
+            None => {
+                anyhow::bail!("this engine is running in a browser tab; close it with the browser")
+            }
         }
     }
 
@@ -144,4 +155,12 @@ pub async fn pick_folder(
     Ok(Json(
         json!({ "path": picked.map(|p| p.to_string_lossy().into_owned()) }),
     ))
+}
+
+/// `POST /api/window/close` — called only after the page's save prompt.
+pub async fn close_window(State(state): State<LocalState>) -> ApiResult<Json<Value>> {
+    state
+        .close_window()
+        .map_err(|e| ApiError::unavailable(format!("{e:#}")))?;
+    Ok(Json(json!({ "ok": true })))
 }

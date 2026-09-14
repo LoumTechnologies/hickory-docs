@@ -243,6 +243,8 @@ export const api = {
    * hosting the engine has no dialogs — see crates/hickory-cli/src/serve/shell.rs. */
   pickFolder: (start: string) =>
     request<{ path: string | null }>("POST", "/api/pick-folder", { start }),
+  /** Close the native window after the page has settled dirty buffers. */
+  closeWindow: () => request<{ ok: true }>("POST", "/api/window/close"),
 
   /** What this machine can scaffold: every `dotnet new` template its SDK
    * has. 422 with `{missing: "dotnet"}` when there is no SDK at all — the
