@@ -28,6 +28,36 @@ describe("the filesystem as significant-whitespace text", () => {
     ]);
   });
 
+  it("treats reordered unchanged entries as presentation, not filesystem edits", () => {
+    const result = reconcileFilesystemTreeText(
+      "notes.txt\nsrc/\n  one.ts",
+      filesystemTextEntries(nodes),
+    );
+    expect(result.reconciliation).toEqual({ renames: [], creates: [], deletes: [] });
+  });
+
+  it("matches unchanged reordered entries before finding the one real rename", () => {
+    const result = reconcileFilesystemTreeText(
+      "notes.txt\nsrc/\n  first.ts",
+      filesystemTextEntries(nodes),
+    );
+    expect(result.reconciliation?.renames).toEqual([
+      { path: "src/one.ts", to: "src/first.ts" },
+    ]);
+  });
+
+  it("keeps reordered row identity through a column-style prefix edit", () => {
+    const original = filesystemTextEntries([
+      { name: "one.txt", path: "one.txt", dir: false },
+      { name: "two.txt", path: "two.txt", dir: false },
+    ]);
+    const result = reconcileFilesystemTreeText("renamed-two.txt\nrenamed-one.txt", original);
+    expect(result.reconciliation?.renames).toEqual([
+      { path: "two.txt", to: "renamed-two.txt" },
+      { path: "one.txt", to: "renamed-one.txt" },
+    ]);
+  });
+
   it("refuses malformed or type-changing structure", () => {
     const original = filesystemTextEntries(nodes);
     expect(parseFilesystemTreeText("src/\n one.ts\nnotes.txt", original).error).toContain("two spaces");

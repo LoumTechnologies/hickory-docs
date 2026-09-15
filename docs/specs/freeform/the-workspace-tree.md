@@ -180,6 +180,19 @@ bytes to operate on. Saving changed names or indentation computes filesystem
 rename/move operations. A click places point; a separate activation gesture
 opens a file or focuses the non-file object named by the line.
 
+Line order carries no filesystem meaning. Reordering unchanged entries is a
+local presentation edit, stays clean, and produces no Dry Run or Apply
+operation; identity matching uses the unchanged root-relative path and
+file/folder kind before interpreting the remaining rows as renames or moves.
+This matters for sorting by hand and for column or multi-cursor edits that touch
+several names at once.
+
+Unsaved edits reveal a toolbar across the buffer's top. **Dry Run and Apply
+must share one plan**: Dry Run lists the ordered, full-path operations without
+writing anything, while Apply executes those same operations. Invalid text is
+a dry-run refusal, never an empty plan. Destructive removals still require the
+second no-trash confirmation after Apply.
+
 The text is still a lens, not a file stored on disk. External filesystem
 changes regenerate it when there are no unsaved edits. Unsupported meanings
 must be refused explicitly. Inserted filesystem lines create files or

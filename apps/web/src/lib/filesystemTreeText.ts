@@ -19,6 +19,16 @@ export interface FilesystemTreeReconciliation {
   deletes: string[];
 }
 
+function visibleNameSimilarity(left: string, right: string): number {
+  let prefix = 0;
+  while (prefix < left.length && prefix < right.length && left[prefix] === right[prefix]) prefix += 1;
+  let suffix = 0;
+  while (suffix < left.length - prefix
+    && suffix < right.length - prefix
+    && left[left.length - 1 - suffix] === right[right.length - 1 - suffix]) suffix += 1;
+  return prefix + suffix;
+}
+
 export function filesystemTextEntries(nodes: readonly FileNode[], depth = 0): FilesystemTextEntry[] {
   return nodes.flatMap((node) => [
     { path: node.path, name: node.name, dir: node.dir, depth },
@@ -34,34 +44,49 @@ export function parseFilesystemTreeText(
   text: string,
   original: readonly FilesystemTextEntry[],
 ): { edits?: FilesystemTextEdit[]; error?: string } {
-  const lines = text.split("\n");
-  if (lines.length !== original.length) {
+  const rawLines = text.split("\n");
+  if (rawLines.length !== original.length) {
     return { error: "Creating and deleting entries from the Files buffer is not implemented yet; restore one line per existing entry." };
   }
-  const parents: { depth: number; path: string }[] = [];
-  const edits: FilesystemTextEdit[] = [];
-  for (let index = 0; index < lines.length; index += 1) {
-    const raw = lines[index];
-    const spaces = raw.length - raw.trimStart().length;
-    if (spaces % TREE_INDENT !== 0) return { error: `Line ${index + 1}: indentation must use two spaces per level.` };
-    const depth = spaces / TREE_INDENT;
-    const expected = original[index];
-    const shown = raw.slice(spaces);
-    const dir = shown.endsWith("/");
-    const name = (dir ? shown.slice(0, -1) : shown).trimEnd();
-    if (!name || name.includes("/") || name.includes("\\") || name === "." || name === "..") {
-      return { error: `Line ${index + 1}: ${JSON.stringify(name)} is not one filesystem name.` };
-    }
-    if (dir !== expected.dir) return { error: `Line ${index + 1}: the trailing slash marks a folder and cannot be added or removed.` };
-    if (depth > 0 && !parents[depth - 1]) return { error: `Line ${index + 1}: indentation has no parent folder at level ${depth}.` };
-    parents.splice(depth);
-    const parent = depth === 0 ? "" : parents[depth - 1].path;
-    const desiredPath = parent ? `${parent}/${name}` : name;
-    const edit = { ...expected, name, depth, desiredPath };
-    edits.push(edit);
-    if (dir) parents[depth] = { depth, path: desiredPath };
+  const desiredDirectories = rawLines.filter((line) => line.trimEnd().endsWith("/")).length;
+  const originalDirectories = original.filter((entry) => entry.dir).length;
+  if (desiredDirectories !== originalDirectories) {
+    return { error: "The trailing slash marks a folder and cannot be added or removed." };
   }
-  return { edits };
+  const desired = parseDesiredLines(text);
+  if (!desired.lines) return { error: desired.error };
+
+  // Lines have no hidden ids. Match their strongest visible identity first,
+  // independent of row order, then pair the remaining rows by kind for real
+  // name and indentation edits.
+  const unmatched = new Set(original.map((_entry, index) => index));
+  const matches = desired.lines.map((line) => {
+    const exact = original.findIndex((entry, index) =>
+      unmatched.has(index) && entry.path === line.desiredPath && entry.dir === line.dir);
+    if (exact >= 0) unmatched.delete(exact);
+    return exact >= 0 ? exact : null;
+  });
+  for (let index = 0; index < matches.length; index += 1) {
+    if (matches[index] !== null) continue;
+    const line = desired.lines[index];
+    const candidate = [...unmatched]
+      .filter((originalIndex) => original[originalIndex].dir === line.dir)
+      .sort((left, right) =>
+        visibleNameSimilarity(line.name, original[right].name)
+        - visibleNameSimilarity(line.name, original[left].name))[0];
+    if (candidate === undefined) {
+      return { error: `Line ${index + 1}: the trailing slash marks a folder and cannot be added or removed.` };
+    }
+    matches[index] = candidate;
+    unmatched.delete(candidate);
+  }
+
+  return { edits: desired.lines.map((line, index) => ({
+    ...original[matches[index]!],
+    name: line.name,
+    depth: line.depth,
+    desiredPath: line.desiredPath,
+  })) };
 }
 
 interface DesiredLine {

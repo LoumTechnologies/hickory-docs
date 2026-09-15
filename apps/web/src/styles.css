@@ -6032,6 +6032,27 @@ button.fleet-grant {
   min-height: 0;
   border-top: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
 }
+.filesystem-editor__toolbar {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.4rem;
+  padding: 0.35rem 0.45rem;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-sunken);
+}
+.filesystem-editor__toolbar button {
+  min-width: 5.25rem;
+  font: inherit;
+}
+.filesystem-editor__dry-run {
+  padding: 0.45rem 0.65rem;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg);
+  font-size: 0.8rem;
+}
+.filesystem-editor__dry-run strong { font-weight: 600; }
+.filesystem-editor__dry-run ol { margin: 0.35rem 0 0; padding-left: 1.4rem; }
+.filesystem-editor__dry-run p { margin: 0.35rem 0 0; }
 .filesystem-editor__code { min-height: 5rem; }
 .filesystem-editor__code .cm-editor { min-height: 5rem; }
 .filesystem-editor__code .cm-scroller { overflow: auto; }

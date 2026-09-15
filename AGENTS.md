@@ -804,7 +804,11 @@ transaction. Unread state belongs to the provider event while its badge
 projects to the nearest visible ancestor. Credentials stay machine-local;
 associations may travel without them. Visible terminal nodes, GitHub issues
 and PRs, and the Files buffer's filesystem rename/move/create/reviewed-delete
-reading are built. Associated GitHub issue titles edit through their provider
+reading are built. A dirty buffer shows Dry Run and Apply across its top; both
+consume the same ordered plan, Dry Run performs no writes, and `Ctrl+S`/`Cmd+S`
+is Apply. Row order is presentation only: unchanged paths and kinds match
+before the remaining lines are interpreted as filesystem edits. Associated
+GitHub issue titles edit through their provider
 capability. Other windows, Jira, GitLab, arbitrary line tracking around live
 projected nodes, and provider body/comment regions remain sequenced in the
 spec.

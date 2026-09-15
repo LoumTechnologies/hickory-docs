@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { defaultKeymap, history, historyKeymap } from "@codemirror/commands";
+import { defaultKeymap, history, historyKeymap, indentWithTab } from "@codemirror/commands";
 import { codeFolding, foldGutter, foldService } from "@codemirror/language";
 import { EditorState } from "@codemirror/state";
 import { Decoration, EditorView, highlightActiveLine, keymap } from "@codemirror/view";
@@ -10,7 +10,9 @@ import { editorChrome } from "../editor/chrome";
 import { multipleCursors } from "../editor/multiCursor";
 import {
   filesystemTextEntries,
+  parseFilesystemTreeText,
   reconcileFilesystemTreeText,
+  type FilesystemTreeReconciliation,
 } from "../lib/filesystemTreeText";
 
 const said = (error: unknown) => error instanceof Error ? error.message : String(error);
@@ -31,6 +33,20 @@ export interface WorkspaceTextExtra {
 type ProjectedLine =
   | { text: string; filesystem: ReturnType<typeof filesystemTextEntries>[number] }
   | { text: string; extra: WorkspaceTextExtra };
+
+interface PreparedPlan {
+  filesystem: FilesystemTreeReconciliation;
+  remote: { apply: (value: string) => Promise<void>; value: string; summary: string }[];
+}
+
+function planLines(plan: PreparedPlan): string[] {
+  return [
+    ...plan.filesystem.renames.map((operation) => `Rename or move ${operation.path} → ${operation.to}`),
+    ...plan.filesystem.creates.map((creation) => `Create ${creation.dir ? "folder" : "file"} ${creation.path}${creation.dir ? "/" : ""}`),
+    ...plan.remote.map((edit) => edit.summary),
+    ...plan.filesystem.deletes.map((path) => `Delete ${path} — confirmation required; there is no trash`),
+  ];
+}
 
 function projectedLines(nodes: readonly FileNode[], extras: readonly WorkspaceTextExtra[]): ProjectedLine[] {
   const entries = filesystemTextEntries(nodes);
@@ -71,7 +87,8 @@ export function FilesystemTreeEditor({
   const [dirty, setDirty] = useState(false);
   const [busy, setBusy] = useState(false);
   const [pendingDeletes, setPendingDeletes] = useState<string[] | null>(null);
-  const [message, setMessage] = useState("Edit names or indentation. Ctrl+S applies filesystem changes.");
+  const [dryRun, setDryRun] = useState<{ lines?: string[]; error?: string } | null>(null);
+  const [message, setMessage] = useState("Edit names or indentation. Changes stay here until Apply.");
   const save = useRef<() => void>(() => undefined);
 
   useEffect(() => {
@@ -86,15 +103,21 @@ export function FilesystemTreeEditor({
           history(),
           multipleCursors(),
           highlightActiveLine(),
-          EditorView.decorations.compute(["doc"], (state) => Decoration.set(
-            projection.flatMap((projected, index) => index < state.doc.lines && "filesystem" in projected ? [Decoration.line({
-              class: `filesystem-editor__line${dirtyPaths.has(projected.filesystem.path) ? " filesystem-editor__line--dirty" : ""}`,
-              attributes: {
-                "data-tree-path": projected.filesystem.path,
-                "data-tree-kind": kindOfPath(projected.filesystem.path, projected.filesystem.dir),
-              },
-            }).range(state.doc.line(index + 1).from)] : []),
-          )),
+          EditorView.decorations.compute(["doc"], (state) => {
+            const reordered = extras.length === 0
+              ? parseFilesystemTreeText(state.doc.toString(), entries).edits
+              : undefined;
+            return Decoration.set(projection.flatMap((projected, index) => {
+              const filesystem = reordered?.[index] ?? ("filesystem" in projected ? projected.filesystem : undefined);
+              return index < state.doc.lines && filesystem ? [Decoration.line({
+                class: `filesystem-editor__line${dirtyPaths.has(filesystem.path) ? " filesystem-editor__line--dirty" : ""}`,
+                attributes: {
+                  "data-tree-path": filesystem.path,
+                  "data-tree-kind": kindOfPath(filesystem.path, filesystem.dir),
+                },
+              }).range(state.doc.line(index + 1).from)] : [];
+            }));
+          }),
           codeFolding(),
           foldGutter(),
           foldService.of((state, from) => {
@@ -114,11 +137,25 @@ export function FilesystemTreeEditor({
             { key: "Mod-s", run: () => { save.current(); return true; } },
             ...defaultKeymap,
             ...historyKeymap,
+            indentWithTab,
           ]),
           EditorView.updateListener.of((update) => {
             if (update.docChanged) {
-              setDirty(true);
-              setMessage("Unsaved filesystem edits — Ctrl+S to apply.");
+              setDryRun(null);
+              const reorderedOnly = extras.length === 0 && (() => {
+                const reconciliation = reconcileFilesystemTreeText(
+                  update.state.doc.toString(),
+                  entries,
+                ).reconciliation;
+                return Boolean(reconciliation
+                  && reconciliation.renames.length === 0
+                  && reconciliation.creates.length === 0
+                  && reconciliation.deletes.length === 0);
+              })();
+              setDirty(!reorderedOnly);
+              setMessage(reorderedOnly
+                ? "No filesystem changes — row order is presentation only."
+                : "Unsaved filesystem edits — use Dry Run or Apply.");
             }
           }),
           EditorView.domEventHandlers({
@@ -126,7 +163,15 @@ export function FilesystemTreeEditor({
               let position: number | null = null;
               try { position = current.posAtDOM(event.target as Node); } catch { position = current.posAtCoords({ x: event.clientX, y: event.clientY }); }
               if (position === null) return false;
-              const line = base.current[current.state.doc.lineAt(position).number - 1];
+              const lineIndex = current.state.doc.lineAt(position).number - 1;
+              const reordered = extras.length === 0
+                ? parseFilesystemTreeText(current.state.doc.toString(), entries).edits?.[lineIndex]
+                : undefined;
+              if (reordered) {
+                if (!reordered.dir) onOpenPath(reordered.path);
+                return !reordered.dir;
+              }
+              const line = base.current[lineIndex];
               if (line && "extra" in line) { line.extra.activate?.(); return Boolean(line.extra.activate); }
               if (line && !line.filesystem.dir) onOpenPath(line.filesystem.path);
               return Boolean(line && !line.filesystem.dir);
@@ -135,7 +180,16 @@ export function FilesystemTreeEditor({
               let position: number | null = null;
               try { position = current.posAtDOM(event.target as Node); } catch { position = current.posAtCoords({ x: event.clientX, y: event.clientY }); }
               if (position === null) return false;
-              const line = base.current[current.state.doc.lineAt(position).number - 1];
+              const lineIndex = current.state.doc.lineAt(position).number - 1;
+              const reordered = extras.length === 0
+                ? parseFilesystemTreeText(current.state.doc.toString(), entries).edits?.[lineIndex]
+                : undefined;
+              if (reordered) {
+                event.preventDefault();
+                onContextPath(event, reordered.path, reordered.dir);
+                return true;
+              }
+              const line = base.current[lineIndex];
               if (!line || "extra" in line) return false;
               event.preventDefault();
               onContextPath(event, line.filesystem.path, line.filesystem.dir);
@@ -148,19 +202,18 @@ export function FilesystemTreeEditor({
     view.current = editor;
     setDirty(false);
     setPendingDeletes(null);
+    setDryRun(null);
     return () => { view.current = undefined; editor.destroy(); };
   }, [version]);
 
-  save.current = () => {
-    if (busy || !view.current) return;
+  const prepare = (): { plan?: PreparedPlan; error?: string } => {
+    if (!view.current) return { error: "The Files buffer is not ready." };
     const lines = view.current.state.doc.toString().split("\n");
-    setPendingDeletes(null);
     if (extras.length > 0 && lines.length !== base.current.length) {
-      setMessage("Create or delete filesystem lines after folding live terminal and issue lines out of this buffer.");
-      return;
+      return { error: "Create or delete filesystem lines after folding live terminal and issue lines out of this buffer." };
     }
     const filesystemLines: string[] = [];
-    const extraEdits: { apply: (value: string) => Promise<void>; value: string }[] = [];
+    const remote: PreparedPlan["remote"] = [];
     if (extras.length === 0) {
       filesystemLines.push(...lines);
     } else {
@@ -172,37 +225,52 @@ export function FilesystemTreeEditor({
             const indent = original.text.slice(0, original.text.length - original.text.trimStart().length);
             const prefix = `${indent}${edit?.prefix ?? ""}`;
             if (!edit || !lines[index].startsWith(prefix) || !lines[index].endsWith(edit.suffix)) {
-              setMessage(`Line ${index + 1} has no semantic edit for that text.`);
-              return;
+              return { error: `Line ${index + 1} has no semantic edit for that text.` };
             }
             const value = lines[index].slice(prefix.length, lines[index].length - edit.suffix.length).trim();
-            if (!value) { setMessage(`Line ${index + 1}: the editable title cannot be empty.`); return; }
-            extraEdits.push({ apply: edit.apply, value });
+            if (!value) return { error: `Line ${index + 1}: the editable title cannot be empty.` };
+            remote.push({
+              apply: edit.apply,
+              value,
+              summary: `Edit ${original.extra.key}: ${JSON.stringify(edit.value)} → ${JSON.stringify(value)}`,
+            });
           }
         } else filesystemLines.push(lines[index]);
       }
     }
     const result = reconcileFilesystemTreeText(filesystemLines.join("\n"), entries);
     const reconciliation = result.reconciliation;
-    if (!reconciliation) { setMessage(result.error ?? "The Files buffer is invalid."); return; }
+    if (!reconciliation) return { error: result.error ?? "The Files buffer is invalid." };
     if (reconciliation.deletes.length > 0) {
-      if (extraEdits.length > 0) { setMessage("Save remote title edits separately from filesystem deletions."); return; }
-      setPendingDeletes(reconciliation.deletes);
-      setMessage(`Delete ${reconciliation.deletes.length === 1 ? reconciliation.deletes[0] : `${reconciliation.deletes.length} entries`}? There is no trash.`);
+      if (remote.length > 0) return { error: "Save remote title edits separately from filesystem deletions." };
+    }
+    return { plan: { filesystem: reconciliation, remote } };
+  };
+
+  save.current = () => {
+    if (busy) return;
+    setPendingDeletes(null);
+    setDryRun(null);
+    const prepared = prepare();
+    if (!prepared.plan) { setMessage(prepared.error ?? "The Files buffer is invalid."); return; }
+    const { filesystem, remote } = prepared.plan;
+    if (filesystem.deletes.length > 0) {
+      setPendingDeletes(filesystem.deletes);
+      setMessage(`Delete ${filesystem.deletes.length === 1 ? filesystem.deletes[0] : `${filesystem.deletes.length} entries`}? There is no trash.`);
       return;
     }
-    const count = reconciliation.renames.length + reconciliation.creates.length + extraEdits.length;
+    const count = filesystem.renames.length + filesystem.creates.length + remote.length;
     if (count === 0) { setDirty(false); setMessage("No filesystem changes."); return; }
     setBusy(true);
     setMessage(`Applying ${count} filesystem ${count === 1 ? "edit" : "edits"}…`);
     void (async () => {
-      for (const operation of reconciliation.renames) {
+      for (const operation of filesystem.renames) {
         await api.fileOp({ op: "rename", path: operation.path, to: operation.to });
       }
-      for (const creation of reconciliation.creates) {
+      for (const creation of filesystem.creates) {
         await api.fileOp({ op: creation.dir ? "mkdir" : "create", path: creation.path });
       }
-      for (const edit of extraEdits) await edit.apply(edit.value);
+      for (const edit of remote) await edit.apply(edit.value);
     })().then(
       () => {
         setBusy(false);
@@ -216,6 +284,16 @@ export function FilesystemTreeEditor({
         onChanged();
       },
     );
+  };
+
+  const preview = () => {
+    const prepared = prepare();
+    if (!prepared.plan) {
+      setDryRun({ error: prepared.error ?? "The Files buffer is invalid." });
+      return;
+    }
+    const lines = planLines(prepared.plan);
+    setDryRun({ lines: lines.length > 0 ? lines : ["No changes."] });
   };
 
   const confirmDeletes = () => {
@@ -242,6 +320,16 @@ export function FilesystemTreeEditor({
   };
 
   return <section className={`filesystem-editor${dirty ? " dirty" : ""}`} aria-label="Filesystem text buffer">
+    {dirty && <div className="filesystem-editor__toolbar" role="toolbar" aria-label="Unsaved Files changes">
+      <button type="button" onClick={preview} disabled={busy}>Dry Run</button>
+      <button type="button" className="primary" onClick={() => save.current()} disabled={busy}>Apply</button>
+    </div>}
+    {dryRun && <aside className={`filesystem-editor__dry-run${dryRun.error ? " error" : ""}`} aria-label="Files dry run" aria-live="polite">
+      <strong>Dry run — nothing has been applied.</strong>
+      {dryRun.error
+        ? <p>{dryRun.error}</p>
+        : <ol>{dryRun.lines?.map((line, index) => <li key={`${index}:${line}`}>{line}</li>)}</ol>}
+    </aside>}
     <div ref={host} className="filesystem-editor__code" aria-label="Files editor" />
     <footer className="filesystem-editor__status" aria-live="polite">
       <span>{busy ? "Working — " : ""}{message}</span>

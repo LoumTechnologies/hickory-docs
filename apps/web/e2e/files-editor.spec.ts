@@ -19,17 +19,29 @@ test("the live Files pane navigates and renames like an editor", async ({ page }
     await content.press("Home");
     await content.press("Shift+End");
     await content.pressSequentially(after);
+    const toolbar = page.getByRole("toolbar", { name: "Unsaved Files changes" });
+    await expect(toolbar).toBeVisible();
+    await toolbar.getByRole("button", { name: "Dry Run" }).click();
+    await expect(page.getByLabel("Files dry run")).toContainText(`Rename or move ${before} → ${after}`);
+    const beforeApply = JSON.stringify(await (await page.request.get("/api/files")).json());
+    expect(beforeApply).toContain(before);
+    expect(beforeApply).not.toContain(after);
     await content.press("Control+s");
-    await expect(content.locator(".cm-line", { hasText: after })).toBeVisible();
-    await expect(page.getByText("Applied 1 filesystem edit.")).toBeVisible();
+    await expect.poll(async () => JSON.stringify(await (await page.request.get("/api/files")).json())).toContain(after);
+    await page.reload();
+    await content.click();
+    await content.press("Control+End");
+    await expect(content.locator(`[data-tree-path="${after}"]`)).toBeVisible();
 
-    const renamedLine = content.locator(".cm-line", { hasText: after });
+    const renamedLine = content.locator(`[data-tree-path="${after}"]`);
     await renamedLine.click();
     await content.press("End");
     await content.press("Enter");
     await content.pressSequentially(created);
-    await content.press("Control+s");
-    await expect(content.locator(`[data-tree-path="${created}"]`)).toBeVisible();
+    await page.getByRole("button", { name: "Dry Run" }).click();
+    await expect(page.getByLabel("Files dry run")).toContainText(`Create file ${created}`);
+    await page.getByRole("button", { name: "Apply" }).click();
+    await expect.poll(async () => JSON.stringify(await (await page.request.get("/api/files")).json())).toContain(created);
 
     // Saving regenerates this lens from the filesystem. Reload once so the
     // deletion gesture starts against that settled server projection rather
@@ -45,10 +57,14 @@ test("the live Files pane navigates and renames like an editor", async ({ page }
     await refreshedContent.press("Shift+End");
     await refreshedContent.press("Backspace");
     await refreshedContent.press("Backspace");
-    await refreshedContent.press("Control+s");
+    await page.getByRole("button", { name: "Dry Run" }).click();
+    await expect(page.getByLabel("Files dry run")).toContainText(
+      `Delete ${created} — confirmation required; there is no trash`,
+    );
+    await page.getByRole("button", { name: "Apply" }).click();
     await expect(page.getByText(`Delete ${created}? There is no trash.`)).toBeVisible();
     await page.getByRole("button", { name: "Delete" }).click();
-    await expect(page.getByText(`Deleted ${created}.`)).toBeVisible();
+    await expect.poll(async () => JSON.stringify(await (await page.request.get("/api/files")).json())).not.toContain(created);
   } finally {
     await page.request.post("/api/files/op", { data: { op: "delete", path: created } });
     await page.request.post("/api/files/op", { data: { op: "delete", path: after } });
