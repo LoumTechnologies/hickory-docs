@@ -785,6 +785,44 @@ with the refusals said plainly and no trash, so a delete asks once. A plain
 text file's menu offers *Make literate* and *Ingest into <focused
 document>*, both the adoption `hick ingest --from file` performs.
 
+**The Files pane is a workspace-tree lens (2026-09-14,
+`the-workspace-tree.md`).** Files, terminal sessions, other Hickory Docs
+windows, folder-associated work items, and reviews for a worktree's checked-out
+branch are nodes at the place where the work is happening. A terminal is a
+visible child node at its cwd, never a hover-only directory decoration. The
+tree is a lens, not a file stored on disk, but **its surface really is text**:
+the filesystem is one CodeMirror buffer, folders end in `/`, and two spaces of
+significant indentation place an entry beneath the folder above it. This
+corrects the first implementation, which was a button tree with editor-like
+keys and an F2 rename field and did not feel like editing a `.hick` pane. There
+is no edit mode: ordinary caret movement, selection, multiple cursors, column
+editing, history, and folding are the editor's own. Saving changed names or
+indentation performs filesystem rename/move operations. Each non-file line
+still declares semantic capabilities and an edit must go back to its own
+source; a filesystem, native window, Jira, GitHub, and GitLab share no
+transaction. Unread state belongs to the provider event while its badge
+projects to the nearest visible ancestor. Credentials stay machine-local;
+associations may travel without them. Visible terminal nodes, GitHub issues
+and PRs, and the Files buffer's filesystem rename/move/create/reviewed-delete
+reading are built. Associated GitHub issue titles edit through their provider
+capability. Other windows, Jira, GitLab, arbitrary line tracking around live
+projected nodes, and provider body/comment regions remain sequenced in the
+spec.
+
+**GitHub PRs and issues are workspace-tree nodes (2026-09-14,
+`a-review-belongs-to-the-worktree-for-its-head.md`,
+`a-github-issue-belongs-to-its-associated-folder.md`).** The local engine uses
+the person's authenticated `gh`; Hickory never handles its token. An origin is
+normalized to `owner/repo`, PRs match the checked-out head branch, and expansion
+lazily reads bodies, reviews, comments, checks and bounded Actions logs. Issue
+associations are credentialless `.hick-workspace.json` entries made from a
+folder's menu. Titles/bodies/comments are semantic provider operations. GitHub
+notification threads own unread state; badges move from collapsed folders to
+visible issues without expansion marking anything read. Cross-PR analysis is
+bounded to a shared base plus overlapping paths, fetches current heads, and
+says only “these current head commits conflict if merged together.” GitLab,
+Jira, and local-window nodes remain sequenced in `the-workspace-tree.md`.
+
 **Every shortcut is a setting (2026-09-05,
 `every-shortcut-is-a-setting.md`).** One catalogue in
 `apps/web/src/lib/keymap.ts` — menu bar, editor, workspace, dired — with

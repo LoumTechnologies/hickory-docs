@@ -9,14 +9,17 @@
 // reports clicks. What opening a file MEANS (a route, a generated pane,
 // nothing) is the mounting view's decision, expressed through `fileAction`.
 
-import { useCallback, useEffect, useMemo, useState, type MouseEvent } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent } from "react";
 
 import { api } from "../api/client";
 import type { FileNode, FilesResponse } from "../api/types";
 import { TreeContextMenu } from "./TreeContextMenu";
 import { TreePrompt } from "./TreePrompt";
+import { fileRenameError, TreeRenameEditor } from "./TreeRenameEditor";
 import { useDired } from "./useDired";
+import { useTreeNavigation } from "./useTreeNavigation";
 import { TreeFindReplace } from "./TreeFindReplace";
+import { FilesystemTreeEditor, type WorkspaceTextExtra } from "./FilesystemTreeEditor";
 import {
   copyText,
   terminalMenuItems,
@@ -24,7 +27,14 @@ import {
   type TreeFolder,
   type TreeMenuItem,
 } from "./treeMenu";
-import { alwaysVisible, hiddenSummary, rankSessions, urgentCount } from "../lib/treeTerminals";
+import { rankSessions } from "../lib/treeTerminals";
+import {
+  GithubIssueRows,
+  GithubProviderStatusRow,
+  GithubReviewRows,
+  parseGithubIssueReference,
+  useGithubWorkspaceNodes,
+} from "./GithubTreeNodes";
 
 /** One open folder: the server's FilesResponse, kept whole. */
 export type FolderTree = FilesResponse;
@@ -89,6 +99,15 @@ export function docPathOf(nodes: readonly FileNode[], docId: string): string | n
     if (node.doc_id === docId) return node.path;
     const inner = node.children ? docPathOf(node.children, docId) : null;
     if (inner) return inner;
+  }
+  return null;
+}
+
+function fileNodeAt(nodes: readonly FileNode[], path: string): FileNode | null {
+  for (const node of nodes) {
+    if (node.path === path) return node;
+    const child = node.children ? fileNodeAt(node.children, path) : null;
+    if (child) return child;
   }
   return null;
 }
@@ -181,6 +200,10 @@ export interface TreeSession {
   /** False when `cwd` is only where the session was started — see
    * `SessionSummary::cwd_is_live`. */
   cwdIsLive: boolean;
+}
+
+export function fileWorkspaceKey(path: string): string {
+  return `filesystem:${encodeURIComponent(path)}`;
 }
 
 /** Strip trailing slashes so `/a/b/` and `/a/b` are one directory. */
@@ -298,49 +321,50 @@ export interface FolderTreePaneProps {
   activeDocId?: string;
   /** Project-relative paths whose open buffers differ from explicit Save. */
   dirtyPaths?: ReadonlySet<string>;
-  /** Terminal sessions, shown as icons on the directory each one is working
+  /** Terminal sessions, shown as child nodes of the directory each one is working
    * in. There is no separate list of terminals any more: a terminal has a
    * working directory, this tree already draws directories, and two trees
    * meant two places to look for "what is going on". */
   sessions?: readonly TreeSession[];
-  /** A click on a terminal icon: show that terminal. */
+  /** A click on a terminal node: show that terminal. */
   onOpenTerminal?: (id: string) => void;
   /** "Open terminal here" on a directory's menu, with its root-relative
    * path. */
   onNewTerminal?: (path: string) => void;
   /** "New worktree here…" on a directory's menu. */
   onNewWorktree?: (path: string) => void;
-  /** "Close" on a terminal icon's own menu — the only place a session can be
+  /** "Close" on a terminal node's own menu — the only place a session can be
    * stopped now that terminals have no list of their own. */
   onCloseTerminal?: (id: string) => void;
   /** Jump to a find hit: a root-relative path and a 1-based line. */
   onOpenHit?: (path: string, line: number) => void;
+  /** Incremented when the shell's Show Files command should put point here. */
+  focusRequest?: number;
   error?: string | null;
 }
 
-/** One running session, at the directory it is running in. */
 /**
- * The terminals running in one directory, as icons on that directory's own
- * row.
- *
- * Icons rather than rows: a row per session pushes the folder's contents down
- * and turns a busy project's tree into mostly-not-files, which inverts what
- * the tree is for. These ride a row that already exists and cost no vertical
- * space at all. See lib/treeTerminals.ts for the ordering, and for why a
- * session that needs you does not wait to be hovered.
+ * The terminals running in one directory, as visible child nodes beside its
+ * files. A terminal is the first non-file workspace node; hiding it in a
+ * folder-row decoration made the implemented feature indistinguishable from
+ * no feature at all. See lib/treeTerminals.ts for the stable urgency order.
  */
-function TerminalIcons({
+function TerminalRows({
   sessions,
+  depth,
+  parentPath,
   onOpen,
   onMenu,
 }: {
   sessions: readonly TreeSession[];
+  depth: number;
+  parentPath?: string;
   onOpen?: (id: string) => void;
   onMenu?: (event: MouseEvent, session: TreeSession) => void;
 }) {
   if (sessions.length === 0) return null;
   return (
-    <span className="folder-tree__terms" role="group" aria-label="Terminals here">
+    <>
       {rankSessions(sessions).map((session) => {
         // Where the shell says it is, versus where it was started, is a real
         // difference in how much to trust this icon's placement — so the
@@ -350,36 +374,30 @@ function TerminalIcons({
           ? session.cwd
           : `${session.cwd} — started here; this shell does not report its directory`;
         return (
-          <span
-            key={session.id}
-            role="button"
-            tabIndex={0}
-            className={`folder-tree__term state-${session.state}${
-              alwaysVisible(session.state) ? " folder-tree__term--urgent" : ""
-            }${session.monitor ? " folder-tree__term--monitor" : ""}`}
-            data-session-id={session.id}
-            data-tip={`${session.title} — ${session.state.replace("-", " ")}\n${where}`}
-            aria-label={`${session.title}, ${session.state.replace("-", " ")}`}
-            // The icon sits INSIDE the directory's own button, whose click
-            // toggles the folder. Both handlers stop propagation, or opening
-            // a terminal would fold the directory it is in.
-            onClick={(event) => {
-              event.stopPropagation();
-              onOpen?.(session.id);
-            }}
-            onKeyDown={(event) => {
-              if (event.key !== "Enter" && event.key !== " ") return;
-              event.preventDefault();
-              event.stopPropagation();
-              onOpen?.(session.id);
-            }}
-            onContextMenu={(event) => onMenu?.(event, session)}
-          >
-            ▮
-          </span>
+          <li key={session.id} role="treeitem">
+            <button
+              type="button"
+              className={`folder-tree__terminal mono state-${session.state}${
+                session.monitor ? " folder-tree__terminal--monitor" : ""
+              }`}
+              style={{ paddingLeft: `${depth * 0.85 + 0.4}rem` }}
+              data-session-id={session.id}
+              data-workspace-node-key={`terminal:${session.id}`}
+              data-workspace-node-kind="terminal"
+              data-workspace-parent={parentPath ? fileWorkspaceKey(parentPath) : undefined}
+              data-tip={`${session.title} — ${session.state.replace("-", " ")}\n${where}`}
+              aria-label={`${session.title}, terminal, ${session.state.replace("-", " ")}`}
+              onClick={() => onOpen?.(session.id)}
+              onContextMenu={(event) => onMenu?.(event, session)}
+            >
+              <span className="folder-tree__terminal-mark" aria-hidden>▮</span>
+              <span className="folder-tree__terminal-title">{session.title}</span>
+              <span className="folder-tree__terminal-state">{session.state.replace("-", " ")}</span>
+            </button>
+          </li>
         );
       })}
-    </span>
+    </>
   );
 }
 
@@ -396,12 +414,30 @@ export function FolderTreePane({
   onNewWorktree,
   onCloseTerminal,
   onOpenHit,
+  focusRequest = 0,
   error,
 }: FolderTreePaneProps) {
+  const pane = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (focusRequest === 0) return;
+    const frame = requestAnimationFrame(() =>
+      pane.current?.querySelector<HTMLElement>('.filesystem-editor .cm-content')?.focus(),
+    );
+    return () => cancelAnimationFrame(frame);
+  }, [focusRequest, roots]);
   if (error) return <p className="error folder-tree__error">{error}</p>;
   if (roots.length === 0) return <p className="muted folder-tree__loading">Reading folder…</p>;
   return (
-    <div className="folder-tree">
+    <div
+      ref={pane}
+      className="folder-tree"
+      onClick={(event) => {
+        const target = event.target as HTMLElement;
+        if (!target.closest("button, a, input, textarea, .cm-editor, [data-workspace-node-key]")) {
+          pane.current?.querySelector<HTMLElement>('[role="tree"]')?.focus();
+        }
+      }}
+    >
       {/* Find and replace across everything, above the tree it acts on. Not
           an overlay: this is a list you work through while the tree stays
           where it is. */}
@@ -454,23 +490,36 @@ function FolderRoot({
   onNewWorktree?: (path: string) => void;
   onCloseTerminal?: (id: string) => void;
 }) {
-  const [expanded, setExpanded] = useState<Set<string>>(() => loadExpanded(folder.root));
-  const toggle = useCallback(
-    (path: string) => {
-      setExpanded((current) => {
-        const next = toggleExpanded(current, path);
-        saveExpanded(folder.root, next);
-        return next;
-      });
-    },
-    [folder.root],
-  );
-
   const placement = useMemo(
     () => placeSessions(sessions, folder.root, directoryPaths(folder.tree)),
     [sessions, folder.root, folder.tree],
   );
   const atRoot = placement.get("") ?? [];
+  const github = useGithubWorkspaceNodes();
+  const [detailFolder, setDetailFolder] = useState<string | null>(null);
+  const editorExtras = useMemo<WorkspaceTextExtra[]>(() => [
+    ...[...placement].flatMap(([parentPath, placed]) => parentPath === "" ? [] : placed.map((session) => ({
+      key: `terminal:${session.id}`,
+      parentPath,
+      label: `terminal: ${session.title} · ${session.state.replace("-", " ")}`,
+      activate: onOpenTerminal ? () => onOpenTerminal(session.id) : undefined,
+    }))),
+    ...(github.value?.issues ?? []).filter((issue) => issue.folder !== "").map((issue) => ({
+      key: `github:${issue.repository}#${issue.number}`,
+      parentPath: issue.folder,
+      label: `issue #${issue.number}: ${issue.title} · ${issue.state.toLowerCase()}${issue.unread ? ` · ${issue.unread} unread` : ""}`,
+      activate: () => setDetailFolder(issue.folder),
+      edit: {
+        prefix: `issue #${issue.number}: `,
+        value: issue.title,
+        suffix: ` · ${issue.state.toLowerCase()}${issue.unread ? ` · ${issue.unread} unread` : ""}`,
+        apply: async (title: string) => {
+          await api.editGithubObject("issue", issue.repository, issue.number, "title", title);
+          github.refresh();
+        },
+      },
+    })),
+  ], [placement, github.value?.issues, onOpenTerminal]);
 
   // The folder as the context menu needs to know it: where it is on this
   // machine, how paths are spelled there, and what the file manager is called.
@@ -494,6 +543,7 @@ function FolderRoot({
   // between the listing and the click) says so in the pane. The alternative is
   // a menu item that appears to do nothing at all.
   const [notice, setNotice] = useState<string | null>(null);
+  const [issueAssociation, setIssueAssociation] = useState<{ folder: string; error?: string; busy?: boolean } | null>(null);
 
   const openMenu = useCallback<OnRowMenu>((event, path, dir, plainText = false) => {
     event.preventDefault();
@@ -504,6 +554,10 @@ function FolderRoot({
 
   // Dired: the marks, the prompt a verb asks through, and the verbs.
   const dired = useDired(setNotice);
+  const navigation = useTreeNavigation({
+    replacePaths: dired.replaceMarks,
+    addPaths: dired.addMarks,
+  });
   // The focused document, for "Ingest into …": found in this tree by id
   // rather than passed in, because the tree already knows every document.
   const activeDoc = useMemo(() => {
@@ -511,7 +565,7 @@ function FolderRoot({
     return path ? { path, name: path.split("/").pop() ?? path } : undefined;
   }, [folder.tree, activeDocId]);
 
-  /** A right-click on a terminal icon: its own short menu, not the row's. */
+  /** A right-click on a terminal node: its own short menu, not the folder's. */
   const [termMenu, setTermMenu] = useState<{
     x: number;
     y: number;
@@ -542,6 +596,10 @@ function FolderRoot({
       onNewWorktree?.(action.path);
       return;
     }
+    if (action.kind === "associate-github-issue") {
+      setIssueAssociation({ folder: action.path });
+      return;
+    }
     if (action.kind === "close-terminal") {
       onCloseTerminal?.(action.id);
       return;
@@ -560,7 +618,7 @@ function FolderRoot({
       return;
     }
     if (action.kind === "rename") {
-      dired.run({ kind: "rename", path: action.path });
+      dired.run({ kind: "rename", paths: action.paths });
       return;
     }
     if (action.kind === "move" || action.kind === "delete") {
@@ -592,9 +650,6 @@ function FolderRoot({
         >
           {name}
         </span>
-        {/* Terminals working in the folder itself ride its header, the same
-            way a subdirectory's ride its row. */}
-        <TerminalIcons sessions={atRoot} onOpen={onOpenTerminal} onMenu={openTermMenu} />
         <button
           type="button"
           className="folder-tree__new"
@@ -620,40 +675,93 @@ function FolderRoot({
           busy={dired.busy}
         />
       )}
+      {dired.renamePaths && (
+        <TreeRenameEditor
+          items={dired.renamePaths.map((path) => ({
+            key: `filesystem:${encodeURIComponent(path)}`,
+            context: path,
+            value: path.split("/").pop() ?? path,
+          }))}
+          validate={fileRenameError}
+          inlinePath={dired.renamePaths.length === 1 ? dired.renamePaths[0] : undefined}
+          apply={async (item, value) => {
+            await api.fileOp({ op: "rename", path: item.context, to: value });
+          }}
+          onClose={dired.closeRename}
+        />
+      )}
+      {issueAssociation && (
+        <TreePrompt
+          label={`GitHub issue for ${issueAssociation.folder || "this folder"} (owner/repo#123 or URL)`}
+          verb="Associate"
+          initial={github.value?.repository ? `${github.value.repository}#` : ""}
+          busy={Boolean(issueAssociation.busy)}
+          error={issueAssociation.error ?? null}
+          onCancel={() => setIssueAssociation(null)}
+          onSubmit={(value) => {
+            const reference = parseGithubIssueReference(value ?? "", github.value?.repository);
+            if (!reference) {
+              setIssueAssociation((current) => current && { ...current, error: "Use owner/repo#123 or a GitHub issue URL." });
+              return;
+            }
+            setIssueAssociation((current) => current && { ...current, busy: true, error: undefined });
+            void api.associateGithubIssue(reference.repository, reference.number, issueAssociation.folder).then(
+              () => { setIssueAssociation(null); github.refresh(); window.dispatchEvent(new Event(FILES_CHANGED_EVENT)); },
+              (cause) => setIssueAssociation((current) => current && { ...current, busy: false, error: cause instanceof Error ? cause.message : String(cause) }),
+            );
+          }}
+        />
+      )}
       <ul
         className="folder-tree__list"
         role="tree"
+        tabIndex={0}
+        onFocus={navigation.onFocus}
+        onFocusCapture={navigation.onFocusCapture}
         // The dired keys — m, u, U, D, R, C, M, +, n — act on the focused
         // row. Read off the row's own attributes so the tree, not each row,
         // owns the one handler.
         onKeyDown={(event) => {
+          if (navigation.onKeyDown(event)) return;
           const row = (event.target as HTMLElement).closest<HTMLElement>("[data-tree-path]");
           if (!row) return;
           dired.onKey(event, row.dataset.treePath ?? "", row.dataset.treeDir === "true");
         }}
       >
-        {folder.tree.map((node) => (
-          <TreeRow
-            key={node.path}
-            node={node}
-            depth={0}
-            expanded={expanded}
-            onToggle={toggle}
-            openable={openable}
-            onOpen={onOpen}
-            activeDocId={activeDocId}
-            dirtyPaths={dirtyPaths}
-            sessions={sessions}
-            placement={placement}
-            onOpenTerminal={onOpenTerminal}
-            root={folder.root}
-            onRowMenu={openMenu}
-            onTermMenu={openTermMenu}
-            marked={dired.marked}
-            onMark={dired.toggle}
-          />
-        ))}
+        <GithubProviderStatusRow workspace={github.value} />
+        <GithubReviewRows workspace={github.value} onChanged={github.refresh} />
+        <GithubIssueRows workspace={github.value} folder="" onChanged={github.refresh} />
+        <TerminalRows
+          sessions={atRoot}
+          depth={0}
+          onOpen={onOpenTerminal}
+          onMenu={openTermMenu}
+        />
       </ul>
+      <FilesystemTreeEditor
+        nodes={folder.tree}
+        onChanged={() => window.dispatchEvent(new Event(FILES_CHANGED_EVENT))}
+        onOpenPath={(path) => {
+          const node = fileNodeAt(folder.tree, path);
+          if (!node) return;
+          const action = fileAction(node, openable);
+          if (action.kind !== "inert") onOpen(action);
+        }}
+        onContextPath={(event, path, dir) => {
+          setNotice(null);
+          setMenu({ x: event.clientX, y: event.clientY, path, dir, plainText: !dir && !isLikelyBinaryPath(path) });
+        }}
+        kindOfPath={(path, dir) => {
+          if (dir) return "directory";
+          const node = fileNodeAt(folder.tree, path);
+          return node ? fileAction(node, openable).kind : "file";
+        }}
+        extras={editorExtras}
+        dirtyPaths={dirtyPaths}
+      />
+      {detailFolder !== null && <ul className="folder-tree__list" role="tree">
+        <GithubIssueRows workspace={github.value} folder={detailFolder} onChanged={github.refresh} />
+      </ul>}
       {menu && (
         <TreeContextMenu
           x={menu.x}
@@ -682,189 +790,5 @@ function FolderRoot({
         />
       )}
     </section>
-  );
-}
-
-function TreeRow({
-  node,
-  depth,
-  expanded,
-  onToggle,
-  openable,
-  onOpen,
-  activeDocId,
-  dirtyPaths,
-  sessions,
-  placement,
-  onOpenTerminal,
-  root,
-  onRowMenu,
-  onTermMenu,
-  marked,
-  onMark,
-}: {
-  node: FileNode;
-  depth: number;
-  expanded: ReadonlySet<string>;
-  onToggle: (path: string) => void;
-  openable: ReadonlySet<string>;
-  onOpen: FolderTreePaneProps["onOpen"];
-  activeDocId?: string;
-  dirtyPaths: ReadonlySet<string>;
-  sessions: readonly TreeSession[];
-  placement: ReadonlyMap<string, TreeSession[]>;
-  onOpenTerminal?: (id: string) => void;
-  root: string;
-  /** A right-click anywhere on this row (or its children). */
-  onRowMenu: OnRowMenu;
-  /** A right-click on one of this row's terminal icons. */
-  onTermMenu?: (event: MouseEvent, session: TreeSession) => void;
-  /** The dired marks, and the Ctrl+click that toggles one. */
-  marked: ReadonlySet<string>;
-  onMark: (path: string) => void;
-}) {
-  const indent = { paddingLeft: `${depth * 0.85 + 0.4}rem` };
-  const isMarked = marked.has(node.path);
-  const mark = <span className="folder-tree__mark" aria-hidden>{isMarked ? "*" : ""}</span>;
-  const withMark = (className: string) => (isMarked ? `${className} marked` : className);
-  if (node.dir) {
-    const open = expanded.has(node.path);
-    const here = placement.get(node.path.replace(/\/+$/, "")) ?? [];
-    // A collapsed directory would hide what is running inside it, which is
-    // exactly the thing worth seeing — so it says how many instead.
-    const hidden = open ? 0 : sessionsUnder(sessions, root, node.path);
-    // Whether any of those hidden ones is asking a question, so a folded
-    // directory can say "and one of them needs you" rather than just a count.
-    const hiddenUrgent = open
-      ? 0
-      : urgentCount(
-          sessions.filter((session) => {
-            const cwd = relativeCwd(session.cwd, root);
-            const dir = node.path.replace(/\/+$/, "");
-            return cwd !== null && (cwd === dir || cwd.startsWith(`${dir}/`));
-          }),
-        );
-    return (
-      <li role="treeitem" aria-expanded={open}>
-        <button
-          type="button"
-          className={withMark("folder-tree__dir mono")}
-          style={indent}
-          onClick={(event) => (event.ctrlKey || event.metaKey ? onMark(node.path) : onToggle(node.path))}
-          onContextMenu={(event) => onRowMenu(event, node.path, true)}
-          data-tip={node.path}
-          data-tree-path={node.path}
-          data-tree-dir="true"
-          aria-selected={isMarked || undefined}
-        >
-          <span className="folder-tree__disclosure" aria-hidden>
-            {open ? "▾" : "▸"}
-          </span>
-          {mark}
-          {node.name}
-          {/* Open: the terminals working in THIS directory, as icons.
-              Collapsed: a count, because a folded directory would otherwise
-              hide the processes running inside it — which is exactly the
-              thing worth seeing. */}
-          {open ? (
-            <TerminalIcons sessions={here} onOpen={onOpenTerminal} onMenu={onTermMenu} />
-          ) : (
-            hidden > 0 && (
-              <span
-                className={`folder-tree__session-count${
-                  hiddenUrgent > 0 ? " folder-tree__session-count--urgent" : ""
-                }`}
-                data-tip={hiddenSummary(hidden, hiddenUrgent)}
-              >
-                {hidden}
-              </span>
-            )
-          )}
-        </button>
-        {open && (
-          <ul className="folder-tree__list" role="group">
-            {(node.children ?? []).map((child) => (
-              <TreeRow
-                key={child.path}
-                node={child}
-                depth={depth + 1}
-                expanded={expanded}
-                onToggle={onToggle}
-                openable={openable}
-                onOpen={onOpen}
-                activeDocId={activeDocId}
-                dirtyPaths={dirtyPaths}
-                sessions={sessions}
-                placement={placement}
-                onOpenTerminal={onOpenTerminal}
-                root={root}
-                onRowMenu={onRowMenu}
-                onTermMenu={onTermMenu}
-                marked={marked}
-                onMark={onMark}
-              />
-            ))}
-          </ul>
-        )}
-      </li>
-    );
-  }
-
-  const action = fileAction(node, openable);
-  if (action.kind === "inert") {
-    // Named, present, and not pretending to be a link: a file this app has
-    // no way to show is still part of the folder's truth. The data
-    // attributes are the contract with the ribbon overlay — a connection
-    // whose file is visible as a row terminates on the row's near edge —
-    // and an inert row is still an honest place to point.
-    return (
-      <li role="treeitem">
-        <span
-          className={withMark("folder-tree__file folder-tree__file--inert mono")}
-          style={indent}
-          data-tip={node.path}
-          data-tree-path={node.path}
-          data-tree-kind="inert"
-          tabIndex={0}
-          onClick={(event) => (event.ctrlKey || event.metaKey) && onMark(node.path)}
-          onContextMenu={(event) => onRowMenu(event, node.path, false)}
-        >
-          {mark}
-          {node.name}
-        </span>
-      </li>
-    );
-  }
-  const active = action.kind === "doc" && action.id === activeDocId;
-  return (
-    <li role="treeitem">
-      <button
-        type="button"
-        className={withMark(`folder-tree__file mono${active ? " on" : ""}`)}
-        style={indent}
-        data-tip={node.path}
-        // The ribbon overlay finds this row by path: a connection to a file
-        // that is not open but IS visible here lands on this row's edge.
-        data-tree-path={node.path}
-        data-tree-kind={action.kind}
-        aria-selected={isMarked || undefined}
-        onClick={(event) => (event.ctrlKey || event.metaKey ? onMark(node.path) : onOpen(action))}
-        // A file this app cannot or will not open in a pane still has a
-        // machine that can: the same menu is on every row, inert ones
-        // included.
-        onContextMenu={(event) => onRowMenu(event, node.path, false, action.kind === "file")}
-      >
-        {mark}
-        {node.name}{dirtyPaths.has(node.path) ? " *" : ""}
-        {node.diverged && (
-          // The disk does not hold what the document produces, and the loop
-          // is leaving it that way — said here rather than silently. The
-          // pane says why and offers the ways out; this says that.
-          <span className="folder-tree__diverged" data-tip={`Diverged: ${node.diverged}`}>
-            diverged
-          </span>
-        )}
-      </button>
-    </li>
   );
 }

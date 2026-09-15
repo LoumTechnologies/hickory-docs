@@ -207,6 +207,7 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
   // What the window is arranged as. Session state, owned HERE, above any
   // document: navigating between documents must leave it untouched.
   const [layout, setLayout] = useState<Layout>(initialWorkspace);
+  const [treeFocusRequest, setTreeFocusRequest] = useState(0);
   useNewDocument(setLayout);
   // Re-derive ribbon sources and links when a lens comes or goes.
   const [lensTick, setLensTick] = useState(0);
@@ -1072,9 +1073,7 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
     [registry, ensureDocOpen, docIdByPath],
   );
 
-  // The toolbar's Files button: bring the tree pane back, or the eye to it.
-  // Never a navigation — the folder is a pane of this window, not a page
-  // somewhere else.
+  // Show Files activates its pane and puts keyboard point in its tree.
   const focusTreeRef = useRef<() => void>(() => undefined);
   const focusTree = useCallback(() => {
     setLayout((current) => {
@@ -1083,6 +1082,7 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
       const index = pane.tabs.findIndex((t) => t.kind === "tree");
       return activate(current, pane.id, Math.max(0, index));
     });
+    setTreeFocusRequest((request) => request + 1);
   }, []);
   focusTreeRef.current = focusTree;
   openTerminalRef.current = () => openTerminal();
@@ -1701,15 +1701,14 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
     if (tab.kind === "tree") {
       return (
         <FolderTreePane
+          focusRequest={treeFocusRequest}
           roots={folderRoots}
           error={folderError}
           openable={new Set(openableOutputs.keys())}
           activeDocId={focusedId ?? undefined}
           dirtyPaths={dirtyPaths}
           onNewDocument={newDocument}
-          // What is running, shown where it is running. The tree
-          // already knows the folder; the sessions already know
-          // their directory; this is the join.
+          // The session cwd places each terminal among the files where it runs.
           sessions={terminals.sessions.map((session) => ({
             id: session.id,
             title: session.title,

@@ -99,6 +99,10 @@ site:
 dev:
     ./scripts/dev.sh
 
+# Drive the Files editor against the live app started by `just dev`.
+test-e2e:
+    HICKORY_E2E_URL="http://127.0.0.1:$((41000 + $(pwd | cksum | cut -d' ' -f1) % 8000))" npm --prefix apps/web run test:e2e
+
 # Stop anything a killed `just dev` left behind.
 dev-stop:
     ./scripts/dev.sh stop
@@ -166,4 +170,3 @@ tokens-run SPEC:
 # Static token measurement of files via count_tokens (needs ANTHROPIC_API_KEY).
 tokens-count *FILES:
     cargo run -q -p hickory-agent --bin token_economics -- count-tokens {{FILES}}
-

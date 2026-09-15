@@ -29,7 +29,7 @@ trap 'rm -rf "$ROOT"' EXIT
 export HICKORY_SEED_ROOT="$ROOT"
 export HICKORY_SEED_WEAVE=0
 
-FIXTURE="$ROOT/project/cards.hick"
+FIXTURE="$ROOT/project/cards.md"
 
 seed() {
   ./scripts/dev-seed.sh
@@ -49,14 +49,14 @@ expect() {
 
 # 1. A fresh directory is seeded.
 out=$(seed)
-expect "a fresh directory is created" "created .*cards.hick" "$out"
+expect "a fresh directory is created" "created .*cards.md" "$out"
 [ -s "$FIXTURE" ] || { echo "FAIL: the fixture is empty" >&2; exit 1; }
 
 # 2. Seeding again changes nothing and says so. This is the every-`just dev`
 #    case, and it must be quiet about files it did not touch.
 out=$(seed)
-expect "an unchanged file is reported current" "current .*cards.hick" "$out"
-if grep -q "kept .*cards.hick" <<<"$out"; then
+expect "an unchanged file is reported current" "current .*cards.md" "$out"
+if grep -q "kept .*cards.md" <<<"$out"; then
   echo "FAIL: an untouched file was reported as edited" >&2
   exit 1
 fi
@@ -64,7 +64,7 @@ fi
 # 3. A file you edited is kept, and named.
 echo "a line I typed while developing" >>"$FIXTURE"
 out=$(seed)
-expect "an edited file is kept" "kept .*cards.hick" "$out"
+expect "an edited file is kept" "kept .*cards.md" "$out"
 expect "an edited file is listed at the end" "Your copies of these files differ" "$out"
 grep -q "a line I typed while developing" "$FIXTURE" \
   || { echo "FAIL: an edit was destroyed" >&2; exit 1; }
@@ -82,12 +82,12 @@ elif command -v shasum >/dev/null 2>&1; then
 else
   hash=$(printf '%s\n' "$stale" | openssl dgst -sha256 | awk '{print $NF}')
 fi
-grep -v " $ROOT/project/cards.hick\$" "$ROOT/seed-manifest" >"$ROOT/m" || true
-echo "$hash $ROOT/project/cards.hick" >>"$ROOT/m"
+grep -v " $ROOT/project/cards.md\$" "$ROOT/seed-manifest" >"$ROOT/m" || true
+echo "$hash $ROOT/project/cards.md" >>"$ROOT/m"
 mv "$ROOT/m" "$ROOT/seed-manifest"
 
 out=$(seed)
-expect "a stale-but-unedited file is replaced" "updated .*cards.hick" "$out"
+expect "a stale-but-unedited file is replaced" "updated .*cards.md" "$out"
 if grep -q "an older version of this fixture" "$FIXTURE"; then
   echo "FAIL: a stale fixture survived a re-seed — \`just dev\` would show it" >&2
   exit 1
@@ -96,7 +96,7 @@ fi
 # 5. A deleted file comes back.
 rm "$FIXTURE"
 out=$(seed)
-expect "a deleted file is recreated" "created .*cards.hick" "$out"
+expect "a deleted file is recreated" "created .*cards.md" "$out"
 
 # 6. The fixtures the seed writes are documents this build can actually parse.
 #    A fixture that fails to parse turns `just dev` into a puzzle.

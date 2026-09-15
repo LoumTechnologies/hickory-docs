@@ -1,56 +1,42 @@
-# The Tree Is A Dired
+# Filesystem Acts Keep Dired's Safety
 
-Given the file tree of an open folder, when a person marks rows and acts on
-them — Ctrl+click (Cmd on a Mac) toggles a mark, and with a row focused
-`m` marks, `u` unmarks, `U` unmarks all, `D` or Delete deletes, `R`
-renames, `C` copies, `M` moves, `+` makes a folder and `n` a file — or picks
-the same verbs from a row's right-click menu, then each verb is one
-filesystem operation on the server inside the open folder: a rename never
-overwrites, a move or copy goes into a named directory, a delete removes
-from the disk and asks once first because there is no trash, and a new
-file or folder is made where the row is. A verb on a marked row acts on
-every mark; on an unmarked row it acts on that row alone, the way dired
-does. The tree refetches after each, and the marks clear.
+Given an entry in the editable Files buffer, when a person opens its context
+menu, then rename, move, copy, delete, new-folder, and new-file acts are routed
+to one filesystem-operation endpoint inside the open folder. A rename never
+overwrites, a move or copy names a destination, `.git` and paths outside the
+root are refused, and the Git pane reports the resulting working-tree change.
 
-Emacs's dired is the reason for the keys: a person who wants dired wants
-those keys, and nobody else is hurt by them — they fire only while a tree
-row has the focus and never with a modifier held.
+Editing a line's name or indentation and saving is the ordinary rename/move
+path. Inserting a line creates its file or trailing-slash folder. Removing
+lines stages a destructive delete and asks once before removing bytes from
+disk because there is no trash. The context menu offers the same reviewed
+delete. Provider and terminal lines do not acquire filesystem verbs merely
+because they are drawn inside the same editor.
 
-Three properties hold it up:
-
-1. **The keys are data.** `shell/dired.ts` turns a key, the focused row
-   and the marks into an intent, and `useDired` runs intents: mark
-   intents change the set, verbs open one prompt (`TreePrompt`, in the
-   pane — never a browser `prompt()`, which the desktop shell would block
-   on) and then call `POST /api/files/op` once per target.
-2. **One route, six verbs, the refusals said plainly.**
-   `serve/files_ops.rs`: nothing outside the folder or under `.git`, never
-   the folder itself, never over something that exists (`409`), a move into
-   itself refused, a `.hick` "file" pointed at New Document, an unknown verb
-   named. No `git mv`: the Git pane shows what changed.
-3. **The menu and the keys agree.** `treeMenuItems` builds the verbs from
-   the same marks (`subjects`), so "Delete (3 marked)" in the menu and `D`
-   on the row do the same thing.
+The server is deliberately independent of the presentation. `POST
+/api/files/op` answers `rename`, `move`, `copy`, `delete`, `mkdir`, and
+`create`; each refusal says what was unsafe or stale. The pane refreshes after
+an act, and never guesses an inverse operation after a partial failure.
 
 ## Boundary
 
-No drag-and-drop between rows, no undo: a delete is final, which is why it
-asks. A rename of a `.hick` document is a rename on disk; the open room, if
-any, is not moved with it and must be reopened. The root row itself cannot
-be renamed, moved or deleted from inside the app that is open on it.
+Create/delete and rename/move are separate saves so line identity is never
+guessed. The root itself cannot be renamed, moved, or deleted from the app
+opened on it. A renamed open `.hick` room is not silently rebound and must be
+reopened.
 
 ---
 
 Last LLM verification:
-- Date: 2026-09-05
-- Reviewer: Claude (Fable 5.1)
-- Result: verified
-- Evidence: `apps/web/src/shell/dired.ts`, `useDired.ts`, `TreePrompt.tsx`,
-  `treeMenu.ts` (`subjects`, the verb items), `FolderTreePane.tsx` (marks
-  on rows, Ctrl+click, the tree's `onKeyDown`, `runItem`);
-  `crates/hickory-cli/src/serve/files_ops.rs` routed as `POST /files/op`.
-- Test coverage: `apps/web/src/shell/dired.test.ts`,
-  `treeMenu.test.ts` ("the dired and ingest verbs"),
-  `FolderTreePane.test.tsx` ("the tree as dired");
-  `crates/hickory-cli/tests/tree_file_ops.rs` over real HTTP, every verb
-  and every refusal.
+- Date: 2026-09-15
+- Reviewer: Codex
+- Result: verified for context-menu acts, server safety, direct text rename,
+  move and create, and text/context-menu destructive confirmation
+- Evidence: `apps/web/src/shell/FilesystemTreeEditor.tsx`, `treeMenu.ts`,
+  `useDired.ts`, `TreePrompt.tsx`, and
+  `crates/hickory-cli/src/serve/files_ops.rs`
+- Test coverage: `filesystemTreeText.test.ts`,
+  `FilesystemTreeEditor.test.tsx`, `treeMenu.test.ts`,
+  `FolderTreePane.test.tsx` ("the tree as dired"),
+  `crates/hickory-cli/tests/tree_file_ops.rs`, and the live Playwright Files
+  buffer rename flow

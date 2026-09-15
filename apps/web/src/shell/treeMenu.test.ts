@@ -102,6 +102,7 @@ describe("treeMenuItems", () => {
       // Terminals live in the tree now: a directory is where you open one.
       "new-terminal",
       "new-worktree",
+      "associate-github-issue",
     ]);
     expect(items.find((i) => i.id === "copy-name")?.label).toBe("Copy folder name");
   });
@@ -119,6 +120,7 @@ describe("treeMenuItems", () => {
       "reveal",
       "new-terminal",
       "new-worktree",
+      "associate-github-issue",
     ]);
   });
 
@@ -161,8 +163,8 @@ describe("the dired and ingest verbs", () => {
     const onMarked = treeMenuItems(POSIX, "a.md", false, { marked });
     expect(onMarked.find((i) => i.id === "delete")?.label).toBe("Delete (3 marked)");
     expect(onMarked.find((i) => i.id === "move")?.action).toEqual({ kind: "move", paths: ["a.md", "b.md", "c.md"] });
-    // A rename is one name, whatever is marked.
-    expect(onMarked.find((i) => i.id === "rename")?.action).toEqual({ kind: "rename", path: "a.md" });
+    expect(onMarked.find((i) => i.id === "rename")?.label).toBe("Rename… (3 marked)");
+    expect(onMarked.find((i) => i.id === "rename")?.action).toEqual({ kind: "rename", paths: ["a.md", "b.md", "c.md"] });
     const offMarks = treeMenuItems(POSIX, "z.md", false, { marked });
     expect(offMarks.find((i) => i.id === "delete")?.label).toBe("Delete");
     expect(offMarks.find((i) => i.id === "delete")?.action).toEqual({ kind: "delete", paths: ["z.md"] });

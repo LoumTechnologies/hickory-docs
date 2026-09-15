@@ -90,11 +90,13 @@ export const ACTIONS: readonly ActionSpec[] = [
   { id: "tree.unmark", label: "Tree: unmark", scope: "tree", keys: { hickory: "u" } },
   { id: "tree.unmarkAll", label: "Tree: unmark all", scope: "tree", keys: { hickory: "Shift+U" } },
   { id: "tree.delete", label: "Tree: delete", scope: "tree", keys: { hickory: "Shift+D" } },
-  { id: "tree.rename", label: "Tree: rename", scope: "tree", keys: { hickory: "Shift+R" } },
+  { id: "tree.rename", label: "Tree: rename", scope: "tree", keys: { hickory: "F2" } },
   { id: "tree.copy", label: "Tree: copy to…", scope: "tree", keys: { hickory: "Shift+C" } },
   { id: "tree.move", label: "Tree: move to…", scope: "tree", keys: { hickory: "Shift+M" } },
   { id: "tree.newFolder", label: "Tree: new folder", scope: "tree", keys: { hickory: "+" } },
   { id: "tree.newFile", label: "Tree: new file", scope: "tree", keys: { hickory: "n" } },
+  { id: "tree.addSelectionAbove", label: "Tree: add row above to column selection", scope: "tree", keys: { hickory: "Shift+Alt+ArrowUp" } },
+  { id: "tree.addSelectionBelow", label: "Tree: add row below to column selection", scope: "tree", keys: { hickory: "Shift+Alt+ArrowDown" } },
 ];
 
 // ---------------------------------------------------------------------------

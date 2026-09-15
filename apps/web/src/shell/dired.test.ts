@@ -21,8 +21,9 @@ describe("the dired keys", () => {
     expect(diredIntent({ key: "M", shiftKey: true }, "c.md", false, none)).toEqual({ kind: "move", paths: ["c.md"] });
   });
 
-  it("R renames the row, never the marks: a rename is one name", () => {
-    expect(diredIntent({ key: "R", shiftKey: true }, "a.md", false, marks)).toEqual({ kind: "rename", path: "a.md" });
+  it("R opens the rename column over marks when the row is marked", () => {
+    expect(diredIntent({ key: "F2" }, "a.md", false, marks)).toEqual({ kind: "rename", paths: ["a.md", "b.md"] });
+    expect(diredIntent({ key: "F2" }, "c.md", false, marks)).toEqual({ kind: "rename", paths: ["c.md"] });
   });
 
   it("+ and n create in the row's directory, or beside a file", () => {

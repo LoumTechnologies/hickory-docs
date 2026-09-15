@@ -4,7 +4,7 @@ Given the app's keyboard shortcuts — the menu bar's (new, open, save,
 terminal, files, settings, zoom, insert), the editor's (find, format,
 rename, code action, add next occurrence, select all occurrences), the
 workspace's (find in folder, problems, debug continue) and the tree's
-dired keys — when a person opens Settings → Keyboard, then every one of
+dired and column-selection keys — when a person opens Settings → Keyboard, then every one of
 them is listed with the key it is on, a **profile** binds them all the way
 one IDE does (Hickory's own keys, which are VS Code's; VS Code; JetBrains;
 Visual Studio), and any single action can be changed by pressing its key
@@ -55,7 +55,7 @@ Last LLM verification:
 - Evidence: `apps/web/src/lib/keymap.ts` (`ACTIONS`, `PROFILES`, the
   spellings, `resolve`, `conflicts`, `nativeAccelerators`, the live store,
   chords); `apps/web/src/views/KeyboardSection.tsx`; consumers in
-  `shell/dired.ts`, `lsp/cmLspFeatures.ts`, `editor/multiCursor.ts`,
+  `shell/dired.ts`, `shell/useTreeNavigation.ts`, `lsp/cmLspFeatures.ts`, `editor/multiCursor.ts`,
   `shell/ShellView.tsx`, `views/WorkspaceView.tsx`, `debug/DebugStrip.tsx`;
   `main.tsx` loads it before the first editor. Server:
   `crates/hickory-cli/src/serve/mod.rs` `UiStore::{keymap,

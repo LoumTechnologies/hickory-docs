@@ -178,9 +178,9 @@ pub async fn file_op(
             json!({ "op": "mkdir", "path": body.path })
         }
         "create" => {
-            if body.path.ends_with(".md") {
+            if body.path.ends_with(".hick") {
                 return Err(ApiError::bad_request(
-                    "a `.md` file is a document — File → New Document makes one, with a room to edit it in",
+                    "a `.hick` file is a document — File → New Document makes one, with a room to edit it in",
                 ));
             }
             vacant(&source, &body.path)?;

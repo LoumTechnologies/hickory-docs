@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest";
 import {
-  alwaysVisible,
   hiddenSummary,
   rankSessions,
   urgentCount,
@@ -8,7 +7,8 @@ import {
 
 const s = (title: string, state: string) => ({ title, state });
 
-describe("which terminal icon comes first", () => {
+// Guarantee: docs/guarantees/terminal/a-session-appears-where-it-is-working.md
+describe("which terminal node comes first", () => {
   it("ranks by urgency, not by when it started", () => {
     // Sorting by start time would make the one thing worth acting on wander
     // as other sessions come and go.
@@ -34,22 +34,7 @@ describe("which terminal icon comes first", () => {
   });
 });
 
-describe("which terminal icons refuse to hide", () => {
-  it("keeps the ones that want something from a person", () => {
-    // An affordance that only appears once the pointer is already there
-    // cannot tell you to go there.
-    expect(alwaysVisible("needs-you")).toBe(true);
-    expect(alwaysVisible("failed")).toBe(true);
-  });
-
-  it("lets a busy session wait to be hovered", () => {
-    // The test is "does this want something", not "is this busy": a build
-    // churning away needs nothing.
-    expect(alwaysVisible("working")).toBe(false);
-    expect(alwaysVisible("idle")).toBe(false);
-    expect(alwaysVisible("finished")).toBe(false);
-  });
-
+describe("which terminal nodes need attention", () => {
   it("counts the urgent ones", () => {
     expect(urgentCount([s("a", "needs-you"), s("b", "working"), s("c", "failed")])).toBe(2);
   });

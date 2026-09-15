@@ -37,6 +37,7 @@ pub mod find;
 pub mod formula;
 pub mod git;
 pub mod git_ops;
+pub mod github;
 pub mod history;
 pub mod install;
 pub mod lsp_bridge;
@@ -566,6 +567,20 @@ fn router(state: LocalState) -> Router {
         // a terminal on every row of the tree. See serve/git.rs.
         .route("/git/log", get(git::log))
         .route("/git/status", get(git::status))
+        // GitHub is reached by the person's own `gh` installation. Hickory
+        // never receives or persists its token; a missing or signed-out CLI
+        // is provider unavailability, not a broken filesystem tree.
+        .route("/workspace/github", get(github::workspace))
+        .route("/workspace/github/pr/{number}", get(github::pull_request))
+        .route("/workspace/github/issue/{number}", get(github::issue))
+        .route("/workspace/github/issues", post(github::associate_issue))
+        .route("/workspace/github/edit", post(github::edit))
+        .route("/workspace/github/comment", post(github::comment))
+        .route("/workspace/github/check-log", get(github::check_log))
+        .route(
+            "/workspace/github/notification/{thread}",
+            post(github::mark_notification_read),
+        )
         .route("/outputs/diverged", get(api::diverged_outputs))
         .route("/outputs/regenerate", post(api::regenerate_output))
         .route("/outputs/resolve", post(api::resolve_output))

@@ -98,7 +98,7 @@ seed_file() {
 
 echo "Seeding $PROJECT_DIR"
 
-seed_file "$PROJECT_DIR/decisions.hick" <<'EOF'
+seed_file "$PROJECT_DIR/decisions.md" <<'EOF'
 <?xml version="1.0" encoding="UTF-8"?>
 <hick:doc xmlns:hick="http://www.hickorydocs.com/1.0" weave="decisions.md">
 # Scratch project — decisions
@@ -118,12 +118,12 @@ first run of a fresh install must behave like every later run.
 </hick:doc>
 EOF
 
-seed_file "$PROJECT_DIR/stats.hick" <<'EOF'
+seed_file "$PROJECT_DIR/stats.md" <<'EOF'
 <?xml version="1.0" encoding="UTF-8"?>
 <hick:doc xmlns:hick="http://www.hickorydocs.com/1.0" weave="stats.md">
 # Scratch project — implementation
 
-<hick:upstream file="decisions.hick" />
+<hick:upstream file="decisions.md" />
 
 ## Decisions in force
 
@@ -161,7 +161,7 @@ cd project && python3 stats.py
 </hick:doc>
 EOF
 
-seed_file "$PROJECT_DIR/debugging.hick" <<'EOF'
+seed_file "$PROJECT_DIR/debugging.md" <<'EOF'
 <?xml version="1.0" encoding="UTF-8"?>
 <hick:doc xmlns:hick="http://www.hickorydocs.com/1.0" weave="debugging.md">
 # Scratch project — the debugger
@@ -242,7 +242,7 @@ amount of checking stdout can reach.
 </hick:doc>
 EOF
 
-seed_file "$PROJECT_DIR/workspace.hick" <<'EOF'
+seed_file "$PROJECT_DIR/workspace.md" <<'EOF'
 <?xml version="1.0" encoding="UTF-8"?>
 <hick:doc xmlns:hick="http://www.hickorydocs.com/1.0" weave="workspace.md">
 # Workspace
@@ -256,7 +256,7 @@ session state, and this file would change every time somebody dragged a
 splitter. See docs/specs/freeform/shell-layouts.md.
 
 <hick:copy id="documents" class="layout-region">
-*.hick
+*.md
 </hick:copy>
 
 <hick:copy id="generated" class="layout-region">
@@ -271,7 +271,7 @@ EOF
 # hunted for across four documents. Its job is the gutter guarantee — see
 # docs/guarantees/authoring/the-gutters-never-skip-a-number.md — which is only
 # checkable by eye, on a document that exercises all of it.
-seed_file "$PROJECT_DIR/cards.hick" <<'EOF'
+seed_file "$PROJECT_DIR/cards.md" <<'EOF'
 # Every card, in one document
 
 A fixture, not a tutorial. It exists so the editor's card UI can be looked at
@@ -409,18 +409,18 @@ a `.hick` document cannot carry, because a session is its own root element.
 Each one below rides the end of the line its element opens on.
 
 <hick:tool name="read_doc">
-<hick:input>cards.hick</hick:input>
+<hick:input>cards.md</hick:input>
 </hick:tool>
 </hick:assistant>
 <hick:tool-result name="read_doc" ok="true">
-cards.hick — 1 container, 2 cells, 1 diagram, 2 prose fences, 1 file, 2 fragments.
+cards.md — 1 container, 2 cells, 1 diagram, 2 prose fences, 1 file, 2 fragments.
 </hick:tool-result>
 <hick:assistant>
 Here is a tool the agent was refused, so the chip reads `refused` rather than
 `ok`:
 
 <hick:tool name="write_doc">
-<hick:input>cards.hick</hick:input>
+<hick:input>cards.md</hick:input>
 </hick:tool>
 </hick:assistant>
 <hick:tool-result name="write_doc" ok="false">

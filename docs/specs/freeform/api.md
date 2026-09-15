@@ -430,3 +430,22 @@ writing it is something people rightly do deliberately, where the exact
 command is visible — and there is a terminal on every row of the file tree, in
 the directory the work is in. A half-built git UI that can commit but not
 amend teaches a workflow it cannot finish.
+
+## GitHub workspace objects (v0.6)
+
+- `GET /api/workspace/github` returns provider availability, normalized
+  repository, checked-out branch, PR summaries for that head, and associated
+  issue summaries.
+- `GET /api/workspace/github/pr/:number` and
+  `GET /api/workspace/github/issue/:number?repository=` lazily return bodies,
+  comments, reviews, checks, and current-head conflict analysis.
+- `POST /api/workspace/github/issues` persists a credentialless issue/folder
+  association. `POST /api/workspace/github/edit` edits an advertised title or
+  body; `POST /api/workspace/github/comment` appends a comment.
+- `GET /api/workspace/github/check-log?run=&job=` returns at most 512 KiB and
+  says when truncated. `POST /api/workspace/github/notification/:thread`
+  explicitly acknowledges one notification.
+
+All network access and authentication go through the person's installed `gh`.
+No token crosses these routes or enters `.hick-workspace.json`. Provider
+failure is data on this lens and never makes `/api/files` fail.

@@ -837,10 +837,7 @@ mod tests {
         // The browser never learns where the file is on disk, exactly as on
         // the language channel.
         let root = std::path::Path::new("/home/u/project");
-        assert_eq!(
-            resolve(root, "hick:///docs/a.md"),
-            root.join("docs/a.md")
-        );
+        assert_eq!(resolve(root, "hick:///docs/a.md"), root.join("docs/a.md"));
         assert_eq!(resolve(root, "/docs/a.md"), root.join("docs/a.md"));
         assert_eq!(resolve(root, "a.md"), root.join("a.md"));
     }

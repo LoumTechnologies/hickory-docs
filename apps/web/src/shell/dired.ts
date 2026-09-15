@@ -1,11 +1,12 @@
 // The tree as dired: marks, and the keys that act on them.
 //
 // Emacs's dired is a list of files you MARK and then act on — `m` marks,
-// `u` unmarks, `U` unmarks all, and `D`, `R`, `C` delete, rename and copy
+// `u` unmarks, `U` unmarks all, and `D`, `C` delete and copy
 // the marks (or the row under point when nothing is marked). `+` makes a
 // folder. Those are the keys here, verbatim, because a person who wants
-// dired wants those keys and nobody else is hurt by them: they fire only
-// while a tree row has the focus, and never with a modifier held.
+// dired wants those keys and nobody else is hurt by them: they fire only while
+// a tree row has focus. Rename is F2, the familiar editor gesture, because
+// this tree is meant to feel like an editor.
 //
 // Pure: a key and the state in, an intent out. The pane owns the marks and
 // runs the intents (docs/guarantees/authoring/the-tree-is-a-dired.md).
@@ -17,7 +18,7 @@ export type DiredIntent =
   | { kind: "unmark"; path: string }
   | { kind: "unmark-all" }
   | { kind: "delete"; paths: string[] }
-  | { kind: "rename"; path: string }
+  | { kind: "rename"; paths: string[] }
   | { kind: "copy"; paths: string[] }
   | { kind: "move"; paths: string[] }
   | { kind: "mkdir"; dir: string }
@@ -72,7 +73,7 @@ export function diredIntent(
   if (is("tree.unmarkAll")) return { kind: "unmark-all" };
   if (is("tree.delete") || (full.key === "Delete" && !full.ctrlKey && !full.metaKey && !full.altKey))
     return something ? { kind: "delete", paths: targets(path, marked) } : null;
-  if (is("tree.rename")) return onRow ? { kind: "rename", path } : null;
+  if (is("tree.rename")) return onRow ? { kind: "rename", paths: targets(path, marked) } : null;
   if (is("tree.copy")) return something ? { kind: "copy", paths: targets(path, marked) } : null;
   if (is("tree.move")) return something ? { kind: "move", paths: targets(path, marked) } : null;
   if (is("tree.newFolder")) return { kind: "mkdir", dir: containing(path, dir) };

@@ -70,6 +70,7 @@ import type {
   WorkspaceUiState,
   WorktreeInfo,
 } from "./types";
+import type { GithubIssue, GithubPullRequest, GithubWorkspace } from "./github";
 
 export const MOCK = import.meta.env.VITE_MOCK === "1";
 
@@ -198,6 +199,47 @@ export const api = {
 
   /** The open folder's file tree: directories first, alphabetical. */
   files: () => request<FilesResponse>("GET", "/api/files"),
+
+  /** GitHub objects rooted in this checkout. Authentication remains in the
+   * person's `gh` credential store; these routes never carry a token. */
+  githubWorkspace: () => request<GithubWorkspace>("GET", "/api/workspace/github"),
+  githubPullRequest: (number: number) =>
+    request<GithubPullRequest>("GET", `/api/workspace/github/pr/${number}`),
+  githubIssue: (repository: string, number: number) =>
+    request<GithubIssue>(
+      "GET",
+      `/api/workspace/github/issue/${number}?repository=${encodeURIComponent(repository)}`,
+    ),
+  associateGithubIssue: (repository: string, number: number, folder: string) =>
+    request<{ repository: string; number: number; folder: string }>(
+      "POST",
+      "/api/workspace/github/issues",
+      { repository, number, folder },
+    ),
+  editGithubObject: (
+    kind: "pr" | "issue",
+    repository: string,
+    number: number,
+    field: "title" | "body",
+    value: string,
+  ) => request<{ ok: true }>("POST", "/api/workspace/github/edit", {
+    kind, repository, number, field, value,
+  }),
+  commentOnGithubObject: (
+    kind: "pr" | "issue",
+    repository: string,
+    number: number,
+    body: string,
+  ) => request<{ ok: true }>("POST", "/api/workspace/github/comment", {
+    kind, repository, number, body,
+  }),
+  githubCheckLog: (run: number, job: number) =>
+    request<{ text: string; truncated: boolean }>(
+      "GET",
+      `/api/workspace/github/check-log?run=${run}&job=${job}`,
+    ),
+  markGithubNotificationRead: (thread: string) =>
+    request<{ ok: true }>("POST", `/api/workspace/github/notification/${encodeURIComponent(thread)}`),
 
   /** Show a path in the platform's file manager: a file selected inside its
    * folder, a directory opened. `path` is root-relative; `""` is the folder

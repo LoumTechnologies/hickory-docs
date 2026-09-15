@@ -1,8 +1,8 @@
 # A Session Appears Where It Is Working
 
-Given terminal sessions and an open folder, when the folder tree is shown, then
-each session appears as a row at the directory it is working in; clicking that
-row shows the session's terminal; a collapsed directory says how many sessions
+Given terminal sessions and an open folder, when the workspace tree is shown,
+then each session appears as a visible child node of the directory it is working
+in; clicking that node shows the session's terminal; a collapsed directory says how many sessions
 are hidden inside it; and a session working outside the folder does not appear
 at all.
 
@@ -75,8 +75,8 @@ An unterminated sequence is abandoned at a bounded size rather than growing.
 ---
 
 Last LLM verification:
-- Date: 2026-08-18
-- Reviewer: Claude (Opus 5)
+- Date: 2026-09-14
+- Reviewer: Codex (GPT-5), retaining the Apple-hardware evidence recorded by Claude (Opus 5)
 - Result: verified; the OSC 7 assumption was **measured on Apple hardware**, the
   macOS answer turned out to be that no shell says it, and the shell is now told
   — see the caveats
@@ -94,7 +94,7 @@ Last LLM verification:
   `SessionSummary::cwd` now prefers the live directory, with `cwd_is_live`
   reporting which source it came from, both read under one screen lock.
   `apps/web/src/shell/FolderTreePane.tsx` — `relativeCwd`, `placeSessions`,
-  `sessionsUnder`, `directoryPaths`, and `SessionRow`; wired in
+  `sessionsUnder`, `directoryPaths`, and `TerminalRows`; wired in
   `apps/web/src/views/WorkspaceView.tsx`, whose `showTerminal` is what a click
   calls.
 - Test coverage: `crates/hick-term/src/screen.rs::osc_tests` (9 tests) — both
@@ -162,9 +162,10 @@ Last LLM verification:
     following-a-`cd` half has no Windows meaning and its tests skip loudly.
     Written on macOS and not yet observed on a Windows runner; the fallback
     tests are the ones to watch when it is.
-  - **Nothing was seen in a running window.** The rows typecheck and their
-    tests pass under jsdom; how a folder with twenty sessions in it reads, and
-    whether the count badge is noticed, is unverified.
+  - **Nothing was seen in a running window after the visible-node correction.**
+    The rows typecheck and their tests pass under jsdom; how a folder with
+    twenty sessions reads, and whether the count badge is noticed, is
+    unverified.
   - **The row shows the session's title, not the running command.** For a shell
     that sets its title to the foreground command these coincide; for one that
     does not, the row says "bash" while `cargo test` is what is running. The

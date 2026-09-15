@@ -1,4 +1,5 @@
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { EditorView } from "@codemirror/view";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { installMockHandler } from "../api/client";
@@ -56,14 +57,18 @@ function Harness({
   onNew = () => {},
   sessions = [],
   onOpenTerminal,
+  onCloseTerminal,
   dirtyPaths = new Set<string>(),
+  focusRequest = 0,
 }: {
   onOpen?: (action: Exclude<FileAction, { kind: "inert" }>) => void;
   openable?: Set<string>;
   onNew?: () => void;
   sessions?: readonly TreeSession[];
   onOpenTerminal?: (id: string) => void;
+  onCloseTerminal?: (id: string) => void;
   dirtyPaths?: ReadonlySet<string>;
+  focusRequest?: number;
 }) {
   const { roots, error } = useFolderTrees();
   return (
@@ -75,9 +80,18 @@ function Harness({
       onNewDocument={onNew}
       sessions={sessions}
       onOpenTerminal={onOpenTerminal}
+      onCloseTerminal={onCloseTerminal}
       dirtyPaths={dirtyPaths}
+      focusRequest={focusRequest}
     />
   );
+}
+
+function filesEditor(): EditorView {
+  const element = document.querySelector<HTMLElement>(".filesystem-editor .cm-editor");
+  const editor = element && EditorView.findFromDOM(element);
+  if (!editor) throw new Error("Files editor did not mount");
+  return editor;
 }
 
 beforeEach(() => {
@@ -90,8 +104,9 @@ describe("rendering the folder", () => {
   // Guarantee: docs/guarantees/authoring/unsaved-work-survives-closing-the-app.md
   it("marks a file dirty from the buffer state supplied by the workspace", async () => {
     render(<Harness dirtyPaths={new Set(["paper.hick"])} />);
-    expect(await screen.findByText("paper.hick *")).toBeTruthy();
-    expect(screen.getByText("readme.txt").textContent).toBe("readme.txt");
+    await screen.findByText("paper.hick");
+    expect(document.querySelector('[data-tree-path="paper.hick"]')?.className).toContain("filesystem-editor__line--dirty");
+    expect(document.querySelector('[data-tree-path="readme.txt"]')?.className).not.toContain("filesystem-editor__line--dirty");
   });
   it("names the folder after its last path segment and offers a new document", async () => {
     const onNew = vi.fn();
@@ -104,35 +119,28 @@ describe("rendering the folder", () => {
   it("renders the server's order untouched: dirs first, then files", async () => {
     render(<Harness />);
     await screen.findByText("paper.hick");
-    const labels = [...document.querySelectorAll(".folder-tree__dir, .folder-tree__file")].map(
-      (el) => el.textContent?.replace(/^[▾▸]/, ""),
+    expect(filesEditor().state.doc.toString()).toBe(
+      "src/\n  gen/\n    orders.py\n  main.rs\npaper.hick\nreadme.txt\nlogo.png",
     );
-    // src is collapsed, so its children are not in the page yet.
-    expect(labels).toEqual(["src", "paper.hick", "readme.txt", "logo.png"]);
   });
 
-  it("expands a directory to its children, nested dirs collapsible in turn", async () => {
+  it("represents hierarchy as editable, significant whitespace", async () => {
     render(<Harness />);
-    fireEvent.click(await screen.findByText(/src/));
-    expect(screen.getByText("main.rs")).toBeTruthy();
-    expect(screen.queryByText("orders.py")).toBeNull(); // gen still folded
-    fireEvent.click(screen.getByText(/gen/));
-    expect(screen.getByText("orders.py")).toBeTruthy();
+    await screen.findByText("paper.hick");
+    expect(filesEditor().state.doc.line(1).text).toBe("src/");
+    expect(filesEditor().state.doc.line(2).text).toBe("  gen/");
+    expect(filesEditor().state.doc.line(3).text).toBe("    orders.py");
   });
 
   it("tags every visible file row for the ribbon overlay, by path", async () => {
     // The contract with shell/Ribbons.tsx: a connection whose target file is
-    // visible as a tree row (and not open as a tab) terminates ON that row,
-    // found by data-tree-path. Collapsed directories render no row at all,
-    // which is what lets the overlay fall through to a divider port.
+    // visible as a buffer line (and not open as a tab) terminates ON that line,
+    // found by data-tree-path.
     render(<Harness openable={new Set(["src/main.rs"])} />);
     await screen.findByText("paper.hick");
     expect(document.querySelector('[data-tree-path="paper.hick"]')?.getAttribute("data-tree-kind")).toBe("doc");
     expect(document.querySelector('[data-tree-path="readme.txt"]')?.getAttribute("data-tree-kind")).toBe("file");
     expect(document.querySelector('[data-tree-path="logo.png"]')?.getAttribute("data-tree-kind")).toBe("inert");
-    // src is collapsed: its children have no rows to terminate on.
-    expect(document.querySelector('[data-tree-path="src/main.rs"]')).toBeNull();
-    fireEvent.click(screen.getByText(/src/));
     expect(document.querySelector('[data-tree-path="src/main.rs"]')?.getAttribute("data-tree-kind")).toBe("generated");
   });
 
@@ -140,6 +148,71 @@ describe("rendering the folder", () => {
     mockFiles({ ...RESPONSE, truncated: true });
     render(<Harness />);
     expect(await screen.findByText(/not everything is listed/i)).toBeTruthy();
+  });
+});
+
+// Guarantee: docs/guarantees/authoring/the-workspace-tree-edits-like-an-editor.md
+describe("editor-grade tree navigation", () => {
+  it("moves point into the tree when the shell asks to focus Files", async () => {
+    const view = render(<Harness />);
+    await screen.findByText("paper.hick");
+    view.rerender(<Harness focusRequest={1} />);
+    await vi.waitFor(() => expect(document.activeElement).toBe(filesEditor().contentDOM));
+  });
+
+  it("uses ordinary editor arrows, Home, and Shift-selection", async () => {
+    render(<Harness />);
+    await screen.findByText("paper.hick");
+    const editor = filesEditor();
+    editor.focus();
+    editor.dispatch({ selection: { anchor: 0 } });
+    fireEvent.keyDown(editor.contentDOM, { key: "ArrowRight" });
+    expect(editor.state.selection.main.head).toBe(1);
+    fireEvent.keyDown(editor.contentDOM, { key: "Home" });
+    expect(editor.state.selection.main.head).toBe(0);
+    fireEvent.keyDown(editor.contentDOM, { key: "ArrowRight", shiftKey: true });
+    expect(editor.state.selection.main.empty).toBe(false);
+  });
+});
+
+// docs/guarantees/integrations/a-github-issue-belongs-to-its-associated-folder.md
+describe("GitHub issues in folders", () => {
+  it("indents an associated issue beneath its folder and opens its details", async () => {
+    installMockHandler(async (method, path) => {
+      if (method === "GET" && path === "/api/files") return RESPONSE;
+      if (method === "GET" && path === "/api/workspace/github") return {
+        status: "available", repository: "acme/widget", branch: "main", reviews: [],
+        issues: [{ repository: "acme/widget", number: 7, folder: "src", title: "Fix retry", state: "OPEN", freshness: "live" }],
+      };
+      throw new Error(`unexpected ${method} ${path}`);
+    });
+    render(<Harness />);
+    const issue = await screen.findByText(/issue #7: Fix retry/);
+    expect(filesEditor().state.doc.toString()).toContain("src/\n  issue #7: Fix retry · open\n  gen/");
+    fireEvent.doubleClick(issue);
+    expect(await screen.findByRole("button", { name: /Issue #7: Fix retry/ })).toBeTruthy();
+  });
+
+  it("associates an issue from a folder's context menu", async () => {
+    const associated: unknown[] = [];
+    installMockHandler(async (method, path, body) => {
+      if (method === "GET" && path === "/api/files") return RESPONSE;
+      if (method === "GET" && path === "/api/workspace/github") return {
+        status: "available", repository: "acme/widget", branch: "main", reviews: [], issues: [],
+      };
+      if (method === "POST" && path === "/api/workspace/github/issues") {
+        associated.push(body); return body;
+      }
+      throw new Error(`unexpected ${method} ${path}`);
+    });
+    render(<Harness />);
+    const src = await screen.findByText("src/");
+    fireEvent.contextMenu(src);
+    fireEvent.click(document.querySelector<HTMLElement>('[data-menu-item="associate-github-issue"]')!);
+    const input = await screen.findByRole("textbox", { name: /GitHub issue for src/ });
+    fireEvent.change(input, { target: { value: "acme/widget#19" } });
+    fireEvent.click(screen.getByRole("button", { name: "Associate" }));
+    await vi.waitFor(() => expect(associated).toEqual([{ repository: "acme/widget", number: 19, folder: "src" }]));
   });
 });
 
@@ -179,6 +252,9 @@ describe("the right-click menu", () => {
     const calls: [string, unknown][] = [];
     installMockHandler(async (method, path, body) => {
       if (method === "GET" && path === "/api/files") return PLATFORM;
+      if (method === "GET" && path === "/api/workspace/github") {
+        return { status: "not_repository", reviews: [], issues: [] };
+      }
       calls.push([`${method} ${path}`, body]);
       return { ok: true };
     });
@@ -206,12 +282,12 @@ describe("the right-click menu", () => {
     expect(menuItem("open-external")).toBeTruthy();
     fireEvent.keyDown(window, { key: "Escape" });
 
-    fireEvent.contextMenu(screen.getByText(/src/));
+    fireEvent.contextMenu(screen.getByText("src/"));
     // A directory has no default program of its own worth naming.
     expect(document.querySelector('[data-menu-item="open-external"]')).toBeNull();
     expect(menuItem("copy-name").textContent).toBe("Copy folder name");
-    // ...and right-clicking it did not also expand it.
-    expect(screen.queryByText("main.rs")).toBeNull();
+    // ...and right-clicking it did not change the editable buffer.
+    expect(filesEditor().state.doc.line(1).text).toBe("src/");
   });
 
   it("says so when the platform refuses, instead of appearing to do nothing", async () => {
@@ -262,18 +338,18 @@ describe("what clicking a file does", () => {
     expect(isLikelyBinaryPath("Cargo.lock")).toBe(false);
   });
 
-  it("reports document, generated and plain-file clicks; binaries render without a button", async () => {
+  it("opens text entries on double-click while a single click only places the caret", async () => {
     const onOpen = vi.fn();
     render(<Harness onOpen={onOpen} openable={new Set(["src/main.rs"])} />);
     fireEvent.click(await screen.findByText("paper.hick"));
+    expect(onOpen).not.toHaveBeenCalled();
+    fireEvent.doubleClick(screen.getByText("paper.hick"));
     expect(onOpen).toHaveBeenLastCalledWith({ kind: "doc", id: "d1" });
-    fireEvent.click(screen.getByText(/src/));
-    fireEvent.click(screen.getByText("main.rs"));
+    fireEvent.doubleClick(screen.getByText("main.rs"));
     expect(onOpen).toHaveBeenLastCalledWith({ kind: "generated", path: "src/main.rs" });
-    fireEvent.click(screen.getByText("readme.txt"));
+    fireEvent.doubleClick(screen.getByText("readme.txt"));
     expect(onOpen).toHaveBeenLastCalledWith({ kind: "file", path: "readme.txt" });
-    // logo.png is bytes this app cannot show: named, but not clickable.
-    expect(screen.getByText("logo.png").tagName).not.toBe("BUTTON");
+    fireEvent.doubleClick(screen.getByText("logo.png"));
     expect(onOpen).toHaveBeenCalledTimes(3);
   });
 });
@@ -408,26 +484,52 @@ describe("relativeCwd", () => {
   });
 });
 
+// Guarantees:
+// - docs/guarantees/terminal/a-session-appears-where-it-is-working.md
+// - docs/guarantees/authoring/the-workspace-tree-is-a-lens.md
 describe("showing a terminal from the tree", () => {
   it("lists a session at the folder it is working in, and opening it names it", async () => {
     const onOpenTerminal = vi.fn();
     render(
       <Harness
-        sessions={[session("t1", "/home/me/notebook", { title: "cargo test" })]}
+        sessions={[session("t1", "/home/me/notebook", { title: "cargo test", state: "working" })]}
         onOpenTerminal={onOpenTerminal}
       />,
     );
     const row = await screen.findByRole("button", { name: /cargo test/ });
+    expect(row.getAttribute("data-workspace-node-key")).toBe("terminal:t1");
+    expect(row.className).toContain("folder-tree__terminal");
+    expect(row.textContent).toContain("working");
     fireEvent.click(row);
     expect(onOpenTerminal).toHaveBeenCalledWith("t1");
   });
 
-  it("says how many are hidden inside a collapsed directory", async () => {
-    // Otherwise the reason to show processes at all — seeing the one you
-    // forgot about — is defeated by the directory being shut.
+  it("indents a nested terminal beneath its cwd and activates it from the buffer", async () => {
+    const onOpenTerminal = vi.fn();
+    render(<Harness sessions={[session("t1", "/home/me/notebook/src", { title: "cargo watch" })]} onOpenTerminal={onOpenTerminal} />);
+    const terminal = await screen.findByText("terminal: cargo watch · running");
+    expect(filesEditor().state.doc.toString()).toContain("src/\n  terminal: cargo watch · running\n  gen/");
+    fireEvent.doubleClick(terminal);
+    expect(onOpenTerminal).toHaveBeenCalledWith("t1");
+  });
+
+  it("offers close on the visible terminal node's own menu", async () => {
+    const onCloseTerminal = vi.fn();
+    render(
+      <Harness
+        sessions={[session("t1", "/home/me/notebook", { title: "cargo test" })]}
+        onCloseTerminal={onCloseTerminal}
+      />,
+    );
+    fireEvent.contextMenu(await screen.findByRole("button", { name: /cargo test/ }));
+    fireEvent.click(screen.getByText("Close cargo test"));
+    expect(onCloseTerminal).toHaveBeenCalledWith("t1");
+  });
+
+  it("keeps a nested session visible as text even before a folder is folded", async () => {
     render(<Harness sessions={[session("t1", "/home/me/notebook/src")]} />);
-    const badge = await screen.findByText("1");
-    expect(badge.getAttribute("data-tip")).toContain("1 terminal");
+    await screen.findByText("terminal: t1 · running");
+    expect(filesEditor().state.doc.toString()).toContain("  terminal: t1 · running");
   });
 
   it("shows nothing for a session working outside the folder", async () => {
@@ -439,7 +541,7 @@ describe("showing a terminal from the tree", () => {
 
 // docs/guarantees/authoring/the-tree-is-a-dired.md
 describe("the tree as dired", () => {
-  it("marks rows with Ctrl+click, deletes the marks through one prompt, and refetches", async () => {
+  it("keeps destructive deletion behind the existing confirmation", async () => {
     const ops: unknown[] = [];
     installMockHandler(async (method, path, body) => {
       if (method === "GET" && path === "/api/files") return RESPONSE;
@@ -451,48 +553,33 @@ describe("the tree as dired", () => {
     });
     render(<Harness />);
     const readme = await screen.findByText("readme.txt");
-    fireEvent.click(readme, { ctrlKey: true });
-    fireEvent.click(screen.getByText("src"));
-    fireEvent.click(await screen.findByText("main.rs"), { ctrlKey: true });
-    expect(readme.closest("button")?.className).toContain("marked");
-
     fireEvent.contextMenu(readme);
-    fireEvent.click(await screen.findByText("Delete (2 marked)"));
+    fireEvent.click(await screen.findByText("Delete"));
     const prompt = await screen.findByRole("dialog");
-    expect(prompt.textContent).toContain("Delete 2 items?");
+    expect(prompt.textContent).toContain("Delete readme.txt?");
     fireEvent.click(screen.getByRole("button", { name: "Delete" }));
-    await vi.waitFor(() => expect(ops).toHaveLength(2));
-    expect(ops).toEqual([
-      { op: "delete", path: "readme.txt" },
-      { op: "delete", path: "src/main.rs" },
-    ]);
-    // The prompt is gone and the marks are cleared.
+    await vi.waitFor(() => expect(ops).toEqual([{ op: "delete", path: "readme.txt" }]));
     await vi.waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
-    expect(readme.closest("button")?.className).not.toContain("marked");
   });
 
-  it("renames through the prompt with the new name, and says why when refused", async () => {
+  it("renames by editing the buffer text and saving it", async () => {
     const ops: unknown[] = [];
     installMockHandler(async (method, path, body) => {
       if (method === "GET" && path === "/api/files") return RESPONSE;
       if (method === "POST" && path === "/api/files/op") {
         ops.push(body);
-        if ((body as { to: string }).to === "taken.txt") throw new Error("taken.txt already exists");
         return { op: "rename" };
       }
       throw new Error(`unexpected ${method} ${path}`);
     });
     render(<Harness />);
-    const readme = await screen.findByText("readme.txt");
-    fireEvent.keyDown(readme, { key: "R", shiftKey: true });
-    const input = await screen.findByRole("textbox", { name: "Rename readme.txt" });
-    fireEvent.change(input, { target: { value: "taken.txt" } });
-    fireEvent.click(screen.getByRole("button", { name: "Rename" }));
-    await screen.findByText("taken.txt already exists");
-    fireEvent.change(input, { target: { value: "notes.txt" } });
-    fireEvent.click(screen.getByRole("button", { name: "Rename" }));
-    await vi.waitFor(() => expect(ops).toHaveLength(2));
-    expect(ops[1]).toEqual({ op: "rename", path: "readme.txt", to: "notes.txt" });
+    await screen.findByText("readme.txt");
+    const editor = filesEditor();
+    const line = editor.state.doc.line(6);
+    editor.dispatch({ changes: { from: line.from, to: line.to, insert: "notes.txt" } });
+    fireEvent.keyDown(editor.contentDOM, { key: "s", ctrlKey: true });
+    await vi.waitFor(() => expect(ops).toEqual([{ op: "rename", path: "readme.txt", to: "notes.txt" }]));
+    expect(await screen.findByText("Applied 1 filesystem edit.")).toBeTruthy();
   });
 });
 

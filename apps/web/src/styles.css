@@ -6013,6 +6013,13 @@ button.fleet-grant {
 .folder-tree__dir { color: var(--fg-muted); }
 .folder-tree__dir:hover,
 .folder-tree__file:hover { background: var(--bg-sunken); }
+.folder-tree__dir:focus,
+.folder-tree__file:focus {
+  background: color-mix(in srgb, var(--accent) 16%, var(--bg-sunken));
+  box-shadow: inset 2px 0 var(--accent);
+  outline: 1px solid var(--accent);
+  outline-offset: -1px;
+}
 .folder-tree__disclosure {
   display: inline-block;
   width: 0.9rem;
@@ -6021,6 +6028,28 @@ button.fleet-grant {
 .folder-tree__file { padding-left: 0.4rem; }
 .folder-tree__file.on { color: var(--accent); }
 .folder-tree__notice { padding: 0 0.6rem 0.3rem; font-size: 0.75rem; }
+.filesystem-editor {
+  min-height: 0;
+  border-top: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
+}
+.filesystem-editor__code { min-height: 5rem; }
+.filesystem-editor__code .cm-editor { min-height: 5rem; }
+.filesystem-editor__code .cm-scroller { overflow: auto; }
+.filesystem-editor__code .cm-content { padding: 0.25rem 0.35rem 0.4rem 0; }
+.filesystem-editor__code .cm-activeLine {
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+}
+.filesystem-editor__line--dirty::after { content: " •"; color: var(--accent); }
+.filesystem-editor.dirty .cm-content { box-shadow: inset 2px 0 var(--accent); }
+.filesystem-editor__status {
+  padding: 0.2rem 0.45rem;
+  border-top: 1px solid var(--border);
+  color: var(--fg-muted);
+  font-size: 0.7rem;
+}
+.filesystem-editor__confirm { display: inline-flex; gap: 0.35rem; margin-left: 0.5rem; }
+.filesystem-editor__confirm button { font: inherit; }
+.filesystem-editor.dirty .filesystem-editor__status { color: var(--accent); }
 /* The right-click menu (shell/TreeContextMenu.tsx): fixed to the pointer, so
    it is positioned in viewport coordinates and cannot be clipped by the
    pane's own overflow. */
@@ -6126,6 +6155,86 @@ button.fleet-grant {
   cursor: pointer;
 }
 .tree-prompt__verb { border-color: var(--accent) !important; color: var(--accent) !important; }
+.tree-rename {
+  margin: 0.25rem 0.5rem;
+  padding: 0.45rem;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg-sunken);
+  font-size: 0.8rem;
+}
+.tree-rename__instruction { margin: 0 0 0.35rem; color: var(--fg-muted); }
+.tree-rename__contexts { margin: 0 0 0.35rem; padding-left: 1.75rem; color: var(--fg-muted); }
+.tree-rename__editor { min-height: 3.2rem; max-height: 14rem; overflow: auto; border: 1px solid var(--border); }
+.tree-rename__editor .cm-editor { min-height: 3.2rem; }
+.tree-rename__error { color: var(--danger); margin: 0.35rem 0; }
+.tree-rename__outcomes { margin: 0.35rem 0; padding-left: 1.25rem; }
+.tree-rename__outcomes .ok { color: var(--ok); }
+.tree-rename__outcomes .failed { color: var(--danger); }
+.tree-rename .tree-prompt__buttons { display: flex; margin-top: 0.4rem; }
+.tree-rename .tree-prompt__buttons button {
+  font: inherit;
+  padding: 0.15rem 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  background: none;
+  color: var(--fg);
+}
+.tree-rename--inline {
+  z-index: 70;
+  margin: 0;
+  padding: 0;
+  border-color: var(--accent);
+  box-shadow: 0 3px 12px rgba(0, 0, 0, 0.32);
+}
+.tree-rename--inline .tree-rename__editor,
+.tree-rename--inline .tree-rename__editor .cm-editor { min-height: 1.55rem; }
+.tree-rename--inline .cm-content { padding: 0.08rem 0.35rem; }
+.tree-rename--inline .cm-line { padding: 0; }
+.tree-rename--inline .tree-prompt__buttons { padding: 0 0.25rem 0.25rem; }
+.github-tree__node,
+.github-tree__check {
+  width: 100%; min-width: 0; display: flex; align-items: center; gap: 0.38rem;
+  padding: 0.24rem 0.4rem; color: var(--fg); border: 0; border-radius: 3px;
+  background: transparent; text-align: left;
+}
+.github-tree__node:hover,
+.github-tree__check:hover { background: var(--hover, rgba(127,127,127,0.12)); }
+.github-tree__node:focus-visible,
+.github-tree__check:focus-visible { outline: 1px solid var(--accent); outline-offset: -1px; }
+.github-tree__provider {
+  flex: 0 0 auto; padding: 0.05rem 0.28rem; border: 1px solid var(--border);
+  border-radius: 999px; color: var(--fg-muted); font-size: 0.72rem;
+}
+.github-tree__state { margin-left: auto; color: var(--fg-muted); font-size: 0.72rem; white-space: nowrap; }
+.github-tree__children { margin: 0 0 0.35rem 1.2rem; padding-left: 0.65rem; border-left: 1px solid var(--border); }
+.github-tree__facts,
+.github-tree__section,
+.github-tree__field,
+.github-tree__notice,
+.github-tree__log { padding: 0.3rem 0.4rem; color: var(--fg-muted); font-size: 0.78rem; }
+.github-tree__field label,
+.github-tree__new-comment label { display: grid; gap: 0.25rem; }
+.github-tree__field textarea,
+.github-tree__new-comment textarea {
+  box-sizing: border-box; width: 100%; min-height: 5rem; resize: vertical;
+  color: var(--fg); border: 1px solid var(--border); border-radius: 3px;
+  background: var(--bg); font: inherit;
+}
+.github-tree__field button,
+.github-tree__new-comment button { margin-top: 0.3rem; }
+.github-tree__comments p,
+.github-tree__section p { margin: 0.2rem 0 0.45rem; color: var(--fg); white-space: pre-wrap; }
+.github-tree__byline { color: var(--fg-muted); font-size: 0.72rem; }
+.github-tree__log pre { max-height: 22rem; overflow: auto; margin: 0; color: var(--fg); white-space: pre-wrap; }
+.github-tree__notice { color: var(--danger); }
+.github-tree__unread {
+  flex: 0 0 auto; min-width: 1.15rem; height: 1.15rem; display: inline-grid;
+  place-items: center; padding: 0 0.2rem; border-radius: 999px;
+  background: var(--accent); color: var(--bg); font-size: 0.68rem; font-weight: 700;
+}
+.github-tree__mark-read { padding: 0.25rem 0.4rem; }
+.github-tree__mark-read span { margin-left: 0.4rem; color: var(--danger); }
 .folder-tree__file--inert:hover { background: none; }
 
 /* The untitled buffer keeps the folder in view: an aside beside the editor,
@@ -6816,59 +6925,36 @@ button.fleet-grant {
    quieter than a file row: these are transient, and the files are the folder.
    --------------------------------------------------------------------------- */
 
-/* Terminals, as icons on the row of the directory they are working in.
-   
-   Icons rather than rows: a row per session pushes the folder's contents down
-   and turns a busy project's tree into mostly-not-files, which inverts what
-   the tree is for. These ride a row that already exists and take no vertical
-   space at all.
-
-   Most of them appear only while their row is hovered, because a tree covered
-   in glyphs is a tree nobody reads. The exception is the whole point — see
-   `--urgent` below. */
-.folder-tree__terms {
-  display: inline-flex;
+/* Terminals are visible child nodes beside files. They used to be tiny icons
+   on a directory row, with ordinary sessions at zero opacity until hover.
+   That made "terminals live in the tree" look exactly like "not built". */
+.folder-tree__terminal {
+  width: 100%;
+  display: flex;
   align-items: center;
-  gap: 0.15rem;
-  margin-left: auto;
-  padding-left: 0.4rem;
-}
-
-.folder-tree__term {
-  flex: none;
-  font-size: 0.62rem;
-  line-height: 1;
-  padding: 0.1rem 0.1rem;
-  border-radius: 2px;
+  gap: 0.35rem;
+  min-height: 1.55rem;
+  border: 0;
+  background: transparent;
   color: var(--fg-muted);
+  text-align: left;
   cursor: pointer;
-  /* Hidden rather than removed: the row must not reflow when the pointer
-     arrives, or the thing being reached for moves out from under it. */
-  opacity: 0;
-  transition: opacity 90ms ease-out;
 }
-.folder-tree__dir:hover .folder-tree__term,
-.folder-tree__header:hover .folder-tree__term,
-.folder-tree__term:focus-visible {
-  opacity: 1;
-}
-.folder-tree__term:hover { color: var(--fg); background: var(--bg-raised); }
+.folder-tree__terminal:hover,
+.folder-tree__terminal:focus-visible { color: var(--fg); background: var(--bg-raised); }
+.folder-tree__terminal-mark { flex: none; font-size: 0.62rem; }
+.folder-tree__terminal-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.folder-tree__terminal-state { margin-left: auto; padding-right: 0.45rem; font-size: 0.68rem; }
 
-/* A session that wants something from a person does not wait to be hovered.
-   An affordance that only appears once the pointer is already there cannot
-   tell you to go there — which is the entire reason to show terminals in the
-   tree at all. */
-.folder-tree__term--urgent { opacity: 1; }
-
-.folder-tree__term.state-needs-you { color: var(--warn); }
-.folder-tree__term.state-failed { color: var(--fail); }
-.folder-tree__term.state-working { color: var(--accent-2); }
-.folder-tree__term.state-finished { color: var(--ok); }
-.folder-tree__term.state-idle { color: var(--fg-muted); }
+.folder-tree__terminal.state-needs-you { color: var(--warn); }
+.folder-tree__terminal.state-failed { color: var(--fail); }
+.folder-tree__terminal.state-working { color: var(--accent-2); }
+.folder-tree__terminal.state-finished { color: var(--ok); }
+.folder-tree__terminal.state-idle { color: var(--fg-muted); }
 
 /* A monitor session watches rather than works; the ring says so without
    spending another glyph on it. */
-.folder-tree__term--monitor {
+.folder-tree__terminal--monitor .folder-tree__terminal-mark {
   outline: 1px dotted currentColor;
   outline-offset: -1px;
 }

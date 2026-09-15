@@ -35,13 +35,15 @@ export type TreeMenuAction =
   | { kind: "terminal"; path: string }
   /** Start a terminal in a fresh git worktree, on its own branch. */
   | { kind: "worktree"; path: string }
+  /** Persist a credentialless GitHub issue → folder association. */
+  | { kind: "associate-github-issue"; path: string }
   /** Stop this session. The only place a terminal can be closed now that
    * they have no list of their own. */
   | { kind: "close-terminal"; id: string; title: string }
   // The dired verbs (docs/guarantees/authoring/the-tree-is-a-dired.md).
   // Each acts on `paths`: the marked rows when the row is marked, else the
   // row alone — the way `D` in dired acts on the marks if there are any.
-  | { kind: "rename"; path: string }
+  | { kind: "rename"; paths: string[] }
   | { kind: "move"; paths: string[] }
   | { kind: "copy-to"; paths: string[] }
   | { kind: "delete"; paths: string[] }
@@ -148,7 +150,7 @@ export function treeMenuItems(
     items.push({ id: "new-folder", label: "New folder…", action: { kind: "mkdir", dir: path } });
   }
   if (path !== "") {
-    items.push({ id: "rename", label: "Rename…", action: { kind: "rename", path }, group: true });
+    items.push({ id: "rename", label: `Rename…${count}`, action: { kind: "rename", paths: many }, group: true });
     items.push({ id: "move", label: `Move to…${count}`, action: { kind: "move", paths: many } });
     items.push({ id: "copy-to", label: `Copy to…${count}`, action: { kind: "copy-to", paths: many } });
     items.push({ id: "delete", label: `Delete${count}`, action: { kind: "delete", paths: many } });
@@ -198,6 +200,11 @@ export function treeMenuItems(
       id: "new-worktree",
       label: "New worktree here…",
       action: { kind: "worktree", path },
+    });
+    items.push({
+      id: "associate-github-issue",
+      label: "Associate GitHub issue…",
+      action: { kind: "associate-github-issue", path },
     });
   }
   return items;

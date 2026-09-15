@@ -20,10 +20,14 @@ export interface DiredPrompt {
 export interface Dired {
   marked: ReadonlySet<string>;
   toggle: (path: string) => void;
+  replaceMarks: (paths: readonly string[]) => void;
+  addMarks: (paths: readonly string[]) => void;
   clear: () => void;
   /** A key on a focused row. True when it was a dired key. */
   onKey: (event: KeyboardEvent, path: string, dir: boolean) => boolean;
   run: (intent: DiredIntent) => void;
+  renamePaths: readonly string[] | null;
+  closeRename: (changed?: boolean) => void;
   prompt: DiredPrompt | null;
   promptError: string | null;
   busy: boolean;
@@ -37,11 +41,13 @@ const many = (paths: string[]) => (paths.length === 1 ? paths[0] : `${paths.leng
 export function useDired(onNotice: (text: string | null) => void): Dired {
   const [marked, setMarked] = useState<ReadonlySet<string>>(() => new Set());
   const [prompt, setPrompt] = useState<DiredPrompt | null>(null);
+  const [renamePaths, setRenamePaths] = useState<readonly string[] | null>(null);
   const [promptError, setPromptError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
   const done = useCallback(() => {
     setPrompt(null);
+    setRenamePaths(null);
     setPromptError(null);
     setMarked(new Set());
     // Every mounted tree refetches on this — the same event a run fires.
@@ -59,15 +65,7 @@ export function useDired(onNotice: (text: string | null) => void): Dired {
           setMarked((current) => nextMarks(current, intent));
           return;
         case "rename": {
-          const name = intent.path.split("/").pop() ?? intent.path;
-          setPrompt({
-            label: `Rename ${intent.path}`,
-            verb: "Rename",
-            initial: name,
-            run: async (value) => {
-              await api.fileOp({ op: "rename", path: intent.path, to: value ?? "" });
-            },
-          });
+          setRenamePaths(intent.paths);
           return;
         }
         case "move":
@@ -148,9 +146,22 @@ export function useDired(onNotice: (text: string | null) => void): Dired {
   return {
     marked,
     toggle: (path) => setMarked((current) => toggleMark(current, path)),
+    replaceMarks: (paths) => setMarked(new Set(paths)),
+    addMarks: (paths) =>
+      setMarked((current) => {
+        const next = new Set(current);
+        for (const path of paths) next.add(path);
+        return next;
+      }),
     clear: () => setMarked(new Set()),
     onKey,
     run,
+    renamePaths,
+    closeRename: (changed = false) => {
+      setRenamePaths(null);
+      setMarked(new Set());
+      if (changed) window.dispatchEvent(new Event(FILES_CHANGED_EVENT));
+    },
     prompt,
     promptError,
     busy,
