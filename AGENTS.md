@@ -797,7 +797,9 @@ corrects the first implementation, which was a button tree with editor-like
 keys and an F2 rename field and did not feel like editing a `.hick` pane. There
 is no edit mode: ordinary caret movement, selection, multiple cursors, column
 editing, history, and folding are the editor's own. Saving changed names or
-indentation performs filesystem rename/move operations. Each non-file line
+indentation performs filesystem rename/move operations. Double-click selects
+one whole line and activates it, never leaving only the filename word selected.
+Each non-file line
 still declares semantic capabilities and an edit must go back to its own
 source; a filesystem, native window, Jira, GitHub, and GitLab share no
 transaction. Unread state belongs to the provider event while its badge

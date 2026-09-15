@@ -177,8 +177,9 @@ folders end in `/`, and two spaces of significant indentation mean “inside the
 folder above.” Ordinary caret movement, selection, multiple cursors, column
 editing, history, and folding are editor operations because there are actual
 bytes to operate on. Saving changed names or indentation computes filesystem
-rename/move operations. A click places point; a separate activation gesture
-opens a file or focuses the non-file object named by the line.
+rename/move operations. A click places point; double-click selects the whole
+line and activates the file or non-file object named there. It never leaves the
+filename's one word selected as ordinary text double-click would.
 
 Line order carries no filesystem meaning. Reordering unchanged entries is a
 local presentation edit, stays clean, and produces no Dry Run or Apply

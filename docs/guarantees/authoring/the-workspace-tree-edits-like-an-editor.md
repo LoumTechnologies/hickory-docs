@@ -9,8 +9,10 @@ labels laid over buttons and there is no separate edit mode.
 Given that buffer, when a person clicks, moves with the arrow keys, selects
 text, uses multiple cursors or rectangular selection, types, or undoes, then
 the same editor mechanisms used in a `.hick` pane answer those gestures. A
-single click places the caret. Double-clicking a file opens it. The fold gutter
-may hide descendants without removing their text. Show Files only focuses the
+single click places the caret. Double-clicking a file selects exactly its whole
+line and opens it, replacing the editor's usual word selection with the Files
+buffer's activation gesture. The fold gutter may hide descendants without
+removing their text. Show Files only focuses the
 buffer; focusing it is never required before its text can be edited.
 
 Given unchanged filesystem lines are reordered, then their order is
@@ -73,7 +75,8 @@ Last LLM verification:
   `apps/web/src/editor/multiCursor.ts`
 - Test coverage: `filesystemTreeText.test.ts`,
   `FilesystemTreeEditor.test.tsx`, `FolderTreePane.test.tsx` (literal bytes,
-  focus, multiple selection, order-insensitive rows, dirty toolbar, exact non-mutating dry runs,
+  focus, whole-line double-click activation, multiple selection,
+  order-insensitive rows, dirty toolbar, exact non-mutating dry runs,
   rename/move/create/delete, activation, and associated objects), and
   `apps/web/e2e/files-editor.spec.ts`, which verifies Dry Run leaves the live
   filesystem unchanged before applying real rename, create, and confirmed

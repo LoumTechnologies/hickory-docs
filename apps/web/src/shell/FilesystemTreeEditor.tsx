@@ -163,17 +163,34 @@ export function FilesystemTreeEditor({
               let position: number | null = null;
               try { position = current.posAtDOM(event.target as Node); } catch { position = current.posAtCoords({ x: event.clientX, y: event.clientY }); }
               if (position === null) return false;
-              const lineIndex = current.state.doc.lineAt(position).number - 1;
+              const documentLine = current.state.doc.lineAt(position);
+              const lineIndex = documentLine.number - 1;
               const reordered = extras.length === 0
                 ? parseFilesystemTreeText(current.state.doc.toString(), entries).edits?.[lineIndex]
                 : undefined;
               if (reordered) {
-                if (!reordered.dir) onOpenPath(reordered.path);
+                if (!reordered.dir) {
+                  event.preventDefault();
+                  current.dispatch({ selection: { anchor: documentLine.from, head: documentLine.to } });
+                  onOpenPath(reordered.path);
+                }
                 return !reordered.dir;
               }
               const line = base.current[lineIndex];
-              if (line && "extra" in line) { line.extra.activate?.(); return Boolean(line.extra.activate); }
-              if (line && !line.filesystem.dir) onOpenPath(line.filesystem.path);
+              if (line && "extra" in line) {
+                if (line.extra.activate) {
+                  event.preventDefault();
+                  current.dispatch({ selection: { anchor: documentLine.from, head: documentLine.to } });
+                  line.extra.activate();
+                  return true;
+                }
+                return false;
+              }
+              if (line && !line.filesystem.dir) {
+                event.preventDefault();
+                current.dispatch({ selection: { anchor: documentLine.from, head: documentLine.to } });
+                onOpenPath(line.filesystem.path);
+              }
               return Boolean(line && !line.filesystem.dir);
             },
             contextmenu: (event, current) => {

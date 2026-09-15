@@ -38,6 +38,11 @@ it("keeps reordered rows clean and accepts ordinary multiple selections", async 
   expect(firstLine.dataset.treePath).toBe("two.txt");
   fireEvent.doubleClick(firstLine);
   expect(opened).toHaveBeenCalledWith("two.txt");
+  expect(view.state.sliceDoc(
+    view.state.selection.main.from,
+    view.state.selection.main.to,
+  )).toBe("two.txt");
+  expect(view.state.selection.ranges).toHaveLength(1);
 
   view.dispatch({ selection: EditorSelection.create([
     EditorSelection.cursor(view.state.doc.line(1).from),
