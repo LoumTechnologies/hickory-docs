@@ -559,6 +559,7 @@ fn process_weave_tag(
                     state,
                     transcripts,
                     indent: 0,
+                    paste_line_indent: None,
                     registry: Some(registry),
                     context: None,
                     source_file: None,
@@ -766,16 +767,7 @@ fn process_file_children_to_weave(
     span_files: &[Arc<str>],
     ingested: Option<&Arc<str>>,
 ) {
-    let ctx = ProcessingContext {
-        state,
-        transcripts,
-        indent,
-        registry: Some(registry),
-        context: None,
-        source_file: None,
-        span_files: &[],
-    };
-
+    let mut pending_aligned_paste_break = false;
     for (position, child) in children.iter().enumerate() {
         match child {
             HickNode::Text(text, span) => {
@@ -785,10 +777,11 @@ fn process_file_children_to_weave(
                 // woven markdown depicts a file with a blank first line and
                 // the file on disk has none — the fence would be lying about
                 // the very thing it exists to show.
-                let (text, span) = match position {
-                    0 => crate::strip_opening_break(text, span.as_ref()),
+                let (text, span) = match (position, pending_aligned_paste_break) {
+                    (0, _) | (_, true) => crate::strip_opening_break(text, span.as_ref()),
                     _ => (text.as_str(), *span),
                 };
+                pending_aligned_paste_break = false;
                 let (text, span) = match position {
                     0 => crate::strip_leading_bom(text, span.as_ref()),
                     _ => (text, span),
@@ -828,9 +821,27 @@ fn process_file_children_to_weave(
             }
             HickNode::Tag(child_tag) => {
                 if let Some(handler) = registry.find(&child_tag.name) {
-                    match handler.process(child_tag, &ctx) {
-                        Ok(TagResult::Node(n)) => weave_ip.add(n),
+                    let paste_line_indent = (child_tag.name == "paste")
+                        .then(|| crate::paste_indent_before(children, position, indent))
+                        .flatten();
+                    let aligned_paste = paste_line_indent.is_some();
+                    let child_ctx = ProcessingContext {
+                        state,
+                        transcripts,
+                        indent,
+                        paste_line_indent,
+                        registry: Some(registry),
+                        context: None,
+                        source_file: None,
+                        span_files: &[],
+                    };
+                    match handler.process(child_tag, &child_ctx) {
+                        Ok(TagResult::Node(n)) => {
+                            pending_aligned_paste_break = aligned_paste;
+                            weave_ip.add(n);
+                        }
                         Ok(TagResult::Nodes(ns)) => {
+                            pending_aligned_paste_break = aligned_paste;
                             for n in ns {
                                 weave_ip.add(n);
                             }

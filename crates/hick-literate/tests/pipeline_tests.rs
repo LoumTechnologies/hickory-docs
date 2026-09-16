@@ -139,6 +139,27 @@ async fn test_copy_paste() {
 }
 
 #[tokio::test]
+async fn test_paste_on_an_indented_line_indents_the_fragment() {
+    let src = hick_doc(
+        r##"<hick:copy id="greeting">
+println("Howdy")
+</hick:copy>
+<hick:file path="out.py">
+def main():
+  <hick:paste select="#greeting" />
+main()
+</hick:file>"##,
+    );
+    let result = hick_literate::run_pipeline(&[("test.hick", &src)], &[])
+        .await
+        .unwrap();
+    assert_eq!(
+        result.files.get("out.py").unwrap(),
+        "def main():\n  println(\"Howdy\")\nmain()\n"
+    );
+}
+
+#[tokio::test]
 async fn test_cut_paste() {
     let src = hick_doc(concat!(
         r#"<hick:cut id="secret">hidden-value</hick:cut>"#,

@@ -828,6 +828,7 @@ fn process_documents_round(
             state,
             transcripts: handler_transcripts,
             indent: 0,
+            paste_line_indent: None,
             registry: Some(registry),
             context: None,
             source_file: Some(Arc::from(*doc_name)),
@@ -2527,6 +2528,7 @@ pub async fn run_pipeline_live(
                                         state: &state,
                                         transcripts: &current_transcripts,
                                         indent: 0,
+                                        paste_line_indent: None,
                                         registry: Some(&stdin_registry),
                                         context: None,
                                         source_file: None,
@@ -3325,15 +3327,6 @@ pub(crate) fn apply_substitutions_segmented_to_transform(
         .collect()
 }
 
-/// Process children of a `<hick:file>` tag, adding rendered content to the
-/// insertion point. Delegates content tags (exec, paste, val) to the handler
-/// registry.
-///
-/// The `indent` parameter specifies how many leading spaces to strip from each
-/// line of text content (typically the source_column of the parent tag).
-/// A document's [`hick_lang::HickDocument::span_files`] table, converted for
-/// a [`ProcessingContext`]. Index `i` answers for spans stamped
-/// `file_id: Some(i)` by include/upstream splicing.
 /// Union of several documents' span-file tables, in first-seen order.
 fn union_span_files<'a>(docs: impl Iterator<Item = &'a HickDocument>) -> Vec<String> {
     let mut out: Vec<String> = Vec::new();
@@ -3383,17 +3376,7 @@ pub(crate) fn strip_opening_break<'a>(
     (rest, moved)
 }
 
-/// Drop a leading UTF-8 byte-order mark, keeping the text's span in step —
-/// the same shape as [`strip_opening_break`], for the same reason.
-///
-/// `dotnet new` (and other .NET tooling) writes a BOM at the start of every
-/// generated source file. `hick ingest` correctly keeps it: the document's
-/// own `<hick:ingested>` bytes must be byte-exact
-/// (`docs/guarantees/authoring/ingest-keeps-the-original-bytes.md`), and
-/// stripping it there would make a re-ingest's hash never match. This is
-/// purely a WEAVE-time display concern — the fenced code block a reader
-/// sees should not show three invisible-but-copy-pasteable bytes before the
-/// first real character of a file nobody wrote by hand with a BOM in it.
+/// Drop a BOM only from the woven display, keeping source bytes intact.
 pub(crate) fn strip_leading_bom<'a>(
     text: &'a str,
     span: Option<&hick_lang::SourceSpan>,
@@ -3430,50 +3413,31 @@ fn process_file_children(
         state,
         transcripts,
         indent,
+        paste_line_indent: None,
         registry: Some(registry),
         context: None,
         source_file: source_file.cloned(),
         span_files,
     };
 
+    // An aligned paste owns its tag line and its final newline.
+    let mut pending_aligned_paste_break = false;
     for (position, child) in children.iter().enumerate() {
         match child {
             HickNode::Text(text, span) => {
-                // The line break that ENDS the open tag's line belongs to the
-                // tag, not to the file.
-                //
-                // `<hick:file path="chart.svg">` is written on its own line
-                // because that is how a document is readable; without this,
-                // every generated file began with a blank line. For a `.py`
-                // that is untidy, for a `#!` script it is fatal, and for the
-                // SVG and XML this product generates it is fatal in the most
-                // pointed possible way: an XML declaration MUST start at byte
-                // zero, so every chart hick wrote was a file its own weave
-                // could draw and a browser refused to parse.
-                //
-                // Only the FIRST text child, only one break, and only when
-                // the tag really is followed by one — content written on the
-                // same line as the tag keeps every byte. The trailing break
-                // before `</hick:file>` is left alone: that one is the file's
-                // final newline, which is exactly right.
-                let (text, span) = match position {
-                    0 => strip_opening_break(text, span.as_ref()),
+                // The opening tag's line break is not file content.
+                let (text, span) = match (position, pending_aligned_paste_break) {
+                    (0, _) | (_, true) => strip_opening_break(text, span.as_ref()),
                     _ => (text.as_str(), span.as_ref().copied()),
                 };
+                pending_aligned_paste_break = false;
                 let dedented = dedent(text, indent);
-                // `file_of_span`, not `source_file`: a span spliced in by
-                // <hick:include>/<hick:upstream> indexes the INCLUDED file,
-                // and attributing it here to the including document is what
-                // used to send reverse edits into the wrong file.
+                // Included spans point to their included file.
                 if let Some((span, file)) = span
                     .as_ref()
                     .and_then(|s| ctx.file_of_span(s).map(|f| (s, f)))
                 {
-                    // Inside a `<hick:ingested>` block these bytes are
-                    // present in the document and byte-precise — so they are
-                    // editable — but they are not yours. Marking them
-                    // `Literal` is what would make forty files of somebody
-                    // else's code claim to be text you typed.
+                    // Ingested bytes are editable but not authored here.
                     let origin = match ingested {
                         Some(run) => SourceOrigin::Ingested {
                             file,
@@ -3489,19 +3453,34 @@ fn process_file_children(
             }
             HickNode::Tag(child_tag) => {
                 if let Some(handler) = registry.find(&child_tag.name) {
-                    match handler.process(child_tag, &ctx) {
-                        Ok(TagResult::Node(n)) => file_ip.add(n),
+                    let paste_line_indent = (child_tag.name == "paste")
+                        .then(|| paste_indent_before(children, position, indent))
+                        .flatten();
+                    let aligned_paste = paste_line_indent.is_some();
+                    let child_ctx = ProcessingContext {
+                        state,
+                        transcripts,
+                        indent,
+                        paste_line_indent,
+                        registry: Some(registry),
+                        context: None,
+                        source_file: source_file.cloned(),
+                        span_files,
+                    };
+                    match handler.process(child_tag, &child_ctx) {
+                        Ok(TagResult::Node(n)) => {
+                            pending_aligned_paste_break = aligned_paste;
+                            file_ip.add(n);
+                        }
                         Ok(TagResult::Nodes(ns)) => {
+                            pending_aligned_paste_break = aligned_paste;
                             for n in ns {
                                 file_ip.add(n);
                             }
                         }
                         Ok(TagResult::Declaration) => {}
                         Err(e) => {
-                            // A paste reports its own cardinality failures on
-                            // the state and the pipeline refuses on them, so
-                            // warning here only prints the same paragraph
-                            // twice above the error that stops the run.
+                            // Paste cardinality errors are reported by the pipeline.
                             if child_tag.name == "paste" {
                                 debug!("Handler error for <paste>: {e}");
                             } else {
@@ -3513,6 +3492,22 @@ fn process_file_children(
             }
         }
     }
+}
+
+/// The generated-file prefix before a tag on an otherwise-empty line.
+pub(crate) fn paste_indent_before(
+    children: &[HickNode],
+    position: usize,
+    indent: usize,
+) -> Option<String> {
+    let HickNode::Text(before, _) = children.get(position.checked_sub(1)?)? else {
+        return None;
+    };
+    let before = dedent(before, indent);
+    let line = before
+        .rsplit_once('\n')
+        .map_or(before.as_str(), |(_, line)| line);
+    (!line.is_empty() && line.chars().all(char::is_whitespace)).then(|| line.to_string())
 }
 
 // ---------------------------------------------------------------------------

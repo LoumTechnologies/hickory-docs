@@ -79,6 +79,7 @@ mod tests {
             state,
             transcripts,
             indent: 0,
+            paste_line_indent: None,
             registry: None,
             context: None,
             source_file: None,

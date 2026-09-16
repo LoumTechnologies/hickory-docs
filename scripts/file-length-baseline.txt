@@ -10,7 +10,7 @@ crates/hick-dap/src/session.rs 1440
 crates/hick-exec/src/dag.rs 1625
 crates/hick-exec/src/state.rs 1260
 crates/hick-lang/src/lib.rs 2592
-crates/hick-literate/src/lib.rs 4766
+crates/hick-literate/src/lib.rs 4761
 crates/hick-lsp/src/backend.rs 2674
 crates/hick-token/src/lib.rs 1378
 crates/hickory-agent/src/tools/mod.rs 1583

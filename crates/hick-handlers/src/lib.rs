@@ -106,6 +106,11 @@ pub struct ProcessingContext<'a> {
     /// Number of leading spaces to strip when dedenting content.
     pub indent: usize,
 
+    /// Whitespace before a paste tag that occupies an otherwise empty line.
+    /// The file assembler supplies this only for that structural case, so an
+    /// inline paste remains a verbatim splice.
+    pub paste_line_indent: Option<String>,
+
     /// Optional reference to the tag registry for recursive child processing.
     pub registry: Option<&'a TagRegistry>,
 

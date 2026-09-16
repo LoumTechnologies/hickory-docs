@@ -96,6 +96,29 @@ impl Node for PasteNode {
 /// - `max` - Optional maximum number of matching blocks (error if more)
 pub struct PasteHandler;
 
+/// Place a block paste on the indentation of its otherwise-empty host line.
+///
+/// Copy blocks conventionally start on the line after their opening tag. That
+/// opening newline is syntax for the copy, not an empty line in the file that
+/// receives an aligned paste. Subsequent nonblank lines get the same prefix;
+/// a final newline does not, because the following source node owns its line.
+fn align_block_paste(content: &str, prefix: &str) -> String {
+    let content = content
+        .strip_prefix("\r\n")
+        .or_else(|| content.strip_prefix('\n'))
+        .unwrap_or(content);
+    let mut out = String::with_capacity(content.len() + prefix.len());
+    let mut first = true;
+    for line in content.split_inclusive('\n') {
+        if !first && line != "\n" && line != "\r\n" {
+            out.push_str(prefix);
+        }
+        out.push_str(line);
+        first = false;
+    }
+    out
+}
+
 impl TagHandler for PasteHandler {
     fn tag_name(&self) -> &str {
         "paste"
@@ -155,6 +178,12 @@ impl TagHandler for PasteHandler {
             // can be mapped back to the copy block.
             if let Some(s) = node.as_string_value() {
                 let dedented = dedent(s, ctx.indent);
+                let dedented = ctx
+                    .paste_line_indent
+                    .as_deref()
+                    .map_or(dedented.clone(), |prefix| {
+                        align_block_paste(&dedented, prefix)
+                    });
                 let source = match node.source_origin() {
                     Some(SourceOrigin::Literal { file, span }) if dedented == s => {
                         Some((file.clone(), *span))
@@ -177,6 +206,12 @@ impl TagHandler for PasteHandler {
         // Fallback to string-based resolution (backward compat)
         if let Some(content) = ctx.state.resolve_paste(&selector, sep, distinct) {
             let dedented = dedent(&content, ctx.indent);
+            let dedented = ctx
+                .paste_line_indent
+                .as_deref()
+                .map_or(dedented.clone(), |prefix| {
+                    align_block_paste(&dedented, prefix)
+                });
             Ok(TagResult::Node(Arc::new(PasteNode::new(
                 dedented, &selector,
             ))))
@@ -214,6 +249,7 @@ mod tests {
             state,
             transcripts,
             indent: 0,
+            paste_line_indent: None,
             registry: None,
             context: None,
             source_file: None,
