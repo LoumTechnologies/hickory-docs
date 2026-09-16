@@ -22,6 +22,7 @@ import {
   isWorkspaceEmpty,
   openDocTab,
   openFileTab,
+  renameFileTab,
   openGeneratedTab,
   openIntoDeclared,
   openTerminalTab,
@@ -224,6 +225,21 @@ describe("openFileTab", () => {
   it("stays out of docIdsIn: no document machinery wakes for a plain file", () => {
     const layout = openFileTab(openDocTab(initialWorkspace(), "d1", "paper.hick"), "README.md");
     expect(docIdsIn(layout)).toEqual(["d1"]);
+  });
+});
+
+describe("renameFileTab", () => {
+  // Guarantee: docs/guarantees/authoring/open-file-tabs-follow-renames.md
+  it("keeps the open pane and its tab identity while changing its path and caption", () => {
+    const opened = openFileTab(initialWorkspace(), "notes/first.md");
+    const before = findFileTab(opened, "notes/first.md")!;
+    const renamed = renameFileTab(opened, "notes/first.md", "notes/plan.md");
+    const after = findFileTab(renamed, "notes/plan.md")!;
+    expect(after.tab.id).toBe(before.tab.id);
+    expect(after.pane.id).toBe(before.pane.id);
+    expect(after.index).toBe(before.index);
+    expect(after.tab.title).toBe("plan.md");
+    expect(findFileTab(renamed, "notes/first.md")).toBeNull();
   });
 });
 

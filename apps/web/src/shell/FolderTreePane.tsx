@@ -686,6 +686,11 @@ function FolderRoot({
           inlinePath={dired.renamePaths.length === 1 ? dired.renamePaths[0] : undefined}
           apply={async (item, value) => {
             await api.fileOp({ op: "rename", path: item.context, to: value });
+            const slash = item.context.lastIndexOf("/");
+            const to = slash < 0 ? value : `${item.context.slice(0, slash + 1)}${value}`;
+            window.dispatchEvent(
+              new CustomEvent(FILES_CHANGED_EVENT, { detail: { renames: [{ from: item.context, to }] } }),
+            );
           }}
           onClose={dired.closeRename}
         />
@@ -740,7 +745,15 @@ function FolderRoot({
       </ul>
       <FilesystemTreeEditor
         nodes={folder.tree}
-        onChanged={() => window.dispatchEvent(new Event(FILES_CHANGED_EVENT))}
+        onChanged={(renames) =>
+          window.dispatchEvent(
+            renames?.length
+              ? new CustomEvent(FILES_CHANGED_EVENT, {
+                  detail: { renames: renames.map(({ path, to }) => ({ from: path, to })) },
+                })
+              : new Event(FILES_CHANGED_EVENT),
+          )
+        }
         onOpenPath={(path) => {
           const node = fileNodeAt(folder.tree, path);
           if (!node) return;

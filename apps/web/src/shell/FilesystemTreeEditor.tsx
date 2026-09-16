@@ -71,7 +71,7 @@ export function FilesystemTreeEditor({
   dirtyPaths = new Set(),
 }: {
   nodes: readonly FileNode[];
-  onChanged: () => void;
+  onChanged: (renames?: readonly { path: string; to: string }[]) => void;
   onOpenPath: (path: string) => void;
   onContextPath: (event: MouseEvent, path: string, dir: boolean) => void;
   kindOfPath?: (path: string, dir: boolean) => string;
@@ -293,7 +293,7 @@ export function FilesystemTreeEditor({
         setBusy(false);
         setDirty(false);
         setMessage(`Applied ${count} filesystem ${count === 1 ? "edit" : "edits"}.`);
-        onChanged();
+        onChanged(filesystem.renames);
       },
       (error) => {
         setBusy(false);

@@ -299,6 +299,20 @@ export function openFileTab(layout: Layout, path: string): Layout {
   return openInLayout(grown, entry, grown.focus);
 }
 
+/** A filesystem rename keeps its already-open editor exactly where it is;
+ * only the path identity and tab caption move with the file. */
+export function renameFileTab(layout: Layout, from: string, to: string): Layout {
+  const replace = (tab: Tab): Tab =>
+    tab.kind === "file" && tab.target === from
+      ? { ...tab, target: to, title: to.split("/").pop() ?? to }
+      : tab;
+  const walk = (node: Layout["root"]): Layout["root"] =>
+    node.type === "pane"
+      ? { ...node, tabs: node.tabs.map(replace) }
+      : { ...node, children: node.children.map(walk) };
+  return { ...layout, root: walk(layout.root) };
+}
+
 /**
  * A plain file was adopted into a document: its tab becomes a GENERATED tab
  * owned by `docId`, in place — the same surgery adoptUntitledTab performs,

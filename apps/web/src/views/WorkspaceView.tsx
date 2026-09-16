@@ -121,6 +121,7 @@ import {
   openChatTab,
   openDocTab,
   openFileTab,
+  renameFileTab,
   openGeneratedTab,
   openGitTab,
   openIntoDeclared,
@@ -480,6 +481,21 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
     const already = findFileTab(layoutRef.current, path) !== null;
     setLayout((current) => openFileTab(current, path));
     if (already) flashTab("file", path);
+  }, []);
+  // The tree tells us the identity change, not merely that its listing is
+  // stale. Keep the existing editor tab (and its buffer) in place while its
+  // path and caption follow the renamed file.
+  useEffect(() => {
+    const onFilesChanged = (event: Event) => {
+      const renames = (event as CustomEvent<{ renames?: { from: string; to: string }[] }>).detail
+        ?.renames;
+      if (!renames?.length) return;
+      setLayout((current) =>
+        renames.reduce((next, rename) => renameFileTab(next, rename.from, rename.to), current),
+      );
+    };
+    window.addEventListener(FILES_CHANGED_EVENT, onFilesChanged);
+    return () => window.removeEventListener(FILES_CHANGED_EVENT, onFilesChanged);
   }, []);
   /**
    * "Ensure open": activate the document's tab wherever it is, or fetch its
