@@ -3,22 +3,25 @@
 Given a buffer that differs from its last explicit Save, the tab and the same
 file in the Files pane carry an asterisk. When its tab or the window closes,
 the app asks whether to save and says in that question whether closing without
-saving will retain the changes. A new, unnamed document is always retained.
-A file that has been saved before is retained only when **Settings → Editing →
-Retain unsaved changes** is on; that setting is off by default.
+saving will retain the changes. An unnamed document is discarded if it is not
+saved, so every new Untitled document starts blank. A file that has been saved
+before is retained only when **Settings → Editing → Retain unsaved changes**
+is on; that setting is off by default.
 
 When retained work is opened again, the buffer holds it, still unsaved. A
 crash-recovery write and an explicit Save are different facts: making bytes
 durable must not silently remove the asterisk or answer the Save decision for
 the person.
 
-Closing a window is not an implicit decision either to save or to throw work
-away. The prompt is the decision, and its wording makes recovery visible
-rather than asking from the false premise that “not saved” means “lost.”
+Closing a window is not an implicit decision either to save or to throw away
+previously named work. The prompt is the decision, and its wording makes
+recovery visible rather than asking from the false premise that “not saved”
+means “lost.” An unnamed document is the stated exception: it must be saved
+to become a document, or it is discarded.
 
 Four rules make it true rather than mostly true:
 
-1. **The draft is written while you type, not at shutdown.** A draft written
+1. **A saved file's draft is written while you type, not at shutdown.** A draft written
    only on the way out is a draft that is not there after the one event most
    likely to lose work. A slow timer writes the buffer whenever it has moved,
    and `pagehide` flushes whatever the timer has not reached yet.
@@ -74,10 +77,12 @@ existing answers each throw away one side's work.
 so on the route, and never blocks a start. `HICKORY_STATE_DIR` names the
 directory for a portable install.
 
-This covers unnamed documents and `.hick` document buffers. A `.hick` room may
-persist live bytes for crash recovery while the explicit-Save baseline stays
-put; those are still unsaved changes in the user-facing sense. Plain files
-retain their existing short debounced-save window and draft machinery.
+This covers `.hick` document buffers. An unnamed document is deliberately not
+recovered: it has no identity until Save names it, and a fresh document must be
+blank. A `.hick` room may persist live bytes for crash recovery while the
+explicit-Save baseline stays put; those are still unsaved changes in the
+user-facing sense. Plain files retain their existing short debounced-save
+window and draft machinery.
 
 A draft is keyed by path. Renaming a file outside the app orphans its draft
 rather than following it — the draft is still there, under the old path, and
@@ -104,21 +109,21 @@ that guessed would silently throw away work.
 
 Last LLM verification:
 
-- Date: 2026-09-14
+- Date: 2026-09-16
 - Reviewer: Codex (GPT-5)
 - Result: partially verified
 - Evidence: `apps/web/src/views/documentSession.tsx` — explicit-Save baseline,
   dirty state, recovery draft restore, save and discard;
   `useUnsavedLifecycle.ts` — the tab/window close decisions and dirty path/id
   derivation; `WorkspaceView.tsx` — the shared wiring;
-  `workspaceTabs.tsx` — unconditional Untitled draft; `ShellView.tsx` and
+  `workspaceTabs.tsx` — blank Untitled buffer; `ShellView.tsx` and
   `FolderTreePane.tsx` — the two asterisk surfaces; `SettingsView.tsx`,
   `UiStore`, and `/api/settings/ui` — the off-by-default setting;
   `apps/desktop/src-tauri/src/lib.rs` and `serve/shell.rs` — native close
   interception and the approved-close handoff.
-- Test coverage: `useUnsavedLifecycle.test.tsx` (the retained-close wording,
-  draft write, and guarded close), `ShellView.test.tsx` (asterisk and guarded close),
-  `workspaceTabs.test.tsx` (unnamed draft adoption after reopening),
+- Test coverage: `useUnsavedLifecycle.test.tsx` (unnamed-document discard and
+  guarded close), `ShellView.test.tsx` (asterisk and guarded close),
+  `workspaceTabs.test.tsx` (a new Untitled buffer never restores old text),
   `FolderTreePane.test.tsx` (file-tree asterisk), `SettingsView.test.tsx`
   (default and opt-in), and `serve_ui_settings.rs` (persisted schema).
 - Caveat requiring review: a browser-level test does not yet drive the whole

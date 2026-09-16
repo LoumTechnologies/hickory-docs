@@ -19,8 +19,6 @@ import type { ContextMenuItem } from "../components/ContextMenu";
 import { RefactorBadge, useBaseline } from "../components/RefactorBadge";
 import type { Baseline } from "../components/RefactorBadge";
 import { GeneratedFileView } from "../shell/views";
-import { untitledDraftKey } from "../lib/newDoc";
-import { useDraftKeeper } from "../lib/drafts";
 import { markUntitledEditor } from "../editor/activeEditor";
 import { useDocSession, type SessionRegistry } from "./documentSession";
 
@@ -314,65 +312,6 @@ export function UntitledTab({
   useEffect(() => () => realtime.close(), [realtime]);
 
   const viewRef = useRef<EditorView | null>(null);
-  // A draft is a buffer with no on-disk base. It is flushed every two seconds
-  // and on pagehide by the same keeper plain files use, but its opaque key
-  // cannot name a project file.
-  const discardDraft = useDraftKeeper({
-    path: untitledDraftKey(tabId),
-    read: () => ({ contents: viewRef.current?.state.doc.toString() ?? "", base: "" }),
-  });
-  useEffect(() => {
-    const onSaved = (event: Event) => {
-      if ((event as CustomEvent<string>).detail === tabId) discardDraft();
-    };
-    window.addEventListener("hickory-untitled-saved", onSaved);
-    return () => window.removeEventListener("hickory-untitled-saved", onSaved);
-  }, [tabId, discardDraft]);
-
-  // The editor intentionally mounts before the draft request finishes so a
-  // new note is ready immediately. A restored draft only fills an EMPTY
-  // buffer: typing before the request returns is newer work, never something
-  // a late response may overwrite.
-  const restoredRef = useRef<string | null>(null);
-  const restore = (view: EditorView | null) => {
-    const source = restoredRef.current;
-    if (!view || !source || view.state.doc.length !== 0) return;
-    view.dispatch({ changes: { from: 0, insert: source } });
-  };
-  useEffect(() => {
-    let live = true;
-    void api.drafts().then(
-      ({ drafts }) => {
-        if (!live) return;
-        const key = untitledDraftKey(tabId);
-        const draft =
-          drafts.find((candidate) => candidate.path === key) ??
-          drafts
-            .filter((candidate) => candidate.path.startsWith("untitled:"))
-            .sort((a, b) => b.saved_at - a.saved_at)[0];
-        if (!draft?.contents) return;
-        restoredRef.current = draft.contents;
-        restore(viewRef.current);
-        // A closed tab gets a fresh id when Untitled is opened again. Move
-        // its one unnamed draft to that new key so the next close/reopen is
-        // not dependent on an id the layout no longer contains.
-        if (draft.path !== key) {
-          void api
-            .saveDraft({ ...draft, path: key })
-            .then(() => api.discardDraft(draft.path))
-            .catch(() => {});
-        }
-      },
-      () => {
-        // The window remains useful without a writable workspace store; it
-        // simply cannot recover an unsaved buffer after it closes.
-      },
-    );
-    return () => {
-      live = false;
-    };
-  }, [tabId]);
-
   return (
     <div className="untitled-tab">
       <DocumentEditor
@@ -386,7 +325,6 @@ export function UntitledTab({
         onViewReady={(view) => {
           viewRef.current = view;
           markUntitledEditor(view);
-          restore(view);
           // Land ready to type — an empty editor you still have to click
           // into is a chooser with extra steps.
           view?.focus();

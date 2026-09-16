@@ -10,7 +10,6 @@ import type { Dispatch, MutableRefObject, SetStateAction } from "react";
 
 import { api } from "../api/client";
 import type { usePrompt } from "../components/PromptPanel";
-import { untitledDraftKey } from "../lib/newDoc";
 import { activate, closeTab, panes, type Layout } from "../shell/layout";
 import type { SessionRegistry } from "./documentSession";
 
@@ -93,7 +92,7 @@ export function useUnsavedLifecycle({
         return;
       }
       void (async () => {
-        const recoverable = tab.kind === "untitled" || retainSavedDrafts;
+        const recoverable = retainSavedDrafts;
         const name = tab.title ?? tab.target.split("/").pop() ?? "this file";
         const answer = await prompt.askChoice(
           `Save changes to ${name}? ${
@@ -122,17 +121,6 @@ export function useUnsavedLifecycle({
           }
           if (!saved) return;
         } else if (tab.kind === "untitled") {
-          const contents = untitledSourcesRef.current[tab.id] ?? "";
-          try {
-            await api.saveDraft({
-              path: untitledDraftKey(tab.id),
-              contents,
-              base: "",
-              saved_at: Date.now(),
-            });
-          } catch {
-            return;
-          }
           forgetUntitled(tab.id);
         } else if (tab.kind === "file") {
           const actions = plainUnsavedActions.current.get(tab.id);
@@ -182,9 +170,7 @@ export function useUnsavedLifecycle({
         const retention =
           (dirtySaved.length === 0 && dirtyPlain.length === 0) || retainSavedDrafts
             ? "All unsaved changes will still be here when you reopen their files."
-            : hasUntitled
-              ? "New-document drafts will be retained; changes to previously saved files will be discarded because recovery for them is off."
-              : "Changes to previously saved files will be discarded because recovery for them is off.";
+            : "Changes to previously saved files will be discarded because recovery for them is off.";
         const answer = await prompt.askChoice(
           `Save changes before closing Hickory Docs? ${retention}`,
           [
@@ -212,10 +198,7 @@ export function useUnsavedLifecycle({
             if (!(await saveUntitled(false))) return;
           }
         } else {
-          for (const [tabId, contents] of Object.entries(untitledSourcesRef.current)) {
-            if (!contents) continue;
-            await api.saveDraft({ path: untitledDraftKey(tabId), contents, base: "", saved_at: Date.now() });
-          }
+          for (const tabId of Object.keys(untitledSourcesRef.current)) forgetUntitled(tabId);
           for (const session of dirtySaved) {
             if (retainSavedDrafts && session.doc && session.savedSource !== null) {
               await api.saveDraft({

@@ -9,7 +9,7 @@
 //    document, and the workspace toolbar no longer carries them).
 
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render } from "@testing-library/react";
 
 import type { Doc } from "../api/types";
 import { api } from "../api/client";
@@ -134,7 +134,7 @@ describe("an untitled document", () => {
     create.mockRestore();
   });
 
-  it("adopts the newest unnamed draft when a closed tab gets a new id", async () => {
+  it("never restores a prior unnamed draft into a new document", () => {
     const drafts = vi.spyOn(api, "drafts").mockResolvedValue({
       drafts: [
         {
@@ -145,23 +145,10 @@ describe("an untitled document", () => {
         },
       ],
     });
-    const save = vi.spyOn(api, "saveDraft").mockResolvedValue({ ok: true });
-    const discard = vi.spyOn(api, "discardDraft").mockResolvedValue({ ok: true });
-
     render(<UntitledTab tabId="reopened-tab" />);
 
-    await waitFor(() =>
-      expect(save).toHaveBeenCalledWith(
-        expect.objectContaining({
-          path: "untitled:reopened-tab",
-          contents: "a thought that still matters",
-        }),
-      ),
-    );
-    expect(discard).toHaveBeenCalledWith("untitled:closed-tab");
+    expect(drafts).not.toHaveBeenCalled();
 
     drafts.mockRestore();
-    save.mockRestore();
-    discard.mockRestore();
   });
 });
