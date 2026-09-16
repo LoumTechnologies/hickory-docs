@@ -23,6 +23,8 @@ function toJs(value) {
     case "text":
     case "bool":
       return value.value;
+    case "list":
+      return value.value.map(toJs);
     default:
       // Empty is null: `xs.filter(x => x !== null)` is how a person skips
       // blanks, and null is what makes that read naturally.

@@ -163,6 +163,7 @@ fn kind_of(value: &FormulaValue) -> &'static str {
         FormulaValue::Number { .. } => "number",
         FormulaValue::Text { .. } => "text",
         FormulaValue::Bool { .. } => "bool",
+        FormulaValue::List { .. } => "list",
         FormulaValue::Empty => "empty",
     }
 }

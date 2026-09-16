@@ -53,6 +53,8 @@ def to_python(value):
         return value["value"]
     if kind == "bool":
         return value["value"]
+    if kind == "list":
+        return [to_python(item) for item in value["value"]]
     # Empty is None: `sum(x for x in row if x is not None)` is how a person
     # skips blanks, and None is what makes that read naturally.
     return None

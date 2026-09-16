@@ -692,6 +692,17 @@ describe("pointing at a cell while writing a formula", () => {
     expect(name()).toBe("A2");
   });
 
+  it("writes a range when a formula points by dragging across cells", () => {
+    grid({ source: "a,b\nc,d\ne,f\n", language: "python", onChange: () => {} });
+    const input = openCell("a");
+    fireEvent.change(input, { target: { value: "=sum(" } });
+    fireEvent.mouseDown(cell("c"));
+    // The TD owns pointer tracking, so a resize edge cannot swallow the drag.
+    fireEvent.mouseMove(cell("e"));
+    fireEvent.click(cell("e"));
+    expect(typing().value).toBe("=sum(A2:A3");
+  });
+
   it("does not point from a cell that is not a formula", () => {
     // Where there is no `=` there is nothing to write a reference into.
     const onChange = vi.fn();
@@ -740,6 +751,21 @@ describe("Enter, while a cell is open", () => {
       shiftKey: true,
     });
     expect(name()).toBe("A2");
+  });
+
+  it("moves left and right at the text boundary", () => {
+    grid({ onChange: () => {} });
+    fireEvent.click(cell("36"));
+    fireEvent.doubleClick(cell("36"));
+    const input = document.querySelector(".table-panel__input") as HTMLInputElement;
+    input.setSelectionRange(0, 0);
+    fireEvent.keyDown(input, { key: "ArrowLeft" });
+    expect(name()).toBe("A2");
+    fireEvent.doubleClick(cell("Ada"));
+    const right = document.querySelector(".table-panel__input") as HTMLInputElement;
+    right.setSelectionRange(right.value.length, right.value.length);
+    fireEvent.keyDown(right, { key: "ArrowRight" });
+    expect(name()).toBe("B2");
   });
 
   it("stays put at the bottom rather than falling off the table", () => {

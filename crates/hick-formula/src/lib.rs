@@ -53,7 +53,7 @@ pub use backend::{Backend, backend_for, install, installed_languages};
 /// Evaluating a whole table, where the host's graph meets a backend.
 pub use evaluate::{Computed, Step, Trace, available, evaluate_sheet, levels, trace_sheet};
 /// A cell reference and the sheet arithmetic around it.
-pub use graph::{CellRef, Sheet, evaluation_order, references_in};
+pub use graph::{CellRange, CellRef, Sheet, evaluation_order, ranges_in, references_in};
 /// The wire format between the host and a backend.
 pub use protocol::{EvalRequest, EvalResponse, Formula, FormulaError, FormulaResult, Value};
 /// A running backend.

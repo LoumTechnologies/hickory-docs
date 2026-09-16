@@ -24,11 +24,9 @@
 // or JavaScript or Rust, and the panel cannot parse it (see hick-formula's
 // lib.rs). The operand rule is a lexical one that holds in all of them.
 //
-// Only single cells, never ranges. A dragged `A1:B3` would be four
-// characters the host reads as two separate references — `references_in`
-// finds `A1` and `B3` and binds them as two variables, and `A1:B3` in Python
-// is a slice of something that does not exist. Writing a range would be
-// writing an expression that cannot work.
+// A click writes one cell; dragging writes an A1 range. The panel still only
+// decides where text may go — the host expands a range and binds it as one
+// list value before Python or JavaScript evaluates the expression.
 
 /** Where the reference this act last inserted sits in the text, so the next
  * click replaces it rather than piling up beside it. */

@@ -55,8 +55,9 @@ graphs could never promise.
 6. **No language means no formulas.** A table that names none treats `=` as
    text, which is what it was before this existed and what a table of shell
    snippets still needs.
-7. **A click is how a reference gets written.** While a formula is open, a
-   click on another cell writes that cell's A1 label into what is being typed
+7. **A click or drag is how a reference gets written.** While a formula is open, a
+   click on another cell writes that cell's A1 label, and a drag writes its
+   rectangular A1 range (for example `B2:B4`), into what is being typed.
    — the feature that makes formulas usable without counting rows, and the
    reason somebody can produce `=B2+B3` having never learned A1 notation. The
    grid decides whether a click MEANS a reference by where the caret is: just

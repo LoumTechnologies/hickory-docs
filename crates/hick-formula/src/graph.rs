@@ -94,6 +94,15 @@ impl CellRef {
 /// A table's cells, by reference. Only the cells that have something in them.
 pub type Sheet = BTreeMap<CellRef, String>;
 
+/// One rectangular range in a formula. Its name is deliberately a legal
+/// identifier: the host replaces `B2:B4` with it before either backend sees
+/// the expression, while the CSV continues to show familiar A1 notation.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CellRange {
+    pub cells: Vec<CellRef>,
+    pub name: String,
+}
+
 /// A formula is a cell whose text starts with `=`, exactly as in every
 /// spreadsheet. Everything else is a literal value.
 pub fn is_formula(text: &str) -> bool {
@@ -122,6 +131,13 @@ pub fn references_in(expression: &str) -> Vec<CellRef> {
     let mut out = Vec::new();
     let mut seen = BTreeSet::new();
     let mut i = 0usize;
+    for range in ranges_in(expression) {
+        for cell in range.cells {
+            if seen.insert(cell) {
+                out.push(cell);
+            }
+        }
+    }
     while i < bytes.len() {
         // A reference cannot begin part-way through a word, or `myA1` would
         // contain one.
@@ -150,6 +166,64 @@ pub fn references_in(expression: &str) -> Vec<CellRef> {
         }
     }
     out
+}
+
+/// Every `A1:B4` range in an expression, in source order.
+pub fn ranges_in(expression: &str) -> Vec<CellRange> {
+    let bytes = expression.as_bytes();
+    let mut out = Vec::new();
+    let mut i = 0;
+    while i < bytes.len() {
+        let boundary = i == 0 || !(bytes[i - 1].is_ascii_alphanumeric() || bytes[i - 1] == b'_');
+        if !boundary || !bytes[i].is_ascii_alphabetic() {
+            i += 1;
+            continue;
+        }
+        let Some((first, first_end)) = cell_at(bytes, i) else {
+            i += 1;
+            continue;
+        };
+        if first_end >= bytes.len() || bytes[first_end] != b':' {
+            i = first_end;
+            continue;
+        }
+        let Some((last, end)) = cell_at(bytes, first_end + 1) else {
+            i = first_end + 1;
+            continue;
+        };
+        if end < bytes.len() && (bytes[end].is_ascii_alphanumeric() || bytes[end] == b'_') {
+            i = end;
+            continue;
+        }
+        let mut cells = Vec::new();
+        for row in first.row.min(last.row)..=first.row.max(last.row) {
+            for column in first.column.min(last.column)..=first.column.max(last.column) {
+                cells.push(CellRef::new(column, row));
+            }
+        }
+        out.push(CellRange {
+            cells,
+            name: format!("__hick_range_{}_{}", first.label(), last.label()),
+        });
+        i = end;
+    }
+    out
+}
+
+fn cell_at(bytes: &[u8], start: usize) -> Option<(CellRef, usize)> {
+    let mut end = start;
+    while end < bytes.len() && bytes[end].is_ascii_alphabetic() {
+        end += 1;
+    }
+    let letters_end = end;
+    while end < bytes.len() && bytes[end].is_ascii_digit() {
+        end += 1;
+    }
+    if letters_end == start || end == letters_end {
+        return None;
+    }
+    let text = std::str::from_utf8(&bytes[start..end]).ok()?;
+    Some((CellRef::parse(text)?, end))
 }
 
 /// Why an order could not be produced.
@@ -325,6 +399,15 @@ mod tests {
             references_in("sum([A1, A2]) / (B1 - 1)"),
             vec![cell("A1"), cell("A2"), cell("B1")]
         );
+    }
+
+    #[test]
+    fn a_range_depends_on_every_cell_inside_it() {
+        assert_eq!(
+            references_in("sum(B2:C3)"),
+            vec![cell("B2"), cell("C2"), cell("B3"), cell("C3")]
+        );
+        assert_eq!(ranges_in("sum(B2:C3)")[0].name, "__hick_range_B2_C3");
     }
 
     #[test]

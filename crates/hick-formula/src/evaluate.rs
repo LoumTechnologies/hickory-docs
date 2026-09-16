@@ -24,7 +24,7 @@ use std::collections::BTreeMap;
 use anyhow::Result;
 
 use crate::backend;
-use crate::graph::{CellRef, Sheet, expression_of, is_formula, references_in};
+use crate::graph::{CellRef, Sheet, expression_of, is_formula, ranges_in, references_in};
 use crate::protocol::{Formula, Value};
 use crate::session::Session;
 
@@ -191,13 +191,32 @@ pub async fn trace_sheet(root: &std::path::Path, language: &str, sheet: &Sheet) 
                     })
                     .collect();
                 reads.insert(*cell, bindings.clone());
+                let ranges = ranges_in(expression);
+                let mut backend_expression = expression.to_string();
+                for range in &ranges {
+                    let label = format!(
+                        "{}:{}",
+                        range.cells.first().unwrap().label(),
+                        range.cells.last().unwrap().label()
+                    );
+                    backend_expression = backend_expression.replacen(&label, &range.name, 1);
+                }
+                let mut backend_bindings: Vec<(String, Value)> = bindings
+                    .iter()
+                    .map(|(reference, value)| (reference.label(), value.clone()))
+                    .collect();
+                backend_bindings.extend(ranges.into_iter().map(|range| {
+                    let values = range
+                        .cells
+                        .into_iter()
+                        .map(|reference| resolved.get(&reference).cloned().unwrap_or(Value::Empty))
+                        .collect();
+                    (range.name, Value::List { value: values })
+                }));
                 Formula {
                     id: cell.label(),
-                    expression: expression.to_string(),
-                    bindings: bindings
-                        .into_iter()
-                        .map(|(reference, value)| (reference.label(), value))
-                        .collect(),
+                    expression: backend_expression,
+                    bindings: backend_bindings,
                 }
             })
             .collect();

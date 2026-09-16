@@ -24,6 +24,8 @@
 // not. The GRID pads for display; the file keeps what it had until a cell in
 // that row is actually edited.
 
+import { shiftFormulaReferences } from "./formulaReferences";
+
 /** A parsed table: rows of fields, exactly as many as each row had. */
 export interface Csv {
   rows: string[][];
@@ -328,6 +330,13 @@ export function insertRow(table: Csv, at: number): Csv {
   return { ...table, rows };
 }
 
+/** Insert a row and keep formulas aimed at the cells that moved. */
+export function insertRowWithFormulaReferences(table: Csv, at: number): Csv {
+  const index = Math.max(0, Math.min(at, table.rows.length));
+  const inserted = insertRow(table, index);
+  return rewriteFormulas(inserted, (formula) => shiftFormulaReferences(formula, "row", index));
+}
+
 /** Remove a row. Removing the last one leaves an empty table, not a broken
  * one. */
 export function removeRow(table: Csv, at: number): Csv {
@@ -349,6 +358,17 @@ export function insertColumn(table: Csv, at: number): Csv {
     return next;
   });
   return { ...table, rows };
+}
+
+/** Insert a column and keep formulas aimed at the cells that moved. */
+export function insertColumnWithFormulaReferences(table: Csv, at: number): Csv {
+  const index = Math.max(0, Math.min(at, columnCount(table)));
+  const inserted = insertColumn(table, index);
+  return rewriteFormulas(inserted, (formula) => shiftFormulaReferences(formula, "column", index));
+}
+
+function rewriteFormulas(table: Csv, rewrite: (formula: string) => string): Csv {
+  return { ...table, rows: table.rows.map((row) => row.map(rewrite)) };
 }
 
 /** Remove a column from every row. */

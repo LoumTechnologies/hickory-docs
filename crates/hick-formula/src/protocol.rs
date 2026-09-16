@@ -40,6 +40,12 @@ pub enum Value {
     Bool {
         value: bool,
     },
+    /// A rectangular A1 range, in reading order. A range is a value because
+    /// `sum(B2:B4)` is one operand in Python and JavaScript, not a bit of
+    /// syntax either backend has to understand.
+    List {
+        value: Vec<Value>,
+    },
     /// The cell is empty. Distinct from an empty string, because summing a
     /// column should skip blanks rather than treat them as zero-length text.
     Empty,
@@ -62,6 +68,11 @@ impl Value {
             }
             Value::Text { value } => value.clone(),
             Value::Bool { value } => value.to_string(),
+            Value::List { value } => value
+                .iter()
+                .map(Value::to_cell)
+                .collect::<Vec<_>>()
+                .join(", "),
             Value::Empty => String::new(),
         }
     }

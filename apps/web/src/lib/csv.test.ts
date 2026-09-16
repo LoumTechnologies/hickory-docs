@@ -6,7 +6,9 @@ import {
   filledSize,
   guessDelimiter,
   insertColumn,
+  insertColumnWithFormulaReferences,
   insertRow,
+  insertRowWithFormulaReferences,
   needsQuoting,
   parseCsv,
   pasteBlock,
@@ -164,6 +166,15 @@ describe("editing the grid", () => {
       ["a", "c"],
       ["1", "3"],
     ]);
+  });
+
+  it("moves formula references with inserted rows and columns", () => {
+    expect(writeCsv(insertRowWithFormulaReferences(parseCsv("1,=A1*2\n"), 0))).toBe(
+      ",\n1,=A2*2\n",
+    );
+    expect(writeCsv(insertColumnWithFormulaReferences(parseCsv("1,=A1*2\n"), 0))).toBe(
+      ",1,=B1*2\n",
+    );
   });
 
   it("survives removing the last row", () => {

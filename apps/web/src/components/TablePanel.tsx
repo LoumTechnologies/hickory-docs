@@ -1,45 +1,21 @@
-// A table, edited as a grid.
-//
-// The point of this component is that the file underneath stays a CSV file
-// somebody else will read in a diff. So every edit goes back through
-// `writeCsv`, which quotes only what has to be quoted and keeps the line
-// ending the file came with — a one-cell edit is a one-line change, and the
-// review stays reviewable. See lib/csv.ts.
-//
-// Everything above that is spreadsheet convention, on purpose. The people who
-// will use this have spent years in Excel, and every place this differs is a
-// place they are wrong about what will happen. So: A1 labels down the side and
-// across the top, a name box and a formula bar, click to SELECT and a second
-// act to edit, drag to select a rectangle, a letter or a number to take a
-// whole column or row, Enter to commit and drop a line, and — while a formula
-// is open — a click on another cell writes its reference into what you are
-// typing. Ctrl+` shows the formulas instead of their values.
-//
-// The select/edit split is the load-bearing one, and it is not decoration. A
-// cell that goes straight into edit mode has no state in which the toolbar can
-// act on it — pressing "− Row" blurs the input, which clears the cursor, which
-// disables the button before the click lands. Selection that survives losing
-// focus is what makes a toolbar possible at all, and it is what Excel does.
-//
-// Selection is a RANGE — an anchor and a reach, in lib/tableSelection.ts —
-// rather than a cursor, because a toolbar that can only ever remove one row
-// is a toolbar people work around by clicking four times. The anchor is still
-// a single cell and still does everything a cursor did: it is what the
-// formula bar edits and what a keystroke replaces.
-//
-// The grid is `table-layout: fixed` with declared column widths for a related
-// reason: a cell is a span until you enter it and an input while you are in
-// it, and under automatic layout those two measure differently, so entering a
-// cell resized the whole table under the pointer.
-
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { api } from "../api/client";
 import type { FormulaStep } from "../api/types";
-import { cellLabel, columnLabel, isFormula, parseCellLabel } from "../lib/cellRef";
+import {
+  cellLabel,
+  columnLabel,
+  isFormula,
+  parseCellLabel,
+} from "../lib/cellRef";
 import { pointAt, type PointedAt } from "../lib/formulaPoint";
+import { moveFormulaReferences } from "../lib/formulaReferences";
 import { columnsPhrase, rowsPhrase, tableMenuItems } from "../lib/tableMenu";
-import { parseClipboardTable, toHtmlTable, toTabSeparated } from "../lib/tableClipboard";
+import {
+  parseClipboardTable,
+  toHtmlTable,
+  toTabSeparated,
+} from "../lib/tableClipboard";
 import {
   allSelection,
   cellSelection,
@@ -59,13 +35,16 @@ import {
 import { ContextMenu } from "./ContextMenu";
 import { FormulaDebugger } from "./FormulaDebugger";
 import { TableSizeDialog } from "./TableSizeDialog";
+import { TableCell } from "./TableCell";
 
 import {
   cellAt,
   clearCells,
   columnCount,
   filledSize,
+  insertColumnWithFormulaReferences,
   insertColumn,
+  insertRowWithFormulaReferences,
   insertRow,
   parseCsv,
   pasteBlock,
@@ -178,52 +157,18 @@ const FIT_ANTI_CLIP = 1;
 const DRAG_THRESHOLD = 3;
 /** Below this the grid is the furniture and none of the data. */
 const MIN_GRID_HEIGHT = 64;
-/**
- * How tall one body row is, in pixels, and the letter row above them.
- *
- * Declared rather than measured, for the same reason the column widths are:
- * a cell is a span until you enter it and an input while you are in it, and
- * measuring would make entering one resize the grid. Declaring it also makes
- * "nine rows" an arithmetic fact rather than a hope — the number is handed to
- * the stylesheet as a custom property, so the rows really are this tall.
- */
 const ROW_HEIGHT = 24;
 const HEAD_HEIGHT = 22;
-/**
- * How many rows a table shows before it scrolls instead of growing.
- *
- * A table in a document is a paragraph (see the guarantee). A hundred-row
- * dataset that pushes the prose after it off the screen has stopped being one,
- * and the reader who wanted the tenth row wanted it *next to* the sentence
- * about it. So past nine rows the grid keeps its size and scrolls, and the
- * person who does want to see forty at once drags the bottom edge — which is
- * a decision about this table, remembered with the rest of its layout.
- */
 const VISIBLE_ROWS = 9;
+const MOVE_CLIPBOARD_TYPE = "application/x-hickory-table-move";
 
 const clampTo = (value: number, least: number, most: number) =>
   Math.max(least, Math.min(most, Math.round(value)));
 
-/**
- * How much room these cells' contents would take if nothing constrained them.
- *
- * The measurement an auto-fit needs, and NOT what `scrollWidth` answers.
- * A cell fills its column and its row, so its scroll size is the larger of
- * its content and its box — which means it reports the size the cell already
- * has whenever the text is smaller than it, and a fit built on it can only
- * ever grow. That reads as "double-clicking anything expands it slightly",
- * because the slack is the only thing that changed.
- *
- * So the constraint is lifted for the length of the measurement: `max-content`
- * on the axis being asked about, the box read back, the inline style put back.
- * It is the same element with the same font and the same padding — only the
- * width or height it was being held to is gone — so the answer is exact by
- * construction rather than by a second copy of the cell's styling.
- *
- * Fractional, because text is: the caller rounds up once at the end rather
- * than losing a fraction of a pixel per cell.
- */
-function intrinsic(cells: Iterable<HTMLElement>, axis: "width" | "height"): number {
+function intrinsic(
+  cells: Iterable<HTMLElement>,
+  axis: "width" | "height",
+): number {
   let most = 0;
   for (const cell of cells) {
     const held = cell.style[axis];
@@ -288,7 +233,9 @@ export function TablePanel({
           // A missing interpreter is the common case and not a fault: the
           // table still renders and still edits, it just does not compute.
           setComputed({ values: {}, errors: {} });
-          setFormulaNote(error instanceof Error ? error.message : String(error));
+          setFormulaNote(
+            error instanceof Error ? error.message : String(error),
+          );
         },
       );
     }, 400);
@@ -331,7 +278,8 @@ export function TablePanel({
     setSize(next);
     onLayout?.(next);
   };
-  const columnWidth = (column: number) => size.widths?.[String(column)] ?? DEFAULT_COLUMN_WIDTH;
+  const columnWidth = (column: number) =>
+    size.widths?.[String(column)] ?? DEFAULT_COLUMN_WIDTH;
   const widen = (column: number, to: number) =>
     resize({ ...size, widths: { ...size.widths, [String(column)]: to } });
   const heighten = (row: number, to: number) =>
@@ -371,8 +319,14 @@ export function TablePanel({
   // Where to leave the caret after a reference is written in. Applied in an
   // effect because the input has not re-rendered with the new text yet.
   const [caretWanted, setCaretWanted] = useState<number | null>(null);
+  const rangeAnchor = useRef<CellAt | null>(null);
+  const rangeDragged = useRef(false);
+  const cut = useRef<{ from: CellAt; rows: number; columns: number } | null>(
+    null,
+  );
 
-  const activeInput = () => (entryFrom === "bar" ? barRef.current : inputRef.current);
+  const activeInput = () =>
+    entryFrom === "bar" ? barRef.current : inputRef.current;
 
   useEffect(() => {
     if (!selection) return;
@@ -414,6 +368,16 @@ export function TablePanel({
     [onChange, source],
   );
 
+  // `=` is ordinary text until the table declares a formula language.
+  const insertTableRow = (current: Csv, at: number) =>
+    language
+      ? insertRowWithFormulaReferences(current, at)
+      : insertRow(current, at);
+  const insertTableColumn = (current: Csv, at: number) =>
+    language
+      ? insertColumnWithFormulaReferences(current, at)
+      : insertColumn(current, at);
+
   /** Write the draft into the cell it belongs to, if it changed anything. */
   const commit = useCallback(
     (at: CellAt, value: string) => {
@@ -449,14 +413,21 @@ export function TablePanel({
   const extend = (row: number, column: number) => {
     stopEditing();
     setSelection((current) =>
-      current ? extendTo(current, row, column, height, width) : cellSelection(row, column),
+      current
+        ? extendTo(current, row, column, height, width)
+        : cellSelection(row, column),
     );
   };
 
   /** Start typing into a cell. `seed` replaces its contents, as typing over a
    * selected cell does in every spreadsheet; absent, the cell's own text is
    * the starting point, which is what F2 and a double-click mean. */
-  const edit = (row: number, column: number, seed?: string, from: "grid" | "bar" = "grid") => {
+  const edit = (
+    row: number,
+    column: number,
+    seed?: string,
+    from: "grid" | "bar" = "grid",
+  ) => {
     if (!editable) return;
     setSelection(cellSelection(row, column));
     setDraft(seed ?? cellAt(table, row, column));
@@ -537,7 +508,9 @@ export function TablePanel({
    * answer to "how much room does nothing need".
    */
   const fitColumn = (column: number) => {
-    const cells = gridRef.current?.querySelectorAll<HTMLElement>(`[data-column="${column}"]`);
+    const cells = gridRef.current?.querySelectorAll<HTMLElement>(
+      `[data-column="${column}"]`,
+    );
     if (!cells || cells.length === 0) return;
     widen(
       column,
@@ -553,11 +526,17 @@ export function TablePanel({
    * page can produce — is several lines tall, and this is what makes room for
    * it without anybody counting them. */
   const fitRow = (row: number) => {
-    const cells = gridRef.current?.querySelectorAll<HTMLElement>(`[data-row="${row}"]`);
+    const cells = gridRef.current?.querySelectorAll<HTMLElement>(
+      `[data-row="${row}"]`,
+    );
     if (!cells || cells.length === 0) return;
     heighten(
       row,
-      clampTo(intrinsic(cells, "height") + FIT_BORDER, MIN_ROW_HEIGHT, MAX_ROW_HEIGHT),
+      clampTo(
+        intrinsic(cells, "height") + FIT_BORDER,
+        MIN_ROW_HEIGHT,
+        MAX_ROW_HEIGHT,
+      ),
     );
   };
 
@@ -588,7 +567,8 @@ export function TablePanel({
    * Only while a FORMULA is open, and only in a table that names a language:
    * where `=` is just text there are no references for a click to write.
    */
-  const pointing = editable && editing && language !== undefined && isFormula(draft);
+  const pointing =
+    editable && editing && language !== undefined && isFormula(draft);
 
   /**
    * A click on a cell while a formula is open.
@@ -603,13 +583,56 @@ export function TablePanel({
     if (active && active.row === row && active.column === column) return false;
     const input = activeInput();
     const caret = input?.selectionStart ?? draft.length;
-    const written = pointAt(draft, caret, cellLabel(column, row), pointed.current);
+    const written = pointAt(
+      draft,
+      caret,
+      cellLabel(column, row),
+      pointed.current,
+    );
     if (!written) return false;
     setDraft(written.text);
     pointed.current = written.pointed;
     setCaretWanted(written.caret);
     setPointer({ row, column });
     return true;
+  };
+
+  /** Write the rectangle dragged from `from` to this cell as `B2:C4`. */
+  const pointRangeTo = (from: CellAt, row: number, column: number): boolean => {
+    if (from.row === row && from.column === column) return pointTo(row, column);
+    if (!pointing) return false;
+    const input = activeInput();
+    const caret = input?.selectionStart ?? draft.length;
+    const left = Math.min(from.column, column);
+    const top = Math.min(from.row, row);
+    const right = Math.max(from.column, column);
+    const bottom = Math.max(from.row, row);
+    const written = pointAt(
+      draft,
+      caret,
+      `${cellLabel(left, top)}:${cellLabel(right, bottom)}`,
+      pointed.current,
+    );
+    if (!written) return false;
+    setDraft(written.text);
+    pointed.current = written.pointed;
+    setCaretWanted(written.caret);
+    setPointer({ row, column });
+    return true;
+  };
+
+  /** Track a formula-range drag from the table cell, not only its inner text
+   * span. The resize edges sit above that span, so `mouseenter` alone misses
+   * a real drag that crosses an edge. */
+  const pointRangeOver = (row: number, column: number) => {
+    if (!pointing || !rangeAnchor.current) return;
+    if (
+      rangeAnchor.current.row === row &&
+      rangeAnchor.current.column === column
+    )
+      return;
+    rangeDragged.current = true;
+    pointRangeTo(rangeAnchor.current, row, column);
   };
 
   /**
@@ -631,8 +654,18 @@ export function TablePanel({
       row: Math.max(0, Math.min(from.row + dRow, height - 1)),
       column: Math.max(0, Math.min(from.column + dColumn, width - 1)),
     };
-    if (pointer && target.row === pointer.row && target.column === pointer.column) return true;
-    const written = pointAt(draft, caret, cellLabel(target.column, target.row), pointed.current);
+    if (
+      pointer &&
+      target.row === pointer.row &&
+      target.column === pointer.column
+    )
+      return true;
+    const written = pointAt(
+      draft,
+      caret,
+      cellLabel(target.column, target.row),
+      pointed.current,
+    );
     if (!written) return false;
     setDraft(written.text);
     pointed.current = written.pointed;
@@ -661,7 +694,10 @@ export function TablePanel({
     // points, inserting where the first operand goes.
     const caret = Math.max(start, Math.min(1, draft.length));
     const live =
-      pointer !== null && pointed.current !== null && collapsed && start === pointed.current.end;
+      pointer !== null &&
+      pointed.current !== null &&
+      collapsed &&
+      start === pointed.current.end;
     switch (event.key) {
       case "ArrowUp":
         return pointBy(-1, 0, caret);
@@ -694,7 +730,9 @@ export function TablePanel({
    * anything the clipboard has to be told about separately.
    */
   const blockOf = (of: Selection): string[][] =>
-    rowsIn(of).map((row) => columnsIn(of).map((column) => cellAt(table, row, column)));
+    rowsIn(of).map((row) =>
+      columnsIn(of).map((column) => cellAt(table, row, column)),
+    );
 
   /**
    * Ctrl+C, and Ctrl+X, over a selection that is not being typed into.
@@ -733,7 +771,25 @@ export function TablePanel({
     );
     if (!block || block.length === 0) return false;
     const at = selection.anchor;
-    apply(pasteBlock(table, at.row, at.column, block));
+    let next = pasteBlock(table, at.row, at.column, block);
+    if (cut.current && clipboard.getData(MOVE_CLIPBOARD_TYPE) === "1") {
+      const moved = cut.current;
+      next = {
+        ...next,
+        rows: next.rows.map((fields) =>
+          fields.map((field) =>
+            moveFormulaReferences(
+              field,
+              moved.from,
+              { rows: moved.rows, columns: moved.columns },
+              at,
+            ),
+          ),
+        ),
+      };
+      cut.current = null;
+    }
+    apply(next);
     const tall = block.length;
     const wide = block.reduce((widest, row) => Math.max(widest, row.length), 0);
     setSelection(
@@ -770,13 +826,20 @@ export function TablePanel({
   /** Keys handled by a selected-but-not-editing cell: the spreadsheet ones. */
   const onSelectedKeyDown = (event: React.KeyboardEvent, at: CellAt) => {
     const key = event.key;
-    if (key === "ArrowUp" || key === "ArrowDown" || key === "ArrowLeft" || key === "ArrowRight") {
+    if (
+      key === "ArrowUp" ||
+      key === "ArrowDown" ||
+      key === "ArrowLeft" ||
+      key === "ArrowRight"
+    ) {
       event.preventDefault();
       // Shift REACHES rather than moves, which is how a range is made without
       // a mouse — and the only way to make one on a keyboard at all.
       const from = event.shiftKey && selection ? selection.focus : at;
-      const row = from.row + (key === "ArrowDown" ? 1 : key === "ArrowUp" ? -1 : 0);
-      const column = from.column + (key === "ArrowRight" ? 1 : key === "ArrowLeft" ? -1 : 0);
+      const row =
+        from.row + (key === "ArrowDown" ? 1 : key === "ArrowUp" ? -1 : 0);
+      const column =
+        from.column + (key === "ArrowRight" ? 1 : key === "ArrowLeft" ? -1 : 0);
       if (event.shiftKey) extend(row, column);
       else moveTo(row, column);
     } else if (key === "a" && (event.ctrlKey || event.metaKey)) {
@@ -821,7 +884,8 @@ export function TablePanel({
   const selectedRows = selection ? rowsIn(selection) : [];
   const selectedColumns = selection ? columnsIn(selection) : [];
   const canRemoveRows = selectedRows.length > 0 && selectedRows.length < height;
-  const canRemoveColumns = selectedColumns.length > 0 && selectedColumns.length < width;
+  const canRemoveColumns =
+    selectedColumns.length > 0 && selectedColumns.length < width;
 
   /**
    * Open the right-click menu over a cell.
@@ -863,18 +927,24 @@ export function TablePanel({
     stopEditing();
     switch (action) {
       case "insert-rows-above":
-        apply(times(table, rows.length, (t) => insertRow(t, rows[0])));
+        apply(times(table, rows.length, (t) => insertTableRow(t, rows[0])));
         break;
       case "insert-rows-below":
-        apply(times(table, rows.length, (t) => insertRow(t, rows[rows.length - 1] + 1)));
+        apply(
+          times(table, rows.length, (t) =>
+            insertTableRow(t, rows[rows.length - 1] + 1),
+          ),
+        );
         break;
       case "insert-columns-left":
-        apply(times(table, columns.length, (t) => insertColumn(t, columns[0])));
+        apply(
+          times(table, columns.length, (t) => insertTableColumn(t, columns[0])),
+        );
         break;
       case "insert-columns-right":
         apply(
           times(table, columns.length, (t) =>
-            insertColumn(t, columns[columns.length - 1] + 1),
+            insertTableColumn(t, columns[columns.length - 1] + 1),
           ),
         );
         break;
@@ -899,7 +969,10 @@ export function TablePanel({
     () => new Set(stepping?.bindings.map((binding) => binding.cell) ?? []),
     [stepping],
   );
-  const onStep = useCallback((step: FormulaStep | null) => setStepping(step), []);
+  const onStep = useCallback(
+    (step: FormulaStep | null) => setStepping(step),
+    [],
+  );
 
   const rowNumber = (row: number, lane = false) => (
     <th
@@ -971,6 +1044,14 @@ export function TablePanel({
         if (inAField(event) || !editable || !selection) return;
         if (!copyOut(event.clipboardData)) return;
         event.preventDefault();
+        const rows = rowsIn(selection);
+        const columns = columnsIn(selection);
+        event.clipboardData?.setData(MOVE_CLIPBOARD_TYPE, "1");
+        cut.current = {
+          from: { row: rows[0], column: columns[0] },
+          rows: rows.length,
+          columns: columns.length,
+        };
         apply(clearCells(table, cellsIn(selection)));
       }}
       onPaste={(event) => {
@@ -1028,6 +1109,22 @@ export function TablePanel({
             if (event.key === "Enter") {
               event.preventDefault();
               commitAndMove(active, event.shiftKey ? -1 : 1, 0);
+            } else if (
+              event.key === "ArrowLeft" &&
+              (event.currentTarget.selectionStart ?? 0) === 0 &&
+              (event.currentTarget.selectionEnd ?? 0) === 0
+            ) {
+              event.preventDefault();
+              commitAndMove(active, 0, -1);
+            } else if (
+              event.key === "ArrowRight" &&
+              (event.currentTarget.selectionStart ?? draft.length) ===
+                draft.length &&
+              (event.currentTarget.selectionEnd ?? draft.length) ===
+                draft.length
+            ) {
+              event.preventDefault();
+              commitAndMove(active, 0, 1);
             } else if (event.key === "Escape") {
               event.preventDefault();
               setDraft(selectedRaw);
@@ -1076,11 +1173,13 @@ export function TablePanel({
                   key={column}
                   scope="col"
                   className={`table-panel__head${
-                    selection && containsCell(selection, selection.anchor.row, column)
+                    selection &&
+                    containsCell(selection, selection.anchor.row, column)
                       ? " table-panel__head--active"
                       : ""
                   }${
-                    selection?.kind === "columns" && columnsIn(selection).includes(column)
+                    selection?.kind === "columns" &&
+                    columnsIn(selection).includes(column)
                       ? " table-panel__head--taken"
                       : ""
                   }`}
@@ -1092,10 +1191,13 @@ export function TablePanel({
                     takeColumn(column, event.shiftKey);
                   }}
                   onMouseEnter={() => {
-                    if (dragging.current === "columns") extend(height - 1, column);
+                    if (dragging.current === "columns")
+                      extend(height - 1, column);
                   }}
                   onClick={(event) => takeColumn(column, event.shiftKey)}
-                  onContextMenu={(event) => openMenu(event, 0, column, "column")}
+                  onContextMenu={(event) =>
+                    openMenu(event, 0, column, "column")
+                  }
                 >
                   {columnLabel(column)}
                   <Resizer
@@ -1121,7 +1223,11 @@ export function TablePanel({
                   // Per row rather than per cell: the cells read the measure
                   // from here, so one number governs a row and a row cannot
                   // end up two heights at once.
-                  style={{ "--table-row-height": `${rowHeight(row)}px` } as React.CSSProperties}
+                  style={
+                    {
+                      "--table-row-height": `${rowHeight(row)}px`,
+                    } as React.CSSProperties
+                  }
                 >
                   {rowNumber(row)}
                   {Array.from({ length: width }, (_, column) => {
@@ -1129,25 +1235,39 @@ export function TablePanel({
                     return (
                       <td
                         key={column}
-                        className={isHeaderRow ? "table-panel__names" : undefined}
+                        className={
+                          isHeaderRow ? "table-panel__names" : undefined
+                        }
                         onContextMenu={(event) => openMenu(event, row, column)}
+                        onMouseMove={() => pointRangeOver(row, column)}
                       >
-                        <Cell
+                        <TableCell
                           row={row}
                           column={column}
                           value={cellAt(table, row, column)}
                           shown={shownAt(row, column)}
                           problem={computed.errors[label]}
-                          selected={active?.row === row && active.column === column}
+                          selected={
+                            active?.row === row && active.column === column
+                          }
                           within={
                             selection !== null &&
                             !isSingleCell(selection) &&
                             containsCell(selection, row, column)
                           }
-                          stepping={steppingAt?.row === row && steppingAt.column === column}
+                          stepping={
+                            steppingAt?.row === row &&
+                            steppingAt.column === column
+                          }
                           read={steppingReads.has(label)}
-                          pointedAt={pointer?.row === row && pointer.column === column}
-                          editing={editing && active?.row === row && active.column === column}
+                          pointedAt={
+                            pointer?.row === row && pointer.column === column
+                          }
+                          editing={
+                            editing &&
+                            active?.row === row &&
+                            active.column === column
+                          }
                           draft={draft}
                           editable={editable}
                           inputRef={inputRef}
@@ -1158,15 +1278,32 @@ export function TablePanel({
                             // swallowed instead, so the formula being typed
                             // does not lose focus and commit itself before
                             // the click can mean anything.
-                            if (pointing) return;
+                            if (pointing) {
+                              rangeAnchor.current = { row, column };
+                              rangeDragged.current = false;
+                              return;
+                            }
                             dragging.current = "cells";
                             if (event.shiftKey) extend(row, column);
                             else select(row, column);
                           }}
                           onEnter={() => {
-                            if (dragging.current === "cells") extend(row, column);
+                            if (pointing && rangeAnchor.current) {
+                              pointRangeOver(row, column);
+                              return;
+                            }
+                            if (dragging.current === "cells")
+                              extend(row, column);
                           }}
                           onSelect={(event) => {
+                            if (rangeAnchor.current) {
+                              const anchor = rangeAnchor.current;
+                              rangeAnchor.current = null;
+                              if (rangeDragged.current) {
+                                pointRangeTo(anchor, row, column);
+                                return;
+                              }
+                            }
                             if (pointTo(row, column)) return;
                             // Not a reference: the ordinary click it was, and
                             // the formula it interrupted ends here rather
@@ -1187,8 +1324,12 @@ export function TablePanel({
                           onEdit={() => edit(row, column)}
                           onDraft={typed}
                           onPoint={pointKey}
-                          onKeys={(event) => onSelectedKeyDown(event, { row, column })}
-                          onMove={(dRow, dColumn) => commitAndMove({ row, column }, dRow, dColumn)}
+                          onKeys={(event) =>
+                            onSelectedKeyDown(event, { row, column })
+                          }
+                          onMove={(dRow, dColumn) =>
+                            commitAndMove({ row, column }, dRow, dColumn)
+                          }
                           onDone={stopEditing}
                           onCancel={() => setEditing(false)}
                         />
@@ -1202,7 +1343,11 @@ export function TablePanel({
                           size={rowHeight(row)}
                           least={MIN_ROW_HEIGHT}
                           onResize={(next) => heighten(row, next)}
-                          onTap={editable ? tapped(() => select(row, column)) : undefined}
+                          onTap={
+                            editable
+                              ? tapped(() => select(row, column))
+                              : undefined
+                          }
                           onFit={fitted(() => fitRow(row))}
                         />
                         <Resizer
@@ -1210,7 +1355,11 @@ export function TablePanel({
                           size={columnWidth(column)}
                           least={MIN_COLUMN_WIDTH}
                           onResize={(next) => widen(column, next)}
-                          onTap={editable ? tapped(() => select(row, column)) : undefined}
+                          onTap={
+                            editable
+                              ? tapped(() => select(row, column))
+                              : undefined
+                          }
                           onFit={fitted(() => fitColumn(column))}
                         />
                       </td>
@@ -1249,14 +1398,17 @@ export function TablePanel({
       {/* The drag starts from the height the grid actually HAS — the
           remembered one, or the nine rows it settled at — rather than from a
           measurement, so the first pixel of the drag does not jump. */}
-      <HeightResizer height={gridHeight} onResize={(next) => resize({ ...size, height: next })} />
+      <HeightResizer
+        height={gridHeight}
+        onResize={(next) => resize({ ...size, height: next })}
+      />
 
       {editable ? (
         <div className="table-panel__actions" role="toolbar" aria-label="Table">
           <button
             type="button"
             className="btn btn-small"
-            onClick={() => apply(insertRow(table, height))}
+            onClick={() => apply(insertTableRow(table, height))}
             data-tip="Add a row at the bottom"
           >
             + Row
@@ -1264,7 +1416,7 @@ export function TablePanel({
           <button
             type="button"
             className="btn btn-small"
-            onClick={() => apply(insertColumn(table, width))}
+            onClick={() => apply(insertTableColumn(table, width))}
             data-tip="Add a column at the right"
           >
             + Column
@@ -1295,7 +1447,9 @@ export function TablePanel({
                       }`
             }
           >
-            {selectedRows.length > 1 ? `− ${selectedRows.length} Rows` : "− Row"}
+            {selectedRows.length > 1
+              ? `− ${selectedRows.length} Rows`
+              : "− Row"}
           </button>
           <button
             type="button"
@@ -1320,7 +1474,9 @@ export function TablePanel({
                       )}`
             }
           >
-            {selectedColumns.length > 1 ? `− ${selectedColumns.length} Columns` : "− Column"}
+            {selectedColumns.length > 1
+              ? `− ${selectedColumns.length} Columns`
+              : "− Column"}
           </button>
           {language && (
             <button
@@ -1347,7 +1503,10 @@ export function TablePanel({
             </button>
           )}
           {language && (
-            <span className="table-panel__lang muted" data-tip={`Formulas are ${language}`}>
+            <span
+              className="table-panel__lang muted"
+              data-tip={`Formulas are ${language}`}
+            >
               {language}
             </span>
           )}
@@ -1370,7 +1529,9 @@ export function TablePanel({
         // A generated table's source is a document, and editing the output is
         // not the way to change it. Saying so beats a grid that silently
         // discards what you type.
-        <p className="table-panel__readonly muted">Written by a document — edit it there.</p>
+        <p className="table-panel__readonly muted">
+          Written by a document — edit it there.
+        </p>
       )}
 
       {sizing && editable && (
@@ -1433,7 +1594,13 @@ function inAField(event: React.ClipboardEvent): boolean {
 
 /** The box above the row numbers: click it for the whole table, as every
  * spreadsheet's corner does. */
-function SelectAll({ onSelect, lane = false }: { onSelect: () => void; lane?: boolean }) {
+function SelectAll({
+  onSelect,
+  lane = false,
+}: {
+  onSelect: () => void;
+  lane?: boolean;
+}) {
   return (
     <th
       className={`table-panel__corner${lane ? " table-panel__corner--lane" : ""}`}
@@ -1567,10 +1734,16 @@ function HeightResizer({
   const onMouseDown = (event: React.MouseEvent) => {
     event.preventDefault();
     const scroller = bar.current?.previousElementSibling as HTMLElement | null;
-    const startHeight = height ?? scroller?.getBoundingClientRect().height ?? MIN_GRID_HEIGHT;
+    const startHeight =
+      height ?? scroller?.getBoundingClientRect().height ?? MIN_GRID_HEIGHT;
     const startY = event.clientY;
     const move = (e: MouseEvent) =>
-      onResize(Math.max(MIN_GRID_HEIGHT, Math.round(startHeight + (e.clientY - startY))));
+      onResize(
+        Math.max(
+          MIN_GRID_HEIGHT,
+          Math.round(startHeight + (e.clientY - startY)),
+        ),
+      );
     const up = () => {
       window.removeEventListener("mousemove", move);
       window.removeEventListener("mouseup", up);
@@ -1589,180 +1762,6 @@ function HeightResizer({
       data-testid="height-resizer"
       data-tip="Drag to see more rows at a time, or fewer"
       onMouseDown={onMouseDown}
-    />
-  );
-}
-
-function Cell({
-  row,
-  column,
-  value,
-  shown,
-  problem,
-  selected,
-  within,
-  stepping,
-  read,
-  pointedAt,
-  editing,
-  draft,
-  editable,
-  inputRef,
-  selectedRef,
-  onDown,
-  onEnter,
-  onSelect,
-  onEdit,
-  onDraft,
-  onPoint,
-  onKeys,
-  onMove,
-  onDone,
-  onCancel,
-}: {
-  /** Where it is, drawn onto the element so an auto-fit can find it. */
-  row: number;
-  column: number;
-  /** The cell's own text — a formula, or a literal. */
-  value: string;
-  /** What to display: a formula's computed value, or its text. */
-  shown: string;
-  /** What the language said, when this formula did not evaluate. */
-  problem?: string;
-  /** The active cell, which stays active when focus goes elsewhere. */
-  selected: boolean;
-  /** Inside the selected rectangle, but not the anchor. */
-  within: boolean;
-  /** The cell whose turn it is, while somebody is stepping the formulas. */
-  stepping: boolean;
-  /** A cell the stepped-to formula read. */
-  read: boolean;
-  /** The cell an open formula is pointing at — its reference is the one
-   * being written. Its own ring, not the selection's. */
-  pointedAt: boolean;
-  editing: boolean;
-  draft: string;
-  editable: boolean;
-  inputRef: React.MutableRefObject<HTMLInputElement | null>;
-  selectedRef: React.MutableRefObject<HTMLElement | null>;
-  onDown: (event: React.MouseEvent) => void;
-  onEnter: () => void;
-  onSelect: (event: React.MouseEvent) => void;
-  onEdit: () => void;
-  onDraft: (value: string) => void;
-  /** An arrow key while the field is open: true when it pointed at a cell
-   * (see TablePanel's pointKey) and the field must not act on it. */
-  onPoint: (event: React.KeyboardEvent<HTMLInputElement>) => boolean;
-  onKeys: (event: React.KeyboardEvent) => void;
-  onMove: (dRow: number, dColumn: number) => void;
-  onDone: () => void;
-  onCancel: () => void;
-}) {
-  if (!editing) {
-    return (
-      <span
-        ref={(node) => {
-          if (selected) selectedRef.current = node;
-        }}
-        // Where this cell is, so an auto-fit can find every cell in a column
-        // or a row and ask it how much room its own text needs. The only
-        // thing in the grid that is MEASURED rather than declared — see
-        // `fitColumn`.
-        data-row={row}
-        data-column={column}
-        className={
-          "table-panel__cell" +
-          (problem ? " table-panel__cell--bad" : "") +
-          (value !== shown ? " table-panel__cell--computed" : "") +
-          (selected ? " table-panel__cell--selected" : "") +
-          (within ? " table-panel__cell--within" : "") +
-          (stepping ? " table-panel__cell--stepping" : "") +
-          (read ? " table-panel__cell--read" : "") +
-          (pointedAt ? " table-panel__cell--pointed" : "")
-        }
-        role={editable ? "gridcell" : undefined}
-        tabIndex={editable ? 0 : undefined}
-        // A computed cell's hover shows the formula behind it; a broken one
-        // shows the LANGUAGE's own message, because `#VALUE!` throws away the
-        // only part the author can act on.
-        data-tip={problem ?? (value !== shown ? value : undefined)}
-        // One click selects and a second act opens, which is the spreadsheet
-        // arrangement — and the one that leaves the toolbar something to act
-        // on once focus has moved to a button. The mousedown is what selects,
-        // because that is also where a drag begins; the click is left for the
-        // one case where it means something else, which is pointing at a cell
-        // from inside an open formula.
-        onMouseDown={
-          editable
-            ? (event) => {
-                // ALWAYS prevented, for two reasons that happen to want the
-                // same thing. A mousedown that runs its course starts a text
-                // selection, so sweeping a rectangle also sweeps the page's
-                // prose into a blue smear — `user-select: none` alone would
-                // not stop a drag that leaves the grid. And while a formula
-                // is open it would move focus out of the input, committing
-                // the edit before the click could be read as a reference.
-                //
-                // What the default would otherwise have given us is focus,
-                // and the effect above puts that back on whichever cell ends
-                // up selected.
-                // A right-click is the menu's, not the sweep's: the menu
-                // decides for itself whether to change the selection, and a
-                // sweep torn apart before it opens is a menu acting on the
-                // wrong rows.
-                if (event.button === 2) return;
-                event.preventDefault();
-                onDown(event);
-              }
-            : undefined
-        }
-        onMouseEnter={editable ? onEnter : undefined}
-        onClick={editable ? onSelect : undefined}
-        onDoubleClick={editable ? onEdit : undefined}
-        onKeyDown={editable ? onKeys : undefined}
-      >
-        {/* A non-breaking space, so an empty cell is still a target with a
-            height. A zero-height row is a row nobody can click into. */}
-        {shown === "" ? " " : shown}
-      </span>
-    );
-  }
-  return (
-    <input
-      ref={inputRef}
-      className="table-panel__input"
-      value={draft}
-      onChange={(event) => onDraft(event.target.value)}
-      onBlur={onDone}
-      onKeyDown={(event) => {
-        // Point mode first: while a formula is open, an arrow may mean "that
-        // cell", and then it is neither a caret move nor a cell move.
-        if (event.key.startsWith("Arrow") && onPoint(event)) {
-          event.preventDefault();
-          return;
-        }
-        // The chords every spreadsheet has trained people to expect. Enter
-        // commits and drops a row; Tab commits and moves right.
-        if (event.key === "Enter") {
-          event.preventDefault();
-          onMove(event.shiftKey ? -1 : 1, 0);
-        } else if (event.key === "Tab") {
-          event.preventDefault();
-          onMove(0, event.shiftKey ? -1 : 1);
-        } else if (event.key === "Escape") {
-          // Escape ABANDONS, which is the whole difference between it and
-          // clicking away. An Escape that saved would be the one chord in a
-          // spreadsheet that means the opposite of what it means everywhere.
-          event.preventDefault();
-          onCancel();
-        } else if (event.key === "ArrowUp" || event.key === "ArrowDown") {
-          // The arrows move BETWEEN cells rather than within the text: a
-          // grid where Up puts the caret at the start of the field is a grid
-          // nobody can navigate.
-          event.preventDefault();
-          onMove(event.key === "ArrowDown" ? 1 : -1, 0);
-        }
-      }}
     />
   );
 }

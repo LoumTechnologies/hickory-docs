@@ -66,7 +66,11 @@ pub const BACKENDS: &[Backend] = &[
 pub fn canonical_language(name: &str) -> Option<&'static str> {
     match name.trim().to_ascii_lowercase().as_str() {
         "python" | "py" | "python3" => Some("python"),
-        "javascript" | "js" | "node" | "mjs" => Some("javascript"),
+        // Table formulas are expressions, so TypeScript's expression subset
+        // is JavaScript at runtime. Type annotations still do not belong in a
+        // cell expression, but a table declared `typescript` should not lose
+        // the same formula features as one declared `javascript`.
+        "javascript" | "js" | "node" | "mjs" | "typescript" | "ts" => Some("javascript"),
         _ => None,
     }
 }
@@ -187,6 +191,10 @@ mod tests {
         assert_eq!(backend_for("py").map(|b| b.language), Some("python"));
         assert_eq!(backend_for("Python3").map(|b| b.language), Some("python"));
         assert_eq!(backend_for("js").map(|b| b.language), Some("javascript"));
+        assert_eq!(
+            backend_for("typescript").map(|b| b.language),
+            Some("javascript")
+        );
         assert_eq!(backend_for("node").map(|b| b.language), Some("javascript"));
     }
 

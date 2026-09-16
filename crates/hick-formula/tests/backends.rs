@@ -109,6 +109,27 @@ async fn python_can_aggregate_a_column() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn ranges_are_values_in_python_and_javascript() {
+    let entries = [("A1", "1"), ("A2", "2"), ("A3", "3"), ("B1", "=sum(A1:A3)")];
+    for language in ["python", "javascript"] {
+        let interpreters = if language == "python" {
+            &["python3", "python"][..]
+        } else {
+            &["node"][..]
+        };
+        if !have(interpreters) {
+            eprintln!("skipped: no {language} interpreter");
+            continue;
+        }
+        let dir = tempfile::tempdir().unwrap();
+        let computed = evaluate_sheet(dir.path(), language, &sheet(&entries))
+            .await
+            .unwrap();
+        assert_eq!(at(&computed, "B1").as_deref(), Some("6"), "{language}");
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn python_reads_an_empty_cell_as_none_so_blanks_can_be_skipped() {
     if !have(&["python3", "python"]) {
         eprintln!("skipped: no python on this machine");
