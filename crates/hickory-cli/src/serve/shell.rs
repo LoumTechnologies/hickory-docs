@@ -53,6 +53,11 @@ pub struct Shell {
     /// never an error.
     #[allow(clippy::type_complexity)]
     pub pick_folder: Arc<dyn Fn(&Path) -> Result<Option<PathBuf>> + Send + Sync>,
+    /// Put a native Save dialog in front of the person. The name is only a
+    /// suggestion; the chooser remains the person's decision about both name
+    /// and location.
+    #[allow(clippy::type_complexity)]
+    pub save_file: Arc<dyn Fn(&Path, &str) -> Result<Option<PathBuf>> + Send + Sync>,
     /// Close this host window after the page has resolved unsaved buffers.
     pub close_window: Arc<dyn Fn() -> Result<()> + Send + Sync>,
 }
@@ -123,6 +128,31 @@ pub struct PickRequest {
     /// told your starting point was invalid is not help.
     #[serde(default)]
     pub start: String,
+}
+
+#[derive(Deserialize)]
+pub struct SaveFileRequest {
+    pub name: String,
+}
+
+/// `POST /api/save-file-dialog` — the platform Save dialog, initially in the
+/// open folder. A browser-hosted engine has no such power and says so plainly.
+pub async fn save_file_dialog(
+    State(state): State<LocalState>,
+    Json(body): Json<SaveFileRequest>,
+) -> ApiResult<Json<Value>> {
+    let root = state.index.root().to_path_buf();
+    let hook = state.hook(|s| s.save_file.clone()).ok_or_else(|| {
+        ApiError::unavailable(
+            "this engine has no native Save dialog: it is being served by `hick up`, and the \
+             page you are looking at is a tab in your own browser.",
+        )
+    })?;
+    let picked = tokio::task::spawn_blocking(move || hook(&root, &body.name))
+        .await
+        .map_err(|e| ApiError::internal(format!("the Save dialog did not finish: {e}")))?
+        .map_err(|e| ApiError::unprocessable(format!("{e:#}")))?;
+    Ok(Json(json!({ "path": picked.map(|p| p.to_string_lossy().into_owned()) })))
 }
 
 /// `POST /api/pick-folder` — the platform's own folder chooser.

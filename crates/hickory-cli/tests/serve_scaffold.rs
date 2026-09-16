@@ -116,9 +116,15 @@ async fn start_inner(with_shell: bool) -> Session {
     if with_shell {
         let seen = opened.clone();
         let chooser = picker.clone();
+        let saver = picker.clone();
         prepared.state.set_shell(Shell {
             pick_folder: std::sync::Arc::new(move |start| {
                 let mut held = chooser.lock().unwrap();
+                held.started_at = Some(start.to_path_buf());
+                Ok(held.answer.clone())
+            }),
+            save_file: std::sync::Arc::new(move |start, _name| {
+                let mut held = saver.lock().unwrap();
                 held.started_at = Some(start.to_path_buf());
                 Ok(held.answer.clone())
             }),

@@ -710,7 +710,6 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
   const saveUntitled = useUntitledSave({
     layoutRef,
     setLayout,
-    askText: shellPrompt.askText,
     onError: setInsertNotice,
     sourceFor: (tabId) => untitledSourcesRef.current[tabId],
     onSaved: forgetUntitled,

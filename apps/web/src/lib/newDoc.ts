@@ -45,6 +45,19 @@ export function untitledPath(existing: string[]): string {
   }
 }
 
+/** A native Save dialog's suggested name: the first Markdown heading, when
+ * there is one, otherwise the familiar untitled sequence. */
+export function untitledSaveName(source: string, existing: string[]): string {
+  const heading = source.match(/^#{1,6}[ \t]+(.+?)[ \t]*#*[ \t]*$/m)?.[1]?.trim();
+  if (!heading) return untitledPath(existing);
+  const stem = heading
+    .replace(/[<>:"/\\|?*\u0000-\u001F]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .replace(/[. ]+$/g, "");
+  return stem ? `${stem}.md` : untitledPath(existing);
+}
+
 /**
  * The draft-store key for an untitled buffer.
  *

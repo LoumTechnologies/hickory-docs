@@ -544,6 +544,7 @@ fn router(state: LocalState) -> Router {
         .route("/files", get(api::files))
         .route("/files/op", post(files_ops::file_op))
         .route("/pick-folder", post(shell::pick_folder))
+        .route("/save-file-dialog", post(shell::save_file_dialog))
         .route("/window/close", post(shell::close_window))
         .route("/reveal", post(reveal::reveal))
         .route("/open-external", post(reveal::open_external))

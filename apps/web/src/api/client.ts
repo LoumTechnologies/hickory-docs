@@ -285,6 +285,8 @@ export const api = {
    * hosting the engine has no dialogs — see crates/hickory-cli/src/serve/shell.rs. */
   pickFolder: (start: string) =>
     request<{ path: string | null }>("POST", "/api/pick-folder", { start }),
+  saveFileDialog: (name: string) =>
+    request<{ path: string | null }>("POST", "/api/save-file-dialog", { name }),
   /** Close the native window after the page has settled dirty buffers. */
   closeWindow: () => request<{ ok: true }>("POST", "/api/window/close"),
 

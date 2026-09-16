@@ -30,9 +30,14 @@ Two properties hold it up:
 One Untitled buffer at a time is deliberate, as with the scratchpad: a
 second unnamed buffer splits a thought across two places. It begins blank,
 always; New never reads an older unnamed draft. Typing never creates
-`untitled.md`; **Save** and **Save As** ask for a name and only then create
-the document. Once it contains text, its tab reads `Untitled *`. Closing the
-tab or window asks whether to save; closing without saving discards the
+`untitled.md`; **Save** and **Save As** open the platform's file-save dialog,
+initially in the folder Hickory Docs has open, and only then create the
+document. The first Markdown heading supplies its suggested filename; without
+one, the suggestion is `untitled.md` (then `untitled-2.md`, and so on).
+The dialog remains free to choose any disk location. Saving outside the open
+folder changes this window to that file's folder, because one Hickory session
+owns one folder. Once it contains text, its tab reads `Untitled *`. Closing
+the tab or window asks whether to save; closing without saving discards the
 unnamed text.
 
 ---
@@ -44,12 +49,16 @@ Last LLM verification:
 - Evidence: `apps/web/src/router.ts` — `NEW_DOCUMENT_EVENT`, `newDocument`;
   `apps/web/src/App.tsx` menu case `"new"`; `apps/web/src/views/WorkspaceView.tsx`
   — the new-document event, `saveUntitled`, and the native Save/Save As
-  routing; `apps/web/src/views/workspaceTabs.tsx` `UntitledTab`; and
-  `apps/web/src/views/workspaceState.ts` `openUntitledTab`.
+  routing; `apps/web/src/views/useUntitledSave.ts` `useUntitledSave`;
+  `apps/web/src/lib/newDoc.ts` `untitledSaveName`; `serve/shell.rs`
+  `save_file_dialog`; and the desktop `server.rs` shell hook.
 - Test coverage: `apps/web/src/router.test.ts` ("fires the event even when
   the hash is already #/new"); `apps/web/src/views/workspaceTabs.test.tsx`
   ("does not create a project file on its first keystroke" and no prior-draft
-  restore); and `apps/web/src/views/useUnsavedLifecycle.test.tsx` (discard
-  wording and close behavior).
+  restore); `apps/web/src/lib/newDoc.test.ts` (heading filename suggestion);
+  and `apps/web/src/views/useUnsavedLifecycle.test.tsx` (discard wording and
+  close behavior).
+  The native dialog is checked by the desktop crate's typecheck; it has no
+  headless platform-dialog test.
   The native prompt and document-creation handoff are covered by typecheck
   and implementation review; they do not yet have a browser-level test.

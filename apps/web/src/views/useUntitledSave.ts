@@ -8,7 +8,7 @@ import { useCallback } from "react";
 import type { Dispatch, MutableRefObject, SetStateAction } from "react";
 
 import { api } from "../api/client";
-import { untitledDraftKey, untitledPath, wrapUntitled } from "../lib/newDoc";
+import { untitledDraftKey, untitledSaveName, wrapUntitled } from "../lib/newDoc";
 import { focusedEditor, untitledEditor } from "../editor/activeEditor";
 import { panes, type Layout } from "../shell/layout";
 import { redirect } from "../router";
@@ -17,20 +17,18 @@ import { adoptUntitledTab } from "./workspaceState";
 export function useUntitledSave({
   layoutRef,
   setLayout,
-  askText,
   onError,
   sourceFor,
   onSaved,
 }: {
   layoutRef: MutableRefObject<Layout>;
   setLayout: Dispatch<SetStateAction<Layout>>;
-  askText: (question: string, initial: string) => Promise<string | null>;
   onError: (message: string) => void;
   sourceFor?: (tabId: string) => string | undefined;
   onSaved?: (tabId: string) => void;
 }): (saveAs: boolean) => Promise<boolean> {
   return useCallback(
-    async (saveAs: boolean) => {
+    async (_saveAs: boolean) => {
       const pane = panes(layoutRef.current.root).find(
         (candidate) => candidate.id === layoutRef.current.focus,
       );
@@ -46,16 +44,14 @@ export function useUntitledSave({
         const project = (await api.projects())[0];
         if (!project) throw new Error("no folder is open");
         const docs = await api.projectDocs(project.id).catch(() => []);
-        const suggested = untitledPath(docs.map((doc) => doc.path));
-        // An untitled buffer has no existing name, so Save and Save As both
-        // ask once. Save As remains available without pretending there is a
-        // path to reuse.
-        const path = await askText(
-          saveAs ? "Save note as (relative path):" : "Name this note (relative path):",
-          suggested,
-        );
+        const suggested = untitledSaveName(untitled.source, docs.map((doc) => doc.path));
+        // An untitled document has no path to reuse. The desktop shell owns
+        // the platform Save dialog, so it can choose any location while
+        // beginning in the folder already open here.
+        const picked = await api.saveFileDialog(suggested);
+        const path = picked.path;
         if (!path) return false;
-        const created = await api.createDoc(project.id, path.trim(), wrapUntitled(untitled.source));
+        const created = await api.createDoc(project.id, path, wrapUntitled(untitled.source));
         const latest = untitledEditor()?.state.doc.toString() ?? untitled.source;
         if (latest !== untitled.source) await api.saveDoc(created.id, wrapUntitled(latest));
         // Tell the mounted keeper first: its unmount cleanup must not write
@@ -73,6 +69,6 @@ export function useUntitledSave({
         return false;
       }
     },
-    [askText, layoutRef, onError, onSaved, setLayout, sourceFor],
+    [layoutRef, onError, onSaved, setLayout, sourceFor],
   );
 }

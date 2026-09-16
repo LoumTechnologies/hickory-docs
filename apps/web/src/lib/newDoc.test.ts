@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { landingTarget, untitledDraftKey, untitledPath, wrapUntitled } from "./newDoc";
+import { landingTarget, untitledDraftKey, untitledPath, untitledSaveName, wrapUntitled } from "./newDoc";
 
 const doc = (id: string, updated_at: string) => ({
   id,
@@ -38,6 +38,15 @@ describe("where the app lands", () => {
 });
 
 describe("naming the untitled document", () => {
+  // Guarantee: docs/guarantees/authoring/new-document-is-an-act.md
+  it("suggests the first heading as the Save-dialog filename", () => {
+    expect(untitledSaveName("# Meeting notes\n\nDetails", [])).toBe("Meeting notes.md");
+    expect(untitledSaveName("before\n## Plan #\n", [])).toBe("Plan.md");
+  });
+
+  it("falls back to an untitled name when there is no heading", () => {
+    expect(untitledSaveName("just a thought", ["untitled.md"])).toBe("untitled-2.md");
+  });
   it("starts at untitled.md in an empty folder", () => {
     expect(untitledPath([])).toBe("untitled.md");
   });

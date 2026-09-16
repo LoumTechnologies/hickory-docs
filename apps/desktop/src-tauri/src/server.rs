@@ -147,6 +147,7 @@ pub fn shell_hooks(handle: &tauri::AppHandle, config_dir: Option<&Path>) -> Shel
     let handle = handle.clone();
     let config_dir = config_dir.map(Path::to_path_buf);
     let picker = handle.clone();
+    let saver = handle.clone();
     let closer = handle.clone();
     Shell {
         // The same picker File → Open Folder uses, reached from the page
@@ -168,6 +169,21 @@ pub fn shell_hooks(handle: &tauri::AppHandle, config_dir: Option<&Path>) -> Shel
             }
             Ok(builder
                 .blocking_pick_folder()
+                .and_then(|p| p.into_path().ok()))
+        }),
+        save_file: std::sync::Arc::new(move |start: &Path, name: &str| {
+            let mut builder = saver
+                .dialog()
+                .file()
+                .set_title("Save note")
+                .set_directory(start)
+                .set_file_name(name)
+                .add_filter("Markdown", &["md"]);
+            if let Some(window) = saver.get_webview_window("main") {
+                builder = builder.set_parent(&window);
+            }
+            Ok(builder
+                .blocking_save_file()
                 .and_then(|p| p.into_path().ok()))
         }),
         open_folder: std::sync::Arc::new(move |folder: &Path, where_: OpenWhere| match where_ {
