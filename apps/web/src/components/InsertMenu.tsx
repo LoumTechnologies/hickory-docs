@@ -38,6 +38,9 @@ export interface InsertMenuProps {
   selectedText: string;
   /** Insert this. The workspace writes it into the focused buffer. */
   onInsert: (element: InsertElement, values: FieldValues, body: string) => void;
+  /** Editing fixes the element instead of offering the vocabulary, and seeds
+   * the fields from the element already in the document. */
+  edit?: { values: FieldValues; body: string };
   onClose: () => void;
 }
 
@@ -45,6 +48,7 @@ export function InsertMenu({
   initialId,
   selectedText,
   onInsert,
+  edit,
   onClose,
 }: InsertMenuProps) {
   const [query, setQuery] = useState("");
@@ -67,17 +71,18 @@ export function InsertMenu({
   // One set of values per element, remade when the choice changes: an
   // attribute typed for a container means nothing to a paste.
   const [values, setValues] = useState<Record<string, string>>(() =>
-    initialValues(element),
+    edit?.values ?? initialValues(element),
   );
   const [body, setBody] = useState<string>(() =>
-    defaultBody(element, selectedText, initialValues(element)),
+    edit?.body ?? defaultBody(element, selectedText, initialValues(element)),
   );
   const [showProblems, setShowProblems] = useState(false);
   useEffect(() => {
+    if (edit) return;
     setValues(initialValues(element));
     setBody(defaultBody(element, selectedText, initialValues(element)));
     setShowProblems(false);
-  }, [element, selectedText]);
+  }, [element, selectedText, edit]);
 
   /** A field change that decides the starter body (the diagram's renderer)
    * swaps an UNTOUCHED body along with it; a body the person already edited
@@ -182,11 +187,11 @@ export function InsertMenu({
       <div
         className="insert-menu"
         role="dialog"
-        aria-label="Insert a hick element"
+        aria-label={edit ? "Edit a hick element" : "Insert a hick element"}
         onMouseDown={(event) => event.stopPropagation()}
         onKeyDown={onKeyDown}
       >
-        <div className="insert-menu__list-pane">
+        {!edit && <div className="insert-menu__list-pane">
           <input
             ref={searchRef}
             className="insert-menu__search"
@@ -240,7 +245,7 @@ export function InsertMenu({
               );
             })}
           </div>
-        </div>
+        </div>}
 
         <div className="insert-menu__form-pane">
           {/* Only the attributes scroll. The preview and the Insert button
@@ -338,7 +343,7 @@ export function InsertMenu({
                     htmlFor={`insert-body-${element.id}`}
                   >
                     {element.bodyLabel}
-                    {selectedText.trim().length > 0 && (
+                    {!edit && selectedText.trim().length > 0 && (
                       <span className="insert-menu__attr">
                         from your selection
                       </span>
@@ -358,9 +363,9 @@ export function InsertMenu({
           </div>
 
           <div className="insert-menu__preview">
-            <h3 className="insert-menu__preview-title">What gets written</h3>
+            <h3 className="insert-menu__preview-title">{edit ? "What changes" : "What gets written"}</h3>
             <pre className="insert-menu__preview-text mono">{preview}</pre>
-            <p className="insert-menu__hint">{placementNote}</p>
+            <p className="insert-menu__hint">{edit ? "Replaces this element; attributes this version does not know remain intact." : placementNote}</p>
           </div>
 
           <div className="insert-menu__actions">
@@ -378,7 +383,7 @@ export function InsertMenu({
                 blocked ? "Fill the required attributes first" : undefined
               }
             >
-              Insert
+              {edit ? "Apply" : "Insert"}
             </button>
           </div>
         </div>

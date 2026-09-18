@@ -118,6 +118,20 @@ describe("filling it in", () => {
     expect(onClose).toHaveBeenCalled();
   });
 
+  it("edits one existing element without showing the element picker", () => {
+    const { onInsert } = panel({
+      initialId: "copy",
+      edit: { values: { id: "draft" }, body: "Existing text." },
+    });
+    expect(screen.getByRole("dialog", { name: "Edit a hick element" })).toBeTruthy();
+    expect(screen.queryByLabelText("Find an element")).toBeNull();
+    expect((screen.getByLabelText(/^Id/) as HTMLInputElement).value).toBe("draft");
+    expect((screen.getByLabelText(/Content/) as HTMLTextAreaElement).value).toBe("Existing text.");
+    fireEvent.change(screen.getByLabelText(/^Id/), { target: { value: "published" } });
+    fireEvent.click(screen.getByRole("button", { name: "Apply" }));
+    expect(onInsert.mock.calls[0][1].id).toBe("published");
+  });
+
   it("closes on Escape without inserting", () => {
     const { onInsert, onClose } = panel();
     fireEvent.keyDown(screen.getByRole("dialog"), { key: "Escape" });

@@ -35,7 +35,9 @@ export type MenuAction =
   /** Open the Insert panel; the suffixed form opens it on one element, which
    * is how every item of the native Insert submenu arrives. */
   | "insert"
-  | `insert:${string}`;
+  | `insert:${string}`
+  /** Edit the catalogue-backed element at the document caret. */
+  | "edit-element";
 
 export const MENU_EVENT = "hickory-menu";
 
@@ -61,6 +63,7 @@ const ACTIONS: ReadonlySet<string> = new Set([
   "files",
   "show-agent",
   "insert",
+  "edit-element",
   "terminal",
   "attention",
 ]);

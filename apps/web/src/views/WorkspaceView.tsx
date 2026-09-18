@@ -50,6 +50,14 @@ import {
 } from "../lib/searchNavigation";
 import { insertTarget, type MenuAction } from "../lib/menuBridge";
 import { insertElement } from "../editor/insertElement";
+import {
+  elementForExisting,
+  initialValues,
+  renderExistingElement,
+  type FieldValues,
+  type InsertElement,
+} from "../lib/insertCatalog";
+import { structureOf } from "../editor/wysiwyg";
 import { loadRibbonStyle, type RibbonStyle } from "../lib/ribbonStyle";
 import {
   loadRibbonVisibility,
@@ -252,6 +260,18 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
   const [insertPanel, setInsertPanel] = useState<{
     id: string | null;
     selected: string;
+  } | null>(null);
+  // The same form edits an existing element. Its source range is captured
+  // with the parsed structure, rather than relying on the selection after
+  // the dialog has taken focus.
+  const [editPanel, setEditPanel] = useState<{
+    element: InsertElement;
+    values: FieldValues;
+    body: string;
+    attrs: Readonly<Record<string, string>>;
+    from: number;
+    to: number;
+    source: string;
   } | null>(null);
   // Why an insert could not happen. Rare — it needs a workspace with no
   // editor in it at all — but silence would look like a broken menu.
@@ -1218,6 +1238,67 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
     },
     [],
   );
+  const openEditElement = useCallback(() => {
+    const view = focusedEditor();
+    if (!view) {
+      setInsertNotice("Open a document, then put the caret in the element you want to edit.");
+      return;
+    }
+    const caret = view.state.selection.main.head;
+    const block = structureOf(view.state).blocks
+      .filter((candidate) => candidate.from <= caret && caret <= candidate.to)
+      .sort((a, b) => a.to - a.from - (b.to - b.from))[0];
+    if (!block) {
+      setInsertNotice("Put the caret inside a hick element to edit its properties.");
+      return;
+    }
+    const element = elementForExisting(block.name, block.attrs);
+    if (!element) {
+      setInsertNotice(`hick:${block.name} does not have an editable form yet; edit its source directly.`);
+      return;
+    }
+    const values = { ...initialValues(element) };
+    for (const field of element.fields) values[field.name] = block.attrs[field.name] ?? "";
+    const rawBody = view.state.sliceDoc(block.contentFrom, block.contentTo);
+    const body = element.body === "block"
+      ? rawBody.replace(/^\n/, "").replace(/\n$/, "")
+      : rawBody;
+    setEditPanel({
+      element,
+      values,
+      body,
+      attrs: block.attrs,
+      from: block.from,
+      to: block.to,
+      source: view.state.sliceDoc(block.from, block.to),
+    });
+  }, []);
+  const applyEditElement = useCallback(
+    (element: InsertElement, values: FieldValues, body: string) => {
+      const edit = editPanel;
+      const view = focusedEditor();
+      if (!edit || !view) return;
+      // A collaborator may have changed this document while the form was
+      // open. Offsets are not durable identities, so refuse rather than
+      // replacing whichever bytes subsequently landed at this range.
+      if (view.state.sliceDoc(edit.from, edit.to) !== edit.source) {
+        setInsertNotice("This element changed while its editor was open. Reopen Edit Element to start from its current text.");
+        return;
+      }
+      view.dispatch({
+        changes: {
+          from: edit.from,
+          to: edit.to,
+          insert: renderExistingElement(element, values, body, edit.attrs),
+        },
+        selection: { anchor: edit.from },
+        scrollIntoView: true,
+        userEvent: "input.editElement",
+      });
+      view.focus();
+    },
+    [editPanel],
+  );
   /**
    * Print whatever buffer has the focus.
    *
@@ -1273,6 +1354,10 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
         openInsert(insertTarget(detail));
         return;
       }
+      if (detail === "edit-element") {
+        openEditElement();
+        return;
+      }
       // Format first, when asked to: the focused buffer, through whatever
       // formatter its language server offers. Then the save — every save,
       // since a plain file's autosave and a document's room both answer
@@ -1323,6 +1408,9 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
         // The same key in the browser build, where there is no native menu.
         e.preventDefault();
         openInsert(null);
+      } else if (e.altKey && !e.shiftKey && e.key.toLowerCase() === "i") {
+        e.preventDefault();
+        openEditElement();
       }
     };
     const onFiles = () => focusTreeRef.current();
@@ -1361,7 +1449,7 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
       window.removeEventListener("hickory-show-agent", onAgent);
       window.removeEventListener("hickory-open-path", onOpenPath);
     };
-  }, [registry, openPlainFile, openInsert, saveUntitled]);
+  }, [registry, openPlainFile, openInsert, openEditElement, saveUntitled]);
   // ---- terminals ----------------------------------------------------------
   //
   // The window's sessions, the queue across them, and the two keys that reach
@@ -1905,6 +1993,15 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
           selectedText={insertPanel.selected}
           onInsert={applyInsert}
           onClose={() => setInsertPanel(null)}
+        />
+      )}
+      {editPanel && (
+        <InsertMenu
+          initialId={editPanel.element.id}
+          selectedText=""
+          edit={{ values: editPanel.values, body: editPanel.body }}
+          onInsert={applyEditElement}
+          onClose={() => setEditPanel(null)}
         />
       )}
       {searchOpen && (

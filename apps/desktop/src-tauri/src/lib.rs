@@ -240,6 +240,14 @@ fn app_menu(handle: &AppHandle) -> tauri::Result<Menu<Wry>> {
         .copy()
         .paste()
         .select_all()
+        .separator()
+        .item(&item(
+            handle,
+            &keys,
+            "edit-element",
+            "Edit Element…",
+            "CmdOrCtrl+Alt+I",
+        )?)
         .build()?;
 
     // Zoom, at two scopes. The whole window takes the chord everybody
@@ -419,7 +427,7 @@ fn on_menu(app: &AppHandle, id: &str) {
             }
         }
         "new" | "new-project" | "save" | "save-as" | "save-all" | "print" | "settings"
-        | "files" | "show-agent" | "terminal" | "attention" => dispatch_to_ui(app, id),
+        | "files" | "show-agent" | "terminal" | "attention" | "edit-element" => dispatch_to_ui(app, id),
         // Zoom, both scopes. Handled by the page rather than by the webview's
         // own zoom: this app sizes in `rem`, so moving the root font size
         // RE-LAYS-OUT at the new size, where a webview zoom scales rendered

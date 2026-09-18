@@ -93,7 +93,7 @@ export function App() {
       // Insert — bare, or naming one element — wants a buffer to write into,
       // which only the workspace has. Handled before the switch because the
       // element-carrying form is a whole family of actions, not one case.
-      if (action === "insert" || insertTarget(action) !== null) {
+      if (action === "insert" || insertTarget(action) !== null || action === "edit-element") {
         if (routeRef.current.name === "doc" || routeRef.current.name === "new") {
           window.dispatchEvent(new CustomEvent("hickory-doc-command", { detail: action }));
         } else {

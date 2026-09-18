@@ -6,9 +6,11 @@ import {
   INSERT_GROUPS,
   buildInsertion,
   elementById,
+  elementForExisting,
   filterElements,
   initialValues,
   normalize,
+  renderExistingElement,
   renderElement,
   validate,
   type EditContext,
@@ -39,6 +41,12 @@ describe("the catalogue", () => {
     // The capability rules are the case that forces id and tag apart.
     const allows = INSERT_ELEMENTS.filter((e) => e.tag === "allow");
     expect(allows.length).toBeGreaterThan(1);
+  });
+
+  it("finds the right capability form from an existing allow tag", () => {
+    expect(elementForExisting("allow", { "file-write": "/output/*" })?.id).toBe(
+      "allow-file-write",
+    );
   });
 
   it("gives an element with a body somewhere for the caret to go", () => {
@@ -119,6 +127,17 @@ describe("the text an insert writes", () => {
   it("switches to single quotes rather than escaping a double quote", () => {
     const text = renderElement(el("confirm"), { message: 'Deploy "prod"?' });
     expect(text).toBe(`<hick:confirm message='Deploy "prod"?' />`);
+  });
+
+  it("keeps attributes this version of the form does not know when editing", () => {
+    expect(
+      renderExistingElement(
+        el("copy"),
+        { id: "source" },
+        "Facts.",
+        { id: "old", future: "kept" },
+      ),
+    ).toBe('<hick:copy id="source" future="kept">\nFacts.\n</hick:copy>');
   });
 
   it("self-closes an element with no body", () => {

@@ -5065,6 +5065,10 @@ button.fleet-grant {
   background: var(--bg-raised);
   box-shadow: 0 12px 40px rgb(0 0 0 / 0.3);
 }
+.insert-menu:has(.insert-menu__form-pane:only-child) {
+  display: block;
+  width: min(32rem, 100%);
+}
 /* Narrow windows drop to one column: the form is what the person came for,
    so it goes first and the list scrolls under it. */
 @media (max-width: 52rem) {

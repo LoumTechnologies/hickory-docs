@@ -896,6 +896,20 @@ export function elementById(id: string): InsertElement | undefined {
   return INSERT_ELEMENTS.find((element) => element.id === id);
 }
 
+/** The catalogue entry that describes an existing tag. Several capability
+ * entries write `hick:allow`; their attribute names distinguish them. */
+export function elementForExisting(
+  tag: string,
+  attrs: Readonly<Record<string, string>>,
+): InsertElement | undefined {
+  const candidates = INSERT_ELEMENTS.filter((element) => element.tag === tag);
+  return candidates.sort((a, b) => {
+    const score = (element: InsertElement) =>
+      element.fields.reduce((total, field) => total + (field.name in attrs ? 1 : 0), 0);
+    return score(b) - score(a);
+  })[0];
+}
+
 /**
  * Rank elements against a typed query.
  *
@@ -1005,8 +1019,14 @@ function render(
   element: InsertElement,
   values: FieldValues,
   body: string,
+  extras: Readonly<Record<string, string>> = {},
 ): { text: string; bodyAt: number } {
-  const open = `<hick:${element.tag}${attributes(element, values)}`;
+  const known = new Set(element.fields.map((field) => field.name));
+  const preserved = Object.entries(extras)
+    .filter(([name]) => !known.has(name))
+    .map(([name, value]) => attribute(name, value))
+    .join("");
+  const open = `<hick:${element.tag}${attributes(element, values)}${preserved}`;
   if (element.body === "none") {
     const text = `${open} />`;
     return { text, bodyAt: text.length };
@@ -1026,6 +1046,18 @@ export function renderElement(
   body = "",
 ): string {
   return render(element, values, body).text;
+}
+
+/** Render an existing element after editing its catalogue fields. Attributes
+ * unknown to this version of the catalogue survive the edit rather than being
+ * silently erased. */
+export function renderExistingElement(
+  element: InsertElement,
+  values: FieldValues,
+  body: string,
+  attrs: Readonly<Record<string, string>>,
+): string {
+  return render(element, values, body, attrs).text;
 }
 
 /**
