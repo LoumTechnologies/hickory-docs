@@ -65,6 +65,202 @@ impl AttrSpec {
     }
 }
 
+/// A structural error in an element's opening tag.
+///
+/// This is deliberately owned by the element vocabulary, rather than by a
+/// particular renderer or executor: a misspelled attribute must mean the
+/// same thing in the editor, `hick run`, and a CI-only lint.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AttributeError {
+    pub element: String,
+    pub attribute: String,
+    /// Byte span of the attribute name (not its value).
+    pub span: (usize, usize),
+}
+
+impl std::fmt::Display for AttributeError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "<hick:{}> does not accept attribute `{}`",
+            self.element, self.attribute
+        )?;
+        if let Some(allowed) = accepted_attributes(&self.element) {
+            write!(f, "; allowed: {}", allowed.join(", "))?;
+        }
+        Ok(())
+    }
+}
+
+impl std::error::Error for AttributeError {}
+
+/// Attributes accepted by each built-in hick element.
+///
+/// The vocabulary is intentionally permissive about *elements* it does not
+/// know: a document can carry a future extension without an older download
+/// declaring its ordinary text broken. Once an element is known, however,
+/// every attribute is a contract; silently ignoring a typo is never useful.
+/// Keep this table at the parser/registry seam so every host can ask the same
+/// question without pulling in an executor or a UI.
+fn accepted_attributes(element: &str) -> Option<&'static [&'static str]> {
+    Some(match element {
+        "doc" => &["xmlns:hick", "weave", "volume", "volatile"],
+        "session" => &["xmlns:hick"],
+        "container" => &["name", "image", "network", "mount"],
+        "volume" => &["name", "path", "from", "read", "write", "output"],
+        "allow" => &["container", "read", "write"],
+        "fork" => &["name", "from", "to", "container", "image"],
+        "exec" => &[
+            "container",
+            "image",
+            "mount",
+            "timeout",
+            "show",
+            "freeze",
+            "id",
+            "output",
+            "cmd",
+        ],
+        "agent" => &["model", "timeout", "freeze", "id", "output", "max-turns"],
+        "script" => &[
+            "container",
+            "image",
+            "mount",
+            "timeout",
+            "show",
+            "freeze",
+            "id",
+            "output",
+        ],
+        "file" => &["path", "language", "from", "class", "id", "volatile"],
+        "copy" | "cut" => &["id", "class", "select", "distinct", "separator"],
+        "paste" => &["select", "separator", "min", "max", "distinct"],
+        "expect" => &["match"],
+        "transform" => &["select", "instruct", "from", "wrote", "cites", "model"],
+        "check" => &[
+            "claim", "against", "from", "cites", "instruct", "wrote", "model",
+        ],
+        "when" => &["test", "feature", "when"],
+        "feature" => &[
+            "name",
+            "description",
+            "requires",
+            "conflicts_with",
+            "exclusive_group",
+        ],
+        "var" => &["name", "value"],
+        "needs" => &["bin", "for"],
+        "capture" => &["at", "of", "when", "condition", "max"],
+        "sample" => &["path", "from", "to", "caption"],
+        "ingested" => &["key", "from", "hash", "sha256", "at", "files", "skipped"],
+        "output" => &["output-for", "hash", "input-hash", "exit", "skipped"],
+        "diagram" => &["renderer", "asserts"],
+        "table" => &["path", "delimiter", "header", "class", "id"],
+        "claim" => &["standing", "cites", "id", "class"],
+        "private" => &[],
+        "upstream" => &["path", "file"],
+        "verify" => &["select", "from"],
+        "substitute" => &["pattern", "value"],
+        "val" => &["name", "value"],
+        "exclude" => &["select"],
+        // Session record vocabulary.
+        "user" => &["turn", "parent"],
+        "assistant" => &["turn", "parent", "model"],
+        "tool" => &["name", "call"],
+        "tool-result" => &["name", "call", "ok"],
+        "read" => &["file", "lines", "sha256", "commit"],
+        "wrote" => &["file", "lines", "hashes"],
+        "context" => &["kind"],
+        "observation" => &["source", "exit"],
+        "action" => &["lang"],
+        "reasoning" | "input" | "usage" | "next" | "transcript" => &[],
+        _ => return None,
+    })
+}
+
+/// Find every misspelled attribute on known elements in `doc`.
+pub fn attribute_errors(source: &str, doc: &HickDocument) -> Vec<AttributeError> {
+    fn walk(source: &str, nodes: &[HickNode], out: &mut Vec<AttributeError>) {
+        for node in nodes {
+            let HickNode::Tag(tag) = node else { continue };
+            if let Some(allowed) = accepted_attributes(&tag.name) {
+                for (attribute, span) in attribute_name_spans(source, tag) {
+                    if !allowed.contains(&attribute.as_str()) {
+                        out.push(AttributeError {
+                            element: tag.name.clone(),
+                            attribute,
+                            span,
+                        });
+                    }
+                }
+            }
+            walk(source, &tag.children, out);
+        }
+    }
+    let mut out = Vec::new();
+    walk(source, &doc.nodes, &mut out);
+    out
+}
+
+/// Attribute-name byte spans, recovered from the parser's opening-tag span.
+/// `HickTag` deliberately keeps attributes as pairs; source spans belong to
+/// diagnostics, not to the runtime AST, so this small scanner mirrors the
+/// parser only at the opening-tag boundary.
+fn attribute_name_spans(source: &str, tag: &HickTag) -> Vec<(String, (usize, usize))> {
+    let Some(span) = tag.source_span else {
+        return Vec::new();
+    };
+    let bytes = source.as_bytes();
+    let mut pos = span.start;
+    while pos < span.end && bytes[pos] != b':' {
+        pos += 1;
+    }
+    while pos < span.end && !matches!(bytes[pos], b' ' | b'\t' | b'\n' | b'\r' | b'>' | b'/') {
+        pos += 1;
+    }
+    let mut out = Vec::new();
+    while pos < span.end {
+        while pos < span.end && matches!(bytes[pos], b' ' | b'\t' | b'\n' | b'\r') {
+            pos += 1;
+        }
+        if pos >= span.end || matches!(bytes[pos], b'>' | b'/') {
+            break;
+        }
+        let start = pos;
+        while pos < span.end
+            && !matches!(
+                bytes[pos],
+                b'=' | b' ' | b'\t' | b'\n' | b'\r' | b'>' | b'/'
+            )
+        {
+            pos += 1;
+        }
+        if start == pos {
+            break;
+        }
+        let name = source[start..pos].to_string();
+        out.push((name, (start, pos)));
+        while pos < span.end && matches!(bytes[pos], b' ' | b'\t' | b'\n' | b'\r') {
+            pos += 1;
+        }
+        if pos < span.end && bytes[pos] == b'=' {
+            pos += 1;
+            while pos < span.end && matches!(bytes[pos], b' ' | b'\t' | b'\n' | b'\r') {
+                pos += 1;
+            }
+            if pos < span.end && matches!(bytes[pos], b'\'' | b'\"') {
+                let quote = bytes[pos];
+                pos += 1;
+                while pos < span.end && bytes[pos] != quote {
+                    pos += 1;
+                }
+                pos = (pos + 1).min(span.end);
+            }
+        }
+    }
+    out
+}
+
 /// One block the app draws: the component's name, where in the source it
 /// comes from, and what the element chose to say about it.
 ///
@@ -547,6 +743,20 @@ mod tests {
         assert_eq!(
             json,
             serde_json::json!({"kind": "note", "span": [3, 9], "id": "a"})
+        );
+    }
+
+    #[test]
+    fn an_unknown_attribute_is_reported_at_its_name() {
+        let source = "<hick:paste from=\"#test1\" />";
+        let doc = hick_lang::parse(source).unwrap();
+        assert_eq!(
+            attribute_errors(source, &doc),
+            vec![AttributeError {
+                element: "paste".to_string(),
+                attribute: "from".to_string(),
+                span: (12, 16),
+            }]
         );
     }
 

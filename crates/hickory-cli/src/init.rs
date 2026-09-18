@@ -44,6 +44,10 @@ if [ -n "$hick_docs" ]; then
         # repair, and a rule with no escape hatch gets this hook disabled
         # entirely, taking the drift gate below down with it.
         hick repair || true
+        if ! hick lint $hick_docs; then
+            echo "pre-commit: \`hick lint\` found invalid hick element attributes. Fix the marked spelling before committing. Commit blocked." >&2
+            exit 1
+        fi
         hick_worst=0
         for hick_doc in $hick_docs; do
             hick_code=0
@@ -73,8 +77,8 @@ const AGENTS_BODY: &str = r#"## Hickory executable documents
 
 This repository contains `.hick` documents: reproducible, verifiable,
 executable documents. Every example in a `.hick` file actually runs, and
-drift between the document and reality fails `hick test` (a pre-commit
-hook enforces this).
+drift between the document and reality fails `hick test`, and misspelled
+element attributes fail `hick lint` (the pre-commit hook enforces both).
 
 ### Grammar essentials
 
@@ -102,7 +106,7 @@ paste in verbatim.
    while `hick up` is running. A generated file edited any other way loses
    the edit on the next run.
 2. After editing a document, run `hick run <doc>` to regenerate outputs,
-   then `hick test <doc>` and fix whatever fails before committing. `hick up`
+   then `hick lint <doc>` and `hick test <doc>` and fix whatever fails before committing. `hick up`
    does the regenerating half continuously while you work; it does not
    replace `hick test`.
 3. Agent sessions live in `sessions/*.hick` (`hick:session` documents);

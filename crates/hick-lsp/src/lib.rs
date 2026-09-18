@@ -10,6 +10,7 @@ pub mod child_lsp;
 pub mod discovery;
 pub mod dispatcher;
 pub mod document;
+pub mod element_lint;
 pub mod lang_detect;
 pub mod position_map;
 pub mod semantic;

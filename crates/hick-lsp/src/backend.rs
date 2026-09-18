@@ -178,7 +178,7 @@ impl HickBackend {
 
         // A file that is not a document is not woven: it is its own virtual
         // file, and its language server is asked about it by its real name.
-        if !is_hick_document(hick_uri) {
+        if !is_hick_document(hick_uri, source) {
             self.process_plain_file(hick_uri, source).await;
             return;
         }
@@ -246,7 +246,8 @@ impl HickBackend {
         //     one merge and one publish serve both; `close_vfiles_for`
         //     retains that key.
         {
-            let own = crate::session_lint::session_diagnostics(source, &state.doc);
+            let mut own = crate::element_lint::element_diagnostics(source, &state.doc);
+            own.extend(crate::session_lint::session_diagnostics(source, &state.doc));
             let merged = {
                 let mut store = self.child_diagnostics.write().await;
                 let per_hick = store.entry(hick_uri.clone()).or_default();
@@ -2403,10 +2404,11 @@ fn reindent(text: &str, indent: usize, ends_at_column_zero: bool) -> String {
     out
 }
 
-/// Whether a URI names a `.hick` document — the thing this server weaves —
-/// rather than a plain file it forwards whole.
-fn is_hick_document(uri: &Url) -> bool {
-    uri.path().ends_with(".hick")
+/// Whether a URI names a hick document rather than a plain file it forwards
+/// whole. Bare documents are Markdown now, so their extension cannot decide:
+/// the namespace marker is the syntax boundary.
+fn is_hick_document(uri: &Url, source: &str) -> bool {
+    uri.path().ends_with(".hick") || source.contains("<hick:")
 }
 
 /// The language a plain file is in, by its name.
@@ -2670,5 +2672,12 @@ mod tests {
             { "range": { "start": { "line": 7, "character": 0 }, "end": { "line": 7, "character": 1 } }, "newText": "z" },
         ]);
         assert!(translate_edits(&edits, &map).is_none());
+    }
+
+    #[test]
+    fn a_markdown_note_with_hick_elements_uses_the_hick_pipeline() {
+        let uri = Url::parse("file:///notes/today.md").unwrap();
+        assert!(is_hick_document(&uri, "<hick:paste from=\"#test1\" />"));
+        assert!(!is_hick_document(&uri, "# ordinary Markdown\n"));
     }
 }

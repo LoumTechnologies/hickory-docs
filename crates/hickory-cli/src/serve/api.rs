@@ -180,17 +180,26 @@ pub async fn create_doc(
 ) -> ApiResult<(StatusCode, Json<Value>)> {
     if std::path::Path::new(&body.path).is_absolute() {
         let absolute = std::path::PathBuf::from(&body.path);
-        if !absolute.extension().is_some_and(|ext| ext.eq_ignore_ascii_case("md")) {
+        if !absolute
+            .extension()
+            .is_some_and(|ext| ext.eq_ignore_ascii_case("md"))
+        {
             return Err(ApiError::bad_request("a document's path must end in `.md`"));
         }
-        let parent = absolute.parent().ok_or_else(|| ApiError::bad_request("choose a file inside a folder"))?;
-        std::fs::create_dir_all(parent).map_err(|e| ApiError::internal(format!("could not create {}: {e}", parent.display())))?;
-        std::fs::write(&absolute, &body.source)
-            .map_err(|e| ApiError::internal(format!("could not write {}: {e}", absolute.display())))?;
+        let parent = absolute
+            .parent()
+            .ok_or_else(|| ApiError::bad_request("choose a file inside a folder"))?;
+        std::fs::create_dir_all(parent).map_err(|e| {
+            ApiError::internal(format!("could not create {}: {e}", parent.display()))
+        })?;
+        std::fs::write(&absolute, &body.source).map_err(|e| {
+            ApiError::internal(format!("could not write {}: {e}", absolute.display()))
+        })?;
         // A session has one open folder. Saving elsewhere makes that folder
         // the next session, after this response has returned.
         if !absolute.starts_with(state.index.root()) {
-            state.open_folder(parent, super::OpenWhere::ThisWindow)
+            state
+                .open_folder(parent, super::OpenWhere::ThisWindow)
                 .map_err(|e| ApiError::unavailable(format!("{e:#}")))?;
         }
         let rel = absolute
@@ -199,10 +208,13 @@ pub async fn create_doc(
             .map(|p| p.to_string_lossy().replace('\\', "/"))
             .unwrap_or_else(|| absolute.to_string_lossy().into_owned());
         let id = state.index.add(&rel);
-        return Ok((StatusCode::CREATED, Json(json!({
-            "id": id, "path": rel, "source": body.source,
-            "updated_at": modified_at(&state, &id),
-        }))));
+        return Ok((
+            StatusCode::CREATED,
+            Json(json!({
+                "id": id, "path": rel, "source": body.source,
+                "updated_at": modified_at(&state, &id),
+            })),
+        ));
     }
     let (rel, absolute) = new_doc_target(&state, &body.path)?;
     std::fs::write(&absolute, &body.source)

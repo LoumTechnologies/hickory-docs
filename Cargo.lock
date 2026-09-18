@@ -3208,6 +3208,7 @@ dependencies = [
 name = "hick-lsp"
 version = "0.1.0"
 dependencies = [
+ "hick-blocks",
  "hick-lang",
  "serde",
  "serde_json",

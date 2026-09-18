@@ -152,7 +152,9 @@ pub async fn save_file_dialog(
         .await
         .map_err(|e| ApiError::internal(format!("the Save dialog did not finish: {e}")))?
         .map_err(|e| ApiError::unprocessable(format!("{e:#}")))?;
-    Ok(Json(json!({ "path": picked.map(|p| p.to_string_lossy().into_owned()) })))
+    Ok(Json(
+        json!({ "path": picked.map(|p| p.to_string_lossy().into_owned()) }),
+    ))
 }
 
 /// `POST /api/pick-folder` — the platform's own folder chooser.

@@ -924,6 +924,34 @@ pub async fn run_doc(
     run_doc_cached(doc_path, params, mode, executor_choice, CacheMode::Off).await
 }
 
+/// Check document structure without executing code or writing outputs.
+///
+/// This is the fast gate for pre-commit hooks and CI: it catches a spelling
+/// that a runtime would otherwise ignore before any executor is selected.
+pub fn lint_doc(doc_path: &Path) -> Result<()> {
+    let source = std::fs::read_to_string(doc_path)
+        .with_context(|| format!("failed to read {}", doc_path.display()))?;
+    let doc = hick_lang::parse(&source)
+        .map_err(|e| anyhow::anyhow!("parse error in {}: {e}", doc_path.display()))?;
+    let errors = hick_blocks::attribute_errors(&source, &doc);
+    if errors.is_empty() {
+        return Ok(());
+    }
+    let details = errors
+        .iter()
+        .map(|error| {
+            let line = source[..error.span.0]
+                .bytes()
+                .filter(|b| *b == b'\n')
+                .count()
+                + 1;
+            format!("{}:{line}: {error}", doc_path.display())
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    anyhow::bail!("{details}")
+}
+
 /// The directory a document lives in, never the empty path.
 ///
 /// `Path::new("d.hick").parent()` is `Some("")`, not `None`, so
@@ -974,6 +1002,12 @@ pub async fn run_doc_subset(
         .with_context(|| format!("failed to read {}", doc_path.display()))?;
     let mut doc = hick_lang::parse(&source)
         .map_err(|e| anyhow::anyhow!("parse error in {}: {e}", doc_path.display()))?;
+    if let Some(error) = hick_blocks::attribute_errors(&source, &doc)
+        .into_iter()
+        .next()
+    {
+        anyhow::bail!("{}:{}: {error}", doc_path.display(), error.span.0);
+    }
     doc.weave_path = None;
     // The same projection the pipeline builds, so this `DocRun`'s document and
     // the run's own agree about what a transcript contains.

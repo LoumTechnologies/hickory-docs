@@ -8,8 +8,8 @@ use clap::{Parser, Subcommand};
 
 use hickory_cli::{
     CacheMode, CheckFailure, CheckOutcome, DocRun, ExecutorChoice, RunMode, block_model_json,
-    check_failures, check_outcome, expand_docs, run_doc, run_doc_cached, unverifiable_message,
-    write_outputs_detailed,
+    check_failures, check_outcome, expand_docs, lint_doc, run_doc, run_doc_cached,
+    unverifiable_message, write_outputs_detailed,
 };
 
 /// What `hick --version` reports.
@@ -47,6 +47,8 @@ enum Command {
     /// Execute a document (or every document in a directory) and write its
     /// outputs, including woven markdown.
     Run(RunArgs),
+    /// Check hick element spelling and structure without executing anything.
+    Lint(LintArgs),
     /// Verification mode: re-execute and report drift or missing baselines.
     ///
     /// This is `test` and not `check` on purpose: `cargo check` promises
@@ -778,6 +780,13 @@ struct TestArgs {
 }
 
 #[derive(clap::Args)]
+struct LintArgs {
+    /// `.hick` documents or directories of them — as many as you like.
+    #[arg(required = true, num_args = 1..)]
+    paths: Vec<PathBuf>,
+}
+
+#[derive(clap::Args)]
 struct UpArgs {
     /// A directory of documents, or a single `.hick` document.
     /// Default: the working directory.
@@ -1161,6 +1170,7 @@ fn run() -> ExitCode {
     let outcome = runtime.block_on(async {
         match cli.command {
             Command::Run(args) => cmd_run(args).await,
+            Command::Lint(args) => cmd_lint(args),
             Command::Test(args) => cmd_test(args).await,
             Command::Up(args) => cmd_up(args).await,
             Command::Weave(args) => cmd_weave(args).await,
@@ -1311,6 +1321,27 @@ fn params_with_features(params: &[(String, String)], features: &[String]) -> Vec
         params.push(("features".to_string(), features.join(",")));
     }
     params
+}
+
+/// `hick lint <doc|dir>…` — structural checks only, safe in every hook and CI.
+fn cmd_lint(args: LintArgs) -> Result<ExitCode> {
+    let mut failed = false;
+    for path in &args.paths {
+        for doc in expand_docs(path)? {
+            match lint_doc(&doc) {
+                Ok(()) => eprintln!("ok: {}", doc.display()),
+                Err(error) => {
+                    failed = true;
+                    eprintln!("FAIL {error}");
+                }
+            }
+        }
+    }
+    Ok(if failed {
+        ExitCode::FAILURE
+    } else {
+        ExitCode::SUCCESS
+    })
 }
 
 async fn cmd_run(args: RunArgs) -> Result<ExitCode> {
