@@ -3,7 +3,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { defaultKeymap, history, historyKeymap, indentWithTab } from "@codemirror/commands";
 import { codeFolding, foldGutter, foldService } from "@codemirror/language";
 import { EditorState } from "@codemirror/state";
-import { Decoration, EditorView, highlightActiveLine, keymap } from "@codemirror/view";
+import { Decoration, EditorView, highlightActiveLine, keymap, lineNumbers } from "@codemirror/view";
 
 import { api } from "../api/client";
 import type { FileNode } from "../api/types";
@@ -42,8 +42,9 @@ interface PreparedPlan {
 
 function planLines(plan: PreparedPlan): string[] {
   return [
+    ...plan.filesystem.creates.filter((creation) => creation.dir).map((creation) => `Create folder ${creation.path}/`),
     ...plan.filesystem.renames.map((operation) => `Rename or move ${operation.path} → ${operation.to}`),
-    ...plan.filesystem.creates.map((creation) => `Create ${creation.dir ? "folder" : "file"} ${creation.path}${creation.dir ? "/" : ""}`),
+    ...plan.filesystem.creates.filter((creation) => !creation.dir).map((creation) => `Create file ${creation.path}`),
     ...plan.remote.map((edit) => edit.summary),
     ...plan.filesystem.deletes.map((path) => `Delete ${path} — confirmation required; there is no trash`),
   ];
@@ -101,6 +102,7 @@ export function FilesystemTreeEditor({
         doc: projection.map((line) => line.text).join("\n"),
         extensions: [
           editorChrome("code"),
+          lineNumbers(),
           history(),
           multipleCursors(),
           highlightActiveLine(),
@@ -282,12 +284,9 @@ export function FilesystemTreeEditor({
     setBusy(true);
     setMessage(`Applying ${count} filesystem ${count === 1 ? "edit" : "edits"}…`);
     void (async () => {
-      for (const operation of filesystem.renames) {
-        await api.fileOp({ op: "rename", path: operation.path, to: operation.to });
-      }
-      for (const creation of filesystem.creates) {
-        await api.fileOp({ op: creation.dir ? "mkdir" : "create", path: creation.path });
-      }
+      for (const creation of filesystem.creates.filter((creation) => creation.dir)) await api.fileOp({ op: "mkdir", path: creation.path });
+      for (const operation of filesystem.renames) await api.fileOp({ op: "rename", path: operation.path, to: operation.to });
+      for (const creation of filesystem.creates.filter((creation) => !creation.dir)) await api.fileOp({ op: "create", path: creation.path });
       for (const edit of remote) await edit.apply(edit.value);
     })().then(
       () => {

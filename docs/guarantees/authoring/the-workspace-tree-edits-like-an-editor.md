@@ -37,7 +37,11 @@ shortcut for Apply. The toolbar is absent when the buffer is clean and its
 actions are disabled while an apply is running.
 
 Given new lines, saving creates the named files and trailing-slash folders in
-parent-first order. Given removed lines, saving stages the topmost removed
+parent-first order. A new folder plus an existing file, unchanged except for
+indentation beneath it, is one unambiguous save: Hickory creates the folder,
+then moves the file. A new entry combined with renaming an existing entry is
+still refused, because the text contains no hidden identity that can tell a
+rename from a create. Given removed lines, saving stages the topmost removed
 paths and asks for confirmation because there is no trash; only the explicit
 Delete applies them. Removing a folder and its visible descendants is one
 reviewed directory delete, not a stream of already-redundant child deletes.
@@ -50,8 +54,9 @@ remains read-only until terminal-title persistence exists.
 
 ## Boundary
 
-To keep identity understandable without hidden ids in the text, create or
-delete is saved separately from rename/move, and a remote title edit is saved
+To keep identity understandable without hidden ids in the text, create/delete
+is separate from a rename, except for the unambiguous move of an unchanged,
+uniquely named entry into a newly created folder. A remote title edit is saved
 separately from deletion. A buffer currently showing live terminal or issue
 lines refuses filesystem line-count changes until those projected lines can be
 tracked through arbitrary edits. Remote-object body and comment editing still

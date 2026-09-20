@@ -19,6 +19,44 @@ export interface FilesystemTreeReconciliation {
   deletes: string[];
 }
 
+function matchExistingLines(
+  desired: readonly DesiredLine[],
+  original: readonly FilesystemTextEntry[],
+): { matches?: (number | null)[]; error?: string } {
+  const unmatched = new Set(original.map((_entry, index) => index));
+  const matches = desired.map((line) => {
+    const exact = original.findIndex((entry, index) =>
+      unmatched.has(index) && entry.path === line.desiredPath && entry.dir === line.dir);
+    if (exact >= 0) unmatched.delete(exact);
+    return exact >= 0 ? exact : null;
+  });
+
+  // An unchanged name is enough to identify a moved row when it is unique on
+  // both sides. This is the useful unambiguous case: make `folder/`, then
+  // indent an existing `file.txt` under it in one Apply. Renames deliberately
+  // stay out: without ids, a new `report.txt` and a renamed `notes.txt` are
+  // indistinguishable from each other.
+  for (let index = 0; index < matches.length; index += 1) {
+    if (matches[index] !== null) continue;
+    const line = desired[index];
+    const candidates = [...unmatched].filter((originalIndex) =>
+      original[originalIndex].dir === line.dir && original[originalIndex].name === line.name);
+    if (candidates.length === 1) {
+      matches[index] = candidates[0];
+      unmatched.delete(candidates[0]);
+    }
+  }
+  return { matches };
+}
+
+/** CodeMirror commonly leaves one terminal newline after pressing Enter. It
+ * does not name a filesystem entry; blank lines elsewhere remain invalid. */
+function filesystemBufferLines(text: string): string[] {
+  const lines = text.split("\n");
+  if (lines.length > 1 && lines[lines.length - 1] === "") lines.pop();
+  return lines;
+}
+
 function visibleNameSimilarity(left: string, right: string): number {
   let prefix = 0;
   while (prefix < left.length && prefix < right.length && left[prefix] === right[prefix]) prefix += 1;
@@ -44,7 +82,7 @@ export function parseFilesystemTreeText(
   text: string,
   original: readonly FilesystemTextEntry[],
 ): { edits?: FilesystemTextEdit[]; error?: string } {
-  const rawLines = text.split("\n");
+  const rawLines = filesystemBufferLines(text);
   if (rawLines.length !== original.length) {
     return { error: "Creating and deleting entries from the Files buffer is not implemented yet; restore one line per existing entry." };
   }
@@ -59,13 +97,10 @@ export function parseFilesystemTreeText(
   // Lines have no hidden ids. Match their strongest visible identity first,
   // independent of row order, then pair the remaining rows by kind for real
   // name and indentation edits.
+  const matched = matchExistingLines(desired.lines, original);
+  const matches = matched.matches!;
   const unmatched = new Set(original.map((_entry, index) => index));
-  const matches = desired.lines.map((line) => {
-    const exact = original.findIndex((entry, index) =>
-      unmatched.has(index) && entry.path === line.desiredPath && entry.dir === line.dir);
-    if (exact >= 0) unmatched.delete(exact);
-    return exact >= 0 ? exact : null;
-  });
+  for (const match of matches) if (match !== null) unmatched.delete(match);
   for (let index = 0; index < matches.length; index += 1) {
     if (matches[index] !== null) continue;
     const line = desired.lines[index];
@@ -98,7 +133,7 @@ interface DesiredLine {
 }
 
 function parseDesiredLines(text: string): { lines?: DesiredLine[]; error?: string } {
-  const rawLines = text.split("\n");
+  const rawLines = filesystemBufferLines(text);
   const parents: string[] = [];
   const lines: DesiredLine[] = [];
   for (let index = 0; index < rawLines.length; index += 1) {
@@ -109,10 +144,15 @@ function parseDesiredLines(text: string): { lines?: DesiredLine[]; error?: strin
     const shown = raw.slice(spaces);
     const dir = shown.endsWith("/");
     const name = (dir ? shown.slice(0, -1) : shown).trimEnd();
-    if (!name || name.includes("/") || name.includes("\\") || name === "." || name === "..") {
+    if (!name) {
+      return { error: `Line ${index + 1} is blank. Remove the empty line; every Files-pane line must name a file or end in / for a folder.` };
+    }
+    if (name.includes("/") || name.includes("\\") || name === "." || name === "..") {
       return { error: `Line ${index + 1}: ${JSON.stringify(name)} is not one filesystem name.` };
     }
-    if (depth > 0 && !parents[depth - 1]) return { error: `Line ${index + 1}: indentation has no parent folder at level ${depth}.` };
+    if (depth > 0 && !parents[depth - 1]) {
+      return { error: `Line ${index + 1}: indentation has no parent folder at level ${depth}. Folder lines must end in / (for example, test folder 1/).` };
+    }
     parents.splice(depth);
     const parent = depth === 0 ? "" : parents[depth - 1];
     const desiredPath = parent ? `${parent}/${name}` : name;
@@ -135,9 +175,9 @@ function subsequencePositions(needles: readonly string[], haystack: readonly str
 }
 
 /** Read the edited buffer conservatively. A save may rename/move existing
- * entries, add entries, or remove entries. Combining those classes makes line
- * identity ambiguous without hidden ids, so it is refused and can be saved as
- * two understandable acts. */
+ * entries, add entries, or remove entries. A new folder plus an unchanged,
+ * uniquely named file beneath it is identifiable without ids; other
+ * create-and-rename combinations remain separate acts. */
 export function reconcileFilesystemTreeText(
   text: string,
   original: readonly FilesystemTextEntry[],
@@ -154,13 +194,25 @@ export function reconcileFilesystemTreeText(
   }
 
   if (wantedLines.length > originalLines.length) {
-    const existingAt = subsequencePositions(originalLines, wantedLines);
-    if (!existingAt) return { error: "Create new lines in a separate save from renames or moves." };
-    const existing = new Set(existingAt);
+    const matched = matchExistingLines(desired.lines, original);
+    const matches = matched.matches!;
+    if (new Set(matches.filter((match): match is number => match !== null)).size !== original.length) {
+      return {
+        error: "Cannot create entries and rename existing ones in the same Apply. Rename first, then create the new entry and Apply again.",
+      };
+    }
     return {
       reconciliation: {
-        renames: [],
-        creates: desired.lines.filter((_line, index) => !existing.has(index)).map((line) => ({ path: line.desiredPath, dir: line.dir })),
+        renames: filesystemTreeOperations(desired.lines.flatMap((line, index) => {
+          const match = matches[index];
+          return match === null ? [] : [{
+            ...original[match],
+            name: line.name,
+            depth: line.depth,
+            desiredPath: line.desiredPath,
+          }];
+        })),
+        creates: desired.lines.filter((_line, index) => matches[index] === null).map((line) => ({ path: line.desiredPath, dir: line.dir })),
         deletes: [],
       },
     };

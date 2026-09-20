@@ -198,8 +198,10 @@ The text is still a lens, not a file stored on disk. External filesystem
 changes regenerate it when there are no unsaved edits. Unsupported meanings
 must be refused explicitly. Inserted filesystem lines create files or
 trailing-slash folders. Removed lines stage topmost paths behind the no-trash
-confirmation. Create/delete is a separate save from rename/move so the text
-does not need invisible identity markers. When live provider/terminal lines
+confirmation. A new folder plus an existing file whose name is unchanged and
+appears only once may be one save: the name identifies the file without an
+invisible marker, so Hickory creates the folder first and moves the file
+second. Other create-plus-rename edits remain separate saves. When live provider/terminal lines
 are interspersed, line-count changes are currently refused until those lines
 can be tracked through arbitrary edits. Associated GitHub issue titles are
 editable through their adapter; other provider fields remain read-only until
