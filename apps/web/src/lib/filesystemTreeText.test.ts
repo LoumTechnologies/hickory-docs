@@ -62,6 +62,20 @@ describe("the filesystem as significant-whitespace text", () => {
     const original = filesystemTextEntries(nodes);
     expect(parseFilesystemTreeText("src/\n one.ts\nnotes.txt", original).error).toContain("two spaces");
     expect(parseFilesystemTreeText("src\n  one.ts\nnotes.txt", original).error).toContain("trailing slash");
+    expect(parseFilesystemTreeText("folder\n  child.txt", filesystemTextEntries([
+      { name: "one.txt", path: "one.txt", dir: false },
+      { name: "two.txt", path: "two.txt", dir: false },
+    ])).error).toContain("Folder lines must end in /");
+    expect(parseFilesystemTreeText("one.txt\n\n", filesystemTextEntries([
+      { name: "one.txt", path: "one.txt", dir: false },
+      { name: "two.txt", path: "two.txt", dir: false },
+    ])).error).toContain("Line 2 is blank");
+  });
+
+  it("ignores one terminal newline rather than treating it as a blank file", () => {
+    const original = filesystemTextEntries(nodes);
+    expect(reconcileFilesystemTreeText("src/\n  one.ts\nnotes.txt\n", original).reconciliation)
+      .toEqual({ renames: [], creates: [], deletes: [] });
   });
 
   it("turns inserted lines into parent-first creates", () => {
@@ -75,13 +89,25 @@ describe("the filesystem as significant-whitespace text", () => {
     ]);
   });
 
+  it("creates a folder and moves an unchanged uniquely named file into it in one apply", () => {
+    const original = filesystemTextEntries([
+      { name: "test53.py", path: "test53.py", dir: false },
+    ]);
+    const result = reconcileFilesystemTreeText("test 1/\n  test53.py", original);
+    expect(result.reconciliation).toEqual({
+      renames: [{ path: "test53.py", to: "test 1/test53.py" }],
+      creates: [{ path: "test 1", dir: true }],
+      deletes: [],
+    });
+  });
+
   it("collapses a removed folder subtree into one reviewed delete", () => {
     const result = reconcileFilesystemTreeText("notes.txt", filesystemTextEntries(nodes));
     expect(result.reconciliation?.deletes).toEqual(["src"]);
   });
 
-  it("refuses a create combined with a rename because line identity is ambiguous", () => {
+  it("refuses a new entry combined with a renamed existing one", () => {
     const result = reconcileFilesystemTreeText("source/\n  one.ts\n  new.ts\nnotes.txt", filesystemTextEntries(nodes));
-    expect(result.error).toContain("separate save");
+    expect(result.error).toContain("Cannot create entries and rename existing ones in the same Apply");
   });
 });

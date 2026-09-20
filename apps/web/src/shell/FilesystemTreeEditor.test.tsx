@@ -31,6 +31,7 @@ it("keeps reordered rows clean and accepts ordinary multiple selections", async 
   />);
   const view = editor();
   expect(view.state.facet(EditorState.allowMultipleSelections)).toBe(true);
+  expect(document.querySelector(".filesystem-editor .cm-lineNumbers")).toBeTruthy();
   view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: "two.txt\none.txt" } });
   await screen.findByText("No filesystem changes — row order is presentation only.");
   expect(screen.queryByRole("toolbar", { name: "Unsaved Files changes" })).toBeNull();
@@ -133,6 +134,54 @@ it("is an ordinary editor whose saved text renames and moves filesystem entries"
     { op: "rename", path: "notes.txt", to: "source/notes.txt" },
   ]);
   expect(screen.getByText("Applied 3 filesystem edits.")).toBeTruthy();
+});
+
+it("moves a root file beneath an existing folder from indentation alone", async () => {
+  const operations: unknown[] = [];
+  installMockHandler(async (_method, _path, body) => { operations.push(body); return {}; });
+  const changed = vi.fn();
+  render(<FilesystemTreeEditor
+    nodes={[
+      { name: "test 1", path: "test 1", dir: true, children: [] },
+      { name: "test53.py", path: "test53.py", dir: false },
+    ]}
+    onChanged={changed}
+    onOpenPath={() => {}}
+    onContextPath={() => {}}
+  />);
+  const view = editor();
+  view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: "test 1/\n  test53.py" } });
+  fireEvent.click(await screen.findByRole("button", { name: "Dry Run" }));
+  expect(screen.getByLabelText("Files dry run").textContent)
+    .toContain("Rename or move test53.py → test 1/test53.py");
+  fireEvent.click(screen.getByRole("button", { name: "Apply" }));
+  await vi.waitFor(() => expect(changed).toHaveBeenCalledOnce());
+  expect(operations).toEqual([{ op: "rename", path: "test53.py", to: "test 1/test53.py" }]);
+});
+
+it("creates a folder before moving an unchanged file into it in one Apply", async () => {
+  const operations: unknown[] = [];
+  installMockHandler(async (_method, _path, body) => { operations.push(body); return {}; });
+  const changed = vi.fn();
+  render(<FilesystemTreeEditor
+    nodes={[{ name: "test53.py", path: "test53.py", dir: false }]}
+    onChanged={changed}
+    onOpenPath={() => {}}
+    onContextPath={() => {}}
+  />);
+  const view = editor();
+  view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: "test 1/\n  test53.py" } });
+  fireEvent.click(await screen.findByRole("button", { name: "Dry Run" }));
+  expect(screen.getAllByRole("listitem").map((item) => item.textContent)).toEqual([
+    "Create folder test 1/",
+    "Rename or move test53.py → test 1/test53.py",
+  ]);
+  fireEvent.click(screen.getByRole("button", { name: "Apply" }));
+  await vi.waitFor(() => expect(changed).toHaveBeenCalledOnce());
+  expect(operations).toEqual([
+    { op: "mkdir", path: "test 1" },
+    { op: "rename", path: "test53.py", to: "test 1/test53.py" },
+  ]);
 });
 
 it("creates an inserted file line at the path expressed by indentation", async () => {

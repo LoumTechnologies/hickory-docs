@@ -98,19 +98,39 @@ async fn every_verb_does_one_thing_on_disk() {
         "a copy leaves the source"
     );
 
-    let (status, _) = op(&s, json!({"op": "create", "path": "docs/new.md"})).await;
-    assert_eq!(status, 200);
+    let (status, body) = op(&s, json!({"op": "create", "path": "docs/new.txt"})).await;
+    assert_eq!(status, 200, "{body}");
     assert_eq!(
-        std::fs::read_to_string(s.root.join("docs/new.md")).unwrap(),
+        std::fs::read_to_string(s.root.join("docs/new.txt")).unwrap(),
         ""
     );
 
     let (status, _) = op(&s, json!({"op": "delete", "path": "docs/src"})).await;
     assert_eq!(status, 200);
     assert!(!s.root.join("docs/src").exists());
-    let (status, _) = op(&s, json!({"op": "delete", "path": "docs/new.md"})).await;
+    let (status, _) = op(&s, json!({"op": "delete", "path": "docs/new.txt"})).await;
     assert_eq!(status, 200);
-    assert!(!s.root.join("docs/new.md").exists());
+    assert!(!s.root.join("docs/new.txt").exists());
+}
+
+#[tokio::test]
+async fn a_rename_to_an_indented_tree_destination_moves_a_root_file_on_disk() {
+    let s = start().await;
+    std::fs::write(s.root.join("test53.py"), "print('test')\n").unwrap();
+    let (status, body) = op(&s, json!({"op": "mkdir", "path": "test 1"})).await;
+    assert_eq!(status, 200, "{body}");
+
+    // This is the operation the Files buffer derives from:
+    // `test 1/` followed by `  test53.py`.
+    let (status, body) = op(
+        &s,
+        json!({"op": "rename", "path": "test53.py", "to": "test 1/test53.py"}),
+    )
+    .await;
+    assert_eq!(status, 200, "{body}");
+    assert_eq!(body["to"], "test 1/test53.py");
+    assert!(s.root.join("test 1/test53.py").is_file());
+    assert!(!s.root.join("test53.py").exists());
 }
 
 #[tokio::test]
