@@ -150,6 +150,13 @@ if [ ! -d apps/web/node_modules ] || [ apps/web/package-lock.json -nt apps/web/n
   touch apps/web/node_modules
 fi
 
+# `rust-embed` reads this directory while Cargo compiles the desktop crate,
+# before `cargo tauri dev` starts Vite. Build it on every launch: otherwise a
+# fresh checkout cannot compile, and an older `dist/` can be baked into the
+# development binary even though Vite later serves newer source files.
+echo "Building the UI embedded by the desktop crate…"
+npm --prefix apps/web run build
+
 # Build the engine's CLI up front and hand it to the seeder, so the scratch
 # project is woven by this checkout's code. `cargo tauri dev` compiles the same
 # workspace into the same target directory a moment later, so this shares that

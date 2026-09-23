@@ -7,7 +7,10 @@ set -euo pipefail
 cd "$(git rev-parse --show-toplevel)"
 
 base=$(git merge-base HEAD master 2>/dev/null || echo HEAD)
-mapfile -t checks < <(scripts/affected-checks.sh "$base")
+checks=()
+while IFS= read -r check; do
+  [ -n "$check" ] && checks+=("$check")
+done < <(scripts/affected-checks.sh "$base")
 
 if [ "${#checks[@]}" -eq 0 ]; then
   echo "pre-commit: no path in this diff requires a check."
