@@ -957,3 +957,74 @@ knows nothing about chat. A lens is read-only and never saved.
 @.instructions/specification-levels.md
 @.instructions/third-party-integration-mocking.md
 @.instructions/user-facing-errors.md
+
+<!-- HICKORY -->
+## Hickory executable documents
+
+This repository contains `.hick` documents: reproducible, verifiable,
+executable documents. Every example in a `.hick` file actually runs, and
+drift between the document and reality fails `hick test`, and misspelled
+element attributes fail `hick lint` (the pre-commit hook enforces both).
+
+### Grammar essentials
+
+A `.hick` file is XML-ish with one unusual rule: **only tags carrying the
+`hick:` namespace prefix are structure; every other byte is raw text** —
+no escaping, no CDATA, no entities. Shell one-liners, generics, and heredocs
+paste in verbatim.
+
+- Root: `<hick:doc xmlns:hick="http://www.hickorydocs.com/1.0" weave="out.md">`
+  — prose between tags is Markdown, woven to the `weave` target.
+- `<hick:container name="c" image="..." />` declares an execution container.
+- `<hick:exec container="c">` holds commands, run in that container.
+- `<hick:expect match="exact">…</hick:expect>` (or `match="regex-lines"`)
+  inside an exec pins the expected output; mismatch fails `hick test`.
+- `<hick:file path="out/x.py">` blocks are generated files, written on run.
+- Execution order is the dependency DAG (containers, volumes, copy/paste
+  references) — not source order.
+
+### Golden rules for coding agents
+
+1. Edit `.hick` sources, not the generated outputs (woven `.md`,
+   `hick:file` products) — those are overwritten on every run. The one
+   exception is a change made through lineage, which maps back into the
+   document byte-exactly: `hick doc edit-output` (below), or any editor
+   while `hick up` is running. A generated file edited any other way loses
+   the edit on the next run.
+2. After editing a document, run `hick run <doc>` to regenerate outputs,
+   then `hick lint <doc>` and `hick test <doc>` and fix whatever fails before committing. `hick up`
+   does the regenerating half continuously while you work; it does not
+   replace `hick test`.
+3. Agent sessions live in `sessions/*.hick` (`hick:session` documents);
+   `hick ingest --from session <session>` compacts one into a clean pipeline doc.
+
+### The document tools — prefer these over editing files by hand
+
+`hick` exposes the same five tools its own agent uses. Use them: they
+anchor on **content hashes**, so an edit against a line that changed since
+you read it is refused instead of landing in the wrong place, and an edit
+made through a generated output is mapped back into the document
+byte-exactly.
+
+```sh
+hick doc read <doc>                       # source, each line prefixed hhhh|
+hick doc read-output <doc> --path f --lineage   # a generated file + provenance
+hick doc edit-output <doc> --path f --run aa12..bb34 < new.txt   # edit CODE
+hick doc edit <doc> --run aa12 < new.txt        # edit STRUCTURE or PROSE
+hick doc verify <doc>                     # execute for real; do this before done
+```
+
+The order that works: read the surface, edit against the hashes you just
+read, verify. Code goes through `edit-output`; structure and prose go
+through `edit`. A refusal from `edit-output` is routing — it names the
+document location to use with `edit` instead.
+
+If your harness speaks MCP, `hick mcp` serves the same five tools over
+stdio and keeps the edit session open between calls, which is strictly
+better than the per-command path. This repo's `.mcp.json` registers it.
+
+Set `HICKORY_SESSION=sessions/<name>.hick` and every tool call you make is
+appended to a replayable `hick:session` document — the same artifact the
+built-in agent produces. (Your own reasoning is not captured there; only
+what you did to the document.)
+<!-- END HICKORY -->

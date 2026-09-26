@@ -1,2 +1,34 @@
 apps/server/openapi.json          linguist-generated=true -diff
 apps/web/src/api/generated/**     linguist-generated=true -diff
+*.hick merge=hick
+# BEGIN HICKORY GENERATED OUTPUTS (managed by `hick init`)
+docs/.gitignore linguist-generated=true merge=hick-generated
+docs/Program.cs linguist-generated=true merge=hick-generated
+docs/banner.txt linguist-generated=true merge=hick-generated
+docs/debug.log linguist-generated=true merge=hick-generated
+docs/docs/.gitignore linguist-generated=true merge=hick-generated
+docs/docs/Program.cs linguist-generated=true merge=hick-generated
+docs/docs/banner.txt linguist-generated=true merge=hick-generated
+docs/docs/debug.log linguist-generated=true merge=hick-generated
+docs/docs/generated.txt linguist-generated=true merge=hick-generated
+docs/docs/manifest.txt linguist-generated=true merge=hick-generated
+docs/docs/release.txt linguist-generated=true merge=hick-generated
+docs/docs/report.md linguist-generated=true merge=hick-generated
+docs/generated.txt linguist-generated=true merge=hick-generated
+docs/guarantees/authoring/Program.cs linguist-generated=true merge=hick-generated
+docs/guarantees/authoring/app.py linguist-generated=true merge=hick-generated
+docs/guarantees/authoring/service/Program.cs linguist-generated=true merge=hick-generated
+docs/guarantees/authoring/… linguist-generated=true merge=hick-generated
+docs/guarantees/editor-intelligence/… linguist-generated=true merge=hick-generated
+docs/guarantees/execution/P linguist-generated=true merge=hick-generated
+docs/guarantees/execution/app/Program.cs linguist-generated=true merge=hick-generated
+docs/guarantees/language/a.txt linguist-generated=true merge=hick-generated
+docs/guarantees/language/chart.svg linguist-generated=true merge=hick-generated
+docs/guarantees/language/… linguist-generated=true merge=hick-generated
+docs/manifest.txt linguist-generated=true merge=hick-generated
+docs/release.txt linguist-generated=true merge=hick-generated
+docs/report.md linguist-generated=true merge=hick-generated
+docs/specs/freeform/Program.cs linguist-generated=true merge=hick-generated
+docs/specs/freeform/standup.md linguist-generated=true merge=hick-generated
+docs/specs/freeform/… linguist-generated=true merge=hick-generated
+# END HICKORY GENERATED OUTPUTS

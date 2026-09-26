@@ -1,0 +1,10 @@
+{
+  "mcpServers": {
+    "hick": {
+      "args": [
+        "mcp"
+      ],
+      "command": "hick"
+    }
+  }
+}

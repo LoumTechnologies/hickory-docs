@@ -57,3 +57,5 @@ vmtest/.artifacts/
 
 # Code model servers: Node deps and Go build output
 code-models/*/node_modules/
+sessions/
+.hick-journal/
