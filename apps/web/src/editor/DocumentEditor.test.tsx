@@ -368,6 +368,31 @@ describe("DocumentEditor (WYSIWYG over raw source)", () => {
     realtime.close();
   });
 
+  it("draws every prose fence as code, even when Hick gives it no special meaning", async () => {
+    const realtime = new LocalRealtime();
+    const source =
+      "A JSON example is documentation, not a cell.\n\n```json\n{\"enabled\": true}\n```\n";
+    const { container } = render(
+      <DocumentEditor
+        docId="dMarkdownFence"
+        initialSource={source}
+        realtime={realtime}
+        execBlocks={[]}
+        runningCells={new Set()}
+        onRunCell={() => undefined}
+      />,
+    );
+    await waitFor(() => expect(container.querySelector(".cm-fence-line")).toBeTruthy());
+    expect(container.querySelectorAll(".cm-fence-first")).toHaveLength(1);
+    expect(container.querySelectorAll(".cm-fence-last")).toHaveLength(1);
+    expect(
+      container.querySelector(".tok-property, .tok-propertyName, .tok-string")?.textContent,
+    ).toBe('"enabled"');
+    // The syntax remains Markdown source, not a newly-created Hick element.
+    expect(container.querySelector(".cm-content")?.textContent).toContain("```json");
+    realtime.close();
+  });
+
   it("never corrupts text: decorations leave the document unchanged on malformed docs", async () => {
     const realtime = new LocalRealtime();
     const source = "broken <hick:exec container=\"shell\">\nno close tag, raw < and ** unbalanced";

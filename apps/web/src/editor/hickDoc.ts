@@ -380,6 +380,9 @@ export interface ProseFence {
   /** Whole fence, both fence lines included. */
   from: number;
   to: number;
+  /** Whether the closing marker is present. An unfinished fence is still
+   * code while someone is typing it, but cannot be converted to a cell. */
+  closed: boolean;
   /** The info string after the opening fence: `python`, `bash`, or "". */
   info: string;
   /** The text between the fence lines, without the trailing newline. */
@@ -396,7 +399,11 @@ export interface ProseFence {
  * only CLOSED ones — an unterminated fence has no end for the element to
  * take, and guessing where it stops would rewrite text nobody pointed at.
  */
-export function proseFences(structure: HickDocStructure, text: string): ProseFence[] {
+function scanProseFences(
+  structure: HickDocStructure,
+  text: string,
+  includeUnclosed: boolean,
+): ProseFence[] {
   const verbatim = verbatimRanges(structure.blocks);
   const fences: ProseFence[] = [];
   let openAt = -1;
@@ -422,6 +429,7 @@ export function proseFences(structure: HickDocStructure, text: string): ProseFen
         fences.push({
           from: openAt,
           to: lineTo,
+          closed: true,
           info,
           body: text.slice(bodyFrom, Math.max(bodyFrom, lineFrom - 1)),
         });
@@ -431,7 +439,26 @@ export function proseFences(structure: HickDocStructure, text: string): ProseFen
     if (nl === -1) break;
     lineFrom = nl + 1;
   }
+  if (includeUnclosed && openAt !== -1) {
+    fences.push({
+      from: openAt,
+      to: text.length,
+      closed: false,
+      info,
+      body: text.slice(bodyFrom),
+    });
+  }
   return fences;
+}
+
+/** Closed prose fences, the only ones safe to replace with an exec cell. */
+export function proseFences(structure: HickDocStructure, text: string): ProseFence[] {
+  return scanProseFences(structure, text, false);
+}
+
+/** Every prose fence for display, including an unfinished one through EOF. */
+export function proseCodeFences(structure: HickDocStructure, text: string): ProseFence[] {
+  return scanProseFences(structure, text, true);
 }
 
 /** File blocks in document order. */

@@ -815,19 +815,7 @@ textarea:focus {
   line-height: 1.65;
 }
 
-/* The page is LEFT-ALIGNED and as wide as the pane.
- *
- * It used to be a centred 46rem column, which is the right shape for an
- * article and the wrong shape for a document that is half code: a fenced
- * block or an exec cell got the same narrow measure as a sentence, so an
- * aligned table or a long command wrapped into nonsense with empty pane on
- * both sides of it.
- *
- * So the measure moved off the page and onto the PROSE. `--prose-wrap` is
- * written by editor/wrapColumn.ts from the view's own character width, and
- * `--cm-pad-x` is the one place the text's left inset is stated — the dotted
- * margin line is drawn at the sum of the two, which is the only way it can
- * land on the same pixel the text wraps at. */
+/* The editor uses the full pane; `--prose-wrap` supplies the reader's measure. */
 .document-editor .cm-content {
   --cm-pad-x: 2.5rem;
   max-width: none;
@@ -1171,6 +1159,31 @@ textarea:focus {
   border-bottom-right-radius: 8px;
   padding-bottom: 0.2rem;
 }
+
+/* Ordinary Markdown fences are code too. Unlike a cell or a generated file,
+ * they make no Hick-specific claim, so their frame is neutral; the fence's
+ * info string still selects syntax colouring when the editor knows it. */
+.cm-fence-line {
+  background: var(--bg-sunken);
+  border-left: 2px solid var(--border);
+  border-right: 1px solid var(--border);
+  padding-left: 0.8rem;
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 0.85em;
+}
+.cm-fence-first {
+  border-top: 1px solid var(--border);
+  border-top-left-radius: 8px;
+  border-top-right-radius: 8px;
+  padding-top: 0.2rem;
+}
+.cm-fence-last {
+  border-bottom: 1px solid var(--border);
+  border-bottom-left-radius: 8px;
+  border-bottom-right-radius: 8px;
+  padding-bottom: 0.2rem;
+}
+.cm-fence-mark { color: var(--fg-muted); }
 
 .cm-file-chip {
   display: inline-flex;
@@ -2012,18 +2025,7 @@ textarea:focus {
   align-items: stretch;
 }
 
-/* A code pane wears the look a `hick:file` body has inside a document.
- *
- * The sunken ground and the accent rule are `.cm-file-line`'s (see above),
- * lifted onto the pane's own box: opening `orders.py` and reading the
- * `<hick:file path="orders.py">` block that writes it should not feel like
- * two different programs. The font and the size come from
- * `editorChrome("code")`, which is the same extension the document editor
- * loads, so there is one definition rather than two that drift. */
-/* Inside a TAB the code editor is the pane, flush with the tab that names it
-   — the same rule the document editor follows. The card treatment below is
-   for a split, where the output sits BESIDE a document and being a distinct
-   object is the point. */
+/* Generated-file panes share the document file-block treatment. */
 .shell-pane__body > .plain-file-pane .output-editor,
 .shell-pane__body .tab-zoom > .plain-file-pane .output-editor,
 .shell-pane__body .generated-pane .output-editor {

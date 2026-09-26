@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 // Protects docs/guarantees/authoring/the-gutters-never-skip-a-number.md
 // and docs/guarantees/authoring/a-fence-becomes-a-cell-that-runs.md
 import { cardsOf } from "./cards";
-import { containerNamesOf, parseHickDoc, proseFences } from "./hickDoc";
+import { containerNamesOf, parseHickDoc, proseCodeFences, proseFences } from "./hickDoc";
 
 const cards = (text: string) => cardsOf(parseHickDoc(text), { text });
 
@@ -87,6 +87,19 @@ describe("which fences are offered", () => {
 
   it("ignores an unterminated fence rather than guessing where it ends", () => {
     expect(fencesIn("text\n\n```python\nprint(1)\n")).toEqual([]);
+  });
+
+  it("still displays an unterminated prose fence as code while it is being typed", () => {
+    const text = "text\n\n```python\nprint(1)\n";
+    expect(proseCodeFences(parseHickDoc(text), text)).toEqual([
+      {
+        from: 6,
+        to: text.length,
+        closed: false,
+        info: "python",
+        body: "print(1)\n",
+      },
+    ]);
   });
 
   it("keeps tilde fences and backtick fences apart", () => {
