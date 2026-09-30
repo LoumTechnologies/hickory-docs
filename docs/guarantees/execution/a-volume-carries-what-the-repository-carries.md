@@ -8,6 +8,10 @@ would let git carry. Build output — `obj/`, `bin/`, `__pycache__`, a
 reads, and a directory with no repository around it keeps everything, there
 being nothing that says otherwise.
 
+The `input` attribute is accepted by the shared attribute validator for both
+input-only volumes and volumes that also declare `output`. Linting and weaving
+must accept these declarations; a misspelled attribute remains an error.
+
 ## Why
 
 This is not about tidiness in the container. A cell's recording is keyed by
@@ -93,6 +97,21 @@ versus "checked, found nothing".
 ---
 
 Last LLM verification:
+- Date: 2026-09-29
+- Reviewer: Codex
+- Result: verified for input-attribute validation; earlier seed and digest
+  verification remains below.
+- Evidence: `crates/hick-blocks/src/lib.rs`'s `accepted_attributes` accepts
+  `input`, matching `parse_volume_declaration` in `crates/hick-exec/src/dag.rs`.
+  The CLI's `lint_doc` and `run_doc_subset` share `attribute_errors`.
+- Test coverage: `volume_inputs_are_valid_but_misspelled_inputs_are_rejected`
+  covers input-only and input/output declarations plus an `imput` typo.
+  All 10 `hick-blocks` tests and its Clippy check passed. The rebuilt CLI
+  successfully linted and wove `.dev/project/debugging.md` into a temporary
+  output directory; the old binary reproduced the reported rejection.
+- Caveat: this regression test covers validation, not volume seeding or digest
+  computation; their existing verification is recorded below.
+
 - Date: 2026-09-01
 - Reviewer: Claude (Sonnet 5)
 - Result: verified (digest half); the 2026-08-28 verification below still

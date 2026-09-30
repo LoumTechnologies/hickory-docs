@@ -107,7 +107,7 @@ fn accepted_attributes(element: &str) -> Option<&'static [&'static str]> {
         "doc" => &["xmlns:hick", "weave", "volume", "volatile"],
         "session" => &["xmlns:hick"],
         "container" => &["name", "image", "network", "mount"],
-        "volume" => &["name", "path", "from", "read", "write", "output"],
+        "volume" => &["name", "path", "from", "read", "write", "input", "output"],
         "allow" => &["container", "read", "write"],
         "fork" => &["name", "from", "to", "container", "image"],
         "exec" => &[
@@ -765,6 +765,23 @@ mod tests {
         let source = "<hick:table language=\"python\">a,b\n1,2</hick:table>";
         let doc = hick_lang::parse(source).unwrap();
         assert!(attribute_errors(source, &doc).is_empty());
+    }
+
+    #[test]
+    fn volume_inputs_are_valid_but_misspelled_inputs_are_rejected() {
+        // docs/guarantees/execution/a-volume-carries-what-the-repository-carries.md
+        for source in [
+            "<hick:volume name=\"src\" input=\".\" />",
+            "<hick:volume name=\"src\" input=\".\" output=\".\" />",
+        ] {
+            let doc = hick_lang::parse(source).unwrap();
+            assert!(attribute_errors(source, &doc).is_empty());
+        }
+        let source = "<hick:volume name=\"src\" imput=\".\" />";
+        let doc = hick_lang::parse(source).unwrap();
+        let errors = attribute_errors(source, &doc);
+        assert_eq!(errors.len(), 1);
+        assert_eq!(errors[0].attribute, "imput");
     }
 
     #[test]

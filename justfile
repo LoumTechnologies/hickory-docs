@@ -134,6 +134,56 @@ dist TARGET VERSION="":
 dist-desktop VERSION="" TARGET="":
     ./scripts/dist-desktop.sh {{VERSION}} {{TARGET}}
 
+# Build and install the native macOS app in Applications (no disk image needed).
+local-install:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if [ "$(uname -s)" != Darwin ] || [ "$(uname -m)" != arm64 ]; then
+      echo "local-install requires an Apple Silicon Mac." >&2
+      exit 1
+    fi
+    if ! command -v cargo-tauri >/dev/null 2>&1; then
+      echo "Install the desktop build tool first: cargo install tauri-cli --version '^2' --locked" >&2
+      exit 1
+    fi
+    if [ ! -w /Applications ]; then
+      echo "local-install needs write access to /Applications." >&2
+      exit 1
+    fi
+    if [ ! -d apps/web/node_modules ]; then
+      npm --prefix apps/web ci
+    fi
+    # Fix the output directory so a caller's Cargo configuration cannot make
+    # us install an old bundle. Tauri builds and embeds the UI itself.
+    export CARGO_TARGET_DIR="$PWD/apps/desktop/src-tauri/target"
+    # Like Jobsearch's family-build: a local signature, with no notarization.
+    unset APPLE_API_ISSUER APPLE_API_KEY APPLE_API_KEY_PATH APPLE_ID APPLE_PASSWORD APPLE_TEAM_ID
+    unset APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD
+    export APPLE_SIGNING_IDENTITY="-"
+    (
+      cd apps/desktop/src-tauri
+      CI=true cargo tauri build --target aarch64-apple-darwin --bundles app
+    )
+    bundle="$CARGO_TARGET_DIR/aarch64-apple-darwin/release/bundle/macos/Hickory Docs.app"
+    codesign --verify --deep --strict "$bundle"
+    destination="/Applications/Hickory Docs.app"
+    # Copy completely before replacing the installed app; keep the previous
+    # bundle until the replacement succeeds.
+    staging="$(mktemp -d /Applications/.hickory-install.XXXXXX)"
+    trap 'rm -rf "$staging"' EXIT
+    ditto "$bundle" "$staging/Hickory Docs.app"
+    if [ -e "$destination" ]; then
+      mv "$destination" "$staging/previous.app"
+    fi
+    if ! mv "$staging/Hickory Docs.app" "$destination"; then
+      if [ -e "$staging/previous.app" ]; then
+        mv "$staging/previous.app" "$destination"
+      fi
+      exit 1
+    fi
+    /System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -f "$destination"
+    echo "Installed $destination. Launch Hickory Docs from Applications or Spotlight."
+
 # Run a hick document with the local executor.
 run DOC *ARGS:
     cargo run -p hickory-cli -- run {{DOC}} {{ARGS}}

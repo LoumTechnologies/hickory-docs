@@ -1323,18 +1323,14 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
       text: view.state.doc.toString(),
     });
   }, []);
-  // The welcome page, once, and only into a workspace that has nothing open.
-  // A workspace restored with work in it does not want a welcome screen in
-  // front of it; that is the whole difference between "just launched" and
-  // "came back".
+  // Honor "Show this page when a folder opens" after restoring the workspace.
+  // Welcome becomes active; the person's restored tabs stay available.
   const welcomed = useRef(false);
   useEffect(() => {
     if (!workspaceUi.hydrated || welcomed.current) return;
     welcomed.current = true;
     if (!loadShowWelcome()) return;
-    setLayout((current) =>
-      isWorkspaceEmpty(current) ? openWelcomeTab(current) : current,
-    );
+    setLayout(openWelcomeTab);
   }, [workspaceUi.hydrated]);
   useEffect(() => {
     if (insertNotice === null) return;

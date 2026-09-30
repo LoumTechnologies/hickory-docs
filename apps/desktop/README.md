@@ -59,6 +59,17 @@ cargo install tauri-cli --version '^2'   # provides `cargo tauri`
 cd apps/web && npm install               # frontend deps
 ```
 
+## Install this checkout on an Apple Silicon Mac
+
+Run `just local-install` from the repository. It builds the release app with
+its embedded UI, installs `/Applications/Hickory Docs.app`, and registers it
+with macOS. Re-run the command to replace the installed app with a fresh build.
+
+Launch **Hickory Docs** from Applications or Spotlight. The welcome pane opens
+by default, with your restored tabs still available. Uncheck “Show this page
+when a folder opens” on the welcome pane to skip it on later launches.
+The app runs independently of this checkout and needs no development server.
+
 ## Desktop only
 
 iOS and Android are not targets. A tool whose job is editing files in a git
