@@ -437,6 +437,52 @@ impl RoomRegistry {
         self.clone().schedule_persist(room);
     }
 
+    /// Publish a validated external save only if the live source still matches
+    /// its base. The durable write and CRDT mutation happen under the same room
+    /// lock, so a keystroke arriving during validation cannot be overwritten.
+    /// A failed durable write leaves the room unchanged.
+    pub async fn replace_source_if_current<F>(
+        self: &Arc<Self>,
+        key: &DocKey,
+        expected: &str,
+        source: &str,
+        persist: F,
+    ) -> Result<bool>
+    where
+        F: FnOnce() -> Result<()> + Send,
+    {
+        let room = self.get_or_create(key).await?;
+        let update = {
+            let awareness = room.awareness.lock().await;
+            let doc = awareness.doc();
+            let text = doc.get_or_insert_text("source");
+            let current = {
+                let txn = doc.transact();
+                text.get_string(&txn)
+            };
+            if current != expected {
+                return Ok(false);
+            }
+            persist()?;
+            let mut txn = doc.transact_mut();
+            let before = txn.state_vector();
+            let (start, length, inserted) = text_delta(&current, source);
+            if length > 0 {
+                text.remove_range(&mut txn, start as u32, length as u32);
+            }
+            if !inserted.is_empty() {
+                text.insert(&mut txn, start as u32, inserted);
+            }
+            txn.encode_diff_v1(&before)
+        };
+        room.broadcast(
+            &yjs_frame(&Message::Sync(SyncMessage::Update(update))),
+            None,
+        );
+        self.clone().schedule_persist(room);
+        Ok(true)
+    }
+
     /// Handle one inbound Yjs payload (the bytes after the channel prefix).
     ///
     /// `may_write` is the caller's permission to *change* the document. It is
@@ -548,7 +594,19 @@ impl RoomRegistry {
         if room.persisted.swap(generation, Ordering::SeqCst) == generation {
             return; // nothing new since the last persist
         }
-        let (source, crdt_state) = room.snapshot().await;
+        // Serialize the durable write with validated external publication too.
+        // Otherwise an older snapshot could finish saving after a newer source
+        // had already been published under this room's lock.
+        let awareness = room.awareness.lock().await;
+        let (source, crdt_state) = {
+            let doc = awareness.doc();
+            let text = doc.get_or_insert_text("source");
+            let txn = doc.transact();
+            (
+                text.get_string(&txn),
+                txn.encode_state_as_update_v1(&yrs::StateVector::default()),
+            )
+        };
         if let Err(e) = self.store.save(&room.key, &source, &crdt_state).await {
             log::error!("persisting {} failed: {e:#}", room.key);
             // Let the next edit try again rather than recording this
@@ -668,5 +726,62 @@ mod tests {
             String::from_utf16(&units).unwrap()
         };
         assert_eq!(rebuilt, "héllo 🌲 there");
+    }
+    // Guarantee: docs/guarantees/agent/the-mounted-workspace-keeps-source-and-output-together.md
+    #[tokio::test]
+    async fn a_pending_old_persist_cannot_overwrite_validated_publication() {
+        struct SlowStore {
+            memory: MemStore,
+            entered: tokio::sync::Notify,
+            release: tokio::sync::Notify,
+        }
+        #[async_trait]
+        impl DocStore for SlowStore {
+            async fn load_source(&self, key: &DocKey) -> Result<String> {
+                self.memory.load_source(key).await
+            }
+            async fn load_crdt(&self, key: &DocKey) -> Result<Option<Vec<u8>>> {
+                self.memory.load_crdt(key).await
+            }
+            async fn save(&self, key: &DocKey, source: &str, crdt: &[u8]) -> Result<()> {
+                self.entered.notify_one();
+                self.release.notified().await;
+                self.memory.save(key, source, crdt).await
+            }
+        }
+        let store = Arc::new(SlowStore {
+            memory: MemStore::default(),
+            entered: tokio::sync::Notify::new(),
+            release: tokio::sync::Notify::new(),
+        });
+        let registry = Arc::new(RoomRegistry::new(store.clone()));
+        let key = "note".to_string();
+        let room = registry.get_or_create(&key).await.unwrap();
+        registry.apply_external_source(&key, "older").await;
+        let saving_registry = registry.clone();
+        let old_save = tokio::spawn(async move {
+            saving_registry.persist_now(&room).await;
+        });
+        store.entered.notified().await;
+        let publishing_registry = registry.clone();
+        let publishing_store = store.clone();
+        let mut publication = tokio::spawn(async move {
+            publishing_registry
+                .replace_source_if_current(&key, "older", "newer", || {
+                    *publishing_store.memory.source.lock().unwrap() = "newer".into();
+                    Ok(())
+                })
+                .await
+                .unwrap()
+        });
+        assert!(
+            tokio::time::timeout(std::time::Duration::from_millis(20), &mut publication)
+                .await
+                .is_err()
+        );
+        store.release.notify_one();
+        old_save.await.unwrap();
+        assert!(publication.await.unwrap());
+        assert_eq!(*store.memory.source.lock().unwrap(), "newer");
     }
 }

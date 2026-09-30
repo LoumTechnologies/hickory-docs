@@ -73,6 +73,18 @@ fi
 # `frontendDist` are relative to the config file, but cargo-tauri resolves them
 # against the working directory. From the repo root they would point one level
 # above the repo.
+# FSKit is part of the app bundle, never a separately installed dependency.
+# Opt in until signed mounted-agent smoke coverage is established. The release
+# build refuses a missing profile instead of shipping a nonfunctional extension.
+fskit_config="{}"
+if [[ "$TARGET" == *apple-darwin ]] && [ "${HICKORY_BUNDLE_FSKIT:-0}" = "1" ]; then
+  if [ -z "${APPLE_SIGNING_IDENTITY:-}" ] || [ -z "${HICKORY_FSKIT_PROFILE:-}" ]; then
+    echo "::error::FSKit packaging needs APPLE_SIGNING_IDENTITY and HICKORY_FSKIT_PROFILE." >&2
+    exit 1
+  fi
+  just build-fskit "$TARGET"
+  fskit_config='{ "bundle": { "macOS": { "files": { "PlugIns/HickoryWorkspace.appex": "../../../.dev/fskit/HickoryWorkspace.appex" } } } }'
+fi
 cross_args=()
 if [ "$TARGET" != "$HOST_TARGET" ]; then
   cross_args=(--target "$TARGET")
@@ -100,6 +112,7 @@ fi
   # spelling of "expand only if non-empty".
   CI=true cargo tauri build \
     --config "{\"version\": \"$BUNDLE_VERSION\"}" \
+    --config "$fskit_config" \
     ${cross_args[@]+"${cross_args[@]}"} \
     ${TAURI_BUNDLES:+--bundles "$TAURI_BUNDLES"}
 )

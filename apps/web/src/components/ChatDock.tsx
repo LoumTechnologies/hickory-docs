@@ -13,10 +13,12 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api } from "../api/client";
+import { AcpControls, useAcp } from "./AcpControls";
 import type {
   AgentTotals,
   AgentTurn,
   AgentWsEvent,
+  RunWsMessage,
   SessionStep,
   SessionTurn,
   TranscriptEvent,
@@ -315,9 +317,18 @@ export function ChatDock({
   // The model control. Provider is hydrated once from the server's resolved
   // default; the model input stays empty (placeholder = the provider's
   // default) unless the session already chose one explicitly.
+  const [backend, setBackend] = useState("builtin");
+  const [sending, setSending] = useState(false);
+  const sendingRef = useRef(false);
+  const earlyEvents = useRef<RunWsMessage[]>([]);
   const [provider, setProvider] = useState("");
   const [model, setModel] = useState("");
 
+  const selectedTurn = turns.find(t => t.id === tip);
+  const selectedBackend = selectedTurn?.provider.startsWith("acp:") ? selectedTurn.provider.slice(4) : "builtin";
+  useEffect(() => { if (selectedTurn && !running) setBackend(selectedBackend); }, [tip, selectedBackend, running]);
+  const selectedSession = selectedTurn?.session;
+  const acp = useAcp(docId, selectedTurn ? selectedBackend : backend, selectedSession, running);
   const logRef = useRef<HTMLDivElement>(null);
   const runningRef = useRef<string | null>(null);
   runningRef.current = running;
@@ -336,6 +347,8 @@ export function ChatDock({
           // choice being made in the select/input mid-conversation.
           if (!hydratedRef.current) {
             hydratedRef.current = true;
+            setBackend(r.backend ?? "builtin");
+            setRunning(r.turns.find(t => t.status === "running")?.id ?? null);
             setProvider(r.provider);
             if (r.model !== defaultModelFor(r.provider)) setModel(r.model);
           }
@@ -355,7 +368,9 @@ export function ChatDock({
       realtime.onRunEvent((msg) => {
         // The up-loop's files_changed notice rides the same channel but
         // belongs to the document session, not the agent stream.
-        if (!("run_id" in msg) || msg.run_id !== runningRef.current) return;
+        if (!("run_id" in msg)) return;
+        if (sendingRef.current && !runningRef.current) { earlyEvents.current.push(msg); return; }
+        if (msg.run_id !== runningRef.current) return;
         if ("event" in msg) {
           const e = msg.event;
           setStream((prev) => appendStream(prev, e));
@@ -404,12 +419,27 @@ export function ChatDock({
     if (log) log.scrollTop = log.scrollHeight;
   }, [branch.length, stream, collapsed]);
 
+  useEffect(() => {
+    if (!running) return;
+    const timer = setInterval(() => {
+      void api.agentTurns(docId).then(r => {
+        const turn = r.turns.find(t => t.id === runningRef.current);
+        if (turn && turn.status !== "running") {
+          setRunning(null); setStopping(false); setStream(""); setReasoning("");
+          void refresh(); onFinishedRef.current();
+        }
+      }, () => undefined);
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [running, docId, refresh]);
+
   const send = async () => {
     const text = prompt.trim();
-    if (!text || running) return;
+    if (!text || running || sendingRef.current || (backend !== "builtin" && (!acp.state?.ready || acp.busy))) return;
     setError(null);
     setNote(null);
-    const slash = parseSlash(text);
+    const slash = backend !== "builtin" && !acp.state?.canRewind && text.startsWith("/rewind") ? null : parseSlash(text);
+    if (backend !== "builtin" && !acp.state?.canRewind && text.startsWith("/rewind")) { setNote("This agent continues from its latest turn. Use New thread to start another conversation."); return; }
     if (slash) {
       setPrompt("");
       switch (slash.kind) {
@@ -454,6 +484,7 @@ export function ChatDock({
     }
     setStream("");
     setReasoning("");
+    setSending(true); sendingRef.current = true; earlyEvents.current = [];
     try {
       // The visible tip is the parent: rewinding is just selecting an earlier
       // turn before sending. The model control rides along exactly as shown:
@@ -464,6 +495,7 @@ export function ChatDock({
         tip,
         provider || undefined,
         provider ? model.trim() : undefined,
+        backend,
       );
       setRunning(session_id);
       runningRef.current = session_id;
@@ -486,6 +518,11 @@ export function ChatDock({
         },
       ]);
       setTip(session_id);
+      const buffered = earlyEvents.current.filter(m => "run_id" in m && m.run_id === session_id);
+      for (const msg of buffered) {
+        if ("event" in msg) { setStream(prev => appendStream(prev, msg.event)); setReasoning(prev => appendReasoning(prev, msg.event)); }
+        else if ("status" in msg) { setRunning(null); void refresh(); onFinishedRef.current(); }
+      }
     } catch (e) {
       const message = e instanceof Error ? e.message : String(e);
       // The local server answers the agent route with a 503 whose message
@@ -495,7 +532,7 @@ export function ChatDock({
       if (/agent not (configured|available)/i.test(message))
         setUnavailable(true);
       else setError(message);
-    }
+    } finally { sendingRef.current = false; setSending(false); earlyEvents.current = []; }
   };
 
   return (
@@ -530,6 +567,7 @@ export function ChatDock({
         {tip && (
           <button
             className="btn-link chat-new"
+            disabled={running !== null || sending}
             onClick={() => setTip(null)}
             data-tip="Start a conversation that does not continue from any existing turn"
           >
@@ -546,7 +584,14 @@ export function ChatDock({
             Tree
           </button>
         )}
-        <span className="chat-model" role="group" aria-label="Model choice">
+        <label className="chat-model">Agent
+          <select aria-label="Agent" value={backend} disabled={running !== null || sending || acp.busy}
+            onChange={e => { setBackend(e.target.value); setTip(null); setUnavailable(false); setError(null); }}>
+            <option value="builtin">Hickory</option>
+            {acp.agents.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+          </select>
+        </label>
+        {backend === "builtin" && <span className="chat-model" role="group" aria-label="Model choice">
           <select
             aria-label="Provider"
             value={provider}
@@ -571,8 +616,9 @@ export function ChatDock({
             data-tip="Model id for the next turn — leave empty for the provider's default"
             onChange={(e) => setModel(e.target.value)}
           />
-        </span>
+        </span>}
       </header>
+      <AcpControls doc={docId} backend={backend} running={running !== null} control={acp} />
 
       {!collapsed && (
         <div className="chat-log" ref={logRef}>
@@ -603,7 +649,7 @@ export function ChatDock({
                   {branch.filter(inLens).map((turn) => (
                     <span key={turn.id} className="chat-turn-strip__turn">
                       <span className="muted">{turn.prompt.slice(0, 40)}</span>
-                      {turn.id !== tip && (
+                      {(backend === "builtin" || acp.state?.canRewind) && turn.id !== tip && (
                         <button
                           className="btn-link chat-rewind"
                           onClick={() => setTip(turn.id)}
@@ -660,7 +706,7 @@ export function ChatDock({
                       </button>
                     </span>
                   )}
-                  {!isTip && turn.status !== "running" && (
+                  {(backend === "builtin" || acp.state?.canRewind) && !isTip && turn.status !== "running" && (
                     <button
                       className="btn-link chat-rewind"
                       onClick={() => setTip(turn.id)}
@@ -711,7 +757,7 @@ export function ChatDock({
                           <p className="chat-stopped muted">
                             Stopped by you. Whatever it had already done is
                             real and recorded in the session; the next message
-                            continues as if this turn never ran.
+                            {turn.provider.startsWith("acp:") ? "continues with the agent’s retained context." : "continues as if this turn never ran."}
                           </p>
                         ) : (
                           <p className="chat-error">
@@ -774,10 +820,10 @@ export function ChatDock({
         ) : (
           <button
             className="btn btn-primary"
-            disabled={!prompt.trim()}
+            disabled={!prompt.trim() || sending || (backend !== "builtin" && (!acp.state?.ready || acp.busy))}
             onClick={() => void send()}
           >
-            Send
+            {sending ? "Starting…" : "Send"}
           </button>
         )}
       </div>

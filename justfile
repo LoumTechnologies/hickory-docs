@@ -13,6 +13,7 @@ test:
     # Build first (as CI does): the server's LSP tests spawn the `hick-lsp`
     # binary, which `cargo test` alone does not produce.
     cargo build --workspace
+    cargo build -p hickory-cli --example acp_fixture
     cargo test --workspace -- --test-threads=1
 
 # Regenerate everything derived from another file in this repo.
@@ -55,11 +56,13 @@ fmt:
 # the LSP tests spawn the `hick-lsp` binary, which `cargo test` alone does not
 # produce, and without it they fail claiming no language server is installed.
 ci:
+    if [ "$(uname -s)" = Darwin ] && [ "$(sw_vers -productVersion | cut -d. -f1)" -ge 26 ]; then just build-fskit; fi
     just check-codegen
     just check-file-length
     cargo fmt --all -- --check
     cargo clippy --workspace --all-targets -- -D warnings
     cargo build --workspace
+    cargo build -p hickory-cli --example acp_fixture
     cargo test --workspace -- --test-threads=1
     cd apps/web && npm run typecheck && npm test
 
@@ -220,3 +223,46 @@ tokens-run SPEC:
 # Static token measurement of files via count_tokens (needs ANTHROPIC_API_KEY).
 tokens-count *FILES:
     cargo run -q -p hickory-agent --bin token_economics -- count-tokens {{FILES}}
+
+# ACP integration checks, including the process protocol and agent dock.
+test-acp:
+    cargo build -p hickory-cli --example acp_fixture
+    cargo test -p hickory-cli --lib serve::acp:: -- --test-threads=1
+    cargo test -p hickory-cli --test serve_acp --test serve_agent --test byo_agent_surface --test workspace_fs -- --test-threads=1
+    cd apps/web && npm run typecheck && npm test
+
+# Build the local CLI used by the ACP adapter smoke test.
+build-cli:
+    cargo build -p hickory-cli
+
+# Uses the person's existing Codex login and spends model usage on a scratch document.
+test-acp-live:
+    cargo test -p hickory-cli --test serve_acp live_codex -- --ignored --nocapture
+
+check-web:
+    cd apps/web && npm run typecheck
+
+# Validate the agent UI without rerunning unrelated Rust suites.
+test-agent-web:
+    cd apps/web && npm run typecheck && npm test
+
+# Check all Rust test and example targets, matching CI.
+clippy-all:
+    cargo clippy --workspace --all-targets -- -D warnings
+
+# Native FSKit frontend. Uses full Xcode without changing xcode-select globally.
+build-fskit TARGET="":
+    cargo run -p hickory-cli --example fskit_bundle -- {{TARGET}}
+
+test-workspace-fs:
+    cargo test -p hickory-collab
+    cargo test -p hickory-cli --test workspace_fs -- --nocapture
+
+# HICKORY_FSKIT_APP names a signed app with its workspace extension enabled.
+# Uses a temporary workspace; does not open a window or use a model account.
+test-fskit-live:
+    cargo run -p hickory-cli --example fskit_live
+
+# Desktop entry points live outside the root workspace.
+check-desktop:
+    cd apps/desktop/src-tauri && cargo fmt --all && cargo clippy --all-targets -- -D warnings

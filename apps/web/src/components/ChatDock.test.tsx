@@ -11,6 +11,8 @@ vi.mock("../api/client", () => ({
   api: { agent: vi.fn(), agentTurns: vi.fn(), agentStop: vi.fn() },
 }));
 
+vi.mock("../api/acp", () => ({ acpApi: { catalogue: vi.fn().mockResolvedValue({ agents: [] }) } }));
+
 import {
   ChatDock,
   appendStream,
@@ -223,6 +225,7 @@ describe("the dock's model control and stats line", () => {
         null,
         "openai",
         "gpt-5-mini",
+        "builtin",
       ),
     );
   });

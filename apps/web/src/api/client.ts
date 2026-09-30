@@ -140,7 +140,7 @@ export function installMockHandler(h: MockHandler) {
   mockHandler = h;
 }
 
-async function request<T>(
+export async function request<T>(
   method: string,
   path: string,
   body?: unknown,
@@ -707,8 +707,10 @@ export const api = {
     parentId?: string | null,
     provider?: string,
     model?: string,
+    backend?: string,
   ) =>
     request<{ session_id: string }>("POST", `/api/docs/${docId}/agent`, {
+      backend,
       prompt,
       parent_id: parentId ?? null,
       ...(provider !== undefined ? { provider } : {}),

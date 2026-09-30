@@ -71,6 +71,7 @@ jobs:
       # web-only PR is held to it too.
       - run: scripts/check-file-length.sh
       - run: cargo build --workspace
+      - run: cargo build -p hickory-cli --example acp_fixture
       # The language-server system tests cover whichever languages this
       # machine can serve, and skip the rest LOUDLY. Without this step CI
       # would cover none of them and still pass, which is the failure mode
@@ -424,6 +425,7 @@ jobs:
       - run: rustup component add rust-analyzer
       - run: cargo clippy --workspace --all-targets -- -D warnings
       - run: cargo build --workspace
+      - run: cargo build -p hickory-cli --example acp_fixture
       # One adapter, for the same reason as rust-analyzer above: without it
       # every live debug suite skips here and `debug_coverage.rs` fails
       # saying so. codelldb is the cheap one — it bundles its own lldb and
@@ -562,3 +564,17 @@ jobs:
             bash -n "$script"
           done
 
+
+  fskit:
+    needs: [changes]
+    if: always() && (github.event_name == 'push' || needs.changes.outputs.run_desktop == 'true' || needs.changes.outputs.run_rust == 'true')
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.96.1
+      - uses: Swatinem/rust-cache@v2
+      - run: brew list just >/dev/null 2>&1 || brew install just
+      # Actual SDK compilation and engine checks, without pretending an ad-hoc
+      # signature authorizes the FSKit entitlement or mounts a volume.
+      - run: just build-fskit
+      - run: just test-workspace-fs

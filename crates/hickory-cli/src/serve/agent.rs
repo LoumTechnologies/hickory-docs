@@ -75,9 +75,10 @@ pub struct DocSelection {
 /// The conversation state one local session holds.
 #[derive(Default)]
 pub struct AgentHub {
+    pub(super) acp: super::acp::Hub,
     /// Turn tree per document id, in creation order (the dock treats the
     /// last element as the default tip).
-    turns: Mutex<HashMap<String, Vec<TurnRecord>>>,
+    pub(super) turns: Mutex<HashMap<String, Vec<TurnRecord>>>,
     /// The model choice each document's dock last posted, applied to
     /// subsequent turns until changed (see [`AgentRequest`]).
     selection: Mutex<HashMap<String, DocSelection>>,
@@ -88,7 +89,7 @@ pub struct AgentHub {
     /// The cancel flag of each turn still running, by turn id. Setting one
     /// stops its run at the next seam (mid-stream included); the entry is
     /// removed when the run finishes, however it finishes.
-    cancels: Mutex<HashMap<String, Arc<std::sync::atomic::AtomicBool>>>,
+    pub(super) cancels: Mutex<HashMap<String, Arc<std::sync::atomic::AtomicBool>>>,
 }
 
 impl AgentHub {
@@ -100,7 +101,7 @@ impl AgentHub {
     /// Rebuild a document's turns from its session files when the hub holds
     /// none for it — the app was restarted, or this is the first look. The
     /// files are the durable record; memory is a cache of them.
-    fn hydrate(&self, root: &std::path::Path, doc_id: &str, doc_path: &std::path::Path) {
+    pub(super) fn hydrate(&self, root: &std::path::Path, doc_id: &str, doc_path: &std::path::Path) {
         let mut map = self.turns.lock().unwrap();
         if map.contains_key(doc_id) {
             return;
@@ -115,12 +116,22 @@ impl AgentHub {
                 .unwrap_or_else(|_| path.display().to_string());
             for t in view.turns {
                 turns.push(TurnRecord {
-                    id: t.id,
+                    id: t.id.clone(),
                     parent_id: t.parent,
                     prompt: t.prompt,
-                    answer: t.answer,
-                    status: "ok".into(),
-                    error: None,
+                    answer: t
+                        .answer
+                        .or_else(|| super::acp::partial_answer(&path, &t.id)),
+                    status: if t.provider.as_deref().is_some_and(|p| p.starts_with("acp:")) {
+                        super::acp::recovered_status(&path, &t.id).0
+                    } else {
+                        "ok".into()
+                    },
+                    error: if t.provider.as_deref().is_some_and(|p| p.starts_with("acp:")) {
+                        super::acp::recovered_status(&path, &t.id).1
+                    } else {
+                        None
+                    },
                     created_at: view.start.clone().unwrap_or_default(),
                     provider: t.provider.unwrap_or_default(),
                     model: t.model.unwrap_or_default(),
@@ -243,7 +254,7 @@ fn default_model_for(selector: &str) -> String {
 pub fn totals_of(turns: &[TurnRecord]) -> (Usage, Option<f64>) {
     let mut total = Usage::default();
     let mut usd = 0.0;
-    let mut known = true;
+    let mut known = !turns.iter().any(|t| t.provider.starts_with("acp:"));
     for turn in turns {
         let Some(usage) = &turn.usage else { continue };
         total.add(usage);
@@ -287,6 +298,8 @@ pub fn prior_turns_of(turns: &[TurnRecord], tip: Option<&str>) -> Vec<PriorTurn>
 /// Body of `POST /api/docs/:id/agent`.
 #[derive(Deserialize)]
 pub struct AgentRequest {
+    #[serde(default)]
+    pub backend: Option<String>,
     pub prompt: String,
     /// The turn this one continues from. Naming an older turn forks a
     /// branch; `null` starts a new thread.
@@ -314,6 +327,27 @@ pub async fn start_turn(
     Path(id): Path<String>,
     Json(body): Json<AgentRequest>,
 ) -> ApiResult<(StatusCode, Json<Value>)> {
+    let backend = body.backend.clone().unwrap_or_else(|| {
+        state
+            .agent
+            .acp
+            .selected
+            .lock()
+            .unwrap()
+            .get(&id)
+            .cloned()
+            .unwrap_or_else(|| "builtin".into())
+    });
+    if backend != "builtin" {
+        return super::acp::start_turn(state, id, body, backend).await;
+    }
+    state
+        .agent
+        .acp
+        .selected
+        .lock()
+        .unwrap()
+        .insert(id.clone(), "builtin".into());
     let doc_path = state
         .index
         .absolute(&id)
@@ -662,6 +696,7 @@ pub async fn list_turns(State(state): State<LocalState>, Path(id): Path<String>)
         .unwrap_or_else(|| default_model_for(&provider));
     let (total, usd) = totals_of(&turns);
     Json(json!({
+        "backend": state.agent.acp.selected.lock().unwrap().get(&id).cloned().or_else(|| turns.last().and_then(|t| t.provider.strip_prefix("acp:").map(str::to_string))).unwrap_or_else(|| "builtin".into()),
         "turns": turns,
         "provider": provider,
         "model": model,

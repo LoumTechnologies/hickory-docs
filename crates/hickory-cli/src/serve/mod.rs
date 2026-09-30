@@ -27,6 +27,7 @@
 //! Sharing is not a feature this product has — not disabled, not deferred.
 //! See `docs/specs/freeform/local-only.md`.
 
+pub mod acp;
 pub mod agent;
 pub mod anchored;
 pub mod api;
@@ -56,6 +57,7 @@ pub mod terminal;
 pub mod test_run;
 pub mod watch;
 pub mod workspace;
+pub mod workspace_fs;
 
 use std::collections::HashMap;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
@@ -524,6 +526,15 @@ fn router(state: LocalState) -> Router {
         .route("/scaffold/result", get(scaffold::result))
         .route("/docs/{id}/run", post(api::run_doc))
         .route("/docs/{id}/check", post(api::check_doc))
+        .route("/agents", get(acp::catalogue).put(acp::save_commands))
+        .route("/agents/{id}/install", post(acp::install))
+        .route(
+            "/docs/{id}/agent/acp",
+            get(acp::snapshot).post(acp::connect),
+        )
+        .route("/docs/{id}/agent/acp/authenticate", post(acp::authenticate))
+        .route("/docs/{id}/agent/acp/configure", post(acp::configure))
+        .route("/docs/{id}/agent/acp/permission", post(acp::permission))
         .route("/docs/{id}/agent", post(agent::start_turn))
         .route("/docs/{id}/agent/stop", post(agent::stop_turn))
         .route("/docs/{id}/agent/turns", get(agent::list_turns))

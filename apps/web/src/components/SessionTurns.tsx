@@ -1,3 +1,4 @@
+import { AcpRecord } from "./AcpRecord";
 // A conversation, rendered: the turns of a session and, inside each, the
 // steps the agent took. This is the chat DOCK's renderer, live over the turn
 // tree the server holds. A session file opened as a document is not drawn
@@ -96,6 +97,7 @@ function StepView({ step }: { step: SessionStep }) {
         </p>
       );
     case "context":
+      if ((step.context_kind.startsWith("acp-") || step.context_kind.startsWith("filesystem-"))) return <AcpRecord kind={step.context_kind} body={step.text} />;
       return (
         <details className="chat-step chat-step--context">
           <summary>

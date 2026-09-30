@@ -102,7 +102,7 @@ tracing = "0.1"
 rpassword = "7"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "sync", "time"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "sync", "time", "process", "io-util"] }
 tower = "0.5"
 tower-http = { version = "0.6", features = ["fs"] }
 tokio-tungstenite = { version = "0.24", features = ["rustls-tls-webpki-roots"] }
@@ -110,10 +110,11 @@ reqwest = { version = "0.12", default-features = false, features = ["json", "rus
 scip = "0.9"
 protobuf = "3.7"
 
+yrs = { version = "0.21", features = ["sync"] }
+
 [dev-dependencies]
 tempfile = "3"
 tokio-tungstenite = "0.24"
-yrs = { version = "0.21", features = ["sync"] }
 # tests/agent_lineage.rs constructs `SourceOrigin::Agent` spans directly, to
 # exercise the lineage read path independently of an agent run.
 hick-flow = { path = "../hick-flow", features = ["serde"] }

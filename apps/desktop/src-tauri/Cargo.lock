@@ -3042,6 +3042,7 @@ dependencies = [
  "tower-lsp",
  "tracing",
  "xattr",
+ "yrs",
 ]
 
 [[package]]

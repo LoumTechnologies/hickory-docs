@@ -372,7 +372,8 @@ fn tool_catalogue() -> Value {
 }
 
 /// A running server: open sessions, one executor, an optional session log.
-struct Server {
+pub(crate) struct Server {
+    root: PathBuf,
     /// One [`EditSession`] per document, kept open for the process's life.
     /// This is the whole point of the MCP surface over the command surface.
     sessions: HashMap<PathBuf, EditSession>,
@@ -387,6 +388,23 @@ struct Server {
 }
 
 impl Server {
+    pub(crate) fn embedded(
+        root: PathBuf,
+        doc: PathBuf,
+        executor: Arc<dyn Executor>,
+        session: PathBuf,
+    ) -> Self {
+        Self {
+            root,
+            sessions: HashMap::new(),
+            executor,
+            params: Vec::new(),
+            default_doc: Some(doc),
+            session_log: Some(session),
+            debuggers: crate::debug_sessions::Registry::new(),
+        }
+    }
+
     /// The debug tools, which share one session registry.
     ///
     /// Every one of them answers in DOCUMENT coordinates, because an agent
@@ -708,7 +726,7 @@ impl Server {
     /// The document a call refers to.
     fn resolve_doc(&self, args: &Value) -> Result<PathBuf, String> {
         if let Some(d) = args.get("doc").and_then(Value::as_str) {
-            return Ok(PathBuf::from(d));
+            return Ok(self.root.join(d));
         }
         self.default_doc.clone().ok_or_else(|| {
             "no document: pass `doc` (a path to a .hick file), or start the server with one"
@@ -780,7 +798,7 @@ impl Server {
         // Search is about the project, not one document, so it skips the
         // edit-session machinery entirely (and can never write anything).
         if name == "search" {
-            return match call_search_tool(args).await {
+            return match call_search_tool(&self.root, args).await {
                 Ok(text) => text_result(&text, false),
                 Err(text) => text_result(&text, true),
             };
@@ -792,13 +810,13 @@ impl Server {
         // a new one — it had to leave the tool surface and write the file
         // itself, which is the one thing the surface asks it not to do.
         if name == "list_docs" {
-            return match call_list_docs_tool(args) {
+            return match call_list_docs_tool(&self.root, args) {
                 Ok(text) => text_result(&text, false),
                 Err(text) => text_result(&text, true),
             };
         }
         if name == "create_doc" {
-            return match call_create_doc_tool(args) {
+            return match call_create_doc_tool(&self.root, args) {
                 Ok(text) => text_result(&text, false),
                 Err(text) => text_result(&text, true),
             };
@@ -832,7 +850,11 @@ impl Server {
         text_result(&outcome.text, !outcome.ok)
     }
 
-    async fn handle(&mut self, method: &str, params: &Value) -> Result<Value, (i64, String)> {
+    pub(crate) async fn handle(
+        &mut self,
+        method: &str,
+        params: &Value,
+    ) -> Result<Value, (i64, String)> {
         match method {
             "initialize" => Ok(json!({
                 "protocolVersion": PROTOCOL_VERSION,
@@ -869,7 +891,7 @@ impl Server {
 /// An MCP tool result carrying one block of text.
 /// The `search` tool: same engine as `hick search` and the app's search
 /// panel, answered in text an agent can act on (path:start-end + snippet).
-async fn call_search_tool(args: &Value) -> Result<String, String> {
+async fn call_search_tool(project: &std::path::Path, args: &Value) -> Result<String, String> {
     let query = args.get("query").and_then(Value::as_str).map(str::trim);
     let related = args
         .get("related")
@@ -884,7 +906,7 @@ async fn call_search_tool(args: &Value) -> Result<String, String> {
         return Err("pass `query` (what to look for) or `related` (FILE:LINE)".to_string());
     }
     let query = query.map(str::to_string);
-    let root = std::env::current_dir().map_err(|e| format!("no working directory: {e}"))?;
+    let root = project.to_path_buf();
 
     let (semantic, hits) = tokio::task::spawn_blocking(move || -> anyhow::Result<_> {
         let engine = hick_search::SearchEngine::open(&root)?;
@@ -930,8 +952,8 @@ async fn call_search_tool(args: &Value) -> Result<String, String> {
 /// output routinely contains `.hick` fixtures, and listing them as if they
 /// were the user's documents sends an agent to edit a file that regenerates
 /// over it.
-fn call_list_docs_tool(args: &Value) -> Result<String, String> {
-    let root = std::env::current_dir().map_err(|e| format!("no working directory: {e}"))?;
+fn call_list_docs_tool(project: &std::path::Path, args: &Value) -> Result<String, String> {
+    let root = project.to_path_buf();
     let under = args.get("under").and_then(Value::as_str).unwrap_or("");
     let start = if under.is_empty() {
         root.clone()
@@ -1044,8 +1066,8 @@ fn describe_document(doc: &hick_lang::HickDocument) -> String {
 }
 
 /// `create_doc`: a new bare document, refusing to overwrite.
-fn call_create_doc_tool(args: &Value) -> Result<String, String> {
-    let root = std::env::current_dir().map_err(|e| format!("no working directory: {e}"))?;
+fn call_create_doc_tool(project: &std::path::Path, args: &Value) -> Result<String, String> {
+    let root = project.to_path_buf();
     let raw = args
         .get("path")
         .and_then(Value::as_str)
@@ -1102,99 +1124,9 @@ fn text_result(text: &str, is_error: bool) -> Value {
     })
 }
 
-/// Where this server records, when nobody named a file.
-///
-/// Recording used to be opt-in (`--session` / `HICKORY_SESSION`), and the
-/// registration `hick init` writes sets neither — so an external agent
-/// editing through MCP left **no** record that an agent had been there.
-/// `hick context`, the whole provenance family whose job is answering "what
-/// was in front of the model when it wrote these lines", reported nothing for
-/// documents an agent had just rewritten. Silence is the wrong default for
-/// the one thing this product exists to know.
-///
-/// One file per server process, which is one file per conversation — the same
-/// unit `hick agent` and the app's dock already use.
-///
-/// It defaults on only where the answer is unambiguous: a project that has
-/// run `hick init`, recognised by the `sessions/` line that command writes
-/// into `.gitignore`. Elsewhere — an MCP server started in someone's home
-/// directory, a repository that has never seen hick — creating folders
-/// nobody asked for would be the worse mistake, so it stays silent and
-/// `HICKORY_SESSION` remains the way in.
-fn default_session_log() -> Option<PathBuf> {
-    let root = std::env::current_dir().ok()?;
-    let sessions = root.join("sessions");
-    if !sessions.is_dir() {
-        let ignore = std::fs::read_to_string(root.join(".gitignore")).ok()?;
-        if !ignore.lines().any(|l| l.trim() == "sessions/") {
-            return None;
-        }
-    }
-    // The same `sessions/<timestamp>-<slug>.hick` convention `hick agent`
-    // writes, so one folder holds every conversation whoever had it.
-    Some(hickory_agent::session_file_path(&root, "mcp"))
-}
-
-/// Serve MCP on stdin/stdout until the client closes the stream.
-///
-/// One request at a time, on purpose: the sessions this server holds are
-/// single-writer over a document, and interleaving two edits to one file would
-/// reintroduce exactly the staleness the design exists to prevent.
-pub async fn serve(default_doc: Option<PathBuf>, params: Vec<(String, String)>) -> Result<()> {
-    let executor = ExecutorChoice::from_env()?.build().await?;
-    let mut server = Server {
-        sessions: HashMap::new(),
-        executor: executor.clone(),
-        params,
-        default_doc,
-        session_log: crate::doc_tools::session_from(None).or_else(default_session_log),
-        debuggers: crate::debug_sessions::Registry::new(),
-    };
-
-    let stdin = std::io::stdin();
-    let mut stdout = std::io::stdout();
-    for line in stdin.lock().lines() {
-        let line = line?;
-        if line.trim().is_empty() {
-            continue;
-        }
-        let request: Value = match serde_json::from_str(&line) {
-            Ok(v) => v,
-            Err(e) => {
-                // Parse errors have no id to answer against; report and keep
-                // serving rather than dropping the connection.
-                eprintln!("mcp: ignoring unparseable message: {e}");
-                continue;
-            }
-        };
-        let method = request
-            .get("method")
-            .and_then(Value::as_str)
-            .unwrap_or_default()
-            .to_string();
-        let id = request.get("id").cloned();
-        let empty = json!({});
-        let params = request.get("params").unwrap_or(&empty).clone();
-
-        // A notification (no id) gets no response — answering one is a
-        // protocol violation that some clients treat as fatal.
-        if id.is_none() {
-            continue;
-        }
-
-        let response = match server.handle(&method, &params).await {
-            Ok(result) => json!({ "jsonrpc": "2.0", "id": id, "result": result }),
-            Err((code, message)) => {
-                json!({ "jsonrpc": "2.0", "id": id, "error": { "code": code, "message": message } })
-            }
-        };
-        writeln!(stdout, "{response}")?;
-        stdout.flush()?;
-    }
-
-    executor.shutdown().await.ok();
-    Ok(())
-}
+#[path = "mcp_stdio.rs"]
+mod stdio;
+pub use stdio::serve;
 
 #[cfg(test)]
 mod tests {

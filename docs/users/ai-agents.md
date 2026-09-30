@@ -4,10 +4,16 @@
 documents: the built-in `hick agent`, or a coding agent they already use
 (Claude Code, etc.) on a local repo.*
 
-Either way, the end product is the same: agent work lands as `hick:session`
-documents in `sessions/*.hick`, and `hick ingest --from session` compacts a session into
-a clean pipeline document. The choice is about *where the agent runs*, not
-what it produces.
+Agent edits made through Hickory's tools change the source document in place.
+Session documents record how the work happened. The built-in agent can also
+produce executable scripts that you promote into a pipeline document.
+
+## Use your existing agent inside Hickory
+
+Choose **Codex** or **Claude Agent** in the Agent pane. Hickory connects through
+ACP, supplies its document-editing tools, and records the conversation as a
+session document. See [Use Codex in Hickory Docs](acp-agents.md) for installation,
+sign-in, permissions, and recovery.
 
 ## Option 1: the built-in agent
 
@@ -197,7 +203,7 @@ which agent produced it.
 
 ## Don't assume
 
-- **A coding agent's chat log is not a session document until you import
+- **An agent used outside Hickory's ACP pane has no session conversation until you import
   it.** With `HICKORY_SESSION` set, an outside agent's *tool calls* are
   recorded as a real `hick:session` — but its reasoning is not, and work it
   does by editing files directly, without the tools, is invisible to that

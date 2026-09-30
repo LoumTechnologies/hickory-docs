@@ -27,7 +27,8 @@ current="$(
   git ls-files -z -- '*.rs' '*.ts' '*.tsx' \
     | tr '\0' '\n' \
     | grep -vE 'node_modules/|/generated/|\.test\.(ts|tsx)$|/tests/|\.d\.ts$' \
-    | xargs -d '\n' wc -l \
+    | tr '\n' '\0' \
+    | xargs -0 wc -l \
     | awk -v t="$threshold" '$2 != "total" && $1 > t { print $2, $1 }' \
     | sort
 )"

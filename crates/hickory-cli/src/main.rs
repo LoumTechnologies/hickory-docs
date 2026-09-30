@@ -12,29 +12,10 @@ use hickory_cli::{
     unverifiable_message, write_outputs_detailed,
 };
 
-/// What `hick --version` reports.
-///
-/// A downloaded binary should name the release it came from, not the
-/// workspace's `Cargo.toml` number, which nobody bumps between releases and
-/// which would make every unstable build claim to be `0.1.0`.
-/// `scripts/dist.sh` sets `HICKORY_VERSION` when it builds an artifact; a
-/// plain `cargo build` leaves it unset and falls back to the crate version
-/// **plus the commit it was built from** (`build.rs`), because otherwise
-/// every unstable build claims to be `0.1.0` — and a document's woven bytes
-/// depend on which build wove them, so two indistinguishable versions produce
-/// a drift failure that reads as a content change.
-const VERSION: &str = match option_env!("HICKORY_VERSION") {
-    Some(v) => v,
-    None => match option_env!("HICKORY_BUILD_VERSION") {
-        Some(v) => v,
-        None => env!("CARGO_PKG_VERSION"),
-    },
-};
-
 #[derive(Parser)]
 #[command(
     name = "hick",
-    version = VERSION,
+    version = main_thread::VERSION,
     about = "Reproducible, verifiable, executable documents"
 )]
 struct Cli {
@@ -1130,36 +1111,9 @@ struct AgentArgs {
     max_turns: usize,
 }
 
-/// How much stack the work gets, on every platform.
-///
-/// Windows gives a process's main thread 1 MiB; Linux and macOS give 8. The
-/// runtime's `block_on` runs on that thread, so the whole command — parse,
-/// weave, execute, the async chain under all of it — lives inside whatever the
-/// platform happened to choose. `hick up --run` overflowed 1 MiB in a debug
-/// build and died with "thread 'main' has overflowed its stack", taking the
-/// loop down mid-edit (#23).
-///
-/// It is depth, not a runaway: an unbounded recursion overflows whatever it is
-/// given, and the release build of the same command on the same machine does
-/// not crash — release frames are simply smaller. So the fix is to stop
-/// inheriting a number that differs 8x across platforms, rather than to chase
-/// a recursion that is not there. 16 MiB is reserved address space, not
-/// committed memory; the pages are only ever touched if something needs them.
-const STACK_SIZE: usize = 16 * 1024 * 1024;
-
+mod main_thread;
 fn main() -> ExitCode {
-    match std::thread::Builder::new()
-        .name("hick".to_string())
-        .stack_size(STACK_SIZE)
-        .spawn(run)
-        .expect("failed to start the main thread")
-        .join()
-    {
-        Ok(code) => code,
-        // Re-raise rather than turning it into an exit code: a panic should
-        // still look like a panic, with the same status it has always had.
-        Err(panic) => std::panic::resume_unwind(panic),
-    }
+    main_thread::main_exit()
 }
 
 fn run() -> ExitCode {

@@ -1,3 +1,4 @@
+import { AcpRecord } from "../../components/AcpRecord";
 // The conversation's elements, drawn as the cards the agent pane has always
 // drawn — now in place of their source in the session document, with line
 // numbers beside them. See docs/guarantees/agent/a-session-is-the-conversation.md
@@ -225,6 +226,7 @@ export const sessionWroteView = view("session-wrote", "wrote", (slot, cx) => {
 
 export const sessionContextView = view("session-context", "context", (slot, cx) => {
   const block = serverBlock(slot, cx, "session-context");
+  if ((block?.context_kind?.startsWith("acp-") || block?.context_kind?.startsWith("filesystem-"))) return <AcpRecord kind={block.context_kind} body={block.body ?? slot.text.trim()} />;
   return (
     <details className="chat-step chat-step--context">
       <summary>context{block?.context_kind ? <> · {block.context_kind}</> : null}</summary>

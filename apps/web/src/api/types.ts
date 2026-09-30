@@ -131,6 +131,7 @@ export interface Run {
  * the dock renders are typed — the rest are kind-only so `kind` narrowing
  * stays exhaustive against `TranscriptEvent` (no member here carries `t`). */
 export type AgentWsEvent =
+  | { kind: "acp_update"; update: import("./acp").AcpUpdate }
   | { kind: "token"; data: string }
   | { kind: "reasoning"; data: string }
   | { kind: "script_started"; lang: string; data: string }
@@ -422,51 +423,7 @@ export interface ExecutorInfo {
  *
  * The conversation is a TREE: `parent_id` is the turn this one continues from,
  * so rewinding and sending again forks a branch instead of destroying history. */
-/** Four-way token usage, split the way providers bill it. */
-export interface AgentUsage {
-  input_tokens: number;
-  cache_creation_input_tokens: number;
-  cache_read_input_tokens: number;
-  output_tokens: number;
-}
-
-export interface AgentTurn {
-  id: string;
-  parent_id: string | null;
-  prompt: string;
-  answer: string | null;
-  status: "running" | "ok" | "error" | string;
-  error: string | null;
-  created_at: string;
-  /** Provider selector this turn ran on ("anthropic", "openai", …). */
-  provider: string;
-  /** Model id this turn ran on — recorded per turn, so a mid-conversation
-   * model change stays visible. */
-  model: string;
-  /** The turn's final token usage; null while running or after a failure. */
-  usage: AgentUsage | null;
-  /** The session file this turn is recorded in, relative to the folder. */
-  session?: string;
-}
-
-/** Session-wide spend across a document's turns, each turn priced on the
- * model it ran on. `usd` is null when any turn's model has no known price. */
-export interface AgentTotals {
-  usd: number | null;
-  input: number;
-  output: number;
-  cache_read: number;
-  cache_write: number;
-}
-
-export interface AgentTurnsResponse {
-  turns: AgentTurn[];
-  /** The provider the next turn would run on, defaults resolved. */
-  provider: string;
-  /** The model the next turn would run on, defaults resolved. */
-  model: string;
-  totals: AgentTotals;
-}
+export type { AgentUsage, AgentTurn, AgentTotals, AgentTurnsResponse } from "./agentTypes";
 
 // --- project search ----------------------------------------------------------
 // GET /api/search — ranked hits across the served folder: .hick documents and
