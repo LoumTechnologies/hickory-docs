@@ -89,6 +89,37 @@ impl DivergedKind {
 }
 
 impl WovenState {
+    /// Snapshot engine-owned paths before a coordinated filesystem act.
+    pub fn snapshot(&self) -> HashMap<PathBuf, Vec<u8>> {
+        self.docs
+            .keys()
+            .chain(self.outputs.keys())
+            .filter_map(|p| std::fs::read(p).ok().map(|bytes| (p.clone(), bytes)))
+            .collect()
+    }
+
+    /// An engine-owned CLI/run write is not a reverse edit. Re-adopt its
+    /// output bytes, and invalidate documents so the watcher refreshes lineage.
+    pub fn adopt_changed(&mut self, before: &HashMap<PathBuf, Vec<u8>>) -> Vec<PathBuf> {
+        let mut dirty = HashSet::new();
+        for (path, old) in before {
+            if let Ok(bytes) = std::fs::read(path) {
+                if &bytes != old {
+                    if let Some(output) = self.outputs.get_mut(path) {
+                        if let Ok(text) = String::from_utf8(bytes) {
+                            output.content = text;
+                            dirty.insert(output.doc.clone());
+                        }
+                    } else {
+                        dirty.insert(path.clone());
+                    }
+                }
+            }
+        }
+        let dirty: Vec<_> = dirty.into_iter().collect();
+        for doc in &dirty { self.docs.remove(doc); }
+        dirty
+    }
     pub fn output(&self, path: &Path) -> Option<&OutputState> {
         self.outputs.get(path)
     }

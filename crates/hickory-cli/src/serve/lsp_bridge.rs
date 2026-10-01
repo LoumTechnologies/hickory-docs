@@ -99,6 +99,13 @@ impl Drop for Session {
 }
 
 impl LspHub {
+    /// A dependency action changed host environments; refresh existing children.
+    pub fn refresh_environments(&self) {
+        if let Some(session) = &self.state.lock().expect("hub state").session {
+            let _ = session.to_server.send(serde_json::json!({"jsonrpc":"2.0", "method":"workspace/didChangeConfiguration", "params":{"settings":{}}}));
+        }
+    }
+
     /// A hub for the workspace at `root`. Nothing is started until the first
     /// subscriber sends something: a session that never asks a language
     /// question must never spawn a language server.

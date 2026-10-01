@@ -15,6 +15,7 @@ members = [
     "crates/hick-blocks",
     "crates/hick-dap",
     "crates/hick-lsp",
+    "crates/hick-project-env",
     "crates/hick-structure",
     "crates/hick-transcript",
     "crates/hick-term",

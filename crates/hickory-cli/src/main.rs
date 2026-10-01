@@ -1122,6 +1122,11 @@ fn run() -> ExitCode {
 
     let runtime = tokio::runtime::Runtime::new().expect("failed to build tokio runtime");
     let outcome = runtime.block_on(async {
+        if let Some(code) =
+            hickory_cli::engine::forward_cli(&std::env::args().skip(1).collect::<Vec<_>>()).await?
+        {
+            return Ok(ExitCode::from(code.clamp(0, 255) as u8));
+        }
         match cli.command {
             Command::Run(args) => cmd_run(args).await,
             Command::Lint(args) => cmd_lint(args),
@@ -1639,7 +1644,7 @@ async fn cmd_search(args: SearchArgs) -> Result<ExitCode> {
 }
 
 async fn cmd_up(args: UpArgs) -> Result<ExitCode> {
-    hickory_cli::up::run(hickory_cli::up::UpConfig {
+    hickory_cli::engine::up(hickory_cli::up::UpConfig {
         root: args.path.unwrap_or_else(|| PathBuf::from(".")),
         params: params_with_features(&args.params, &args.features),
         run: args.run,

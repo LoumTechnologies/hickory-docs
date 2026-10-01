@@ -38,6 +38,8 @@ pub struct ChildLspHandle {
     language_id: String,
     /// What this server must be told at `initialize` to work here.
     init_options: Option<Value>,
+    environment_kind: Option<&'static str>,
+    settings: Arc<Mutex<Value>>,
     stdin: Arc<Mutex<tokio::io::BufWriter<tokio::process::ChildStdin>>>,
     next_id: Arc<AtomicI64>,
     pending: Arc<Mutex<HashMap<i64, oneshot::Sender<Value>>>>,
@@ -53,10 +55,37 @@ impl ChildLspHandle {
     /// notifications like `textDocument/publishDiagnostics`.
     pub async fn spawn(
         language_id: &str,
+        root_uri: &str,
         notification_tx: mpsc::UnboundedSender<ChildNotification>,
     ) -> Result<Self, ChildLspError> {
-        let (cmd_parts, init_options) = lsp_launch(language_id)?;
+        let root = tower_lsp::lsp_types::Url::parse(root_uri)
+            .ok()
+            .and_then(|u| u.to_file_path().ok());
+        let (cmd_parts, init_options) = if crate::server_config::command_for(language_id).is_none()
+        {
+            root.as_deref()
+                .and_then(|p| crate::discovery::discover(language_id, p))
+                .map(|d| (d.command, d.init_options))
+                .map(Ok)
+                .unwrap_or_else(|| lsp_launch(language_id))?
+        } else {
+            lsp_launch(language_id)?
+        };
         let program = &cmd_parts[0];
+        let environment_kind = if language_id != "python" {
+            None
+        } else if program.contains("pyright") {
+            Some("pyright")
+        } else if program.contains("pylsp") {
+            Some("pylsp")
+        } else {
+            None
+        };
+        let settings = Arc::new(Mutex::new(
+            root.as_deref()
+                .map(|p| crate::project_environment::settings(environment_kind, p))
+                .unwrap_or(Value::Null),
+        ));
         let args = &cmd_parts[1..];
 
         let mut child = Command::new(program)
@@ -84,6 +113,9 @@ impl ChildLspHandle {
 
         let lang_id = language_id.to_string();
         let pending_clone = Arc::clone(&pending);
+        let child_stdin = Arc::new(Mutex::new(tokio::io::BufWriter::new(child_stdin)));
+        let response_writer = child_stdin.clone();
+        let reader_settings = settings.clone();
         let reader_handle = tokio::spawn(async move {
             let mut stdout = BufReader::new(child_stdout);
             while let Ok(msg) = read_message(&mut stdout).await {
@@ -99,6 +131,24 @@ impl ChildLspHandle {
                 }
                 // Notification (has "method", no "id" or "id" is null)?
                 if let Some(method) = msg.get("method").and_then(|m| m.as_str()) {
+                    if let Some(id) = msg.get("id").filter(|id| !id.is_null()) {
+                        let result = if method == "workspace/configuration" {
+                            crate::project_environment::configuration(
+                                &*reader_settings.lock().await,
+                                &msg["params"],
+                            )
+                        } else if method == "workspace/applyEdit" {
+                            serde_json::json!({"applied": false})
+                        } else {
+                            Value::Null
+                        };
+                        let _ = send_message(
+                            &response_writer,
+                            &serde_json::json!({"jsonrpc":"2.0","id":id,"result":result}),
+                        )
+                        .await;
+                        continue;
+                    }
                     let _ = notification_tx.send(ChildNotification {
                         language_id: lang_id.clone(),
                         method: method.to_string(),
@@ -115,7 +165,9 @@ impl ChildLspHandle {
         Ok(Self {
             language_id: language_id.to_string(),
             init_options,
-            stdin: Arc::new(Mutex::new(tokio::io::BufWriter::new(child_stdin))),
+            environment_kind,
+            settings,
+            stdin: child_stdin,
             next_id: Arc::new(AtomicI64::new(1)),
             pending,
             process: Arc::new(Mutex::new(child)),
@@ -174,7 +226,7 @@ impl ChildLspHandle {
             "processId": std::process::id(),
             "rootUri": root_uri,
             "capabilities": {
-                "workspace": { "symbol": {}, "workspaceEdit": { "documentChanges": true } },
+                "workspace": { "symbol": {}, "configuration": true, "workspaceEdit": { "documentChanges": true } },
                 "textDocument": {
                     "publishDiagnostics": {
                         "relatedInformation": false
@@ -240,8 +292,28 @@ impl ChildLspHandle {
 
         let result = self.request("initialize", params).await?;
         self.notify("initialized", serde_json::json!({})).await?;
+        self.refresh_environment(root_uri).await?;
 
         Ok(result)
+    }
+
+    pub async fn refresh_environment(&self, root_uri: &str) -> Result<(), ChildLspError> {
+        if self.environment_kind.is_none() {
+            return Ok(());
+        }
+        if let Some(root) = tower_lsp::lsp_types::Url::parse(root_uri)
+            .ok()
+            .and_then(|u| u.to_file_path().ok())
+        {
+            let settings = crate::project_environment::settings(self.environment_kind, &root);
+            *self.settings.lock().await = settings.clone();
+            self.notify(
+                "workspace/didChangeConfiguration",
+                serde_json::json!({"settings":settings}),
+            )
+            .await?;
+        }
+        Ok(())
     }
 
     /// Shut down the child LSP server gracefully.

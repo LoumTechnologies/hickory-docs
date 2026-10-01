@@ -294,6 +294,7 @@ impl Room {
 pub struct RoomRegistry {
     rooms: tokio::sync::Mutex<HashMap<DocKey, Arc<Room>>>,
     store: Arc<dyn DocStore>,
+    writes: Option<Arc<tokio::sync::Mutex<()>>>,
 }
 
 impl RoomRegistry {
@@ -301,6 +302,17 @@ impl RoomRegistry {
         Self {
             rooms: tokio::sync::Mutex::new(HashMap::new()),
             store,
+            writes: None,
+        }
+    }
+
+    /// Coordinate persistence with the local engine's filesystem acts.
+    /// Acquire this before a room lock, including when persisting a snapshot.
+    pub fn with_writes(store: Arc<dyn DocStore>, writes: Arc<tokio::sync::Mutex<()>>) -> Self {
+        Self {
+            rooms: tokio::sync::Mutex::new(HashMap::new()),
+            store,
+            writes: Some(writes),
         }
     }
 
@@ -590,6 +602,10 @@ impl RoomRegistry {
 
     /// Persist immediately, if anything changed since the last write.
     pub async fn persist_now(&self, room: &Arc<Room>) {
+        let _write = match &self.writes {
+            Some(writes) => Some(writes.lock().await),
+            None => None,
+        };
         let generation = room.generation.load(Ordering::SeqCst);
         if room.persisted.swap(generation, Ordering::SeqCst) == generation {
             return; // nothing new since the last persist

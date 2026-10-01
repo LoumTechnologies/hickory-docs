@@ -33,6 +33,7 @@ pub mod anchored;
 pub mod api;
 pub mod asset;
 pub mod debug_bridge;
+pub mod environments;
 pub mod files_ops;
 pub mod find;
 pub mod formula;
@@ -144,6 +145,7 @@ pub struct LocalState {
     /// them. Sessions outlive their panes, so they belong to the session
     /// state rather than to any one client. See [`terminal`].
     pub terminals: Arc<hick_term::Terminals>,
+    pub environments: Arc<environments::Environments>,
     /// Which terminals are writing into which documents. See [`anchored`];
     /// empty is the normal state, because a terminal writes nothing until
     /// somebody anchors it.
@@ -169,6 +171,9 @@ pub struct LocalState {
     /// The running loop's command inbox, set when the loop starts.
     pub up_commands:
         Arc<std::sync::Mutex<Option<tokio::sync::mpsc::UnboundedSender<crate::up::UpCommand>>>>,
+    pub writes: Arc<tokio::sync::Mutex<()>>,
+    pub window_slot: Option<String>,
+    pub engine_woven: Option<Arc<tokio::sync::Mutex<crate::up::state::WovenState>>>,
 }
 
 /// One diverged produced file, as the tree and the pane read it. Axis 3 of
@@ -379,6 +384,10 @@ impl LocalState {
     /// are in the CRDT for up to the persist debounce, and rendering the file
     /// instead would show everyone a document that is a moment out of date.
     pub async fn weave(&self, id: &str) -> ApiResult<crate::DocRun> {
+        crate::engine::writes::during(&self.writes, self.weave_inner(id)).await
+    }
+
+    async fn weave_inner(&self, id: &str) -> ApiResult<crate::DocRun> {
         let path = self
             .index
             .absolute(id)
@@ -423,10 +432,15 @@ impl LocalState {
         let doc_key = id.to_string();
         let run_key = run_id.clone();
         tokio::spawn(async move {
+            let _write = state.writes.lock().await;
             let mode = if check_only {
                 RunMode::Verify
             } else {
                 RunMode::Execute
+            };
+            let before = match &state.engine_woven {
+                Some(woven) => Some(woven.lock().await.snapshot()),
+                None => None,
             };
             let outcome = crate::run_doc(&path, &state.params, mode, state.executor).await;
 
@@ -464,6 +478,21 @@ impl LocalState {
                 }
             };
 
+            if let (Some(woven), Some(before)) = (&state.engine_woven, before) {
+                let docs = woven.lock().await.adopt_changed(&before);
+                if let Some(tx) = state.up_commands.lock().unwrap().as_ref() {
+                    for doc in docs {
+                        let _ = tx.send(crate::up::UpCommand::Reweave(doc));
+                    }
+                }
+                let history = woven.lock().await;
+                crate::serve::watch::reconcile_rooms(
+                    &state,
+                    &state.index.root().to_path_buf(),
+                    &history,
+                )
+                .await;
+            }
             if let Some(record) = state.runs.lock().unwrap().get_mut(&run_key) {
                 record.status = status.to_string();
                 record.blocks = blocks;
@@ -492,7 +521,7 @@ impl LocalState {
 /// No `/me`, `/billing/plans`, or `/analytics/capture` either. Those existed
 /// because the React client was shared with a hosted product and asked for
 /// them on load. It is not shared any more.
-fn router(state: LocalState) -> Router {
+pub(crate) fn router(state: LocalState) -> Router {
     let api = Router::new()
         .route("/projects", get(api::projects))
         .route(
@@ -665,6 +694,9 @@ fn router(state: LocalState) -> Router {
                 .delete(workspace::discard_draft),
         )
         .route("/terminals", get(terminal::list).post(terminal::open))
+        .route("/environments", get(environments::inspect))
+        .route("/environments/actions", post(environments::act))
+        .route("/environments/manager", put(environments::choose))
         .route("/tests/run", post(test_run::run))
         .route("/terminals/turbo", put(terminal::set_turbo))
         .route("/terminals/anchors", get(terminal::anchors))
@@ -763,12 +795,16 @@ pub async fn prepare(opts: ServeOptions) -> Result<Prepared> {
         }),
         refactors: Arc::new(Mutex::new(HashMap::new())),
         terminals: Arc::new(hick_term::Terminals::new(term_config)),
+        environments: Arc::new(environments::Environments::default()),
         anchors: Arc::new(anchored::Anchors::default()),
         lsp: Arc::new(lsp_bridge::LspHub::new(index.root())),
         held: Arc::new(std::sync::Mutex::new(HashMap::new())),
         scaffolds: Arc::new(Mutex::new(HashMap::new())),
         shell: Arc::new(Mutex::new(None)),
         up_commands: Arc::new(std::sync::Mutex::new(None)),
+        writes: Arc::new(tokio::sync::Mutex::new(())),
+        window_slot: None,
+        engine_woven: None,
     };
 
     Ok(Prepared {

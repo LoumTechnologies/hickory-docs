@@ -13,6 +13,7 @@ pub mod document;
 pub mod element_lint;
 pub mod lang_detect;
 pub mod position_map;
+pub mod project_environment;
 pub mod semantic;
 pub mod server_config;
 pub mod session_lint;

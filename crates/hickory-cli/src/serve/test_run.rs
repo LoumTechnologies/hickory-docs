@@ -118,7 +118,14 @@ pub fn test_command(
             Ok(TestCommand {
                 title,
                 cwd: dir,
-                argv: vec![s("python3"), s("-m"), s("pytest"), target],
+                argv: vec![
+                    hick_project_env::python_interpreter(file.parent().unwrap_or(root), root)
+                        .map(|p| p.to_string_lossy().into_owned())
+                        .unwrap_or_else(|| s("python3")),
+                    s("-m"),
+                    s("pytest"),
+                    target,
+                ],
             })
         }
         "typescript" | "javascript" | "typescriptreact" | "javascriptreact" => {

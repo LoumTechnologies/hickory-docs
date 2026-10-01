@@ -156,6 +156,16 @@ impl Session {
             c
         };
         cmd.cwd(&spec.cwd);
+        // macOS terminal shells read login profiles, where Homebrew's PATH
+        // is commonly installed. Keep explicit argv exactly as requested.
+        #[cfg(target_os = "macos")]
+        if spec.argv.is_empty()
+            && std::path::Path::new(&config.shell)
+                .file_name()
+                .is_some_and(|name| name == "zsh")
+        {
+            cmd.arg("-l");
+        }
         // Programs that ask what they are talking to should get a truthful
         // answer; xterm.js is xterm-256color.
         cmd.env("TERM", "xterm-256color");
@@ -462,7 +472,7 @@ impl Session {
     }
 
     /// The child's exit code, once it has one.
-    fn exit_code(&self) -> Option<i32> {
+    pub fn exit_code(&self) -> Option<i32> {
         if let Some(code) = *self.exit.lock().expect("exit lock") {
             return Some(code);
         }

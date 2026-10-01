@@ -340,23 +340,21 @@ fn a_fully_generated_file_is_read_only_and_a_forced_edit_is_held_not_undone() {
 
 /// Guarantee: `docs/guarantees/authoring/one-loop-owns-a-directory.md`
 #[test]
-fn a_second_loop_on_the_same_directory_refuses_to_start() {
+fn a_second_client_on_the_same_directory_attaches() {
     let up = Loop::start(DOC);
-
-    let out = hick()
+    let mut second = hick()
         .arg("up")
         .arg(up.dir.path())
-        .output()
-        .expect("run second hick up");
-
-    assert!(!out.status.success(), "the second loop should have refused");
-    let stderr = String::from_utf8_lossy(&out.stderr);
+        .stderr(Stdio::null())
+        .spawn()
+        .expect("start another client");
+    std::thread::sleep(Duration::from_millis(500));
     assert!(
-        stderr.contains("already open in another Hickory Docs process"),
-        "the refusal should say why: {stderr}"
+        second.try_wait().unwrap().is_none(),
+        "the second client refused to attach"
     );
-    // A refusal an operator can act on names the lock it is talking about.
-    assert!(stderr.contains("up.lock"), "{stderr}");
+    let _ = second.kill();
+    let _ = second.wait();
 }
 
 /// A directory with no documents is a mistake worth naming, not an empty

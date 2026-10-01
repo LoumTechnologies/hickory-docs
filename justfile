@@ -266,3 +266,17 @@ test-fskit-live:
 # Desktop entry points live outside the root workspace.
 check-desktop:
     cd apps/desktop/src-tauri && cargo fmt --all && cargo clippy --all-targets -- -D warnings
+
+# Desktop PATH recovery and real-shell startup regression checks.
+test-binary-discovery:
+    cargo test --manifest-path apps/desktop/src-tauri/Cargo.toml --bin hickory-desktop launch_path::
+    cargo test -p hick-term --lib shell_integration::
+    cargo test -p hick-term --test a_real_shell_reports_its_directory --test typed_commands
+    cargo test -p hickory-cli --lib serve::github::
+
+# Real-process ownership, reconnect and shared-window regression checks.
+test-engine:
+    cargo build -p hickory-cli --bin hick --example engine_client
+    cargo test -p hickory-cli --test engine_lifecycle --test up_loop --test up_stress --test serve_local -- --test-threads=1
+    cargo test -p hickory-collab -p hickory-workspace -- --test-threads=1
+    cargo test --manifest-path apps/desktop/src-tauri/Cargo.toml --test serves_one_origin -- --test-threads=1

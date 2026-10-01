@@ -8,6 +8,7 @@ license.workspace = true
 [dependencies]
 hick-lang = { path = "../hick-lang" }
 hick-blocks = { path = "../hick-blocks" }
+hick-project-env = { path = "../hick-project-env" }
 tower-lsp = "0.20"
 tokio = { version = "1", features = ["full"] }
 serde = { version = "1", features = ["derive"] }

@@ -84,11 +84,12 @@ fn command(dir: &Path, program: &str, args: &[&str]) -> Result<Output, String> {
         .args(args)
         .output()
         .map_err(|error| {
-            if error.kind() == std::io::ErrorKind::NotFound {
-                format!("{program} is not installed")
-            } else {
-                format!("could not start {program}: {error}")
-            }
+            format!(
+                "could not start {program} in {}: {error}. Check that the folder exists \
+                 and {program} is executable and on Hickory Docs' PATH; restart the app \
+                 after installing it or changing your shell's PATH.",
+                dir.display()
+            )
         })
 }
 
@@ -797,6 +798,18 @@ pub async fn mark_notification_read(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // Protects docs/guarantees/integrations/the-desktop-finds-tools-from-the-shell-path.md
+    #[test]
+    fn launch_failure_does_not_claim_a_binary_is_uninstalled() {
+        let root = tempfile::tempdir().unwrap();
+        let missing = root.path().join("missing-workspace");
+        let error = command(&missing, "git", &["--version"]).unwrap_err();
+        assert!(error.contains("could not start git"), "{error}");
+        assert!(error.contains("missing-workspace"), "{error}");
+        assert!(error.contains("Check that the folder exists"), "{error}");
+        assert!(!error.contains("not installed"), "{error}");
+    }
 
     #[test]
     fn common_github_remotes_have_one_identity() {

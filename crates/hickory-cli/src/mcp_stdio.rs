@@ -50,6 +50,14 @@ pub async fn serve(default_doc: Option<PathBuf>, params: Vec<(String, String)>) 
         debuggers: crate::debug_sessions::Registry::new(),
     };
 
+    let options = crate::engine::mcp::Options {
+        root: server.root.clone(),
+        doc: server.default_doc.clone(),
+        params: server.params.clone(),
+        executor: ExecutorChoice::from_env()?,
+        session: server.session_log.clone(),
+    };
+    let mut remote = None;
     let stdin = std::io::stdin();
     let mut stdout = std::io::stdout();
     for line in stdin.lock().lines() {
@@ -81,7 +89,21 @@ pub async fn serve(default_doc: Option<PathBuf>, params: Vec<(String, String)>) 
             continue;
         }
 
-        let response = match server.handle(&method, &params).await {
+        let result = if method == "tools/call" && std::env::var_os(crate::engine::WORKER).is_none()
+        {
+            if remote.is_none() {
+                remote = Some(crate::engine::mcp::Remote::new(options.clone()).await?);
+            }
+            Ok(remote
+                .as_ref()
+                .unwrap()
+                .call(&params)
+                .await
+                .unwrap_or_else(crate::engine::mcp::refusal))
+        } else {
+            server.handle(&method, &params).await
+        };
+        let response = match result {
             Ok(result) => json!({ "jsonrpc": "2.0", "id": id, "result": result }),
             Err((code, message)) => {
                 json!({ "jsonrpc": "2.0", "id": id, "error": { "code": code, "message": message } })
@@ -93,4 +115,16 @@ pub async fn serve(default_doc: Option<PathBuf>, params: Vec<(String, String)>) 
 
     executor.shutdown().await.ok();
     Ok(())
+}
+
+pub(crate) async fn engine_server(options: crate::engine::mcp::Options) -> Result<Server> {
+    Ok(Server {
+        root: options.root,
+        sessions: HashMap::new(),
+        executor: options.executor.build().await?,
+        params: options.params,
+        default_doc: options.doc,
+        session_log: options.session,
+        debuggers: crate::debug_sessions::Registry::new(),
+    })
 }

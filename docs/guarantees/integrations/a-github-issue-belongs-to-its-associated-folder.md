@@ -12,6 +12,11 @@ is one semantic GitHub operation and a refusal keeps GitHub's useful words.
 Authentication remains in the person's `gh` credential store. A missing or
 signed-out CLI leaves files usable and marks GitHub or the issue unavailable.
 
+On macOS, the desktop discovers the person's shell PATH before launching the
+engine; see [The Desktop Finds Tools From The Shell PATH](the-desktop-finds-tools-from-the-shell-path.md).
+A command launch failure reports the underlying error rather than claiming
+the executable is uninstalled.
+
 ---
 
 Last LLM verification:

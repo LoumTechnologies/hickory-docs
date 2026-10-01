@@ -199,6 +199,13 @@ impl Registry {
         tracing_adapter(&adapter);
         let program = hick_dap::build_plain(file, root, on_build).await?;
         let cwd = project_dir_of(root, file);
+        let extra = if hick_dap::language_of(file) == Some("python") {
+            hick_project_env::python_interpreter(file.parent().unwrap_or(root), root)
+                .map(|python| serde_json::json!({"python": python}))
+                .unwrap_or_else(|| serde_json::json!({}))
+        } else {
+            serde_json::json!({})
+        };
         let (session, statuses) = Session::start(
             Launch {
                 transport: adapter.transport,
@@ -207,7 +214,7 @@ impl Registry {
                 adapter: adapter.command,
                 program,
                 cwd,
-                extra: serde_json::json!({}),
+                extra,
             },
             Arc::new(Mapping::identity(file)),
             breakpoints,

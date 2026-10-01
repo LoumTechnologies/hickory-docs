@@ -19,6 +19,7 @@ pub mod diagram;
 pub mod doc_tools;
 pub mod editor_lsp;
 pub mod emission;
+pub mod engine;
 pub mod floor;
 pub mod history;
 pub mod index_install;
@@ -73,7 +74,7 @@ use hick_literate::{
 };
 
 /// Which executor backend to use, from `HICKORY_EXECUTOR`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum ExecutorChoice {
     Local,
     /// The local executor, with each cell confined to its own workdir.

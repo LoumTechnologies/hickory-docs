@@ -312,23 +312,28 @@ ZDOTDIR="$__hickory_ours"
 unset __hickory_ours
 "#;
 
-    // The others just forward. `.zshrc` additionally installs the hook, and
-    // hands `ZDOTDIR` back afterwards so anything the user runs later sees the
-    // value they expect rather than a temporary directory.
+    // Keep our directory until the last startup file: restoring it from
+    // .zprofile skips our .zshrc (and its hooks) in a login shell. Restore
+    // after .zshrc for non-login shells, after .zlogin for login shells.
     let forward = |file: &str, hook: &str| {
         format!(
             r#"
 # Hickory Docs shell integration. Generated per session; not yours to keep.
+__hickory_ours="$ZDOTDIR"
 if [[ -n "$HICKORY_USER_ZDOTDIR" && -f "$HICKORY_USER_ZDOTDIR/{file}" ]]; then
   ZDOTDIR="$HICKORY_USER_ZDOTDIR"
   . "$HICKORY_USER_ZDOTDIR/{file}"
+  export HICKORY_USER_ZDOTDIR="$ZDOTDIR"
 fi
 {hook}
-if [[ -n "$HICKORY_ZDOTDIR_WAS_SET" ]]; then
+if [[ "{file}" == .zprofile || ( "{file}" == .zshrc && -o login ) ]]; then
+  ZDOTDIR="$__hickory_ours"
+elif [[ -n "$HICKORY_ZDOTDIR_WAS_SET" || "$HICKORY_USER_ZDOTDIR" != "$HOME" ]]; then
   export ZDOTDIR="$HICKORY_USER_ZDOTDIR"
 else
   unset ZDOTDIR
 fi
+unset __hickory_ours
 "#
         )
     };
@@ -435,6 +440,50 @@ fn has_ps0(shell: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(unix)]
+    #[test]
+    // Protects docs/guarantees/integrations/the-desktop-finds-tools-from-the-shell-path.md
+    fn login_profiles_find_tools_without_skipping_command_hooks() {
+        use std::os::unix::fs::PermissionsExt;
+        let shell = ["/bin/zsh", "/usr/bin/zsh"]
+            .into_iter()
+            .find(|p| std::path::Path::new(p).is_file());
+        let Some(shell) = shell else {
+            return;
+        };
+        let home = tempfile::tempdir().unwrap();
+        let bin = home.path().join("bin");
+        std::fs::create_dir(&bin).unwrap();
+        std::fs::write(bin.join("gh"), "#!/bin/sh\nprintf 'fixture-gh'\n").unwrap();
+        std::fs::set_permissions(bin.join("gh"), std::fs::Permissions::from_mode(0o755)).unwrap();
+        std::fs::write(
+            home.path().join(".zprofile"),
+            format!("export PATH='{}':$PATH\n", bin.display()),
+        )
+        .unwrap();
+        std::fs::write(home.path().join(".zshrc"), "export HICKORY_TEST_RC=read\n").unwrap();
+        std::fs::write(
+            home.path().join(".zlogin"),
+            "export HICKORY_TEST_LOGIN=read\n",
+        )
+        .unwrap();
+        let integration = zsh().unwrap();
+        let mut cmd = std::process::Command::new(shell);
+        for (key, value) in integration.env() {
+            cmd.env(key, value);
+        }
+        let output = cmd.env("HOME", home.path()).env("HICKORY_USER_ZDOTDIR", home.path())
+            .env("PATH", "/usr/bin:/bin").env("TERM_PROGRAM", "HickoryDocs")
+            .args(["-ilc", "gh; printf '|%s|%s|%s' $HICKORY_TEST_RC $HICKORY_TEST_LOGIN ${+functions[__hickory_report_cwd]}"])
+            .output().unwrap();
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert_eq!(output.stdout, b"fixture-gh|read|read|1");
+    }
 
     #[test]
     fn a_shell_we_do_not_recognise_is_left_alone() {

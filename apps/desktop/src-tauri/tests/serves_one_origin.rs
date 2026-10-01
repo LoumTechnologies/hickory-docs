@@ -107,19 +107,15 @@ async fn a_blank_window_has_a_page_but_no_workspace_api() {
     assert_eq!(projects.status(), reqwest::StatusCode::NOT_FOUND);
 }
 
-/// The app takes the same directory lock `hick up` takes, so one folder is
-/// never open in two writers at once.
+/// Guarantee: docs/guarantees/authoring/one-loop-owns-a-directory.md
 #[tokio::test(flavor = "multi_thread")]
-async fn a_second_session_on_the_same_folder_is_refused() {
+async fn a_second_session_on_the_same_folder_attaches() {
     let dir = tempfile::tempdir().expect("tempdir");
-    let (_session, _http) = start_in(dir.path()).await;
-
-    let second = hickory_desktop_lib::server::start(dir.path(), None, None).await;
-    let err = second.err().expect("the second session must be refused");
-    assert!(
-        err.to_string().contains("already open"),
-        "the refusal should say why: {err}"
-    );
+    let (first, http) = start_in(dir.path()).await;
+    let second = hickory_desktop_lib::server::start(dir.path(), None, None).await.unwrap();
+    for session in [&first, &second] {
+        assert!(http.get(format!("{}/api/health", session.url)).send().await.unwrap().status().is_success());
+    }
 }
 
 // ---------------------------------------------------------------------------

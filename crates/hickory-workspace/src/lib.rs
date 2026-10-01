@@ -105,6 +105,19 @@ impl WorkspaceStore {
         &self.dir
     }
 
+    /// A window's recovery state is separate from every other window's.
+    /// Slot zero retains the existing layout and drafts on first upgrade.
+    pub fn window(mut self, slot: &str) -> Result<Self> {
+        if slot != "0" {
+            if slot.is_empty() || !slot.bytes().all(|b| b.is_ascii_digit()) {
+                bail!("invalid window slot");
+            }
+            self.dir = self.dir.join("windows").join(slot);
+            fs::create_dir_all(self.dir.join("drafts"))?;
+        }
+        Ok(self)
+    }
+
     // -- UI state ----------------------------------------------------------
 
     fn ui_path(&self) -> PathBuf {
@@ -266,7 +279,7 @@ pub const STATE_DIR_VAR: &str = "HICKORY_STATE_DIR";
 /// unsaved drafts are things the app accumulated, not things the user
 /// configured, and the platforms that distinguish the two put them in
 /// different places.
-fn data_root() -> Result<PathBuf> {
+pub fn data_root() -> Result<PathBuf> {
     if let Some(override_dir) = std::env::var_os(STATE_DIR_VAR).filter(|v| !v.is_empty()) {
         return Ok(PathBuf::from(override_dir));
     }

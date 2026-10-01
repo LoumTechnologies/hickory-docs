@@ -63,7 +63,8 @@ impl Dispatcher {
     ) -> Result<&ChildLspHandle, ChildLspError> {
         let k = key(language_id, root_uri);
         if !self.children.contains_key(&k) {
-            let handle = ChildLspHandle::spawn(language_id, self.notification_tx.clone()).await?;
+            let handle =
+                ChildLspHandle::spawn(language_id, root_uri, self.notification_tx.clone()).await?;
             let result = handle.initialize(root_uri).await?;
             if let Some(legend) = semantic_legend(&result) {
                 self.legends.insert(k.clone(), legend);
@@ -99,6 +100,13 @@ impl Dispatcher {
         root_uri: &str,
     ) -> Option<(Vec<String>, Vec<String>)> {
         self.legends.get(&key(language_id, root_uri)).cloned()
+    }
+
+    /// Shut down all child LSP servers.
+    pub async fn refresh_environments(&self) {
+        for ((_, root), handle) in &self.children {
+            let _ = handle.refresh_environment(root).await;
+        }
     }
 
     /// Shut down all child LSP servers.

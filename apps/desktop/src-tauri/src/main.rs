@@ -1,6 +1,9 @@
 // Desktop entry point.
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+#[cfg(target_os = "macos")]
+mod launch_path;
+
 fn main() {
     // `hick init`, run from inside this app, defines git's merge drivers as
     // THIS executable — the app has the engine and the CLI is a separate
@@ -8,6 +11,13 @@ fn main() {
     // `main` with `merge-driver …` or `merge-generated …`, and is answered
     // without opening a window.
     let args: Vec<String> = std::env::args().skip(1).collect();
+    if let Some(result) = hickory_cli::engine::run_argv(&args) {
+        if let Err(error) = result {
+            eprintln!("{error:#}");
+            std::process::exit(2);
+        }
+        return;
+    }
     if let Some(result) = hickory_cli::serve::workspace_fs::smoke_argv(&args) {
         if let Err(error) = result {
             eprintln!("{error:#}");
@@ -30,6 +40,17 @@ fn main() {
                 std::process::exit(2);
             }
         }
+    }
+    // Finder/Dock launches do not inherit the user's shell PATH. Do this
+    // before Tauri or any worker thread exists. Engine/merge-driver children
+    // inherit it; they must not run the user's profiles again.
+    #[cfg(target_os = "macos")]
+    match launch_path::load() {
+        Ok(path) => {
+            // SAFETY: main is still single-threaded; load spawns no threads.
+            unsafe { std::env::set_var("PATH", path) };
+        }
+        Err(error) => eprintln!("Hickory Docs kept its inherited PATH: {error}"),
     }
     hickory_desktop_lib::run();
 }

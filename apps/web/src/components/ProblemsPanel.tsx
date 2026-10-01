@@ -12,6 +12,7 @@
 // the question a list of problems is opened to answer.
 
 import type { LspDiagnostic } from "../lsp/client";
+import type { ReactNode } from "react";
 import { SEVERITY_ERROR, SEVERITY_WARNING, severityOf } from "../lib/problems";
 
 /** One row: a diagnostic, and which document it belongs to. */
@@ -53,23 +54,26 @@ export function ProblemsPanel({
   rows,
   onPick,
   onClose,
+  environments,
 }: {
   rows: readonly ProblemRow[];
   onPick: (row: ProblemRow) => void;
   onClose: () => void;
+  environments?: ReactNode;
 }) {
   return (
     <aside className="refs-panel problems-panel" role="dialog" aria-label="Problems">
       <header className="refs-head">
         <span>
           {rows.length === 0
-            ? "Nothing is wrong right now"
+            ? environments ? "Problems and project environments" : "Nothing is wrong right now"
             : `${rows.length} problem${rows.length === 1 ? "" : "s"}`}
         </span>
         <button className="btn-link" aria-label="Close problems" onClick={onClose}>
           ×
         </button>
       </header>
+      {environments}
       {rows.length > 0 && (
         <ul className="refs-list">
           {rows.map((row, index) => {

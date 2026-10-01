@@ -1,0 +1,22 @@
+[package]
+name = "hick-project-env"
+version = "0.1.0"
+edition.workspace = true
+publish.workspace = true
+license.workspace = true
+
+[dependencies]
+async-trait = "0.1"
+globset = "0.4"
+hickory-workspace = { path = "../hickory-workspace" }
+ignore = "0.4"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+serde_yaml = "0.9"
+sha2 = "0.10"
+tempfile = "3"
+tokio = { version = "1", features = ["process", "time", "io-util"] }
+toml = "0.5"
+
+[dev-dependencies]
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }

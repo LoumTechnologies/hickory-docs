@@ -52,6 +52,8 @@ pub enum UpCommand {
     Regenerate(PathBuf),
     /// Write bytes a person chose (a merge's result) over a diverged file.
     Resolve(PathBuf, String),
+    /// Reprocess a document changed by an engine action through the watcher.
+    Reweave(PathBuf),
 }
 
 pub(crate) fn watch_error(err: notify::Error) -> anyhow::Error {
@@ -181,7 +183,7 @@ fn fingerprints(batch: &HashSet<PathBuf>) -> HashMap<PathBuf, Option<(u64, Optio
 /// not the same promise. Dropping the batch is not an option either: the
 /// update would be lost outright if the writer finished in the gap. So the
 /// caller waits instead, absorbing new events as they arrive.
-async fn settle_batch(batch: &HashSet<PathBuf>) -> bool {
+pub(crate) async fn settle_batch(batch: &HashSet<PathBuf>) -> bool {
     let deadline = Instant::now() + BATCH_SETTLE_BUDGET;
     let mut last = fingerprints(batch);
     let mut unchanged_since = Instant::now();
@@ -461,7 +463,7 @@ pub async fn run(config: UpConfig) -> Result<()> {
 /// inbox with no explanation is how someone concludes the feature is broken.
 /// A failure here is printed and never propagated — an unreadable drop must not
 /// take down a loop that is keeping someone's notes woven.
-fn drain_inbox(root: &Path, config: &crate::ingest::InboxConfig) -> Vec<PathBuf> {
+pub(crate) fn drain_inbox(root: &Path, config: &crate::ingest::InboxConfig) -> Vec<PathBuf> {
     let outcomes = match crate::ingest::ingest_inbox(root, config) {
         Ok(outcomes) => outcomes,
         Err(e) => {
@@ -602,7 +604,11 @@ async fn weave_document_as(
 /// Errors are swallowed: this is a preparatory pass, and a document that
 /// cannot be woven will fail the real pass a moment later with a message
 /// worth reading. Reporting it twice would just be noise.
-async fn establish_baselines(docs: &[PathBuf], config: &UpConfig, state: &mut WovenState) {
+pub(crate) async fn establish_baselines(
+    docs: &[PathBuf],
+    config: &UpConfig,
+    state: &mut WovenState,
+) {
     for doc in docs {
         let _ = weave_document_as(doc, RunMode::Weave, config, state).await;
     }
@@ -618,6 +624,15 @@ pub(crate) async fn handle_batch(
     batch: HashSet<PathBuf>,
     config: &UpConfig,
     state: &mut WovenState,
+) -> Result<()> {
+    handle_batch_with(batch, config, state, None).await
+}
+
+pub(crate) async fn handle_batch_with(
+    batch: HashSet<PathBuf>,
+    config: &UpConfig,
+    state: &mut WovenState,
+    configs: Option<&(dyn Fn(&Path) -> UpConfig + Send + Sync)>,
 ) -> Result<()> {
     let mut dirty_docs: HashSet<PathBuf> = HashSet::new();
     let mut saved_outputs: Vec<PathBuf> = Vec::new();
@@ -661,6 +676,8 @@ pub(crate) async fn handle_batch(
     docs.sort();
     for doc in docs {
         eprintln!("  weaving {}", doc.display());
+        let chosen = configs.map(|choose| choose(&doc));
+        let config = chosen.as_ref().unwrap_or(config);
         if let Err(e) = weave_document(&doc, config, state).await {
             eprintln!("error: {e:#}");
         }
@@ -744,7 +761,7 @@ fn consume_output_save(path: &Path, state: &mut WovenState) -> Result<Option<Pat
 
 /// Paths that are never worth reacting to: our own temporaries, editor
 /// scratch files, VCS internals, and the transcript cache.
-fn is_noise(path: &Path) -> bool {
+pub(crate) fn is_noise(path: &Path) -> bool {
     if path.components().any(|c| {
         let name = c.as_os_str().to_string_lossy();
         name == ".git" || name == ".hick-cache" || name == "node_modules" || name == "target"

@@ -32,6 +32,17 @@ const STACK_SIZE: usize = 16 * 1024 * 1024;
 
 pub fn main_exit() -> ExitCode {
     if let Some(result) =
+        hickory_cli::engine::run_argv(&std::env::args().skip(1).collect::<Vec<_>>())
+    {
+        return match result {
+            Ok(()) => ExitCode::SUCCESS,
+            Err(e) => {
+                eprintln!("{e:#}");
+                ExitCode::FAILURE
+            }
+        };
+    }
+    if let Some(result) =
         hickory_cli::serve::acp::proxy_argv(&std::env::args().skip(1).collect::<Vec<_>>())
     {
         return match result {

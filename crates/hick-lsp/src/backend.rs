@@ -483,12 +483,8 @@ impl HickBackend {
         entry.vfile_version = version;
     }
 
-    /// The root a plain file's language server is initialised against.
-    ///
-    /// The folder the app opened, when the file is inside it — that is the
-    /// project, the same way it is in any IDE. A file from outside it (an
-    /// editor pointing hick-lsp at a stray file) gets the nearest enclosing
-    /// repository, and failing that its own directory.
+    /// Python selects its owning uv workspace when known; other files keep
+    /// the editor's workspace or the stray file's containing repository.
     async fn plain_root_uri(&self, uri: &Url) -> String {
         let workspace = self.workspace_root.read().await.clone();
         let Ok(path) = uri.to_file_path() else {
@@ -496,12 +492,10 @@ impl HickBackend {
             // pointed, and the child is told the same.
             return workspace.map(|u| u.to_string()).unwrap_or_default();
         };
-        let root = match workspace.and_then(|w| w.to_file_path().ok()) {
-            Some(workspace) if path.starts_with(&workspace) => workspace,
-            _ => enclosing_repository(&path)
-                .or_else(|| path.parent().map(std::path::Path::to_path_buf))
-                .unwrap_or(path),
-        };
+        let root = crate::project_environment::plain_root(
+            &path,
+            workspace.and_then(|w| w.to_file_path().ok()),
+        );
         Url::from_directory_path(&root)
             .map(|u| u.to_string())
             .unwrap_or_default()
@@ -1612,6 +1606,10 @@ impl LanguageServer for HickBackend {
         Ok(())
     }
 
+    async fn did_change_configuration(&self, _: DidChangeConfigurationParams) {
+        self.dispatcher.lock().await.refresh_environments().await;
+    }
+
     async fn did_open(&self, params: DidOpenTextDocumentParams) {
         let uri = params.text_document.uri;
         let source = params.text_document.text;
@@ -2415,15 +2413,6 @@ fn is_hick_document(uri: &Url, source: &str) -> bool {
 fn plain_language(uri: &Url) -> Option<&'static str> {
     let name = uri.path().rsplit('/').next()?;
     crate::lang_detect::language_id(name)
-}
-
-/// The nearest ancestor holding a `.git`, which is the project a stray file
-/// most plausibly belongs to.
-fn enclosing_repository(path: &std::path::Path) -> Option<std::path::PathBuf> {
-    path.ancestors()
-        .skip(1)
-        .find(|dir| dir.join(".git").exists())
-        .map(std::path::Path::to_path_buf)
 }
 
 /// Extract a line number and user-friendly message from a [`hick_lang::ParseError`].

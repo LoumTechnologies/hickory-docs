@@ -30,7 +30,7 @@ use super::LocalState;
 use super::api::{ApiError, ApiResult};
 
 /// Where a folder should be opened, when the app is asked to open one.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum OpenWhere {
     /// Leave every window as it is.

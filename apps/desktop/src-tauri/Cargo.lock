@@ -2844,6 +2844,7 @@ version = "0.1.0"
 dependencies = [
  "hick-blocks",
  "hick-lang",
+ "hick-project-env",
  "serde",
  "serde_json",
  "tempfile",
@@ -2869,6 +2870,23 @@ dependencies = [
  "similar",
  "thiserror 2.0.19",
  "tokio",
+]
+
+[[package]]
+name = "hick-project-env"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "globset",
+ "hickory-workspace",
+ "ignore",
+ "serde",
+ "serde_json",
+ "serde_yaml",
+ "sha2 0.10.9",
+ "tempfile",
+ "tokio",
+ "toml 0.5.11",
 ]
 
 [[package]]
@@ -2995,6 +3013,7 @@ dependencies = [
  "env_logger",
  "fs2",
  "futures",
+ "getrandom 0.3.4",
  "graphql-parser",
  "hex",
  "hick-blocks",
@@ -3005,6 +3024,7 @@ dependencies = [
  "hick-literate",
  "hick-lsp",
  "hick-merge",
+ "hick-project-env",
  "hick-search",
  "hick-structure",
  "hick-term",

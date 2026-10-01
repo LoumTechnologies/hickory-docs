@@ -157,6 +157,11 @@ async fn run_loop(
                             log::warn!("could not resolve {}: {e:#}", path.display());
                         }
                     }
+                    Some(UpCommand::Reweave(path)) => {
+                        if let Err(e) = crate::up::weave_document(&path, &config, &mut woven).await {
+                            log::warn!("could not reweave {}: {e:#}", path.display());
+                        }
+                    }
                     None => {}
                 }
                 publish_held(&state, &root, &woven);
@@ -209,7 +214,7 @@ async fn run_loop(
 
 /// Copy the loop's held set where the routes can read it, as root-relative
 /// paths.
-fn publish_held(state: &LocalState, root: &PathBuf, woven: &WovenState) {
+pub(crate) fn publish_held(state: &LocalState, root: &PathBuf, woven: &WovenState) {
     let mut held = HashMap::new();
     for (path, diverged) in woven.held() {
         if let Ok(rel) = path.strip_prefix(root) {
@@ -233,7 +238,7 @@ fn publish_held(state: &LocalState, root: &PathBuf, woven: &WovenState) {
 /// file learns about the re-weave only on its next focus or run. The event
 /// rides the run channel the frontend already listens on, per watched
 /// document, so a pane can refetch (and flash) exactly its own files.
-async fn notify_files_changed(
+pub(crate) async fn notify_files_changed(
     state: &LocalState,
     root: &PathBuf,
     woven: &WovenState,
@@ -282,8 +287,13 @@ async fn notify_files_changed(
 /// this is cheap for the common case and exactly right for the two that
 /// matter: a document rewritten by a reverse edit, and a document changed
 /// under the app by another program.
-async fn reconcile_rooms(state: &LocalState, root: &PathBuf, woven: &WovenState) {
-    for doc in woven.doc_paths() {
+pub(crate) async fn reconcile_rooms(state: &LocalState, root: &PathBuf, _woven: &WovenState) {
+    for doc in state
+        .index
+        .entries()
+        .iter()
+        .filter_map(|(id, _)| state.index.absolute(id))
+    {
         let Ok(rel) = doc.strip_prefix(root) else {
             continue;
         };

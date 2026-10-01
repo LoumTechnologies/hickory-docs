@@ -41,8 +41,9 @@ import { PlainFilePane } from "../components/PlainFilePane";
 import { ScratchpadPane } from "../components/ScratchpadPane";
 import { SearchPanel } from "../components/SearchPanel";
 import { ReferencesPanel } from "../components/ReferencesPanel";
-import { ProblemsPanel, problemRows } from "../components/ProblemsPanel";
-import type { ProblemRow } from "../components/ProblemsPanel";
+import { WorkspaceProblems } from "../environments/WorkspaceProblems";
+import { useEnvironments } from "../environments/useEnvironments";
+import { EnvironmentNotice } from "../environments/EnvironmentPanel";
 import { PromptPanel, usePrompt } from "../components/PromptPanel";
 import {
   resolveSearchHit,
@@ -78,7 +79,9 @@ import {
   type RibbonFamily,
 } from "../shell/Ribbons";
 import { samePath } from "../lib/paths";
-import { ProvenanceToggles } from "../shell/ProvenanceToggles";
+import { WorkspaceStatusExtras } from "../environments/WorkspaceStatusExtras";
+import { findNodeByPath, joinRel } from "../shell/workspacePaths";
+import { nextWorkspaceProblem } from "../shell/nextWorkspaceProblem";
 import {
   loadProvenanceLayers,
   saveProvenanceLayers,
@@ -173,8 +176,7 @@ import {
   type CommandMode,
 } from "../shell/CommandBar";
 import { loadShowWelcome } from "../lib/welcomePref";
-import { severityOf, totalProblems } from "../lib/problems";
-import { positionToUtf16 } from "../lsp/positions";
+import { totalProblems } from "../lib/problems";
 import { EditorView } from "@codemirror/view";
 import { TAB_ZOOM_VAR } from "../lib/zoom";
 import { requestFlushSaves } from "../lib/flushSaves";
@@ -191,26 +193,6 @@ export type WorkspaceRoute = Extract<
   Route,
   { name: "doc" } | { name: "new" } | { name: "scratchpad" }
 >;
-
-/** The tree node for a root-relative path, across every open root. */
-function findNodeByPath(
-  roots: readonly { tree: FileNode[] }[],
-  path: string,
-): FileNode | null {
-  const walk = (nodes: readonly FileNode[]): FileNode | null => {
-    for (const node of nodes) {
-      if (node.path === path) return node;
-      const found = node.children ? walk(node.children) : null;
-      if (found) return found;
-    }
-    return null;
-  };
-  for (const root of roots) {
-    const found = walk(root.tree);
-    if (found) return found;
-  }
-  return null;
-}
 
 export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
   // What the window is arranged as. Session state, owned HERE, above any
@@ -331,15 +313,7 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
       { save: () => Promise<boolean>; discard: () => void; retain: () => Promise<void> }
     >(),
   );
-  // What the window looked like last time, and where each tab's prose measure
-  // sits. Restored into an untouched workspace only — the same rule a
-  // document's own declared layout follows — and the route's opener waits for
-  // `hydrated` so the two cannot race. See views/useWorkspaceUi.ts.
-  // How much is wrong, across every open document. Recomputed from the
-  // sessions' own diagnostics rather than kept as a second copy: two counts
-  // that can disagree is worse than no count at all.
-  // Plain files have no session; their panes report into a store, and the
-  // count adds them in. See lib/fileProblems.ts.
+  const environments = useEnvironments();
   const fileProblemsVersion = useFileProblemsVersion();
   const problems = useMemo(
     () =>
@@ -362,29 +336,7 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
   // the rows are read from the sessions when it draws, so a diagnostic that
   // arrives while it is open appears without a subscription of its own.
   const [problemsOpen, setProblemsOpen] = useState(false);
-  const goToNextProblem = useCallback(() => {
-    const session = registry.get(focusedIdRef.current);
-    const view = session?.docEditor;
-    const diagnostics = session?.lspDiagnostics ?? [];
-    if (!view || diagnostics.length === 0) return;
-    const ranked = [...diagnostics]
-      .filter((d) => severityOf(d) <= 2)
-      .map((d) => ({
-        d,
-        at: positionToUtf16(view.state.doc.toString(), d.range.start),
-      }))
-      .sort((a, b) => a.at - b.at);
-    if (ranked.length === 0) return;
-    const head = view.state.selection.main.head;
-    // Wraps: pressing it at the last problem takes you back to the first,
-    // which is what "next" means in a list you are working through.
-    const next = ranked.find((r) => r.at > head) ?? ranked[0];
-    view.dispatch({
-      selection: { anchor: next.at },
-      effects: EditorView.scrollIntoView(next.at, { y: "center" }),
-    });
-    view.focus();
-  }, [registry]);
+  const goToNextProblem = useCallback(() => nextWorkspaceProblem(registry, focusedIdRef.current), [registry]);
   // F8 — "go to the next problem" in every editor that has the idea, and the
   // verb the status-bar click used to be. Keeping it as a key rather than
   // dropping it is the point: the click now answers "what is wrong", and this
@@ -1446,11 +1398,6 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
       window.removeEventListener("hickory-open-path", onOpenPath);
     };
   }, [registry, openPlainFile, openInsert, openEditElement, saveUntitled]);
-  // ---- terminals ----------------------------------------------------------
-  //
-  // The window's sessions, the queue across them, and the two keys that reach
-  // it. A pane SHOWS a session; the session lives on the server, which is why
-  // closing a terminal tab here never stops the work inside it.
   const terminals = useTerminals();
   // A terminal a pane started — a test run from the gutter — shown here,
   // because only the workspace can open a tab.
@@ -2007,39 +1954,14 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
           onClose={() => setSearchOpen(false)}
         />
       )}
+      <EnvironmentNotice environments={environments} />
       {problemsOpen && (
-        <ProblemsPanel
-          rows={problemRows([
-            ...registry.all().map((open) => ({
-              docId: open.docId,
-              path: open.doc?.path ?? open.docId,
-              diagnostics: open.lspDiagnostics ?? [],
-            })),
-            ...allFileProblems().map((file) => ({
-              docId: `file:${file.path}`,
-              path: file.path,
-              diagnostics: file.diagnostics,
-            })),
-          ])}
-          onPick={(row: ProblemRow) => {
-            setProblemsOpen(false);
-            if (row.docId.startsWith("file:")) {
-              // A plain file: open (or raise) its tab and go to the line.
-              openHit(row.path, row.diagnostic.range.start.line + 1);
-              return;
-            }
-            ensureDocOpen(row.docId);
-            navigate(`/docs/${row.docId}`);
-            // After the tab exists: a document opened by this click has no
-            // editor to reveal into until it mounts.
-            window.setTimeout(
-              () =>
-                registry
-                  .get(row.docId)
-                  ?.revealDocLine(row.diagnostic.range.start.line),
-              0,
-            );
-          }}
+        <WorkspaceProblems
+          environments={environments}
+          registry={registry}
+          openHit={openHit}
+          openDocument={ensureDocOpen}
+          navigate={navigate}
           onClose={() => setProblemsOpen(false)}
         />
       )}
@@ -2103,48 +2025,16 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
         needsAttention={terminals.attention.length}
         path={focusedPath}
         zoom={zoom.uiZoom}
-        extra={
-          <>
-            <ProvenanceToggles
-              layers={layers}
-              onToggle={toggleProvenance}
-              continuity={continuity}
-              onContinuity={setContinuityEnabled}
-            />
-            {projectId && (
-              <button
-                type="button"
-                className="status-bar__item"
-                data-tip="Zoom out: every document as a node, the edges between them"
-                aria-label="Show the lineage graph"
-                onClick={() =>
-                  navigate(`/projects/${encodeURIComponent(projectId)}/lineage`)
-                }
-              >
-                <span className="status-bar__glyph" aria-hidden>
-                  ⌘
-                </span>
-                Graph
-              </button>
-            )}
-          </>
-        }
+        extra={<WorkspaceStatusExtras
+          provenance={{ layers, onToggle: toggleProvenance, continuity, onContinuity: setContinuityEnabled }}
+          environmentCount={environments.notices.length}
+          onEnvironments={() => setProblemsOpen(true)}
+          projectId={projectId ?? null}
+          onGraph={() => navigate(`/projects/${encodeURIComponent(projectId ?? "")}/lineage`)}
+        />}
         onProblems={() => setProblemsOpen((open) => !open)}
         onAttention={nextAttention}
       />
     </div>
   );
-}
-
-/** `dir` (ending in "/" or empty) joined with a relative `path`, with `./`
- * and `../` folded — the path the tree knows a file by. */
-function joinRel(dir: string, path: string): string {
-  if (path.startsWith("/")) return path;
-  const parts: string[] = [];
-  for (const seg of `${dir}${path}`.split("/")) {
-    if (seg === "" || seg === ".") continue;
-    if (seg === "..") parts.pop();
-    else parts.push(seg);
-  }
-  return parts.join("/");
 }

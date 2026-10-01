@@ -17,10 +17,6 @@
 //! three methods, and a dependency that moves faster than that surface would
 //! be a liability in a binary users install.
 //!
-//! Everything the model sees — tool names, argument names, the doctrine in the
-//! descriptions — is the same vocabulary as the built-in agent's system
-//! prompt. An external agent that learns hick here has learned the same
-//! thing our agent knows.
 
 use std::collections::HashMap;
 use std::io::{BufRead, Write};
@@ -1126,6 +1122,7 @@ fn text_result(text: &str, is_error: bool) -> Value {
 
 #[path = "mcp_stdio.rs"]
 mod stdio;
+pub(crate) use stdio::engine_server;
 pub use stdio::serve;
 
 #[cfg(test)]

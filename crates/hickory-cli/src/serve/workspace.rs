@@ -30,12 +30,17 @@ use super::api::{ApiError, ApiResult};
 /// handle cached at boot would keep pointing at the old folder after the
 /// desktop shell switched projects.
 fn store(state: &LocalState) -> ApiResult<WorkspaceStore> {
-    WorkspaceStore::for_project(state.index.root()).map_err(|e| {
-        ApiError::unavailable(format!(
-            "{e:#}\n  The app works without this — it will just forget which tabs \
+    WorkspaceStore::for_project(state.index.root())
+        .and_then(|store| match &state.window_slot {
+            Some(slot) => store.window(slot),
+            None => Ok(store),
+        })
+        .map_err(|e| {
+            ApiError::unavailable(format!(
+                "{e:#}\n  The app works without this — it will just forget which tabs \
              were open the next time it starts."
-        ))
-    })
+            ))
+        })
 }
 
 /// `GET /api/workspace/ui` — the stored layout, or null.

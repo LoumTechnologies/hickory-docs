@@ -24,6 +24,7 @@ use hickory_collab::{DocKey, DocStore};
 /// the laptop sleeps is not a link.
 pub struct DocIndex {
     root: PathBuf,
+    absolute_ids: bool,
     /// id → path relative to the root.
     ///
     /// Behind a lock because a document can be created while the app is
@@ -46,6 +47,7 @@ impl DocIndex {
         if root.is_dir() && !contains_hick(root) {
             return Ok(Self {
                 root: root.to_path_buf(),
+                absolute_ids: false,
                 by_id: std::sync::RwLock::new(HashMap::new()),
             });
         }
@@ -60,12 +62,26 @@ impl DocIndex {
         }
         Ok(Self {
             root: root.to_path_buf(),
+            absolute_ids: false,
             by_id: std::sync::RwLock::new(by_id),
         })
     }
 
     pub fn root(&self) -> &Path {
         &self.root
+    }
+
+    /// Shared engine views use the physical path as their room identity,
+    /// so opening a parent and its child cannot mint two rooms for one file.
+    pub fn shared(root: &Path) -> Result<Self> {
+        let mut index = Self::scan(root)?;
+        index.absolute_ids = true;
+        let paths: Vec<_> = index.entries().into_iter().map(|(_, path)| path).collect();
+        index.by_id.write().unwrap().clear();
+        for path in paths {
+            index.add(&path);
+        }
+        Ok(index)
     }
 
     /// Relative path for a document id.
@@ -76,7 +92,7 @@ impl DocIndex {
     /// Remember a document created while the server was running, and return
     /// its id.
     pub fn add(&self, rel: &str) -> String {
-        let id = doc_id(rel);
+        let id = self.id_for_path(rel);
         if let Ok(mut map) = self.by_id.write() {
             map.insert(id.clone(), rel.to_string());
         }
@@ -91,7 +107,13 @@ impl DocIndex {
     /// Id for a path relative to the root, whether or not it was scanned —
     /// provenance can name an upstream document the scan did not reach.
     pub fn id_for_path(&self, rel: &str) -> String {
-        doc_id(rel)
+        if self.absolute_ids {
+            let path = self.root.join(rel);
+            let path = path.canonicalize().unwrap_or(path);
+            doc_id(&path.to_string_lossy())
+        } else {
+            doc_id(rel)
+        }
     }
 
     /// Every document, as `(id, relative path)`, sorted by path.
@@ -156,6 +178,7 @@ fn contains_hick(dir: &Path) -> bool {
 /// Files on disk, standing in for Postgres.
 pub struct FileDocStore {
     index: Arc<DocIndex>,
+    paths: std::sync::RwLock<HashMap<String, PathBuf>>,
     /// The exact source text this store last persisted, per document. The
     /// in-app up-loop's echo test: a watcher event whose file still holds
     /// the last persist is the room's own write coming back around, and
@@ -167,8 +190,18 @@ impl FileDocStore {
     pub fn new(index: Arc<DocIndex>) -> Arc<Self> {
         Arc::new(Self {
             index,
+            paths: std::sync::RwLock::new(HashMap::new()),
             last_saved: std::sync::Mutex::new(std::collections::HashMap::new()),
         })
+    }
+
+    pub fn register(&self, index: &DocIndex) {
+        let mut paths = self.paths.write().unwrap();
+        for (id, _) in index.entries() {
+            if let Some(path) = index.absolute(&id) {
+                paths.insert(id, path);
+            }
+        }
     }
 
     /// Whether `text` is byte-for-byte what this store last wrote for `key`.
@@ -181,14 +214,22 @@ impl FileDocStore {
 
     /// Where the encoded CRDT state for a document lives.
     fn crdt_path(&self, key: &DocKey) -> PathBuf {
-        self.index
-            .root()
-            .join(".hick-cache")
+        let root = self
+            .paths
+            .read()
+            .unwrap()
+            .get(key)
+            .and_then(|p| p.parent().map(Path::to_path_buf))
+            .unwrap_or_else(|| self.index.root().to_path_buf());
+        root.join(".hick-cache")
             .join("crdt")
             .join(format!("{key}.bin"))
     }
 
     fn source_path(&self, key: &DocKey) -> Result<PathBuf> {
+        if let Some(path) = self.paths.read().unwrap().get(key) {
+            return Ok(path.clone());
+        }
         self.index
             .absolute(key)
             .with_context(|| format!("no document with id {key} under the served directory"))

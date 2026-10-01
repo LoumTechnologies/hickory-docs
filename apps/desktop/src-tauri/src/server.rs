@@ -26,8 +26,8 @@ use axum::body::Body;
 use axum::http::{StatusCode, Uri, header};
 use axum::response::{IntoResponse, Response};
 use hickory_cli::ExecutorChoice;
-use hickory_cli::serve::{OpenWhere, ServeOptions, Shell, prepare};
-use hickory_cli::up::DirectoryLock;
+use hickory_cli::serve::{OpenWhere, Shell};
+use hickory_cli::engine::{Attach, ClientGuard};
 use tauri::Manager as _;
 use tauri_plugin_dialog::DialogExt as _;
 
@@ -59,14 +59,7 @@ pub struct Session {
 /// distinction in the type prevents a blank window from acquiring (or merely
 /// appearing to acquire) a folder.
 enum SessionResources {
-    Workspace {
-        _lock: DirectoryLock,
-        /// The in-app up-loop (`local-only.md`: "the desktop app runs the
-        /// up-loop and the rooms in one process"). Dropping it asks the loop to
-        /// stop and clear its read-only marks; if the process dies before that
-        /// lands, `write_outputs` clears marks defensively on the next run.
-        _watch: hickory_cli::serve::watch::WatchGuard,
-    },
+    Workspace { _client: ClientGuard },
     Blank,
 }
 
@@ -243,61 +236,20 @@ pub async fn start(
     // every downloaded copy — leaves the ephemeral port below. See dev.rs.
     let dev = crate::dev::from_env()?;
 
-    // The lock protects a WORKING DIRECTORY: two processes weaving the same
-    // folder would each read the other's writes as the user's edits. A single
-    // document's working directory is the folder it sits in — locking the
-    // file itself would try to create `document.hick/.hick-cache`, which is
-    // not a thing.
-    let lock_root = if target.is_file() {
-        target.parent().unwrap_or_else(|| Path::new("."))
-    } else {
-        target
-    };
-    let lock = DirectoryLock::acquire(lock_root)?;
-
-    let prepared = prepare(ServeOptions {
-        target: target.to_path_buf(),
-        port: 0,
-        params: Vec::new(),
-        executor: ExecutorChoice::from_env()?,
-        key_store_path: config_dir.map(|dir| dir.join("llm-keys.json")),
-        // UI settings (the custom window title) persist beside the keys;
-        // ui_settings_file() is the same path the launch sequence reads to
-        // name the native window before any page exists.
-        ui_settings_path: config_dir.map(ui_settings_file),
-    })
-    .await?;
-
-    // The powers the engine does not have on its own. It is an axum router:
-    // it can commit a scaffold, and it cannot open a window. This is where the
-    // window comes from — passed in rather than built here, so a test can
-    // start the engine without an `AppHandle` and get a program that honestly
-    // has no windows. See `hickory_cli::serve::Shell`.
-    if let Some(shell) = shell {
-        prepared.state.set_shell(shell);
-    }
-
-    // The up-loop runs beside the rooms: external edits (vim, formatters,
-    // coding agents) reconcile into the live editor, and edits saved in
-    // generated files carry back into their documents while the app is open.
-    let watch = hickory_cli::serve::watch::spawn(prepared.state.clone())?;
-
-    // The UI is the fallback, so every `/api` route the CLI defined wins and
-    // anything else is a page request.
-    let router = prepared.router.fallback(ui_handler);
-
     let addr = SocketAddr::from((Ipv4Addr::LOCALHOST, dev.serve_port.unwrap_or(0)));
-    let listener = tokio::net::TcpListener::bind(addr).await.with_context(|| {
-        match dev.serve_port {
-            // A named port can be held by something else, and the something
-            // else is nearly always a previous run of this app. Say which
-            // command releases it rather than leaving a bare "address in use".
-            Some(port) => format!(
-                "binding {addr}: something already holds port {port}. That is usually a                  `just dev` still running — `just dev-stop` releases it."
-            ),
-            None => format!("binding {addr}"),
-        }
-    })?;
+    let listener = tokio::net::TcpListener::bind(addr).await
+        .with_context(|| format!("binding the window's local proxy at {addr}"))?;
+    let callback = format!("http://{}", listener.local_addr()?);
+    let mut opts = Attach::new(target.to_path_buf(), ExecutorChoice::from_env()?);
+    opts.key_store_path = config_dir.map(|dir| dir.join("llm-keys.json"));
+    opts.ui_settings_path = config_dir.map(ui_settings_file);
+    if shell.is_some() { opts.callback = Some(callback); }
+    opts.callback_token = hickory_cli::engine::window_token();
+    let token = opts.callback_token.clone();
+    let connection = hickory_cli::engine::connect(opts).await?;
+    let client = connection.guard();
+    let router = hickory_cli::engine::client_router(connection, shell, token, dev.ui_origin.clone())
+        .fallback(ui_handler);
     let bound = listener.local_addr()?;
 
     tokio::spawn(async move {
@@ -319,10 +271,7 @@ pub async fn start(
             .ui_origin
             .clone()
             .unwrap_or_else(|| format!("http://{bound}")),
-        _resources: SessionResources::Workspace {
-            _lock: lock,
-            _watch: watch,
-        },
+        _resources: SessionResources::Workspace { _client: client },
     })
 }
 
