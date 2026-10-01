@@ -1,7 +1,7 @@
 // docs/guarantees/agent/an-answer-in-the-agent-pane-has-ribbons.md: the
 // agent pane's history is the session document, drawn as cards with line
 // numbers, and its links reach the overlay through the lens store.
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { installMockHandler } from "../api/client";
@@ -50,9 +50,9 @@ describe("the session lens", () => {
             { kind: "session-wrote", file: "notes/today.hick", lines: "72-75", span: span("<hick:wrote", "hashes=\"a b c d\"/>") },
           ],
           links: [
-            { family: "context", span: [112, 168], to: { path: "data/latency.csv", lines: [1, 8] }, title: "ctx", lines: [3, 3] },
-            { family: "declared", span: [169, 185], to: { path: "data/latency.csv", lines: [3, 3] }, title: "dec", lines: [4, 6] },
-            { family: "lineage", span: [260, 320], to: { path: "notes/today.hick", lines: [72, 75] }, title: "lin", lines: [7, 7] },
+            { family: "context", span: span("<hick:read", "/>"), to: { path: "data/latency.csv", lines: [1, 8] }, title: "ctx", lines: [5, 5] },
+            { family: "declared", span: span("<hick:assistant>", "</hick:assistant>"), to: { path: "data/latency.csv", lines: [3, 3] }, title: "dec", lines: [6, 11] },
+            { family: "lineage", span: span("<hick:wrote", "hashes=\"a b c d\"/>"), to: { path: "notes/today.hick", lines: [72, 75] }, title: "lin", lines: [12, 12] },
           ],
         };
       }
@@ -78,9 +78,30 @@ describe("the session lens", () => {
     // And the overlay can find the lens: its links, from the session's lines.
     const lens = lensSources().find((l) => l.path === "sessions/s.hick");
     expect(lens?.links.map((l) => [l.family, l.from.lines, l.to.path])).toEqual([
-      ["context", [3, 3], "data/latency.csv"],
-      ["declared", [4, 6], "data/latency.csv"],
-      ["lineage", [7, 7], "notes/today.hick"],
+      ["context", [5, 5], "data/latency.csv"],
+      ["declared", [6, 11], "data/latency.csv"],
+      ["lineage", [12, 12], "notes/today.hick"],
     ]);
   });
+  it("removes a tool ribbon while collapsed and restores it when expanded or opted in", async () => {
+    const source = '<hick:session>\n<hick:user>Read it</hick:user>\n<hick:context kind="acp-activity">{"kind":"read","title":"Read source","sessionUpdate":"tool_call"}</hick:context>\n<hick:assistant>Done</hick:assistant>\n</hick:session>';
+    const tool: [number, number] = [source.indexOf('<hick:context'), source.indexOf('</hick:context>') + '</hick:context>'.length];
+    const answer: [number, number] = [source.indexOf('<hick:assistant>'), source.indexOf('</hick:assistant>') + '</hick:assistant>'.length];
+    installMockHandler(async () => ({ path: "sessions/fold.hick", source, view: { turns: [] },
+      blocks: [{ kind: "session-context", context_kind: "acp-activity", body: '{"kind":"read","title":"Read source","sessionUpdate":"tool_call"}', span: tool },
+        { kind: "session-assistant", body: "Done", span: answer }],
+      links: [{ family: "context", span: tool, lines: [3, 3], to: { path: "source.hick" }, title: "read" }],
+    }));
+    const result = render(<SessionLens path="sessions/fold.hick" />);
+    await screen.findByText("Read source");
+    await waitFor(() => expect(lensSources().find(lens => lens.path === "sessions/fold.hick")?.links).toEqual([]));
+    const fold = screen.getByText("Read source").closest("details")!;
+    fold.open = true; fireEvent(fold, new Event("toggle"));
+    await waitFor(() => expect(lensSources().find(lens => lens.path === "sessions/fold.hick")?.links).toHaveLength(1));
+    fold.open = false; fireEvent(fold, new Event("toggle"));
+    await waitFor(() => expect(lensSources().find(lens => lens.path === "sessions/fold.hick")?.links).toEqual([]));
+    result.rerender(<SessionLens path="sessions/fold.hick" showCollapsedLineage />);
+    await waitFor(() => expect(lensSources().find(lens => lens.path === "sessions/fold.hick")?.links).toHaveLength(1));
+  });
+
 });

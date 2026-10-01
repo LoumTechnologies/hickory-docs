@@ -12,6 +12,8 @@
 // the persisted turn when the session finishes.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { FeatureSettings } from "./FeatureSettings";
+import { loadCollapsedLineage, saveCollapsedLineage } from "../lib/conversationLineage";
 import { api } from "../api/client";
 import { AcpControls, useAcp } from "./AcpControls";
 import { AgentPicker, preferredAgent, rememberAgent } from "./AgentPicker";
@@ -318,6 +320,7 @@ export function ChatDock({
   // The model control. Provider is hydrated once from the server's resolved
   // default; the model input stays empty (placeholder = the provider's
   // default) unless the session already chose one explicitly.
+  const [showCollapsedLineage, setShowCollapsedLineage] = useState(loadCollapsedLineage);
   const [backend, setBackend] = useState(preferredAgent);
   const [sending, setSending] = useState(false);
   const sendingRef = useRef(false);
@@ -585,6 +588,7 @@ export function ChatDock({
             Tree
           </button>
         )}
+        {!collapsed && <FeatureSettings label="Agent settings">
         {backend === "builtin" && <span className="chat-model" role="group" aria-label="Model choice">
           <select
             aria-label="Provider"
@@ -611,12 +615,17 @@ export function ChatDock({
             onChange={(e) => setModel(e.target.value)}
           />
         </span>}
-      </header>
       <AgentPicker backend={backend} agents={acp.agents} disabled={running !== null || sending} detecting={acp.detecting} error={acp.catalogueError}
         onRefresh={() => void acp.refreshAgents()} onChange={next => {
           rememberAgent(next); setBackend(next); setTip(null); setUnavailable(false); setError(null); setNote(null);
         }} />
-      <AcpControls doc={docId} backend={backend} running={running !== null} control={acp} />
+        <AcpControls doc={docId} backend={backend} running={running !== null} control={acp} settingsOnly />
+        <label><input type="checkbox" checked={showCollapsedLineage} onChange={event => {
+          setShowCollapsedLineage(event.target.checked); saveCollapsedLineage(event.target.checked);
+        }} />Show lineage for collapsed conversation items</label>
+        </FeatureSettings>}
+      </header>
+      {!collapsed && <AcpControls doc={docId} backend={backend} running={running !== null} control={acp} settingsOpen={false} />}
 
       {!collapsed && (
         <div className="chat-log" ref={logRef}>
@@ -641,7 +650,7 @@ export function ChatDock({
               {/* The recorded turns, as the session document itself: line
                   numbers, the same cards, and ribbons from what each turn
                   read, wrote and pointed at. A lens, read-only. */}
-              {sessionPath && <SessionLens path={sessionPath} stamp={lensStamp} />}
+              {sessionPath && <SessionLens path={sessionPath} stamp={lensStamp} showCollapsedLineage={showCollapsedLineage} />}
               {sessionPath && branch.some((turn) => inLens(turn)) && (
                 <div className="chat-turn-strip" aria-label="Turns">
                   {branch.filter(inLens).map((turn) => (

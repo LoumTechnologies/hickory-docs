@@ -1,4 +1,5 @@
 import type { ComponentProps } from "react";
+import { LineageSettings } from "../components/LineageSettings";
 import { ProvenanceToggles } from "../shell/ProvenanceToggles";
 
 export function WorkspaceStatusExtras({ provenance, environmentCount, onEnvironments, projectId, onGraph }: {
@@ -13,6 +14,7 @@ export function WorkspaceStatusExtras({ provenance, environmentCount, onEnvironm
       Environments{environmentCount ? ` (${environmentCount})` : ""}
     </button>
     <ProvenanceToggles {...provenance} />
+    <LineageSettings />
     {projectId && <button type="button" className="status-bar__item"
       data-tip="Zoom out: every document as a node, the edges between them"
       aria-label="Show the lineage graph" onClick={onGraph}>

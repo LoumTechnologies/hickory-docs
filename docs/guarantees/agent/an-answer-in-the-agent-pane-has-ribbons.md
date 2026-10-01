@@ -1,7 +1,7 @@
 # An Answer In The Agent Pane Has Ribbons
 
 Given a conversation in the agent pane whose turns have been recorded to
-a session file — the app's own agent, or a Claude Code transcript brought
+a session file — the app's own agent, an ACP agent, or a Claude Code transcript brought
 in with `hick ingest --from claude-code` — when the pane draws it, then it
 draws the session document itself: line numbers, each element as the card
 it always was, read-only; and from those lines the ribbon overlay draws
@@ -55,6 +55,38 @@ the reasoning labelled as such and never mixed with the answer
 on, each opening the file at its lines (`linksByAnswer`, `SourceChips`).
 The chips and the ribbons are the same links in two forms.
 
+## ACP answers and visibility (2026-10-01)
+
+An answer captured in an unnamed `hick:input` because it quotes hick tags
+is still speech: it renders expanded and retains its citations. A markdown
+file link ending in `:line` resolves that line, with the suffix removed from
+the path. Structured ACP read/search locations and edit locations/diffs
+link as adapter-reported evidence; arbitrary shell output is never parsed
+into a derivation or an invented file read.
+
+When an answer cites a workspace document and names one of its outputs,
+the session endpoint independently weaves that document without executing,
+checks the woven output against disk, and reads its byte provenance. Matching
+bytes with a source location inside the workspace add a **produces** chip
+and a lineage connection from the visible answer to that output. The chip
+names the source document; the connection's explanation names the source
+and output lines. This is checked **current document evidence**, separate
+from the dashed citation and from a record that the turn wrote a file.
+Diverged, missing, synthetic-only or unweavable outputs get no such evidence.
+The lens refreshes every five seconds while the window is visible; until the
+next refresh, its evidence describes the last check. It never rewrites the
+session record.
+
+Conversation connections draw for expanded rendered items by default, using
+the card's screen bounds. Closed tool/reasoning folds contribute no connection.
+The Agent gear offers a persisted **Show lineage for collapsed conversation
+items** setting; opting in anchors their connections to the visible summary.
+Opening or closing a fold updates the overlay. Conversation visibility is
+independent of the document editor's caret preference, and the family's
+workspace toggle still applies. Links with no rendered anchor are omitted.
+The final answer's source chips collect evidence within its user turn, including
+reads and writes recorded before the assistant answer.
+
 ## Boundary
 
 The far end lands on chrome (tab, tree row, port), not on the target's
@@ -88,3 +120,20 @@ Last LLM verification:
   transcript, mentions), `crates/hickory-cli/tests/session_lens.rs` over
   real HTTP, `apps/web/src/views/SessionLens.test.tsx`,
   `apps/web/src/lib/lensSources.test.ts`, `elements/index.test.ts`.
+
+Verification update (2026-10-01): `session_elements::assistant_prose`,
+`ContextElement::links`, and `mentions`; `serve/sessions.rs::output_evidence`;
+`SessionLens`, `conversationAnchor`, and `RibbonOverlay` establish the paths
+above. `session_elements` regressions protect literal quoted tags and structured
+ACP locations; real HTTP `tests/session_lens.rs` protects current output matching
+and refusal after disk divergence. `SessionLens.test.tsx` and
+`conversationLineage.test.ts` protect fold visibility and opt-in behavior.
+`just test-conversation-lineage` passes (6 vocabulary tests, 2 HTTP tests,
+37 frontend tests, and TypeScript checking); the full web suite passed
+(1,841 tests) before the final settings-panel portal change, covered by the
+focused regression. The file-length check still fails on four pre-existing
+oversized files outside this change; changed oversized files shrink.
+Development UI verification against a copied Codex session showed the answer
+expanded, a checked produces chip, and a connection to the output in the file
+tree. The authenticated adapter was not rerun; the installed app is unchanged. Native adapter reports are not byte-hash
+receipts; shell-only reads without structured locations remain unlinked.

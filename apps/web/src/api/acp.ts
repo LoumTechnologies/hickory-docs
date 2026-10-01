@@ -9,6 +9,8 @@ export interface ConfigOption {
 }
 export interface AcpUpdate {
   sessionUpdate?: string; toolCallId?: string; title?: string; status?: string; kind?: string;
+  locations?: { path: string; line?: number }[];
+  _meta?: { terminal_output_delta?: { data?: string } };
   rawInput?: unknown; rawOutput?: unknown;
   content?: { type: string; content?: { type: string; text?: string }; path?: string; oldText?: string; newText?: string }[];
   entries?: { content: string; priority?: string; status: string }[];

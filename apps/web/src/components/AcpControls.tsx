@@ -66,12 +66,12 @@ export function useAcp(doc: string, backend: string, session: string | undefined
 }
 
 type Controls = ReturnType<typeof useAcp>;
-export function AcpControls({ doc, backend, running, control }: { doc: string; backend: string; running: boolean; control: Controls }) {
+export function AcpControls({ doc, backend, running, control, settingsOpen = true, settingsOnly = false }: { doc: string; backend: string; running: boolean; control: Controls; settingsOpen?: boolean; settingsOnly?: boolean }) {
   if (backend === "builtin") return null;
   const { state, busy, error, agents } = control;
   const agent = agents.find(a => a.id === backend);
   return <div className="acp-controls" aria-label="Agent controls">
-    <div className="acp-settings">
+    {settingsOpen && <div className="acp-settings">
       {!state?.configOptions?.length && state?.modes && <label>Mode<select aria-label="Mode" value={state.modes.currentModeId} disabled={busy || running}
         onChange={e => void control.act(() => acpApi.configure(doc, "__mode", e.target.value))}>
         {state.modes.availableModes.map(mode => <option key={mode.id} value={mode.id}>{mode.name}</option>)}
@@ -83,14 +83,14 @@ export function AcpControls({ doc, backend, running, control }: { doc: string; b
       {!state?.ready && !busy && state?.authMethods?.filter(m => !m.type || m.type === "agent").map(m =>
         <button className="btn" key={m.id} data-tip={m.description} onClick={() => void control.act(() => acpApi.authenticate(doc, m.id))}>{m.name}</button>)}
       {!running && <button className="btn-link" disabled={busy} onClick={() => void control.connect()}>{busy ? "Connecting…" : "Reconnect"}</button>}
-    </div>
-    {busy && <p className="muted" role="status">Connecting to {agent?.name ?? backend}… Sign-in may open in your browser.</p>}
-    {(error || state?.error) && <p role="alert" className="chat-note error">{error || state?.error}</p>}
-    {!busy && agent?.available === false && <p className="muted">{agent.cli_available ? `${agent.name} CLI was found, but its ACP adapter is still needed. ` : ""}{agent.installable ? "Install the adapter above to connect." : "Install Node.js and npm to install a known adapter, or set its executable in Settings → Agents."}</p>}
-    {!busy && !state?.ready && <p className="muted">Use your agent’s own account or API key. Agent commands follow that agent’s permissions and sandbox.</p>}
-    {state?.commands?.length ? <details className="acp-commands"><summary>Agent commands</summary>
+    </div>}
+    {!settingsOnly && busy && <p className="muted" role="status">Connecting to {agent?.name ?? backend}… Sign-in may open in your browser.</p>}
+    {!settingsOnly && (error || state?.error) && <p role="alert" className="chat-note error">{error || state?.error}</p>}
+    {settingsOpen && !busy && agent?.available === false && <p className="muted">{agent.cli_available ? `${agent.name} CLI was found, but its ACP adapter is still needed. ` : ""}{agent.installable ? "Install the adapter above to connect." : "Install Node.js and npm to install a known adapter, or set its executable in Settings → Agents."}</p>}
+    {settingsOpen && !busy && !state?.ready && <p className="muted">Use your agent’s own account or API key. Agent commands follow that agent’s permissions and sandbox.</p>}
+    {settingsOpen && state?.commands?.length ? <details className="acp-commands"><summary>Agent commands</summary>
       {state.commands.map(c => <p key={c.name}><code>/{c.name}</code> — {c.description}</p>)}</details> : null}
-    {state?.permissions?.map(permission => <section key={permission.id} className="acp-permission" role="group" aria-label="Agent permission">
+    {!settingsOnly && state?.permissions?.map(permission => <section key={permission.id} className="acp-permission" role="group" aria-label="Agent permission">
       <strong>{permission.toolCall.title ?? "The agent needs your permission"}</strong>
       <ToolDetails tool={permission.toolCall} />
       <div className="acp-settings">{permission.options.map(option =>
@@ -99,7 +99,7 @@ export function AcpControls({ doc, backend, running, control }: { doc: string; b
           catch (e) { control.setError(e instanceof Error ? e.message : String(e)); }
         }}>{option.name}</button>)}</div>
     </section>)}
-    {running && state?.tools?.map(tool => <details key={tool.toolCallId} className="acp-tool" open={tool.status === "pending"}>
+    {!settingsOnly && running && state?.tools?.map(tool => <details key={tool.toolCallId} className="acp-tool" open={tool.status === "pending"}>
       <summary>{tool.title ?? tool.kind ?? "Agent tool"} <span className="muted">{tool.status}</span></summary><ToolDetails tool={tool} />
     </details>)}
   </div>;
@@ -114,6 +114,9 @@ function ConfigControl({ option, disabled, onChange }: { option: ConfigOption; d
 
 export function ToolDetails({ tool }: { tool: AcpUpdate }) {
   return <div className="acp-tool-details">
+    {tool.locations?.map((location, i) => <p key={i}><code>{location.path}</code>{location.line !== undefined ? `:${location.line + 1}` : ""}</p>)}
+    {tool._meta?.terminal_output_delta?.data && <pre>{tool._meta.terminal_output_delta.data}</pre>}
+    {tool.rawOutput !== undefined && <pre>{typeof tool.rawOutput === "string" ? tool.rawOutput : JSON.stringify(tool.rawOutput, null, 2)}</pre>}
     {tool.rawInput !== undefined && <pre>{typeof tool.rawInput === "string" ? tool.rawInput : JSON.stringify(tool.rawInput, null, 2)}</pre>}
     {tool.content?.map((c, i) => c.type === "diff" ? <div key={i}><strong>{c.path}</strong><pre className="acp-diff">{c.oldText && `− ${c.oldText}\n`}{c.newText && `+ ${c.newText}`}</pre></div> : c.content?.text ? <pre key={i}>{c.content.text}</pre> : null)}
   </div>;

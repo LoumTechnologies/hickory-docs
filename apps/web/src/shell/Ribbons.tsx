@@ -121,6 +121,8 @@ export interface RibbonLink {
     kind?: "document" | "generated" | "file";
   };
   title: string;
+  anchor?: HTMLElement;
+  alwaysVisible?: boolean;
 }
 
 /** A generated file: always its content, and its editor when one is open. */
@@ -179,11 +181,8 @@ interface Shape {
   connector?: { x: number; y: number; width: number; height: number };
   /** The line ranges to tint while hovered, one entry per anchored editor. */
   hl: HlSide[];
-  /** Whether the caret is in one of this connection's involved blocks, in the
-   * editor that has focus. Measured with the geometry — it moves for the same
-   * reasons and is compared the same way — and read at render time by the
-   * "caret" visibility, which paints nothing else. */
   caret: boolean;
+  alwaysVisible?: boolean;
   target: RibbonTarget;
   /** Whitespace-only attribution: drawn only while the pointer is over the
    * involved lines (see `hoverZones`), never by default. */
@@ -230,6 +229,7 @@ function sameShapes(a: readonly Shape[], b: readonly Shape[]): boolean {
       x.band !== y.band ||
       x.whitespaceOnly !== y.whitespaceOnly ||
       x.caret !== y.caret ||
+      x.alwaysVisible !== y.alwaysVisible ||
       x.brace?.hit !== y.brace?.hit ||
       !sameBox(x.reveal, y.reveal) ||
       !sameBox(x.connector, y.connector) ||
@@ -1021,9 +1021,6 @@ export function RibbonOverlay({
       }
     }
 
-    // Context and declared connections: from lines of a source document on
-    // screen to wherever their far end is — its tab, its tree row, its port.
-    // Drawn in their family's stroke, never the lineage palette.
     for (const link of links) {
       if (!on(link.family)) continue;
       const source = sources.find(
@@ -1045,8 +1042,9 @@ export function RibbonOverlay({
       const b = Math.min(Math.max(link.from.lines[1], a), total);
       const from = view.state.doc.line(a).from;
       const to = view.state.doc.line(b).to;
-      const band = bandBetween(view, from, to);
-      if (!band) continue;
+      const rect = link.anchor?.getBoundingClientRect();
+      const band = rect ? [rect.top, rect.bottom] : bandBetween(view, from, to);
+      if (!band || band[1] <= band[0]) continue;
       const pane = view.scrollDOM.getBoundingClientRect();
       const edges = paneEdges(view);
       const tMid = (terminal.rect.left + terminal.rect.right) / 2 - box.left;
@@ -1073,6 +1071,7 @@ export function RibbonOverlay({
       );
       const shape: Draft = {
         key: `${link.family}:${link.key}:${terminal.ends}`,
+        alwaysVisible: link.alwaysVisible,
         family: link.family,
         color: link.family === "context" ? 0 : 1,
         clamped: clamped.clamped,
@@ -1212,15 +1211,10 @@ export function RibbonOverlay({
         // noise until someone is working exactly there.
         const chrome = shape.ends !== "text";
         const hoverOnly = chrome || shape.whitespaceOnly === true;
-        // And under the default visibility, every connection is drawn only
-        // where it is being asked about: the caret in one of its blocks. A
-        // hover still reveals whatever it lands on, so nothing this overlay
-        // knows becomes unreachable — it just stops painting a dozen answers
-        // over the text of a question nobody asked.
-        const shown =
+        const shown = shape.alwaysVisible || (
           visibility === "caret"
             ? shape.caret || revealedKeys.has(shape.key)
-            : !hoverOnly || revealedKeys.has(shape.key);
+            : !hoverOnly || revealedKeys.has(shape.key));
         return (
           <g
             key={shape.key}

@@ -86,14 +86,15 @@ export type Block =
   /** The harness's bookkeeping (`usage`, `next`): drawn as nothing. */
   | { kind: "session-meta"; element: string; span: [number, number] };
 
-/** One provenance connection an element of a session declares
- * (`hick_blocks::Link`, with the lines its span covers). */
+/** Recorded links and independently checked output evidence for the session lens. */
 export interface SessionLink {
   family: "lineage" | "context" | "declared";
   /** Byte span in the session source. */
   span: [number, number];
   to: { path: string; lines?: [number, number] };
   title: string;
+  /** Independently checked current document → output lineage. */
+  evidence?: { path: string; lines: [number, number] };
   /** The 1-based lines of the session the span starts and ends on. */
   lines: [number, number];
 }
@@ -949,10 +950,8 @@ export interface SessionView {
 
 export interface SessionViewResponse {
   path: string;
-  /** The session file's text — what the lens shows with line numbers. */
   source: string;
   view: SessionView;
-  /** The session as blocks, for the lens. */
   blocks: Block[];
   /** What each element declares about where it came from. */
   links: SessionLink[];

@@ -50,6 +50,7 @@ pub mod refactor;
 pub mod reveal;
 pub mod sample;
 pub mod scaffold;
+mod sessions;
 pub mod shell;
 pub mod socket;
 pub mod store;

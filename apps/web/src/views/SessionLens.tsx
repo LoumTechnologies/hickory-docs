@@ -19,6 +19,7 @@ import type { RenderedSlot } from "../editor/rendered";
 import { structureOf } from "../editor/wysiwyg";
 import { elementViews } from "../elements";
 import type { SlotContext } from "../elements";
+import { conversationAnchor } from "../lib/conversationLineage";
 import { registerLens, ribbonLinksOf } from "../lib/lensSources";
 import { byteToChar } from "../lib/offsets";
 
@@ -76,13 +77,15 @@ export function linksByAnswer(
     .blocks.filter((b) => b.name === "assistant" || b.name === "user")
     .sort((a, b) => a.from - b.from);
   const out = new Map<number, SessionLink[]>();
-  speakers.forEach((block, i) => {
-    if (block.name !== "assistant") return;
-    const startLine = doc.lineAt(block.from).number;
-    const next = speakers[i + 1];
-    const endLine = next ? doc.lineAt(next.from).number : doc.lines + 1;
-    const mine = links.filter((link) => link.lines[0] >= startLine && link.lines[0] < endLine);
-    if (mine.length > 0) out.set(block.from, mine);
+  const users = speakers.filter(block => block.name === "user");
+  users.forEach((user, i) => {
+    const end = users[i + 1]?.from ?? doc.length;
+    const answer = speakers.filter(block => block.name === "assistant" && block.from > user.from && block.from < end).at(-1);
+    if (!answer) return;
+    const startLine = doc.lineAt(user.from).number;
+    const endLine = end === doc.length ? doc.lines + 1 : doc.lineAt(end).number;
+    const mine = links.filter(link => link.lines[0] >= startLine && link.lines[0] < endLine);
+    if (mine.length > 0) out.set(answer.from, mine);
   });
   return out;
 }
@@ -92,9 +95,10 @@ export interface SessionLensProps {
   path: string;
   /** Anything that means "the file may have changed" — a finished turn. */
   stamp?: string;
+  showCollapsedLineage?: boolean;
 }
 
-export function SessionLens({ path, stamp }: SessionLensProps) {
+export function SessionLens({ path, stamp, showCollapsedLineage = false }: SessionLensProps) {
   const hostRef = useRef<HTMLDivElement | null>(null);
   const viewRef = useRef<EditorView | null>(null);
   const registry = useMemo(() => new RenderedRegistry(), []);
@@ -115,17 +119,20 @@ export function SessionLens({ path, stamp }: SessionLensProps) {
 
   useEffect(() => {
     let live = true;
-    api.sessionView(path).then(
-      (answer) => {
+    let pending = false;
+    const refresh = () => {
+      if (pending || document.hidden) return;
+      pending = true;
+      api.sessionView(path).then(answer => {
         if (!live) return;
         setError(null);
-        setData(answer);
-      },
-      (e: unknown) => live && setError(e instanceof Error ? e.message : String(e)),
-    );
-    return () => {
-      live = false;
+        setData(previous => JSON.stringify(previous) === JSON.stringify(answer) ? previous : answer);
+      }, (e: unknown) => live && setError(e instanceof Error ? e.message : String(e)))
+        .finally(() => { pending = false; });
     };
+    refresh();
+    const timer = window.setInterval(refresh, 5000);
+    return () => { live = false; window.clearInterval(timer); };
   }, [path, stamp]);
 
   // One editor for the lens's life; a new version of the file replaces its
@@ -134,6 +141,7 @@ export function SessionLens({ path, stamp }: SessionLensProps) {
     const host = hostRef.current;
     if (!host || !data) return;
     let view = viewRef.current;
+    const changed = !view || view.state.doc.toString() !== data.source;
     if (!view) {
       view = new EditorView({
         parent: host,
@@ -164,7 +172,7 @@ export function SessionLens({ path, stamp }: SessionLensProps) {
     // A conversation opens at its newest turn, the way the cards always
     // did; the log is the pane's, so it is the log that scrolls.
     const log = host.closest<HTMLElement>(".chat-log");
-    if (log) {
+    if (log && changed) {
       // Once now, and again after the cards have measured: the editor
       // virtualises against the log, so its height settles over a few
       // frames as widgets mount.
@@ -180,13 +188,28 @@ export function SessionLens({ path, stamp }: SessionLensProps) {
       linksAt: linksByAnswer(view.state, data.links),
       view,
     });
-    return registerLens({
-      path: data.path,
-      view,
-      source: data.source,
-      links: ribbonLinksOf(data.path, data.links),
-    });
+
   }, [data, registry]);
+
+  // Recompute links as folds change. Hidden work cannot leave a ribbon
+  // implying that its evidence is presently on screen.
+  useEffect(() => {
+    const host = hostRef.current;
+    if (!host || !data || !facts) return;
+    let unregister = () => {};
+    const sync = () => {
+      const visible = data.links.flatMap(link => {
+        const anchor = conversationAnchor(host, byteToChar(data.source, link.span[0]), byteToChar(data.source, link.span[1]), showCollapsedLineage);
+        return anchor ? ribbonLinksOf(data.path, [link]).map(ribbon => ({ ...ribbon,
+          key: `lens:${data.path}:${link.span.join(":")}:${link.family}:${link.to.path}:${link.to.lines?.join(":")}:${link.evidence?.path}:${link.evidence?.lines.join(":")}`, anchor, alwaysVisible: true })) : [];
+      });
+      unregister();
+      unregister = registerLens({ path: data.path, view: facts.view, source: data.source, links: visible });
+    };
+    sync();
+    host.addEventListener("toggle", sync, true);
+    return () => { host.removeEventListener("toggle", sync, true); unregister(); };
+  }, [data, facts, slots, showCollapsedLineage]);
 
   useEffect(
     () => () => {
@@ -217,7 +240,7 @@ export function SessionLens({ path, stamp }: SessionLensProps) {
       <div ref={hostRef} className="editor-cm-host session-lens__editor" />
       {slots.map((slot) => {
         const element = elementViews[slot.kind];
-        return element ? createPortal(element.render(slot, cx), slot.el, slot.key) : null;
+        return element ? createPortal(<div data-session-from={slot.span[0]} data-session-to={slot.span[1]}>{element.render(slot, cx)}</div>, slot.el, slot.key) : null;
       })}
     </div>
   );

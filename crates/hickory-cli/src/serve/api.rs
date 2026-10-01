@@ -1049,61 +1049,7 @@ pub async fn get_cites(
     Ok(Json(json!({ "cites": cites })))
 }
 
-#[derive(Deserialize)]
-pub struct SessionQuery {
-    pub path: String,
-}
-
-/// `GET /api/sessions/view?path=…` — a session file read back as the
-/// conversation it records: turns (with their parent turn, for the tree),
-/// and within each turn the steps — reasoning, prose, scripts and their
-/// output, tool calls and results, files shown, lines written. The same
-/// shape the chat dock renders, so a session opened as a document looks like
-/// the chat it was.
-pub async fn session_view(
-    State(state): State<LocalState>,
-    Query(q): Query<SessionQuery>,
-) -> ApiResult<Json<Value>> {
-    let root = state.index.root().to_path_buf();
-    let rel = std::path::Path::new(&q.path);
-    let abs = if rel.is_absolute() {
-        rel.to_path_buf()
-    } else {
-        root.join(rel)
-    };
-    let canon = abs
-        .canonicalize()
-        .map_err(|e| ApiError::not_found(format!("no session at {}: {e}", q.path)))?;
-    let root_canon = root.canonicalize().unwrap_or(root.clone());
-    if !canon.starts_with(&root_canon) {
-        return Err(ApiError::not_found(format!(
-            "{} is outside this folder",
-            q.path
-        )));
-    }
-    let source = std::fs::read_to_string(&canon)
-        .map_err(|e| ApiError::not_found(format!("cannot read {}: {e}", q.path)))?;
-    if !hick_lang::is_session_source(&source) {
-        return Err(ApiError::bad_request(format!(
-            "{} is not a hick:session document",
-            q.path
-        )));
-    }
-    let view = hickory_agent::session_view::session_view(&source);
-    let rel_path = canon
-        .strip_prefix(&root_canon)
-        .map(|p| p.display().to_string())
-        .unwrap_or(q.path.clone());
-    // The session as the lens draws it: its blocks, and the provenance each
-    // element declares — context for what the model was shown, lineage for
-    // what a turn wrote, declared for what the prose points at. See
-    // docs/guarantees/agent/an-answer-in-the-agent-pane-has-ribbons.md.
-    let blocks = hick_literate::session_elements::session_blocks(&source, Some(&root_canon));
-    let links = hick_literate::session_elements::session_links(&source, Some(&root_canon));
-    Ok(Json(
-        json!({ "path": rel_path, "source": source, "view": view, "blocks": blocks, "links": links }),
-    ))
-}
+pub use super::sessions::session_view;
 
 /// Language tag for an output path, matching the hosted server's mapping.
 /// `pub(super)` because plain files (serve/plain_file.rs) tag with the same

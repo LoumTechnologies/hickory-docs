@@ -8,6 +8,7 @@ export function AcpRecord({ kind, body }: { kind: string; body: string }) {
   if (kind === "acp-stream") return <details className="chat-step"><summary>Recorded {value.kind === "agent_thought_chunk" ? "reasoning" : "message"} fragment</summary><pre>{String(value.text ?? "")}</pre></details>;
   if (kind === "acp-activity") {
     const tool = value as AcpUpdate;
+    if (["usage_update", "session_info_update", "available_commands_update", "config_option_update", "current_mode_update"].includes(tool.sessionUpdate ?? "")) return null;
     if (tool.sessionUpdate === "agent_message_chunk" || tool.sessionUpdate === "agent_thought_chunk") return <details className="chat-step"><summary>Recorded {tool.sessionUpdate === "agent_thought_chunk" ? "reasoning" : "message"} fragment</summary><pre>{JSON.stringify(value.content)}</pre></details>;
     if (tool.sessionUpdate === "plan") return <details className="chat-step"><summary>Agent plan</summary>{tool.entries?.map((e, i) => <p key={i}>{e.content} <span className="muted">{e.status}</span></p>)}</details>;
     return <details className="chat-step chat-step--tool"><summary>{tool.title ?? (tool.toolCallId ? "Tool update" : "Agent activity")} {tool.status && <span className="muted">· {tool.status}</span>}</summary><ToolDetails tool={tool} /><details><summary>Recorded details</summary><pre>{JSON.stringify(value, null, 2)}</pre></details></details>;

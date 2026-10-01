@@ -134,6 +134,23 @@ impl Element<SessionFacts> for UserElement {
     }
 }
 
+/// The recorder's unnamed input wrapper captures literal prose containing
+/// hick tags. It is speech, not a tool input, and retains its citations.
+fn assistant_prose(tag: &HickTag) -> String {
+    tag.children
+        .iter()
+        .filter_map(|node| match node {
+            hick_lang::HickNode::Text(text, _) => Some(text.clone()),
+            hick_lang::HickNode::Tag(child)
+                if child.name == "input" && child.get_attribute("name").is_none() =>
+            {
+                Some(child.text_content())
+            }
+            _ => None,
+        })
+        .collect()
+}
+
 struct AssistantElement;
 impl Element<SessionFacts> for AssistantElement {
     fn name(&self) -> &'static str {
@@ -148,21 +165,11 @@ impl Element<SessionFacts> for AssistantElement {
     fn render(&self, tag: &HickTag, _: &SessionFacts) -> Option<Block> {
         // The prose alone: tool calls and actions nested in the answer are
         // blocks of their own, drawn after it.
-        let mut prose = String::new();
-        for node in &tag.children {
-            if let hick_lang::HickNode::Text(t, _) = node {
-                prose.push_str(t);
-            }
-        }
+        let prose = assistant_prose(tag);
         Some(Block::new("session-assistant", span_of(tag)).with("body", prose.trim()))
     }
     fn links(&self, tag: &HickTag, facts: &SessionFacts) -> Vec<Link> {
-        let mut prose = String::new();
-        for node in &tag.children {
-            if let hick_lang::HickNode::Text(t, _) = node {
-                prose.push_str(t);
-            }
-        }
+        let prose = assistant_prose(tag);
         mentions(&prose)
             .into_iter()
             .map(|(path, lines)| Link {
@@ -418,6 +425,60 @@ impl Element<SessionFacts> for ContextElement {
                 .with("body", tag.text_content().trim()),
         )
     }
+    fn links(&self, tag: &HickTag, facts: &SessionFacts) -> Vec<Link> {
+        if tag.get_attribute("kind") != Some("acp-activity") {
+            return vec![];
+        }
+        let Ok(value) = serde_json::from_str::<serde_json::Value>(&tag.text_content()) else {
+            return vec![];
+        };
+        let family = match value["kind"].as_str() {
+            Some("read" | "search") => Family::Context,
+            Some("edit") => Family::Lineage,
+            _ if value["content"]
+                .as_array()
+                .is_some_and(|items| items.iter().any(|v| v["type"] == "diff")) =>
+            {
+                Family::Lineage
+            }
+            _ => return vec![],
+        };
+        let mut links = Vec::new();
+        for location in value["locations"].as_array().into_iter().flatten().chain(
+            value["content"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .filter(|v| v["type"] == "diff"),
+        ) {
+            let Some(path) = location["path"].as_str() else {
+                continue;
+            };
+            let lines = location["line"]
+                .as_u64()
+                .map(|line| (line as usize + 1, line as usize + 1));
+            let to = target(facts, path, lines);
+            if links.iter().any(|link: &Link| link.to == to) {
+                continue;
+            }
+            links.push(Link {
+                family,
+                span: span_of(tag),
+                to,
+                title: format!(
+                    "ACP-reported {} — {}{}. Reported by the adapter; no byte hash was supplied.",
+                    if family == Family::Context {
+                        "file access"
+                    } else {
+                        "file edit"
+                    },
+                    facts.relative(path),
+                    lines_text(lines)
+                ),
+            });
+        }
+        links
+    }
 }
 
 struct ObservationElement;
@@ -535,11 +596,17 @@ pub fn mentions(text: &str) -> Vec<(String, Option<(usize, usize)>)> {
             && !target.starts_with("mailto:")
             && !target.starts_with('#')
         {
-            let (path, fragment) = target.split_once('#').unwrap_or((target, ""));
-            let lines = fragment.strip_prefix('L').and_then(|f| {
+            let (mut path, fragment) = target.split_once('#').unwrap_or((target, ""));
+            let mut lines = fragment.strip_prefix('L').and_then(|f| {
                 let f = f.replace('L', "");
                 parse_lines(&f)
             });
+            if let Some((file, range)) = path.rsplit_once(':')
+                && let Some(parsed) = parse_lines(range)
+            {
+                path = file;
+                lines = Some(parsed);
+            }
             if path
                 .rsplit('/')
                 .next()
@@ -574,7 +641,21 @@ pub fn session_blocks(source: &str, root: Option<&Path>) -> Vec<Block> {
         root: root.map(Path::to_path_buf),
     };
     let (doc, _) = hick_lang::parse_lenient(source);
-    session_registry().blocks(&doc, &facts)
+    let prose_inputs: Vec<_> = doc
+        .all_tags()
+        .into_iter()
+        .filter(|tag| tag.name == "assistant")
+        .flat_map(|tag| {
+            tag.child_tags()
+                .filter(|child| child.name == "input" && child.get_attribute("name").is_none())
+                .map(span_of)
+        })
+        .collect();
+    session_registry()
+        .blocks(&doc, &facts)
+        .into_iter()
+        .filter(|block| block.kind != "session-input" || !prose_inputs.contains(&block.span))
+        .collect()
 }
 
 /// The links of a session document, with the lines each span covers.
@@ -615,6 +696,46 @@ mod tests {
 
     type Summary = (String, String, Option<(usize, usize)>, usize);
     type Where = (String, String, Option<(usize, usize)>);
+
+    // Guarantees: docs/guarantees/agent/an-answer-in-the-agent-pane-has-ribbons.md
+    #[test]
+    fn literal_assistant_speech_stays_visible_and_keeps_its_citation() {
+        let source = r#"<hick:session><hick:user>Which file?</hick:user>
+<hick:assistant><hick:input>
+[test2.hick](/work/test2.hick:8) produces `test2.py` through `<hick:file path="test2.py">`.
+</hick:input></hick:assistant></hick:session>"#;
+        let blocks = session_blocks(source, Some(Path::new("/work")));
+        assert_eq!(blocks.len(), 2);
+        assert!(
+            blocks[1].props["body"]
+                .as_str()
+                .unwrap()
+                .contains("<hick:file")
+        );
+        let links = session_links(source, Some(Path::new("/work")));
+        assert_eq!(links.len(), 1);
+        assert_eq!(links[0].link.to.path, "test2.hick");
+        assert_eq!(links[0].link.to.lines, Some((8, 8)));
+    }
+
+    #[test]
+    fn acp_locations_and_diffs_link_but_shell_text_never_becomes_lineage() {
+        let source = r#"<hick:session>
+<hick:context kind="acp-activity">{"kind":"read","locations":[{"path":"/work/input.py","line":0}]}</hick:context>
+<hick:context kind="acp-activity">{"kind":"edit","content":[{"type":"diff","path":"/work/output.py"}]}</hick:context>
+<hick:context kind="acp-activity">{"kind":"execute","title":"cat output.py","rawOutput":"input.hick produces output.py"}</hick:context>
+</hick:session>"#;
+        let links = session_links(source, Some(Path::new("/work")));
+        assert_eq!(links.len(), 2);
+        assert_eq!(links[0].link.family, Family::Context);
+        assert_eq!(links[0].link.to.lines, Some((1, 1)));
+        assert_eq!(links[1].link.family, Family::Lineage);
+        assert!(
+            links
+                .iter()
+                .all(|link| link.link.title.contains("ACP-reported"))
+        );
+    }
 
     const SESSION: &str = r#"<hick:session xmlns:hick="http://www.hickorydocs.com/1.0" start="2026-08-22T12:56:34Z">
 <hick:user turn="t1">Why is checkout slow?</hick:user>

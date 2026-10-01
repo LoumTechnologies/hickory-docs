@@ -6,6 +6,10 @@ capabilities, and connects a private loopback MCP server containing Hickory's
 existing document tools. The downloaded desktop executable also supplies the
 stdio proxy; a separate `hick` installation is not required.
 
+The Agent gear toggles agent selection, discovery, model/mode configuration,
+sign-in and reconnection controls. It starts closed; pending permissions,
+connection failures and live activity remain visible in the conversation.
+
 The pane names Hickory as the built-in agent and groups detected ACP adapters
 separately from missing adapters. Detection checks executable paths without
 launching agents, refreshes when the window regains focus, and can be refreshed

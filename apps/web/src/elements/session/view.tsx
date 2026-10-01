@@ -65,7 +65,8 @@ export function SourceChips({ links }: { links: readonly SessionLink[] }) {
           data-tip={link.title}
           onClick={() => openTarget(link)}
         >
-          <span className="chat-source__verb">{VERB[link.family]}</span>{" "}
+          <span className="chat-source__verb">{link.evidence ? "produces" : VERB[link.family]}</span>{" "}
+          {link.evidence && <span className="mono">{link.evidence.path} → </span>}
           <span className="mono">{link.to.path.split("/").pop() ?? link.to.path}</span>
           {link.to.lines ? (
             <span className="chat-source__lines">
@@ -125,7 +126,7 @@ export const sessionAssistantView = view("session-assistant", "assistant", (slot
         <div className="chat-work">
           {work.map(({ block, slot: inner }) => {
             const drawer = INNER[block.kind];
-            return drawer ? <div key={inner.key}>{drawer(inner, cx)}</div> : null;
+            return drawer ? <div key={inner.key} data-session-from={inner.span[0]} data-session-to={inner.span[1]}>{drawer(inner, cx)}</div> : null;
           })}
         </div>
       )}

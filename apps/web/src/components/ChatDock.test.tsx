@@ -48,6 +48,8 @@ describe("switching agents", () => {
     const realtime = { onRunEvent: () => () => undefined } as unknown as Realtime;
     const props = { docId: "d1", realtime, onAgentFinished: () => undefined };
     const view = render(<ChatDock {...props} />);
+    expect(screen.queryByRole("combobox", { name: "Agent" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Agent settings" }));
     await screen.findByRole("option", { name: "Codex (ACP)" });
     expect(screen.getByRole("option", { name: "Hickory (built-in)" })).toBeTruthy();
     expect(screen.getByRole("option", { name: "Claude Agent — install adapter" })).toBeTruthy();
@@ -64,6 +66,7 @@ describe("switching agents", () => {
     view.unmount();
     vi.mocked(api.agentTurns).mockResolvedValue({ turns: [], backend: "builtin", provider: "anthropic", model: "claude-sonnet-5", totals: { usd: 0, input: 0, output: 0, cache_read: 0, cache_write: 0 } });
     render(<ChatDock {...props} />);
+    fireEvent.click(screen.getByRole("button", { name: "Agent settings" }));
     await waitFor(() => expect((screen.getByRole("combobox", { name: "Agent" }) as HTMLSelectElement).value).toBe("codex"));
     vi.mocked(acpApi.catalogue).mockResolvedValue({ agents: [...agents, { id: "custom", name: "My agent", command: "my-acp", args: [], available: true }] });
     fireEvent.click(screen.getByRole("button", { name: "Refresh agents" }));
@@ -243,6 +246,7 @@ describe("the dock's model control and stats line", () => {
     vi.mocked(api.agent).mockResolvedValue({ session_id: "s1" });
     dock();
 
+    fireEvent.click(screen.getByRole("button", { name: "Agent settings" }));
     const select = screen.getByLabelText("Provider") as HTMLSelectElement;
     await waitFor(() => expect(select.value).toBe("anthropic"));
     // The default model stays a placeholder, not an explicit choice.

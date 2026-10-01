@@ -292,3 +292,9 @@ test-engine:
     cargo test -p hickory-cli --test engine_lifecycle --test up_loop --test up_stress --test serve_local -- --test-threads=1
     cargo test -p hickory-collab -p hickory-workspace -- --test-threads=1
     cargo test --manifest-path apps/desktop/src-tauri/Cargo.toml --test serves_one_origin -- --test-threads=1
+
+# Agent conversation rendering and independently checked lineage evidence.
+test-conversation-lineage:
+    cargo test -p hick-literate --lib session_elements::tests
+    cargo test -p hickory-cli --test session_lens -- --test-threads=1
+    cd apps/web && npm run typecheck && npm test -- src/components/FeatureSettings.test.tsx src/components/ChatDock.test.tsx src/components/AcpControls.test.tsx src/views/SessionLens.test.tsx src/lib/conversationLineage.test.ts src/lib/lensSources.test.ts

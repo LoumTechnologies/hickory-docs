@@ -5,9 +5,9 @@ import { AcpControls, useAcp } from "./AcpControls";
 import { acpApi, type AcpState } from "../api/acp";
 vi.mock("../api/acp", () => ({ acpApi: { catalogue: vi.fn(), connect: vi.fn(), state: vi.fn(), authenticate: vi.fn(), configure: vi.fn(), permission: vi.fn(), install: vi.fn() } }));
 afterEach(() => { cleanup(); vi.clearAllMocks(); });
-function Surface({ running = null }: { running?: string | null }) {
+function Surface({ running = null, settingsOpen = true }: { running?: string | null; settingsOpen?: boolean }) {
   const control = useAcp("doc", "codex", undefined, running);
-  return <AcpControls doc="doc" backend="codex" running={!!running} control={control} />;
+  return <AcpControls doc="doc" backend="codex" running={!!running} control={control} settingsOpen={settingsOpen} />;
 }
 const ready: AcpState = { backend: "codex", ready: true, configOptions: [{ id: "model", name: "Model", type: "select", currentValue: "fast", options: [{ value: "fast", name: "Fast" }, { value: "careful", name: "Careful" }] }] };
 describe("ACP controls", () => {
@@ -47,8 +47,9 @@ describe("ACP controls", () => {
     vi.mocked(acpApi.catalogue).mockResolvedValue({ agents: [] });
     vi.mocked(acpApi.state).mockResolvedValue({ ...ready, permissions: [{ id: "permission", toolCall: { title: "Write the document", rawInput: { path: "notes.md" } }, options: [{ optionId: "yes", name: "Allow once", kind: "allow_once" }, { optionId: "no", name: "Reject", kind: "reject_once" }] }] });
     vi.mocked(acpApi.permission).mockResolvedValue({ answered: true });
-    render(<Surface running="turn" />);
+    render(<Surface running="turn" settingsOpen={false} />);
     fireEvent.click(await screen.findByRole("button", { name: "Reject" }));
+    expect(screen.queryByRole("combobox", { name: "Model" })).toBeNull();
     await waitFor(() => expect(acpApi.permission).toHaveBeenCalledWith("doc", "permission", "no"));
   });
   it("offers installation for a missing catalogued adapter", async () => {
