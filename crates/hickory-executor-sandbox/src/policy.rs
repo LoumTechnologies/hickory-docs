@@ -378,13 +378,13 @@ pub fn wrap(sandbox: Sandbox, c: &Confinement<'_>) -> Option<(String, Vec<String
         Sandbox::Seatbelt => {
             let policy_text =
                 seatbelt_profile(workdir, tmpdir, allow_network, profile, peers, tools);
-            // Seatbelt cannot set an environment variable, so the installer's
-            // redirected HOME is prepended to the command instead. It reaches
-            // `sh` as an assignment, which is the same effect by a different
-            // road.
+            // Export HOME for every command in the installer, not just the first.
             let command = match profile {
                 Profile::Cell => command.to_string(),
-                Profile::Installer => format!("HOME='{dir_for_home}/.home' {command}"),
+                Profile::Installer => format!(
+                    "export HOME='{}'; {command}",
+                    format!("{dir_for_home}/.home").replace('\'', "'\\''")
+                ),
             };
             Some((
                 "sandbox-exec".into(),

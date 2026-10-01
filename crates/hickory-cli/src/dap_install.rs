@@ -37,7 +37,7 @@ const INSTALLERS: &[Installer] = &[
         // and the interpreter that has debugpy must be the interpreter that
         // runs the cell — a machine python paired with a venv's debugpy
         // fails in a way that reads as our bug.
-        command: "uv venv {prefix}/python && uv pip install --python {prefix}/python/bin/python debugpy",
+        command: "uv venv --allow-existing {prefix}/python && uv pip install --python {prefix}/python/bin/python debugpy",
         assets: &[],
         reason: "Microsoft's Python debugger, and the reference DAP implementation",
     },

@@ -16,6 +16,13 @@ test:
     cargo build -p hickory-cli --example acp_fixture
     cargo test --workspace -- --test-threads=1
 
+# Confined tool installers and the diagnostics returned to the app.
+test-tool-install:
+    cargo test -p hickory-executor-sandbox --test installer_home
+    cargo test -p hickory-cli --lib tool_install::tests
+    cargo test -p hick-dap --test live_session -- --test-threads=1
+    cargo build -p hickory-cli
+
 # Regenerate everything derived from another file in this repo.
 #
 # Today that is one thing: the web app's language table, emitted from

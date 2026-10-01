@@ -31,6 +31,10 @@ where `uv` is plainly installed. So for an install the real home stays visible
 read-only, and `HOME` is pointed at a writable directory inside the prefix, so
 the tool's caches land there instead of nowhere.
 
+On macOS the shell exports this home before running the installer, so every
+command in a compound install inherits it. Assigning it only to `uv venv`
+left the following `uv pip install` using the real, read-only home.
+
 ## What gets installed, and why that package
 
 Python installs **basedpyright**, not pyright. Pyright implements no semantic
@@ -81,7 +85,7 @@ Last LLM verification:
     under `{prefix}` and none installs globally.
   - `crates/hickory-executor-sandbox/src/policy.rs` — `Profile::{Cell,
     Installer}`; bubblewrap redirects `HOME` with `--setenv`, Seatbelt (which
-    cannot set an environment variable) prepends the assignment to the
+    cannot set an environment variable) exports HOME before the
     command, and Windows needs neither because an AppContainer's AppData is
     already redirected.
   - `crates/hick-lsp/src/discovery.rs` — `.hick-cache/servers/python/bin` and

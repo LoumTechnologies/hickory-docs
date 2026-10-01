@@ -29,7 +29,7 @@ const INSTALLERS: &[Installer] = &[
         // A real virtualenv rather than a --target install: the console
         // scripts land in bin/, which is where discovery already looks, and
         // `pyvenv.cfg` is how it recognises a virtualenv at all.
-        command: "uv venv {prefix}/python && uv pip install --python {prefix}/python/bin/python basedpyright",
+        command: "uv venv --allow-existing {prefix}/python && uv pip install --python {prefix}/python/bin/python basedpyright",
         // The answer to "why not pyright": pyright implements no semantic
         // tokens, no inlay hints and no folding ranges — those live in
         // Pylance, which is licensed for Microsoft's editors only.

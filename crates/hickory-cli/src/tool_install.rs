@@ -290,16 +290,23 @@ pub fn install(catalogue: &Catalogue, root: &Path, language: &str) -> Result<Pat
         bail!("the sandbox could not be prepared for the install");
     };
 
-    let status = Command::new(&program)
+    let output = Command::new(&program)
         .args(&args)
-        .status()
+        .output()
         .with_context(|| format!("running the confined installer ({program})"))?;
+    use std::io::Write;
+    let _ = std::io::stdout().write_all(&output.stdout);
+    let _ = std::io::stderr().write_all(&output.stderr);
+    let status = output.status;
     if !status.success() {
         bail!(
             "installing {package} failed ({status}).\n\
-             The installer ran confined: it could write only {prefix}, so a failure here is \
-             the package's own, not a permissions problem with the rest of your machine.",
+             Installer output:\n{stderr}\n{stdout}\n\
+             The installer ran confined to {prefix}. Check the output above for the cause, \
+             then retry the install.",
             package = installer.package,
+            stderr = String::from_utf8_lossy(&output.stderr).trim(),
+            stdout = String::from_utf8_lossy(&output.stdout).trim(),
             prefix = prefix.display(),
         );
     }
@@ -323,6 +330,34 @@ fn which(name: &str) -> Option<PathBuf> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_failed_installer_returns_its_diagnostics() {
+        if Sandbox::detect() == Sandbox::None {
+            eprintln!("SKIPPED: no sandbox available");
+            return;
+        }
+        let catalogue = Catalogue {
+            what: "test tool",
+            prefix: ".hick-cache/test-installer",
+            command: "test install",
+            installers: &[Installer {
+                language: "test",
+                tool: "sh",
+                package: "test-tool",
+                command: "echo installer-stdout; echo installer-cause >&2; exit 2",
+                assets: &[],
+                reason: "offline failure diagnostics",
+            }],
+        };
+        let dir = tempfile::tempdir().unwrap();
+        let error = install(&catalogue, dir.path(), "test")
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("installer-cause"), "{error}");
+        assert!(error.contains("installer-stdout"), "{error}");
+        assert!(error.contains("retry the install"), "{error}");
+    }
 
     /// Every catalogue in the product, checked by the same rules.
     fn catalogues() -> Vec<&'static Catalogue> {
