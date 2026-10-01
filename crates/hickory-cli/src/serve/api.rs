@@ -113,7 +113,7 @@ fn project_of(state: &LocalState) -> Value {
     })
 }
 
-/// `GET /api/projects/:id/docs` — every `.hick` file under the root.
+/// `GET /api/projects/:id/docs` — every `.md` file under the root.
 pub async fn project_docs(State(state): State<LocalState>) -> Json<Value> {
     let docs: Vec<Value> = state
         .index
@@ -456,7 +456,7 @@ pub async fn structure(State(state): State<LocalState>) -> ApiResult<Json<Value>
 
 /// One entry in the `GET /api/files` tree. Serialized shape:
 /// `{"name", "path", "dir", "doc_id"?, "children"?}` — `doc_id` only on
-/// `.hick` files, `children` only on directories.
+/// `.md` files, `children` only on directories.
 #[derive(serde::Serialize)]
 struct TreeNode {
     name: String,
@@ -468,7 +468,7 @@ struct TreeNode {
     /// The document that generates this file, when one does.
     ///
     /// This is what stops the app offering to "make literate" a file that
-    /// already is — a woven `cards.md` beside the `cards.hick` that writes it.
+    /// already is — `cards.py` beside the `cards.md` that writes it.
     /// It also lets such a file open as the generated thing it is, with its
     /// lineage and its refusal to be edited, rather than as a plain file that
     /// happens to be overwritten from time to time.
@@ -700,9 +700,7 @@ pub(crate) fn declared_outputs(doc_rel: &str, source: &str) -> Vec<String> {
     let join = |value: &str| -> Option<String> { join_under(dir, value) };
 
     let mut out = Vec::new();
-    let mut declared_weave = false;
     for capture in WEAVE_ATTR.captures_iter(source) {
-        declared_weave = true;
         // `weave="none"` is the opt-out, not a file called `none`.
         if capture[1].trim() == hick_lang::WEAVE_NONE {
             continue;
@@ -711,21 +709,7 @@ pub(crate) fn declared_outputs(doc_rel: &str, source: &str) -> Vec<String> {
             out.push(path);
         }
     }
-    // A BARE document declares no `weave=` and still weaves: the target
-    // defaults to its own name (`bare-documents.md`). Reading only the
-    // attribute meant every bare document's markdown was invisible here — not
-    // marked generated in the file tree, and merged by git as if a person had
-    // written it, which produced a second copy of a conflict already being
-    // resolved in the document itself.
-    if !declared_weave
-        && let Some(stem) = doc_rel
-            .rsplit('/')
-            .next()
-            .and_then(|f| f.strip_suffix(".hick"))
-        && let Some(path) = join(&format!("{stem}.md"))
-    {
-        out.push(path);
-    }
+    // Markdown source is the document itself, not a generated output.
     for capture in FILE_PATH_ATTR.captures_iter(source) {
         if let Some(path) = join(&capture[1]) {
             out.push(path);
@@ -920,7 +904,7 @@ fn insert_tree_node(top: &mut Vec<TreeNode>, rel: &str, dir: bool, index: &super
         prefix.push_str(part);
         if parts.peek().is_none() {
             // `index.add` rather than `id_for_path`: the startup scan only saw
-            // documents that existed then, and a `.hick` file it missed must
+            // documents that existed then, and a `.md` file it missed must
             // still be openable the moment the tree shows it.
             let doc_id = (!dir && rel.ends_with(".md")).then(|| index.add(rel));
             siblings.push(TreeNode {
@@ -1418,11 +1402,9 @@ mod tree_tests {
 
     #[test]
     fn a_documents_weave_target_is_one_of_its_outputs() {
-        // The case that started this: `cards.md` beside the `cards.hick` that
-        // writes it, offered a button to "make it literate" when it already
-        // is.
+        // An explicitly declared rendering is a generated output.
         let outputs = declared_outputs(
-            "cards.hick",
+            "cards-source.md",
             r#"<hick:doc xmlns:hick="http://www.hickorydocs.com/1.0" weave="cards.md">"#,
         );
         assert_eq!(outputs, vec!["cards.md".to_string()]);
@@ -1431,7 +1413,7 @@ mod tree_tests {
     #[test]
     fn every_generated_file_block_is_an_output() {
         let outputs = declared_outputs(
-            "app.hick",
+            "app.md",
             r#"
             <hick:file path="src/main.rs">fn main() {}</hick:file>
             <hick:file path="Cargo.toml">[package]</hick:file>
@@ -1439,13 +1421,7 @@ mod tree_tests {
         );
         assert_eq!(
             outputs,
-            vec![
-                // The default weave: this document declares no `weave=`, so
-                // it writes `app.md` beside itself.
-                "app.md".to_string(),
-                "src/main.rs".to_string(),
-                "Cargo.toml".to_string()
-            ]
+            vec!["src/main.rs".to_string(), "Cargo.toml".to_string()]
         );
     }
 
@@ -1454,7 +1430,7 @@ mod tree_tests {
         // A tree key is root-relative, so a document three folders down that
         // says `path="main.rs"` must not claim the root's `main.rs`.
         let outputs = declared_outputs(
-            "notes/deep/app.hick",
+            "notes/deep/app.md",
             r#"<hick:doc weave="README.md"><hick:file path="src/main.rs"/>"#,
         );
         assert_eq!(
@@ -1469,11 +1445,8 @@ mod tree_tests {
     #[test]
     fn a_dot_dot_in_a_path_is_resolved_rather_than_left_in_the_key() {
         // `notes/deep/../out.rs` would never match the tree's `notes/out.rs`.
-        let outputs = declared_outputs("notes/deep/app.hick", r#"<hick:file path="../out.rs"/>"#);
-        assert_eq!(
-            outputs,
-            vec!["notes/deep/app.md".to_string(), "notes/out.rs".to_string()]
-        );
+        let outputs = declared_outputs("notes/deep/app.md", r#"<hick:file path="../out.rs"/>"#);
+        assert_eq!(outputs, vec!["notes/out.rs".to_string()]);
     }
 
     #[test]
@@ -1481,11 +1454,11 @@ mod tree_tests {
         // The honest boundary of reading declarations instead of weaving: an
         // interpolated path is left alone rather than recorded as the literal
         // `{{name}}.rs`, which would mark a file nobody has.
-        // The default weave is still claimed; only the interpolated path is
-        // left alone.
+        // Markdown source is not a generated output; only explicit outputs
+        // are claimed.
         assert_eq!(
-            declared_outputs("app.hick", r#"<hick:file path="{{name}}.rs"/>"#),
-            vec!["app.md".to_string()]
+            declared_outputs("app.md", r#"<hick:file path="{{name}}.rs"/>"#),
+            Vec::<String>::new()
         );
     }
 
@@ -1498,13 +1471,10 @@ mod tree_tests {
     #[test]
     fn a_volume_output_directory_claims_the_files_under_it() {
         let declared = declared_outputs(
-            "30-api.hick",
+            "30-api.md",
             r#"<hick:volume name="apiout" output="src/Api/Generated" />"#,
         );
-        assert_eq!(
-            declared,
-            vec!["30-api.md".to_string(), "src/Api/Generated/".to_string()]
-        );
+        assert_eq!(declared, vec!["src/Api/Generated/".to_string()]);
 
         let generated = HashMap::from([
             ("src/Api/Generated/".to_string(), "d1".to_string()),
@@ -1532,22 +1502,17 @@ mod tree_tests {
         );
     }
 
-    /// Only `weave="none"` generates nothing.
-    ///
-    /// A document of pure prose still writes its markdown — that is the
-    /// default `bare-documents.md` adopted, and "a note that has no readable
-    /// form is not a note". The opt-out is the one case with no outputs at
-    /// all, and it is a keyword rather than a path: before this it claimed a
-    /// file literally named `none`.
+    /// Markdown source generates nothing unless it declares an output.
+    /// `weave="none"` also claims no output: the keyword is not a path.
     #[test]
-    fn only_weave_none_generates_nothing() {
+    fn markdown_source_and_weave_none_claim_no_rendered_output() {
         assert_eq!(
-            declared_outputs("notes.hick", "# Just prose\n"),
-            vec!["notes.md".to_string()]
+            declared_outputs("notes.md", "# Just prose\n"),
+            Vec::<String>::new()
         );
         assert!(
             declared_outputs(
-                "gen.hick",
+                "gen.md",
                 r#"<hick:doc xmlns:hick="http://www.hickorydocs.com/1.0" weave="none">"#
             )
             .is_empty()
@@ -1556,12 +1521,12 @@ mod tree_tests {
 
     #[test]
     fn marking_skips_documents_and_directories() {
-        // A `.hick` file is a document, never somebody else's output, and a
+        // A `.md` file is a document, never somebody else's output, and a
         // directory is not a file at all.
         let generated = HashMap::from([
             ("cards.md".to_string(), "d1".to_string()),
             ("src".to_string(), "d1".to_string()),
-            ("other.hick".to_string(), "d1".to_string()),
+            ("other.md".to_string(), "d1".to_string()),
         ]);
         let mut tree = vec![
             TreeNode {
@@ -1574,8 +1539,8 @@ mod tree_tests {
                 children: None,
             },
             TreeNode {
-                name: "other.hick".into(),
-                path: "other.hick".into(),
+                name: "other.md".into(),
+                path: "other.md".into(),
                 dir: false,
                 doc_id: Some("d2".into()),
                 generated_by: None,

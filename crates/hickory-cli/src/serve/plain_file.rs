@@ -8,7 +8,7 @@
 //!
 //! What this deliberately is NOT:
 //!
-//! - **Not a document surface.** A `.hick` file is refused in both
+//! - **Not a document surface.** A `.md` file is refused in both
 //!   directions: it has a CRDT room, and a whole-file write behind the
 //!   room's back is exactly the divergence the room exists to prevent.
 //! - **Not a lineage bypass.** A woven output that is writable on disk may
@@ -242,22 +242,22 @@ mod tests {
 
     #[test]
     fn reads_a_text_file_and_round_trips_its_hash_through_a_save() {
-        let dir = root_with(&[("docs/readme.md", b"hello\n")]);
-        let (content, hash) = read_plain(dir.path(), "docs/readme.md").unwrap();
+        let dir = root_with(&[("docs/readme.txt", b"hello\n")]);
+        let (content, hash) = read_plain(dir.path(), "docs/readme.txt").unwrap();
         assert_eq!(content, "hello\n");
         let new_hash = write_plain(
             dir.path(),
-            "docs/readme.md",
+            "docs/readme.txt",
             "hello world\n",
             Some(&hash),
             false,
         )
         .expect("save with the loaded hash succeeds");
         assert_eq!(
-            std::fs::read_to_string(dir.path().join("docs/readme.md")).unwrap(),
+            std::fs::read_to_string(dir.path().join("docs/readme.txt")).unwrap(),
             "hello world\n"
         );
-        let (reread, hash_after) = read_plain(dir.path(), "docs/readme.md").unwrap();
+        let (reread, hash_after) = read_plain(dir.path(), "docs/readme.txt").unwrap();
         assert_eq!(reread, "hello world\n");
         assert_eq!(hash_after, new_hash);
     }
@@ -286,10 +286,10 @@ mod tests {
     #[test]
     fn refuses_documents_escapes_binaries_and_missing_files() {
         let dir = root_with(&[
-            ("paper.hick", b"<h:doc/>"),
+            ("paper.md", b"<h:doc/>"),
             ("logo.png", &[0x89, 0x50, 0xff, 0x00]),
         ]);
-        for rel in ["paper.hick", "../outside.txt", "/etc/passwd", ""] {
+        for rel in ["paper.md", "../outside.txt", "/etc/passwd", ""] {
             assert!(
                 read_plain(dir.path(), rel).is_err(),
                 "{rel:?} must be refused"

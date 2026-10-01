@@ -1,5 +1,5 @@
 // Typora-style markdown DISPLAY styling, shared between the document editor
-// (wysiwyg.ts, over .hick prose) and the output panes (OutputEditorPane, over
+// (wysiwyg.ts, over .md prose) and the output panes (OutputEditorPane, over
 // a generated .md file). Decorations only — line classes and marks; nothing
 // here ever replaces, hides, or edits text.
 //

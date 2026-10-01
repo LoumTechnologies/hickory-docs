@@ -108,7 +108,7 @@ pub async fn run_doc_tool(req: &DocToolRequest) -> Result<ToolOutcome> {
     if !req.doc.exists() {
         anyhow::bail!(
             "no such document: {}\n\
-             Pass the path to a .hick file — the document is the source, not a generated output.",
+             Pass the path to a .md file — the document is the source, not a generated output.",
             req.doc.display()
         );
     }
@@ -234,7 +234,7 @@ pub fn edit_args(
 }
 
 /// The document a bare `hick doc` command should act on when none is
-/// named and exactly one `.hick` file is in scope.
+/// named and exactly one `.md` file is in scope.
 ///
 /// Deliberately narrow: it looks in one directory and gives up the moment
 /// there is more than one candidate. Guessing between documents would put an
@@ -286,16 +286,13 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         assert_eq!(sole_document(dir.path()), None);
 
-        std::fs::write(dir.path().join("only.hick"), "x").unwrap();
-        std::fs::write(dir.path().join("notes.md"), "x").unwrap();
-        assert_eq!(
-            sole_document(dir.path()),
-            Some(dir.path().join("only.hick"))
-        );
+        std::fs::write(dir.path().join("only.md"), "x").unwrap();
+        std::fs::write(dir.path().join("notes.txt"), "x").unwrap();
+        assert_eq!(sole_document(dir.path()), Some(dir.path().join("only.md")));
 
         // Two documents: no guess. An edit aimed at the wrong file is not
         // something lineage can walk back.
-        std::fs::write(dir.path().join("second.hick"), "x").unwrap();
+        std::fs::write(dir.path().join("second.md"), "x").unwrap();
         assert_eq!(sole_document(dir.path()), None);
     }
 

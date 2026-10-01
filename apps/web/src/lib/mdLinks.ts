@@ -8,7 +8,7 @@
 //
 // ## Why the link syntax is markdown and not a hick tag
 //
-// A `.hick` document is markdown first (`bare-documents.md`), and a link is
+// A `.md` document is markdown first (`bare-documents.md`), and a link is
 // the one piece of markup every reader of the woven `.md` already
 // understands. A `<hick:link>` would have to weave to `[…](…)` anyway, and
 // would be unreadable in the source in the meantime. So a cross-document link

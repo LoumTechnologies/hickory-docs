@@ -64,7 +64,7 @@ enum Command {
     /// then watch. A change to a document re-weaves it; a change saved in one
     /// of the generated files is carried back into the document it came from.
     ///
-    /// This is the command that makes `.hick` documents editable with any
+    /// This is the command that makes `.md` documents editable with any
     /// editor. Runs until interrupted.
     Up(UpArgs),
     /// Open a folder or a document in the desktop app, the way `code .` does.
@@ -102,7 +102,7 @@ enum Command {
     /// (docs/specs/freeform/three-axes.md, axis 2).
     ///
     /// With no `--from`: every file in the notes folder's inbox becomes a
-    /// `.hick` note holding the original bytes verbatim; the source is moved
+    /// `.md` note holding the original bytes verbatim; the source is moved
     /// into `inbox/ingested/`, never deleted. Otherwise `--from` names the
     /// source: `'#cell'` (a cell's output volume, into that document, as
     /// fingerprinted `hick:file` bytes), `file` (a plain file, wrapped in a
@@ -126,7 +126,7 @@ enum Command {
     /// Set up a local git repository for hick: pre-commit drift gate,
     /// .gitignore entry, an AGENTS.md section for coding agents, the `hick`
     /// MCP registration, and editor wiring — `hick-lsp` registered for
-    /// *.hick where a project file can do it, and `.hick-lsp.json` written
+    /// *.md where a project file can do it, and `.hick-lsp.json` written
     /// from whichever language servers this repo's editor config already
     /// names. Idempotent — re-run any time to refresh the managed blocks.
     Init(InitArgs),
@@ -240,10 +240,10 @@ enum Command {
     /// disabled entirely.
     #[command(name = "repair", hide = true)]
     Repair(RepairArgs),
-    /// Internal: git's merge driver for `*.hick`.
+    /// Internal: git's merge driver for `*.md`.
     ///
     /// Not for people. `hick init` defines it in this clone's config and
-    /// routes `*.hick` at it from `.gitattributes`; git invokes it with the
+    /// routes `*.md` at it from `.gitattributes`; git invokes it with the
     /// three sides of a merge. Running it by hand merges nothing you meant to
     /// merge.
     #[command(name = "merge-driver", hide = true)]
@@ -610,7 +610,7 @@ struct DocCommonArgs {
 
 #[derive(clap::Args)]
 struct DocReadArgs {
-    /// The `.hick` document. Omit when the working directory holds exactly
+    /// The `.md` document. Omit when the working directory holds exactly
     /// one.
     doc: Option<PathBuf>,
     /// Read an UPSTREAM document instead (by name or path). The primary
@@ -623,7 +623,7 @@ struct DocReadArgs {
 
 #[derive(clap::Args)]
 struct DocReadOutputArgs {
-    /// The `.hick` document. Omit when the working directory holds exactly
+    /// The `.md` document. Omit when the working directory holds exactly
     /// one.
     doc: Option<PathBuf>,
     /// Which output file, as the document names it.
@@ -639,7 +639,7 @@ struct DocReadOutputArgs {
 
 #[derive(clap::Args)]
 struct DocReadFileArgs {
-    /// The `.hick` document whose session this read belongs to. Omit when
+    /// The `.md` document whose session this read belongs to. Omit when
     /// the working directory holds exactly one.
     doc: Option<PathBuf>,
     /// The file, relative to the document's directory. Must be inside the
@@ -658,7 +658,7 @@ struct DocReadFileArgs {
 
 #[derive(clap::Args)]
 struct DocEditArgs {
-    /// The `.hick` document. Omit when the working directory holds exactly
+    /// The `.md` document. Omit when the working directory holds exactly
     /// one.
     doc: Option<PathBuf>,
     /// Which output file (edit-output only).
@@ -689,7 +689,7 @@ struct DocEditArgs {
 
 #[derive(clap::Args)]
 struct DocVerifyArgs {
-    /// The `.hick` document. Omit when the working directory holds exactly
+    /// The `.md` document. Omit when the working directory holds exactly
     /// one.
     doc: Option<PathBuf>,
     #[command(flatten)]
@@ -698,7 +698,7 @@ struct DocVerifyArgs {
 
 #[derive(clap::Args)]
 struct RunArgs {
-    /// A `.hick` document or a directory of documents.
+    /// A `.md` document or a directory of documents.
     path: PathBuf,
     /// Parameter overrides, `key=value` (repeatable).
     #[arg(long = "param", value_parser = hick_literate::parse_param)]
@@ -732,7 +732,7 @@ struct RunArgs {
 
 #[derive(clap::Args)]
 struct TestArgs {
-    /// `.hick` documents or directories of them — as many as you like.
+    /// `.md` documents or directories of them — as many as you like.
     #[arg(required = true, num_args = 1..)]
     paths: Vec<PathBuf>,
     /// Parameter overrides, `key=value` (repeatable).
@@ -762,14 +762,14 @@ struct TestArgs {
 
 #[derive(clap::Args)]
 struct LintArgs {
-    /// `.hick` documents or directories of them — as many as you like.
+    /// `.md` documents or directories of them — as many as you like.
     #[arg(required = true, num_args = 1..)]
     paths: Vec<PathBuf>,
 }
 
 #[derive(clap::Args)]
 struct UpArgs {
-    /// A directory of documents, or a single `.hick` document.
+    /// A directory of documents, or a single `.md` document.
     /// Default: the working directory.
     path: Option<PathBuf>,
     /// Parameter overrides, `key=value` (repeatable).
@@ -792,7 +792,7 @@ struct UpArgs {
 
 #[derive(clap::Args)]
 struct WeaveArgs {
-    /// A `.hick` document.
+    /// A `.md` document.
     path: PathBuf,
     /// Parameter overrides, `key=value` (repeatable).
     #[arg(long = "param", value_parser = hick_literate::parse_param)]
@@ -811,7 +811,7 @@ struct WeaveArgs {
 
 #[derive(clap::Args)]
 struct ContextArgs {
-    /// A `.hick` document.
+    /// A `.md` document.
     doc: PathBuf,
     /// Emit JSON on stdout instead of a summary.
     #[arg(long)]
@@ -820,7 +820,7 @@ struct ContextArgs {
 
 #[derive(clap::Args)]
 struct LineageArgs {
-    /// A `.hick` document.
+    /// A `.md` document.
     doc: PathBuf,
     /// The generated output file to trace (its `<hick:file path>` value).
     #[arg(long = "output")]
@@ -851,7 +851,7 @@ struct LineageArgs {
 
 #[derive(clap::Args)]
 struct OpenArgs {
-    /// A folder of documents, or a single `.hick` document. Defaults to the
+    /// A folder of documents, or a single `.md` document. Defaults to the
     /// working directory, which is what makes `hick open .` the whole gesture.
     #[arg(default_value = ".")]
     path: PathBuf,
@@ -1070,7 +1070,7 @@ struct InitArgs {
 
 #[derive(clap::Args)]
 struct RefreshArgs {
-    /// A `.hick` document (or directory of them).
+    /// A `.md` document (or directory of them).
     path: PathBuf,
     /// Rewrite every transform, not only the stale ones.
     #[arg(long)]
@@ -1092,7 +1092,7 @@ struct RefreshArgs {
 struct AgentArgs {
     /// The task prompt for the agent.
     prompt: String,
-    /// A `.hick` document to give the agent as context.
+    /// A `.md` document to give the agent as context.
     #[arg(long = "doc")]
     doc: Option<PathBuf>,
     /// Project directory (sessions land in `<dir>/sessions/`; default: cwd).
@@ -2574,7 +2574,7 @@ fn cmd_repair(args: RepairArgs) -> Result<ExitCode> {
     Ok(ExitCode::SUCCESS)
 }
 
-/// `hick merge-driver` — git's three-way merge for `*.hick`.
+/// `hick merge-driver` — git's three-way merge for `*.md`.
 ///
 /// Git's contract: write the result to `%A` either way, exit 0 for a clean
 /// merge and non-zero for a conflict.
@@ -3000,7 +3000,7 @@ fn cmd_open(args: OpenArgs) -> Result<ExitCode> {
     if !args.path.exists() {
         anyhow::bail!(
             "{} does not exist, so there is nothing to open.\n  \
-             `hick open` takes a folder of documents or a single `.hick` file, \
+             `hick open` takes a folder of documents or a single `.md` file, \
              and defaults to the working directory.",
             args.path.display()
         );
@@ -3193,7 +3193,7 @@ fn report_import(source: &Path, written: Option<&Path>, stats: &hickory_cli::cla
     }
 }
 
-/// `hick ingest --from '#cell' doc.hick` — the scaffolder's door.
+/// `hick ingest --from '#cell' doc.md` — the scaffolder's door.
 ///
 /// See `docs/specs/freeform/owning-what-a-scaffolder-wrote.md`. The report
 /// names what was filtered as well as what was written: "38 files" and "38
@@ -3202,15 +3202,15 @@ fn report_import(source: &Path, written: Option<&Path>, stats: &hickory_cli::cla
 async fn cmd_ingest_from_exec(args: &IngestArgs, selector: &str) -> Result<ExitCode> {
     let Some(doc) = args.paths.first() else {
         anyhow::bail!(
-            "`--from '{selector}'` ingests a cell's output into a document, so a `.hick` path is \
-             needed.\n  Next step: `hick ingest --from '{selector}' path/to/document.hick`."
+            "`--from '{selector}'` ingests a cell's output into a document, so a `.md` path is \
+             needed.\n  Next step: `hick ingest --from '{selector}' path/to/document.md`."
         );
     };
-    if doc.is_dir() || doc.extension().and_then(|e| e.to_str()) != Some("hick") {
+    if doc.is_dir() || doc.extension().and_then(|e| e.to_str()) != Some("md") {
         anyhow::bail!(
             "`--from` ingests a cell's output into a document, so the path has \
-             to be a `.hick` file — got {}.\n  \
-             Next step: `hick ingest --from '{selector}' path/to/document.hick`.",
+             to be a `.md` file — got {}.\n  \
+             Next step: `hick ingest --from '{selector}' path/to/document.md`.",
             doc.display()
         );
     }
@@ -4343,8 +4343,8 @@ async fn cmd_doc(cmd: DocCommand) -> Result<ExitCode> {
         let cwd = std::env::current_dir()?;
         hickory_cli::doc_tools::sole_document(&cwd).ok_or_else(|| {
             anyhow::anyhow!(
-                "no document given, and {} does not hold exactly one .hick file.\n\
-                 Name the document: hick doc <command> path/to/doc.hick",
+                "no document given, and {} does not hold exactly one .md file.\n\
+                 Name the document: hick doc <command> path/to/doc.md",
                 cwd.display()
             )
         })

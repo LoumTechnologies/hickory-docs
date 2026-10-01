@@ -556,7 +556,7 @@ describe("a generated picture is a door back to its source", () => {
         execBlocks={[]}
         runningCells={new Set()}
         onRunCell={() => undefined}
-        path="cards.hick"
+        path="cards.md"
       />,
     );
     await waitFor(() => expect(container.querySelector(".cm-md-image img")).toBeTruthy());

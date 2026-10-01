@@ -23,7 +23,7 @@ const onePane = {
   root: {
     type: "pane",
     id: "pane-1",
-    tabs: [{ id: "tab-1", kind: "document", target: "notes.hick", docId: "d1" }],
+    tabs: [{ id: "tab-1", kind: "document", target: "notes.md", docId: "d1" }],
     active: 0,
   },
   focus: "pane-1",
@@ -34,7 +34,7 @@ describe("reading a stored layout back", () => {
     const ui = normalizeUi(stored(onePane));
     const restored = panes(ui.layout!.root);
     expect(restored).toHaveLength(1);
-    expect(restored[0].tabs.map((t) => t.target)).toEqual(["notes.hick"]);
+    expect(restored[0].tabs.map((t) => t.target)).toEqual(["notes.md"]);
     expect(restored[0].tabs[0].docId).toBe("d1");
   });
 
@@ -164,16 +164,16 @@ describe("reading a stored layout that is WRONG", () => {
 
 describe("the prose measure, per tab", () => {
   it("keys on the path, because tab ids do not survive a session", () => {
-    const ui = withWrap(emptyUi(), "notes.hick", 64);
-    expect(wrapFor(ui, "notes.hick")).toBe(64);
-    expect(wrapFor(ui, "other.hick")).toBe(WRAP_DEFAULT);
+    const ui = withWrap(emptyUi(), "notes.md", 64);
+    expect(wrapFor(ui, "notes.md")).toBe(64);
+    expect(wrapFor(ui, "other.md")).toBe(WRAP_DEFAULT);
   });
 
   it("clamps a stored measure that would not lay out", () => {
-    const ui = normalizeUi(stored(onePane, { "a.hick": 1, "b.hick": 9999, "c.hick": "wide" }));
-    expect(ui.wrap["a.hick"]).toBe(WRAP_MIN);
-    expect(ui.wrap["b.hick"]).toBe(WRAP_MAX);
-    expect(ui.wrap["c.hick"]).toBeUndefined();
+    const ui = normalizeUi(stored(onePane, { "a.md": 1, "b.md": 9999, "c.md": "wide" }));
+    expect(ui.wrap["a.md"]).toBe(WRAP_MIN);
+    expect(ui.wrap["b.md"]).toBe(WRAP_MAX);
+    expect(ui.wrap["c.md"]).toBeUndefined();
   });
 });
 
@@ -186,7 +186,7 @@ describe("what is worth writing down", () => {
 
   it("stores a workspace with a document open", () => {
     const layout = withTree(freeform(), tab("tree", "folder", "Files"));
-    const withDoc = openInLayout(layout, tab("document", "notes.hick", undefined, "d1"), layout.focus);
+    const withDoc = openInLayout(layout, tab("document", "notes.md", undefined, "d1"), layout.focus);
     expect(worthStoring(withDoc)).toBe(true);
   });
 });
@@ -195,11 +195,11 @@ describe("a table's remembered size", () => {
   it("is named by the table's own path where it has one", () => {
     // A path survives prose being written above the table, the table moving
     // down the document, or another table appearing before it.
-    expect(tableKey("notes/sales.hick", 2, "data/sales.csv")).toBe("path:data/sales.csv");
+    expect(tableKey("notes/sales.md", 2, "data/sales.csv")).toBe("path:data/sales.csv");
   });
 
   it("falls back to the nth table of the document when it writes no file", () => {
-    expect(tableKey("notes/sales.hick", 2)).toBe("notes/sales.hick#2");
+    expect(tableKey("notes/sales.md", 2)).toBe("notes/sales.md#2");
     expect(tableKey(null, 0)).toBe("untitled#0");
   });
 

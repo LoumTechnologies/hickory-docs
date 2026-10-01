@@ -217,19 +217,45 @@ async fn a_check_that_never_returns_is_unknown_and_cannot_block_the_workspace() 
 async fn node_workspaces_offer_installation_for_member_dependencies_without_guessing_freshness() {
     use std::os::unix::fs::PermissionsExt;
     let dir = tempfile::tempdir().unwrap();
-    write(dir.path(), "package.json", r#"{"packageManager":"pnpm@10.0.0"}"#);
-    write(dir.path(), "pnpm-workspace.yaml", "packages:\n - 'packages/*'\n");
+    write(
+        dir.path(),
+        "package.json",
+        r#"{"packageManager":"pnpm@10.0.0"}"#,
+    );
+    write(
+        dir.path(),
+        "pnpm-workspace.yaml",
+        "packages:\n - 'packages/*'\n",
+    );
     write(dir.path(), "pnpm-lock.yaml", "lockfileVersion: '9.0'\n");
-    write(dir.path(), "packages/a/package.json", r#"{"dependencies":{"fixture":"1.0.0"}}"#);
+    write(
+        dir.path(),
+        "packages/a/package.json",
+        r#"{"dependencies":{"fixture":"1.0.0"}}"#,
+    );
     write(dir.path(), "tools/pnpm", "#!/bin/sh\nexit 0\n");
-    std::fs::set_permissions(dir.path().join("tools/pnpm"), std::fs::Permissions::from_mode(0o755)).unwrap();
-    let host = Host { path: dir.path().join("tools").as_os_str().into(), timeout: Duration::from_secs(1) };
+    std::fs::set_permissions(
+        dir.path().join("tools/pnpm"),
+        std::fs::Permissions::from_mode(0o755),
+    )
+    .unwrap();
+    let host = Host {
+        path: dir.path().join("tools").as_os_str().into(),
+        timeout: Duration::from_secs(1),
+    };
     let registry = Registry::default();
     let projects = registry.discover(dir.path());
-    assert_eq!(projects.len(), 1, "workspace member prompted as an independent project");
+    assert_eq!(
+        projects.len(),
+        1,
+        "workspace member prompted as an independent project"
+    );
     let missing = registry.inspect(&projects[0], &host).await;
     assert_eq!(missing.state, Readiness::EnvironmentMissing);
-    assert_eq!(missing.actions[0].argv[1..], ["install", "--frozen-lockfile"]);
+    assert_eq!(
+        missing.actions[0].argv[1..],
+        ["install", "--frozen-lockfile"]
+    );
     std::fs::create_dir(dir.path().join("node_modules")).unwrap();
     let existing = registry.inspect(&projects[0], &host).await;
     assert_eq!(existing.state, Readiness::Unknown);

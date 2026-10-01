@@ -76,19 +76,19 @@ describe("initialWorkspace", () => {
 
 describe("openDocTab", () => {
   it("adds a document tab in the focused pane and focuses it", () => {
-    const layout = openDocTab(initialWorkspace(), "d1", "notes/a.hick");
+    const layout = openDocTab(initialWorkspace(), "d1", "notes/a.md");
     const found = findDocTab(layout, "d1");
     expect(found).not.toBeNull();
     expect(found!.tab.kind).toBe("document");
-    expect(found!.tab.target).toBe("notes/a.hick");
+    expect(found!.tab.target).toBe("notes/a.md");
     expect(found!.tab.docId).toBe("d1");
     expect(layout.focus).toBe(found!.pane.id);
     expect(isWorkspaceEmpty(layout)).toBe(false);
   });
 
   it("opening a second document ADDS a tab — the first stays exactly where it was", () => {
-    const one = openDocTab(initialWorkspace(), "d1", "a.hick");
-    const two = openDocTab(one, "d2", "b.hick");
+    const one = openDocTab(initialWorkspace(), "d1", "a.md");
+    const two = openDocTab(one, "d2", "b.md");
     expect(findDocTab(two, "d1")).not.toBeNull();
     expect(findDocTab(two, "d2")).not.toBeNull();
     // Same pane, both tabs, second active.
@@ -99,13 +99,13 @@ describe("openDocTab", () => {
 
   it("activates (never duplicates) a document that is already open — wherever it is", () => {
     // d1 in one pane, d2 in a split beside it, focus on d2's pane.
-    let layout = openDocTab(initialWorkspace(), "d1", "a.hick");
+    let layout = openDocTab(initialWorkspace(), "d1", "a.md");
     const d1Pane = findDocTab(layout, "d1")!.pane.id;
     layout = split(layout, d1Pane, "row");
-    layout = openDocTab(layout, "d2", "b.hick");
+    layout = openDocTab(layout, "d2", "b.md");
     const before = allTabs(layout);
 
-    const reopened = openDocTab(layout, "d1", "a.hick");
+    const reopened = openDocTab(layout, "d1", "a.md");
     // Nothing added, nothing closed: the same tabs, to the id.
     expect(allTabs(reopened).map((t) => t.id).sort()).toEqual(before.map((t) => t.id).sort());
     // The focus moved to d1's pane.
@@ -113,34 +113,34 @@ describe("openDocTab", () => {
   });
 
   it("never closes anything: every open tab survives every open", () => {
-    let layout = openDocTab(initialWorkspace(), "d1", "a.hick");
+    let layout = openDocTab(initialWorkspace(), "d1", "a.md");
     layout = openGeneratedTab(layout, "d1", "out/a.py", []);
-    layout = openDocTab(layout, "d2", "b.hick");
-    layout = openDocTab(layout, "d3", "c.hick");
+    layout = openDocTab(layout, "d2", "b.md");
+    layout = openDocTab(layout, "d3", "c.md");
     const kinds = allTabs(layout).map((t) => `${t.kind}:${t.target}`);
     expect(kinds).toContain("tree:folder");
-    expect(kinds).toContain("document:a.hick");
+    expect(kinds).toContain("document:a.md");
     expect(kinds).toContain("generated:out/a.py");
-    expect(kinds).toContain("document:b.hick");
-    expect(kinds).toContain("document:c.hick");
+    expect(kinds).toContain("document:b.md");
+    expect(kinds).toContain("document:c.md");
   });
 
   it("refuses to bury the tree: a focused tree pane sends the open elsewhere", () => {
     const base = initialWorkspace();
     const tree = treePane(base)!;
     const focusedOnTree: Layout = { ...base, focus: tree.id };
-    const layout = openDocTab(focusedOnTree, "d1", "a.hick");
+    const layout = openDocTab(focusedOnTree, "d1", "a.md");
     const found = findDocTab(layout, "d1")!;
     expect(found.pane.id).not.toBe(tree.id);
   });
 
   it("leaves collapsed panes collapsed — opening arranges nothing", () => {
-    let layout = openDocTab(initialWorkspace(), "d1", "a.hick");
+    let layout = openDocTab(initialWorkspace(), "d1", "a.md");
     const d1Pane = findDocTab(layout, "d1")!.pane.id;
     layout = split(layout, d1Pane, "row");
-    layout = openDocTab(layout, "d2", "b.hick");
+    layout = openDocTab(layout, "d2", "b.md");
     layout = collapsePane(layout, d1Pane);
-    const opened = openDocTab(layout, "d3", "c.hick");
+    const opened = openDocTab(layout, "d3", "c.md");
     const collapsed = panes(opened.root).find((pane) => pane.id === d1Pane);
     expect(collapsed?.collapsed).toBe(true);
     expect(findDocTab(opened, "d1")).not.toBeNull();
@@ -149,8 +149,8 @@ describe("openDocTab", () => {
 
 describe("activateDocTab (navigation re-activation)", () => {
   it("activates an open document's tab without touching the rest", () => {
-    let layout = openDocTab(initialWorkspace(), "d1", "a.hick");
-    layout = openDocTab(layout, "d2", "b.hick");
+    let layout = openDocTab(initialWorkspace(), "d1", "a.md");
+    layout = openDocTab(layout, "d2", "b.md");
     // Back/forward to d1: same tabs, d1 frontmost.
     const back = activateDocTab(layout, "d1");
     expect(back).not.toBeNull();
@@ -160,7 +160,7 @@ describe("activateDocTab (navigation re-activation)", () => {
   });
 
   it("answers identically (same object) when the tab is already frontmost", () => {
-    const layout = openDocTab(initialWorkspace(), "d1", "a.hick");
+    const layout = openDocTab(initialWorkspace(), "d1", "a.md");
     expect(activateDocTab(layout, "d1")).toBe(layout);
   });
 
@@ -171,7 +171,7 @@ describe("activateDocTab (navigation re-activation)", () => {
 
 describe("openGeneratedTab", () => {
   it("opens beside the owning document, carrying the owner's id", () => {
-    const layout = openGeneratedTab(openDocTab(initialWorkspace(), "d1", "a.hick"), "d1", "out/a.py", []);
+    const layout = openGeneratedTab(openDocTab(initialWorkspace(), "d1", "a.md"), "d1", "out/a.py", []);
     const pane = panes(layout.root).find((candidate) =>
       candidate.tabs.some((t) => t.kind === "generated"),
     )!;
@@ -197,7 +197,7 @@ describe("openFileTab", () => {
 
   it("re-opening activates the existing tab instead of adding a second", () => {
     let layout = openFileTab(initialWorkspace(), ".github/workflows/ci.yml");
-    layout = openDocTab(layout, "d1", "paper.hick");
+    layout = openDocTab(layout, "d1", "paper.md");
     const before = allTabs(layout).length;
     layout = openFileTab(layout, ".github/workflows/ci.yml");
     expect(allTabs(layout)).toHaveLength(before);
@@ -206,7 +206,7 @@ describe("openFileTab", () => {
   });
 
   it("opening ADDS — every already-open tab survives exactly where it was", () => {
-    let layout = openDocTab(initialWorkspace(), "d1", "paper.hick");
+    let layout = openDocTab(initialWorkspace(), "d1", "paper.md");
     const survivors = allTabs(layout).map((t) => t.id);
     layout = openFileTab(layout, "justfile");
     for (const id of survivors) {
@@ -223,7 +223,7 @@ describe("openFileTab", () => {
   });
 
   it("stays out of docIdsIn: no document machinery wakes for a plain file", () => {
-    const layout = openFileTab(openDocTab(initialWorkspace(), "d1", "paper.hick"), "README.md");
+    const layout = openFileTab(openDocTab(initialWorkspace(), "d1", "paper.md"), "README.md");
     expect(docIdsIn(layout)).toEqual(["d1"]);
   });
 });
@@ -245,7 +245,7 @@ describe("renameFileTab", () => {
 
 describe("adoptPlainFileTab", () => {
   it("converts the file tab in place: generated kind, owning doc, weave-keyed target", () => {
-    let layout = openDocTab(initialWorkspace(), "d1", "paper.hick");
+    let layout = openDocTab(initialWorkspace(), "d1", "paper.md");
     layout = openFileTab(layout, "src/analysis.py");
     const before = findFileTab(layout, "src/analysis.py")!;
     const adopted = adoptPlainFileTab(layout, "src/analysis.py", "d2", "analysis.py");
@@ -264,7 +264,7 @@ describe("adoptPlainFileTab", () => {
   });
 
   it("touches nothing when no tab shows the path", () => {
-    const layout = openDocTab(initialWorkspace(), "d1", "paper.hick");
+    const layout = openDocTab(initialWorkspace(), "d1", "paper.md");
     const adopted = adoptPlainFileTab(layout, "README.md", "d9", "README.md");
     expect(allTabs(adopted).map((t) => `${t.kind}:${t.target}`)).toEqual(
       allTabs(layout).map((t) => `${t.kind}:${t.target}`),
@@ -274,12 +274,12 @@ describe("adoptPlainFileTab", () => {
 
 describe("declared layouts", () => {
   const regions = [
-    { name: "prose", match: ["**/*.hick"] },
+    { name: "prose", match: ["**/*.md"] },
     { name: "code", match: ["src/**"] },
   ];
 
   it("openIntoDeclared builds the regions, keeps the tree, and files the document", () => {
-    const layout = openIntoDeclared(regions, "d1", "spec.hick");
+    const layout = openIntoDeclared(regions, "d1", "spec.md");
     expect(treePane(layout)).not.toBeNull();
     const found = findDocTab(layout, "d1")!;
     expect(found.pane.region).toBe("prose");
@@ -290,7 +290,7 @@ describe("declared layouts", () => {
     // layout applies iff isWorkspaceEmpty; a busy workspace ADDS instead.
     // This pins the gate's two answers.
     expect(isWorkspaceEmpty(initialWorkspace())).toBe(true);
-    expect(isWorkspaceEmpty(openDocTab(initialWorkspace(), "d1", "a.hick"))).toBe(false);
+    expect(isWorkspaceEmpty(openDocTab(initialWorkspace(), "d1", "a.md"))).toBe(false);
     expect(isWorkspaceEmpty(openUntitledTab(initialWorkspace()))).toBe(false);
   });
 });
@@ -323,7 +323,7 @@ describe("untitled", () => {
   });
 
   it("adoptUntitledTab converts the tab in place — same pane, same position", () => {
-    let layout = openDocTab(initialWorkspace(), "d1", "a.hick");
+    let layout = openDocTab(initialWorkspace(), "d1", "a.md");
     layout = openUntitledTab(layout);
     const pane = editorPane(layout);
     const untitled = pane.tabs.find((t) => t.kind === "untitled")!;
@@ -342,15 +342,15 @@ describe("untitled", () => {
 
 describe("docIdsIn / focusedDocId", () => {
   it("collects every involved document once — doc tabs and generated tabs' owners", () => {
-    let layout = openDocTab(initialWorkspace(), "d1", "a.hick");
+    let layout = openDocTab(initialWorkspace(), "d1", "a.md");
     layout = openGeneratedTab(layout, "d1", "out/a.py", []);
-    layout = openDocTab(layout, "d2", "b.hick");
+    layout = openDocTab(layout, "d2", "b.md");
     expect(docIdsIn(layout)).toEqual(["d1", "d2"]);
   });
 
   it("keeps a document's session id alive through its generated files alone", () => {
     // The doc tab is gone; its generated tab still names the owner.
-    let layout = openGeneratedTab(openDocTab(initialWorkspace(), "d1", "a.hick"), "d1", "out/a.py", []);
+    let layout = openGeneratedTab(openDocTab(initialWorkspace(), "d1", "a.md"), "d1", "out/a.py", []);
     const doc = findDocTab(layout, "d1")!;
     const pane = panes(layout.root).find((candidate) => candidate.id === doc.pane.id)!;
     const without: Layout = {
@@ -368,7 +368,7 @@ describe("docIdsIn / focusedDocId", () => {
   });
 
   it("focusedDocId reads the focused pane's active tab, and answers null for chrome", () => {
-    let layout = openDocTab(initialWorkspace(), "d1", "a.hick");
+    let layout = openDocTab(initialWorkspace(), "d1", "a.md");
     expect(focusedDocId(layout)).toBe("d1");
     const generated = openGeneratedTab(layout, "d1", "out/a.py", []);
     expect(focusedDocId(generated)).toBe("d1");

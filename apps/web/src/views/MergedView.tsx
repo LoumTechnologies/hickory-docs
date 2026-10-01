@@ -5,7 +5,7 @@
 // `<hick:when>` already has. None of that text exists on disk — there is no
 // file containing those conditionals, nothing to commit, nothing to merge.
 //
-// **It is a lens, not a document.** No save path, no `.hick` extension, no
+// **It is a lens, not a document.** No save path, no `.md` extension, no
 // place in the folder tree. The same category as a diff view, and nobody
 // mistakes `git diff` output for a source artifact. Getting this wrong
 // reverses the product's central claim: a document is the source of its

@@ -140,7 +140,7 @@ document is prose (markdown) and is raw, byte for byte.
 - <hick:paste select="#name" />                      the fragment's bytes, with
   lineage; `select` takes `#id`, `.class`, or a comma list. This is the ONLY
   way to reference a fragment — there is no `from=`, `file=`, or line range
-- <hick:upstream file="other.hick" />                 makes every fragment of
+- <hick:upstream file="other.md" />                 makes every fragment of
   another document selectable here (transitively); renders nothing
 - transcripts: an ingested meeting's turns are fragments `#transcript-u7`
   (seventh utterance), `.said` (all), `.said-sam` (one speaker)

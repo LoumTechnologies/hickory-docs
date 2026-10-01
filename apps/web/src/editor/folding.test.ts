@@ -59,7 +59,7 @@ describe("computeFoldRanges — hick blocks", () => {
       "<hick:assistant>",
       "Looking.",
       '<hick:tool name="read_doc">',
-      "<hick:input>a.hick</hick:input>",
+      "<hick:input>a.md</hick:input>",
       "</hick:tool>",
       "</hick:assistant>",
       '<hick:observation source="action-0" exit="0">',

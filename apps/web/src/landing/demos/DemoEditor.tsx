@@ -4,7 +4,7 @@
 // signed-in workspace and reaches for the API (executor info), a document id,
 // and a realtime room the moment it mounts. A stranger on the landing page has
 // none of those. What it DOES share is the part that matters — the same
-// `wysiwyg` decorations over the same raw `.hick` source, so the demo is not a
+// `wysiwyg` decorations over the same raw `.md` source, so the demo is not a
 // prettier picture of the product than the product.
 
 import { useEffect, useMemo, useRef } from "react";
@@ -25,7 +25,7 @@ export interface DemoEditorProps {
   /** Buffer contents. Ignored when `collab` is set — the CRDT owns the text. */
   value: string;
   onChange?: (next: string) => void;
-  /** Render `.hick` source with the product's document decorations. */
+  /** Render `.md` source with the product's document decorations. */
   hick?: boolean;
   /**
    * Hick block names to collapse on arrival, e.g. `["file"]`.

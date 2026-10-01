@@ -1,7 +1,7 @@
 //! Carrying an edit made in a woven output file back into the document.
 //!
 //! The mapping itself is `hickory_lineage`: byte ranges in the output, mapped
-//! through provenance onto byte ranges in the `.hick` source. What this module
+//! through provenance onto byte ranges in the `.md` source. What this module
 //! adds is the two things a filesystem loop needs and an API call does not —
 //! turning "the file on disk is different now" into a set of byte ranges, and
 //! deciding what to tell the user when a range has nowhere to go.
@@ -79,7 +79,7 @@ pub fn source_edits_for_save(
     hickory_lineage::map_edits(woven, &edits, provenance)
 }
 
-/// Apply document edits to the `.hick` files on disk.
+/// Apply document edits to the `.md` files on disk.
 ///
 /// Every document named by an edit is re-read at this moment rather than
 /// taken from the loop's memory: the user may have edited the document

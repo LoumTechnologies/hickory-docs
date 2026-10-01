@@ -1,10 +1,15 @@
 # Hickory Docs
 
-A downloadable **note-taking IDE** whose notes are `.hick` documents:
+A downloadable **note-taking IDE** whose notes are `.md` documents:
 reproducible, verifiable, executable documents in the hick language, meeting
 transcripts and their AI summaries ingested as ordinary notes, and an AI agent
 whose output is literate-programming files in git. Notes can run, and an AI
 summary in one can be proven to still describe what it summarized.
+
+**Document extension (2026-10-01).** Documents and agent sessions use `.md`.
+All creation paths, including **Make literate**, must write `.md`; UI copy,
+examples in the app, and generated project instructions must use `.md`.
+Older paragraphs below retain their historical extension spelling.
 
 **Start here (2026-09-05).** The core is small and is meant to stay so:
 `hick-lang` parses text plus namespaced tags (and runs in the editor as

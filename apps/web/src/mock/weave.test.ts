@@ -16,7 +16,7 @@ function byteSlice(text: string, start: number, end: number): string {
 
 describe("mock weaver", () => {
   it("weaves two hick:copy slots into one output file with real provenance", () => {
-    const files = weaveOutputs(WEAVE_SOURCE, "docs/weave-demo.hick");
+    const files = weaveOutputs(WEAVE_SOURCE, "docs/weave-demo.md");
     expect(files.map((f) => f.path)).toEqual(["src/latency.py"]);
     const file = files[0];
     expect(file.language).toBe("python");
@@ -48,12 +48,12 @@ describe("mock weaver", () => {
   });
 
   it("maps an output edit inside a pasted slot back to the copy's source span", () => {
-    const file = weaveOutputs(WEAVE_SOURCE, "docs/weave-demo.hick")[0];
+    const file = weaveOutputs(WEAVE_SOURCE, "docs/weave-demo.md")[0];
     const at = charToByte(file.content, file.content.indexOf("statistics.median"));
     const edits = [{ start: at, end: at + "statistics.median".length, text: "statistics.mean" }];
     const sourceEdits = mapEditsToSource(file, edits);
     expect(sourceEdits).toHaveLength(1);
-    expect(sourceEdits[0].doc_path).toBe("docs/weave-demo.hick");
+    expect(sourceEdits[0].doc_path).toBe("docs/weave-demo.md");
     expect(byteSlice(WEAVE_SOURCE, sourceEdits[0].span[0], sourceEdits[0].span[1])).toBe(
       "statistics.median",
     );
@@ -61,7 +61,7 @@ describe("mock weaver", () => {
   });
 
   it("rejects edits overlapping synthetic ranges with the offending range", () => {
-    const file = weaveOutputs(WEAVE_SOURCE, "docs/weave-demo.hick")[0];
+    const file = weaveOutputs(WEAVE_SOURCE, "docs/weave-demo.md")[0];
     const synthetic = file.provenance.find((p) => p.origin.kind === "synthetic")!;
     expect(() =>
       mapEditsToSource(file, [{ start: synthetic.start, end: synthetic.start + 5, text: "nope" }]),

@@ -12,7 +12,7 @@
 //!    sets of diagnostics for one piece of code, which is exactly the drift
 //!    this product exists to remove.
 //! 2. **Register** (`configure_*`) — write the project-local configuration
-//!    that points an editor at `hick-lsp` for `*.hick` files, for the editors
+//!    that points an editor at `hick-lsp` for `*.md` files, for the editors
 //!    where that is a file we can honestly write. Where it is not (Zed needs
 //!    an extension; Neovim has no project-local LSP registration), `hick init`
 //!    prints the exact snippet instead of pretending.
@@ -93,7 +93,7 @@ pub fn configure_editors(root: &Path) -> Result<EditorSetup> {
             manual: Some(
                 "install the dev extension from the hickory-docs checkout \
                  (`zed: install dev extension` → editors/zed-hick); it starts \
-                 `hick-lsp` from your PATH for *.hick files"
+                 `hick-lsp` from your PATH for *.md files"
                     .into(),
             ),
         });
@@ -613,7 +613,7 @@ fn on_path(bin: &str) -> bool {
     std::env::split_paths(&paths).any(|dir| dir.join(bin).is_file())
 }
 
-/// `.vscode/settings.json`: associate `*.hick` and point a generic LSP client
+/// `.vscode/settings.json`: associate `*.md` and point a generic LSP client
 /// at `hick-lsp`. VS Code has no built-in way to register a language server
 /// from settings, so this is only half the job and says so.
 fn configure_vscode(root: &Path) -> Result<EditorOutcome> {
@@ -628,7 +628,7 @@ fn configure_vscode(root: &Path) -> Result<EditorOutcome> {
         .get_mut("files.associations")
         .and_then(Value::as_object_mut)
     {
-        assoc.entry("*.hick").or_insert_with(|| json!("hick"));
+        assoc.entry("*.md").or_insert_with(|| json!("hick"));
     }
     settings
         .entry("glspc.languageId")
@@ -673,7 +673,7 @@ command = "hick-lsp"
 [[language]]
 name = "hick"
 scope = "source.hick"
-file-types = ["hick"]
+file-types = ["md"]
 roots = [".git"]
 comment-token = "#"
 indent = { tab-width = 2, unit = "  " }
@@ -862,7 +862,7 @@ language-servers = ["ruff", "pylsp"]
         assert_eq!(settings["editor.tabSize"], json!(2));
         // An existing choice is left alone rather than replaced.
         assert_eq!(settings["glspc.serverCommand"], json!("my-own-server"));
-        assert_eq!(settings["files.associations"]["*.hick"], json!("hick"));
+        assert_eq!(settings["files.associations"]["*.md"], json!("hick"));
 
         assert!(!configure_vscode(dir.path()).unwrap().changed);
     }

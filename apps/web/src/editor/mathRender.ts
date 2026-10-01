@@ -125,7 +125,7 @@ class MathWidget extends WidgetType {
   }
 }
 
-/** Where the maths of this buffer is. The `.hick` editor passes its own
+/** Where the maths of this buffer is. The `.md` editor passes its own
  * verbatim ranges so `$PATH` inside a cell stays a shell variable. */
 export type MathSource = (state: EditorState) => readonly MathSpan[];
 

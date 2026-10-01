@@ -28,14 +28,14 @@ describe("what an anchored terminal says about itself", () => {
     render(
       <AnchorBar
         anchor={anchored}
-        docName="scaffolding.hick"
+        docName="scaffolding.md"
         onResume={() => {}}
         onUnanchor={() => {}}
       />,
     );
     const bar = screen.getByTestId("anchor-bar");
     expect(bar.textContent).toContain("writing");
-    expect(bar.textContent).toContain("scaffolding.hick");
+    expect(bar.textContent).toContain("scaffolding.md");
     // The container is the anchor itself, not decoration.
     expect(bar.textContent).toContain("sdk");
     expect(bar.textContent).toContain("3 lines");

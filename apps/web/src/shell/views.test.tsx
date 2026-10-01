@@ -34,7 +34,7 @@ function serve(initial: string) {
     if (method === "POST" && path.endsWith("/outputs/edit")) {
       state.editBodies.push(body);
       const edits: SourceEdit[] = [
-        { doc_path: "hello.hick", span: [10, 15], text: "typed" },
+        { doc_path: "hello.md", span: [10, 15], text: "typed" },
       ];
       return { source_edits: edits, applied: true };
     }
@@ -128,7 +128,7 @@ describe("GeneratedFileView live updates", () => {
     // The debounced save lands and the server answers with where in the
     // document the edit resolved — the hook the document-editor flash hangs on.
     await waitFor(() => expect(sourceEdits).toHaveLength(1), { timeout: 3000 });
-    expect(sourceEdits[0]).toEqual([{ doc_path: "hello.hick", span: [10, 15], text: "typed" }]);
+    expect(sourceEdits[0]).toEqual([{ doc_path: "hello.md", span: [10, 15], text: "typed" }]);
   }, 10000);
 });
 

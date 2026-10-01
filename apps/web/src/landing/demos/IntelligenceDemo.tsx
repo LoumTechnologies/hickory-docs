@@ -1,6 +1,6 @@
 // "The code in a document is code" — demonstrated rather than asserted.
 //
-// A reader looking at a screenshot of a `.hick` document cannot tell whether
+// A reader looking at a screenshot of a `.md` document cannot tell whether
 // the TypeScript inside it is understood or merely syntax-highlighted. So
 // this runs the actual TypeScript compiler in their browser, over the block
 // in the document below, through the SAME editor bindings the desktop app
@@ -57,7 +57,7 @@ export function cartTotal(lines: Line[]): number {
 </hick:doc>
 `;
 
-const URI = "hick:///pricing.hick";
+const URI = "hick:///pricing.md";
 
 export function IntelligenceDemo() {
   const [source, setSource] = useState(DOCUMENT);

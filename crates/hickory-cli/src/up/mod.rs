@@ -1,6 +1,6 @@
 //! `hick up` — weave a folder and keep it woven.
 //!
-//! One command that makes a directory of `.hick` documents behave like
+//! One command that makes a directory of `.md` documents behave like
 //! ordinary source: every document's outputs are on disk as real files, any
 //! editor can open them, and an edit saved in one of them lands back in the
 //! document it came from. The loop runs until interrupted.
@@ -648,7 +648,7 @@ pub(crate) async fn handle_batch_with(
             }
             continue;
         }
-        if path.extension().is_some_and(|e| e == "hick") {
+        if path.extension().is_some_and(|e| e == "md" || e == "hick") {
             let changed = match std::fs::read_to_string(&path) {
                 Ok(current) => state.doc_source(&path) != Some(&current),
                 // A document that vanished, or is mid-save and unreadable,

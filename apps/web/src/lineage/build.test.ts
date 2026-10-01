@@ -25,7 +25,7 @@ const DOC = `# Bisect
 
 function model() {
   return buildModel([
-    { path: "notes/bisect.hick", source: DOC, outputs: weaveOutputs(DOC, "notes/bisect.hick") },
+    { path: "notes/bisect.md", source: DOC, outputs: weaveOutputs(DOC, "notes/bisect.md") },
   ]);
 }
 
@@ -37,16 +37,16 @@ describe("building a model from real provenance", () => {
     expect(m.stages).toHaveLength(1);
     expect(m.stages[0].name).toBe("bisect");
     expect(m.stages[0].files).toEqual([
-      "notes/bisect.hick",
+      "notes/bisect.md",
       "search/bisect.py",
       "search/test_bisect.py",
     ]);
-    expect(stageOf(m, "search/bisect.py")?.doc).toBe("notes/bisect.hick");
+    expect(stageOf(m, "search/bisect.py")?.doc).toBe("notes/bisect.md");
   });
 
   it("links the fragment to both files that paste it", () => {
     const m = model();
-    const fragment = "notes/bisect.hick#search";
+    const fragment = "notes/bisect.md#search";
     const downstream = [...walk(m.links, ALL, fragment, "down")];
     expect(downstream.some((id) => id.startsWith("search/bisect.py"))).toBe(true);
     expect(downstream.some((id) => id.startsWith("search/test_bisect.py"))).toBe(true);
@@ -58,7 +58,7 @@ describe("building a model from real provenance", () => {
     const m = model();
     const generated = [...m.nodes.values()].find((n) => n.file === "search/bisect.py");
     expect(generated).toBeDefined();
-    expect([...walk(m.links, ALL, generated!.id, "up")]).toContain("notes/bisect.hick#search");
+    expect([...walk(m.links, ALL, generated!.id, "up")]).toContain("notes/bisect.md#search");
   });
 
   it("gives every generated node real line numbers in its own file", () => {
@@ -87,12 +87,12 @@ describe("building a model from real provenance", () => {
 
   it("carries asserted links through untouched, and keeps them separable", () => {
     const m = buildModel(
-      [{ path: "notes/bisect.hick", source: DOC, outputs: weaveOutputs(DOC, "notes/bisect.hick") }],
-      [{ from: "notes/bisect.hick#search", to: "notes/bisect.hick#search", kind: "asserted" }],
+      [{ path: "notes/bisect.md", source: DOC, outputs: weaveOutputs(DOC, "notes/bisect.md") }],
+      [{ from: "notes/bisect.md#search", to: "notes/bisect.md#search", kind: "asserted" }],
     );
     expect(m.links.filter((l) => l.kind === "asserted")).toHaveLength(1);
     // With only computed kinds enabled the asserted one is not a path.
     const computed = new Set<LinkKind>(["paste"]);
-    expect(walk(m.links, computed, "notes/bisect.hick#search", "down").size).toBeGreaterThan(0);
+    expect(walk(m.links, computed, "notes/bisect.md#search", "down").size).toBeGreaterThan(0);
   });
 });

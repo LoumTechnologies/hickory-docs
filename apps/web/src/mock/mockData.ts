@@ -33,7 +33,7 @@ Write a document and run it. Output below is captured as a timed
 transcript, replayable in the web UI:
 
 <hick:exec container="shell">
-hick run demo/hello.hick
+hick run demo/hello.md
 <hick:expect match="exact">
 converged: 3 nodes, 0 stale
 </hick:expect>
@@ -100,8 +100,8 @@ export const CLI_BLOCKS: Block[] = [
     kind: "exec",
     id: "cli-run",
     container: "shell",
-    command: "hick run demo/hello.hick",
-    span: span(CLI_SOURCE, '<hick:exec container="shell">\nhick run demo/hello.hick\n<hick:expect match="exact">\nconverged: 3 nodes, 0 stale\n</hick:expect>\n</hick:exec>'),
+    command: "hick run demo/hello.md",
+    span: span(CLI_SOURCE, '<hick:exec container="shell">\nhick run demo/hello.md\n<hick:expect match="exact">\nconverged: 3 nodes, 0 stale\n</hick:expect>\n</hick:exec>'),
     expect: { match: "exact", body: "converged: 3 nodes, 0 stale" },
     status: "unrecorded",
   },
@@ -292,21 +292,21 @@ export const MOCK_DOCS: (Doc & { project_id: string })[] = [
   {
     id: "d1",
     project_id: "p1",
-    path: "docs/quickstart.hick",
+    path: "docs/quickstart.md",
     source: CLI_SOURCE,
     updated_at: "2026-08-01T16:12:00Z",
   },
   {
     id: "d2",
     project_id: "p2",
-    path: "paper/convergence.hick",
+    path: "paper/convergence.md",
     source: PAPER_SOURCE,
     updated_at: "2026-08-03T11:45:00Z",
   },
   {
     id: "d3",
     project_id: "p1",
-    path: "docs/weave-demo.hick",
+    path: "docs/weave-demo.md",
     source: WEAVE_SOURCE,
     updated_at: "2026-08-04T09:05:00Z",
   },

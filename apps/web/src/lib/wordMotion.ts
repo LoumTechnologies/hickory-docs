@@ -4,7 +4,7 @@
 // characters, stopping at space and punctuation. "Subwords" also stops inside
 // an identifier — `PascalCase`, `camelCase`, `snake_case`, `XMLHttpRequest` —
 // which is the motion you want in code and the wrong one in prose. Since a
-// `.hick` document is both, this cannot be inferred from the file; it is a
+// `.md` document is both, this cannot be inferred from the file; it is a
 // preference about the person, so it is one.
 //
 // An editing preference rather than a presentation one, but it persists the

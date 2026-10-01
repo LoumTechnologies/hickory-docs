@@ -129,36 +129,36 @@ describe("diagnostics", () => {
 
 describe("workspace edits", () => {
   const edit = {
-    changes: { "hick:///a.hick": [{ range: r(0, 0, 0, 4), newText: "next" }] },
+    changes: { "hick:///a.md": [{ range: r(0, 0, 0, 4), newText: "next" }] },
     documentChanges: [
       {
-        textDocument: { uri: "hick:///a.hick", version: 1 },
+        textDocument: { uri: "hick:///a.md", version: 1 },
         edits: [{ range: r(2, 0, 2, 4), newText: "next" }],
       },
       {
-        textDocument: { uri: "hick:///b.hick", version: 1 },
+        textDocument: { uri: "hick:///b.md", version: 1 },
         edits: [{ range: r(0, 0, 0, 4), newText: "next" }],
       },
     ],
   };
 
   it("takes this document's edits from both shapes a server may use", () => {
-    expect(editsForUri(edit, "hick:///a.hick")).toHaveLength(2);
+    expect(editsForUri(edit, "hick:///a.md")).toHaveLength(2);
   });
 
   it("ignores edits addressed to another document", () => {
     // Applying another file's ranges to this buffer would corrupt it at
     // coordinates that happen to exist here.
-    expect(editsForUri(edit, "hick:///a.hick").every((e) => e.newText === "next")).toBe(true);
-    expect(editsForUri(edit, "hick:///c.hick")).toEqual([]);
+    expect(editsForUri(edit, "hick:///a.md").every((e) => e.newText === "next")).toBe(true);
+    expect(editsForUri(edit, "hick:///c.md")).toEqual([]);
   });
 
   it("names every document a rename touches, so the rest can be reported", () => {
-    expect(urisInEdit(edit).sort()).toEqual(["hick:///a.hick", "hick:///b.hick"]);
+    expect(urisInEdit(edit).sort()).toEqual(["hick:///a.md", "hick:///b.md"]);
   });
 
   it("treats a refused rename as no edits rather than an error", () => {
-    expect(editsForUri(null, "hick:///a.hick")).toEqual([]);
+    expect(editsForUri(null, "hick:///a.md")).toEqual([]);
     expect(urisInEdit(null)).toEqual([]);
   });
 });

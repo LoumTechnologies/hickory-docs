@@ -73,7 +73,7 @@ pub struct AdoptRequest {
     /// Root-relative path of the plain file to adopt.
     pub path: String,
     /// Root-relative path of an existing document to append to, instead of
-    /// creating `<stem>.hick` beside the file.
+    /// creating `<stem>.md` beside the file.
     #[serde(default)]
     pub into: Option<String>,
 }

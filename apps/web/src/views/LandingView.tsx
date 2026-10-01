@@ -81,7 +81,7 @@ export function LandingView() {
         </p>
         <p className="landing-sub">
           Install it, then run <code>hick init</code> in the repo you work in. That registers the
-          MCP server for the agent you already use, so it can write <code>.hick</code> documents and
+          MCP server for the agent you already use, so it can write <code>.md</code> documents and
           edit their generated files — an edit at either end lands at the other, byte-exactly.
           Editors get <code>hick-lsp</code>, which ships in the same download: it spawns the real
           language servers for each generated file and maps their diagnostics back onto the

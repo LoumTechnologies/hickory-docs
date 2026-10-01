@@ -224,7 +224,7 @@ impl CheckOutcome {
 
 /// The result of processing one document.
 pub struct DocRun {
-    /// Path of the `.hick` source document.
+    /// Path of the `.md` source document.
     pub doc_path: PathBuf,
     /// Raw source text.
     pub source: String,
@@ -872,7 +872,7 @@ fn said_header(tag: &hick_lang::HickTag) -> String {
     }
 }
 
-/// Expand a path argument (file or directory) into `.hick` documents.
+/// Expand a path argument (file or directory) into `.md` documents.
 ///
 /// Expanding a DIRECTORY skips agent session documents. A session is a
 /// record of what an agent did, not a pipeline to re-run: it embeds the
@@ -955,7 +955,7 @@ pub fn lint_doc(doc_path: &Path) -> Result<()> {
 
 /// The directory a document lives in, never the empty path.
 ///
-/// `Path::new("d.hick").parent()` is `Some("")`, not `None`, so
+/// `Path::new("d.md").parent()` is `Some("")`, not `None`, so
 /// `parent().unwrap_or(".")` silently yields an empty path for every document
 /// named without a directory — which is how every `hick run <bare-filename>`
 /// on this machine came to share one scratch directory.
@@ -1069,7 +1069,7 @@ pub async fn run_doc_subset(
             stage_woven_files(doc_path, &sources, params).await;
 
             // The document's own directory, not the shell's. `hick run
-            // ../other/doc.hick` is an ordinary thing to type, and keying the
+            // ../other/doc.md` is an ordinary thing to type, and keying the
             // scratch root on where the person was standing gave two
             // unrelated documents one name to fight over.
             let executor = executor_choice.build_for(doc_path.parent()).await?;
@@ -1091,10 +1091,10 @@ pub async fn run_doc_subset(
                 .map(|r| Arc::new(r) as Arc<dyn hick_literate::agent_cell::AgentRunner>);
             let config = PipelineConfig {
                 working_dir: Some(project_dir.to_path_buf()),
-                // A cell may write a `.hick` file, and its fragments become
+                // A cell may write a `.md` file, and its fragments become
                 // available to the documents in this run — the way a
                 // generator contributes a `using` line to a file somebody
-                // else owns. Only `.hick` outputs are read this way: a
+                // else owns. Only `.md` outputs are read this way: a
                 // generator's ordinary output is bytes, and scanning it for
                 // markup would make `<hick:` unwritable by any program.
                 //

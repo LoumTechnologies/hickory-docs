@@ -1,6 +1,6 @@
 # Installing the desktop app
 
-For someone who wants to open a folder of `.hick` documents in a window,
+For someone who wants to open a folder of `.md` documents in a window,
 rather than run `hick` in a terminal. No Rust toolchain, no Node, no clone.
 
 The desktop app and the CLI are **separate downloads**. They are the same
@@ -50,7 +50,7 @@ certificate.
 
 ## What it opens
 
-The app needs a folder containing at least one `.hick` document. It picks one
+The app opens a folder of `.md` documents, including an empty folder. It picks one
 in this order, and says so rather than guessing:
 
 1. `HICKORY_PROJECT_DIR`, or the first command-line argument.

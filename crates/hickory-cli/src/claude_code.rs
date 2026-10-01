@@ -47,8 +47,8 @@
 //!
 //! ## The no-escaping invariant, and what it costs here
 //!
-//! A `.hick` document never escapes: only `hick:`-prefixed tags are
-//! structure, and a tool result that prints a `.hick` file prints real tags.
+//! A `.md` document never escapes: only `hick:`-prefixed tags are
+//! structure, and a tool result that prints a `.md` file prints real tags.
 //! The parser captures four elements verbatim — `hick:input`,
 //! `hick:tool-result`, `hick:reasoning`, `hick:context` — and those carry
 //! anything. `hick:user` prose, `hick:assistant` prose and `hick:arg` do NOT,
@@ -138,7 +138,7 @@ pub struct Converted {
 }
 
 impl Converted {
-    /// `<YYYYMMDD-HHMMSS>-<slug>.hick`, the same shape the agent's own
+    /// `<YYYYMMDD-HHMMSS>-<slug>.md`, the same shape the agent's own
     /// sessions have, so the folder sorts by when things happened. The slug
     /// is the title when Claude Code wrote one, else the first prompt.
     /// Deterministic: importing the same transcript twice names one file.
@@ -153,7 +153,7 @@ impl Converted {
             .as_deref()
             .or(self.first_prompt.as_deref())
             .unwrap_or("session");
-        format!("{stamp}-{}.hick", slug(seed))
+        format!("{stamp}-{}.md", slug(seed))
     }
 }
 
@@ -1031,7 +1031,7 @@ mod tests {
         // Usage rode along.
         assert_eq!(view.turns[0].usage.as_ref().map(|u| u.output), Some(50));
         assert_eq!(c.title.as_deref(), Some("Count fruit lines"));
-        assert_eq!(c.file_name(), "20260820-090000-count-fruit-lines.hick");
+        assert_eq!(c.file_name(), "20260820-090000-count-fruit-lines.md");
     }
 
     #[test]

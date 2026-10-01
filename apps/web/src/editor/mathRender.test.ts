@@ -63,7 +63,7 @@ describe("maths in the editor", () => {
   });
 });
 
-describe("maths in a .hick document", () => {
+describe("maths in a .md document", () => {
   it("leaves a shell variable in a cell alone", () => {
     const src = '<hick:exec container="sh">\necho $PATH and $HOME\n</hick:exec>\n';
     const structure = parseHickDoc(src);

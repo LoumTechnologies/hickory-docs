@@ -66,7 +66,7 @@ function fakeTranscript(cell: ExecBlock): TranscriptEvent[] {
   if (cell.id === "cli-run") {
     return [
       { t: 0, kind: "cmd", data: cell.command },
-      { t: 300, kind: "out", data: "parsing demo/hello.hick\n" },
+      { t: 300, kind: "out", data: "parsing demo/hello.md\n" },
       { t: 800, kind: "out", data: "exec shell: echo hello\n" },
       { t: 1300, kind: "out", data: "converged: 3 nodes, 0 stale\n" },
       { t: 1360, kind: "exit", code: 0 },
@@ -173,8 +173,8 @@ function streamAgentSession(docId: string, prompt: string): string {
     "Plan: add an <hick:expect> block to the unverified cell, then re-run it.\n",
     "Editing source (span 612..796)…\n",
     "Running cell to capture a fresh transcript…\n",
-    "$ hick run demo/hello.hick\nconverged: 3 nodes, 0 stale\n",
-    "Verification passes. Session committed as sessions/2026-08-05-a.hick\n",
+    "$ hick run demo/hello.md\nconverged: 3 nodes, 0 stale\n",
+    "Verification passes. Session committed as sessions/2026-08-05-a.md\n",
   ];
   void (async () => {
     await delay(300);

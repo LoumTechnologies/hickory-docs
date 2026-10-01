@@ -16,12 +16,12 @@ const at = (line: number, severity: number, message: string) => ({
 describe("the rows behind the count", () => {
   it("puts the worst first, then orders by where they are", () => {
     const rows = problemRows([
-      { docId: "b", path: "b.hick", diagnostics: [at(9, 2, "a warning"), at(2, 1, "later error")] },
-      { docId: "a", path: "a.hick", diagnostics: [at(4, 1, "earlier error")] },
+      { docId: "b", path: "b.md", diagnostics: [at(9, 2, "a warning"), at(2, 1, "later error")] },
+      { docId: "a", path: "a.md", diagnostics: [at(4, 1, "earlier error")] },
     ]);
     expect(rows.map((r) => r.diagnostic.message)).toEqual([
-      "earlier error", // error, a.hick
-      "later error", // error, b.hick
+      "earlier error", // error, a.md
+      "later error", // error, b.md
       "a warning", // warning, last whatever its line
     ]);
   });
@@ -32,7 +32,7 @@ describe("the rows behind the count", () => {
     const rows = problemRows([
       {
         docId: "a",
-        path: "a.hick",
+        path: "a.md",
         diagnostics: [at(1, 3, "consider this"), at(2, 4, "a hint"), at(3, 2, "a warning")],
       },
     ]);
@@ -44,14 +44,14 @@ describe("the panel", () => {
   it("lists each problem with where it is, and reports the pick", () => {
     const onPick = vi.fn();
     const rows = problemRows([
-      { docId: "d1", path: "notes/a.hick", diagnostics: [at(11, 1, "undefined name `foo`")] },
+      { docId: "d1", path: "notes/a.md", diagnostics: [at(11, 1, "undefined name `foo`")] },
     ]);
     render(<ProblemsPanel rows={rows} onPick={onPick} onClose={() => {}} />);
 
     expect(screen.getByText("1 problem")).toBeTruthy();
     expect(screen.getByText("undefined name `foo`")).toBeTruthy();
     // One-based, like every editor's gutter and every compiler's output.
-    expect(screen.getByText("notes/a.hick:12")).toBeTruthy();
+    expect(screen.getByText("notes/a.md:12")).toBeTruthy();
 
     fireEvent.click(screen.getByRole("button", { name: /undefined name/ }));
     expect(onPick).toHaveBeenCalledWith(rows[0]);

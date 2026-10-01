@@ -253,10 +253,10 @@ mod tests {
 
     #[test]
     fn parses_succeeded_result_line() {
-        let line = r#"{"custom_id":"docs/a.hick","result":{"type":"succeeded","message":{"content":[{"type":"text","text":"PASS"}],"usage":{"input_tokens":10,"output_tokens":2,"cache_read_input_tokens":8}}}}"#;
+        let line = r#"{"custom_id":"docs/a.md","result":{"type":"succeeded","message":{"content":[{"type":"text","text":"PASS"}],"usage":{"input_tokens":10,"output_tokens":2,"cache_read_input_tokens":8}}}}"#;
         let r = parse_result_line(line).unwrap();
         assert!(r.ok);
-        assert_eq!(r.custom_id, "docs/a.hick");
+        assert_eq!(r.custom_id, "docs/a.md");
         assert_eq!(r.text, "PASS");
         assert_eq!(r.usage.cache_read_input_tokens, 8);
     }

@@ -32,7 +32,7 @@ describe("the scratchpad", () => {
   });
 
   it("saves what was typed and says where it landed", async () => {
-    saveScratchpad.mockResolvedValue({ path: "2026-08-18-standup.hick" });
+    saveScratchpad.mockResolvedValue({ path: "2026-08-18-standup.md" });
     render(<ScratchpadPane />);
 
     fireEvent.change(screen.getByLabelText(/scratchpad/i), {
@@ -43,11 +43,11 @@ describe("the scratchpad", () => {
     await waitFor(() =>
       expect(saveScratchpad).toHaveBeenCalledWith("All green."),
     );
-    expect(await screen.findByText(/2026-08-18-standup\.hick/)).toBeTruthy();
+    expect(await screen.findByText(/2026-08-18-standup\.md/)).toBeTruthy();
   });
 
   it("clears itself after a save, so the next thought starts empty", async () => {
-    saveScratchpad.mockResolvedValue({ path: "note.hick" });
+    saveScratchpad.mockResolvedValue({ path: "note.md" });
     render(<ScratchpadPane />);
 
     const box = screen.getByLabelText(/scratchpad/i) as HTMLTextAreaElement;

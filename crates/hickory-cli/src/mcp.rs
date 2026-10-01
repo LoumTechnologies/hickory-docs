@@ -48,7 +48,7 @@ const INVALID_PARAMS: i64 = -32602;
 fn tool_catalogue() -> Value {
     let doc_arg = json!({
         "type": "string",
-        "description": "Path to the .hick document. Omit if the server was started with one."
+        "description": "Path to the .md document. Omit if the server was started with one."
     });
     json!({
         "tools": [
@@ -188,7 +188,7 @@ fn tool_catalogue() -> Value {
             {
                 "name": "list_docs",
                 "description":
-                    "List the project's hick documents: every `.hick` file, what it weaves, \
+                    "List the project's hick documents: every `.md` file, what it weaves, \
                      and the files it generates. Start here — every other tool takes a `doc`, \
                      and this is the only way to learn what documents exist. Gitignored \
                      directories are skipped, so build output never appears.",
@@ -217,7 +217,7 @@ fn tool_catalogue() -> Value {
                         "path": {
                             "type": "string",
                             "description": "Where to create it, relative to the project root. \
-                                            `.hick` is appended if absent."
+                                            `.md` is appended if absent."
                         },
                         "input": {
                             "type": "string",
@@ -725,7 +725,7 @@ impl Server {
             return Ok(self.root.join(d));
         }
         self.default_doc.clone().ok_or_else(|| {
-            "no document: pass `doc` (a path to a .hick file), or start the server with one"
+            "no document: pass `doc` (a path to a .md file), or start the server with one"
                 .to_string()
         })
     }
@@ -734,7 +734,7 @@ impl Server {
         if !self.sessions.contains_key(doc) {
             if !doc.exists() {
                 return Err(format!(
-                    "no such document: {} — pass the path to a .hick source file, \
+                    "no such document: {} — pass the path to a .md source file, \
                      not a generated output",
                     doc.display()
                 ));
@@ -942,10 +942,10 @@ async fn call_search_tool(project: &std::path::Path, args: &Value) -> Result<Str
     Ok(out.trim_end().to_string())
 }
 
-/// `list_docs`: every `.hick` document in the project, with what it weaves.
+/// `list_docs`: every `.md` document in the project, with what it weaves.
 ///
 /// Gitignore-aware, for the same reason `hick ingest` is: a project's build
-/// output routinely contains `.hick` fixtures, and listing them as if they
+/// output routinely contains `.md` fixtures, and listing them as if they
 /// were the user's documents sends an agent to edit a file that regenerates
 /// over it.
 fn call_list_docs_tool(project: &std::path::Path, args: &Value) -> Result<String, String> {
@@ -977,7 +977,7 @@ fn call_list_docs_tool(project: &std::path::Path, args: &Value) -> Result<String
         // The weave, and what the document generates, without executing it:
         // a listing must never run anybody's cells.
         let summary = match std::fs::read_to_string(path) {
-            // A session is a `.hick` file with a `<hick:session>` root, not a
+            // A session is a `.md` file with a `<hick:session>` root, not a
             // pipeline document, and the pipeline parser rightly refuses it.
             // Reporting somebody's own conversation record as a broken
             // document is worse than not listing it: it reads as damage.

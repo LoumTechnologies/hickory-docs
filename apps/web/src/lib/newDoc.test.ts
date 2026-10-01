@@ -3,7 +3,7 @@ import { landingTarget, untitledDraftKey, untitledPath, untitledSaveName, wrapUn
 
 const doc = (id: string, updated_at: string) => ({
   id,
-  path: `${id}.hick`,
+  path: `${id}.md`,
   updated_at,
 });
 

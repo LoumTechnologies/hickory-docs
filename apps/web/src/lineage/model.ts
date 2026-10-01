@@ -9,7 +9,7 @@
 // See docs/specs/freeform/stages-write-forward.md for what a stage is and the
 // one rule about direction.
 
-/** A file a column can open: a `.hick` document or something one generated. */
+/** A file a column can open: a `.md` document or something one generated. */
 export interface FileModel {
   path: string;
   lines: string[];

@@ -15,7 +15,7 @@ function prov(over: Partial<OutputProvenance> = {}): OutputProvenance {
     end: ALPHA.length,
     charFrom: 0,
     charTo: ALPHA.length,
-    origin: { kind: "paste", doc_path: "doc.hick", span: [start, start + ALPHA.length] },
+    origin: { kind: "paste", doc_path: "doc.md", span: [start, start + ALPHA.length] },
     ...over,
   } as OutputProvenance;
 }
@@ -24,7 +24,7 @@ describe("sourcePositionAt", () => {
   it("maps an output offset onto the document line/character that produced it", () => {
     // Offset 3 is the 'a' that starts "alpha" in the output; in the document
     // that byte lives on line 1 (0-based), after the `<hick:copy …>` open tag.
-    const pos = sourcePositionAt(3, [prov()], "doc.hick", DOC);
+    const pos = sourcePositionAt(3, [prov()], "doc.md", DOC);
     expect(pos).not.toBeNull();
     expect(pos!.line).toBe(1);
     const line = DOC.split("\n")[1];
@@ -33,26 +33,26 @@ describe("sourcePositionAt", () => {
 
   it("refuses synthetic bytes — the weaver made them, no source to ask about", () => {
     const synthetic = prov({ origin: { kind: "synthetic" } });
-    expect(sourcePositionAt(3, [synthetic], "doc.hick", DOC)).toBeNull();
+    expect(sourcePositionAt(3, [synthetic], "doc.md", DOC)).toBeNull();
   });
 
   it("refuses ranges owned by a different document", () => {
     const other = prov({
-      origin: { kind: "paste", doc_path: "other.hick", span: [0, 4] },
+      origin: { kind: "paste", doc_path: "other.md", span: [0, 4] },
     });
-    expect(sourcePositionAt(3, [other], "doc.hick", DOC)).toBeNull();
+    expect(sourcePositionAt(3, [other], "doc.md", DOC)).toBeNull();
   });
 
   it("returns null outside every provenance range instead of guessing", () => {
-    expect(sourcePositionAt(999, [prov()], "doc.hick", DOC)).toBeNull();
+    expect(sourcePositionAt(999, [prov()], "doc.md", DOC)).toBeNull();
   });
 
   it("honours a mapping for edits made since the buffer was loaded", () => {
     // Two characters were inserted ahead of the range, so the same source byte
     // now sits two offsets later in the buffer.
     const shift = (o: number) => o + 2;
-    const shifted = sourcePositionAt(5, [prov()], "doc.hick", DOC, shift);
-    const unshifted = sourcePositionAt(3, [prov()], "doc.hick", DOC);
+    const shifted = sourcePositionAt(5, [prov()], "doc.md", DOC, shift);
+    const unshifted = sourcePositionAt(3, [prov()], "doc.md", DOC);
     expect(shifted).toEqual(unshifted);
   });
 });

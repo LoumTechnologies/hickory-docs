@@ -4,7 +4,7 @@
 // top to bottom with the cards a document uses — the message as prose, a
 // recipe-bearing commit as a cell whose output is its diff, the working tree
 // as the last card. None of it exists on disk as text; there is no save
-// path, no `.hick` extension, and no place in the folder tree.
+// path, no `.md` extension, and no place in the folder tree.
 //
 // Oldest first, because a narrative reads forward and a document already
 // does. The past folds by default and the view opens at the tail, the way a

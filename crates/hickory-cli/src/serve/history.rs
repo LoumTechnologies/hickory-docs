@@ -192,7 +192,7 @@ pub async fn floor(State(state): State<LocalState>) -> ApiResult<Json<Value>> {
     }))
 }
 
-/// `GET /api/git/merge-driver` — whether `.hick` merges go through hick.
+/// `GET /api/git/merge-driver` — whether `.md` merges go through hick.
 ///
 /// Asked at project open, because a clone that never ran `hick init` has
 /// neither the driver nor the hook that would report it missing — and git

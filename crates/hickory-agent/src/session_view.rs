@@ -342,7 +342,7 @@ pub fn conversations_for(
     let mut files: Vec<std::path::PathBuf> = entries
         .filter_map(Result::ok)
         .map(|e| e.path())
-        .filter(|p| p.extension().is_some_and(|e| e == "hick"))
+        .filter(|p| p.extension().is_some_and(|e| e == "md" || e == "hick"))
         .collect();
     files.sort();
     let want = doc_path.canonicalize().ok();
@@ -387,7 +387,7 @@ mod tests {
     use super::*;
 
     const SESSION: &str = r#"<?xml version="1.0" encoding="UTF-8"?>
-<hick:session xmlns:hick="http://www.hickorydocs.com/1.0" start="2026-08-22T10:00:00Z" doc="notes/plan.hick">
+<hick:session xmlns:hick="http://www.hickorydocs.com/1.0" start="2026-08-22T10:00:00Z" doc="notes/plan.md">
 <hick:user id="in0" turn="t1" provider="anthropic" model="claude-sonnet-5">Make it friendlier.</hick:user>
 <hick:usage turn="0" input="10" cache-write="0" cache-read="0" output="5" cost-usd="0.001"/>
 <hick:assistant>
@@ -400,7 +400,7 @@ Let me look first.
 doc: plan.hick
 aaaa|hello
 </hick:tool-result>
-<hick:read file="plan.hick" sha256="ff" lines="1-1"/>
+<hick:read file="plan.md" sha256="ff" lines="1-1"/>
 <hick:assistant>
 <hick:action lang="sh">echo hi</hick:action>
 </hick:assistant>
@@ -416,7 +416,7 @@ aaaa|hello
     #[test]
     fn a_session_reads_back_as_turns_with_steps_answers_and_the_tree() {
         let v = session_view(SESSION);
-        assert_eq!(v.doc.as_deref(), Some("notes/plan.hick"));
+        assert_eq!(v.doc.as_deref(), Some("notes/plan.md"));
         assert_eq!(v.turns.len(), 2);
         let t1 = &v.turns[0];
         assert_eq!(t1.id, "t1");

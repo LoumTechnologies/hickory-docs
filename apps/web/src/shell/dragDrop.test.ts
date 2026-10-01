@@ -8,12 +8,12 @@ function openAll(layout: Layout, ...paths: string[]): Layout {
   return paths.reduce((current, path) => open(current, doc(path)), layout);
 }
 
-/** Two side-by-side panes: a.hick + b.hick on the left, c.hick on the right. */
+/** Two side-by-side panes: a.md + b.md on the left, c.md on the right. */
 function twoPanes(): { layout: Layout; left: Pane; right: Pane } {
-  let layout = openAll(freeform(), "a.hick", "b.hick");
+  let layout = openAll(freeform(), "a.md", "b.md");
   const leftId = layout.focus;
   layout = split(layout, leftId, "row");
-  layout = open(layout, doc("c.hick"));
+  layout = open(layout, doc("c.md"));
   const all = panes(layout.root);
   return {
     layout,
@@ -59,20 +59,20 @@ describe("moveTab: center joins the target pane", () => {
     const { layout, left, right } = twoPanes();
     const after = moveTab(layout, left.id, left.tabs[0].id, right.id, "center");
     const target = paneById(after, right.id)!;
-    expect(targets(target)).toEqual(["c.hick", "a.hick"]);
-    expect(target.tabs[target.active].target).toBe("a.hick");
+    expect(targets(target)).toEqual(["c.md", "a.md"]);
+    expect(target.tabs[target.active].target).toBe("a.md");
     expect(after.focus).toBe(right.id);
-    expect(targets(paneById(after, left.id)!)).toEqual(["b.hick"]);
+    expect(targets(paneById(after, left.id)!)).toEqual(["b.md"]);
   });
 
   it("closes the source pane when its last tab leaves", () => {
     const { layout, left, right } = twoPanes();
-    // Empty the right pane's neighbourhood: drag c.hick (the right pane's
+    // Empty the right pane's neighbourhood: drag c.md (the right pane's
     // only tab) into the left pane.
     const after = moveTab(layout, right.id, right.tabs[0].id, left.id, "center");
     expect(panes(after.root)).toHaveLength(1);
     expect(after.root.type).toBe("pane"); // a split with one child is not a split
-    expect(targets(paneById(after, left.id)!)).toEqual(["a.hick", "b.hick", "c.hick"]);
+    expect(targets(paneById(after, left.id)!)).toEqual(["a.md", "b.md", "c.md"]);
   });
 
   it("does nothing when a tab is dropped on its own pane's center", () => {
@@ -87,7 +87,7 @@ describe("moveTab: an edge splits the target", () => {
     const after = moveTab(layout, left.id, left.tabs[0].id, right.id, "right");
     expect(panes(after.root)).toHaveLength(3);
     const fresh = paneById(after, after.focus)!;
-    expect(targets(fresh)).toEqual(["a.hick"]);
+    expect(targets(fresh)).toEqual(["a.md"]);
     // The new pane sits AFTER the target in a row split.
     const parent = findParent(after, fresh.id)!;
     expect(parent.direction).toBe("row");
@@ -114,8 +114,8 @@ describe("moveTab: an edge splits the target", () => {
     const { layout, left } = twoPanes();
     const after = moveTab(layout, left.id, left.tabs[0].id, left.id, "bottom");
     expect(panes(after.root)).toHaveLength(3);
-    expect(targets(paneById(after, left.id)!)).toEqual(["b.hick"]);
-    expect(targets(paneById(after, after.focus)!)).toEqual(["a.hick"]);
+    expect(targets(paneById(after, left.id)!)).toEqual(["b.md"]);
+    expect(targets(paneById(after, after.focus)!)).toEqual(["a.md"]);
   });
 
   it("refuses a pane's only tab dropped on that same pane's edge", () => {
@@ -128,18 +128,18 @@ describe("moveTab: an edge splits the target", () => {
     const { layout, left, right } = twoPanes();
     const after = moveTab(layout, right.id, right.tabs[0].id, left.id, "top");
     expect(panes(after.root)).toHaveLength(2);
-    expect(targets(paneById(after, after.focus)!)).toEqual(["c.hick"]);
-    expect(targets(paneById(after, left.id)!)).toEqual(["a.hick", "b.hick"]);
+    expect(targets(paneById(after, after.focus)!)).toEqual(["c.md"]);
+    expect(targets(paneById(after, left.id)!)).toEqual(["a.md", "b.md"]);
   });
 
   it("keeps the target's region on the new pane", () => {
     // A pane split off a declared region still belongs to it, matching what
     // the split button does.
     let layout = freeform();
-    layout = open(layout, doc("a.hick"));
+    layout = open(layout, doc("a.md"));
     const first = layout.focus;
     layout = split(layout, first, "row");
-    layout = open(layout, doc("b.hick"));
+    layout = open(layout, doc("b.md"));
     const second = layout.focus;
     const withRegion: Layout = {
       ...layout,
@@ -167,31 +167,31 @@ describe("moveTabToIndex: dropping on a tab bar", () => {
     const { layout, left, right } = twoPanes();
     const after = moveTabToIndex(layout, left.id, left.tabs[1].id, right.id, 0);
     const target = paneById(after, right.id)!;
-    expect(targets(target)).toEqual(["b.hick", "c.hick"]);
+    expect(targets(target)).toEqual(["b.md", "c.md"]);
     expect(target.active).toBe(0);
     expect(after.focus).toBe(right.id);
-    expect(targets(paneById(after, left.id)!)).toEqual(["a.hick"]);
+    expect(targets(paneById(after, left.id)!)).toEqual(["a.md"]);
   });
 
   it("closes the source pane when its last tab moves to another tab bar", () => {
     const { layout, left, right } = twoPanes();
     const after = moveTabToIndex(layout, right.id, right.tabs[0].id, left.id, 1);
     expect(panes(after.root)).toHaveLength(1);
-    expect(targets(paneById(after, left.id)!)).toEqual(["a.hick", "c.hick", "b.hick"]);
+    expect(targets(paneById(after, left.id)!)).toEqual(["a.md", "c.md", "b.md"]);
   });
 
   it("reorders within a pane, counting the caret with the tab still in place", () => {
-    let layout = openAll(freeform(), "a.hick", "b.hick", "c.hick");
+    let layout = openAll(freeform(), "a.md", "b.md", "c.md");
     const pane = panes(layout.root)[0];
-    // Drag a.hick past b.hick: caret index 2 with a still present lands after b.
+    // Drag a.md past b.hick: caret index 2 with a still present lands after b.
     layout = moveTabToIndex(layout, pane.id, pane.tabs[0].id, pane.id, 2);
     const after = panes(layout.root)[0];
-    expect(targets(after)).toEqual(["b.hick", "a.hick", "c.hick"]);
+    expect(targets(after)).toEqual(["b.md", "a.md", "c.md"]);
     expect(after.active).toBe(1);
   });
 
   it("leaves the order alone when a tab is dropped back into its own slot", () => {
-    let layout = openAll(freeform(), "a.hick", "b.hick", "c.hick");
+    let layout = openAll(freeform(), "a.md", "b.md", "c.md");
     const pane = panes(layout.root)[0];
     const before = targets(pane);
     // Both carets around the tab mean "where it already is".
@@ -205,7 +205,7 @@ describe("moveTabToIndex: dropping on a tab bar", () => {
   it("clamps a caret past the end", () => {
     const { layout, left, right } = twoPanes();
     const after = moveTabToIndex(layout, left.id, left.tabs[0].id, right.id, 99);
-    expect(targets(paneById(after, right.id)!)).toEqual(["c.hick", "a.hick"]);
+    expect(targets(paneById(after, right.id)!)).toEqual(["c.md", "a.md"]);
   });
 
   it("ignores unknown panes and tabs", () => {
@@ -221,7 +221,7 @@ describe("the folder tree pane takes no arrivals", () => {
   // a tab INTO it would bury the tree, so center drops and tab-bar drops are
   // refused. The edges still split, so tabs can be arranged around it.
   function withTreePane(): { layout: Layout; tree: Pane; docs: Pane } {
-    let layout = openAll(freeform(), "a.hick", "b.hick");
+    let layout = openAll(freeform(), "a.md", "b.md");
     const docsId = layout.focus;
     layout = split(layout, docsId, "row");
     layout = open(layout, tab("tree", "folder", "Files"));
@@ -247,7 +247,7 @@ describe("the folder tree pane takes no arrivals", () => {
     const { layout, tree, docs } = withTreePane();
     const after = moveTab(layout, docs.id, docs.tabs[0].id, tree.id, "right");
     expect(panes(after.root)).toHaveLength(3);
-    expect(targets(paneById(after, after.focus)!)).toEqual(["a.hick"]);
+    expect(targets(paneById(after, after.focus)!)).toEqual(["a.md"]);
     expect(targets(paneById(after, tree.id)!)).toEqual(["folder"]);
   });
 });
@@ -289,8 +289,8 @@ describe("dropOnCollapsed: a strip expands and joins, never splits", () => {
     const after = dropOnCollapsed(layout, left.id, left.tabs[0].id, right.id);
     const target = paneById(after, right.id)!;
     expect(target.collapsed).toBe(false);
-    expect(targets(target)).toEqual(["c.hick", "a.hick"]);
-    expect(target.tabs[target.active].target).toBe("a.hick");
+    expect(targets(target)).toEqual(["c.md", "a.md"]);
+    expect(target.tabs[target.active].target).toBe("a.md");
     expect(after.focus).toBe(right.id);
   });
 
@@ -311,8 +311,8 @@ describe("dropOnCollapsed: a strip expands and joins, never splits", () => {
     let layout = open(freeform(), tab("tree", "/repo"));
     const treeId = layout.focus;
     layout = split(layout, treeId, "row");
-    layout = open(layout, tab("document", "a.hick"));
-    layout = open(layout, tab("document", "b.hick"));
+    layout = open(layout, tab("document", "a.md"));
+    layout = open(layout, tab("document", "b.md"));
     const docPane = layout.focus;
     const collapsed = collapsePane(layout, treeId);
     const moving = paneById(collapsed, docPane)!.tabs[0];

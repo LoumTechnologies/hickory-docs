@@ -31,7 +31,7 @@ async fn run() -> Result<()> {
     let state = prepared.state;
     let id = state.index.sole().unwrap().0;
     let room = state.rooms.get_or_create(&id).await?;
-    let engine = Engine::open(state, dir.path().join("access.hick"))?;
+    let engine = Engine::open(state, dir.path().join("access.md"))?;
     let mount = Mount::start(Host::start(engine).await?).await?;
     let path = mount.path.join("greeting.txt");
     ensure!(

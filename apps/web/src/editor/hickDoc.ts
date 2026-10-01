@@ -1,4 +1,4 @@
-// Structure of a .hick source for the Typora-style Document view: which
+// Structure of a .md source for the Typora-style Document view: which
 // tags and blocks are where, plus the markdown prose scan the decorations
 // need.
 //
@@ -286,7 +286,7 @@ function scanInline(
 
 /**
  * The markdown prose scan: headings + inline marks over every line that is
- * not inside a `verbatim` range. Shared between the .hick document parse
+ * not inside a `verbatim` range. Shared between the .md document parse
  * (verbatim = exec/file/fragment payloads, tagRanges = hick tags) and the
  * plain-markdown styling used by the output panes (see markdownStyling.ts),
  * which passes fenced-code ranges as verbatim and no tag ranges.

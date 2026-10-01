@@ -27,7 +27,7 @@ export type Interest = {
   teaser: string;
   /** Shown on expand. Plain paragraphs. */
   body: string[];
-  /** Optional literal `.hick` fragment. Byte-for-byte, no escaping. */
+  /** Optional literal `.md` fragment. Byte-for-byte, no escaping. */
   sample?: string;
   links?: InterestLink[];
 };
@@ -38,7 +38,7 @@ export const INTERESTS: Interest[] = [
     title: "You cannot review what your coding agent actually did",
     teaser: "Its session lands in git as a document you read in a diff, not a chat log.",
     body: [
-      "Point your agent at a repository with `hick init` and set `HICKORY_SESSION`. Every tool call it makes — what it read, what it changed, what the run printed — is appended to a `.hick` document in your own repository, as it happens.",
+      "Point your agent at a repository with `hick init` and set `HICKORY_SESSION`. Every tool call it makes — what it read, what it changed, what the run printed — is appended to a `.md` document in your own repository, as it happens.",
       "That artifact is reviewable the way code is reviewable: it is a file, it is in the diff, and the commands in it re-run. A messy exploratory session can be promoted with `hick ingest --from session` into a clean pipeline that reproduces the same result without the dead ends, so the record of how it was found and the artifact you maintain are both kept, separately.",
       "Your own reasoning stays yours — the session records what was done to the document, not what the model was thinking.",
     ],
@@ -49,7 +49,7 @@ export const INTERESTS: Interest[] = [
     teaser: "The explanation, the run that justified it, and the code are one file.",
     body: [
       "The usual answer is a commit message written after the fact by someone reconstructing a decision they no longer have the context for, and a design doc that stopped being true two refactors ago. Both are separate from the code, so both rot silently.",
-      "In a `.hick` document the explanation sits beside the commands that justified it and the code they produced — and `hick test` re-runs those commands and fails when the recorded output and reality have parted company. A stale explanation becomes a red build rather than a trap.",
+      "In a `.md` document the explanation sits beside the commands that justified it and the code they produced — and `hick test` re-runs those commands and fails when the recorded output and reality have parted company. A stale explanation becomes a red build rather than a trap.",
       "This is what literate programming was for. It never stuck because keeping the document true was a second job nobody had time for; an agent working through tools that write the document as a side effect is what removes that job.",
     ],
   },
@@ -102,7 +102,7 @@ mytool --version
   {
     id: "reproduce-someone-else",
     title: "Reproducing someone else's result takes a week",
-    teaser: "A .hick file carries its own environment, so a stranger can re-run it.",
+    teaser: "A .md file carries its own environment, so a stranger can re-run it.",
     body: [
       "Each step declares the image it runs in. Someone who clones the repository runs one command and gets the same pipeline, in the same environments, in the same order — not a prose appendix describing what was once installed.",
       "When the re-run disagrees with the committed output, it says so and shows both. Disagreement is the useful result; silence is what makes reproduction hard.",

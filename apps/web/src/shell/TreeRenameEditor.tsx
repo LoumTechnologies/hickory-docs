@@ -2,7 +2,7 @@
 //
 // One line belongs to one selected node. The editor is CodeMirror rather than
 // a stack of inputs so the same rectangular selection and multiple-cursor
-// gestures used in a `.hick` editor work here. Applying still calls one
+// gestures used in a `.md` editor work here. Applying still calls one
 // capability per node: a filesystem and a future provider share no transaction,
 // so every result is reported separately.
 

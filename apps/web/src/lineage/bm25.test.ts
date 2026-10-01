@@ -5,13 +5,13 @@ import type { FileModel } from "./model";
 
 const file = (path: string, text: string): FileModel => ({
   path,
-  kind: path.endsWith(".hick") ? "document" : "generated",
+  kind: path.endsWith(".md") ? "document" : "generated",
   lines: text.split("\n"),
 });
 
 const CORPUS = [
   file(
-    "notes.hick",
+    "notes.md",
     [
       "def load_runs(path):",
       "    return json.load(open(path))",
@@ -53,14 +53,14 @@ describe("ranked search", () => {
     // The thing substring search cannot do: `load_runs` finding `loadRuns`.
     const hits = index.search("load_runs");
     const files = new Set(hits.map((h) => h.file));
-    expect(files.has("notes.hick")).toBe(true);
+    expect(files.has("notes.md")).toBe(true);
     expect(files.has("app.py")).toBe(true);
   });
 
   it("ranks a rare term above a common one", () => {
     const hits = index.search("median runs");
     // Lines with `median` (rare) beat lines with only `runs` (common).
-    expect(hits[0].file).toBe("notes.hick");
+    expect(hits[0].file).toBe("notes.md");
     const top = CORPUS[0].lines[hits[0].line];
     expect(top.toLowerCase()).toContain("median");
   });

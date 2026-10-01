@@ -1,6 +1,6 @@
 # Hickory Docs
 
-Executable documents that refuse to lie. A `.hick` file is prose, a program,
+Executable documents that refuse to lie. A `.md` file is prose, a program,
 and a test suite in one artifact: every example in it actually runs, every
 output shown is the output produced, and drift between the document and
 reality is a build failure.
@@ -19,7 +19,7 @@ Documentation drift isn't an editing problem. It's a verification problem.
 
 ## The model
 
-A `.hick` document is XML-ish with one unusual rule: **only tags carrying the
+A `.md` document is Markdown with one unusual rule: **only tags carrying the
 `hick:` namespace prefix are structure; every other byte is raw text**. No
 escaping, no CDATA — shell one-liners, Rust generics, and heredocs paste in
 verbatim. Commands live in `<hick:exec>`, expected output in `<hick:expect>`,
@@ -190,7 +190,7 @@ details, including how to verify a download:
 - `hick up [dir]` — weave a folder and keep it woven. Writes every document's
   outputs, then watches: a change to a document re-weaves it, and **a change
   saved in one of the generated files lands back in the document it came
-  from**, mapped through lineage byte-exactly. This is what makes a `.hick`
+  from**, mapped through lineage byte-exactly. This is what makes a `.md`
   document editable with an editor that has never heard of hick.
   A generated file with nothing editable in it — a woven report, a pure
   transcript — is marked read-only while the loop runs, so the editor says so
@@ -221,8 +221,8 @@ details, including how to verify a download:
 - `hick weave <doc>` — render from cached transcripts without executing
 - `hick lineage <doc> --output <file>` — print the byte-precise provenance of a
   generated output file: which source spans produced each byte range
-- `hick agent "<prompt>"` — run an agent session (writes `sessions/*.hick`)
-- `hick ingest --from session <session.hick>` — compact a session into a pipeline
+- `hick agent "<prompt>"` — run an agent session (writes `sessions/*.md`)
+- `hick ingest --from session <session.md>` — compact a session into a pipeline
 - `hick refresh <doc>` — rewrite stale `hick:transform` passages; the only
   command that calls a model
 - `hick init` — set up a git repo for hick: the pre-commit drift gate, the

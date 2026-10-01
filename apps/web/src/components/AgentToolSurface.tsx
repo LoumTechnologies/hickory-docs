@@ -81,7 +81,7 @@ export function AgentToolSurface() {
       <div className="agent-surface-step">
         <h3>3. The document writes itself as it works</h3>
         <p>
-          Set <span className="mono">HICKORY_SESSION=sessions/name.hick</span> and every call above
+          Set <span className="mono">HICKORY_SESSION=sessions/name.md</span> and every call above
           is appended to a document in your repository as it happens — what was read, what changed,
           what the run printed. Nobody has to remember to save the session, because producing it is
           the same act as doing the work.

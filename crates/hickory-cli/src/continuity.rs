@@ -454,7 +454,7 @@ mod tests {
 // The repair
 // ---------------------------------------------------------------------------
 
-/// Run the pre-commit repair over every staged `.hick` document.
+/// Run the pre-commit repair over every staged `.md` document.
 ///
 /// Returns the number of correspondences recorded. **Never fails a commit.**
 /// The check IS the repair: there is no enforcement mode, because a rule with
@@ -469,7 +469,7 @@ pub fn repair_staged(root: &Path, today: &str) -> Result<usize> {
     }
     let head = git_stdout(root, &["rev-parse", "HEAD"]);
     let staged =
-        git_stdout(root, &["diff", "--cached", "--name-only", "--", "*.hick"]).unwrap_or_default();
+        git_stdout(root, &["diff", "--cached", "--name-only", "--", "*.md"]).unwrap_or_default();
 
     let mut entries = Vec::new();
     for rel in staged.lines().map(str::trim).filter(|l| !l.is_empty()) {

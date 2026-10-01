@@ -11,7 +11,7 @@ const commit = (over: Partial<ReplayCommit>): ReplayCommit => ({
   time: 1_700_000_000,
   author: "T",
   subject: "a change",
-  path: "note.hick",
+  path: "note.md",
   ...over,
 });
 

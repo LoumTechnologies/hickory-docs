@@ -7,7 +7,7 @@
 //! under the cell that generated it.
 //!
 //! **The bytes are never written into the document.** What lands in the
-//! `.hick` is one self-closing element naming a path and a line range; the
+//! `.md` is one self-closing element naming a path and a line range; the
 //! lines themselves appear only in the weave. That is what makes a sample
 //! free to keep — it costs the document one line, it cannot go stale without
 //! the drift check saying so, and it cannot be edited into a lie, because
@@ -99,7 +99,7 @@ pub async fn create(
     })?;
 
     // `path=` is relative to the document, the same as everywhere else in the
-    // language — the reader of the `.hick` should see the path they would
+    // language — the reader of the `.md` should see the path they would
     // type, not one rebased on the folder root.
     let rel_to_doc = relative_to_doc(&doc_rel, &body.path);
     let mut element = format!(

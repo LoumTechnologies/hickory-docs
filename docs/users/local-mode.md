@@ -1,5 +1,9 @@
 # Local mode: `.hick` documents in your own git repo
 
+> Historical guide to the former hosted and shared local mode. The current
+> product is described in `docs/specs/freeform/local-only.md` and uses `.md`
+> documents.
+
 *For engineers who want executable documents in a repository they already
 own — plain files, plain git, CI-style verification — instead of (or before)
 a hosted workspace.*

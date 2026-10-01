@@ -29,7 +29,7 @@ function editorWith(
   const view = new EditorView({
     state: EditorState.create({
       doc,
-      extensions: [mdPaste({ docPath: () => "notes/a.hick", upload })],
+      extensions: [mdPaste({ docPath: () => "notes/a.md", upload })],
     }),
     parent: document.body,
   });
@@ -103,7 +103,7 @@ describe("pasting an image", () => {
     await vi.waitFor(() =>
       expect(view.state.doc.toString()).toBe("here: ![shot](assets/shot.png)"),
     );
-    expect(upload).toHaveBeenCalledWith(expect.any(File), "notes/a.hick");
+    expect(upload).toHaveBeenCalledWith(expect.any(File), "notes/a.md");
     view.destroy();
   });
 

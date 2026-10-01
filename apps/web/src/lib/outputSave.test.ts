@@ -4,7 +4,7 @@
 // Reproduces a real bug: the pane reset its baseline to the FIRST-load weave
 // on every render, so the second save re-sent the first edit and the woven
 // markdown's document gained " Truly nobody." twice (observed live against
-// `.dev/project/debugging.hick`). Protects the app-pane half of
+// `.dev/project/debugging.md`). Protects the app-pane half of
 // docs/guarantees/authoring/an-output-edit-lands-in-its-document.md.
 
 import { describe, expect, it } from "vitest";

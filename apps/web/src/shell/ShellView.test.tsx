@@ -34,11 +34,11 @@ function pointer(el: Element, type: "pointerdown" | "pointerup", button: number)
 
 describe("middle-click closes a tab", () => {
   it.each([
-    ["a document", tab("document", "notes.hick")],
+    ["a document", tab("document", "notes.md")],
     ["a terminal", tab("terminal", "term:1")],
     ["a plain file", tab("file", "README.md")],
   ])("closes %s", (_name, closing) => {
-    const layout = open(open(freeform(), tab("document", "keep.hick")), closing);
+    const layout = open(open(freeform(), tab("document", "keep.md")), closing);
     const { seen, strip } = shell(layout);
 
     const el = strip(closing.target);
@@ -47,25 +47,25 @@ describe("middle-click closes a tab", () => {
 
     const next = seen.at(-1)!;
     expect(next.root.type === "pane" && next.root.tabs.map((t) => t.target)).toEqual([
-      "keep.hick",
+      "keep.md",
     ]);
   });
 
   it("takes no notice of the right button", () => {
-    const layout = open(open(freeform(), tab("document", "a.hick")), tab("document", "b.hick"));
+    const layout = open(open(freeform(), tab("document", "a.md")), tab("document", "b.md"));
     const { seen, strip } = shell(layout);
 
-    pointer(strip("a.hick"), "pointerdown", 2);
-    pointer(strip("a.hick"), "pointerup", 2);
+    pointer(strip("a.md"), "pointerdown", 2);
+    pointer(strip("a.md"), "pointerup", 2);
     expect(seen).toHaveLength(0);
   });
 
   it("does not close the tab a press merely drifted onto", () => {
-    const layout = open(open(freeform(), tab("document", "a.hick")), tab("document", "b.hick"));
+    const layout = open(open(freeform(), tab("document", "a.md")), tab("document", "b.md"));
     const { seen, strip } = shell(layout);
 
-    pointer(strip("a.hick"), "pointerdown", 1);
-    pointer(strip("b.hick"), "pointerup", 1);
+    pointer(strip("a.md"), "pointerdown", 1);
+    pointer(strip("b.md"), "pointerup", 1);
     expect(seen).toHaveLength(0);
   });
 });

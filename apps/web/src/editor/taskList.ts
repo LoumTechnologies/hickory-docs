@@ -17,7 +17,7 @@
 //    you cannot fix — the same reason a fold opens when you step into it.
 //
 // Where the tasks come from is the caller's business: a plain `.md` buffer
-// scans itself, while a `.hick` document must use its own structure parse so
+// scans itself, while a `.md` document must use its own structure parse so
 // a `- [ ]` inside an exec cell's payload stays a command and not a checkbox.
 
 import { StateField } from "@codemirror/state";

@@ -28,7 +28,7 @@ fn default_session_log() -> Option<PathBuf> {
             return None;
         }
     }
-    // The same `sessions/<timestamp>-<slug>.hick` convention `hick agent`
+    // The same `sessions/<timestamp>-<slug>.md` convention `hick agent`
     // writes, so one folder holds every conversation whoever had it.
     Some(hickory_agent::session_file_path(&root, "mcp"))
 }

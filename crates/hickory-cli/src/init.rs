@@ -21,7 +21,7 @@ pub const AGENTS_BLOCK_END: &str = "<!-- END HICKORY -->";
 
 /// The managed body installed inside the pre-commit hook sentinels.
 ///
-/// Discovers tracked `*.hick` documents at commit time (so newly added docs
+/// Discovers tracked `*.md` documents at commit time (so newly added docs
 /// are covered without re-running `hick init`), skips cleanly when there
 /// are none, and blocks the commit if `hick test` reports a failure.
 ///
@@ -35,7 +35,7 @@ pub const AGENTS_BLOCK_END: &str = "<!-- END HICKORY -->";
 /// outcomes in: verified(0) < drifted(1) < unverifiable(2) < expectation(3).
 const HOOK_BODY: &str = r#"# Managed by `hick init` — do not edit inside this block.
 # Re-run `hick init` to refresh it.
-hick_docs=$(git ls-files -- '*.hick')
+hick_docs=$(git ls-files -- '*.md')
 if [ -n "$hick_docs" ]; then
     if command -v hick >/dev/null 2>&1; then
         # Continuity's repair: an unwatched edit leaves its correspondence
@@ -68,40 +68,39 @@ if [ -n "$hick_docs" ]; then
                exit 1 ;;
         esac
     else
-        echo "pre-commit: hick not found on PATH; skipping .hick verification" >&2
+        echo "pre-commit: hick not found on PATH; skipping .md verification" >&2
     fi
 fi"#;
 
 /// The managed body installed inside the AGENTS.md sentinels.
 const AGENTS_BODY: &str = r#"## Hickory executable documents
 
-This repository contains `.hick` documents: reproducible, verifiable,
-executable documents. Every example in a `.hick` file actually runs, and
+This repository contains `.md` documents: reproducible, verifiable,
+executable documents. Every example in a `.md` file actually runs, and
 drift between the document and reality fails `hick test`, and misspelled
 element attributes fail `hick lint` (the pre-commit hook enforces both).
 
 ### Grammar essentials
 
-A `.hick` file is XML-ish with one unusual rule: **only tags carrying the
+A `.md` file is Markdown with one unusual rule: **only tags carrying the
 `hick:` namespace prefix are structure; every other byte is raw text** —
 no escaping, no CDATA, no entities. Shell one-liners, generics, and heredocs
 paste in verbatim.
 
-- Root: `<hick:doc xmlns:hick="http://www.hickorydocs.com/1.0" weave="out.md">`
-  — prose between tags is Markdown, woven to the `weave` target.
-- `<hick:container name="c" image="..." />` declares an execution container.
-- `<hick:exec container="c">` holds commands, run in that container.
-- `<hick:expect match="exact">…</hick:expect>` (or `match="regex-lines"`)
-  inside an exec pins the expected output; mismatch fails `hick test`.
-- `<hick:file path="out/x.py">` blocks are generated files, written on run.
+- Optional root: `hick:doc`, binding `xmlns:hick` to
+  `http://www.hickorydocs.com/1.0`. Prose between tags is Markdown.
+- `hick:container` with `name` and `image` declares an execution container.
+- `hick:exec` with `container` holds commands, run in that container.
+- `hick:expect` with `match="exact"` (or `match="regex-lines"`) inside an
+  exec pins the expected output; mismatch fails `hick test`.
+- `hick:file` with `path` declares a generated file, written on run.
 - Execution order is the dependency DAG (containers, volumes, copy/paste
   references) — not source order.
 
 ### Golden rules for coding agents
 
-1. Edit `.hick` sources, not the generated outputs (woven `.md`,
-   `hick:file` products) — those are overwritten on every run. The one
-   exception is a change made through lineage, which maps back into the
+1. Edit `.md` sources; generated outputs (`hick:file` products) are
+   overwritten on every run. The one exception is a change made through lineage, which maps back into the
    document byte-exactly: `hick doc edit-output` (below), or any editor
    while `hick up` is running. A generated file edited any other way loses
    the edit on the next run.
@@ -109,7 +108,7 @@ paste in verbatim.
    then `hick lint <doc>` and `hick test <doc>` and fix whatever fails before committing. `hick up`
    does the regenerating half continuously while you work; it does not
    replace `hick test`.
-3. Agent sessions live in `sessions/*.hick` (`hick:session` documents);
+3. Agent sessions live in `sessions/*.md` (`hick:session` documents);
    `hick ingest --from session <session>` compacts one into a clean pipeline doc.
 
 ### The document tools — prefer these over editing files by hand
@@ -137,7 +136,7 @@ If your harness speaks MCP, `hick mcp` serves the same five tools over
 stdio and keeps the edit session open between calls, which is strictly
 better than the per-command path. This repo's `.mcp.json` registers it.
 
-Set `HICKORY_SESSION=sessions/<name>.hick` and every tool call you make is
+Set `HICKORY_SESSION=sessions/<name>.md` and every tool call you make is
 appended to a replayable `hick:session` document — the same artifact the
 built-in agent produces. (Your own reasoning is not captured there; only
 what you did to the document.)
@@ -158,7 +157,7 @@ pub struct InitReport {
     pub claude_md_changed: bool,
     /// True if `.mcp.json` was created or its `hick` entry changed.
     pub mcp_json_changed: bool,
-    /// `.gitattributes` gained `*.hick merge=hick`, or its managed list of
+    /// `.gitattributes` gained `*.md merge=hick`, or its managed list of
     /// generated paths changed.
     pub gitattributes_changed: bool,
     /// How many generated paths are marked in `.gitattributes`.
@@ -205,7 +204,7 @@ pub fn run_init(dir: &Path) -> Result<InitReport> {
         &root.join(".gitignore"),
         &format!("{}/", crate::continuity::JOURNAL_DIR),
     )?;
-    // Merges of `.hick` documents go through one path, and both halves are
+    // Merges of `.md` documents go through one path, and both halves are
     // needed: the routing (committed, so it reaches everyone) and the driver
     // definition (per clone, because git will not carry an executable
     // command). An undefined driver makes git SILENTLY fall back to its line
@@ -657,7 +656,7 @@ pub fn print_init_report(report: &InitReport) {
         describe(report.merge_driver_changed)
     );
     // Said plainly, because the consequence of not knowing it is silent: a
-    // clone that never runs `hick init` merges `.hick` files with git's line
+    // clone that never runs `hick init` merges `.md` files with git's line
     // merge and is told nothing.
     eprintln!(
         "  The routing above is committed; the driver definition is not — git 

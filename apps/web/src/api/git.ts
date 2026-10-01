@@ -3,9 +3,9 @@
 // file-length ratchet (scripts/check-file-length.sh) is what asked for a
 // smaller file, and these are one subject.
 
-/** Whether `.hick` documents merge through hick in THIS clone.
+/** Whether `.md` documents merge through hick in THIS clone.
  *
- * The routing (`*.hick merge=hick`) is committed; the driver definition
+ * The routing (`*.md merge=hick`) is committed; the driver definition
  * cannot be, because git will not let a repository hand a clone an executable
  * command. An undefined driver makes git fall back to its line merge
  * silently, which is why this is checked at project open. */

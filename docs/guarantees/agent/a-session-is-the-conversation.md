@@ -1,7 +1,7 @@
 # A Session File Is The Conversation, And Opens As One
 
 Given a conversation in the chat dock, when a turn runs, then it is appended
-to ONE session file per conversation — a root turn starts the file, a child
+to ONE `.md` session file per conversation — a root turn starts the file, a child
 turn appends to its parent's — and its `<hick:user>` records the turn id, the
 parent turn id, and the provider and model it ran on; when the app restarts,
 then the dock's turn tree for a document is rebuilt from those files; and
@@ -98,3 +98,10 @@ Last LLM verification:
   `sessions/20260820-090000-every-turn-chip.hick` showed it. Verified by
   driving the served UI: the fixture's 11 steps open inside the agent's
   bubble at full width.
+
+
+Verified 2026-10-01 (Markdown document extension): `hickory_agent::session_file_path` now writes `.md`; `conversations_for`
+reads Markdown sessions as well as older session records.
+`session::tests::new_sessions_use_the_markdown_document_extension` checks the
+conventional path, and the conversation/context fixtures now use `.md`.
+All 90 agent unit tests pass.

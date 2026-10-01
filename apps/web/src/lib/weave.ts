@@ -1,4 +1,4 @@
-// In-browser weaver: turns a .hick source into its generated output files with
+// In-browser weaver: turns a .md source into its generated output files with
 // real provenance ranges, and maps output edits back to source-document edits.
 // This mirrors what the server's /outputs endpoints do (hick-literate weave),
 // scoped to the tags a client-side document uses: hick:file bodies with

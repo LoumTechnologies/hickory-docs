@@ -23,7 +23,7 @@ function label(uri: string): { where: string; kind: "doc" | "output" | "file" } 
   if (uri.startsWith("hick:///")) {
     const where = uri.slice("hick:///".length);
     // A document, or a plain file the language server also knows about.
-    return { where, kind: where.endsWith(".hick") ? "doc" : "file" };
+    return { where, kind: where.endsWith(".md") ? "doc" : "file" };
   }
   return { where: uri, kind: "output" };
 }

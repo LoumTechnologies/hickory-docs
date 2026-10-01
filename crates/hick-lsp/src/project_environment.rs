@@ -82,10 +82,20 @@ mod tests {
         for name in ["a", "b"] {
             let project = root.join(name);
             std::fs::create_dir_all(&project).unwrap();
-            std::fs::write(project.join("pyproject.toml"), "[project]\nname='fixture'\n").unwrap();
+            std::fs::write(
+                project.join("pyproject.toml"),
+                "[project]\nname='fixture'\n",
+            )
+            .unwrap();
             std::fs::write(project.join("uv.lock"), "version=1\n").unwrap();
-            assert_eq!(plain_root(&project.join("app.py"), Some(root.to_path_buf())), project);
+            assert_eq!(
+                plain_root(&project.join("app.py"), Some(root.to_path_buf())),
+                project
+            );
         }
-        assert_eq!(plain_root(&root.join("a/app.ts"), Some(root.to_path_buf())), root);
+        assert_eq!(
+            plain_root(&root.join("a/app.ts"), Some(root.to_path_buf())),
+            root
+        );
     }
 }

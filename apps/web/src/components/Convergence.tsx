@@ -7,7 +7,7 @@
 //
 // The claim is that three things which are currently separate, and two of
 // which are currently thrown away, are one artifact: the session (what the
-// agent did), the reasoning (why), and the edit (what changed). A `.hick`
+// agent did), the reasoning (why), and the edit (what changed). A `.md`
 // document is the place where they converge, and MCP is how an agent you
 // already run produces one without being told to.
 //
@@ -51,7 +51,7 @@ export function Convergence() {
         <p>
           The prose that explains the decision, the calls the agent made, the output those calls
           actually produced, and the code — all of it woven into one <span className="mono">
-            .hick
+            .md
           </span>{" "}
           file that git already versions. Read it as a document. Review it as a diff. Run it again
           and watch it either reproduce or disagree.

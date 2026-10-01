@@ -1,7 +1,7 @@
 //! The local [`DocStore`]: a room's durable state is the file itself.
 //!
 //! The hosted server keeps a room's text in a Postgres row and its encoded
-//! CRDT state in a column beside it. Here the text *is* the `.hick` file on
+//! CRDT state in a column beside it. Here the text *is* the `.md` file on
 //! disk — which is the point of the whole mode: a collaborator's keystroke
 //! lands in the host's working tree, where their editor, their `git diff`, and
 //! `hick test` all see it. The CRDT state, which no human reads, goes in a
@@ -17,7 +17,7 @@ use anyhow::{Context as _, Result};
 use async_trait::async_trait;
 use hickory_collab::{DocKey, DocStore};
 
-/// Every `.hick` document under the served root, keyed by a stable id.
+/// Every `.md` document under the served root, keyed by a stable id.
 ///
 /// Ids are derived from the path rather than minted, so a share link still
 /// resolves after the host restarts `hick serve` — a link that dies when
@@ -37,7 +37,7 @@ impl DocIndex {
     /// Scan `root` for documents. A single file may be served directly, in
     /// which case its parent directory is the root.
     pub fn scan(root: &Path) -> Result<Self> {
-        // A DIRECTORY with no `.hick` file anywhere is a session with no
+        // A DIRECTORY with no `.md` file anywhere is a session with no
         // documents yet — the app's first-run state, where the UI lands on a
         // fresh untitled document. `expand_docs`' refusal (with its
         // config-file advice) is for the one-shot CLI verbs, where "nothing
@@ -130,7 +130,7 @@ impl DocIndex {
     }
 
     /// The single document, when exactly one was found. `hick serve
-    /// doc.hick` opens straight into it rather than a one-item list.
+    /// doc.md` opens straight into it rather than a one-item list.
     pub fn sole(&self) -> Option<(String, String)> {
         match self.entries().as_slice() {
             [only] => Some(only.clone()),
@@ -152,7 +152,7 @@ pub fn doc_id(rel_path: &str) -> String {
     format!("{hash:016x}")
 }
 
-/// Whether any `.hick` file exists under `dir`, skipping the caches and VCS
+/// Whether any `.md` file exists under `dir`, skipping the caches and VCS
 /// trees a scan has no business entering.
 fn contains_hick(dir: &Path) -> bool {
     let Ok(entries) = std::fs::read_dir(dir) else {
@@ -304,18 +304,18 @@ mod tests {
     #[test]
     fn ids_are_stable_and_path_derived() {
         // A share link has to survive a restart, so this must not be random.
-        assert_eq!(doc_id("docs/tour.hick"), doc_id("docs/tour.hick"));
-        assert_ne!(doc_id("docs/tour.hick"), doc_id("docs/other.hick"));
-        assert_eq!(doc_id("a.hick").len(), 16);
+        assert_eq!(doc_id("docs/tour.md"), doc_id("docs/tour.md"));
+        assert_ne!(doc_id("docs/tour.md"), doc_id("docs/other.md"));
+        assert_eq!(doc_id("a.md").len(), 16);
     }
 
     #[tokio::test]
     async fn the_store_round_trips_a_document_and_its_crdt_state() {
         let dir = tempfile::tempdir().unwrap();
-        std::fs::write(dir.path().join("a.hick"), "original\n").unwrap();
+        std::fs::write(dir.path().join("a.md"), "original\n").unwrap();
         let index = Arc::new(DocIndex::scan(dir.path()).unwrap());
         let (id, rel) = index.sole().unwrap();
-        assert_eq!(rel, "a.hick");
+        assert_eq!(rel, "a.md");
 
         let store = FileDocStore::new(index);
         assert_eq!(store.load_source(&id).await.unwrap(), "original\n");
@@ -324,7 +324,7 @@ mod tests {
         store.save(&id, "edited\n", b"crdt-bytes").await.unwrap();
         // The edit landed in the user's actual file — that is the whole point.
         assert_eq!(
-            std::fs::read_to_string(dir.path().join("a.hick")).unwrap(),
+            std::fs::read_to_string(dir.path().join("a.md")).unwrap(),
             "edited\n"
         );
         assert_eq!(
@@ -342,7 +342,7 @@ mod tests {
     #[tokio::test]
     async fn an_unknown_id_names_what_went_wrong() {
         let dir = tempfile::tempdir().unwrap();
-        std::fs::write(dir.path().join("a.hick"), "x").unwrap();
+        std::fs::write(dir.path().join("a.md"), "x").unwrap();
         let index = Arc::new(DocIndex::scan(dir.path()).unwrap());
         let store = FileDocStore::new(index);
         let err = store

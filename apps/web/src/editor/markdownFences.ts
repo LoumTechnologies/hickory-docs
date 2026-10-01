@@ -1,4 +1,4 @@
-// Display treatment for ordinary Markdown fences in a .hick document.
+// Display treatment for ordinary Markdown fences in a .md document.
 //
 // A fence is code even when Hickory has no special action for it. Keeping this
 // separate from wysiwyg.ts makes that distinction explicit: cells and files

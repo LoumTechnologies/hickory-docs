@@ -1,6 +1,6 @@
 # AI agents and hick: built-in or bring your own
 
-*For engineers deciding how AI should write and maintain their `.hick`
+*For engineers deciding how AI should write and maintain their `.md`
 documents: the built-in `hick agent`, or a coding agent they already use
 (Claude Code, etc.) on a local repo.*
 
@@ -19,7 +19,7 @@ sign-in, permissions, and recovery.
 
 ```sh
 export ANTHROPIC_API_KEY=...
-hick agent "add a section benchmarking sort vs awk" --doc docs/tour.hick
+hick agent "add a section benchmarking sort vs awk" --doc docs/tour.md
 ```
 
 ### Whose key it runs on
@@ -61,7 +61,7 @@ What happens, procedurally:
    appended to a `hick:session` document under `sessions/`. The session *is*
    the log; there is no separate chat transcript to lose.
 3. When it's done, you review the session, then
-   `hick ingest --from session sessions/<name>.hick --out docs/benchmark.hick` to keep
+   `hick ingest --from session sessions/<name>.md --out docs/benchmark.md` to keep
    only the surviving pipeline (last write wins, dead ends dropped).
 
 Choose this when you want sessions captured with full fidelity by
@@ -158,7 +158,7 @@ file (Codex, Grok CLI), add a server named `hick` running `hick mcp`.
 ### Getting a session out of it
 
 ```sh
-export HICKORY_SESSION=sessions/refactor.hick
+export HICKORY_SESSION=sessions/refactor.md
 ```
 
 Every tool call your agent makes — through either surface, across as many
@@ -176,7 +176,7 @@ document:
 
 ```sh
 hick ingest --from claude-code ~/.claude/projects/-home-me-notes/0509e08e-….jsonl
-# → sessions/20260813-133534-revise-home-page-to-prioritize-agent-fir.hick
+# → sessions/20260813-133534-revise-home-page-to-prioritize-agent-fir.md
 ```
 
 Offline, no model, nothing deleted. The result opens in the app as the
@@ -188,7 +188,7 @@ bookkeeping — is printed, by reason, every time. `--stdout` prints the
 document instead of writing it. Details and the full mapping:
 `docs/specs/freeform/claude-code-sessions.md`.
 
-Choose this option when the `.hick` docs live inside a larger codebase and one
+Choose this option when the `.md` docs live inside a larger codebase and one
 agent should handle both, or you want your existing agent tooling
 (permissions, review flow, MCP servers).
 

@@ -15,7 +15,7 @@ use hickory_lineage::Provenance;
 
 /// One woven output file, as we last wrote it.
 pub struct OutputState {
-    /// The `.hick` document this file was woven from.
+    /// The `.md` document this file was woven from.
     pub doc: PathBuf,
     /// The document-relative output path (`<hick:file path>`), which is the
     /// key `hickory_lineage` and the pipeline both use.
@@ -44,7 +44,7 @@ impl OutputState {
 pub struct WovenState {
     /// Absolute output path → what we wrote there.
     outputs: HashMap<PathBuf, OutputState>,
-    /// Absolute `.hick` path → its source when we last wove it.
+    /// Absolute `.md` path → its source when we last wove it.
     docs: HashMap<PathBuf, String>,
     /// Output files whose bytes on disk are NOT what the document produces —
     /// axis 3 of docs/specs/freeform/three-axes.md, *diverged* — and why.
@@ -117,7 +117,9 @@ impl WovenState {
             }
         }
         let dirty: Vec<_> = dirty.into_iter().collect();
-        for doc in &dirty { self.docs.remove(doc); }
+        for doc in &dirty {
+            self.docs.remove(doc);
+        }
         dirty
     }
     pub fn output(&self, path: &Path) -> Option<&OutputState> {

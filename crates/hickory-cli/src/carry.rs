@@ -36,7 +36,7 @@
 //!
 //! **It invents no fourth artifact.** The carry has no obvious home — it is
 //! not the session, which is discardable, and not obviously the document
-//! either. Rather than add a kind, a carry is **an ordinary `.hick`
+//! either. Rather than add a kind, a carry is **an ordinary `.md`
 //! document**: no new file type, no new store, no new gitignore rule, and it
 //! is committed by default, which it must be — a carry whose only support is
 //! a gitignored session dangles by construction.
@@ -208,7 +208,7 @@ pub fn carry_from_session(session: &Path, out: Option<&Path>, today: &str) -> Re
                 .with_context(|| format!("could not create {}", base.display()))?;
             let stem = slug(&prompt);
             base.join(format!(
-                "{today}-{}.hick",
+                "{today}-{}.md",
                 if stem.is_empty() { "carry" } else { &stem }
             ))
         }

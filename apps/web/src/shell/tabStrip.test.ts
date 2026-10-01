@@ -13,7 +13,7 @@ import {
 describe("tabIcon: what a tab becomes when its pane is a strip", () => {
   it("gives the tree pane a folder and a document a doc glyph", () => {
     expect(tabIcon(tab("tree", "/repo"))).toEqual({ kind: "folder" });
-    expect(tabIcon(tab("document", "guide.hick"))).toEqual({ kind: "doc" });
+    expect(tabIcon(tab("document", "guide.md"))).toEqual({ kind: "doc" });
   });
 
   it("gives a generated file its extension as a monogram", () => {
@@ -47,7 +47,7 @@ describe("monogram: the extension, or the name's first letters", () => {
 describe("groupTabsByFolder: side tabs as a folder tree", () => {
   it("groups tabs under directory headers, indenting children", () => {
     const rows = groupTabsByFolder([
-      tab("document", "guide.hick"),
+      tab("document", "guide.md"),
       tab("generated", "src/app.py"),
       tab("generated", "src/util/io.py"),
     ]);

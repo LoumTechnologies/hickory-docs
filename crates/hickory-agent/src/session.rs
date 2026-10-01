@@ -490,14 +490,14 @@ fn safe_prose(text: &str) -> String {
 // ---------------------------------------------------------------------------
 
 /// Build the conventional session file path for a project:
-/// `<project_dir>/sessions/<timestamp>-<slug>.hick`, where the slug is
+/// `<project_dir>/sessions/<timestamp>-<slug>.md`, where the slug is
 /// derived from the prompt.
 pub fn session_file_path(project_dir: &Path, prompt: &str) -> PathBuf {
     let timestamp = Utc::now().format("%Y%m%d-%H%M%S");
     let slug = slugify(prompt);
     project_dir
         .join("sessions")
-        .join(format!("{timestamp}-{slug}.hick"))
+        .join(format!("{timestamp}-{slug}.md"))
 }
 
 /// Lowercase-alphanumeric-and-hyphens slug, capped at 40 characters.
@@ -535,10 +535,24 @@ mod tests {
     /// `examples/receipts/hick-agent/sessions/` are unparseable because the
     /// model wrote "`<hick:exec>`" in an answer, and the parser read it as an
     /// opening tag that never closed.
+    // Guarantee: docs/guarantees/agent/a-session-is-the-conversation.md.
+    #[test]
+    fn new_sessions_use_the_markdown_document_extension() {
+        let path = session_file_path(Path::new("project"), "Explain the code");
+        assert_eq!(path.extension().and_then(|ext| ext.to_str()), Some("md"));
+        assert_eq!(path.parent(), Some(Path::new("project/sessions")));
+        assert!(
+            path.file_name()
+                .unwrap()
+                .to_string_lossy()
+                .ends_with("-explain-the-code.md")
+        );
+    }
+
     #[test]
     fn an_answer_that_quotes_a_hick_tag_still_parses() {
         let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("sessions/s.hick");
+        let path = dir.path().join("sessions/s.md");
         let log = HickSessionLog::append_or_create(&path).unwrap();
         log.record(SessionEvent::User {
             text: "What does <hick:exec> do?",
@@ -597,7 +611,7 @@ mod tests {
     #[test]
     fn session_round_trips_through_hick_lang_parser() {
         let dir = tempdir().unwrap();
-        let path = dir.path().join("sessions/test.hick");
+        let path = dir.path().join("sessions/test.md");
         write_sample_session(&path);
 
         let source = std::fs::read_to_string(&path).unwrap();
@@ -638,7 +652,7 @@ mod tests {
     #[test]
     fn partial_session_is_readable_before_end() {
         let dir = tempdir().unwrap();
-        let path = dir.path().join("partial.hick");
+        let path = dir.path().join("partial.md");
         let log = HickSessionLog::create(&path).unwrap();
         log.record(SessionEvent::User { text: "hello" });
         // No End yet — the file on disk must still contain the turn.
@@ -652,7 +666,7 @@ mod tests {
     #[test]
     fn usage_elements_do_not_break_session_parsing() {
         let dir = tempdir().unwrap();
-        let path = dir.path().join("usage.hick");
+        let path = dir.path().join("usage.md");
         let log = HickSessionLog::create(&path).unwrap();
         log.record(SessionEvent::User { text: "hi" });
         log.record(SessionEvent::Usage {

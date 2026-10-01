@@ -75,7 +75,7 @@ pub async fn open_external(
 /// The absolute path `rel` names inside `root`, canonicalized and verified to
 /// still be inside it.
 ///
-/// Unlike the plain-file surface this accepts directories and `.hick` files:
+/// Unlike the plain-file surface this accepts directories and `.md` files:
 /// handing a document to another editor is a legitimate thing to want, because
 /// nothing is being written behind the room's back — the file is only being
 /// shown to a program the user picked.

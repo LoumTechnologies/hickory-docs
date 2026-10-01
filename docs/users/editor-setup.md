@@ -1,11 +1,11 @@
-# Editor setup: diagnostics inside your `.hick` documents
+# Editor setup: diagnostics inside your `.md` documents
 
-*For engineers who edit `.hick` documents in Zed, VS Code, Helix, or Neovim
+*For engineers who edit `.md` documents in Zed, VS Code, Helix, or Neovim
 and want
 real language diagnostics — rust-analyzer errors, pyright type errors — inside
 `hick:file` blocks, not just syntax-highlighted text.*
 
-A `.hick` document embeds real source files:
+A `.md` document embeds real source files:
 
 ```
 <h:file path="src/stats.py">
@@ -19,7 +19,7 @@ stay literal.)
 
 Without an LSP, that Python is inert text — a typo surfaces only when
 `hick run` fails. With `hick-lsp`, your editor shows pyright's diagnostics
-on those lines as you type, at the correct positions in the `.hick` file.
+on those lines as you type, at the correct positions in the `.md` file.
 
 ## 1. Get `hick-lsp`
 
@@ -70,7 +70,7 @@ your editor:
   `hick:file` blocks. Without this, a document's Python would be checked by a
   different server than the `.py` file it generates, and the two would
   disagree.
-- **It registers `hick-lsp` for `*.hick` where a project file can do that.**
+- **It registers `hick-lsp` for `*.md` where a project file can do that.**
   Helix is complete from `.helix/languages.toml` alone. VS Code gets its
   settings written but still needs a generic LSP client extension. Zed needs
   the extension below, and Neovim has no project-local LSP registration at
@@ -104,7 +104,7 @@ The extension lives in this repo at `editors/zed-hick`:
 
 1. Zed → `zed: install dev extension` (command palette) → select the
    `editors/zed-hick` directory.
-2. Open any `.hick` file. The extension finds `hick-lsp` on your `PATH` and
+2. Open any `.md` file. The extension finds `hick-lsp` on your `PATH` and
    starts it.
 
 ### VS Code
@@ -117,19 +117,19 @@ style of extension, configure:
 {
   "glspc.languageId": "hick",
   "glspc.serverCommand": "hick-lsp",
-  "files.associations": { "*.hick": "hick" }
+  "files.associations": { "*.md": "hick" }
 }
 ```
 
 Any client that can say "run `hick-lsp` over stdio for files matching
-`*.hick`" is equivalent.
+`*.md`" is equivalent.
 
 ### Neovim
 
 With `nvim-lspconfig` (Neovim 0.10+):
 
 ```lua
-vim.filetype.add({ extension = { hick = "hick" } })
+vim.filetype.add({ extension = { md = "hick" } })
 
 vim.api.nvim_create_autocmd("FileType", {
   pattern = "hick",
@@ -145,7 +145,7 @@ vim.api.nvim_create_autocmd("FileType", {
 
 ## What just happened
 
-When you open a `.hick` file, `hick-lsp`:
+When you open a `.md` file, `hick-lsp`:
 
 1. parses the document and reports hick syntax errors itself;
 2. extracts each `h:file` block (resolving `h:copy`/`h:paste` references)
@@ -155,15 +155,15 @@ When you open a `.hick` file, `hick-lsp`:
    blocks) — the command from `.hick-lsp.json` if the project named one, and
    the built-in default otherwise;
 4. opens the virtual files in those children, translating every position
-   between `.hick` coordinates and virtual-file coordinates in both
+   between `.md` coordinates and virtual-file coordinates in both
    directions;
-5. merges the children's diagnostics back onto your `.hick` buffer, so a
+5. merges the children's diagnostics back onto your `.md` buffer, so a
    pyright error on line 2 of the embedded file appears on the corresponding
    line of the document.
 
 ## Don't assume
 
-- **`hick-lsp` replaces your other language servers only inside `.hick`
+- **`hick-lsp` replaces your other language servers only inside `.md`
   files.** Your normal `.py`/`.rs` files are untouched.
 - **Diagnostics come from real servers, not a reimplementation** — if
   rust-analyzer needs a `Cargo.toml` to be useful, the same applies to

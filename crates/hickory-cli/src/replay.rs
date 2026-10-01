@@ -17,7 +17,7 @@
 //! document with today's binary, which asks for a grammar-compatibility
 //! promise the product has not made — `pre-launch.md` reserves the right to
 //! break the grammar, and says document formats deserve more care than code
-//! precisely because a `.hick` file outlives any version of the tool. So the
+//! precisely because a `.md` file outlives any version of the tool. So the
 //! honest claim is **replay works back to the last grammar change**, and a
 //! commit past that boundary says so in those words instead of failing with
 //! a parse error nobody can act on.

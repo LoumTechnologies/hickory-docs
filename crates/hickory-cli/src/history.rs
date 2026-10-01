@@ -69,7 +69,7 @@ pub fn open(root: &Path) -> Option<History> {
 /// absolute before it is used as one.
 ///
 /// Not defensive tidying — this was a real bug, found by running it. A run
-/// invoked as `hick run note.hick` has `doc_path.parent() == ""`, which
+/// invoked as `hick run note.md` has `doc_path.parent() == ""`, which
 /// hashes to the key for the empty string, so every act landed in a store
 /// nothing would ever look in while `hick history` read the one for the
 /// working directory and reported an empty folder. Two stores, no error, and
@@ -248,7 +248,7 @@ mod tests {
 
     #[test]
     fn a_relative_root_resolves_to_the_folder_a_person_is_actually_in() {
-        // Found by running it: `hick run note.hick` gives a parent of "",
+        // Found by running it: `hick run note.md` gives a parent of "",
         // which hashed to the key for the empty string. Every act landed in a
         // store nothing would ever look in, while `hick history` read the one
         // for the working directory and reported an empty folder. Two stores,

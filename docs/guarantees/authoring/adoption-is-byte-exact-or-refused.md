@@ -8,7 +8,7 @@ in the working tree; and when the round-trip cannot be byte-exact, then the
 adoption is refused with the reason and nothing is changed.
 
 Adoption transfers ownership, never content: after it, the file is a
-generated file with full lineage, and `git status` shows one new `.hick`
+generated file with full lineage, and `git status` shows one new `.md`
 file (or one extended one) and zero changes to the file itself. That is the
 entire promise — it is what makes adoption a safe first step in a
 repository that has never heard of literate programming.
@@ -27,15 +27,13 @@ Three properties hold it up:
    escape mechanism, by language design.
 3. **Appending widens the obligation.** `--into` must additionally leave
    every output the document already produced byte-identical, and refuses a
-   path the document already generates. The document's **own woven markdown**
-   is the single exemption, and is not a loophole: that file is the rendering
-   of the document just appended to, so it must change — a document that grew
-   a block and rendered identically would mean the block never took effect.
-   The bytes this guarantee is about are the adopted file's.
+   path the document already generates. A `.md` source is the document
+   itself, so adoption does not create or claim a separate rendering with
+   the same path.
 
 ## Boundary
 
-Binary files and `.hick` documents are not adoptable — the first has no
+Binary files and `.md` documents are not adoptable — the first has no
 text to wrap, the second already is a document. Reversal is git, or
 deleting the document while keeping the woven file.
 
@@ -47,7 +45,7 @@ Last LLM verification:
 - Result: verified (implemented and reviewed in the same change)
 - Evidence: `crates/hickory-cli/src/adopt.rs` — `adopt_new` (scratch-dir
   verification via `woven_output` + `verify_bytes`, refusals for binaries,
-  documents, and a taken `<stem>.hick` name), `adopt_into` (baseline weave,
+  documents, and a taken `<stem>.md` name), `adopt_into` (baseline weave,
   append before `</hick:doc>`, restore closure on every failure path, the
   already-produced-path refusal, the every-other-output-unchanged sweep).
   CLI: `cmd_adopt` in `crates/hickory-cli/src/main.rs`. Server:
@@ -78,3 +76,13 @@ a `DocRun`'s `doc.weave_path` agrees with the files it produced — they
 disagreed, which is how the sweep came to trip on a file it had just written.
 Covered by the existing `adopt_into_appends_and_leaves_every_other_output_alone`
 test, which failed on exactly this before the fix.
+
+
+Verified 2026-10-01 (Markdown document extension): `adopt_new` now creates
+`<stem>.md` and refuses an existing Markdown target without changing it.
+`adopt::tests` covers the `.py` → `.md` byte-exact round trip, refusal paths,
+and appending. `tests/serve_files.rs::make_literate_creates_an_openable_markdown_document`
+calls `POST /api/adopt`, checks the `.md` path and absence of a legacy file,
+opens and renders the registered document, and checks the original Python bytes.
+All seven adoption tests and the HTTP regression pass. The HTTP route is
+covered; the native app button itself was not driven in this verification.

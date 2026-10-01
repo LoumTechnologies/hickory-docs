@@ -4,7 +4,7 @@
 //! document view needs (from files, not a database) and runs the rooms
 //! `hickory-collab` defines. What that buys:
 //!
-//! - the lineage ribbons for a `.hick` file on your own disk, which nothing
+//! - the lineage ribbons for a `.md` file on your own disk, which nothing
 //!   else can show you;
 //! - an editor whose durable state is your working tree, so your other editor
 //!   and `git diff` see every keystroke;
@@ -282,7 +282,7 @@ impl LocalState {
 
     /// Write a document's source, leaving a local-history stop.
     ///
-    /// Everything the server writes to a `.hick` file goes through here, so
+    /// Everything the server writes to a `.md` file goes through here, so
     /// this is the one place that has to remember to record — which is why
     /// the KIND is a parameter rather than a guess. "A person saved this" and
     /// "the agent rewrote this at a hashline anchor" are the two facts a

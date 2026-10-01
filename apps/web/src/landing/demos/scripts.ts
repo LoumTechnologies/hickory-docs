@@ -13,7 +13,7 @@
 // real modules in `lib/` — see the header of DemoSplit.tsx. Only the execution
 // transcript is a recording, because a browser cannot run Python.
 
-export const PROGRAM_DOC_PATH = "notes/bisect.hick";
+export const PROGRAM_DOC_PATH = "notes/bisect.md";
 
 /**
  * The demo document.

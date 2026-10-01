@@ -19,8 +19,8 @@ describe("LspClient", () => {
     const { channel, outbound, inject } = loopback();
     const client = new LspClient(channel);
 
-    const hover = client.hover("hick:///a.hick", { line: 1, character: 2 });
-    const refs = client.references("hick:///a.hick", { line: 1, character: 2 });
+    const hover = client.hover("hick:///a.md", { line: 1, character: 2 });
+    const refs = client.references("hick:///a.md", { line: 1, character: 2 });
 
     expect(outbound).toHaveLength(2);
     const [hoverReq, refsReq] = outbound as Array<{ id: number; method: string; params: unknown }>;
@@ -34,7 +34,7 @@ describe("LspClient", () => {
       id: refsReq.id,
       result: [
         {
-          uri: "hick:///a.hick",
+          uri: "hick:///a.md",
           range: { start: { line: 0, character: 0 }, end: { line: 0, character: 3 } },
         },
       ],
@@ -44,7 +44,7 @@ describe("LspClient", () => {
     expect(await hover).toBeNull();
     expect(await refs).toEqual([
       {
-        uri: "hick:///a.hick",
+        uri: "hick:///a.md",
         range: { start: { line: 0, character: 0 }, end: { line: 0, character: 3 } },
       },
     ]);
@@ -54,17 +54,17 @@ describe("LspClient", () => {
   it("didOpen/didChange are notifications with full text", () => {
     const { channel, outbound } = loopback();
     const client = new LspClient(channel);
-    client.didOpen("hick:///a.hick", "hello");
-    client.didChange("hick:///a.hick", "hello world", 2);
+    client.didOpen("hick:///a.md", "hello");
+    client.didChange("hick:///a.md", "hello world", 2);
     expect(outbound[0]).toEqual({
       jsonrpc: "2.0",
       method: "textDocument/didOpen",
-      params: { textDocument: { uri: "hick:///a.hick", languageId: "hick", version: 1, text: "hello" } },
+      params: { textDocument: { uri: "hick:///a.md", languageId: "hick", version: 1, text: "hello" } },
     });
     expect(outbound[1]).toEqual({
       jsonrpc: "2.0",
       method: "textDocument/didChange",
-      params: { textDocument: { uri: "hick:///a.hick", version: 2 }, contentChanges: [{ text: "hello world" }] },
+      params: { textDocument: { uri: "hick:///a.md", version: 2 }, contentChanges: [{ text: "hello world" }] },
     });
     client.dispose();
   });
@@ -78,15 +78,15 @@ describe("LspClient", () => {
     inject({
       jsonrpc: "2.0",
       method: "textDocument/publishDiagnostics",
-      params: { uri: "hick:///a.hick", diagnostics: [] },
+      params: { uri: "hick:///a.md", diagnostics: [] },
     });
     off();
     inject({
       jsonrpc: "2.0",
       method: "textDocument/publishDiagnostics",
-      params: { uri: "hick:///b.hick", diagnostics: [] },
+      params: { uri: "hick:///b.md", diagnostics: [] },
     });
-    expect(seen).toEqual(["hick:///a.hick"]);
+    expect(seen).toEqual(["hick:///a.md"]);
     client.dispose();
   });
 

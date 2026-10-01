@@ -4,7 +4,7 @@ import { weaveOutputs } from "./weave";
 import { WEAVE_SOURCE } from "../mock/mockData";
 import type { OutputFile, Provenance } from "../api/types";
 
-const DOC = "docs/weave-demo.hick";
+const DOC = "docs/weave-demo.md";
 
 describe("deriveRibbons — from the weave demo's real provenance", () => {
   const [file] = weaveOutputs(WEAVE_SOURCE, DOC);
@@ -61,11 +61,11 @@ describe("deriveRibbons — filtering and repeats", () => {
       language: "python",
       content: "abcabc",
       provenance: [
-        { start: 0, end: 3, origin: { kind: "paste", doc_path: "d.hick", span: [10, 13] } },
-        { start: 3, end: 6, origin: { kind: "paste", doc_path: "d.hick", span: [10, 13] } },
+        { start: 0, end: 3, origin: { kind: "paste", doc_path: "d.md", span: [10, 13] } },
+        { start: 3, end: 6, origin: { kind: "paste", doc_path: "d.md", span: [10, 13] } },
       ],
     };
-    const ribbons = deriveRibbons(file, "d.hick", "0123456789abc.hick source");
+    const ribbons = deriveRibbons(file, "d.md", "0123456789abc.md source");
     expect(ribbons).toHaveLength(2);
     expect(ribbons[0].color).toBe(ribbons[1].color);
   });
@@ -76,11 +76,11 @@ describe("deriveRibbons — filtering and repeats", () => {
       language: "python",
       content: "xy",
       provenance: [
-        { start: 0, end: 1, origin: { kind: "literal", doc_path: "other.hick", span: [0, 1] } },
-        { start: 1, end: 2, origin: { kind: "literal", doc_path: "mine.hick", span: [0, 1] } },
+        { start: 0, end: 1, origin: { kind: "literal", doc_path: "other.md", span: [0, 1] } },
+        { start: 1, end: 2, origin: { kind: "literal", doc_path: "mine.md", span: [0, 1] } },
       ],
     };
-    const ribbons = deriveRibbons(file, "mine.hick", "s");
+    const ribbons = deriveRibbons(file, "mine.md", "s");
     expect(ribbons).toHaveLength(1);
     expect(ribbons[0].key).toBe("out.py:1");
   });
@@ -152,14 +152,14 @@ describe("whitespaceOnly", () => {
   const literal = (start: number, end: number, span: [number, number]): Provenance => ({
     start,
     end,
-    origin: { kind: "literal", doc_path: "doc.hick", span },
+    origin: { kind: "literal", doc_path: "doc.md", span },
   });
 
   it("flags a ribbon whose attributed bytes are blank lines and indentation", () => {
     const content = "code\n\n    \nmore";
     const ribbons = deriveRibbons(
       file(content, [literal(4, 11, [10, 17])]),
-      "doc.hick",
+      "doc.md",
       "0123456789\n\n    \nabc",
     );
     expect(ribbons).toHaveLength(1);
@@ -170,7 +170,7 @@ describe("whitespaceOnly", () => {
     const content = "code\n\nx\nmore";
     const ribbons = deriveRibbons(
       file(content, [literal(4, 8, [10, 14])]),
-      "doc.hick",
+      "doc.md",
       "0123456789\n\nx\nzzzzzz",
     );
     expect(ribbons).toHaveLength(1);

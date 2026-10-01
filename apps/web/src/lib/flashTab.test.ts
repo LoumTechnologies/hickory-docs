@@ -34,8 +34,8 @@ describe("flashTab", () => {
   });
 
   it("pulses the matching tab and clears the class when the animation ends", () => {
-    const el = tab(root, "document", "notes.hick");
-    flashTab("document", "notes.hick");
+    const el = tab(root, "document", "notes.md");
+    flashTab("document", "notes.md");
     expect(el.classList.contains(FLASH_CLASS)).toBe(true);
     el.dispatchEvent(new Event("animationend"));
     expect(el.classList.contains(FLASH_CLASS)).toBe(false);
@@ -56,16 +56,16 @@ describe("flashTab", () => {
   });
 
   it("re-fires an in-flight flash from scratch", () => {
-    const el = tab(root, "document", "a.hick");
-    flashTab("document", "a.hick");
-    flashTab("document", "a.hick");
+    const el = tab(root, "document", "a.md");
+    flashTab("document", "a.md");
+    flashTab("document", "a.md");
     expect(el.classList.contains(FLASH_CLASS)).toBe(true);
   });
 
   it("does nothing after detach", () => {
-    const el = tab(root, "document", "a.hick");
+    const el = tab(root, "document", "a.md");
     detach();
-    flashTab("document", "a.hick");
+    flashTab("document", "a.md");
     expect(el.classList.contains(FLASH_CLASS)).toBe(false);
     detach = () => undefined;
   });

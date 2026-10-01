@@ -80,7 +80,7 @@ export function layoutsFor(documents: readonly FolderDocument[]): LayoutChoice[]
   for (const document of documents) {
     const regions = regionsOf(document.source);
     if (regions.length === 0) continue;
-    const name = document.path.split("/").pop()?.replace(/\.hick$/, "") ?? document.path;
+    const name = document.path.split("/").pop()?.replace(/\.md$/, "") ?? document.path;
     choices.push({
       id: `doc:${document.path}`,
       name,

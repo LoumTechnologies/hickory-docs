@@ -24,7 +24,7 @@ Prose that belongs to the document, long enough to fold.
 
 function model() {
   return buildModel([
-    { path: "notes/bisect.hick", source: DOC, outputs: weaveOutputs(DOC, "notes/bisect.hick") },
+    { path: "notes/bisect.md", source: DOC, outputs: weaveOutputs(DOC, "notes/bisect.md") },
   ]);
 }
 
@@ -32,7 +32,7 @@ describe("the lineage browser", () => {
   it("names the column for its stage, not for the file it has open", () => {
     render(<LineageColumns model={model()} />);
     expect(screen.getByText("bisect")).toBeTruthy();
-    expect(screen.getByText(/notes\/bisect\.hick · \d+\/\d+ lines/)).toBeTruthy();
+    expect(screen.getByText(/notes\/bisect\.md · \d+\/\d+ lines/)).toBeTruthy();
   });
 
   it("shows the stage's files and opens one in place", () => {
@@ -41,7 +41,7 @@ describe("the lineage browser", () => {
     // The document is open by default; its generated file is listed too.
     expect(within(column as HTMLElement).getByText("bisect.py")).toBeTruthy();
     // Open row carries the RELATIVE PATH — a name alone is not a location.
-    expect(within(column as HTMLElement).getByText("notes/bisect.hick")).toBeTruthy();
+    expect(within(column as HTMLElement).getByText("notes/bisect.md")).toBeTruthy();
   });
 
   it("opens a generated file when its row is clicked", () => {
@@ -98,7 +98,7 @@ describe("the lineage browser", () => {
     // A rare term narrows the file. A common one legitimately does not — the
     // search is ranked, not a substring filter, so `bisect` really does occur
     // nearly everywhere in a document about bisection.
-    fireEvent.change(within(column).getByLabelText(/Search notes\/bisect\.hick/), {
+    fireEvent.change(within(column).getByLabelText(/Search notes\/bisect\.md/), {
       target: { value: "lo, hi" },
     });
     expect(column.querySelectorAll(".lin-row").length).toBeLessThan(all);
@@ -142,7 +142,7 @@ describe("the lineage browser", () => {
     fireEvent.click(fragment);
 
     // Still the document, and the clicked block is marked as the selection.
-    expect(within(column).getByText("notes/bisect.hick")).toBeTruthy();
+    expect(within(column).getByText("notes/bisect.md")).toBeTruthy();
     expect(column.querySelectorAll('[data-rel="self"]').length).toBeGreaterThan(0);
   });
 

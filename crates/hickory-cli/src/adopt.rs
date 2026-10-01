@@ -128,7 +128,7 @@ fn verify_bytes(rel: &str, original: &str, woven: &str) -> Result<()> {
     )
 }
 
-/// Adopt `file` into a NEW document beside it: `<stem>.hick`.
+/// Adopt `file` into a NEW document beside it: `<stem>.md`.
 ///
 /// The verification runs in a scratch directory first; the working tree is
 /// only touched once the round-trip is proven byte-exact.
@@ -138,11 +138,11 @@ pub async fn adopt_new(file: &Path) -> Result<AdoptOutcome> {
         .file_name()
         .and_then(|n| n.to_str())
         .with_context(|| format!("{} has no usable file name", file.display()))?;
-    if name.ends_with(".hick") {
+    if name.ends_with(".md") {
         bail!("{name} is already a document — adoption is for the files documents do not own yet");
     }
     let stem = file.file_stem().and_then(|s| s.to_str()).unwrap_or(name);
-    let doc_path = file.with_file_name(format!("{stem}.hick"));
+    let doc_path = file.with_file_name(format!("{stem}.md"));
     if doc_path.exists() {
         bail!(
             "{} already exists. Adopt into it instead (`hick ingest --from file {} --into {}`), \
@@ -158,7 +158,7 @@ pub async fn adopt_new(file: &Path) -> Result<AdoptOutcome> {
     // Prove the round-trip somewhere the up-loop is not watching: a failed
     // check must leave the working tree exactly as it was.
     let scratch = tempfile::tempdir().context("could not create a scratch directory")?;
-    let scratch_doc = scratch.path().join("adopt.hick");
+    let scratch_doc = scratch.path().join("adopt.md");
     std::fs::write(&scratch_doc, &source).context("could not write the scratch document")?;
     let woven = woven_output(&scratch_doc, name).await?;
     verify_bytes(name, &content, &woven)?;
@@ -322,7 +322,8 @@ mod tests {
 
         let outcome = block_on(adopt_new(&file)).expect("adoption succeeds");
         assert!(outcome.created);
-        assert_eq!(outcome.doc_path, dir.path().join("analysis.hick"));
+        assert!(!dir.path().join("analysis.hick").exists());
+        assert_eq!(outcome.doc_path, dir.path().join("analysis.md"));
         assert_eq!(
             std::fs::read_to_string(&file).unwrap(),
             body,
@@ -345,7 +346,7 @@ mod tests {
     #[test]
     fn a_file_containing_hick_tags_is_refused_and_nothing_is_written() {
         let dir = tempfile::tempdir().unwrap();
-        let file = dir.path().join("notes.md");
+        let file = dir.path().join("notes.txt");
         std::fs::write(&file, "docs about hick:\n</hick:file>\nboom\n").unwrap();
         let before = std::fs::read_dir(dir.path()).unwrap().count();
         assert!(
@@ -366,7 +367,7 @@ mod tests {
         std::fs::write(&png, [0x89u8, 0x50, 0xff, 0x00]).unwrap();
         assert!(block_on(adopt_new(&png)).is_err());
 
-        let doc = dir.path().join("paper.hick");
+        let doc = dir.path().join("paper.md");
         std::fs::write(&doc, "<hick:doc/>").unwrap();
         assert!(
             block_on(adopt_new(&doc)).is_err(),
@@ -377,14 +378,14 @@ mod tests {
         std::fs::write(&file, "text\n").unwrap();
         assert!(
             block_on(adopt_new(&file)).is_err(),
-            "paper.hick exists; the refusal points at --into"
+            "paper.md exists; the refusal points at --into"
         );
     }
 
     #[test]
     fn adopt_into_appends_and_leaves_every_other_output_alone() {
         let dir = tempfile::tempdir().unwrap();
-        let doc = dir.path().join("notebook.hick");
+        let doc = dir.path().join("notebook.md");
         std::fs::write(&doc, new_doc_source("first.txt", "the first file\n")).unwrap();
         let file = dir.path().join("second.txt");
         std::fs::write(&file, "the second file\n").unwrap();
@@ -400,7 +401,7 @@ mod tests {
     #[test]
     fn adopt_into_restores_both_sides_when_the_check_fails() {
         let dir = tempfile::tempdir().unwrap();
-        let doc = dir.path().join("notebook.hick");
+        let doc = dir.path().join("notebook.md");
         let original_doc = new_doc_source("first.txt", "the first file\n");
         std::fs::write(&doc, &original_doc).unwrap();
         let file = dir.path().join("tricky.md");
@@ -423,7 +424,7 @@ mod tests {
     #[test]
     fn adopt_into_refuses_a_path_the_document_already_produces() {
         let dir = tempfile::tempdir().unwrap();
-        let doc = dir.path().join("notebook.hick");
+        let doc = dir.path().join("notebook.md");
         std::fs::write(&doc, new_doc_source("owned.txt", "woven\n")).unwrap();
         // The woven file exists on disk after a weave; simulate that.
         let file = dir.path().join("owned.txt");

@@ -558,7 +558,7 @@ impl EditSession {
     }
 
     /// Match on the full path or the file name, so an agent can say
-    /// `billing.hick` without reconstructing the relative path.
+    /// `billing.md` without reconstructing the relative path.
     fn path_matches(path: &Path, needle: &str) -> bool {
         path == Path::new(needle)
             || path.ends_with(needle)

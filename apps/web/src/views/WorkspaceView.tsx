@@ -933,7 +933,7 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
             to: {
               path: place.path,
               lines: [place.first_line, place.last_line],
-              kind: place.path.endsWith(".hick") || self ? "document" : "file",
+              kind: place.path.endsWith(".md") || self ? "document" : "file",
             },
             title: `Declared — this ${cite.from.element} says it cites ${place.id ? `#${place.id}` : place.element} in ${place.path} lines ${place.first_line}–${place.last_line} (cites="${cite.select}"). An assertion, not a derivation.`,
           });
@@ -1110,7 +1110,7 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
     for (const link of ribbonLinks) {
       if (!layers.has(link.family)) continue;
       const isDoc =
-        link.to.kind === "document" || link.to.path.endsWith(".hick");
+        link.to.kind === "document" || link.to.path.endsWith(".md");
       const kind = isDoc ? "document" : "file";
       const id = `${kind}:${link.to.path}`;
       if (
@@ -1809,7 +1809,7 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
       </div>
       <div className="doc-main">
         {/* Asked at open, because a clone that never ran `hick init` merges
-            `.hick` documents with git's line merge and is told nothing. */}
+            `.md` documents with git's line merge and is told nothing. */}
         <MergeDriverNotice />
         {banner && (
           <div className={`banner banner-${banner.kind}`} role="status">
@@ -1888,7 +1888,7 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
               // Clicking a band IS the navigation.
               if (target.kind === "path") {
                 // A context/declared far end: a document or a plain file.
-                if (target.path.endsWith(".hick"))
+                if (target.path.endsWith(".md"))
                   openDocumentByPath(target.path);
                 else openPlainFile(target.path);
                 return;

@@ -67,7 +67,7 @@ pub struct ArmSpec {
     /// stays honest.
     #[serde(default)]
     pub tools: bool,
-    /// Which context the agent starts with: "doc" (the .hick source),
+    /// Which context the agent starts with: "doc" (the .md source),
     /// "outputs" (the woven files), or "none".
     #[serde(default)]
     pub context: Option<String>,
@@ -87,7 +87,7 @@ pub struct TaskSpec {
     pub id: String,
     /// The user prompt.
     pub prompt: String,
-    /// Path (relative to the spec file) of the primary .hick document.
+    /// Path (relative to the spec file) of the primary .md document.
     #[serde(default)]
     pub doc: Option<PathBuf>,
     /// Paths (relative to the spec file) of woven outputs, for
@@ -95,7 +95,7 @@ pub struct TaskSpec {
     #[serde(default)]
     pub outputs: Vec<PathBuf>,
     /// Shell command run after the task; exit 0 = check pass (e.g.
-    /// `cargo run -p hickory-cli -- check doc.hick`). Run from the spec
+    /// `cargo run -p hickory-cli -- check doc.md`). Run from the spec
     /// file's directory.
     #[serde(default)]
     pub check_cmd: Option<String>,

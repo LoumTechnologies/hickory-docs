@@ -80,7 +80,7 @@ const STOPPED = {
 
 function open() {
   const socket = new FakeSocket();
-  const hook = renderHook(() => useDebugger(socket as unknown as Realtime, "orders.hick"));
+  const hook = renderHook(() => useDebugger(socket as unknown as Realtime, "orders.md"));
   return { socket, hook };
 }
 
@@ -89,7 +89,7 @@ describe("the debugger, over the socket", () => {
     const { socket, hook } = open();
     act(() => hook.result.current.start());
     expect(hook.result.current.status).toBe("starting");
-    expect(socket.sent[0]).toMatchObject({ op: "start", doc: "hick:///orders.hick" });
+    expect(socket.sent[0]).toMatchObject({ op: "start", doc: "hick:///orders.md" });
 
     act(() => socket.deliver(STARTED));
     await waitFor(() => expect(hook.result.current.status).toBe("running"));
@@ -533,10 +533,10 @@ describe("two panes on one socket", () => {
   it("still takes an answer that names no file", () => {
     // A document's own socket carries one session and an older engine may
     // not say which; that must keep working.
-    expect(eventIsOurs({ ...STARTED, event: "started" } as never, "hick:///x.hick", null)).toBe(true);
-    expect(eventIsOurs(STOPPED as never, "hick:///x.hick", "dbg-0")).toBe(true);
-    expect(eventIsOurs(STOPPED as never, "hick:///x.hick", null)).toBe(false);
-    expect(eventIsOurs(STOPPED as never, "hick:///x.hick", "dbg-9")).toBe(false);
+    expect(eventIsOurs({ ...STARTED, event: "started" } as never, "hick:///x.md", null)).toBe(true);
+    expect(eventIsOurs(STOPPED as never, "hick:///x.md", "dbg-0")).toBe(true);
+    expect(eventIsOurs(STOPPED as never, "hick:///x.md", null)).toBe(false);
+    expect(eventIsOurs(STOPPED as never, "hick:///x.md", "dbg-9")).toBe(false);
   });
 });
 

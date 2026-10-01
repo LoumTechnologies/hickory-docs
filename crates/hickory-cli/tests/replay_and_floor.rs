@@ -65,7 +65,7 @@ fn replay_reports_the_lineage_the_document_had_at_a_commit() {
     // stored — by weaving that commit's document.
     let dir = tempfile::tempdir().unwrap();
     repo(dir.path());
-    let path = dir.path().join("note.hick");
+    let path = dir.path().join("note.md");
 
     std::fs::write(&path, doc("first")).unwrap();
     let first = commit(dir.path(), "first");
@@ -108,7 +108,7 @@ fn replay_reports_the_lineage_the_document_had_at_a_commit() {
 fn history_names_the_commits_the_slider_can_stop_at() {
     let dir = tempfile::tempdir().unwrap();
     repo(dir.path());
-    let path = dir.path().join("note.hick");
+    let path = dir.path().join("note.md");
     std::fs::write(&path, doc("first")).unwrap();
     commit(dir.path(), "the first version");
     std::fs::write(&path, doc("second")).unwrap();
@@ -134,7 +134,7 @@ fn a_document_past_the_grammar_boundary_says_so_rather_than_failing_obscurely() 
     // says that instead of surfacing a parse error nobody can act on.
     let dir = tempfile::tempdir().unwrap();
     repo(dir.path());
-    let path = dir.path().join("note.hick");
+    let path = dir.path().join("note.md");
     // A document today's parser refuses: a namespace prefix that is declared
     // nowhere, so nothing binds `hick:`.
     std::fs::write(&path, "<hick:doc>\n<hick:file path=\"x\">y</hick:file>\n").unwrap();
@@ -260,7 +260,7 @@ fn init_routes_hick_documents_at_the_driver_and_defines_it() {
     );
 
     let attrs = std::fs::read_to_string(dir.path().join(".gitattributes")).unwrap();
-    assert!(attrs.contains("*.hick merge=hick"), "{attrs}");
+    assert!(attrs.contains("*.md merge=hick"), "{attrs}");
 
     let status = hickory_cli::merge_driver::status(dir.path());
     assert!(status.repository);
@@ -289,7 +289,7 @@ fn a_clone_that_never_ran_init_is_told_the_driver_is_missing() {
     // fall back to its line merge.
     let dir = tempfile::tempdir().unwrap();
     repo(dir.path());
-    std::fs::write(dir.path().join(".gitattributes"), "*.hick merge=hick\n").unwrap();
+    std::fs::write(dir.path().join(".gitattributes"), "*.md merge=hick\n").unwrap();
     commit(dir.path(), "route hick merges");
 
     let status = hickory_cli::merge_driver::status(dir.path());
@@ -306,8 +306,8 @@ fn hick_test_reports_a_missing_driver_without_changing_its_exit_code() {
     // CI never merges. So this reports and never fails.
     let dir = tempfile::tempdir().unwrap();
     repo(dir.path());
-    std::fs::write(dir.path().join(".gitattributes"), "*.hick merge=hick\n").unwrap();
-    let path = dir.path().join("note.hick");
+    std::fs::write(dir.path().join(".gitattributes"), "*.md merge=hick\n").unwrap();
+    let path = dir.path().join("note.md");
     std::fs::write(&path, doc("hello")).unwrap();
     // Give the document its committed output, so `test` has nothing to
     // report but the driver.
@@ -351,9 +351,9 @@ fn a_clean_line_merge_that_does_not_parse_is_reported_as_a_conflict() {
     )
     .unwrap();
 
-    match hickory_cli::merge_driver::run(&base, &ours, &theirs, 7, "note.hick").unwrap() {
+    match hickory_cli::merge_driver::run(&base, &ours, &theirs, 7, "note.md").unwrap() {
         hickory_cli::merge_driver::MergeOutcome::Conflicted { reason } => {
-            assert!(reason.contains("note.hick"), "{reason}");
+            assert!(reason.contains("note.md"), "{reason}");
         }
         hickory_cli::merge_driver::MergeOutcome::Clean => {
             panic!("a document that does not parse was accepted as a clean merge")
@@ -365,7 +365,7 @@ fn a_clean_line_merge_that_does_not_parse_is_reported_as_a_conflict() {
 fn a_real_merge_of_two_documents_goes_through_hick() {
     let dir = tempfile::tempdir().unwrap();
     repo(dir.path());
-    let path = dir.path().join("note.hick");
+    let path = dir.path().join("note.md");
     std::fs::write(&path, doc("base")).unwrap();
     commit(dir.path(), "base");
     assert!(

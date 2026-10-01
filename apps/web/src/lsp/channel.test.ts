@@ -13,7 +13,7 @@ describe("0x02 framing", () => {
       jsonrpc: "2.0",
       id: 7,
       method: "textDocument/hover",
-      params: { textDocument: { uri: "hick:///guide.hick" }, position: { line: 3, character: 1 } },
+      params: { textDocument: { uri: "hick:///guide.md" }, position: { line: 3, character: 1 } },
     };
     const frame = encodeLspFrame(msg);
     expect(frame[0]).toBe(CHANNEL_LSP);

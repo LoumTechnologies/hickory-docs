@@ -1,6 +1,6 @@
 // Asking a language question from inside generated output.
 //
-// The LSP bridge only speaks document coordinates: it weaves the `.hick`
+// The LSP bridge only speaks document coordinates: it weaves the `.md`
 // source into virtual files, delegates to the real language servers, and maps
 // their answers back through provenance. So when you Cmd-click a symbol in
 // woven output, the position has to travel the same road in reverse — output

@@ -30,7 +30,7 @@ export function ribbonLinksOf(path: string, links: readonly SessionLink[]): Ribb
     to: {
       path: link.to.path,
       lines: link.to.lines,
-      kind: link.to.path.endsWith(".hick") ? "document" : "file",
+      kind: link.to.path.endsWith(".md") ? "document" : "file",
     },
     title: link.title,
   }));

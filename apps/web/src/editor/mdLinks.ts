@@ -6,7 +6,7 @@
 //    the destination are dimmed the way every other markdown mark in this app
 //    is (`cm-md-mark`, markdownStyling.ts). Nothing is hidden — the source is
 //    still the source, which is the rule the rest of the markdown display
-//    follows and the reason a `.hick` file stays a file you can edit in vim.
+//    follows and the reason a `.md` file stays a file you can edit in vim.
 //  - **A link goes somewhere.** Mod-click follows it: a document opens as a
 //    tab, any other file in the folder opens as a pane, and a URL goes to the
 //    browser. Mod-click rather than click because this is an editor first —

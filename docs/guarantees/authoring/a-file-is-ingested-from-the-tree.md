@@ -2,7 +2,7 @@
 
 Given a plain text file in the tree — not a document, not a file some
 document already writes, not a binary — when a person right-clicks it,
-then the menu offers **Make literate**, which writes a new document beside
+then the menu offers **Make literate**, which writes a new `.md` document beside
 the file owning its bytes exactly, and, when a document is focused,
 **Ingest into <that document>**, which appends the file's bytes to it as a
 block; either way the document it landed in opens. Both are the same
@@ -44,3 +44,9 @@ Last LLM verification:
 - Test coverage: `apps/web/src/shell/treeMenu.test.ts` ("offers Make
   literate and Ingest into…"), `FolderTreePane.test.tsx` ("ingest from the
   tree").
+
+
+Verified 2026-10-01 (Markdown document extension): The new-document path is `<stem>.md`. The HTTP integration in
+`tests/serve_files.rs::make_literate_creates_an_openable_markdown_document`
+verifies adoption, registration, opening, rendering, and unchanged file bytes.
+The frontend tree menu and pane suites pass with Markdown document paths.

@@ -54,7 +54,7 @@ describe("which lines refuse to wrap", () => {
     view.destroy();
   });
 
-  it("marks an exec cell's payload in a .hick document", () => {
+  it("marks an exec cell's payload in a .md document", () => {
     const doc = '# Notes\n\n<hick:exec container="sh">\necho hi\n</hick:exec>\n';
     const view = mount(doc, verbatimRanges(parseHickDoc(doc).blocks) as [number, number][]);
     const lines = [...view.dom.querySelectorAll(".cm-line")];

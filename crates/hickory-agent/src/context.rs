@@ -255,7 +255,7 @@ pub fn context_for_document(doc_path: &Path, doc_source: &str) -> Vec<ResolvedWr
         let mut files: Vec<PathBuf> = entries
             .filter_map(Result::ok)
             .map(|e| e.path())
-            .filter(|p| p.extension().is_some_and(|e| e == "hick"))
+            .filter(|p| p.extension().is_some_and(|e| e == "md" || e == "hick"))
             .collect();
         files.sort();
         for session in files {
@@ -312,9 +312,9 @@ file: data/x.csv (2 lines)
 <hick:tool name="edit_doc"><hick:arg name="after">^</hick:arg><hick:input>Finding: one.</hick:input></hick:tool>
 </hick:assistant>
 <hick:tool-result id="in2" name="edit_doc" ok="true">
-edited note.hick and re-wove.
+edited note.md and re-wove.
 </hick:tool-result>
-<hick:wrote file="note.hick" lines="1-1" hashes="HASH"/>
+<hick:wrote file="note.md" lines="1-1" hashes="HASH"/>
 <hick:assistant>
 <hick:action lang="sh">echo later</hick:action>
 </hick:assistant>
@@ -327,12 +327,12 @@ edited note.hick and re-wove.
     fn a_write_sees_every_input_before_it_and_none_after() {
         let hash = crate::tools::hashline::line_hash("Finding: one.");
         let source = SESSION.replace("HASH", &hash);
-        let writes = derive_from_session("s.hick", &source);
+        let writes = derive_from_session("s.md", &source);
         assert_eq!(writes.len(), 1);
         let w = &writes[0];
         assert_eq!(
             (w.file.as_str(), w.first_line, w.last_line),
-            ("note.hick", 1, 1)
+            ("note.md", 1, 1)
         );
         // The prompt, the read_file result, the file it showed — and not the
         // observation that came later.
@@ -357,12 +357,12 @@ edited note.hick and re-wove.
     #[test]
     fn context_for_document_finds_sessions_beside_the_document() {
         let dir = tempfile::tempdir().unwrap();
-        let doc = dir.path().join("note.hick");
+        let doc = dir.path().join("note.md");
         std::fs::write(&doc, "Title\nFinding: one.\n").unwrap();
         std::fs::create_dir_all(dir.path().join("sessions")).unwrap();
         let hash = crate::tools::hashline::line_hash("Finding: one.");
         std::fs::write(
-            dir.path().join("sessions/one.hick"),
+            dir.path().join("sessions/one.md"),
             SESSION.replace("HASH", &hash),
         )
         .unwrap();
@@ -370,11 +370,11 @@ edited note.hick and re-wove.
         assert_eq!(writes.len(), 1, "{writes:?}");
         assert_eq!(writes[0].current_lines, Some((2, 2)));
         // Compared as a PATH, not as a string: `session` is a native display
-        // path, so it is `sessions\\one.hick` on Windows. `Path::ends_with`
+        // path, so it is `sessions\\one.md` on Windows. `Path::ends_with`
         // matches whole components and is right on both, where a string
         // `ends_with` silently asserts "this test ran on Unix".
         assert!(
-            Path::new(&writes[0].write.session).ends_with("sessions/one.hick"),
+            Path::new(&writes[0].write.session).ends_with("sessions/one.md"),
             "{}",
             writes[0].write.session
         );

@@ -45,7 +45,7 @@ export interface WorkspaceUi {
   /** How big each table was left, keyed by `tableKey`.
    *
    * Here rather than in the document because a column width is presentation
-   * and a `.hick` document is a dataset somebody diffs. Two people opening the
+   * and a `.md` document is a dataset somebody diffs. Two people opening the
    * same table are allowed to want different amounts of room for it, and
    * neither should show up in the other's `git status`. */
   tables: Record<string, TableLayout>;

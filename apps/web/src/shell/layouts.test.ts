@@ -17,7 +17,7 @@ crates/hickory-*/**
 <hick:copy id="domain" class="layout-region">
 # the language and its engines
 crates/hick-*/**
-*.hick
+*.md
 </hick:copy>
 </hick:doc>
 `;
@@ -36,7 +36,7 @@ describe("reading a layout out of a document", () => {
     expect(regions.map((r) => r.name)).toEqual(["ui", "application", "domain"]);
     expect(regions[0].match).toEqual(["apps/web/**"]);
     // Comments are for the reader, not for the matcher.
-    expect(regions[2].match).toEqual(["crates/hick-*/**", "*.hick"]);
+    expect(regions[2].match).toEqual(["crates/hick-*/**", "*.md"]);
   });
 
   it("ignores copies that are not layout regions", () => {
@@ -55,8 +55,8 @@ describe("reading a layout out of a document", () => {
 
 describe("what a folder offers", () => {
   const folder = [
-    { path: "layers.hick", source: LAYERS },
-    { path: "notes.hick", source: ORDINARY },
+    { path: "layers.md", source: LAYERS },
+    { path: "notes.md", source: ORDINARY },
   ];
 
   it("always offers freeform first", () => {
@@ -67,7 +67,7 @@ describe("what a folder offers", () => {
 
   it("names the document a layout came from", () => {
     const declared = layoutsFor(folder)[1];
-    expect(declared.source).toBe("layers.hick");
+    expect(declared.source).toBe("layers.md");
     expect(declared.detail).toContain("3 regions");
   });
 
@@ -80,17 +80,17 @@ describe("what a folder offers", () => {
     const regions = layoutsFor(folder)[1].regions!;
     expect(regionOf(regions, "apps/web/src/main.tsx")).toBe("ui");
     expect(regionOf(regions, "crates/hick-dap/src/session.rs")).toBe("domain");
-    expect(regionOf(regions, "README.md")).toBeNull();
+    expect(regionOf(regions, "LICENSE.txt")).toBeNull();
   });
 
   it("offers only freeform for a folder that declares nothing", () => {
-    expect(layoutsFor([{ path: "notes.hick", source: ORDINARY }])).toHaveLength(1);
+    expect(layoutsFor([{ path: "notes.md", source: ORDINARY }])).toHaveLength(1);
   });
 
   it("opens into the one declared layout, and asks when there are two", () => {
     // One declaration means it; two means choosing would be guessing.
-    expect(defaultChoice(layoutsFor(folder)).source).toBe("layers.hick");
-    const two = layoutsFor([...folder, { path: "pipeline.hick", source: LAYERS }]);
+    expect(defaultChoice(layoutsFor(folder)).source).toBe("layers.md");
+    const two = layoutsFor([...folder, { path: "pipeline.md", source: LAYERS }]);
     expect(defaultChoice(two).id).toBe("freeform");
     expect(defaultChoice(layoutsFor([])).id).toBe("freeform");
   });

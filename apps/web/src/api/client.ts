@@ -257,7 +257,7 @@ export const api = {
   /** Adopt a plain file into a literate document, byte-exactly: the server
    * verifies the new document weaves the file's exact bytes before writing
    * anything. `into` appends to an existing document instead of creating
-   * `<stem>.hick` beside the file. */
+   * `<stem>.md` beside the file. */
   /** One dired verb: rename, move, copy, delete, a new file or folder. */
   fileOp: (op: FileOpRequest) =>
     request<{ op: string; from?: string; to?: string; path?: string }>(
@@ -548,7 +548,7 @@ export const api = {
       "/api/git/floor",
     ),
 
-  /** Whether `.hick` merges go through hick in this clone. Asked at project
+  /** Whether `.md` merges go through hick in this clone. Asked at project
    * open, because a clone that never ran `hick init` has neither the driver
    * nor the pre-commit hook that would report it missing. */
   mergeDriver: () =>

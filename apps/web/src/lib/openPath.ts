@@ -15,7 +15,7 @@ export function nodeForAbsolutePath(
   const visit = (nodes: readonly FileNode[]) => {
     for (const node of nodes) {
       if (!node.dir && normalized.endsWith(`/${node.path}`)) {
-        // Longest suffix wins: "b/notes.hick" beats "notes.hick" when both
+        // Longest suffix wins: "b/notes.md" beats "notes.md" when both
         // exist and the absolute path names the nested one.
         if (!best || node.path.length > best.path.length) best = node;
       }

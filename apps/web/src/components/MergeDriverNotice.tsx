@@ -1,10 +1,10 @@
-// Whether `.hick` documents merge through hick — asked once, at project open.
+// Whether `.md` documents merge through hick — asked once, at project open.
 //
-// The sharp edge this exists for: `.gitattributes` routing (`*.hick
+// The sharp edge this exists for: `.gitattributes` routing (`*.md
 // merge=hick`) is committed and reaches every clone, but the driver
 // DEFINITION cannot be — git will not let a repository hand a clone an
 // executable command. A clone that never ran `hick init` therefore merges
-// `.hick` files with git's line merge, **silently**: no warning, no marker,
+// `.md` files with git's line merge, **silently**: no warning, no marker,
 // nothing to notice afterwards.
 //
 // So the check cannot live in the pre-commit hook, because `hick init`
@@ -46,7 +46,7 @@ export function MergeDriverNotice() {
           .map(([what]) => what.replace("_", "."));
         setDone(
           outcome.ok
-            ? `hick init ran: ${wrote.length ? wrote.join(", ") : "everything was already in place"}. \`.hick\` documents now merge through hick in this clone.`
+            ? `hick init ran: ${wrote.length ? wrote.join(", ") : "everything was already in place"}. \`.md\` documents now merge through hick in this clone.`
             : `hick init ran, but the driver is still not defined: ${outcome.status.summary}`,
         );
       },

@@ -29,7 +29,7 @@ fn doc_dir(state: &LocalState, id: &str) -> String {
 /// The key an output is stored under, from the path a client names it by.
 ///
 /// A document writes its files relative to ITSELF (`<hick:file path="app.py">`
-/// in `tools/app.hick` is `app.py`), and that is how the weave keys them. The
+/// in `tools/app.md` is `app.py`), and that is how the weave keys them. The
 /// tree, the tabs and every path a client sends are relative to the open
 /// FOLDER (`tools/app.py`). The two agree only for a document at the root,
 /// which is why the generated-file pane worked there and answered "this

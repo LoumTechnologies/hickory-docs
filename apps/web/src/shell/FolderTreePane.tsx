@@ -44,7 +44,7 @@ export type FolderTree = FilesResponse;
 // ---------------------------------------------------------------------------
 
 export type FileAction =
-  /** A `.hick` document: navigate to its route. */
+  /** A `.md` document: navigate to its route. */
   | { kind: "doc"; id: string }
   /** A file some document generates: open a generated pane. `docId` names the
    * owner when the server knew it, which it does for any document in the
@@ -86,7 +86,7 @@ export function fileAction(node: FileNode, openable: ReadonlySet<string>): FileA
   // document in the folder declares. The second is the reason a woven file
   // opens as the generated thing it is even when its document is closed —
   // and the reason the app stops offering to make `cards.md` literate when
-  // `cards.hick` has been writing it all along.
+  // `cards.md` has been writing it all along.
   if (node.generated_by) return { kind: "generated", path: node.path, docId: node.generated_by };
   if (openable.has(node.path)) return { kind: "generated", path: node.path };
   if (isLikelyBinaryPath(node.path)) return { kind: "inert" };

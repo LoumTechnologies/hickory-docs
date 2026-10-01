@@ -17,7 +17,7 @@ import {
 } from "./model";
 
 const file = (lines: number): FileModel => ({
-  path: "f.hick",
+  path: "f.md",
   kind: "document",
   lines: Array.from({ length: lines }, (_, i) => `line ${i + 1}`),
 });
@@ -64,7 +64,7 @@ describe("visible ranges and the holes between them", () => {
 describe("search", () => {
   it("folds a file down to its matches with context", () => {
     const f: FileModel = {
-      path: "f.hick",
+      path: "f.md",
       kind: "document",
       lines: ["alpha", "beta", "gamma", "delta", "epsilon", "beta again"],
     };
@@ -113,14 +113,14 @@ describe("stages and nodes", () => {
   const model: LineageModel = {
     files: new Map(),
     nodes: new Map([
-      ["outer", { id: "outer", file: "d.hick", startLine: 0, endLine: 20, label: "outer", kind: "file" }],
-      ["inner", { id: "inner", file: "d.hick", startLine: 5, endLine: 6, label: "inner", kind: "paste" }],
-      ["elsewhere", { id: "elsewhere", file: "e.hick", startLine: 0, endLine: 3, label: "e", kind: "copy" }],
+      ["outer", { id: "outer", file: "d.md", startLine: 0, endLine: 20, label: "outer", kind: "file" }],
+      ["inner", { id: "inner", file: "d.md", startLine: 5, endLine: 6, label: "inner", kind: "paste" }],
+      ["elsewhere", { id: "elsewhere", file: "e.md", startLine: 0, endLine: 3, label: "e", kind: "copy" }],
     ]),
     links: [],
     stages: [
-      { name: "d", doc: "d.hick", files: ["d.hick", "out/a.py"] },
-      { name: "e", doc: "e.hick", files: ["e.hick"] },
+      { name: "d", doc: "d.md", files: ["d.md", "out/a.py"] },
+      { name: "e", doc: "e.md", files: ["e.md"] },
     ],
   };
 
@@ -132,8 +132,8 @@ describe("stages and nodes", () => {
   it("picks the tightest node covering a line", () => {
     // A paste inside a file block must select the paste: the enclosing block
     // is always a correct answer and almost never the useful one.
-    expect(nodeAt(model, "d.hick", 5)?.id).toBe("inner");
-    expect(nodeAt(model, "d.hick", 12)?.id).toBe("outer");
-    expect(nodeAt(model, "d.hick", 30)).toBeUndefined();
+    expect(nodeAt(model, "d.md", 5)?.id).toBe("inner");
+    expect(nodeAt(model, "d.md", 12)?.id).toBe("outer");
+    expect(nodeAt(model, "d.md", 30)).toBeUndefined();
   });
 });

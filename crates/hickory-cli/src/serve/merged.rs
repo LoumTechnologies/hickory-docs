@@ -17,7 +17,7 @@
 //! which is also what grounds this in something that already exists
 //! (`hick_term::git::add_worktree`).
 //!
-//! **It is a lens, not a document.** No save path, no `.hick` extension, no
+//! **It is a lens, not a document.** No save path, no `.md` extension, no
 //! place in the folder tree. The same category as a diff view — and getting
 //! that wrong reverses the product's central claim, because a synthetic
 //! document assembled *from* files points the opposite way to a document that

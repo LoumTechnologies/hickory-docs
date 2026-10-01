@@ -79,7 +79,7 @@ import type { DiagramBlock, ExecBlock, ExecutorInfo } from "../api/types";
 
 export interface DocumentEditorProps {
   docId: string;
-  /** Initial .hick source, used to seed the Y.Doc when it is empty. */
+  /** Initial .md source, used to seed the Y.Doc when it is empty. */
   initialSource: string;
   realtime: Realtime;
   onChange?: (source: string) => void;
@@ -145,7 +145,7 @@ export function sameCards(a: readonly DocCard[], b: readonly DocCard[]): boolean
 export { assertionStates, matchExecBlock } from "../lib/blockMatch";
 
 /**
- * The Document view: ONE CodeMirror instance over the raw .hick source with
+ * The Document view: ONE CodeMirror instance over the raw .md source with
  * Typora-style decorations (see editor/wysiwyg.ts) and collaborative editing
  * via Yjs — the user always edits real source; styling never replaces text.
  *

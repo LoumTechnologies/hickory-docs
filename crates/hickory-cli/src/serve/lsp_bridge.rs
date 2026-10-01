@@ -545,7 +545,7 @@ fn rewrite_uris(message: &mut Value, f: &dyn Fn(&str) -> Option<String>) {
     }
 }
 
-/// `hick:///docs/a.hick` → `file:///…/docs/a.hick`.
+/// `hick:///docs/a.md` → `file:///…/docs/a.md`.
 ///
 /// A path that escapes the project root is refused rather than translated: the
 /// browser is not a trusted source of filesystem paths, and `hick:///../..`
@@ -562,7 +562,7 @@ fn client_uri_to_server(uri: &str, root: &Path) -> Option<String> {
     Some(path_to_file_uri(&root.join(rel)))
 }
 
-/// `file:///…/docs/a.hick` → `hick:///docs/a.hick`, and a virtual output file
+/// `file:///…/docs/a.md` → `hick:///docs/a.md`, and a virtual output file
 /// → `hick-output:///<path>` so the client can open the Output view there.
 fn server_uri_to_client(uri: &str, root: &Path) -> Option<String> {
     let path = file_uri_to_path(uri)?;

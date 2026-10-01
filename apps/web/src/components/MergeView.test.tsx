@@ -10,7 +10,7 @@ afterEach(() => {
 const view = (props: Partial<React.ComponentProps<typeof MergeView>> = {}) =>
   render(
     <MergeView
-      path="notes.hick"
+      path="notes.md"
       base={"one\ntwo\nthree\n"}
       ours={"one\nOURS\nthree\n"}
       theirs={"one\nTHEIRS\nthree\n"}

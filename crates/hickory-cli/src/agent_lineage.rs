@@ -329,10 +329,10 @@ pub fn blame(repo_dir: &Path, file: &Path, line: usize) -> Authorship {
 // Reasoning, resolved from the session store
 // ---------------------------------------------------------------------------
 
-/// Conventional location of a session: `<project_dir>/sessions/<id>.hick`,
+/// Conventional location of a session: `<project_dir>/sessions/<id>.md`,
 /// matching `hickory_agent::session_file_path`.
 pub fn session_path(project_dir: &Path, session: &str) -> PathBuf {
-    project_dir.join("sessions").join(format!("{session}.hick"))
+    project_dir.join("sessions").join(format!("{session}.md"))
 }
 
 /// Can this reader open the reasoning behind `session` turn `turn`?
@@ -457,7 +457,7 @@ mod tests {
             "{rendered}"
         );
         // The reason names the path it looked for — actionable, not a shrug.
-        assert!(rendered.contains("sessions/abc123.hick"), "{rendered}");
+        assert!(rendered.contains("sessions/abc123.md"), "{rendered}");
     }
 
     #[test]
@@ -498,9 +498,9 @@ mod tests {
     #[test]
     fn blame_names_the_commit_author() {
         let dir = temp_repo();
-        std::fs::write(dir.path().join("doc.hick"), "line one\nline two\n").unwrap();
+        std::fs::write(dir.path().join("doc.md"), "line one\nline two\n").unwrap();
         assert!(
-            git(dir.path(), &["add", "doc.hick"])
+            git(dir.path(), &["add", "doc.md"])
                 .unwrap()
                 .status
                 .success()
@@ -511,7 +511,7 @@ mod tests {
                 .status
                 .success()
         );
-        match blame(dir.path(), Path::new("doc.hick"), 2) {
+        match blame(dir.path(), Path::new("doc.md"), 2) {
             Authorship::Committed { author, commit } => {
                 assert!(author.contains("Test Author"), "{author}");
                 assert!(!commit.is_empty());
@@ -523,9 +523,9 @@ mod tests {
     #[test]
     fn uncommitted_work_is_attributed_to_the_current_user() {
         let dir = temp_repo();
-        std::fs::write(dir.path().join("doc.hick"), "line one\n").unwrap();
+        std::fs::write(dir.path().join("doc.md"), "line one\n").unwrap();
         assert!(
-            git(dir.path(), &["add", "doc.hick"])
+            git(dir.path(), &["add", "doc.md"])
                 .unwrap()
                 .status
                 .success()
@@ -536,15 +536,15 @@ mod tests {
                 .status
                 .success()
         );
-        std::fs::write(dir.path().join("doc.hick"), "line one\nbrand new line\n").unwrap();
-        match blame(dir.path(), Path::new("doc.hick"), 2) {
+        std::fs::write(dir.path().join("doc.md"), "line one\nbrand new line\n").unwrap();
+        match blame(dir.path(), Path::new("doc.md"), 2) {
             Authorship::Uncommitted { who } => assert!(who.contains("Test Author"), "{who}"),
             other => panic!("expected Uncommitted, got {other:?}"),
         }
         // An untracked file is the same story.
-        std::fs::write(dir.path().join("new.hick"), "fresh\n").unwrap();
+        std::fs::write(dir.path().join("new.md"), "fresh\n").unwrap();
         assert!(matches!(
-            blame(dir.path(), Path::new("new.hick"), 1),
+            blame(dir.path(), Path::new("new.md"), 1),
             Authorship::Uncommitted { .. }
         ));
     }
@@ -552,13 +552,13 @@ mod tests {
     #[test]
     fn outside_a_repository_authorship_is_unknown_not_a_panic() {
         let dir = tempfile::tempdir().unwrap();
-        std::fs::write(dir.path().join("doc.hick"), "x\n").unwrap();
+        std::fs::write(dir.path().join("doc.md"), "x\n").unwrap();
         // The file exists but there is no repository: git blame fails and we
         // fall back to "uncommitted", which is still true and still useful.
-        let a = blame(dir.path(), Path::new("doc.hick"), 1);
+        let a = blame(dir.path(), Path::new("doc.md"), 1);
         assert!(matches!(a, Authorship::Uncommitted { .. }), "{a:?}");
         // A path that does not exist at all cannot be attributed.
-        let a = blame(dir.path(), Path::new("nope.hick"), 1);
+        let a = blame(dir.path(), Path::new("nope.md"), 1);
         assert!(matches!(a, Authorship::Unknown { .. }), "{a:?}");
     }
 }

@@ -195,7 +195,7 @@ export interface Provenance {
 
 /** One entry of the open folder's file tree (GET /api/files). Directories
  * come first, each level alphabetical; `path` is root-relative; `doc_id` is
- * present only on `.hick` documents. */
+ * present only on `.md` documents. */
 /** A plain file — anything in the folder that is neither a document nor a
  * woven output: read whole, saved whole. `hash` fingerprints the content the
  * read served; the save passes it back as `base_hash` so a file rewritten on
@@ -427,7 +427,7 @@ export interface ExecutorInfo {
 export type { AgentUsage, AgentTurn, AgentTotals, AgentTurnsResponse } from "./agentTypes";
 
 // --- project search ----------------------------------------------------------
-// GET /api/search — ranked hits across the served folder: .hick documents and
+// GET /api/search — ranked hits across the served folder: .md documents and
 // generated files alike. Lines are 1-based; `path` is relative to the folder.
 
 export interface SearchHit {

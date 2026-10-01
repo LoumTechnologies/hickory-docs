@@ -33,7 +33,7 @@ describe("absolutePath", () => {
 
 describe("baseName", () => {
   it("is the last segment", () => {
-    expect(baseName("src/deep/inner.hick")).toBe("inner.hick");
+    expect(baseName("src/deep/inner.md")).toBe("inner.md");
     expect(baseName("readme.txt")).toBe("readme.txt");
     expect(baseName("src/")).toBe("src");
   });
@@ -144,11 +144,11 @@ describe("treeMenuItems", () => {
 // docs/guarantees/authoring/a-file-is-ingested-from-the-tree.md
 describe("the dired and ingest verbs", () => {
   it("offers Make literate and Ingest into the focused document for a plain text file only", () => {
-    const active = { path: "notes/today.hick", name: "today.hick" };
+    const active = { path: "notes/today.md", name: "today.md" };
     const plain = treeMenuItems(POSIX, "src/main.rs", false, { plainText: true, activeDoc: active });
     expect(plain.slice(0, 2).map((i) => i.id)).toEqual(["literate", "ingest"]);
-    expect(plain[1].label).toBe("Ingest into today.hick");
-    expect(plain[1].action).toEqual({ kind: "ingest", path: "src/main.rs", into: "notes/today.hick" });
+    expect(plain[1].label).toBe("Ingest into today.md");
+    expect(plain[1].action).toEqual({ kind: "ingest", path: "src/main.rs", into: "notes/today.md" });
     // No focused document: nothing to ingest into, but a new document is
     // always possible.
     expect(treeMenuItems(POSIX, "src/main.rs", false, { plainText: true }).map((i) => i.id)[0]).toBe("literate");

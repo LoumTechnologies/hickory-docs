@@ -1,4 +1,4 @@
-//! `.hick` merges go through one path, and a clone can tell whether they do.
+//! `.md` merges go through one path, and a clone can tell whether they do.
 //!
 //! See `docs/specs/freeform/provenance-across-versions.md`. A merge is the
 //! richest recording site there is — the one moment when **all three versions
@@ -9,7 +9,7 @@
 //! anywhere in the system would be produced.
 //!
 //! **Make it automatic rather than a team rule.** `hick init` writes
-//! `*.hick merge=hick` into `.gitattributes` and defines the driver, so
+//! `*.md merge=hick` into `.gitattributes` and defines the driver, so
 //! `git merge` on the command line runs the same code the app's merge tab
 //! will — one path, no discipline required.
 //!
@@ -28,7 +28,7 @@
 //! **What the driver does today is a three-way merge of the document text,
 //! and no more.** The document-aware merge and the correspondence it would
 //! record are the next steps in that design; what this step buys is that
-//! every `.hick` merge is OURS, that a merged document is checked for
+//! every `.md` merge is OURS, that a merged document is checked for
 //! parseability before it is accepted as clean, and that a repository can
 //! answer whether any of it is wired up. Claiming more would be claiming the
 //! recording site is recording.
@@ -43,7 +43,7 @@ use serde::Serialize;
 pub const DRIVER: &str = "hick";
 
 /// The line `hick init` writes into `.gitattributes`.
-pub const ATTRIBUTES_LINE: &str = "*.hick merge=hick";
+pub const ATTRIBUTES_LINE: &str = "*.md merge=hick";
 
 /// The driver for files a document GENERATES, which is a different problem
 /// from merging a document.
@@ -78,12 +78,12 @@ pub const GENERATED_ATTRS: &str = "linguist-generated=true merge=hick-generated"
 const GENERATED_BEGIN: &str = "# BEGIN HICKORY GENERATED OUTPUTS (managed by `hick init`)";
 const GENERATED_END: &str = "# END HICKORY GENERATED OUTPUTS";
 
-/// Whether this repository actually merges `.hick` documents through hick.
+/// Whether this repository actually merges `.md` documents through hick.
 #[derive(Debug, Clone, Serialize)]
 pub struct MergeDriverStatus {
     /// False when the directory is not a git work tree at all.
     pub repository: bool,
-    /// `.gitattributes` routes `*.hick` at this driver. Committed, so a clone
+    /// `.gitattributes` routes `*.md` at this driver. Committed, so a clone
     /// has it.
     pub attributes: bool,
     /// `merge.hick.driver` is defined in this clone's config. NOT committed —
@@ -95,7 +95,7 @@ pub struct MergeDriverStatus {
 }
 
 impl MergeDriverStatus {
-    /// Whether `.hick` merges are going through hick right now.
+    /// Whether `.md` merges are going through hick right now.
     pub fn ok(&self) -> bool {
         !self.repository || (self.attributes && self.configured)
     }
@@ -124,10 +124,10 @@ pub fn status(dir: &Path) -> MergeDriverStatus {
         };
     }
 
-    // Ask git what it would actually DO with a `.hick` path, rather than
+    // Ask git what it would actually DO with a `.md` path, rather than
     // reading `.gitattributes` ourselves: attributes can come from several
     // files and from `info/attributes`, and the question is what git resolves.
-    let attributes = git(dir, &["check-attr", "merge", "--", "a.hick"])
+    let attributes = git(dir, &["check-attr", "merge", "--", "a.md"])
         .filter(|o| o.status.success())
         .map(|o| {
             String::from_utf8_lossy(&o.stdout)
@@ -142,11 +142,11 @@ pub fn status(dir: &Path) -> MergeDriverStatus {
 
     let summary = match (attributes, configured) {
         (true, true) => format!(
-            "`.hick` documents merge through hick: `{ATTRIBUTES_LINE}` is in \
+            "`.md` documents merge through hick: `{ATTRIBUTES_LINE}` is in \
              .gitattributes and `merge.{DRIVER}.driver` is defined in this clone."
         ),
         (true, false) => format!(
-            "`.gitattributes` routes `*.hick` at the `{DRIVER}` merge driver, but \
+            "`.gitattributes` routes `*.md` at the `{DRIVER}` merge driver, but \
              this clone has not defined it — so git is SILENTLY falling back to \
              its line merge, with no warning and nothing to notice afterwards.\n  \
              The definition is an executable command, which git will not let a \
@@ -155,12 +155,12 @@ pub fn status(dir: &Path) -> MergeDriverStatus {
         ),
         (false, true) => format!(
             "This clone defines the `{DRIVER}` merge driver, but nothing routes \
-             `*.hick` at it.\n  \
+             `*.md` at it.\n  \
              Next step: run `hick init`, which writes `{ATTRIBUTES_LINE}` into \
              .gitattributes — that half IS committed, so it reaches everyone."
         ),
         (false, false) => format!(
-            "`.hick` documents merge with git's line merge, not hick's.\n  \
+            "`.md` documents merge with git's line merge, not hick's.\n  \
              Next step: run `hick init` in this repository. It writes \
              `{ATTRIBUTES_LINE}` into .gitattributes and defines the driver in \
              this clone; every clone has to run it, because the definition is an \
@@ -180,7 +180,7 @@ pub fn status(dir: &Path) -> MergeDriverStatus {
 // Installation
 // ---------------------------------------------------------------------------
 
-/// Append `*.hick merge=hick` to `.gitattributes` if it is not there.
+/// Append `*.md merge=hick` to `.gitattributes` if it is not there.
 /// Returns true when the file changed.
 pub fn ensure_attributes(path: &Path) -> Result<bool> {
     let existing = match std::fs::read_to_string(path) {
@@ -203,7 +203,7 @@ pub fn ensure_attributes(path: &Path) -> Result<bool> {
 
 /// Rewrite the managed block of generated paths in `.gitattributes`.
 ///
-/// The list is derived, not remembered: every `.hick` document in the tree is
+/// The list is derived, not remembered: every `.md` document in the tree is
 /// read for what it declares it writes — its `weave` target, each
 /// `hick:file path=`, and each `hick:volume output=` directory, which becomes
 /// a `dir/**` pattern because a volume's contents are named by the program
@@ -543,7 +543,7 @@ pub fn run(
 
     // A clean line merge can still produce a document that does not parse —
     // two sides adding different elements around one another is the ordinary
-    // way. Reporting that as CLEAN would hand back a `.hick` file nothing can
+    // way. Reporting that as CLEAN would hand back a `.md` file nothing can
     // read, so it is reported as a conflict for a person to look at. This is
     // the one thing this driver does that git's fallback cannot.
     let merged = std::fs::read_to_string(ours)
@@ -582,11 +582,11 @@ mod generated_attribute_tests {
     #[test]
     fn the_block_is_rewritten_in_place_and_leaves_the_rest_alone() {
         let dir = tempfile::tempdir().unwrap();
-        let path = write(dir.path(), "*.hick merge=hick\n*.png binary\n");
+        let path = write(dir.path(), "*.md merge=hick\n*.png binary\n");
 
         assert!(ensure_generated_attributes(&path, &["out.md".to_string()]).unwrap());
         let first = std::fs::read_to_string(&path).unwrap();
-        assert!(first.starts_with("*.hick merge=hick\n*.png binary\n"));
+        assert!(first.starts_with("*.md merge=hick\n*.png binary\n"));
         assert!(first.contains(&format!("out.md {GENERATED_ATTRS}")));
 
         // Re-running with the same list is a no-op, so `hick init` stays
@@ -606,12 +606,12 @@ mod generated_attribute_tests {
     #[test]
     fn an_empty_list_removes_the_block_entirely() {
         let dir = tempfile::tempdir().unwrap();
-        let path = write(dir.path(), "*.hick merge=hick\n");
+        let path = write(dir.path(), "*.md merge=hick\n");
         ensure_generated_attributes(&path, &["out.md".to_string()]).unwrap();
         assert!(ensure_generated_attributes(&path, &[]).unwrap());
         let body = std::fs::read_to_string(&path).unwrap();
         assert!(!body.contains(GENERATED_BEGIN));
-        assert_eq!(body.trim(), "*.hick merge=hick");
+        assert_eq!(body.trim(), "*.md merge=hick");
     }
 
     #[test]
@@ -658,7 +658,7 @@ mod driver_definition_tests {
             "a.md".into(),
         ]);
         assert_eq!(generated.unwrap().unwrap(), 0);
-        let missing = run_argv(&["merge-driver".to_string(), "--path".into(), "a.hick".into()]);
+        let missing = run_argv(&["merge-driver".to_string(), "--path".into(), "a.md".into()]);
         assert!(
             missing
                 .unwrap()

@@ -117,7 +117,7 @@ describe("a picture block", () => {
 
 // A cell that owns ingested files must not hide them.
 //
-// Found by dogfooding: scaffolding.hick's whole subject is the `Program.cs`
+// Found by dogfooding: scaffolding.md's whole subject is the `Program.cs`
 // that `dotnet new` wrote, sitting inside the cell as ordinary editable
 // bytes — and the app showed a command, a transcript, and no files at all.
 const INGESTING = [

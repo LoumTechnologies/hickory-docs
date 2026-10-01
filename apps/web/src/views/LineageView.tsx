@@ -205,7 +205,7 @@ export function LineageView({ projectId }: { projectId: string }) {
               ? "No documents in this project yet."
               : "No document in this project existed at that commit."}
           </p>
-          <p className="muted">A stage is a `.hick` document plus the files it generates.</p>
+          <p className="muted">A stage is a `.md` document plus the files it generates.</p>
         </div>
       </div>
     );

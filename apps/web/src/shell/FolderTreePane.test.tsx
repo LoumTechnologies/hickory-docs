@@ -37,7 +37,7 @@ const TREE: FileNode[] = [
       { name: "main.rs", path: "src/main.rs", dir: false },
     ],
   },
-  { name: "paper.hick", path: "paper.hick", dir: false, doc_id: "d1" },
+  { name: "paper.md", path: "paper.md", dir: false, doc_id: "d1" },
   { name: "readme.txt", path: "readme.txt", dir: false },
   { name: "logo.png", path: "logo.png", dir: false },
 ];
@@ -103,9 +103,9 @@ afterEach(cleanup);
 describe("rendering the folder", () => {
   // Guarantee: docs/guarantees/authoring/unsaved-work-survives-closing-the-app.md
   it("marks a file dirty from the buffer state supplied by the workspace", async () => {
-    render(<Harness dirtyPaths={new Set(["paper.hick"])} />);
-    await screen.findByText("paper.hick");
-    expect(document.querySelector('[data-tree-path="paper.hick"]')?.className).toContain("filesystem-editor__line--dirty");
+    render(<Harness dirtyPaths={new Set(["paper.md"])} />);
+    await screen.findByText("paper.md");
+    expect(document.querySelector('[data-tree-path="paper.md"]')?.className).toContain("filesystem-editor__line--dirty");
     expect(document.querySelector('[data-tree-path="readme.txt"]')?.className).not.toContain("filesystem-editor__line--dirty");
   });
   it("names the folder after its last path segment and offers a new document", async () => {
@@ -118,15 +118,15 @@ describe("rendering the folder", () => {
 
   it("renders the server's order untouched: dirs first, then files", async () => {
     render(<Harness />);
-    await screen.findByText("paper.hick");
+    await screen.findByText("paper.md");
     expect(filesEditor().state.doc.toString()).toBe(
-      "src/\n  gen/\n    orders.py\n  main.rs\npaper.hick\nreadme.txt\nlogo.png",
+      "src/\n  gen/\n    orders.py\n  main.rs\npaper.md\nreadme.txt\nlogo.png",
     );
   });
 
   it("represents hierarchy as editable, significant whitespace", async () => {
     render(<Harness />);
-    await screen.findByText("paper.hick");
+    await screen.findByText("paper.md");
     expect(filesEditor().state.doc.line(1).text).toBe("src/");
     expect(filesEditor().state.doc.line(2).text).toBe("  gen/");
     expect(filesEditor().state.doc.line(3).text).toBe("    orders.py");
@@ -137,8 +137,8 @@ describe("rendering the folder", () => {
     // visible as a buffer line (and not open as a tab) terminates ON that line,
     // found by data-tree-path.
     render(<Harness openable={new Set(["src/main.rs"])} />);
-    await screen.findByText("paper.hick");
-    expect(document.querySelector('[data-tree-path="paper.hick"]')?.getAttribute("data-tree-kind")).toBe("doc");
+    await screen.findByText("paper.md");
+    expect(document.querySelector('[data-tree-path="paper.md"]')?.getAttribute("data-tree-kind")).toBe("doc");
     expect(document.querySelector('[data-tree-path="readme.txt"]')?.getAttribute("data-tree-kind")).toBe("file");
     expect(document.querySelector('[data-tree-path="logo.png"]')?.getAttribute("data-tree-kind")).toBe("inert");
     expect(document.querySelector('[data-tree-path="src/main.rs"]')?.getAttribute("data-tree-kind")).toBe("generated");
@@ -155,14 +155,14 @@ describe("rendering the folder", () => {
 describe("editor-grade tree navigation", () => {
   it("moves point into the tree when the shell asks to focus Files", async () => {
     const view = render(<Harness />);
-    await screen.findByText("paper.hick");
+    await screen.findByText("paper.md");
     view.rerender(<Harness focusRequest={1} />);
     await vi.waitFor(() => expect(document.activeElement).toBe(filesEditor().contentDOM));
   });
 
   it("uses ordinary editor arrows, Home, and Shift-selection", async () => {
     render(<Harness />);
-    await screen.findByText("paper.hick");
+    await screen.findByText("paper.md");
     const editor = filesEditor();
     editor.focus();
     editor.dispatch({ selection: { anchor: 0 } });
@@ -341,9 +341,9 @@ describe("what clicking a file does", () => {
   it("opens text entries on double-click while a single click only places the caret", async () => {
     const onOpen = vi.fn();
     render(<Harness onOpen={onOpen} openable={new Set(["src/main.rs"])} />);
-    fireEvent.click(await screen.findByText("paper.hick"));
+    fireEvent.click(await screen.findByText("paper.md"));
     expect(onOpen).not.toHaveBeenCalled();
-    fireEvent.doubleClick(screen.getByText("paper.hick"));
+    fireEvent.doubleClick(screen.getByText("paper.md"));
     expect(onOpen).toHaveBeenLastCalledWith({ kind: "doc", id: "d1" });
     fireEvent.doubleClick(screen.getByText("main.rs"));
     expect(onOpen).toHaveBeenLastCalledWith({ kind: "generated", path: "src/main.rs" });
@@ -471,7 +471,7 @@ describe("directoryPaths", () => {
   it("collects directories, root-relative, and no files", () => {
     const paths = directoryPaths(TREE);
     expect(paths.has("src")).toBe(true);
-    expect([...paths].every((p) => !p.endsWith(".hick") && !p.startsWith("/"))).toBe(true);
+    expect([...paths].every((p) => !p.endsWith(".md") && !p.startsWith("/"))).toBe(true);
   });
 });
 
@@ -591,7 +591,7 @@ describe("ingest from the tree", () => {
       if (method === "GET" && path === "/api/files") return RESPONSE;
       if (method === "POST" && path === "/api/adopt") {
         adopted.push(body);
-        return { doc_id: "d9", doc_path: "readme.hick", file_path: "readme.txt" };
+        return { doc_id: "d9", doc_path: "readme.md", file_path: "readme.txt" };
       }
       throw new Error(`unexpected ${method} ${path}`);
     });

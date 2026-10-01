@@ -14,7 +14,7 @@
 //! the change where it will survive — which is also the change that fixes
 //! every other copy of it. See `declared_outputs` in `api.rs`.
 //!
-//! A **`.hick` document** is fair game: it is source, and a rename inside one
+//! A **`.md` document** is fair game: it is source, and a rename inside one
 //! is exactly the edit somebody means.
 
 use std::collections::HashMap;

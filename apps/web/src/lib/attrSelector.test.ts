@@ -17,8 +17,8 @@ describe("an attribute-selector value", () => {
   it("leaves alone everything an identifier escape would mangle", () => {
     // The spaces, dots and colons a path really carries stay literal — this
     // is a quoted string, not an identifier.
-    expect(attrValue("my notes/2026-09-02 sync.hick")).toBe(
-      '"my notes/2026-09-02 sync.hick"',
+    expect(attrValue("my notes/2026-09-02 sync.md")).toBe(
+      '"my notes/2026-09-02 sync.md"',
     );
   });
 

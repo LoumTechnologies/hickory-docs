@@ -12,7 +12,7 @@ const answer = (over: Partial<{ repository: boolean; attributes: boolean; config
       attributes: true,
       configured: false,
       summary:
-        "`.gitattributes` routes `*.hick` at the `hick` merge driver, but this clone has not defined it — so git is SILENTLY falling back to its line merge. Next step: run `hick init` in this repository.",
+        "`.gitattributes` routes `*.md` at the `hick` merge driver, but this clone has not defined it — so git is SILENTLY falling back to its line merge. Next step: run `hick init` in this repository.",
       ...over,
     },
     ok: false,

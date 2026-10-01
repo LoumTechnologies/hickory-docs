@@ -1,7 +1,7 @@
 //! Session → pipeline promotion.
 //!
 //! Reads an agent session file and extracts a clean, minimal pipeline
-//! containing only the surviving side effects.  The result is a `.hick`
+//! containing only the surviving side effects.  The result is a `.md`
 //! pipeline document that produces identical output to replaying the session.
 //!
 //! # Algorithm
@@ -14,7 +14,7 @@
 //! 5. For each surviving write:
 //!    - Pipeline-owned path → `hick:copy target="slot"` element.
 //!    - New path → `hick:file path="…"` element with final content.
-//! 6. Emit a valid `.hick` pipeline document.
+//! 6. Emit a valid `.md` pipeline document.
 
 use std::collections::HashMap;
 use std::path::Path;
@@ -30,15 +30,15 @@ use hick_lang::{HickTag, SessionNode, parse_session};
 pub struct PromoteOpts<'a> {
     /// Source text of the session file to promote.
     pub session_source: &'a str,
-    /// Project root directory (used to locate `.hick` sources and read files).
+    /// Project root directory (used to locate `.md` sources and read files).
     pub project_dir: &'a Path,
-    /// Display name of the session file (e.g. `agent-20260515-143022.hick`).
+    /// Display name of the session file (e.g. `agent-20260515-143022.md`).
     pub session_name: &'a str,
 }
 
 /// Result of a promotion run.
 pub struct PromoteResult {
-    /// The promoted `.hick` pipeline document source.
+    /// The promoted `.md` pipeline document source.
     pub promoted_source: String,
     /// Total write operations detected across all action blocks.
     pub total_writes: usize,
@@ -405,11 +405,11 @@ struct PipelineFile {
     paste_slots: Vec<String>,
 }
 
-/// Scan project `.hick` files and return a map of output_path → [`PipelineFile`].
+/// Scan project `.md` files and return a map of output_path → [`PipelineFile`].
 fn scan_pipeline_owned(project_dir: &Path) -> HashMap<String, PipelineFile> {
     let mut owned: HashMap<String, PipelineFile> = HashMap::new();
 
-    // Look for *.hick files in the project root and common subdirectories.
+    // Look for *.md files in the project root and common subdirectories.
     let search_paths = [project_dir.to_path_buf(), project_dir.join("src")];
 
     for base in &search_paths {
@@ -418,7 +418,10 @@ fn scan_pipeline_owned(project_dir: &Path) -> HashMap<String, PipelineFile> {
         };
         for entry in entries.filter_map(|e| e.ok()) {
             let path = entry.path();
-            if path.extension().and_then(|e| e.to_str()) != Some("hick") {
+            if !matches!(
+                path.extension().and_then(|e| e.to_str()),
+                Some("md" | "hick")
+            ) {
                 continue;
             }
             let Ok(content) = std::fs::read_to_string(&path) else {

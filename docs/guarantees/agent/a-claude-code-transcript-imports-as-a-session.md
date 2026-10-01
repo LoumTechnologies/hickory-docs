@@ -2,7 +2,7 @@
 
 Given a Claude Code transcript (`~/.claude/projects/<project>/<session>.jsonl`),
 when `hick ingest --from claude-code <file>` runs, then a `hick:session` document is
-written to `sessions/<date>-<title>.hick` that the product reads back as the
+written to `sessions/<date>-<title>.md` that the product reads back as the
 conversation it was: every prompt a turn with its `parent=` (the tree
 survives), every reply's prose, reasoning, and tool calls with their full
 input, every tool result, every token count — and what the harness put in
@@ -89,3 +89,7 @@ Last LLM verification:
   refusal of a foreign file. `hick_lang` tests cover verbatim capture.
 - Caveat: the real-transcript run above is evidence of this date, not a
   test; the fixture is the test. Subagent files are not covered.
+
+
+Verified 2026-10-01 (Markdown document extension): `Converted::file_name` now returns `<date>-<title>.md`, checked by
+`claude_code::tests`. The CLI unit suite passes, including import read-back.

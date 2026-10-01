@@ -176,7 +176,7 @@ fn commits_touching(root: &Path, path: &str) -> Vec<String> {
         .collect()
 }
 
-/// Build a plan for every `.hick` document under `dir`, weaving each to learn
+/// Build a plan for every `.md` document under `dir`, weaving each to learn
 /// what it generates.
 pub async fn plan_for(dir: &Path) -> Result<EmissionPlan> {
     let root = crate::replay::git_root(dir).unwrap_or_else(|| dir.to_path_buf());

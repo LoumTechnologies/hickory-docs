@@ -1,6 +1,6 @@
-# `.hick` Documents Merge Through Hick, And A Clone That Cannot Is Told
+# `.md` Documents Merge Through Hick, And A Clone That Cannot Is Told
 
-Given a repository set up with `hick init`, when git merges a `.hick`
+Given a repository set up with `hick init`, when git merges a `.md`
 document, then it runs hick's merge driver rather than its own line merge —
 and when a clone has the routing but not the driver definition, then that is
 reported at project open and by `hick test`, because git otherwise falls back
@@ -8,7 +8,7 @@ silently.
 
 Two halves, and only one of them can be committed:
 
-- **The routing** — `*.hick merge=hick` in `.gitattributes` — is a file in the
+- **The routing** — `*.md merge=hick` in `.gitattributes` — is a file in the
   repository and reaches every clone.
 - **The definition** — `merge.hick.driver` in `.git/config` — cannot be, because
   it is an executable command and git will not let a repository hand a clone
@@ -28,7 +28,7 @@ Corollaries that are part of the guarantee:
   are a contract CI scripts branch on, and CI never merges — so a missing
   driver is reported and nothing more.
 - **The status is read from git, not from a file.** `git check-attr merge --
-  a.hick` answers what git would actually do, which `.gitattributes` alone
+  a.md` answers what git would actually do, which `.gitattributes` alone
   cannot: attributes come from several files and from `info/attributes`.
 - **A folder that is not a repository has no merges to route**, and says so
   rather than warning.
@@ -37,7 +37,7 @@ Corollaries that are part of the guarantee:
 - **`hick init` is idempotent** in both halves.
 - **A clean line merge that produces an unreadable document is reported as a
   conflict.** Two sides can each be correct and still not compose; handing
-  back a `.hick` file nothing can parse as "clean" is worse than saying so.
+  back a `.md` file nothing can parse as "clean" is worse than saying so.
   This is the one thing the driver does today that git's fallback cannot.
 
 What this does NOT claim: the driver's merge is a three-way merge of the
@@ -45,7 +45,7 @@ document text, invoked deliberately rather than fallen into. It is not yet
 document-aware, and it records no correspondence. The merge tab and the
 recorded correspondence are steps 2–3 of
 `docs/specs/freeform/provenance-across-versions.md` and are not built. The
-value delivered here is that every `.hick` merge goes through one path that is
+value delivered here is that every `.md` merge goes through one path that is
 ours, that an unreadable result is refused, and that a repository can answer
 whether any of it is wired up.
 
@@ -79,3 +79,10 @@ Last LLM verification:
   of the running binary into `.git/config`. That is right for a merge git
   starts, and it goes stale if the binary moves — a reinstall to a different
   location wants `hick init` run again. Nothing detects that today.
+
+
+Verified 2026-10-01 (Markdown document extension): The installed routing and status probe now use `*.md` and `a.md`.
+The twelve tests in `tests/replay_and_floor.rs` pass, including installation,
+idempotency, missing-driver reporting, and a real document merge. Generated
+agent guidance describes tag names without live example tags, so a second
+`hick init` does not mistake its own instructions for output declarations.

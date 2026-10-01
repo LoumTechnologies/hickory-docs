@@ -8,24 +8,24 @@ function hit(path: string, startLine = 1, endLine = 1): SearchHit {
 
 describe("where a search hit navigates", () => {
   const context = {
-    currentDocPath: "docs/stats.hick",
+    currentDocPath: "docs/stats.md",
     docs: [
-      { id: "doc-1", path: "docs/stats.hick" },
-      { id: "doc-2", path: "docs/other.hick" },
+      { id: "doc-1", path: "docs/stats.md" },
+      { id: "doc-2", path: "docs/other.md" },
     ],
     outputs: [{ path: "out/stats.py", content: "import sys\n\nprint(1)\n" }],
   };
 
   it("scrolls the current document rather than reloading it", () => {
     // The current doc is also in the folder listing; the line wins.
-    expect(resolveSearchHit(hit("docs/stats.hick", 7, 9), context)).toEqual({
+    expect(resolveSearchHit(hit("docs/stats.md", 7, 9), context)).toEqual({
       kind: "current-doc",
       line: 6,
     });
   });
 
   it("routes to another document by its id", () => {
-    expect(resolveSearchHit(hit("docs/other.hick", 3, 3), context)).toEqual({
+    expect(resolveSearchHit(hit("docs/other.md", 3, 3), context)).toEqual({
       kind: "doc",
       id: "doc-2",
     });
@@ -34,8 +34,8 @@ describe("where a search hit navigates", () => {
   it("matches a server-relative path against the listed one", () => {
     // The search index answers relative to the served folder; the app may
     // know the same file under an absolute path. samePath bridges the two.
-    const absolute = { ...context, currentDocPath: "/home/me/project/docs/stats.hick" };
-    expect(resolveSearchHit(hit("docs/stats.hick", 2, 2), absolute)).toEqual({
+    const absolute = { ...context, currentDocPath: "/home/me/project/docs/stats.md" };
+    expect(resolveSearchHit(hit("docs/stats.md", 2, 2), absolute)).toEqual({
       kind: "current-doc",
       line: 1,
     });

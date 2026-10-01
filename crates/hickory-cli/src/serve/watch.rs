@@ -182,8 +182,8 @@ async fn run_loop(
             }
         }
 
-        // A `.hick` file the index has never seen is a document created by
-        // something other than the app — `touch notes.hick`, a git checkout,
+        // A `.md` file the index has never seen is a document created by
+        // something other than the app — `touch notes.md`, a git checkout,
         // an agent. Register it so the app can list and open it without a
         // restart; the weave below is `handle_batch`'s job.
         for path in &batch {

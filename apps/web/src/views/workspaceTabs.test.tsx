@@ -34,7 +34,7 @@ afterEach(cleanup);
 
 const doc: Doc = {
   id: "d1",
-  path: "notes/demo.hick",
+  path: "notes/demo.md",
   source: "<hick:doc></hick:doc>",
 } as Doc;
 
@@ -73,7 +73,7 @@ describe("the document tab's toolbar", () => {
 
   it("offers Run and Test, and nothing a traditional IDE would misread", () => {
     const { getByRole, queryByRole } = mount(makeSession());
-    const toolbar = getByRole("toolbar", { name: "Actions for notes/demo.hick" });
+    const toolbar = getByRole("toolbar", { name: "Actions for notes/demo.md" });
     expect(toolbar.className).toBe("doc-tab-toolbar");
     expect(getByRole("button", { name: "Run" })).toBeTruthy();
     // `hick test` is the command; the button says the same word, so each one

@@ -1,6 +1,6 @@
 // A real language server for the home page, running in the browser.
 //
-// The claim the landing page makes about editing a `.hick` document — that
+// The claim the landing page makes about editing a `.md` document — that
 // the code inside it behaves like code, not like text in a box — is a claim
 // nobody believes from a screenshot. So the demo does it for real: this is
 // the actual TypeScript compiler's language service, answering hover,
@@ -249,7 +249,7 @@ export function createBrowserTsChannel(options: {
       contentChanges?: { text: string }[];
     };
     const id = "id" in message ? message.id : null;
-    const uri = params.textDocument?.uri ?? "hick:///demo.hick";
+    const uri = params.textDocument?.uri ?? "hick:///demo.md";
 
     if (!service) {
       // Requests are queued; a notification that changes the text is applied

@@ -122,7 +122,7 @@ pub use session::SessionEvent;
 /// Sink for structured agent session events.
 pub use session::SessionLog;
 pub use session::record_outcome;
-/// Conventional session file path: `sessions/<timestamp>-<slug>.hick`.
+/// Conventional session file path: `sessions/<timestamp>-<slug>.md`.
 pub use session::session_file_path;
 /// Single-writer edit session over one primary hick document.
 pub use tools::EditSession;

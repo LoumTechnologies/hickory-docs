@@ -34,7 +34,7 @@ function fileModel(path: string, text: string, kind: FileModel["kind"]): FileMod
 }
 
 function stageName(docPath: string): string {
-  return docPath.split("/").pop()!.replace(/\.hick$/, "").replace(/^\d{4}-\d{2}-\d{2}-/, "");
+  return docPath.split("/").pop()!.replace(/\.md$/, "").replace(/^\d{4}-\d{2}-\d{2}-/, "");
 }
 
 /**

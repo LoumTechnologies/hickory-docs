@@ -164,3 +164,41 @@ async fn a_markdown_document_found_by_the_tree_is_immediately_openable() {
     assert_eq!(doc["path"], "src/deep/inner.md");
     assert_eq!(doc["source"], DOC);
 }
+
+// Guarantees:
+// - docs/guarantees/authoring/adoption-is-byte-exact-or-refused.md
+// - docs/guarantees/authoring/a-file-is-ingested-from-the-tree.md
+#[tokio::test]
+async fn make_literate_creates_an_openable_markdown_document() {
+    let session = start().await;
+    let original = "print('hello')\n";
+    std::fs::write(session.root.join("analysis.py"), original).unwrap();
+    let response = reqwest::Client::new()
+        .post(format!("{}/api/adopt", session.base))
+        .json(&serde_json::json!({ "path": "analysis.py" }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), reqwest::StatusCode::OK);
+    let adopted: Value = response.json().await.unwrap();
+    assert_eq!(adopted["doc_path"], "analysis.md");
+    assert_eq!(adopted["output_path"], "analysis.py");
+    assert_eq!(adopted["created"], true);
+    assert!(session.root.join("analysis.md").exists());
+    assert!(!session.root.join("analysis.hick").exists());
+    assert_eq!(
+        std::fs::read_to_string(session.root.join("analysis.py")).unwrap(),
+        original
+    );
+
+    let id = adopted["doc_id"].as_str().unwrap();
+    let (status, doc) = get(&session, &format!("/api/docs/{id}")).await;
+    assert_eq!(status, 200);
+    assert_eq!(doc["path"], "analysis.md");
+    let (status, render) = get(&session, &format!("/api/docs/{id}/render")).await;
+    assert_eq!(status, 200, "the new document renders: {render}");
+    assert_eq!(
+        std::fs::read_to_string(session.root.join("analysis.py")).unwrap(),
+        original
+    );
+}

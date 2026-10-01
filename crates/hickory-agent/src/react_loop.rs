@@ -58,7 +58,7 @@ pub struct AgentConfig {
     pub prior_turns: Vec<PriorTurn>,
     /// The session file to APPEND this run to, when the run is one turn of a
     /// longer conversation (the dock). `None` — the CLI's default — writes a
-    /// fresh `<project_dir>/sessions/<timestamp>-<slug>.hick`. One file per
+    /// fresh `<project_dir>/sessions/<timestamp>-<slug>.md`. One file per
     /// conversation is what lets the file carry the turn tree, and lets a
     /// restarted app find the conversation again.
     pub session_path: Option<PathBuf>,
@@ -126,7 +126,7 @@ const MAX_CONSECUTIVE_INVALID: usize = 3;
 /// Run the script-first ReAct loop to completion.
 ///
 /// Streams [`AgentEvent`]s to `on_event` and writes the session to
-/// `<project_dir>/sessions/<timestamp>-<slug>.hick`. Returns the final
+/// `<project_dir>/sessions/<timestamp>-<slug>.md`. Returns the final
 /// answer and the session path.
 pub async fn run_agent(
     llm: &dyn LlmClient,
@@ -409,7 +409,7 @@ pub async fn run_agent(
                     None => crate::tools::ToolOutcome::refused(
                         &invocation.name,
                         "no primary document in this session — document tools need \
-                         `hick agent --doc <file.hick>`; use a script instead"
+                         `hick agent --doc <file.md>`; use a script instead"
                             .to_string(),
                     ),
                 };

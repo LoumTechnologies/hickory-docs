@@ -90,7 +90,7 @@ describe("the compiler, answering through the channel", () => {
       id: 1,
       method: "textDocument/hover",
       params: {
-        textDocument: { uri: "hick:///doc.hick" },
+        textDocument: { uri: "hick:///doc.md" },
         position: { line: DEFINITION_LINE, character: 18 },
       },
     });
@@ -108,7 +108,7 @@ describe("the compiler, answering through the channel", () => {
     channel.send({
       jsonrpc: "2.0",
       method: "textDocument/didOpen",
-      params: { textDocument: { uri: "hick:///doc.hick" } },
+      params: { textDocument: { uri: "hick:///doc.md" } },
     });
     const published = received.find(
       (message) => "method" in message && message.method === "textDocument/publishDiagnostics",
@@ -125,7 +125,7 @@ describe("the compiler, answering through the channel", () => {
     channel.send({
       jsonrpc: "2.0",
       method: "textDocument/didOpen",
-      params: { textDocument: { uri: "hick:///doc.hick" } },
+      params: { textDocument: { uri: "hick:///doc.md" } },
     });
     const published = received.find(
       (message) => "method" in message && message.method === "textDocument/publishDiagnostics",
@@ -143,7 +143,7 @@ describe("the compiler, answering through the channel", () => {
       jsonrpc: "2.0",
       id: 2,
       method: "textDocument/semanticTokens/full",
-      params: { textDocument: { uri: "hick:///doc.hick" } },
+      params: { textDocument: { uri: "hick:///doc.md" } },
     });
     const data = (replyTo(received, 2)?.result as { data: number[] }).data;
     expect(data.length).toBeGreaterThan(0);
@@ -165,7 +165,7 @@ describe("the compiler, answering through the channel", () => {
       jsonrpc: "2.0",
       id: 9,
       method: "textDocument/semanticTokens/full",
-      params: { textDocument: { uri: "hick:///doc.hick" } },
+      params: { textDocument: { uri: "hick:///doc.md" } },
     });
     const data = (replyTo(received, 9)?.result as { data: number[] }).data;
     // The first token's line delta is absolute, and every token must fall
@@ -200,7 +200,7 @@ describe("the compiler, answering through the channel", () => {
       jsonrpc: "2.0",
       id: 4,
       method: "textDocument/codeLens",
-      params: { textDocument: { uri: "hick:///doc.hick" } },
+      params: { textDocument: { uri: "hick:///doc.md" } },
     });
     expect(replyTo(received, 4)).toBeDefined();
     expect(replyTo(received, 4)?.result).toBeNull();

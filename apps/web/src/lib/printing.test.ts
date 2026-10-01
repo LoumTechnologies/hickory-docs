@@ -67,7 +67,7 @@ describe("printing a buffer", () => {
 
 describe("what the printout is called", () => {
   it("uses the file's own name", () => {
-    expect(printTitleFor("notes/2026/today.hick")).toBe("today.hick");
+    expect(printTitleFor("notes/2026/today.md")).toBe("today.md");
     expect(printTitleFor("README.md")).toBe("README.md");
   });
 

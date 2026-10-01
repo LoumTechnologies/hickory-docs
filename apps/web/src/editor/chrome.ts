@@ -2,7 +2,7 @@
 //
 // This exists because of a bug that was really a structural mistake. The
 // gutters, the cursor, the selection, and the find panel were styled by rules
-// scoped to `.document-editor` — so a `.hick` document had a dark gutter with
+// scoped to `.document-editor` — so a `.md` document had a dark gutter with
 // light numbers, and every OTHER editor (a `.py` file, a `.md` file, a woven
 // output) silently fell through to CodeMirror's built-in theme, which is
 // light. A white gutter with dark numbers, in a dark window.
@@ -24,7 +24,7 @@
 //
 // ## The two kinds
 //
-// A `.hick` document is prose first: proportional type, generous leading,
+// A `.md` document is prose first: proportional type, generous leading,
 // because most of what is in it is sentences. Everything else is code, and
 // it is drawn the way the SAME code looks when it is inside a document — the
 // sunken ground and the accent rule of a `hick:file` body (see `.cm-file-line`

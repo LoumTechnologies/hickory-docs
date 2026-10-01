@@ -462,7 +462,7 @@ function EditingSection() {
         the start of <code>XMLHttpRequest</code> stops at <code>Http</code>, then
         at <code>Request</code>. Shift extends the selection the same way. This
         is the motion you want in code and the wrong one in prose, and a{" "}
-        <code>.hick</code> document is both — so it is your choice rather than
+        <code>.md</code> document is both — so it is your choice rather than
         the file’s. On macOS the keys are Option+← and Option+→.
       </p>
     </section>

@@ -368,11 +368,7 @@ async fn parent_and_child_views_share_room_identity_and_reverse_edits() {
     let project = Project::new();
     let sub = project.dir.path().join("child");
     std::fs::create_dir(&sub).unwrap();
-    std::fs::write(
-        sub.join("child.hick"),
-        DOC.replace("note.md", "child.md"),
-    )
-    .unwrap();
+    std::fs::write(sub.join("child.hick"), DOC.replace("note.md", "child.md")).unwrap();
     let child = project.client(&sub, "child"); // Narrow view first is the harder case.
     let parent = project.client(project.dir.path(), "parent");
     let child_id = docs(&child).await[0]["id"].clone();

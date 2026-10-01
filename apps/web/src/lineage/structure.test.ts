@@ -19,7 +19,7 @@ def summarise(path):
 
 function model() {
   return buildModel([
-    { path: "notes.hick", source: DOC, outputs: weaveOutputs(DOC, "notes.hick") },
+    { path: "notes.md", source: DOC, outputs: weaveOutputs(DOC, "notes.md") },
   ]);
 }
 

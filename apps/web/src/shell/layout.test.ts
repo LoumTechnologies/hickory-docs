@@ -33,42 +33,42 @@ describe("freeform: one pane, tabs, splits", () => {
   });
 
   it("opens files as tabs in the focused pane, newest in front", () => {
-    const layout = openAll(freeform(), "a.hick", "b.hick");
+    const layout = openAll(freeform(), "a.md", "b.md");
     const pane = focused(layout)!;
-    expect(pane.tabs.map((t) => t.target)).toEqual(["a.hick", "b.hick"]);
-    expect(pane.tabs[pane.active].target).toBe("b.hick");
+    expect(pane.tabs.map((t) => t.target)).toEqual(["a.md", "b.md"]);
+    expect(pane.tabs[pane.active].target).toBe("b.md");
   });
 
   it("focuses an already-open file rather than opening it twice", () => {
     // Two tabs of one file is a state with no honest answer to "which one
     // does this edit belong to".
-    let layout = openAll(freeform(), "a.hick", "b.hick");
-    layout = open(layout, doc("a.hick"));
+    let layout = openAll(freeform(), "a.md", "b.md");
+    layout = open(layout, doc("a.md"));
     const pane = focused(layout)!;
     expect(pane.tabs).toHaveLength(2);
-    expect(pane.tabs[pane.active].target).toBe("a.hick");
+    expect(pane.tabs[pane.active].target).toBe("a.md");
   });
 
   it("finds the file in another pane instead of duplicating it there", () => {
-    let layout = openAll(freeform(), "a.hick");
+    let layout = openAll(freeform(), "a.md");
     const first = focused(layout)!.id;
     layout = split(layout, first, "row");
-    layout = open(layout, doc("b.hick"));
-    // `a.hick` lives in the other pane: opening it moves the focus there.
-    layout = open(layout, doc("a.hick"));
+    layout = open(layout, doc("b.md"));
+    // `a.md` lives in the other pane: opening it moves the focus there.
+    layout = open(layout, doc("a.md"));
     expect(layout.focus).toBe(first);
     expect(panes(layout.root).flatMap((p) => p.tabs).map((t) => t.target)).toEqual([
-      "a.hick",
-      "b.hick",
+      "a.md",
+      "b.md",
     ]);
   });
 
   it("splits into two panes and focuses the new one", () => {
-    const layout = split(openAll(freeform(), "a.hick"), freeform().focus, "row");
+    const layout = split(openAll(freeform(), "a.md"), freeform().focus, "row");
     // Splitting an unknown pane is a no-op rather than a crash.
     expect(panes(layout.root)).toHaveLength(1);
 
-    const start = openAll(freeform(), "a.hick");
+    const start = openAll(freeform(), "a.md");
     const after = split(start, start.focus, "column");
     expect(panes(after.root)).toHaveLength(2);
     expect(after.root.type).toBe("split");
@@ -77,7 +77,7 @@ describe("freeform: one pane, tabs, splits", () => {
   });
 
   it("keeps sizes summing to one, whatever it is handed", () => {
-    const start = openAll(freeform(), "a.hick");
+    const start = openAll(freeform(), "a.md");
     const after = split(start, start.focus, "row");
     const splitId = after.root.type === "split" ? after.root.id : "";
     const sized = resize(after, splitId, [3, 1]);
@@ -90,20 +90,20 @@ describe("freeform: one pane, tabs, splits", () => {
 describe("closing", () => {
   it("keeps the selection where you were looking", () => {
     // Closing a tab BEFORE the active one must not drag the selection along.
-    let layout = openAll(freeform(), "a.hick", "b.hick", "c.hick");
+    let layout = openAll(freeform(), "a.md", "b.md", "c.md");
     const pane = focused(layout)!;
     layout = activate(layout, pane.id, 2);
     layout = closeTab(layout, pane.id, pane.tabs[0].id);
     const after = focused(layout)!;
-    expect(after.tabs.map((t) => t.target)).toEqual(["b.hick", "c.hick"]);
-    expect(after.tabs[after.active].target).toBe("c.hick");
+    expect(after.tabs.map((t) => t.target)).toEqual(["b.md", "c.md"]);
+    expect(after.tabs[after.active].target).toBe("c.md");
   });
 
   it("removes an emptied pane and gives the focus to what is left", () => {
-    let layout = openAll(freeform(), "a.hick");
+    let layout = openAll(freeform(), "a.md");
     const first = focused(layout)!.id;
     layout = split(layout, first, "row");
-    layout = open(layout, doc("b.hick"));
+    layout = open(layout, doc("b.md"));
     const second = layout.focus;
 
     layout = closeTab(layout, second, focused(layout)!.tabs[0].id);
@@ -115,7 +115,7 @@ describe("closing", () => {
 
   it("keeps the last pane even when it is empty", () => {
     // There has to be somewhere for the next file to go.
-    let layout = openAll(freeform(), "a.hick");
+    let layout = openAll(freeform(), "a.md");
     const pane = focused(layout)!;
     layout = closeTab(layout, pane.id, pane.tabs[0].id);
     expect(panes(layout.root)).toHaveLength(1);
@@ -123,7 +123,7 @@ describe("closing", () => {
   });
 
   it("ignores a close for a pane that is gone", () => {
-    const layout = openAll(freeform(), "a.hick");
+    const layout = openAll(freeform(), "a.md");
     expect(closeTab(layout, "pane-nope", "tab-nope")).toBe(layout);
   });
 });
@@ -134,13 +134,13 @@ describe("globs", () => {
     expect(matches("apps/web/**", "apps/desktop/src-tauri/main.rs")).toBe(false);
     expect(matches("crates/hick-*/**", "crates/hick-dap/src/session.rs")).toBe(true);
     expect(matches("crates/hick-*/**", "crates/hickory-cli/src/lib.rs")).toBe(false);
-    expect(matches("*.hick", "notes.hick")).toBe(true);
-    expect(matches("*.hick", "docs/notes.hick")).toBe(false);
-    expect(matches("**/*.hick", "docs/deep/notes.hick")).toBe(true);
+    expect(matches("*.md", "notes.md")).toBe(true);
+    expect(matches("*.md", "docs/notes.md")).toBe(false);
+    expect(matches("**/*.md", "docs/deep/notes.md")).toBe(true);
   });
 
   it("treats a dot as a dot, not as any character", () => {
-    expect(matches("a.hick", "axhick")).toBe(false);
+    expect(matches("a.md", "axhick")).toBe(false);
   });
 
   it("matches one character with ?", () => {
@@ -153,7 +153,7 @@ describe("declared layouts", () => {
   const REGIONS = [
     { name: "ui", match: ["apps/web/**"] },
     { name: "application", match: ["crates/hickory-*/**"] },
-    { name: "domain", match: ["crates/hick-*/**", "*.hick"] },
+    { name: "domain", match: ["crates/hick-*/**", "*.md"] },
   ];
 
   it("gives every region a pane, in the order declared", () => {
@@ -183,7 +183,7 @@ describe("declared layouts", () => {
     // Punishing a person for an incomplete declaration is the wrong trade.
     let layout = fromRegions(REGIONS);
     layout = focus(layout, panes(layout.root)[1].id);
-    expect(paneFor(layout, REGIONS, "README.md")).toBe(layout.focus);
+    expect(paneFor(layout, REGIONS, "LICENSE.txt")).toBe(layout.focus);
   });
 
   it("falls back to freeform when nothing is declared", () => {
@@ -212,10 +212,10 @@ function paneById(layout: Layout, id: string) {
 
 describe("collapse: a pane folds to a strip and unfolds intact", () => {
   it("round-trips: collapse then expand restores tabs, active, and sizes", () => {
-    let layout = openAll(freeform(), "a.hick", "b.hick");
+    let layout = openAll(freeform(), "a.md", "b.md");
     const first = layout.focus;
     layout = split(layout, first, "row");
-    layout = open(layout, doc("c.hick"));
+    layout = open(layout, doc("c.md"));
     const before = paneById(layout, first)!;
     const sizes = layout.root.type === "split" ? layout.root.sizes : [];
 
@@ -234,7 +234,7 @@ describe("collapse: a pane folds to a strip and unfolds intact", () => {
   });
 
   it("moves the focus off a collapsing pane, so keys aim at something visible", () => {
-    let layout = openAll(freeform(), "a.hick");
+    let layout = openAll(freeform(), "a.md");
     const first = layout.focus;
     layout = split(layout, first, "row");
     layout = focus(layout, first);
@@ -245,10 +245,10 @@ describe("collapse: a pane folds to a strip and unfolds intact", () => {
 
   it("refuses to collapse the last visible pane", () => {
     // A shell that is all strips has nothing left to show and no way back.
-    const layout = openAll(freeform(), "a.hick");
+    const layout = openAll(freeform(), "a.md");
     expect(collapsePane(layout, layout.focus)).toBe(layout);
 
-    let two = openAll(freeform(), "a.hick");
+    let two = openAll(freeform(), "a.md");
     const first = two.focus;
     two = split(two, first, "row");
     const second = two.focus;
@@ -257,7 +257,7 @@ describe("collapse: a pane folds to a strip and unfolds intact", () => {
   });
 
   it("expanding a pane that is not collapsed is a no-op", () => {
-    const layout = openAll(freeform(), "a.hick");
+    const layout = openAll(freeform(), "a.md");
     expect(expandPane(layout, layout.focus)).toBe(layout);
     expect(expandPane(layout, "no-such-pane")).toBe(layout);
   });
