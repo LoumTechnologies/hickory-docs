@@ -11,8 +11,21 @@ export function useAcp(doc: string, backend: string, session: string | undefined
   const [state, setState] = useState<AcpState | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [detecting, setDetecting] = useState(false);
+  const [catalogueError, setCatalogueError] = useState<string | null>(null);
   const version = useRef(0);
-  useEffect(() => { void acpApi.catalogue().then(r => setAgents(r.agents), () => undefined); }, []);
+  const refreshAgents = useCallback(async () => {
+    setDetecting(true); setCatalogueError(null);
+    try { setAgents((await acpApi.catalogue()).agents); }
+    catch { setCatalogueError("Could not check installed agents. Try Refresh agents again."); }
+    finally { setDetecting(false); }
+  }, []);
+  useEffect(() => {
+    void refreshAgents();
+    const focus = () => { void refreshAgents(); };
+    window.addEventListener("focus", focus);
+    return () => window.removeEventListener("focus", focus);
+  }, [refreshAgents]);
   const connect = useCallback(async () => {
     const stamp = ++version.current;
     setBusy(true); setError(null); setState(null);
@@ -33,17 +46,23 @@ export function useAcp(doc: string, backend: string, session: string | undefined
     return () => { live = false; clearInterval(timer); };
   }, [running, backend, doc]);
   const act = async (operation: () => Promise<AcpState>) => {
+    const stamp = ++version.current;
     setBusy(true); setError(null);
-    try { setState(await operation()); } catch (e) { setError(e instanceof Error ? e.message : String(e)); }
-    finally { setBusy(false); }
+    try { const next = await operation(); if (stamp === version.current) setState(next); }
+    catch (e) { if (stamp === version.current) setError(e instanceof Error ? e.message : String(e)); }
+    finally { if (stamp === version.current) setBusy(false); }
   };
   const install = async () => {
+    const stamp = ++version.current;
     setBusy(true); setError(null);
-    try { setAgents((await acpApi.install(backend)).agents); await connect(); }
-    catch (e) { setError(e instanceof Error ? e.message : String(e)); }
-    finally { setBusy(false); }
+    try {
+      setAgents((await acpApi.install(backend)).agents);
+      if (stamp === version.current) await connect();
+    }
+    catch (e) { if (stamp === version.current) setError(e instanceof Error ? e.message : String(e)); }
+    finally { if (stamp === version.current) setBusy(false); }
   };
-  return { agents, state, busy, error, connect, install, act, setState, setError };
+  return { agents, state, busy, error, connect, install, act, setState, setError, refreshAgents, detecting, catalogueError };
 }
 
 type Controls = ReturnType<typeof useAcp>;
@@ -67,6 +86,7 @@ export function AcpControls({ doc, backend, running, control }: { doc: string; b
     </div>
     {busy && <p className="muted" role="status">Connecting to {agent?.name ?? backend}… Sign-in may open in your browser.</p>}
     {(error || state?.error) && <p role="alert" className="chat-note error">{error || state?.error}</p>}
+    {!busy && agent?.available === false && <p className="muted">{agent.cli_available ? `${agent.name} CLI was found, but its ACP adapter is still needed. ` : ""}{agent.installable ? "Install the adapter above to connect." : "Install Node.js and npm to install a known adapter, or set its executable in Settings → Agents."}</p>}
     {!busy && !state?.ready && <p className="muted">Use your agent’s own account or API key. Agent commands follow that agent’s permissions and sandbox.</p>}
     {state?.commands?.length ? <details className="acp-commands"><summary>Agent commands</summary>
       {state.commands.map(c => <p key={c.name}><code>/{c.name}</code> — {c.description}</p>)}</details> : null}

@@ -120,6 +120,150 @@ async fn wait_file(path: &Path, expected: &str) {
     }
 }
 
+// Guarantee: docs/guarantees/agent/acp-agents-are-first-class.md
+#[tokio::test(flavor = "multi_thread")]
+async fn desktop_proxy_routes_acp_connection_configuration_and_turns() {
+    use futures::StreamExt;
+    let project = Project::new();
+    // Use the current Markdown document surface for this regression.
+    std::fs::remove_file(project.dir.path().join("note.hick")).unwrap();
+    std::fs::write(
+        project.dir.path().join("note.md"),
+        DOC.replace("weave=\"note.md\"", "weave=\"reading.md\""),
+    )
+    .unwrap();
+    let client = project.client(project.dir.path(), "ACP");
+    let listing = docs(&client).await;
+    assert!(
+        listing.is_array(),
+        "document listing through desktop proxy: {listing}"
+    );
+    let id = listing[0]["id"].as_str().unwrap().to_owned();
+    let peer = PathBuf::from(env!("CARGO_BIN_EXE_hick"))
+        .parent()
+        .unwrap()
+        .join("examples")
+        .join(format!("acp_fixture{}", std::env::consts::EXE_SUFFIX));
+    assert!(peer.is_file(), "build the ACP peer with just test-engine");
+    let http = reqwest::Client::new();
+    let response = http
+        .put(format!("{}/api/agents", client.url))
+        .json(&json!([{"id":"fixture","name":"ACP fixture","command":peer,"args":["--auth"]}]))
+        .send()
+        .await
+        .unwrap();
+    assert!(
+        response.status().is_success(),
+        "{}",
+        response.text().await.unwrap()
+    );
+    let base = format!("{}/api/docs/{id}/agent", client.url);
+    let response = http
+        .post(format!("{base}/acp"))
+        .json(&json!({"backend":"fixture"}))
+        .send()
+        .await
+        .unwrap();
+    assert!(
+        response.status().is_success(),
+        "{}",
+        response.text().await.unwrap()
+    );
+    let connected: Value = response.json().await.unwrap();
+    assert_eq!(connected["ready"], false, "{connected}");
+    let response = http
+        .post(format!("{base}/acp/authenticate"))
+        .json(&json!({"method_id":"login"}))
+        .send()
+        .await
+        .unwrap();
+    assert!(
+        response.status().is_success(),
+        "{}",
+        response.text().await.unwrap()
+    );
+    let authenticated: Value = response.json().await.unwrap();
+    assert_eq!(authenticated["ready"], true, "{authenticated}");
+    let response = http.get(format!("{base}/acp")).send().await.unwrap();
+    assert!(
+        response.status().is_success(),
+        "{}",
+        response.text().await.unwrap()
+    );
+    let response = http
+        .post(format!("{base}/acp/configure"))
+        .json(&json!({"config_id":"model","value":"other"}))
+        .send()
+        .await
+        .unwrap();
+    assert!(
+        response.status().is_success(),
+        "{}",
+        response.text().await.unwrap()
+    );
+    let (mut socket, _) = tokio_tungstenite::connect_async(format!(
+        "{}/api/ws?doc=doc:{id}",
+        client.url.replacen("http://", "ws://", 1)
+    ))
+    .await
+    .unwrap();
+    let response = http
+        .post(&base)
+        .json(&json!({"backend":"fixture","prompt":"hello"}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), 202, "{}", response.text().await.unwrap());
+    let sent: Value = response.json().await.unwrap();
+    let deadline = Instant::now() + Duration::from_secs(15);
+    loop {
+        let response = http.get(format!("{base}/turns")).send().await.unwrap();
+        assert!(
+            response.status().is_success(),
+            "{}",
+            response.text().await.unwrap()
+        );
+        let turns: Value = response.json().await.unwrap();
+        if let Some(turn) = turns["turns"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|t| t["id"] == sent["session_id"] && t["status"] != "running")
+        {
+            assert_eq!(turn["status"], "ok", "{turn}");
+            assert_eq!(turn["provider"], "acp:fixture");
+            break;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "ACP turn never finished: {turns}"
+        );
+        tokio::time::sleep(Duration::from_millis(25)).await;
+    }
+    tokio::time::timeout(Duration::from_secs(5), async {
+        let mut streamed = false;
+        while let Some(message) = socket.next().await {
+            if let tokio_tungstenite::tungstenite::Message::Binary(bytes) = message.unwrap()
+                && bytes.first() == Some(&0x01)
+            {
+                let event: Value = serde_json::from_slice(&bytes[1..]).unwrap();
+                if event["run_id"] != sent["session_id"] {
+                    continue;
+                }
+                streamed |= event["event"]["kind"] == "token";
+                if event["status"] == "ok" {
+                    assert!(streamed);
+                    return;
+                }
+            }
+        }
+        panic!("agent socket ended before the turn completed");
+    })
+    .await
+    .expect("agent turn never arrived through the desktop WebSocket");
+    socket.close(None).await.unwrap();
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn windows_share_one_engine_and_one_live_document() {
     let project = Project::new();
@@ -224,12 +368,17 @@ async fn parent_and_child_views_share_room_identity_and_reverse_edits() {
     let project = Project::new();
     let sub = project.dir.path().join("child");
     std::fs::create_dir(&sub).unwrap();
-    std::fs::write(sub.join("child.hick"), DOC.replace("note.md", "child.md")).unwrap();
+    std::fs::write(
+        sub.join("child.hick"),
+        DOC.replace("note.md", "child.md"),
+    )
+    .unwrap();
     let child = project.client(&sub, "child"); // Narrow view first is the harder case.
     let parent = project.client(project.dir.path(), "parent");
     let child_id = docs(&child).await[0]["id"].clone();
     assert!(
-        docs(&parent).await
+        docs(&parent)
+            .await
             .as_array()
             .unwrap()
             .iter()

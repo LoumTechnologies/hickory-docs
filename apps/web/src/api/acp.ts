@@ -1,6 +1,6 @@
 import { request } from "./client";
 
-export interface AgentCommand { id: string; name: string; command: string; args: string[]; workspace_filesystem?: boolean; available?: boolean; installable?: boolean }
+export interface AgentCommand { id: string; name: string; command: string; args: string[]; workspace_filesystem?: boolean; available?: boolean; installable?: boolean; cli_available?: boolean }
 export interface ConfigValue { value: string; name: string; description?: string }
 export interface ConfigOption {
   id: string; name: string; description?: string; category?: string; type: "select" | "boolean";

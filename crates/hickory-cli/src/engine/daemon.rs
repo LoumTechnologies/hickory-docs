@@ -105,8 +105,10 @@ async fn run() -> Result<()> {
         .route("/tool", post(tool))
         .layer(axum::extract::DefaultBodyLimit::max(64 * 1024 * 1024))
         .route("/clients/{id}/lease", post(lease).delete(detach))
-        .route("/clients/{id}/api", axum::routing::any(dispatch))
-        .route("/clients/{id}/api/{*path}", axum::routing::any(dispatch))
+        // Dispatch routes the stripped URI again. Named outer captures would
+        // survive in request extensions and be appended to every inner Path.
+        // A fallback adds no captures and preserves WebSocket upgrade state.
+        .fallback(dispatch)
         .layer(axum::middleware::from_fn_with_state(
             engine.clone(),
             authenticate,
@@ -329,13 +331,18 @@ async fn detach(State(engine): State<Arc<Engine>>, Path(id): Path<String>) -> St
 }
 
 async fn dispatch(State(engine): State<Arc<Engine>>, req: Request) -> Response {
-    let id = req
+    let Some((id, path)) = req
         .uri()
         .path()
-        .split('/')
-        .nth(2)
-        .unwrap_or_default()
-        .to_string();
+        .strip_prefix("/clients/")
+        .and_then(|path| path.split_once('/'))
+    else {
+        return StatusCode::NOT_FOUND.into_response();
+    };
+    if path != "api" && !path.starts_with("api/") {
+        return StatusCode::NOT_FOUND.into_response();
+    }
+    let id = id.to_owned();
     let (router, state) = {
         let mut clients = engine.clients.lock().await;
         let Some(client) = clients.get_mut(&id) else {

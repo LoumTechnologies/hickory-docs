@@ -91,7 +91,7 @@ pub fn validate(commands: &[AgentCommand]) -> Result<()> {
 pub fn executable(command: &str, directory: &Path) -> Option<PathBuf> {
     let direct = PathBuf::from(command);
     if direct.is_absolute() {
-        return direct.is_file().then_some(direct);
+        return is_executable(&direct).then_some(direct);
     }
     let mut paths: Vec<PathBuf> =
         std::env::split_paths(&std::env::var_os("PATH").unwrap_or_default()).collect();
@@ -128,7 +128,25 @@ pub fn executable(command: &str, directory: &Path) -> Option<PathBuf> {
                 vec![bare]
             }
         })
-        .find(|p| p.is_file())
+        .find(|p| is_executable(p))
+}
+
+fn is_executable(path: &Path) -> bool {
+    let Ok(metadata) = path.metadata() else {
+        return false;
+    };
+    if !metadata.is_file() {
+        return false;
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        metadata.permissions().mode() & 0o111 != 0
+    }
+    #[cfg(not(unix))]
+    {
+        true
+    }
 }
 
 pub fn process(agent: &AgentCommand, state: &LocalState) -> Result<tokio::process::Command> {
@@ -186,5 +204,36 @@ pub fn npm_process(npm: &Path, directory: &Path) -> Result<tokio::process::Comma
         Ok(cmd)
     } else {
         Ok(tokio::process::Command::new(npm))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // Guarantee: docs/guarantees/agent/acp-agents-are-first-class.md
+    #[test]
+    fn detects_a_managed_adapter_without_launching_it() {
+        let dir = tempfile::tempdir().unwrap();
+        let bin = dir.path().join("node_modules/.bin");
+        std::fs::create_dir_all(&bin).unwrap();
+        let adapter = bin.join("hickory-test-acp");
+        std::fs::write(&adapter, "not a running process").unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            assert!(executable("hickory-test-acp", dir.path()).is_none());
+            assert!(executable(adapter.to_str().unwrap(), dir.path()).is_none());
+            std::fs::set_permissions(&adapter, std::fs::Permissions::from_mode(0o755)).unwrap();
+        }
+        assert_eq!(
+            executable("hickory-test-acp", dir.path()),
+            Some(adapter.clone())
+        );
+        assert_eq!(
+            executable(adapter.to_str().unwrap(), dir.path()),
+            Some(adapter)
+        );
+        assert!(executable(bin.to_str().unwrap(), dir.path()).is_none());
     }
 }

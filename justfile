@@ -226,9 +226,10 @@ tokens-count *FILES:
 
 # ACP integration checks, including the process protocol and agent dock.
 test-acp:
-    cargo build -p hickory-cli --example acp_fixture
+    cargo build -p hickory-cli --bin hick --example acp_fixture --example engine_client
     cargo test -p hickory-cli --lib serve::acp:: -- --test-threads=1
     cargo test -p hickory-cli --test serve_acp --test serve_agent --test byo_agent_surface --test workspace_fs -- --test-threads=1
+    cargo test -p hickory-cli --test engine_lifecycle desktop_proxy_routes_acp -- --test-threads=1
     cd apps/web && npm run typecheck && npm test
 
 # Build the local CLI used by the ACP adapter smoke test.
@@ -276,7 +277,7 @@ test-binary-discovery:
 
 # Real-process ownership, reconnect and shared-window regression checks.
 test-engine:
-    cargo build -p hickory-cli --bin hick --example engine_client
+    cargo build -p hickory-cli --bin hick --example engine_client --example acp_fixture
     cargo test -p hickory-cli --test engine_lifecycle --test up_loop --test up_stress --test serve_local -- --test-threads=1
     cargo test -p hickory-collab -p hickory-workspace -- --test-threads=1
     cargo test --manifest-path apps/desktop/src-tauri/Cargo.toml --test serves_one_origin -- --test-threads=1

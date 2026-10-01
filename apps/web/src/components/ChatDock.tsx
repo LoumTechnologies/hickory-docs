@@ -14,6 +14,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api } from "../api/client";
 import { AcpControls, useAcp } from "./AcpControls";
+import { AgentPicker, preferredAgent, rememberAgent } from "./AgentPicker";
 import type {
   AgentTotals,
   AgentTurn,
@@ -317,7 +318,7 @@ export function ChatDock({
   // The model control. Provider is hydrated once from the server's resolved
   // default; the model input stays empty (placeholder = the provider's
   // default) unless the session already chose one explicitly.
-  const [backend, setBackend] = useState("builtin");
+  const [backend, setBackend] = useState(preferredAgent);
   const [sending, setSending] = useState(false);
   const sendingRef = useRef(false);
   const earlyEvents = useRef<RunWsMessage[]>([]);
@@ -341,13 +342,13 @@ export function ChatDock({
       api.agentTurns(docId).then(
         (r) => {
           setTurns(r.turns);
-          setTip((current) => current ?? newestTurn(r.turns)?.id ?? null);
           setTotals(r.totals);
           // Hydrate the controls once — later polls must not clobber a
           // choice being made in the select/input mid-conversation.
           if (!hydratedRef.current) {
             hydratedRef.current = true;
-            setBackend(r.backend ?? "builtin");
+            setTip(newestTurn(r.turns)?.id ?? null);
+            setBackend(r.turns.length ? r.backend ?? "builtin" : preferredAgent());
             setRunning(r.turns.find(t => t.status === "running")?.id ?? null);
             setProvider(r.provider);
             if (r.model !== defaultModelFor(r.provider)) setModel(r.model);
@@ -511,8 +512,8 @@ export function ChatDock({
           status: "running",
           error: null,
           created_at: new Date().toISOString(),
-          provider: provider || "anthropic",
-          model: model.trim() || defaultModelFor(provider) || "claude-sonnet-5",
+          provider: backend === "builtin" ? provider || "anthropic" : `acp:${backend}`,
+          model: backend === "builtin" ? model.trim() || defaultModelFor(provider) || "claude-sonnet-5" : "",
           usage: null,
           session: tip ? turns.find((t) => t.id === tip)?.session : undefined,
         },
@@ -584,13 +585,6 @@ export function ChatDock({
             Tree
           </button>
         )}
-        <label className="chat-model">Agent
-          <select aria-label="Agent" value={backend} disabled={running !== null || sending || acp.busy}
-            onChange={e => { setBackend(e.target.value); setTip(null); setUnavailable(false); setError(null); }}>
-            <option value="builtin">Hickory</option>
-            {acp.agents.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
-          </select>
-        </label>
         {backend === "builtin" && <span className="chat-model" role="group" aria-label="Model choice">
           <select
             aria-label="Provider"
@@ -618,6 +612,10 @@ export function ChatDock({
           />
         </span>}
       </header>
+      <AgentPicker backend={backend} agents={acp.agents} disabled={running !== null || sending} detecting={acp.detecting} error={acp.catalogueError}
+        onRefresh={() => void acp.refreshAgents()} onChange={next => {
+          rememberAgent(next); setBackend(next); setTip(null); setUnavailable(false); setError(null); setNote(null);
+        }} />
       <AcpControls doc={docId} backend={backend} running={running !== null} control={acp} />
 
       {!collapsed && (

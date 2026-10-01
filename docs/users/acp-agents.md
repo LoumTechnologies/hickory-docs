@@ -4,8 +4,20 @@ For engineers who already use Codex or Claude and want the same agent inside
 Hickory's document workspace.
 
 Open a document, then open **Agent** from the Welcome page. Choose **Codex**
-in the Agent selector. If its adapter is missing, click **Install Codex
+in the Agent selector. **Hickory (built-in)** is Hickory's own agent;
+**Installed ACP agents** lists adapters detected on this machine. If Codex's
+adapter is missing, choose **Codex — install adapter**, then click **Install Codex
 adapter**. Installation requires Node.js and npm on this machine.
+
+The Codex CLI and the Codex ACP adapter are separate executables. Having
+`codex` installed alone does not make it an ACP agent. **Refresh agents** checks
+again after an installation or a change in **Settings → Agents**; returning to
+the window also refreshes detection. Custom configured ACP commands appear in
+the same selector.
+
+Switching agents starts a new thread and keeps previous conversations in
+**Tree**. Your explicit choice is remembered in this browser for documents
+without a conversation; reopening a conversation uses the agent that ran it.
 
 An existing Codex login is reused. Otherwise choose **ChatGPT** to sign in
 through Codex's browser flow, then return to Hickory. Hickory does not need a

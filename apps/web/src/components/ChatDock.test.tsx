@@ -11,7 +11,7 @@ vi.mock("../api/client", () => ({
   api: { agent: vi.fn(), agentTurns: vi.fn(), agentStop: vi.fn() },
 }));
 
-vi.mock("../api/acp", () => ({ acpApi: { catalogue: vi.fn().mockResolvedValue({ agents: [] }) } }));
+vi.mock("../api/acp", () => ({ acpApi: { catalogue: vi.fn().mockResolvedValue({ agents: [] }), connect: vi.fn(), state: vi.fn() } }));
 
 import {
   ChatDock,
@@ -28,8 +28,48 @@ import {
   SLASH_HELP,
 } from "./ChatDock";
 import { api } from "../api/client";
+import { acpApi } from "../api/acp";
 import type { AgentTotals, AgentTurn, AgentTurnsResponse } from "../api/types";
 import type { Realtime } from "../api/realtime";
+
+afterEach(() => { localStorage.clear(); });
+
+// Protects docs/guarantees/agent/acp-agents-are-first-class.md.
+describe("switching agents", () => {
+  afterEach(() => { cleanup(); vi.mocked(acpApi.catalogue).mockResolvedValue({ agents: [] }); });
+  it("detects adapters, remembers a choice, and sends an ACP turn from a new thread", async () => {
+    const agents = [{ id: "codex", name: "Codex", command: "codex-acp", args: [], available: true },
+      { id: "claude", name: "Claude Agent", command: "claude-agent-acp", args: [], available: false, installable: true }];
+    vi.mocked(acpApi.catalogue).mockResolvedValue({ agents });
+    vi.mocked(acpApi.connect).mockResolvedValue({ backend: "codex", ready: true });
+    vi.mocked(acpApi.state).mockResolvedValue({ backend: "codex", ready: true });
+    vi.mocked(api.agentTurns).mockResolvedValue({ turns: [turn("old", null)], backend: "builtin", provider: "anthropic", model: "claude-sonnet-5", totals: { usd: 0, input: 0, output: 0, cache_read: 0, cache_write: 0 } });
+    vi.mocked(api.agent).mockResolvedValue({ session_id: "acp-turn" });
+    const realtime = { onRunEvent: () => () => undefined } as unknown as Realtime;
+    const props = { docId: "d1", realtime, onAgentFinished: () => undefined };
+    const view = render(<ChatDock {...props} />);
+    await screen.findByRole("option", { name: "Codex (ACP)" });
+    expect(screen.getByRole("option", { name: "Hickory (built-in)" })).toBeTruthy();
+    expect(screen.getByRole("option", { name: "Claude Agent — install adapter" })).toBeTruthy();
+    await screen.findByText("p:old");
+    fireEvent.change(screen.getByRole("combobox", { name: "Agent" }), { target: { value: "codex" } });
+    await waitFor(() => expect(acpApi.connect).toHaveBeenCalledWith("d1", "codex", undefined));
+    expect(localStorage.getItem("hickory.agent")).toBe("codex");
+    fireEvent.change(screen.getByPlaceholderText("Ask the agent…"), { target: { value: "Use Codex" } });
+    await waitFor(() => expect((screen.getByRole("button", { name: "Send" }) as HTMLButtonElement).disabled).toBe(false));
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+    await waitFor(() => expect(api.agent).toHaveBeenCalledWith("d1", "Use Codex", null, "anthropic", "", "codex"));
+    await screen.findByRole("button", { name: "Stop the agent" });
+    expect((screen.getByRole("combobox", { name: "Agent" }) as HTMLSelectElement).value).toBe("codex");
+    view.unmount();
+    vi.mocked(api.agentTurns).mockResolvedValue({ turns: [], backend: "builtin", provider: "anthropic", model: "claude-sonnet-5", totals: { usd: 0, input: 0, output: 0, cache_read: 0, cache_write: 0 } });
+    render(<ChatDock {...props} />);
+    await waitFor(() => expect((screen.getByRole("combobox", { name: "Agent" }) as HTMLSelectElement).value).toBe("codex"));
+    vi.mocked(acpApi.catalogue).mockResolvedValue({ agents: [...agents, { id: "custom", name: "My agent", command: "my-acp", args: [], available: true }] });
+    fireEvent.click(screen.getByRole("button", { name: "Refresh agents" }));
+    await screen.findByRole("option", { name: "My agent (ACP)" });
+  });
+});
 
 function turn(id: string, parent: string | null): AgentTurn {
   return {

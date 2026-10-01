@@ -40,7 +40,8 @@ pub async fn catalogue(State(state): State<LocalState>) -> ApiResult<Json<Value>
     let agents: Vec<Value> = config::commands(&state).map_err(error)?.into_iter().map(|agent| {
         let available = config::executable(&agent.command, &dir).is_some();
         let installable = matches!(agent.id.as_str(), "codex" | "claude") && config::executable("npm", &dir).is_some();
-        json!({"id":agent.id,"name":agent.name,"command":agent.command,"args":agent.args,"available":available,"installable":installable,"workspace_filesystem":agent.workspace_filesystem})
+        let cli_available = matches!(agent.id.as_str(), "codex" | "claude") && config::executable(&agent.id, &dir).is_some();
+        json!({"id":agent.id,"name":agent.name,"command":agent.command,"args":agent.args,"available":available,"installable":installable,"cli_available":cli_available,"workspace_filesystem":agent.workspace_filesystem})
     }).collect();
     Ok(Json(
         json!({"agents":agents,"workspace_filesystem":super::workspace_fs::availability()}),
