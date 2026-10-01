@@ -10,6 +10,11 @@ A failed build or staging copy leaves an existing installed app untouched.
 Re-running the recipe replaces the installed bundle. User documents and
 settings are not part of that replacement.
 
+After successful installation and registration, the recipe unregisters and
+removes the build-output `.app` from the checkout so macOS cannot discover
+that copy as a second launcher entry. A failed installation keeps the build
+copy available.
+
 The welcome pane becomes active after the workspace restores, with the
 restored tabs still available. Unchecking “Show this page when a folder opens”
 disables this startup behavior.
@@ -18,6 +23,10 @@ disables this startup behavior.
 
 Last LLM verification:
 
+- Cleanup review (2026-10-01, Codex): the build copy is unregistered and
+  removed only after replacement and registration of the installed app
+  succeed. `just --dry-run local-install` passed `bash -n`, and
+  `git diff --check` passed. The revised installation was not run.
 - Date: 2026-09-29
 - Reviewer: Codex
 - Result: verified on this Apple Silicon Mac.

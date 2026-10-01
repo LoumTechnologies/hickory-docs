@@ -192,6 +192,10 @@ local-install:
       exit 1
     fi
     /System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -f "$destination"
+    # Leave only the installed app for macOS to discover, after installation
+    # succeeds. Unregister the build copy while its bundle still exists.
+    /System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -u "$bundle"
+    rm -rf "$bundle"
     echo "Installed $destination. Launch Hickory Docs from Applications or Spotlight."
 
 # Run a hick document with the local executor.
