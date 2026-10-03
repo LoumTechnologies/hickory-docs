@@ -103,7 +103,7 @@ pub fn ui_settings_file(config_dir: &Path) -> PathBuf {
 pub fn last_opened(config_dir: &Path) -> Option<PathBuf> {
     let raw = std::fs::read_to_string(recent_file(config_dir)).ok()?;
     let path = PathBuf::from(raw.trim());
-    (path.is_dir()).then_some(path)
+    (path.is_dir() || path.is_file()).then_some(path)
 }
 
 /// Remember a folder as the one to reopen next launch.

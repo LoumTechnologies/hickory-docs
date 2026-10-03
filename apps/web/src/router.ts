@@ -9,7 +9,7 @@ export type Route =
   // File → New Window: a deliberate window with no folder or document open.
   | { name: "blank" }
   // A document that does not exist yet: an unsaved draft until Save names it.
-  | { name: "new"; introduction?: boolean }
+  | { name: "new"; introduction?: boolean; file?: string }
   // The whole pipeline at once, one column per stage. Project-scoped because
   // a chain crosses documents, and a doc-scoped route could only ever show
   // one link of it.
@@ -26,6 +26,7 @@ export function parseRoute(hash: string): Route {
   if ((m = path.match(/^\/projects\/([^/]+)\/lineage$/)))
     return { name: "lineage", id: decodeURIComponent(m[1]) };
   if ((m = path.match(/^\/docs\/([^/]+)$/))) return { name: "doc", id: m[1] };
+  if (path.startsWith("/file/")) return { name: "new", file: decodeURIComponent(path.slice(6)) };
   if (path === "/new") return { name: "new" };
   if (path === "/blank") return { name: "blank" };
   if (path === "/settings") return { name: "settings" };

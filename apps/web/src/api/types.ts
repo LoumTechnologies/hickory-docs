@@ -271,7 +271,8 @@ export interface FileNode {
 }
 
 export interface FilesResponse {
-  /** The open folder, as the server names it (absolute or display path). */
+  /** False for a single-file window; its parent is only an execution base. */
+  folder_open?: boolean;
   root: string;
   /** The open folder's absolute path on this machine, in the platform's own
    * spelling — what "copy absolute path" copies. Absent from older answers
@@ -284,7 +285,6 @@ export interface FilesResponse {
    * or the generic "file manager" — so a menu item can say the real name. */
   file_manager?: string;
   tree: FileNode[];
-  /** Set when the walk stopped early (a huge folder); the tree is a prefix. */
   truncated?: boolean;
 }
 

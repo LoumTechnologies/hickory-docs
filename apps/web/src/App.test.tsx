@@ -62,3 +62,33 @@ describe("the startup workspace", () => {
     await waitFor(() => expect(editor(container).state.doc.toString()).toBe(""));
   });
 });
+
+
+describe("windows without an open folder", () => {
+  it("keeps Files closed while editing and saving still work", async () => {
+    vi.spyOn(api, "files").mockResolvedValue({ folder_open: false, root: "parent", tree: [] });
+    const save = vi.spyOn(api, "saveFileDialog").mockResolvedValue({ path: null });
+    const { container, queryByRole } = render(<App />);
+    await waitFor(() => expect(editor(container).state.doc.toString()).toBe(STARTUP_INTRODUCTION));
+    fireEvent(window, new CustomEvent("hickory-menu", { detail: "files" }));
+    await waitFor(() => expect(queryByRole("status")?.textContent).toContain("Open a folder"));
+    expect(container.querySelector(".folder-tree")).toBeNull();
+    expect(container.querySelectorAll('[role="tab"]').length).toBe(1);
+    fireEvent(window, new CustomEvent("hickory-menu", { detail: "save" }));
+    await waitFor(() => expect(save).toHaveBeenCalled());
+    expect(editor(container).state.doc.toString()).toBe(STARTUP_INTRODUCTION);
+  });
+
+  it("explains unavailable tools in a blank window without calling their APIs", async () => {
+    window.history.replaceState(null, "", "/#/blank");
+    const settings = vi.spyOn(api, "settingsKeys");
+    const { getByRole, queryByRole } = render(<App />);
+    for (const action of ["files", "show-agent", "terminal", "settings", "new", "new-project"]) {
+      fireEvent(window, new CustomEvent("hickory-menu", { detail: action }));
+      await waitFor(() => expect(getByRole("status").textContent).toContain("Open a"));
+    }
+    expect(queryByRole("tab")).toBeNull();
+    expect(settings).not.toHaveBeenCalled();
+    expect(window.location.hash).toBe("#/blank");
+  });
+});

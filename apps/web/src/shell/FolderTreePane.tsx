@@ -159,14 +159,17 @@ export const FILES_CHANGED_EVENT = "hickory:files-changed";
  * window regains focus (the cheap way to notice out-of-app edits) and when
  * anything dispatches FILES_CHANGED_EVENT (runs, saves).
  */
-export function useFolderTrees(): { roots: FolderTree[]; error: string | null } {
+export function useFolderTrees(): { roots: FolderTree[]; error: string | null; folderOpen: boolean | null } {
   const [roots, setRoots] = useState<FolderTree[]>([]);
+  const [folderOpen, setFolderOpen] = useState<boolean | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(() => {
     api.files().then(
       (response) => {
-        setRoots([response]);
+        const open = response.folder_open !== false;
+        setFolderOpen(open);
+        setRoots(open ? [response] : []);
         setError(null);
       },
       (e) => setError(e instanceof Error ? e.message : String(e)),
@@ -183,7 +186,7 @@ export function useFolderTrees(): { roots: FolderTree[]; error: string | null } 
     };
   }, [load]);
 
-  return { roots, error };
+  return { roots, error, folderOpen };
 }
 
 // ---------------------------------------------------------------------------

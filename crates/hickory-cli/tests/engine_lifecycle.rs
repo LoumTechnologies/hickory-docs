@@ -514,3 +514,20 @@ async fn symlink_aliases_attach_to_the_same_workspace() {
     let b = project.client(&alias, "B");
     assert_eq!(docs(&a).await, docs(&b).await);
 }
+
+#[tokio::test]
+async fn file_and_folder_windows_keep_independent_files_visibility() {
+    let project = Project::new();
+    std::fs::remove_file(project.dir.path().join("note.hick")).unwrap();
+    let path = project.dir.path().join("note.md");
+    std::fs::write(&path, "# A note\n").unwrap();
+    let folder = project.client(project.dir.path(), "folder-view");
+    let file = project.client(&path, "file-view");
+    let another_folder = project.client(project.dir.path(), "another-folder-view");
+    for (client, expected) in [(&folder, true), (&file, false), (&another_folder, true)] {
+        let response: Value = reqwest::get(format!("{}/api/files", client.url))
+            .await.unwrap().json().await.unwrap();
+        assert_eq!(response["folder_open"], expected);
+    }
+    assert_eq!(docs(&folder).await, docs(&file).await);
+}

@@ -512,9 +512,7 @@ const FILE_TREE_CAP: usize = 10_000;
 
 /// `GET /api/files` — the served root's file tree, for the folder pane.
 ///
-/// Names only, never contents. Gitignore-aware, and skips what the search
-/// index skips (hidden files, `.hick-cache`, `node_modules`), so the tree and
-/// search agree on which files exist.
+/// Names only, gitignore-aware; excludes the same hidden and cached files as search.
 pub async fn files(State(state): State<LocalState>) -> ApiResult<Json<Value>> {
     let root_name = state
         .index
@@ -536,6 +534,7 @@ pub async fn files(State(state): State<LocalState>) -> ApiResult<Json<Value>> {
         }
     }
     Ok(Json(json!({
+        "folder_open": state.folder_open,
         "root": root_name,
         // The absolute path, the separator that joins it to a node's path,
         // and what this desktop calls its file manager: everything the tree's

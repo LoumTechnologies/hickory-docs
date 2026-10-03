@@ -302,6 +302,8 @@ async fn attach(
         .register(state.clone(), opts.clone())
         .await
         .map_err(error)?;
+    // This is a window property, even when file and folder views share an engine.
+    state.folder_open = opts.target.is_dir();
     let router = serve::router(state.clone());
     engine.clients.lock().await.insert(
         opts.client,

@@ -119,9 +119,17 @@ export function App() {
           setNewProject(true);
           return;
         case "files":
+          if (routeRef.current.name === "blank") {
+            setNotice("Open a folder to show Files.");
+            return;
+          }
           window.dispatchEvent(new CustomEvent("hickory-show-files"));
           break;
         case "show-agent":
+          if (routeRef.current.name === "blank") {
+            setNotice("Open a file or folder to use the agent.");
+            return;
+          }
           window.dispatchEvent(new CustomEvent("hickory-show-agent"));
           break;
         case "terminal":
@@ -132,9 +140,15 @@ export function App() {
             window.dispatchEvent(
               new CustomEvent("hickory-terminal-command", { detail: action }),
             );
+          } else if (routeRef.current.name === "blank") {
+            setNotice("Open a file or folder to use a terminal.");
           }
           return;
         case "settings":
+          if (routeRef.current.name === "blank") {
+            setNotice("Open a file or folder to use Settings.");
+            return;
+          }
           navigate("/settings");
           return;
         case "save":

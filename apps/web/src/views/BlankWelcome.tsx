@@ -17,10 +17,6 @@ export function BlankWelcome() {
               <strong>File → Open File…</strong> to open one document.
             </p>
           </section>
-          <section className="welcome__col" aria-label="Files">
-            <h2 className="welcome__h2">Files</h2>
-            <p className="muted welcome__empty">No folder is open.</p>
-          </section>
         </div>
       </div>
     </section>

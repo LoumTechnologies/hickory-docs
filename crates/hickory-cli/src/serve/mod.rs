@@ -117,6 +117,8 @@ pub struct RunRecord {
 /// Everything a request handler needs.
 #[derive(Clone)]
 pub struct LocalState {
+    /// Whether this view explicitly opened a folder, rather than one file.
+    pub folder_open: bool,
     pub index: Arc<DocIndex>,
     pub rooms: Arc<RoomRegistry>,
     pub runs: Arc<Mutex<HashMap<String, RunRecord>>>,
@@ -778,6 +780,7 @@ pub async fn prepare(opts: ServeOptions) -> Result<Prepared> {
 
     let store = FileDocStore::new(index.clone());
     let state = LocalState {
+        folder_open: target.is_dir(),
         store: store.clone(),
         index: index.clone(),
         rooms: Arc::new(RoomRegistry::new(store)),

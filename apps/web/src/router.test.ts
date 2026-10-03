@@ -66,3 +66,8 @@ describe("newDocument", () => {
     expect(location.hash).toBe("#/new");
   });
 });
+
+
+it("routes a selected file without opening a folder", () => {
+  expect(parseRoute("#/file/%2Ftmp%2FMy%20note.md")).toEqual({ name: "new", file: "/tmp/My note.md" });
+});

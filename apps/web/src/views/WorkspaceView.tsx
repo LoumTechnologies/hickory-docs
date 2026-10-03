@@ -80,12 +80,8 @@ import {
   fileAction,
 } from "../shell/FolderTreePane";
 import {
-  activate,
   paneById,
   panes as panesOf,
-  tab as makeTab,
-  treePane,
-  withTree,
   type Layout,
   type Tab,
 } from "../shell/layout";
@@ -144,6 +140,7 @@ import { sessionById, useTerminals } from "../terminal/useTerminals";
 import { nextInQueue } from "../lib/attentionCursor";
 import { DocTabBody, GeneratedTabBody, UntitledTab } from "./workspaceTabs";
 import { useWorkspaceUi } from "./useWorkspaceUi";
+import { openSelectedFile, useFolderPane } from "./folderPane";
 import { focusedEditor } from "../editor/activeEditor";
 import { useZoom } from "./useZoom";
 import { StatusBar } from "../shell/StatusBar";
@@ -640,13 +637,17 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
   // Every non-document route needs its OWN key: collapsing them all to one
   // string means navigating from `#/new` to `#/scratchpad` looks like no
   // change at all, and the effect never runs.
-  const routeKey = route.name === "doc" ? `doc:${route.id}` : route.name;
+  const routeKey = route.name === "doc" ? `doc:${route.id}` : route.name === "new" && route.file ? `file:${route.file}` : route.name;
   const hydrated = workspaceUi.hydrated;
   useEffect(() => {
     // Wait for the stored layout. Opening the routed document first would
     // leave the workspace non-empty when the restore lands, and the restore
     // would be dropped without a word.
     if (!hydrated) return;
+    if (route.name === "new" && route.file) {
+      void openSelectedFile(route.file, ensureDocOpen, openPlainFile, setInsertNotice);
+      return;
+    }
     if (route.name === "new") {
       setLayout((current) => openUntitledTab(current));
       return;
@@ -684,7 +685,7 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
   // The folder tree's data: one root today, an array so several folders can
   // sit side by side later without this view changing shape. Hoisted above
   // the title effect: the root also names the window.
-  const { roots: folderRoots, error: folderError } = useFolderTrees();
+  const { roots: folderRoots, error: folderError, folderOpen } = useFolderTrees();
   folderRootsRef.current = folderRoots;
   // What the window calls itself: the custom override from Settings, else
   // the project folder's name, else the focused file (lib/windowTitle.ts).
@@ -1041,15 +1042,7 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
 
   // Show Files activates its pane and puts keyboard point in its tree.
   const focusTreeRef = useRef<() => void>(() => undefined);
-  const focusTree = useCallback(() => {
-    setLayout((current) => {
-      const pane = treePane(current);
-      if (!pane) return withTree(current, makeTab("tree", "folder", "Files"));
-      const index = pane.tabs.findIndex((t) => t.kind === "tree");
-      return activate(current, pane.id, Math.max(0, index));
-    });
-    setTreeFocusRequest((request) => request + 1);
-  }, []);
+  const focusTree = useFolderPane(folderOpen, workspaceUi.hydrated, layout, setLayout, setTreeFocusRequest, setInsertNotice);
   focusTreeRef.current = focusTree;
   openTerminalRef.current = () => openTerminal();
   // The "open here" ports: one per file the focused document's ribbons reach
@@ -1260,7 +1253,7 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
   useEffect(() => {
     if (!workspaceUi.hydrated || welcomed.current) return;
     welcomed.current = true;
-    if (startup || !loadShowWelcome()) return;
+    if (startup || (route.name === "new" && route.file) || !loadShowWelcome()) return;
     setLayout(openWelcomeTab);
   }, [workspaceUi.hydrated]);
   useEffect(() => {

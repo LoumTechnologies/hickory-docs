@@ -35,6 +35,10 @@ pub fn run() {
         .on_menu_event(|app, event| on_menu(app, event.id().as_ref()))
         .on_window_event(|window, event| {
             if let WindowEvent::CloseRequested { api, .. } = event {
+                // A blank window has neither unsaved buffers nor a document API.
+                if window.app_handle().try_state::<BlankWindow>().is_some() {
+                    return;
+                }
                 let gate = window.state::<CloseGate>();
                 if !gate.0.swap(false, std::sync::atomic::Ordering::SeqCst) {
                     api.prevent_close();
@@ -466,14 +470,14 @@ fn on_menu(app: &AppHandle, id: &str) {
                     .dialog()
                     .file()
                     .set_title("Open a document")
-                    .add_filter("Hickory documents", &["hick"])
+                    .add_filter("Markdown documents", &["md"])
                     .add_filter("All files", &["*"])
                     .blocking_pick_file()
                     .and_then(|p| p.into_path().ok());
                 let Some(file) = picked else { return };
                 // A file INSIDE the current session's folder opens in place:
                 // the workspace is multi-document, so this is one more tab,
-                // not a new session. Only a file elsewhere switches folders.
+                // not a new session. A file elsewhere opens a file-only session.
                 let inside = handle
                     .try_state::<OpenedDir>()
                     .map(|d| file.starts_with(&d.0))
@@ -481,11 +485,7 @@ fn on_menu(app: &AppHandle, id: &str) {
                 if inside {
                     open_path_in_ui(&handle, &file);
                 } else {
-                    let target = file
-                        .parent()
-                        .map(Path::to_path_buf)
-                        .unwrap_or_else(|| file.clone());
-                    switch_to(&handle, &target);
+                    switch_to(&handle, &file);
                 }
             });
         }
@@ -519,7 +519,14 @@ fn switch_to(handle: &AppHandle, dir: &Path) {
     if let Ok(config_dir) = handle.path().app_config_dir() {
         server::remember(&config_dir, dir);
     }
-    handle.restart();
+    if dir.is_dir() {
+        handle.restart();
+    }
+    // Relaunch with the chosen path: a file must stay a file target.
+    match open_folder_in_new_process(dir) {
+        Ok(()) => handle.exit(0),
+        Err(e) => fail(handle, &format!("Could not open {}\n\n{e:#}", dir.display())),
+    }
 }
 
 /// Ask the page to open one file of the current session, by absolute path.
@@ -707,7 +714,15 @@ fn open(
 
     // The UI's address, not the engine's: under `just dev` they differ, and
     // the window wants the one with hot reload on it.
-    let url = session.ui_url.clone();
+    let mut url = session.ui_url.clone();
+    if dir.is_file() {
+        let path = dir.canonicalize().unwrap_or_else(|_| dir.to_path_buf());
+        let mut address = tauri::Url::parse(&url).expect("local UI URL");
+        let encoded: String = path.to_string_lossy().as_bytes().iter()
+            .map(|byte| format!("%{byte:02X}")).collect();
+        address.set_fragment(Some(&format!("/file/{encoded}")));
+        url = address.to_string();
+    }
     handle.manage(session);
     handle.manage(runtime);
 
