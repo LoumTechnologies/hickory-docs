@@ -164,7 +164,8 @@ local-install:
       npm --prefix apps/web ci
     fi
     # Fix the output directory so a caller's Cargo configuration cannot make
-    # us install an old bundle. Tauri builds and embeds the UI itself.
+    # us install an old bundle. Tauri builds the UI before Cargo embeds it;
+    # the desktop build script tracks dist so cached binaries cannot omit it.
     export CARGO_TARGET_DIR="$PWD/apps/desktop/src-tauri/target"
     # Like Jobsearch's family-build: a local signature, with no notarization.
     unset APPLE_API_ISSUER APPLE_API_KEY APPLE_API_KEY_PATH APPLE_ID APPLE_PASSWORD APPLE_TEAM_ID

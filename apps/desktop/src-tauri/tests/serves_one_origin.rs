@@ -107,6 +107,45 @@ async fn a_blank_window_has_a_page_but_no_workspace_api() {
     assert_eq!(projects.status(), reqwest::StatusCode::NOT_FOUND);
 }
 
+/// Guarantee: docs/guarantees/authoring/a-desktop-build-carries-the-ui.md
+#[tokio::test(flavor = "multi_thread")]
+async fn the_page_serves_its_built_scripts_and_styles() {
+    let session = hickory_desktop_lib::server::start_blank().await.unwrap();
+    let http = reqwest::Client::new();
+    let page = http
+        .get(&session.url)
+        .send()
+        .await
+        .unwrap()
+        .error_for_status()
+        .unwrap()
+        .text()
+        .await
+        .unwrap();
+    let assets: Vec<_> = page
+        .split('"')
+        .filter(|value| value.starts_with("/assets/"))
+        .filter(|value| value.ends_with(".js") || value.ends_with(".css"))
+        .collect();
+    assert!(assets.iter().any(|asset| asset.ends_with(".js")));
+    assert!(assets.iter().any(|asset| asset.ends_with(".css")));
+    for asset in assets {
+        let response = http
+            .get(format!("{}{asset}", session.url))
+            .send()
+            .await
+            .unwrap()
+            .error_for_status()
+            .unwrap();
+        let body = response.text().await.unwrap();
+        assert!(!body.is_empty(), "empty asset: {asset}");
+        assert!(
+            !body.contains("<div id=\"root\">"),
+            "shell fallback: {asset}"
+        );
+    }
+}
+
 /// Guarantee: docs/guarantees/authoring/one-loop-owns-a-directory.md
 #[tokio::test(flavor = "multi_thread")]
 async fn a_second_session_on_the_same_folder_attaches() {

@@ -34,7 +34,8 @@ tokio = { version = "1", features = ["rt-multi-thread", "macros", "net"] }
 # The built UI, compiled into the binary. A downloaded app has no checkout to
 # find `apps/web/dist` in, and shipping a loose directory beside the executable
 # is a thing users can break by moving one of them.
-rust-embed = "8"
+# Debug app bundles must also work away from the source checkout.
+rust-embed = { version = "8", features = ["debug-embed"] }
 mime_guess = "2"
 log = "0.4"
 tempfile = "3"
