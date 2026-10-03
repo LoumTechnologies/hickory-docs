@@ -178,8 +178,8 @@ fn a_command_that_names_no_document_explains_itself() {
     let dir = tempfile::tempdir().unwrap();
     // Two documents: guessing between them could put an edit in the wrong
     // file, so the command must refuse and say how to disambiguate.
-    std::fs::write(dir.path().join("a.hick"), DOC).unwrap();
-    std::fs::write(dir.path().join("b.hick"), DOC).unwrap();
+    std::fs::write(dir.path().join("a.md"), DOC).unwrap();
+    std::fs::write(dir.path().join("b.md"), DOC).unwrap();
     let out = hick()
         .arg("doc")
         .arg("read")
@@ -188,7 +188,7 @@ fn a_command_that_names_no_document_explains_itself() {
         .unwrap();
     assert!(!out.status.success());
     let err = String::from_utf8_lossy(&out.stderr);
-    assert!(err.contains("exactly one .hick"), "{err}");
+    assert!(err.contains("exactly one .md"), "{err}");
     assert!(err.contains("hick doc"), "{err}");
 }
 

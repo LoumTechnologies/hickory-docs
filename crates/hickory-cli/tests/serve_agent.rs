@@ -39,12 +39,20 @@ struct Session {
 }
 
 async fn start() -> Session {
+    start_with_folder(false).await
+}
+
+async fn start_with_folder(folder: bool) -> Session {
     let dir = tempfile::tempdir().unwrap();
     std::fs::write(dir.path().join("demo.md"), DOC).unwrap();
     let root = dir.path().canonicalize().unwrap();
 
     let prepared = prepare(ServeOptions {
-        target: root.join("demo.md"),
+        target: if folder {
+            root.clone()
+        } else {
+            root.join("demo.md")
+        },
         port: 0,
         params: Vec::new(),
         executor: ExecutorChoice::Local,
@@ -248,7 +256,7 @@ async fn a_turn_streams_on_the_run_channel_and_persists_a_session_file() {
     let sessions: Vec<_> = std::fs::read_dir(session.root.join("sessions"))
         .expect("a sessions/ directory exists in the served folder")
         .filter_map(Result::ok)
-        .filter(|e| e.path().extension().is_some_and(|x| x == "hick"))
+        .filter(|e| e.path().extension().is_some_and(|x| x == "md"))
         .collect();
     assert_eq!(sessions.len(), 1, "one turn, one session file");
 }
@@ -541,4 +549,142 @@ async fn stopping_an_idle_document_names_the_situation() {
             .contains("no agent turn is running"),
         "{body}"
     );
+}
+
+// Guarantee: docs/guarantees/agent/the-agent-sees-the-open-editors.md
+#[tokio::test(flavor = "multi_thread")]
+async fn workspace_agent_receives_unsaved_buffers_without_saving_them() {
+    #[derive(Default)]
+    struct Recorder(std::sync::Mutex<Vec<Vec<hickory_agent::Message>>>);
+    #[async_trait::async_trait]
+    impl hickory_agent::LlmClient for Recorder {
+        async fn complete(&self, messages: Vec<hickory_agent::Message>) -> anyhow::Result<String> {
+            self.0.lock().unwrap().push(messages);
+            Ok(done("I can see the open editors"))
+        }
+        fn provider_name(&self) -> &str {
+            "scripted"
+        }
+        fn model_name(&self) -> &str {
+            "scripted"
+        }
+    }
+    let mut session = start().await;
+    session.doc_id = "workspace".into();
+    let recorder = Arc::new(Recorder::default());
+    session.state.agent.set_llm_override(recorder.clone());
+    std::fs::write(session.root.join("plain.txt"), "disk bytes").unwrap();
+    let (mut socket, _) = tokio_tungstenite::connect_async(format!(
+        "{}/api/ws?doc=workspace",
+        session.base.replace("http:", "ws:")
+    ))
+    .await
+    .unwrap();
+    let request = json!({"prompt":"What is open?", "context":{"buffers":[
+        {"name":"Untitled 1","path":null,"content":"draft with <hick:exec> tags","focused":true},
+        {"name":"plain.txt","path":"plain.txt","content":"unsaved plain bytes","focused":false},
+        {"name":"deleted.txt","path":"deleted.txt","content":"deleted but still open","focused":false}
+    ]}});
+    let (status, response) = post(&session, "/api/docs/workspace/agent", request.clone()).await;
+    assert_eq!(status, 202, "{response}");
+    let id = response["session_id"].as_str().unwrap();
+    let (_, turn) = wait_for_turn(&session, id).await;
+    assert_eq!(turn["status"], "ok", "{turn}");
+    let messages = recorder.0.lock().unwrap()[0].clone();
+    let context = messages
+        .iter()
+        .map(|message| message.content.as_str())
+        .collect::<Vec<_>>()
+        .join("\n");
+    for expected in [
+        "No folder is open",
+        "draft with <hick:exec> tags",
+        "unsaved plain bytes",
+        "deleted but still open",
+    ] {
+        assert!(context.contains(expected), "missing {expected}: {context}");
+    }
+    assert_eq!(
+        std::fs::read_to_string(session.root.join("plain.txt")).unwrap(),
+        "disk bytes"
+    );
+    assert!(!session.root.join("deleted.txt").exists());
+    assert!(!session.root.join(".hick-workspace-agent").exists());
+    let recorded =
+        std::fs::read_to_string(session.root.join(turn["session"].as_str().unwrap())).unwrap();
+    assert!(recorded.contains("editor-buffers"));
+    assert_eq!(
+        hickory_agent::session_view::session_view(&recorded)
+            .turns
+            .len(),
+        1
+    );
+    let streamed = tokio::time::timeout(Duration::from_secs(5), socket.next())
+        .await
+        .unwrap()
+        .unwrap()
+        .unwrap();
+    assert!(matches!(streamed, TtMessage::Binary(frame) if frame[0] == 1));
+    // A later message refreshes snapshots in the same conversation.
+    let mut next = request;
+    next["parent_id"] = json!(id);
+    next["context"]["buffers"][0]["content"] = json!("revised draft");
+    let (status, response) = post(&session, "/api/docs/workspace/agent", next).await;
+    assert_eq!(status, 202, "{response}");
+    let (_, second) = wait_for_turn(&session, response["session_id"].as_str().unwrap()).await;
+    assert_eq!(second["session"], turn["session"]);
+    assert!(
+        recorder.0.lock().unwrap()[1]
+            .iter()
+            .any(|message| message.content.contains("revised draft"))
+    );
+}
+
+// Guarantee: docs/guarantees/agent/the-agent-sees-the-open-editors.md
+#[tokio::test(flavor = "multi_thread")]
+async fn workspace_agent_reads_a_folder_without_a_primary_document_and_recovers() {
+    let mut session = start_with_folder(true).await;
+    session.doc_id = "workspace".into();
+    std::fs::write(session.root.join("folder-only.txt"), "folder contents").unwrap();
+    let read = r#"<hick:next>tool</hick:next>
+<hick:tool name="read_file"><hick:arg name="path">folder-only.txt</hick:arg></hick:tool>"#;
+    session
+        .state
+        .agent
+        .set_llm_override(Arc::new(hickory_agent::ScriptedLlmClient::new([
+            read.to_string(),
+            done("read the folder"),
+        ])));
+    let (_, turn) = run_turn_to_completion(&session, "inspect the folder", None).await;
+    assert_eq!(turn["status"], "ok", "{turn}");
+    let source =
+        std::fs::read_to_string(session.root.join(turn["session"].as_str().unwrap())).unwrap();
+    assert!(source.contains("folder contents"), "{source}");
+    assert!(source.contains("name=\"read_file\" ok=\"true\""));
+    assert!(source.contains("doc=\".hick-workspace-agent\""));
+    // A new server has an empty in-memory hub and hydrates the workspace thread.
+    let prepared = prepare(ServeOptions {
+        target: session.root.clone(),
+        port: 0,
+        params: Vec::new(),
+        executor: ExecutorChoice::Local,
+        key_store_path: None,
+        ui_settings_path: None,
+    })
+    .await
+    .unwrap();
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let base = format!("http://{}", listener.local_addr().unwrap());
+    tokio::spawn(async move {
+        axum::serve(listener, prepared.router).await.unwrap();
+    });
+    let response: Value = reqwest::Client::new()
+        .get(format!("{base}/api/docs/workspace/agent/turns"))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(response["turns"][0]["id"], turn["id"], "{response}");
 }

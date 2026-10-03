@@ -75,10 +75,8 @@ impl Client {
         path: PathBuf,
     ) -> Result<Arc<Self>> {
         let mut command = super::config::process(&agent, state)?;
-        let doc = state
-            .index
-            .absolute(doc_id)
-            .context("document is no longer open")?;
+        let doc = super::super::agent_context::subject(state, doc_id)
+            .map_err(|_| anyhow::anyhow!("document is no longer open"))?;
         let record = Arc::new(AsyncMutex::new(Record::open(path, &doc)?));
         let workspace_gate = Arc::new(AsyncMutex::new(()));
         let host =
@@ -236,6 +234,7 @@ impl Client {
         turn: &str,
         parent: Option<&str>,
         prompt: &str,
+        context: &str,
         cancel: Arc<std::sync::atomic::AtomicBool>,
     ) -> Result<String> {
         let _operation = self.operation.lock().await;
@@ -254,6 +253,15 @@ impl Client {
             provider: &format!("acp:{}", self.agent),
             model: &model,
         })?;
+        self.record
+            .lock()
+            .await
+            .context("editor-buffers", &json!({"turn":turn,"context":context}))?;
+        let run_prompt = if context.is_empty() {
+            prompt.to_string()
+        } else {
+            format!("{prompt}\n\n{context}")
+        };
         if let Some(filesystem) = &self.filesystem {
             filesystem
                 .exchange(json!({"op":"turn","turn":turn}))
@@ -265,7 +273,7 @@ impl Client {
         });
         let call = self.rpc.request(
             "session/prompt",
-            json!({"sessionId":session,"prompt":[{"type":"text","text":prompt}]}),
+            json!({"sessionId":session,"prompt":[{"type":"text","text":run_prompt}]}),
             Duration::from_secs(24 * 60 * 60),
         );
         tokio::pin!(call);

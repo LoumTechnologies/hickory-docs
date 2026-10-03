@@ -98,6 +98,8 @@ pub enum SessionEvent<'a> {
     /// earlier in this session was in front of the model when they were
     /// written.
     Wrote { wrote: &'a crate::tools::Wrote },
+    /// The editor snapshots supplied to this turn, recorded as inert JSON.
+    EditorContext { text: &'a str },
     /// Session ended — writes the closing `</hick:session>` tag.
     End,
 }
@@ -436,6 +438,15 @@ impl SessionLog for HickSessionLog {
                         wrote.first_line,
                         wrote.last_line,
                         wrote.hashes.join(" ")
+                    )?;
+                }
+                SessionEvent::EditorContext { text } => {
+                    let json = serde_json::to_string(text)
+                        .expect("context serializes")
+                        .replace('<', "\\u003c");
+                    writeln!(
+                        writer,
+                        "<hick:context kind=\"editor-buffers\">{json}</hick:context>"
                     )?;
                 }
                 SessionEvent::End => {

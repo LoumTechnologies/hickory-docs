@@ -256,10 +256,12 @@ export function GeneratedTabBody({
   registry,
   docId,
   path,
+  onSource,
 }: {
   registry: SessionRegistry;
   docId: string;
   path: string;
+  onSource?: (path: string, source: string) => void;
 }) {
   const session = useDocSession(registry, docId);
   // The session appears one tick after its host mounts; the file fetch is
@@ -269,6 +271,7 @@ export function GeneratedTabBody({
     <GeneratedFileView
       docId={docId}
       path={path}
+      onSource={onSource}
       liveFile={session.outputs.get(path) ?? null}
       makeOutputLsp={session.makeOutputLsp}
       onSourceEdits={session.flashSourceEdits}

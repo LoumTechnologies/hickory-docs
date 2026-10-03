@@ -324,3 +324,11 @@ build-desktop-app:
 test-recent-paths:
     cargo test --manifest-path apps/desktop/src-tauri/Cargo.toml --lib recent::tests
     cd apps/web && npm run typecheck && npm test -- src/views/useRecentFiles.test.tsx
+
+# Agent context across open buffers, folder sessions, and folderless windows.
+test-agent-context:
+    cargo build -p hickory-cli --bin hick --example acp_fixture
+    cargo test -p hickory-cli --test serve_agent --test serve_acp --test byo_agent_surface -- --test-threads=1
+    cargo test -p hickory-agent -p hickory-collab --lib -- --test-threads=1
+    cargo test --manifest-path apps/desktop/src-tauri/Cargo.toml --test serves_one_origin -- --test-threads=1
+    just test-agent-web

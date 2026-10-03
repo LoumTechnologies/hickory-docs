@@ -34,6 +34,10 @@ pub struct AgentConfig {
     /// edit tool set (read_doc/read_output/edit_output/edit_doc/verify) is
     /// enabled and an [`EditSession`] is opened on this path.
     pub doc_path: Option<PathBuf>,
+    /// Conversation identity when it spans several editors rather than one file.
+    pub session_subject: Option<PathBuf>,
+    /// Explicitly opened folder, for read_file without a primary document.
+    pub folder_context: Option<PathBuf>,
     /// Project directory: session files land in `<project_dir>/sessions/`.
     pub project_dir: PathBuf,
     /// Maximum LLM turns before giving up (default 20).
@@ -92,6 +96,8 @@ impl AgentConfig {
             prompt: prompt.into(),
             doc_context: None,
             doc_path: None,
+            session_subject: None,
+            folder_context: None,
             project_dir: project_dir.into(),
             max_turns: 20,
             script_limits: crate::script::ScriptLimits::default(),
@@ -141,20 +147,24 @@ pub async fn run_agent(
     // The document named on the root, relative to the project when it is
     // inside it: the name the app knows it by, and one that survives the
     // folder moving.
-    let doc_for_root: Option<std::path::PathBuf> = config.doc_path.as_ref().map(|d| {
-        let project = config
-            .project_dir
-            .canonicalize()
-            .unwrap_or_else(|_| config.project_dir.clone());
-        d.canonicalize()
-            .ok()
-            .and_then(|abs| {
-                abs.strip_prefix(&project)
-                    .ok()
-                    .map(std::path::Path::to_path_buf)
-            })
-            .unwrap_or_else(|| d.clone())
-    });
+    let doc_for_root: Option<std::path::PathBuf> = config
+        .session_subject
+        .as_ref()
+        .or(config.doc_path.as_ref())
+        .map(|d| {
+            let project = config
+                .project_dir
+                .canonicalize()
+                .unwrap_or_else(|_| config.project_dir.clone());
+            d.canonicalize()
+                .ok()
+                .and_then(|abs| {
+                    abs.strip_prefix(&project)
+                        .ok()
+                        .map(std::path::Path::to_path_buf)
+                })
+                .unwrap_or_else(|| d.strip_prefix(&project).unwrap_or(d).to_path_buf())
+        });
     let session = match &config.session_path {
         // A conversation's file: this run is one more turn in it.
         Some(path) => HickSessionLog::append_or_create_for(path, doc_for_root.as_deref())
@@ -182,6 +192,10 @@ pub async fn run_agent(
             })?),
             None => None,
         };
+
+    if let Some(context) = &config.doc_context {
+        session.record(SessionEvent::EditorContext { text: context });
+    }
 
     // Prompt-cache contract: the FIRST system message is the frozen,
     // byte-stable prefix (protocol + tool doctrine — no timestamps, no
@@ -211,6 +225,9 @@ pub async fn run_agent(
             "\n\nPrimary document of this session: {}",
             es.doc_path().display()
         ));
+    }
+    if let Some(folder) = &config.folder_context {
+        session_context.push_str(&format!("\nOpen folder: {}. Read files or list directories by starting the response with <hick:next>tool</hick:next> followed by <hick:tool name=\"read_file\"><hick:arg name=\"path\">relative/path</hick:arg></hick:tool>. Use path . to list the folder. Optional from/to arguments select a line range. Scripts run in scratch space, so use read_file to inspect the folder.", folder.display()));
     }
     if let Some(doc) = &config.doc_context {
         if !session_context.is_empty() {
@@ -404,14 +421,20 @@ pub async fn run_agent(
                     data: invocation.raw_xml.clone(),
                 });
 
-                let outcome = match edit_session.as_mut() {
-                    Some(es) => execute_tool(es, executor.clone(), &invocation).await,
-                    None => crate::tools::ToolOutcome::refused(
-                        &invocation.name,
-                        "no primary document in this session — document tools need \
+                let outcome = if let Some(root) = &config.folder_context
+                    && invocation.name == "read_file"
+                {
+                    crate::tools::read_file(root, root, &invocation)
+                } else {
+                    match edit_session.as_mut() {
+                        Some(es) => execute_tool(es, executor.clone(), &invocation).await,
+                        None => crate::tools::ToolOutcome::refused(
+                            &invocation.name,
+                            "no primary document in this session — document tools need \
                          `hick agent --doc <file.md>`; use a script instead"
-                            .to_string(),
-                    ),
+                                .to_string(),
+                        ),
+                    }
                 };
 
                 crate::session::record_outcome(&session, &outcome);

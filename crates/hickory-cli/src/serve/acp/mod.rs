@@ -125,10 +125,7 @@ pub async fn connect(
         .ok_or_else(|| {
             ApiError::bad_request("Unknown agent. Choose an agent from the catalogue.")
         })?;
-    let doc = state
-        .index
-        .absolute(&doc_id)
-        .ok_or_else(|| ApiError::not_found("Open a document before connecting an agent."))?;
+    let doc = super::agent_context::subject(&state, &doc_id)?;
     let path = match body.session.as_deref() {
         Some(rel) => {
             let path = state.index.root().join(rel);
@@ -366,10 +363,7 @@ pub async fn start_turn(
             "Connect and sign in to the selected agent before sending a message.",
         ));
     }
-    let doc = state
-        .index
-        .absolute(&doc_id)
-        .ok_or_else(|| ApiError::not_found("document no longer open"))?;
+    let doc = super::agent_context::subject(&state, &doc_id)?;
     state.agent.hydrate(state.index.root(), &doc_id, &doc);
     let prompt = body.prompt.trim().to_string();
     if prompt.is_empty() {
@@ -425,10 +419,22 @@ pub async fn start_turn(
         .lock()
         .unwrap()
         .insert(doc_id.clone(), backend);
+    let context =
+        if doc_id == super::agent_context::WORKSPACE_AGENT || !body.context.buffers.is_empty() {
+            super::agent_context::describe(&state, &body.context)
+        } else {
+            String::new()
+        };
     let run_id = turn_id.clone();
     tokio::spawn(async move {
         let outcome = client
-            .prompt(&run_id, body.parent_id.as_deref(), &prompt, cancel)
+            .prompt(
+                &run_id,
+                body.parent_id.as_deref(),
+                &prompt,
+                &context,
+                cancel,
+            )
             .await;
         state.agent.cancels.lock().unwrap().remove(&run_id);
         let status = {

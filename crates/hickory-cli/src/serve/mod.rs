@@ -29,6 +29,7 @@
 
 pub mod acp;
 pub mod agent;
+mod agent_context;
 pub mod anchored;
 pub mod api;
 pub mod asset;
@@ -735,6 +736,15 @@ pub struct Prepared {
 /// test over a real socket on an ephemeral port, and so the desktop app can
 /// mount this router on a listener it owns.
 pub async fn prepare(opts: ServeOptions) -> Result<Prepared> {
+    prepare_inner(opts, None).await
+}
+
+/// An editor-only window: the target is internal session storage, not an open folder.
+pub async fn prepare_without_folder(opts: ServeOptions) -> Result<Prepared> {
+    prepare_inner(opts, Some(false)).await
+}
+
+async fn prepare_inner(opts: ServeOptions, folder_open: Option<bool>) -> Result<Prepared> {
     let target = opts
         .target
         .canonicalize()
@@ -780,7 +790,7 @@ pub async fn prepare(opts: ServeOptions) -> Result<Prepared> {
 
     let store = FileDocStore::new(index.clone());
     let state = LocalState {
-        folder_open: target.is_dir(),
+        folder_open: folder_open.unwrap_or_else(|| target.is_dir()),
         store: store.clone(),
         index: index.clone(),
         rooms: Arc::new(RoomRegistry::new(store)),

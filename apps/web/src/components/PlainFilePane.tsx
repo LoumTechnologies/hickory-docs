@@ -71,8 +71,10 @@ export function PlainFilePane({
   askChoice,
   retainUnsaved = false,
   onUnsaved,
+  onSource,
 }: {
   path: string;
+  onSource?: (path: string, source: string) => void;
   /** Adoption succeeded: the file now has an owning document. The workspace
    * converts this very tab into a generated tab and opens the document. */
   onAdopted?: (adopted: AdoptResponse) => void;
@@ -150,7 +152,7 @@ export function PlainFilePane({
   // its own path. Fed the LIVE text so positions match the screen; opened
   // only once the file has loaded, so the server never sees an empty file
   // stand in for a real one.
-  const [liveText, setLiveText] = useState<string | null>(null);
+  const [liveText, setLiveTextState] = useState<string | null>(null);
   // The buffer's last text, readable after the view is gone. The draft
   // keeper's final flush runs during unmount, AFTER the effect that destroys
   // the view — React runs cleanups in declaration order — and reading an
@@ -159,6 +161,12 @@ export function PlainFilePane({
   // switching tabs. Found by dogfooding on this repository, on a file with
   // 159 lines. Never read the buffer through the view alone.
   const lastTextRef = useRef<string>("");
+  const onSourceRef = useRef(onSource);
+  onSourceRef.current = onSource;
+  const setLiveText = useCallback((text: string) => {
+    onSourceRef.current?.(path, text);
+    setLiveTextState(text);
+  }, [path]);
   const lsp = useWorkspaceLsp(liveText === null ? "" : path, liveText ?? "");
   const lspRef = useRef(lsp);
   lspRef.current = lsp;

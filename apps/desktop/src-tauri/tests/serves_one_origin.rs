@@ -81,10 +81,10 @@ async fn an_unknown_path_returns_the_shell() {
     );
 }
 
-/// File → New Window is not a hidden empty workspace. It serves only the UI,
-/// leaving the document API unavailable until the person opens a folder.
+/// Guarantee: docs/guarantees/agent/the-agent-sees-the-open-editors.md
+/// File → New Window supports editor sessions without selecting a folder.
 #[tokio::test(flavor = "multi_thread")]
-async fn a_blank_window_has_a_page_but_no_workspace_api() {
+async fn a_blank_window_has_editor_apis_but_no_open_folder() {
     let session = hickory_desktop_lib::server::start_blank()
         .await
         .expect("the blank page starts");
@@ -104,7 +104,22 @@ async fn a_blank_window_has_a_page_but_no_workspace_api() {
         .send()
         .await
         .expect("GET /api/projects");
-    assert_eq!(projects.status(), reqwest::StatusCode::NOT_FOUND);
+    assert!(projects.status().is_success());
+    let files: serde_json::Value = http
+        .get(format!("{}/api/files", session.url))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(files["folder_open"], false);
+    let turns = http
+        .get(format!("{}/api/docs/workspace/agent/turns", session.url))
+        .send()
+        .await
+        .unwrap();
+    assert!(turns.status().is_success());
 }
 
 /// Guarantee: docs/guarantees/authoring/a-desktop-build-carries-the-ui.md

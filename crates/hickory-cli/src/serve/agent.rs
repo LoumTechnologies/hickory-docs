@@ -301,6 +301,8 @@ pub struct AgentRequest {
     #[serde(default)]
     pub backend: Option<String>,
     pub prompt: String,
+    #[serde(default)]
+    pub context: super::agent_context::EditorContext,
     /// The turn this one continues from. Naming an older turn forks a
     /// branch; `null` starts a new thread.
     #[serde(default)]
@@ -348,10 +350,9 @@ pub async fn start_turn(
         .lock()
         .unwrap()
         .insert(id.clone(), "builtin".into());
-    let doc_path = state
-        .index
-        .absolute(&id)
-        .ok_or_else(|| ApiError::not_found(format!("no document {id} in this session")))?;
+    let doc_path = super::agent_context::subject(&state, &id)?;
+    let context = super::agent_context::describe(&state, &body.context);
+    let primary = super::agent_context::primary(&state, &body.context);
     let prompt = body.prompt.trim().to_string();
     if prompt.is_empty() {
         return Err(ApiError::bad_request(
@@ -495,6 +496,8 @@ pub async fn start_turn(
                 turn: run_key.clone(),
                 parent: parent_for_run.clone(),
                 cancel,
+                context,
+                primary,
             },
         )
         .await;
@@ -535,6 +538,8 @@ pub async fn start_turn(
 /// the error message to record.
 /// Where a turn is recorded and how it is named in the file.
 struct TurnIdentity {
+    context: String,
+    primary: Option<std::path::PathBuf>,
     session: std::path::PathBuf,
     turn: String,
     parent: Option<String>,
@@ -583,7 +588,15 @@ async fn run_turn(
     // `AgentConfig::new` defaults to 20 internal turns per prompt, matching
     // `hick agent`. The session file lands in `<served folder>/sessions/`.
     let mut config = AgentConfig::new(prompt, state.index.root());
-    config.doc_path = Some(doc_path);
+    config.session_subject = Some(doc_path.clone());
+    config.doc_context = Some(identity.context);
+    config.doc_path = if doc_id == super::agent_context::WORKSPACE_AGENT {
+        identity.primary
+    } else {
+        Some(doc_path)
+    };
+    config.folder_context =
+        (state.folder_open && config.doc_path.is_none()).then(|| state.index.root().to_path_buf());
     config.prior_turns = prior_turns;
     // One file per conversation, each turn naming its parent: the tree is
     // on disk, and `hydrate` rebuilds the dock from it after a restart.
@@ -667,7 +680,7 @@ pub async fn stop_turn(
 /// Empty turns for a document nothing has asked about yet, which the dock
 /// renders as an empty conversation rather than an error.
 pub async fn list_turns(State(state): State<LocalState>, Path(id): Path<String>) -> Json<Value> {
-    if let Some(doc_path) = state.index.absolute(&id) {
+    if let Ok(doc_path) = super::agent_context::subject(&state, &id) {
         state.agent.hydrate(state.index.root(), &id, &doc_path);
     }
     let turns = state.agent.snapshot(&id);

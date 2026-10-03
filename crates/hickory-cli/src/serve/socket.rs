@@ -94,6 +94,7 @@ async fn run_workspace_socket(state: LocalState, socket: WebSocket) -> anyhow::R
             }
         }
     });
+    state.rooms.attach_runs(client_id, tx.clone());
     let mut subscribed = false;
     let mut debuggers: Option<std::sync::Arc<crate::debug_sessions::Registry>> = None;
     while let Some(msg) = stream.next().await {
@@ -118,6 +119,7 @@ async fn run_workspace_socket(state: LocalState, socket: WebSocket) -> anyhow::R
             _ => continue,
         }
     }
+    state.rooms.detach_runs(client_id);
     if subscribed {
         state.lsp.unsubscribe(client_id);
     }

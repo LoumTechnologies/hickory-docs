@@ -22,7 +22,7 @@ import type {
   OpenTerminal,
   SearchResponse,
 } from "../api/types";
-import { ChatDock } from "../components/ChatDock";
+import { WorkspaceChat } from "./WorkspaceChat";
 import { InsertMenu } from "../components/InsertMenu";
 import { PlainFilePane } from "../components/PlainFilePane";
 import { ScratchpadPane } from "../components/ScratchpadPane";
@@ -266,6 +266,11 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
   // terminals have no pane of their own to ask on.
   const shellPrompt = usePrompt();
   const [untitledSources, setUntitledSources] = useState<Record<string, string>>(() => introductionTab ? { [introductionTab]: STARTUP_INTRODUCTION } : {});
+  const plainSources = useRef(new Map<string, string>());
+  const agentFocusedEditor = useRef<string | null>(null);
+  const agentActivePane = paneById(layout, layout.focus);
+  const agentActiveTab = agentActivePane?.tabs[agentActivePane.active];
+  if (agentActiveTab && ["document", "generated", "file", "untitled"].includes(agentActiveTab.kind)) agentFocusedEditor.current = agentActiveTab.id;
   const untitledSourcesRef = useRef(untitledSources);
   untitledSourcesRef.current = untitledSources;
   const forgetUntitled = useCallback((tabId: string) => {
@@ -1550,6 +1555,7 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
           registry={registry}
           docId={tab.docId}
           path={tab.target}
+          onSource={(_, source) => plainSources.current.set(tab.id, source)}
         />
       );
     }
@@ -1561,6 +1567,7 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
         <PlainFilePane
           key={tab.id}
           path={tab.target}
+          onSource={(_, source) => plainSources.current.set(tab.id, source)}
           onReferences={setFileReferences}
           askText={shellPrompt.askText}
           askChoice={shellPrompt.askChoice}
@@ -1666,27 +1673,19 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
       );
     }
     if (tab.kind === "chat") {
-      // The conversation follows the FOCUSED document — one agent pane
-      // re-targeting rather than one per document, which is the same choice
-      // the dock made and the one worth keeping: the question you are asking
-      // is almost always about what you are looking at.
-      if (!focused) {
-        return (
-          <p className="muted chat-pane__empty">
-            Open a document to talk to the agent about it.
-          </p>
-        );
-      }
       return (
-        <ChatDock
+        <WorkspaceChat
+          layout={layout}
+          registry={registry}
+          focusedEditor={agentFocusedEditor.current}
+          untitledSources={untitledSourcesRef}
+          plainSources={plainSources}
+          folder={folderOpen ? folderRoots[0]?.root ?? "Open folder" : null}
           onOpenSession={openDocumentByPath}
-          key={focused.docId}
-          docId={focused.docId}
-          realtime={focused.realtime}
-          onAgentFinished={focused.refresh}
         />
       );
     }
+
     if (tab.kind === "tree") {
       return (
         <FolderTreePane

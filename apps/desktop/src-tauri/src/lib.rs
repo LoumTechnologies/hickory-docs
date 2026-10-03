@@ -604,10 +604,11 @@ fn launch(handle: AppHandle, requested_file: Option<PathBuf>) {
 
     let config_dir = handle.path().app_config_dir().ok();
 
-    // File → New Window passes one explicit mode, rather than relying on the
-    // absence of a path (which normally means reopen the last workspace).
     if std::env::args().skip(1).any(|arg| arg == "--blank-window") {
-        match runtime.block_on(server::start_blank()) {
+        match runtime.block_on(server::start_blank_with_config(
+            config_dir.as_deref(),
+            Some(server::shell_hooks(&handle, config_dir.as_deref())),
+        )) {
             Ok(session) => open_blank(&handle, runtime, session, config_dir.as_deref()),
             Err(e) => fail(&handle, &format!("Could not open a blank window.\n\n{e:#}")),
         }
@@ -790,7 +791,7 @@ fn open(
     }
 }
 
-/// Open a window that has no folder and no engine state behind it.
+/// Open a window with editor sessions and no selected folder.
 fn open_blank(
     handle: &AppHandle,
     runtime: tokio::runtime::Runtime,

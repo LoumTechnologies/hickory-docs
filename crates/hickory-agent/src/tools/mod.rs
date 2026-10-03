@@ -27,7 +27,9 @@ use hickory_executor::Executor;
 use hickory_lineage::{LineageError, OutputEdit, Provenance, apply_source_edits, map_edits};
 
 use crate::protocol::ToolInvocation;
+mod read_file;
 use hashline::{Anchor, LineIndex, ResolvedAnchor, parse_anchor, resolve_anchor};
+pub(crate) use read_file::read_file;
 
 /// The result of one tool invocation, returned to the model as a
 /// `<hick:tool-result>` observation and logged in the session file.
@@ -337,132 +339,6 @@ impl EditSession {
             .find(|p| p.display().to_string() == name)
             .cloned()
             .unwrap_or_else(|| PathBuf::from(name))
-    }
-
-    // -- read_file ---------------------------------------------------------
-
-    /// Show the model any file of the project, read-only, hashline-rendered,
-    /// optionally one line range — and record that it was shown.
-    ///
-    /// This is the agent's only window onto files that are not documents:
-    /// a data export, a config, a source file the document tangles from. Its
-    /// scripts run in a scratch workspace that cannot see the project, on
-    /// purpose; without this tool the agent, told a file exists, looks,
-    /// finds nothing, and makes one up. With it the read is real AND on the
-    /// record, which is what lets context provenance say "this export, at
-    /// this hash, was in front of the model when it wrote those findings".
-    fn read_file(&self, inv: &ToolInvocation) -> ToolOutcome {
-        const NAME: &str = "read_file";
-        const MAX_BYTES: usize = 1 << 20;
-        let Some(rel) = inv.arg("path") else {
-            return ToolOutcome::err(
-                NAME,
-                "read_file needs a path argument, relative to the document's directory".into(),
-            );
-        };
-        let base = self.doc_path.parent().unwrap_or(Path::new("."));
-        let candidate = base.join(rel);
-        let canonical = match candidate.canonicalize() {
-            Ok(c) => c,
-            Err(e) => {
-                return ToolOutcome::err(
-                    NAME,
-                    format!(
-                        "cannot read '{rel}' (resolved against {}): {e}",
-                        base.display()
-                    ),
-                );
-            }
-        };
-        let root = self
-            .root
-            .canonicalize()
-            .unwrap_or_else(|_| self.root.clone());
-        if !canonical.starts_with(&root) {
-            return ToolOutcome::err(
-                NAME,
-                format!(
-                    "'{rel}' is outside the project ({}); read_file reads project files only",
-                    root.display()
-                ),
-            );
-        }
-        if canonical.is_dir() {
-            let mut names: Vec<String> = std::fs::read_dir(&canonical)
-                .map(|rd| {
-                    rd.filter_map(Result::ok)
-                        .map(|e| {
-                            let n = e.file_name().to_string_lossy().to_string();
-                            if e.path().is_dir() {
-                                format!("{n}/")
-                            } else {
-                                n
-                            }
-                        })
-                        .collect()
-                })
-                .unwrap_or_default();
-            names.sort();
-            return ToolOutcome::ok(
-                NAME,
-                format!("'{rel}' is a directory; it holds:\n{}", names.join("\n")),
-            );
-        }
-        let bytes = match std::fs::read(&canonical) {
-            Ok(b) => b,
-            Err(e) => return ToolOutcome::err(NAME, format!("cannot read '{rel}': {e}")),
-        };
-        if bytes.len() > MAX_BYTES {
-            return ToolOutcome::err(
-                NAME,
-                format!(
-                    "'{rel}' is {} bytes; read_file shows at most {MAX_BYTES}. Read a range \
-                     with from/to, or let a cell process the file",
-                    bytes.len()
-                ),
-            );
-        }
-        let Ok(text) = String::from_utf8(bytes.clone()) else {
-            return ToolOutcome::err(
-                NAME,
-                format!(
-                    "'{rel}' is not UTF-8 text; a cell can process it, read_file cannot show it"
-                ),
-            );
-        };
-        let index = LineIndex::new(&text);
-        let total = index.lines.len();
-        let parse_line = |key: &str, default: usize| -> Result<usize, String> {
-            match inv.arg(key) {
-                None => Ok(default),
-                Some(v) => v
-                    .parse::<usize>()
-                    .ok()
-                    .filter(|n| *n >= 1)
-                    .ok_or_else(|| format!("{key}='{v}' is not a positive line number")),
-            }
-        };
-        let (first, last) = match (parse_line("from", 1), parse_line("to", total)) {
-            (Ok(a), Ok(b)) => (a.min(total.max(1)), b.min(total.max(1))),
-            (Err(e), _) | (_, Err(e)) => return ToolOutcome::err(NAME, e),
-        };
-        if last < first {
-            return ToolOutcome::err(NAME, format!("to={last} is before from={first}"));
-        }
-        let shown = index.render_range(first - 1, last - 1);
-        let read = ContextRead {
-            path: rel.to_string(),
-            commit: head_commit_for(&canonical),
-            sha256: sha256_hex(&bytes),
-            first_line: first,
-            last_line: last,
-        };
-        let header = if first == 1 && last == total {
-            format!("file: {rel} ({total} lines)\n")
-        } else {
-            format!("file: {rel} lines {first}-{last} of {total}\n")
-        };
-        ToolOutcome::ok(NAME, format!("{header}{shown}")).with_read(read)
     }
 
     /// Apply an edit to an upstream document and re-weave the primary.
@@ -1191,7 +1067,11 @@ pub async fn execute_tool(
     match inv.name.as_str() {
         "read_doc" => session.read_doc(inv),
         "read_output" => session.read_output(inv),
-        "read_file" => session.read_file(inv),
+        "read_file" => read_file(
+            &session.root,
+            session.doc_path.parent().unwrap_or(Path::new(".")),
+            inv,
+        ),
         "edit_output" => session.edit_output(inv).await,
         "edit_doc" => session.edit_doc(inv).await,
         "verify" => session.verify(executor).await,

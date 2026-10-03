@@ -1,3 +1,4 @@
+import type { AgentEditorContext } from "./agentTypes";
 import type {
   AdoptResponse,
   AgentTurnsResponse,
@@ -708,9 +709,11 @@ export const api = {
     provider?: string,
     model?: string,
     backend?: string,
+    context?: AgentEditorContext,
   ) =>
     request<{ session_id: string }>("POST", `/api/docs/${docId}/agent`, {
       backend,
+      context,
       prompt,
       parent_id: parentId ?? null,
       ...(provider !== undefined ? { provider } : {}),

@@ -404,3 +404,34 @@ async fn live_codex_uses_hickory_tools_and_records_a_session() {
     );
     println!("Live Codex rewind and restart-resume verified.");
 }
+
+// Guarantee: docs/guarantees/agent/the-agent-sees-the-open-editors.md
+#[tokio::test(flavor = "multi_thread")]
+async fn acp_connects_to_workspace_with_untitled_context_and_resumes() {
+    let (_dir, mut app) = fixture(vec![]).await;
+    app.doc = "workspace".into();
+    let ready = app.connect(None).await;
+    assert_eq!(ready["ready"], true, "{ready}");
+    let (status, response) = app.request("POST", &app.route(""), json!({
+        "backend":"fixture", "prompt":"Discuss this draft", "context":{"buffers":[
+            {"name":"Untitled 1", "path":null, "content":"Unsaved <hick:exec> draft", "focused":true}
+        ]}
+    })).await;
+    assert_eq!(status, 202, "{response}");
+    let turn = app.wait(response["session_id"].as_str().unwrap()).await;
+    assert_eq!(turn["status"], "ok", "{turn}");
+    let session = turn["session"].as_str().unwrap().to_string();
+    let source = std::fs::read_to_string(app.root.join(&session)).unwrap();
+    assert!(source.contains("editor-buffers"), "{source}");
+    assert!(source.contains("Unsaved"));
+    assert!(!app.root.join(".hick-workspace-agent").exists());
+    assert!(!app.root.join("Untitled 1").exists());
+    let view = hickory_agent::session_view::session_view(&source);
+    assert_eq!(view.turns[0].prompt, "Discuss this draft");
+    let root = app.root.clone();
+    drop(app);
+    let mut restarted = start(&root).await;
+    restarted.doc = "workspace".into();
+    let ready = restarted.connect(Some(&session)).await;
+    assert_eq!(ready["ready"], true, "{ready}");
+}

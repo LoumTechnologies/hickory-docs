@@ -27,10 +27,12 @@ export function GeneratedFileView({
   liveFile,
   makeOutputLsp,
   onSourceEdits,
+  onSource,
   onReady,
 }: {
   docId: string;
   path: string;
+  onSource?: (path: string, source: string) => void;
   /**
    * The session's freshest copy of this file, refetched after every run and
    * every up-loop `files_changed` event. When it arrives, the pane's buffer
@@ -54,6 +56,8 @@ export function GeneratedFileView({
   const [file, setFile] = useState<OutputFile | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const onSourceRef = useRef(onSource);
+  onSourceRef.current = onSource;
   const onSourceEditsRef = useRef(onSourceEdits);
   onSourceEditsRef.current = onSourceEdits;
 
@@ -83,11 +87,12 @@ export function GeneratedFileView({
   const watchSelection = useMemo(
     () =>
       EditorView.updateListener.of((update) => {
+        if (update.docChanged) onSourceRef.current?.(path, update.state.doc.toString());
         if (update.selectionSet || update.docChanged) {
           setRange(selectedLines(update.state));
         }
       }),
-    [],
+    [path],
   );
 
   const extensions = useMemo(
@@ -217,7 +222,10 @@ export function GeneratedFileView({
         file={file}
         extensions={extensions}
         onLocalEdit={save}
-        onViewReady={(view) => onReady?.(view ? { view, file } : null)}
+        onViewReady={(view) => {
+        if (view) onSourceRef.current?.(path, view.state.doc.toString());
+        onReady?.(view ? { view, file } : null);
+      }}
       />
       {range && <SamplePicker path={path} range={range} />}
       {saveError && (

@@ -294,6 +294,7 @@ impl Room {
 pub struct RoomRegistry {
     rooms: tokio::sync::Mutex<HashMap<DocKey, Arc<Room>>>,
     store: Arc<dyn DocStore>,
+    run_listeners: std::sync::Mutex<HashMap<u64, mpsc::UnboundedSender<Vec<u8>>>>,
     writes: Option<Arc<tokio::sync::Mutex<()>>>,
 }
 
@@ -301,6 +302,7 @@ impl RoomRegistry {
     pub fn new(store: Arc<dyn DocStore>) -> Self {
         Self {
             rooms: tokio::sync::Mutex::new(HashMap::new()),
+            run_listeners: std::sync::Mutex::new(HashMap::new()),
             store,
             writes: None,
         }
@@ -311,6 +313,7 @@ impl RoomRegistry {
     pub fn with_writes(store: Arc<dyn DocStore>, writes: Arc<tokio::sync::Mutex<()>>) -> Self {
         Self {
             rooms: tokio::sync::Mutex::new(HashMap::new()),
+            run_listeners: std::sync::Mutex::new(HashMap::new()),
             store,
             writes: Some(writes),
         }
@@ -321,11 +324,26 @@ impl RoomRegistry {
         self.rooms.lock().await.get(key).cloned()
     }
 
+    /// Subscribe a workspace socket to runs without creating a document room.
+    pub fn attach_runs(&self, id: u64, tx: mpsc::UnboundedSender<Vec<u8>>) {
+        self.run_listeners.lock().unwrap().insert(id, tx);
+    }
+
+    /// Forget a disconnected workspace socket.
+    pub fn detach_runs(&self, id: u64) {
+        self.run_listeners.lock().unwrap().remove(&id);
+    }
+
     /// Broadcast a run-channel JSON payload to every socket on a document.
     pub async fn publish_run_event(&self, key: &str, payload: &serde_json::Value) {
         if let Some(room) = self.get(key).await {
             room.broadcast(&run_frame(payload), None);
         }
+        let frame = run_frame(payload);
+        self.run_listeners
+            .lock()
+            .unwrap()
+            .retain(|_, tx| tx.send(frame.clone()).is_ok());
     }
 
     /// The room for `key`, creating and loading it if this is the first socket.

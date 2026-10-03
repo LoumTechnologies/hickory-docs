@@ -1,3 +1,4 @@
+import type { AgentEditorContext } from "../api/agentTypes";
 // The agent chat dock along the bottom of a document.
 //
 // The conversation is a TREE, not a transcript. Every message records the turn
@@ -109,6 +110,8 @@ export function hasUsage(t: AgentTotals): boolean {
 
 export interface ChatDockProps {
   docId: string;
+  getContext?: () => Promise<AgentEditorContext>;
+  contextLabel?: string;
   realtime: Realtime;
   /** Collapse to the composer only. */
   /** Collapse, for the one place this is still a dock. As a PANE there is
@@ -278,6 +281,8 @@ export function deepestFrom(turns: AgentTurn[], from: string): string {
 
 export function ChatDock({
   docId,
+  getContext,
+  contextLabel,
   realtime,
   collapsed = false,
   onToggleCollapsed,
@@ -500,6 +505,7 @@ export function ChatDock({
         provider || undefined,
         provider ? model.trim() : undefined,
         backend,
+        ...(getContext ? [await getContext()] as const : []),
       );
       setRunning(session_id);
       runningRef.current = session_id;
@@ -790,6 +796,7 @@ export function ChatDock({
         </div>
       )}
 
+      {contextLabel && <p className="chat-note muted">Context: {contextLabel}. Current editor text is included when you send.</p>}
       <div className="chat-composer">
         {/* The draft is a bubble too, tail on your side: what you are
             typing is the next thing you will have said. */}
@@ -836,9 +843,7 @@ export function ChatDock({
       </div>
       {unavailable && (
         <p className="chat-note muted">
-          The agent needs a provider API key. Set <code>ANTHROPIC_API_KEY</code>{" "}
-          (or <code>OPENAI_API_KEY</code>, <code>DEEPSEEK_API_KEY</code>,{" "}
-          <code>XAI_API_KEY</code>) in your environment and reopen this folder.
+          The agent needs a provider API key. Add one in <a href="#/settings">Settings</a>, then try again.
         </p>
       )}
       {note && <p className="chat-note muted">{note}</p>}

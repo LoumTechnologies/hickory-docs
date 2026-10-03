@@ -55,12 +55,11 @@ pub struct Session {
 }
 
 /// What keeps a local session alive. A workspace owns an engine, its lock,
-/// and its watcher; a blank window serves only the bundled UI. Keeping that
-/// distinction in the type prevents a blank window from acquiring (or merely
-/// appearing to acquire) a folder.
+/// and its watcher; a blank window owns editor session storage without a
+/// selected folder or a filesystem watcher.
 enum SessionResources {
     Workspace { _client: Box<ClientGuard> },
-    Blank,
+    Blank { _scratch: Option<tempfile::TempDir> },
 }
 
 /// A folder named explicitly by whoever started the app.
@@ -296,26 +295,47 @@ pub(crate) async fn start_with_menu(
 
 /// Serve the welcome screen for a window that deliberately has no workspace.
 ///
-/// This is not an empty temporary project: no directory is created, locked,
-/// watched, remembered, or exposed through `/api`. It is just enough local
-/// HTTP to give the embedded webview its normal one-origin page.
+/// Editor sessions need agent, settings, and buffer APIs even with no folder open.
 pub async fn start_blank() -> Result<Session> {
-    let dev = crate::dev::from_env()?;
-    let router = axum::Router::new()
-        // The page fallback must not turn a failed document request into the
-        // app shell: a blank window has no document API at all.
-        .route(
-            "/api",
-            axum::routing::any(|| async { StatusCode::NOT_FOUND }),
-        )
-        .route(
-            "/api/{*path}",
-            axum::routing::any(|| async { StatusCode::NOT_FOUND }),
-        )
-        .fallback(ui_handler);
+    start_blank_with_config(None, None).await
+}
+
+/// Host the normal API over internal session storage, without opening a folder.
+pub async fn start_blank_with_config(
+    config_dir: Option<&Path>,
+    shell: Option<Shell>,
+) -> Result<Session> {
+    let scratch = if config_dir.is_none() {
+        Some(tempfile::tempdir()?)
+    } else {
+        None
+    };
+    let root = config_dir
+        .map(|dir| dir.join("unfiled"))
+        .unwrap_or_else(|| {
+            scratch
+                .as_ref()
+                .expect("scratch storage")
+                .path()
+                .to_path_buf()
+        });
+    std::fs::create_dir_all(&root)?;
+    let prepared = hickory_cli::serve::prepare_without_folder(hickory_cli::serve::ServeOptions {
+        target: root,
+        port: 0,
+        params: Vec::new(),
+        executor: ExecutorChoice::from_env()?,
+        key_store_path: config_dir.map(|dir| dir.join("llm-keys.json")),
+        ui_settings_path: config_dir.map(ui_settings_file),
+    })
+    .await?;
+    if let Some(shell) = shell {
+        prepared.state.set_shell(shell);
+    }
+    let router = prepared.router.fallback(ui_handler);
     // `just dev` reserves its configured engine port for the workspace it is
-    // editing. The blank page has no API to proxy, so it always takes its own
-    // ephemeral port while still loading Vite for hot reload when configured.
+    // editing. The folderless session always takes its own
+    // ephemeral port for its editor session.
     let addr = SocketAddr::from((Ipv4Addr::LOCALHOST, 0));
     let listener = tokio::net::TcpListener::bind(addr)
         .await
@@ -330,11 +350,10 @@ pub async fn start_blank() -> Result<Session> {
 
     Ok(Session {
         url: format!("http://{bound}"),
-        ui_url: dev
-            .ui_origin
-            .clone()
-            .unwrap_or_else(|| format!("http://{bound}")),
-        _resources: SessionResources::Blank,
+        // A shared Vite proxy targets the main workspace, so a folderless window
+        // uses its own origin for both the UI and the editor API.
+        ui_url: format!("http://{bound}"),
+        _resources: SessionResources::Blank { _scratch: scratch },
     })
 }
 
