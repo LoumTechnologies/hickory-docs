@@ -11,6 +11,7 @@ import {
 } from "@codemirror/commands";
 import { search, searchKeymap } from "@codemirror/search";
 import { wordMotionBindings } from "./wordMotion";
+import { unwrapParagraphs } from "./unwrapParagraphs";
 import * as Y from "yjs";
 import { Awareness } from "y-protocols/awareness";
 import { yCollab } from "y-codemirror.next";
@@ -378,6 +379,7 @@ export function DocumentEditor({
           // OUTSIDE the numbers. Off by default — see editor/blameGutter.ts.
           blameGutter(),
           history(),
+          unwrapParagraphs(),
           // Undo must never reach content this client did not type.
           //
           // The room's first sync arrives as an ordinary document change, and

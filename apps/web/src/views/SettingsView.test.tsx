@@ -13,6 +13,7 @@ import { CHANNEL_WIDTH_KEY, loadChannelWidth } from "../lib/channelWidth";
 import { THEME_KEY, loadTheme } from "../lib/theme";
 import { WORD_MOTION_KEY, loadWordMotion } from "../lib/wordMotion";
 import { SettingsView } from "./SettingsView";
+import { UNWRAP_PARAGRAPHS_KEY, loadUnwrapParagraphs } from "../lib/unwrapParagraphs";
 
 // The backend contract (GET/PUT /api/settings/keys) is being added
 // concurrently; these tests mock it at the client seam, which is also what
@@ -31,6 +32,7 @@ beforeEach(() => {
     { id: "xai", label: "xAI", configured: false, masked: null },
   ];
   puts = [];
+  localStorage.removeItem(UNWRAP_PARAGRAPHS_KEY);
   uiSettings = { window_title: null, format_on_save: false };
   uiPuts = [];
   localStorage.removeItem(RIBBON_STYLE_KEY);
@@ -71,6 +73,17 @@ afterEach(() => {
 });
 
 describe("the settings view", () => {
+  // Guarantee: docs/guarantees/authoring/paragraphs-unwrap-by-default.md
+  it("defaults paragraph unwrapping on and remembers switching it off", () => {
+    const { unmount } = render(<SettingsView />);
+    const checkbox = screen.getByRole("checkbox", { name: "Unwrap Markdown paragraphs" }) as HTMLInputElement;
+    expect(checkbox.checked).toBe(true);
+    fireEvent.click(checkbox);
+    expect(loadUnwrapParagraphs()).toBe(false);
+    unmount();
+    render(<SettingsView />);
+    expect((screen.getByRole("checkbox", { name: "Unwrap Markdown paragraphs" }) as HTMLInputElement).checked).toBe(false);
+  });
   it("lists all five providers with their configured state", async () => {
     render(<SettingsView />);
     for (const label of ["Anthropic", "OpenAI", "OpenRouter", "DeepSeek", "xAI"]) {

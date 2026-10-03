@@ -18,6 +18,7 @@ import { useEffect, useState } from "react";
 
 import { api } from "../api/client";
 import { setFormatOnSave } from "../lib/formatOnSave";
+import { loadUnwrapParagraphs, saveUnwrapParagraphs } from "../lib/unwrapParagraphs";
 import { KeyboardSection } from "./KeyboardSection";
 import { AgentSettings } from "./AgentSettings";
 import { navigate } from "../router";
@@ -321,13 +322,14 @@ function AppearanceSection() {
 /**
  * Editing behaviour, as opposed to how the app looks.
  *
- * One row so far, and it is here rather than under Appearance because it
+ * Word navigation is here rather than under Appearance because it
  * changes what a key DOES: a person hunting for it after Ctrl+→ overshot is
  * not looking under "Appearance". The keymap re-reads the stored value on
  * every Ctrl+arrow, so the change lands in editors that are already open
  * without navigating back — see editor/wordMotion.ts.
  */
 function EditingSection() {
+  const [unwrap, setUnwrap] = useState(loadUnwrapParagraphs);
   const [wordMotion, setWordMotion] = useState<WordMotion>(() => loadWordMotion());
   // Format on save, as the server knows it. Off until the read lands: the
   // default, and the honest answer while nothing is known.
@@ -392,6 +394,29 @@ function EditingSection() {
     <section className="settings__appearance" aria-label="Editing">
       <h2 className="settings__section-title">Editing</h2>
       <div className="settings__rows">
+        <div className="settings-row settings-row--appearance">
+          <div className="settings-row__who">
+            <label className="settings-row__label" htmlFor="unwrap-paragraphs">
+              Unwrap Markdown paragraphs
+            </label>
+          </div>
+          <div className="settings-row__actions">
+            <input
+              id="unwrap-paragraphs"
+              type="checkbox"
+              checked={unwrap}
+              onChange={(event) => {
+                setUnwrap(event.target.checked);
+                saveUnwrapParagraphs(event.target.checked);
+              }}
+            />
+            <span className="muted">
+              Join wrapped paragraph lines when opening documents or pasting text,
+              then wrap them visually at the ruler. Explicit line breaks, lists,
+              code and document payloads keep their lines. On by default.
+            </span>
+          </div>
+        </div>
         <ChoiceRow
           label="Word navigation"
           value={wordMotion}

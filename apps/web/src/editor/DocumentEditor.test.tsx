@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { EditorView as EditorViewType } from "@codemirror/view";
 import { DocumentEditor, assertionStates, matchExecBlock } from "./DocumentEditor";
@@ -8,6 +8,8 @@ import { CLI_BLOCKS } from "../mock/mockData";
 import { parseHickDoc } from "./hickDoc";
 import { ICON_SIZE } from "../lib/cardRail";
 import type { ExecBlock } from "../api/types";
+import { undo } from "@codemirror/commands";
+import { saveUnwrapParagraphs, UNWRAP_PARAGRAPHS_KEY } from "../lib/unwrapParagraphs";
 
 // The real engine wants a live browser; these tests are about what the editor
 // HANDS the panel, not what the panel draws.
@@ -24,6 +26,41 @@ afterEach(cleanup);
 const execBlocks = CLI_BLOCKS.filter((b): b is ExecBlock => b.kind === "exec");
 
 describe("DocumentEditor (WYSIWYG over raw source)", () => {
+  // Guarantee: docs/guarantees/authoring/paragraphs-unwrap-by-default.md
+  it("reflows synced prose through the live room and reports the source edit, with Undo and opt-out", async () => {
+    const source = "A wrapped paragraph\ncontinues here.\n";
+    const onChange = vi.fn();
+    const realtime = new LocalRealtime();
+    let view: EditorViewType | null = null;
+    localStorage.removeItem(UNWRAP_PARAGRAPHS_KEY);
+    const props = {
+      docId: "unwrap", initialSource: source, realtime, execBlocks: [],
+      runningCells: new Set<string>(), onRunCell: () => undefined, onChange,
+      onViewReady: (ready: EditorViewType | null) => { view = ready; },
+    };
+    const mounted = render(<DocumentEditor {...props} />);
+    try {
+      await waitFor(() => expect(view?.state.doc.toString()).toBe("A wrapped paragraph continues here.\n"));
+      expect(onChange).toHaveBeenLastCalledWith("A wrapped paragraph continues here.\n");
+      await act(async () => { expect(undo(view!)).toBe(true); });
+      expect(view!.state.doc.toString()).toBe(source);
+      mounted.unmount();
+      realtime.close();
+      saveUnwrapParagraphs(false);
+      const offRealtime = new LocalRealtime();
+      const off = render(<DocumentEditor {...props} realtime={offRealtime} />);
+      try {
+        await waitFor(() => expect(view?.state.doc.toString()).toBe(source));
+      } finally {
+        off.unmount();
+        offRealtime.close();
+      }
+    } finally {
+      mounted.unmount();
+      realtime.close();
+      localStorage.removeItem(UNWRAP_PARAGRAPHS_KEY);
+    }
+  });
   it("mounts one CodeMirror instance whose text IS the raw source", async () => {
     const realtime = new LocalRealtime();
     // Compact so every line is inside jsdom's zero-height viewport estimate.
