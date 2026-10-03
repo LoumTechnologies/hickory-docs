@@ -16,15 +16,21 @@ Given the introduction has been closed, when File → New Document is chosen,
 then a blank untitled document opens. The introduction is startup content,
 not a template inserted into every new document.
 
+Given `apps/web/src/content/startup.md` is edited in a Markdown editor, when
+the frontend is rebuilt, then the startup introduction contains that file's
+exact contents. The Markdown file is the source for the bundled introduction.
+
 ---
 
 Last LLM verification:
-- Date: 2026-10-02
+- Date: 2026-10-03
 - Reviewer: Codex
-- Result: verified in the real editor under jsdom; live desktop/browser testing
-  blocked by sandbox refusal to bind the development server (`listen EPERM`).
+- Result: verified in the real editor under jsdom; `just test-startup-web`
+  passes all 45 tests and `just build-web` bundles the Markdown import.
+  Live desktop/browser testing was not rerun for this extraction.
 - Evidence: `App.tsx`, `WorkspaceView.tsx`, `workspaceState.ts`, `workspaceTabs.tsx`,
-  and `lib/newDoc.ts`.
+  `lib/newDoc.ts`, and `apps/web/src/content/startup.md`. The introduction is
+  imported with Vite's `?raw` suffix and passed to the startup buffer unchanged.
 - Test coverage: `apps/web/src/App.test.tsx` mounts the real startup workspace
   and editor, tests editing and native Save/Files/Agent/New commands, and
   overrides stored pane layouts and the Welcome preference.
