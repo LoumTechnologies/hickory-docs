@@ -12,6 +12,7 @@ import {
   type ReactNode,
 } from "react";
 
+import { useRecentFiles } from "./useRecentFiles";
 import { STARTUP_INTRODUCTION } from "../lib/newDoc";
 import { api } from "../api/client";
 import { MergeDriverNotice } from "../components/MergeDriverNotice";
@@ -363,14 +364,7 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
       window.removeEventListener("focus", read);
     };
   }, []);
-  /** The path of whatever tab is active in the focused pane. */
-  const focusedPath: string | null = (() => {
-    const pane = paneById(layout, layout.focus);
-    const tab = pane?.tabs[pane.active];
-    return tab && tab.kind !== "tree" && tab.kind !== "tool"
-      ? tab.target
-      : null;
-  })();
+  const focusedPath = useRecentFiles(layout);
   const welcomeActions: WelcomeAction[] = useMemo(
     () =>
       welcomeActionsFor({

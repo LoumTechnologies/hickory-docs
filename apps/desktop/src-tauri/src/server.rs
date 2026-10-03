@@ -231,6 +231,15 @@ pub async fn start(
     config_dir: Option<&Path>,
     shell: Option<Shell>,
 ) -> Result<Session> {
+    start_with_menu(target, config_dir, shell, None).await
+}
+
+pub(crate) async fn start_with_menu(
+    target: &Path,
+    config_dir: Option<&Path>,
+    shell: Option<Shell>,
+    handle: Option<tauri::AppHandle>,
+) -> Result<Session> {
     // Development may name the port, so that whatever is proxying to the
     // engine can be pointed at it before the engine exists. Unset — which is
     // every downloaded copy — leaves the ephemeral port below. See dev.rs.
@@ -254,6 +263,10 @@ pub async fn start(
     let router =
         hickory_cli::engine::client_router(connection, shell, token, dev.ui_origin.clone())
             .fallback(ui_handler);
+    let router = match handle {
+        Some(handle) => crate::recent::routes(router, handle, target, dev.ui_origin.clone()),
+        None => router,
+    };
     let bound = listener.local_addr()?;
 
     tokio::spawn(async move {

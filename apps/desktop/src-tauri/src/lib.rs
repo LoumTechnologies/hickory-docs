@@ -20,6 +20,7 @@
 //! waiting on.
 
 pub mod dev;
+mod recent;
 pub mod server;
 
 use std::path::{Path, PathBuf};
@@ -34,6 +35,9 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .on_menu_event(|app, event| on_menu(app, event.id().as_ref()))
         .on_window_event(|window, event| {
+            if let WindowEvent::Focused(true) = event {
+                recent::refresh(window.app_handle());
+            }
             if let WindowEvent::CloseRequested { api, .. } = event {
                 // A blank window has neither unsaved buffers nor a document API.
                 if window.app_handle().try_state::<BlankWindow>().is_some() {
@@ -139,6 +143,7 @@ fn app_menu(handle: &AppHandle) -> tauri::Result<Menu<Wry>> {
         .quit()
         .build()?;
 
+    let recent = recent::Menus::new(handle)?;
     let file = SubmenuBuilder::new(handle, "File")
         .item(&item(
             handle,
@@ -174,6 +179,9 @@ fn app_menu(handle: &AppHandle) -> tauri::Result<Menu<Wry>> {
             "Open Folder…",
             "CmdOrCtrl+Shift+O",
         )?)
+        .item(&recent.files)
+        .item(&recent.folders)
+        .separator()
         .item(&item(handle, &keys, "save", "Save", "CmdOrCtrl+S")?)
         .item(&item(
             handle,
@@ -235,6 +243,8 @@ fn app_menu(handle: &AppHandle) -> tauri::Result<Menu<Wry>> {
         .separator()
         .quit()
         .build()?;
+
+    handle.manage(recent);
 
     let edit = SubmenuBuilder::new(handle, "Edit")
         .undo()
@@ -449,13 +459,32 @@ fn on_menu(app: &AppHandle, id: &str) {
         // dialog, and a modal asking which picker you meant is worse than a
         // second menu item. Pickers block, and blocking dialogs deadlock the
         // main thread (see `run`) — so both run on a worker.
+        _ if id.starts_with("recent-file:") || id.starts_with("recent-folder:") => {
+            let (kind, path) = id.split_once(':').expect("recent path prefix");
+            let file = kind == "recent-file";
+            let path = PathBuf::from(path);
+            let handle = app.clone();
+            std::thread::spawn(move || {
+                if (file && !path.is_file()) || (!file && !path.is_dir()) {
+                    recent::refresh(&handle);
+                    handle.dialog().message(format!(
+                        "Could not open {}. It has moved or is unavailable.\n\nUse File → Open File or Open Folder to choose its current location.",
+                        path.display()
+                    )).kind(MessageDialogKind::Warning).title("Could not open recent path").blocking_show();
+                } else if file {
+                    open_file(&handle, &path);
+                } else {
+                    switch_to(&handle, &path);
+                }
+            });
+        }
         "open-folder" => {
             let handle = app.clone();
             std::thread::spawn(move || {
                 let picked = handle
                     .dialog()
                     .file()
-                    .set_title("Open a folder of .hick documents")
+                    .set_title("Open a folder of documents")
                     .blocking_pick_folder()
                     .and_then(|p| p.into_path().ok());
                 if let Some(dir) = picked {
@@ -475,22 +504,25 @@ fn on_menu(app: &AppHandle, id: &str) {
                     .blocking_pick_file()
                     .and_then(|p| p.into_path().ok());
                 let Some(file) = picked else { return };
-                // A file INSIDE the current session's folder opens in place:
-                // the workspace is multi-document, so this is one more tab,
-                // not a new session. A file elsewhere opens a file-only session.
-                let inside = handle
-                    .try_state::<OpenedDir>()
-                    .map(|d| file.starts_with(&d.0))
-                    .unwrap_or(false);
-                if inside {
-                    open_path_in_ui(&handle, &file);
-                } else {
-                    switch_to(&handle, &file);
-                }
+                open_file(&handle, &file);
             });
         }
         // Predefined items (Quit, Edit, Window) are handled by the OS.
         _ => {}
+    }
+}
+
+fn open_file(handle: &AppHandle, file: &Path) {
+    let file = file.canonicalize().unwrap_or_else(|_| file.to_path_buf());
+    let inside = handle
+        .try_state::<OpenedDir>()
+        .map(|d| file.starts_with(&d.0))
+        .unwrap_or(false);
+    if inside {
+        open_path_in_ui(handle, &file);
+        recent::record(handle, &file);
+    } else {
+        switch_to(handle, &file);
     }
 }
 
@@ -502,9 +534,8 @@ struct OpenedDir(PathBuf);
 /// open a folder or it would launch blank again.
 struct BlankWindow;
 
-/// Switch the session to another folder. A workspace restarts; a blank window
-/// starts a normal app process and exits, leaving its `--blank-window` launch
-/// flag behind.
+/// Switch by launching the selected target explicitly, then exiting this
+/// window. This leaves any original path or `--blank-window` flag behind.
 fn switch_to(handle: &AppHandle, dir: &Path) {
     if handle.try_state::<BlankWindow>().is_some() {
         match open_folder_in_new_process(dir) {
@@ -519,10 +550,8 @@ fn switch_to(handle: &AppHandle, dir: &Path) {
     if let Ok(config_dir) = handle.path().app_config_dir() {
         server::remember(&config_dir, dir);
     }
-    if dir.is_dir() {
-        handle.restart();
-    }
-    // Relaunch with the chosen path: a file must stay a file target.
+    // Relaunch with an explicit target. Restart would preserve the original
+    // command-line path and reopen it instead of the newly selected folder.
     match open_folder_in_new_process(dir) {
         Ok(()) => handle.exit(0),
         Err(e) => fail(
@@ -590,10 +619,11 @@ fn launch(handle: AppHandle) {
     // act, and is tried once: someone who typed a path wants that path, and
     // falling back to a picker would quietly hide their typo.
     if let Some(dir) = server::named_dir() {
-        match runtime.block_on(server::start(
+        match runtime.block_on(server::start_with_menu(
             &dir,
             config_dir.as_deref(),
             Some(server::shell_hooks(&handle, config_dir.as_deref())),
+            Some(handle.clone()),
         )) {
             Ok(session) => open(&handle, runtime, session, config_dir.as_deref(), &dir),
             Err(e) => fail(
@@ -630,10 +660,11 @@ fn launch(handle: AppHandle) {
             },
         };
 
-        match runtime.block_on(server::start(
+        match runtime.block_on(server::start_with_menu(
             &dir,
             config_dir.as_deref(),
             Some(server::shell_hooks(&handle, config_dir.as_deref())),
+            Some(handle.clone()),
         )) {
             Ok(session) => {
                 open(&handle, runtime, session, config_dir.as_deref(), &dir);
@@ -693,7 +724,7 @@ fn pick_folder(handle: &AppHandle) -> Option<PathBuf> {
     handle
         .dialog()
         .file()
-        .set_title("Open a folder of .hick documents")
+        .set_title("Open a folder of documents")
         .blocking_pick_folder()
         .and_then(|p| p.into_path().ok())
 }
@@ -710,7 +741,10 @@ fn open(
     config_dir: Option<&Path>,
     dir: &Path,
 ) {
-    handle.manage(OpenedDir(dir.to_path_buf()));
+    handle.manage(OpenedDir(
+        dir.canonicalize().unwrap_or_else(|_| dir.to_path_buf()),
+    ));
+    recent::record(handle, dir);
     if let Some(config_dir) = config_dir {
         server::remember(config_dir, dir);
     }

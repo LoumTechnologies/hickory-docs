@@ -315,3 +315,8 @@ test-startup-web:
 build-desktop-app:
     cd apps/desktop/src-tauri && APPLE_SIGNING_IDENTITY="-" cargo tauri build --debug --bundles app
     codesign --verify --deep --strict "apps/desktop/src-tauri/target/debug/bundle/macos/Hickory Docs.app"
+
+# Recent File/Folder persistence and workspace navigation.
+test-recent-paths:
+    cargo test --manifest-path apps/desktop/src-tauri/Cargo.toml --lib recent::tests
+    cd apps/web && npm run typecheck && npm test -- src/views/useRecentFiles.test.tsx
