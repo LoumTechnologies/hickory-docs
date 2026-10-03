@@ -1,41 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { landingTarget, untitledDraftKey, untitledPath, untitledSaveName, wrapUntitled } from "./newDoc";
-
-const doc = (id: string, updated_at: string) => ({
-  id,
-  path: `${id}.md`,
-  updated_at,
-});
-
-describe("where the app lands", () => {
-  it("lands on a fresh untitled buffer when the folder is empty", () => {
-    expect(landingTarget([])).toEqual({ kind: "new" });
-  });
-
-  it("opens the most recently updated document", () => {
-    expect(
-      landingTarget([
-        doc("a", "2026-01-01T00:00:00Z"),
-        doc("b", "2026-03-01T00:00:00Z"),
-        doc("c", "2026-02-01T00:00:00Z"),
-      ]),
-    ).toEqual({ kind: "doc", id: "b" });
-  });
-
-  it("never lands on a chooser for a single document", () => {
-    expect(landingTarget([doc("only", "2026-01-01T00:00:00Z")])).toEqual({
-      kind: "doc",
-      id: "only",
-    });
-  });
-
-  it("tolerates an unparseable timestamp", () => {
-    // A bad stamp must not decide the landing by throwing or by winning.
-    expect(
-      landingTarget([doc("bad", "not a date"), doc("good", "2026-01-01T00:00:00Z")]),
-    ).toEqual({ kind: "doc", id: "good" });
-  });
-});
+import { untitledDraftKey, untitledPath, untitledSaveName, wrapUntitled } from "./newDoc";
 
 describe("naming the untitled document", () => {
   // Guarantee: docs/guarantees/authoring/new-document-is-an-act.md

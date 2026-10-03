@@ -1,11 +1,10 @@
 import { useEffect, useRef, useState } from "react";
-import { navigate, redirect, useRoute, newDocument } from "./router";
+import { navigate, useRoute, newDocument } from "./router";
 import { LineageView } from "./views/LineageView";
 import { SettingsView } from "./views/SettingsView";
 import { WorkspaceView } from "./views/WorkspaceView";
 import { api } from "./api/client";
 import { insertTarget, onMenuAction } from "./lib/menuBridge";
-import { landingTarget } from "./lib/newDoc";
 import { TooltipLayer } from "./components/TooltipLayer";
 import { NewProjectDialog } from "./components/NewProjectDialog";
 import { showTerminalRequest } from "./lib/revealLine";
@@ -27,7 +26,10 @@ const SCAFFOLD_POLL_TRIES = 1500;
 /// answers one person: the one whose machine it is. The marketing site is a
 /// separate build — see `docs/specs/freeform/local-only.md`.
 export function App() {
-  const route = useRoute();
+  const requestedRoute = useRoute();
+  const route = requestedRoute.name === "landing"
+    ? { name: "new" as const, introduction: true }
+    : requestedRoute;
 
   // The desktop shell's native menu, arriving as DOM events (menuBridge).
   // Navigation is answered here; Save / Save As need the focused document,
@@ -186,7 +188,7 @@ export function App() {
         ) : route.name === "blank" ? (
           <BlankWelcome />
         ) : (
-          <Landing />
+          <BlankWelcome />
         )}
       </main>
       {notice && (
@@ -202,38 +204,6 @@ export function App() {
       )}
       {/* One tooltip for the whole app; every `data-tip` in it lands here. */}
       <TooltipLayer />
-    </div>
-  );
-}
-
-/// The front door. The app opens like an editor: in a document, always — the
-/// most recently updated one, or a fresh untitled buffer when the folder has
-/// none. A redirect rather than a page, so Back never revisits the decision.
-function Landing() {
-  useEffect(() => {
-    let live = true;
-    void (async () => {
-      try {
-        const projects = await api.projects();
-        const first = projects[0];
-        const docs = first ? await api.projectDocs(first.id) : [];
-        if (!live) return;
-        const target = landingTarget(docs);
-        redirect(target.kind === "doc" ? `/docs/${target.id}` : "/new");
-      } catch {
-        // A server that cannot list documents can still hold a buffer: the
-        // untitled editor works before any file exists.
-        if (live) redirect("/new");
-      }
-    })();
-    return () => {
-      live = false;
-    };
-  }, []);
-
-  return (
-    <div className="start">
-      <p className="muted">Opening…</p>
     </div>
   );
 }

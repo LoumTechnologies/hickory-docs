@@ -93,20 +93,9 @@ export function openWelcomeTab(layout: Layout): Layout {
   return openInLayout(layout, makeTab("tool", WELCOME_TAB, "Welcome"), layout.focus);
 }
 
-/**
- * The layout a brand-new workspace starts as: the folder tree on the left,
- * the work in the middle, the agent on the right.
- *
- * The chat is a PANE here rather than a dock along the bottom. A dock made it
- * a mode — it covered the document it was about, and collapsing it was the
- * only way to see the thing you were asking about. As a pane it sits beside
- * the work, and can be moved, split, resized, or closed like anything else.
- */
+/** A new workspace starts with only its editor. Tools open on demand. */
 export function initialWorkspace(): Layout {
-  return withRail(
-    withTree(freeform(), makeTab("tree", "folder", "Files")),
-    makeTab("chat", CHAT_TAB, "Agent"),
-  );
+  return freeform();
 }
 
 /** Show the agent conversation. Opening it twice fronts the one that exists. */

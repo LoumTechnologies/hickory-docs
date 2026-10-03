@@ -10,19 +10,33 @@ A failed build or staging copy leaves an existing installed app untouched.
 Re-running the recipe replaces the installed bundle. User documents and
 settings are not part of that replacement.
 
-After successful installation and registration, the recipe unregisters and
-removes the build-output `.app` from the checkout so macOS cannot discover
-that copy as a second launcher entry. A failed installation keeps the build
+After successful installation and registration, the recipe attempts to
+unregister and removes the build-output `.app` from the checkout so macOS
+cannot discover that copy as a second launcher entry. If macOS refuses to
+unregister the build copy, cleanup warns and still removes it; this does not
+fail the installed app's registration. A failed installation keeps the build
 copy available.
 
-The welcome pane becomes active after the workspace restores, with the
-restored tabs still available. Unchecking “Show this page when a folder opens”
-disables this startup behavior.
+The main window starts with an unsaved, untitled literate document explaining
+Hickory Docs, with Files and Agent available on demand. Startup ignores the
+previous pane arrangement and Welcome preference. See
+`../authoring/the-app-starts-as-a-lightweight-editor.md`.
 
 ---
 
 Last LLM verification:
 
+- Cleanup fix (2026-10-03, Codex): `justfile::local-install` keeps installed
+  app registration mandatory but treats build-copy unregistration as best
+  effort. `just local-install` completed with exit code 0 on this Mac despite
+  reproducing LaunchServices' `-10814` during cleanup; the build copy was
+  removed and the installed bundle passed strict signature verification.
+  A temporary shell check also forced unregister failure and confirmed the
+  warning, removal, and successful exit. Recipe syntax and `git diff --check`
+  passed. This verifies installation cleanup, not the startup UI.
+- Startup review (2026-10-02, Codex): the introduction replaces the Welcome
+  startup surface. `App.test.tsx` verifies the real editor and menu commands;
+  the native launch observation below describes the earlier build.
 - Cleanup review (2026-10-01, Codex): the build copy is unregistered and
   removed only after replacement and registration of the installed app
   succeed. `just --dry-run local-install` passed `bash -n`, and

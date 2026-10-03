@@ -301,9 +301,11 @@ const NO_RUNNING_CELLS = new Set<string>();
  */
 export function UntitledTab({
   tabId,
+  initialSource = "",
   onSource,
 }: {
   tabId: string;
+  initialSource?: string;
   onSource?: (tabId: string, source: string) => void;
 }) {
   // A local, client-seeded realtime: there is no server room to join until
@@ -316,7 +318,7 @@ export function UntitledTab({
     <div className="untitled-tab">
       <DocumentEditor
         docId="untitled"
-        initialSource=""
+        initialSource={initialSource}
         realtime={realtime}
         placeholderText={PLACEHOLDER}
         execBlocks={[]}

@@ -7,6 +7,7 @@ import {
   split,
   tab as makeTab,
   treePane,
+  withTree,
   type Layout,
   type Pane,
   type Tab, freeform } from "../shell/layout";
@@ -43,26 +44,18 @@ function editorPane(layout: Layout): Pane {
 }
 
 describe("initialWorkspace", () => {
-  it("starts empty: the tree, an empty editor pane, and the agent", () => {
-    // Three panes, and still "empty": the tree and the agent are furniture —
-    // part of the window rather than of the work — so a declared layout may
-    // still be applied into this.
+  it("starts with one empty editor pane and no tools", () => {
     const layout = initialWorkspace();
     expect(isWorkspaceEmpty(layout)).toBe(true);
-    expect(treePane(layout)).not.toBeNull();
-    expect(panes(layout.root)).toHaveLength(3);
-  });
-
-  it("puts the agent on the right, and the tree on the left", () => {
-    const layout = initialWorkspace();
-    const order = panes(layout.root).map((pane) => pane.tabs[0]?.kind ?? "empty");
-    expect(order).toEqual(["tree", "empty", "chat"]);
+    expect(treePane(layout)).toBeNull();
+    expect(panes(layout.root)).toHaveLength(1);
+    expect(allTabs(layout)).toEqual([]);
   });
 
   it("fronts the agent pane that exists rather than opening a second", () => {
-    const layout = initialWorkspace();
+    const layout = openChatTab(initialWorkspace());
     const again = openChatTab(layout);
-    expect(panes(again.root)).toHaveLength(3);
+    expect(panes(again.root)).toHaveLength(2);
     expect(panes(again.root).filter((p) => p.tabs.some((t) => t.kind === "chat"))).toHaveLength(1);
   });
 
@@ -113,7 +106,7 @@ describe("openDocTab", () => {
   });
 
   it("never closes anything: every open tab survives every open", () => {
-    let layout = openDocTab(initialWorkspace(), "d1", "a.md");
+    let layout = openDocTab(withTree(initialWorkspace(), makeTab("tree", "folder", "Files")), "d1", "a.md");
     layout = openGeneratedTab(layout, "d1", "out/a.py", []);
     layout = openDocTab(layout, "d2", "b.md");
     layout = openDocTab(layout, "d3", "c.md");
@@ -126,7 +119,7 @@ describe("openDocTab", () => {
   });
 
   it("refuses to bury the tree: a focused tree pane sends the open elsewhere", () => {
-    const base = initialWorkspace();
+    const base = withTree(initialWorkspace(), makeTab("tree", "folder", "Files"));
     const tree = treePane(base)!;
     const focusedOnTree: Layout = { ...base, focus: tree.id };
     const layout = openDocTab(focusedOnTree, "d1", "a.md");
@@ -215,7 +208,7 @@ describe("openFileTab", () => {
   });
 
   it("never opens over the tree: a tree-focused workspace grows a pane instead", () => {
-    const fresh = initialWorkspace();
+    const fresh = withTree(initialWorkspace(), makeTab("tree", "folder", "Files"));
     const tree = treePane(fresh)!;
     const layout = openFileTab(activate(fresh, tree.id, 0), "README.md");
     const found = findFileTab(layout, "README.md")!;
@@ -342,7 +335,7 @@ describe("untitled", () => {
 
 describe("docIdsIn / focusedDocId", () => {
   it("collects every involved document once — doc tabs and generated tabs' owners", () => {
-    let layout = openDocTab(initialWorkspace(), "d1", "a.md");
+    let layout = openDocTab(withTree(initialWorkspace(), makeTab("tree", "folder", "Files")), "d1", "a.md");
     layout = openGeneratedTab(layout, "d1", "out/a.py", []);
     layout = openDocTab(layout, "d2", "b.md");
     expect(docIdsIn(layout)).toEqual(["d1", "d2"]);
@@ -368,7 +361,7 @@ describe("docIdsIn / focusedDocId", () => {
   });
 
   it("focusedDocId reads the focused pane's active tab, and answers null for chrome", () => {
-    let layout = openDocTab(initialWorkspace(), "d1", "a.md");
+    let layout = openDocTab(withTree(initialWorkspace(), makeTab("tree", "folder", "Files")), "d1", "a.md");
     expect(focusedDocId(layout)).toBe("d1");
     const generated = openGeneratedTab(layout, "d1", "out/a.py", []);
     expect(focusedDocId(generated)).toBe("d1");
@@ -389,7 +382,7 @@ describe("adding docId to tabs breaks nothing kind-agnostic", () => {
 
 describe("openTerminalTab — a session gets one tab, and keeps it", () => {
   it("adds a terminal tab beside the tree rather than over it", () => {
-    const layout = openTerminalTab(initialWorkspace(), "term-1", "build");
+    const layout = openTerminalTab(withTree(initialWorkspace(), makeTab("tree", "folder", "Files")), "term-1", "build");
     const terminals = panes(layout.root).flatMap((p) =>
       p.tabs.filter((t) => t.kind === "terminal"),
     );

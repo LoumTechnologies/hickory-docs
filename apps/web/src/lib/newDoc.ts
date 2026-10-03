@@ -1,31 +1,39 @@
-// Where the app lands when it opens, and what a fresh document is made of.
-//
-// The app never lands on a chooser: an empty folder lands in a new untitled
-// buffer, a folder with documents lands in the one touched last. The untitled
-// buffer holds only prose. Save names the real file past whatever the folder
-// already holds, and it then holds exactly what was typed.
+// New notes remain ordinary Markdown documents until explicitly saved.
 
-import type { DocSummary } from "../api/types";
+/** Editable introduction in the startup buffer; no project file is created. */
+export const STARTUP_INTRODUCTION = `# Hickory Docs
 
-export type LandingTarget = { kind: "new" } | { kind: "doc"; id: string };
+Start with a note. Grow into an IDE.
 
-/** Which document to land in: the most recently updated one, or a fresh
- * untitled buffer when the folder has none. */
-export function landingTarget(docs: DocSummary[]): LandingTarget {
-  if (docs.length === 0) return { kind: "new" };
-  let best = docs[0];
-  for (const doc of docs) {
-    if (stamp(doc.updated_at) > stamp(best.updated_at)) best = doc;
-  }
-  return { kind: "doc", id: best.id };
-}
+Hickory Docs is a lightweight editor for Markdown documents that can also
+hold code, run commands, and explain where their results came from.
+Write notes, work through an idea, or keep an explanation beside the code
+it describes. Your documents are ordinary .md files on your machine.
 
-// An unparseable timestamp must not decide the landing by throwing; it simply
-// never wins against a real one.
-function stamp(iso: string): number {
-  const t = Date.parse(iso);
-  return Number.isNaN(t) ? Number.NEGATIVE_INFINITY : t;
-}
+## Start writing
+
+This is an untitled, unsaved literate document. Edit or replace this text
+and choose File → Save when you want to give it a name. File → New Document
+opens a blank note. File → Open File… opens an existing file.
+
+## Add tools when you need them
+
+Choose View → Show Files to browse your folder, or View → Agent to work with an
+AI assistant. Open a terminal, arrange documents side by side, and bring
+in code navigation and debugging as your work grows.
+
+## Notes that can run
+
+A literate document keeps prose, source code, and runnable commands together.
+Use Insert to add a code file or command cell. Save your document, then use
+Run to execute its cells and Test to check their recorded expectations.
+Generated files keep a connection to the document that produced them.
+
+Meeting transcripts can become notes too. An AI summary can carry a checkable
+fingerprint of its source, so changing the transcript reveals a stale summary.
+
+Start small. The rest of the workspace is here when you need it.
+`;
 
 /**
  * The path the untitled document is created at: `untitled.md`, then

@@ -194,7 +194,11 @@ local-install:
     /System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -f "$destination"
     # Leave only the installed app for macOS to discover, after installation
     # succeeds. Unregister the build copy while its bundle still exists.
-    /System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -u "$bundle"
+    # LaunchServices can refuse to scan this disposable copy (-10814).
+    # That must not fail an already registered install or prevent removal.
+    if ! /System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -u "$bundle"; then
+      echo "Warning: macOS could not unregister the build copy; removing it anyway." >&2
+    fi
     rm -rf "$bundle"
     echo "Installed $destination. Launch Hickory Docs from Applications or Spotlight."
 
@@ -298,3 +302,16 @@ test-conversation-lineage:
     cargo test -p hick-literate --lib session_elements::tests
     cargo test -p hickory-cli --test session_lens -- --test-threads=1
     cd apps/web && npm run typecheck && npm test -- src/components/FeatureSettings.test.tsx src/components/ChatDock.test.tsx src/components/AcpControls.test.tsx src/views/SessionLens.test.tsx src/lib/conversationLineage.test.ts src/lib/lensSources.test.ts
+
+# Compile the frontend bundled into desktop builds.
+build-web:
+    cd apps/web && npm run build
+
+# Startup integration with the real editor, plus its layout and naming rules.
+test-startup-web:
+    cd apps/web && npm run typecheck && npm test -- src/App.test.tsx src/views/workspaceState.test.ts src/lib/newDoc.test.ts
+
+# Make a locally signed macOS bundle without replacing the installed app.
+build-desktop-app:
+    cd apps/desktop/src-tauri && APPLE_SIGNING_IDENTITY="-" cargo tauri build --debug --bundles app
+    codesign --verify --deep --strict "apps/desktop/src-tauri/target/debug/bundle/macos/Hickory Docs.app"

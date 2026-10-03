@@ -10,6 +10,7 @@ test("the live Files pane navigates and renames like an editor", async ({ page }
   try {
     await page.request.post("/api/files/op", { data: { op: "create", path: before } });
     await page.goto("/");
+    await page.evaluate(() => window.dispatchEvent(new CustomEvent("hickory-menu", { detail: "files" })));
     const content = page.locator(".filesystem-editor .cm-content");
     await content.click();
     await content.press("Control+End");
@@ -29,6 +30,7 @@ test("the live Files pane navigates and renames like an editor", async ({ page }
     await content.press("Control+s");
     await expect.poll(async () => JSON.stringify(await (await page.request.get("/api/files")).json())).toContain(after);
     await page.reload();
+    await page.evaluate(() => window.dispatchEvent(new CustomEvent("hickory-menu", { detail: "files" })));
     await content.click();
     await content.press("Control+End");
     await expect(content.locator(`[data-tree-path="${after}"]`)).toBeVisible();
@@ -47,6 +49,7 @@ test("the live Files pane navigates and renames like an editor", async ({ page }
     // deletion gesture starts against that settled server projection rather
     // than the editor instance that is being replaced.
     await page.reload();
+    await page.evaluate(() => window.dispatchEvent(new CustomEvent("hickory-menu", { detail: "files" })));
     const refreshedContent = page.locator(".filesystem-editor .cm-content");
     await refreshedContent.click();
     await refreshedContent.press("Control+End");

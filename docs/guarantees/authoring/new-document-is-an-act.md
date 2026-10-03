@@ -28,8 +28,8 @@ Two properties hold it up:
 ## Boundary
 
 One Untitled buffer at a time is deliberate, as with the scratchpad: a
-second unnamed buffer splits a thought across two places. It begins blank,
-always; New never reads an older unnamed draft. Typing never creates
+second unnamed buffer splits a thought across two places. File → New begins blank and never reads an older unnamed draft. The app's
+startup buffer instead contains an editable introduction to Hickory Docs. Typing never creates
 `untitled.md`; **Save** and **Save As** open the platform's file-save dialog,
 initially in the folder Hickory Docs has open, and only then create the
 document. The first Markdown heading supplies its suggested filename; without

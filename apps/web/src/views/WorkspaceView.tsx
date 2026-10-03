@@ -1,21 +1,6 @@
-// The workspace: ONE layout, above document identity.
-//
-// This component mounts once for every document-shaped route and stays
-// mounted as `#/docs/<id>` comes and goes. That inversion is the whole
-// point: the tile tree, the focus, the collapse state and every open tab
-// are session state a navigation must never reset. Opening a document —
-// from the tree, from a URL, from search, from the untitled buffer growing
-// a name — ADDS a tab (or activates the one that exists) and touches
-// nothing else.
-//
-// Per-document machinery (CRDT room, runs, LSP, debugger, outputs) lives in
-// one session per open document — see views/documentSession.tsx. The chrome
-// that is genuinely singular stays here: the toolbar (the style toggles now
-// live on the Settings page and are only read here),
-// the search panel, the folder tree, the menu Save routing, the agent dock,
-// and the ribbon overlay — the last two following the FOCUSED document.
-//
-// See docs/specs/freeform/shell-layouts.md.
+// One workspace owns the layout across navigation. Documents and tools open
+// on demand; the startup buffer is an editable introduction without a file.
+// Per-document machinery lives in documentSession.tsx.
 import {
   Suspense,
   lazy,
@@ -27,6 +12,7 @@ import {
   type ReactNode,
 } from "react";
 
+import { STARTUP_INTRODUCTION } from "../lib/newDoc";
 import { api } from "../api/client";
 import { MergeDriverNotice } from "../components/MergeDriverNotice";
 import type {
@@ -194,7 +180,13 @@ export type WorkspaceRoute = Extract<
 export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
   // What the window is arranged as. Session state, owned HERE, above any
   // document: navigating between documents must leave it untouched.
-  const [layout, setLayout] = useState<Layout>(initialWorkspace);
+  const startup = useRef(route.name === "new" && route.introduction === true).current;
+  const [layout, setLayout] = useState<Layout>(() =>
+    startup ? openUntitledTab(initialWorkspace()) : initialWorkspace(),
+  );
+  const introductionTab = useRef(
+    startup ? panesOf(layout.root).flatMap((pane) => pane.tabs).find((tab) => tab.kind === "untitled")?.id : undefined,
+  ).current;
   const [treeFocusRequest, setTreeFocusRequest] = useState(0);
   useNewDocument(setLayout);
   // Re-derive ribbon sources and links when a lens comes or goes.
@@ -281,7 +273,7 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
   // Untitled has no document session, so the workspace owns its explicit
   // save baseline. One exists at a time today; keyed by tab id so the data
   // model stays correct if that policy ever changes.
-  const [untitledSources, setUntitledSources] = useState<Record<string, string>>({});
+  const [untitledSources, setUntitledSources] = useState<Record<string, string>>(() => introductionTab ? { [introductionTab]: STARTUP_INTRODUCTION } : {});
   const untitledSourcesRef = useRef(untitledSources);
   untitledSourcesRef.current = untitledSources;
   const forgetUntitled = useCallback((tabId: string) => {
@@ -395,7 +387,7 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
     [],
   );
   const workspaceUi = useWorkspaceUi(layout, (restored) => {
-    setLayout((current) => (isWorkspaceEmpty(current) ? restored : current));
+    if (!startup) setLayout((current) => (isWorkspaceEmpty(current) ? restored : current));
   });
   // ⌘+ / ⌘- / ⌘0 size the whole window; adding Alt sizes only the focused
   // tab. See views/useZoom.ts for why that split, and why it is the root's
@@ -1268,7 +1260,7 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
   useEffect(() => {
     if (!workspaceUi.hydrated || welcomed.current) return;
     welcomed.current = true;
-    if (!loadShowWelcome()) return;
+    if (startup || !loadShowWelcome()) return;
     setLayout(openWelcomeTab);
   }, [workspaceUi.hydrated]);
   useEffect(() => {
@@ -1649,6 +1641,7 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
       return (
         <UntitledTab
           tabId={tab.id}
+          initialSource={untitledSources[tab.id] ?? ""}
           onSource={(tabId, source) =>
             setUntitledSources((current) =>
               current[tabId] === source ? current : { ...current, [tabId]: source },

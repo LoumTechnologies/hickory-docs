@@ -3,13 +3,13 @@ import { useEffect, useState } from "react";
 // Tiny hash router — deliberately no routing dependency.
 
 export type Route =
-  // The front door ("/"): decides which document to land in. Never a chooser —
+  // The front door ("/"): opens the unsaved introduction. Never a chooser —
   // the app opens like an editor, in a document you can type into.
   | { name: "landing" }
   // File → New Window: a deliberate window with no folder or document open.
   | { name: "blank" }
   // A document that does not exist yet: an unsaved draft until Save names it.
-  | { name: "new" }
+  | { name: "new"; introduction?: boolean }
   // The whole pipeline at once, one column per stage. Project-scoped because
   // a chain crosses documents, and a doc-scoped route could only ever show
   // one link of it.
