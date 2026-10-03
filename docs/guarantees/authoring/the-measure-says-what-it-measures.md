@@ -7,6 +7,12 @@ proportional face rather than a count of columns. Given a caret inside a
 table, the same strip stops measuring prose entirely and names the table's
 columns instead.
 
+Given an untitled document, including the initial introduction, when the
+reader releases a dragged marker then it stays at that measure and prose
+wraps there. The measure is stored in workspace UI state under `untitled`
+and restored on the next launch, just as a saved document's measure is stored
+under its path. Moving the marker does not change document bytes.
+
 ## The question this answers
 
 The strip used to be a row of unexplained numbers, and the reasonable readings
@@ -58,6 +64,21 @@ be a setting to defend rather than a fact to state.
 ---
 
 Last LLM verification:
+- Date: 2026-10-03
+- Reviewer: Codex
+- Result: verified for the untitled wrap-setting path by implementation review
+  and regression tests.
+- Evidence: `WorkspaceView.tsx` passes `workspaceUi.wrapFor(tab.target)` and
+  `workspaceUi.setWrap` to `UntitledTab`; `workspaceTabs.tsx` forwards both to
+  `DocumentEditor`. `EditorRuler` reports the final drag value, synchronizes
+  the CodeMirror wrap field, and `useWorkspaceUi` debounces persistence.
+- Test coverage: `apps/web/src/App.test.tsx` drives the real startup ruler
+  through pointer down/move/up, checks the released value and editor wrap
+  field, unchanged source bytes, and stored UI state. `workspaceTabs.test.tsx`
+  covers forwarding; `apps/web/e2e/startup.spec.ts` covers browser dragging,
+  persistence, and restoration after reload against the live dev app.
+
+Earlier verification of the ruler's labels and shaded range:
 - Date: 2026-08-21
 - Reviewer: Claude (Opus 5)
 - Result: verified (implemented and reviewed in the same change)

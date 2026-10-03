@@ -15,6 +15,24 @@ test("startup is an editable unsaved introduction that expands on demand", async
   await expect(page.getByRole("tab", { name: /Untitled/ })).toContainText("*");
   await expect(page.getByRole("tab")).toHaveCount(1);
   await expect(editor).toBeFocused();
+  // Guarantee: docs/guarantees/authoring/the-measure-says-what-it-measures.md
+  const marker = page.getByRole("slider", { name: "Where prose wraps" });
+  const initialColumn = Number(await marker.getAttribute("aria-valuenow"));
+  const box = await marker.boundingBox();
+  expect(box).not.toBeNull();
+  await page.mouse.move(box!.x + box!.width / 2, box!.y + box!.height / 2);
+  await page.mouse.down();
+  const direction = initialColumn <= 40 ? 1 : -1;
+  await page.mouse.move(box!.x + direction * 100, box!.y + box!.height / 2, { steps: 5 });
+  const draggedColumn = Number(await marker.getAttribute("aria-valuenow"));
+  expect(draggedColumn).not.toBe(initialColumn);
+  await page.mouse.up();
+  await expect(marker).toHaveAttribute("aria-valuenow", String(draggedColumn));
+  await expect.poll(async () => {
+    const ui = await (await page.request.get("/api/workspace/ui")).json();
+    return ui.state?.wrap?.untitled;
+  }).toBe(draggedColumn);
+  await editor.click();
   await editor.press("ControlOrMeta+Home");
   await editor.pressSequentially("My startup note");
   await editor.press("Enter");
@@ -29,6 +47,7 @@ test("startup is an editable unsaved introduction that expands on demand", async
   // Allow the expanded layout to be stored: startup must override it.
   await page.waitForTimeout(900);
   await page.reload();
+  await expect(marker).toHaveAttribute("aria-valuenow", String(draggedColumn));
   await expect(editor).toContainText("Start with a note. Grow into an IDE.");
   await expect(page.getByRole("tab")).toHaveCount(1);
   await expect(page.locator(".filesystem-editor")).toHaveCount(0);

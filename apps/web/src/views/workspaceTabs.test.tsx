@@ -19,8 +19,15 @@ import { DocTabBody, GeneratedTabBody, UntitledTab } from "./workspaceTabs";
 // The editor and debugger chrome are heavyweight and irrelevant here; the
 // toolbar sits beside them in DocTabBody, not inside them.
 vi.mock("../editor/DocumentEditor", () => ({
-  DocumentEditor: ({ onChange }: { onChange?: (source: string) => void }) => (
-    <button data-testid="editor" onClick={() => onChange?.("first thought")} />
+  DocumentEditor: ({ onChange, wrapColumn, onWrapColumn }: {
+    onChange?: (source: string) => void;
+    wrapColumn?: number;
+    onWrapColumn?: (column: number) => void;
+  }) => (
+    <>
+      <button data-testid="editor" onClick={() => onChange?.("first thought")} />
+      <button data-testid="wrap" onClick={() => onWrapColumn?.(60)}>{wrapColumn}</button>
+    </>
   ),
 }));
 vi.mock("../debug/DebugStrip", () => ({
@@ -125,6 +132,19 @@ describe("the document tab's toolbar", () => {
 });
 
 describe("an untitled document", () => {
+  // Guarantee: docs/guarantees/authoring/the-measure-says-what-it-measures.md
+  it("passes the stored prose measure and ruler changes through to its editor", () => {
+    const onWrapColumn = vi.fn();
+    const { getByTestId, rerender } = render(
+      <UntitledTab tabId="new-note" wrapColumn={72} onWrapColumn={onWrapColumn} />,
+    );
+    expect(getByTestId("wrap").textContent).toBe("72");
+    fireEvent.click(getByTestId("wrap"));
+    expect(onWrapColumn).toHaveBeenCalledWith(60);
+    rerender(<UntitledTab tabId="new-note" wrapColumn={60} onWrapColumn={onWrapColumn} />);
+    expect(getByTestId("wrap").textContent).toBe("60");
+  });
+
   // Guarantee: docs/guarantees/authoring/new-document-is-an-act.md
   it("does not create a project file on its first keystroke", () => {
     const create = vi.spyOn(api, "createDoc");

@@ -1540,8 +1540,6 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
         <DocTabBody
           registry={registry}
           docId={tab.docId}
-          // The measure belongs to the TAB, keyed by its path, and
-          // is restored with the arrangement it was set in.
           wrapColumn={workspaceUi.wrapFor(tab.target)}
           onWrapColumn={(column) => workspaceUi.setWrap(tab.target, column)}
           tableLayouts={workspaceUi.tables}
@@ -1606,6 +1604,8 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
       return (
         <UntitledTab
           tabId={tab.id}
+          wrapColumn={workspaceUi.wrapFor(tab.target)}
+          onWrapColumn={(column) => workspaceUi.setWrap(tab.target, column)}
           initialSource={untitledSources[tab.id] ?? ""}
           onSource={(tabId, source) =>
             setUntitledSources((current) =>

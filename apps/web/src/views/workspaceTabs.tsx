@@ -303,10 +303,14 @@ export function UntitledTab({
   tabId,
   initialSource = "",
   onSource,
+  wrapColumn,
+  onWrapColumn,
 }: {
   tabId: string;
   initialSource?: string;
   onSource?: (tabId: string, source: string) => void;
+  wrapColumn?: number;
+  onWrapColumn?: (column: number) => void;
 }) {
   // A local, client-seeded realtime: there is no server room to join until
   // the document exists, and the CRDT is happy with one writer.
@@ -319,6 +323,8 @@ export function UntitledTab({
       <DocumentEditor
         docId="untitled"
         initialSource={initialSource}
+        wrapColumn={wrapColumn}
+        onWrapColumn={onWrapColumn}
         realtime={realtime}
         placeholderText={PLACEHOLDER}
         execBlocks={[]}

@@ -8,6 +8,7 @@ import { STARTUP_INTRODUCTION } from "./lib/newDoc";
 import { WELCOME_KEY } from "./lib/welcomePref";
 import { openChatTab, openDocTab, initialWorkspace } from "./views/workspaceState";
 import { tab, withTree } from "./shell/layout";
+import { wrapColumnOf } from "./editor/wrapColumn";
 
 beforeEach(() => {
   window.history.replaceState(null, "", "/");
@@ -29,6 +30,36 @@ function editor(container: HTMLElement): EditorView {
 }
 
 describe("the startup workspace", () => {
+  // Guarantee: docs/guarantees/authoring/the-measure-says-what-it-measures.md
+  it("keeps a dragged prose margin in the initial untitled document and stores it", async () => {
+    vi.mocked(api.workspaceUi).mockResolvedValue({ state: { version: 1, wrap: { untitled: 72 } } });
+    const save = vi.spyOn(api, "saveWorkspaceUi");
+    const { container, getByRole } = render(<App />);
+    await waitFor(() => expect(editor(container).state.doc.toString()).toBe(STARTUP_INTRODUCTION));
+    const live = editor(container);
+    const marker = getByRole("slider", { name: "Where prose wraps" });
+    await waitFor(() => expect(marker.getAttribute("aria-valuenow")).toBe("72"));
+    // jsdom has no layout: supply the geometry read by the real ruler.
+    Object.defineProperty(live, "defaultCharacterWidth", { value: 8, configurable: true });
+    const requestMeasure = live.requestMeasure;
+    live.requestMeasure = (<T,>(request: {
+      read: (view: EditorView) => T;
+      write?: (value: T, view: EditorView) => void;
+    }) => request.write?.(request.read(live), live)) as typeof live.requestMeasure;
+    fireEvent(window, new Event("resize"));
+    live.requestMeasure = requestMeasure;
+    fireEvent(marker, new MouseEvent("pointerdown", { bubbles: true, clientX: 576 }));
+    fireEvent(marker, new MouseEvent("pointermove", { bubbles: true, clientX: 480 }));
+    expect(marker.getAttribute("aria-valuenow")).toBe("60");
+    fireEvent(marker, new MouseEvent("pointerup", { bubbles: true, clientX: 480 }));
+    expect(marker.getAttribute("aria-valuenow")).toBe("60");
+    expect(wrapColumnOf(live.state)).toBe(60);
+    expect(live.state.doc.toString()).toBe(STARTUP_INTRODUCTION);
+    await waitFor(() => expect(save).toHaveBeenLastCalledWith(
+      expect.objectContaining({ wrap: { untitled: 60 } }),
+    ));
+  });
+
   it("opens a focused unsaved introduction despite stored panes and the welcome preference", async () => {
     const create = vi.spyOn(api, "createDoc");
     const saveDialog = vi.spyOn(api, "saveFileDialog").mockResolvedValue({ path: null });
