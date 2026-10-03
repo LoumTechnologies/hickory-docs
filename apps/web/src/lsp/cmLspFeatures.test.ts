@@ -234,3 +234,37 @@ describe("formatting", () => {
     expect(await formatView(view)).toBe(false);
   });
 });
+
+// Guarantee: editing/a-comparison-keeps-current-code-editable.md.
+describe("language edits in a source projection",()=>{
+  const quietRequests = {
+    serverCapabilities: null,
+    semanticTokens: async () => null,
+    inlayHints: async () => [],
+    documentHighlight: async () => [],
+    foldingRanges: async () => [],
+    signatureHelp: async () => null,
+  };
+  it("refuses the entire formatting batch when an edit would cross reading fragments",async()=>{
+    const client={...quietRequests,formatting:async()=>[
+      {range:{start:{line:0,character:0},end:{line:0,character:1}},newText:"safe"},
+      {range:{start:{line:0,character:0},end:{line:1,character:1}},newText:"would eat prose"},
+    ]} as unknown as import("./client").LspClient;
+    const view=new EditorView({state:EditorState.create({doc:"a\n# Explanation\nb",extensions:lspFeatures({
+      client,uri:"hick:///a.py",positionAt:()=>({line:0,character:0}),offsetAt:()=>0,
+      rangeAt:range=>range.end.line===0?{from:0,to:1}:null,
+    })})});
+    expect(await formatView(view)).toBe(false);
+    expect(view.state.doc.toString()).toBe("a\n# Explanation\nb");
+    view.destroy();
+  });
+  it("discards formatting answers that arrive after the current buffer changed",async()=>{
+    let resolve!:(v:{range:{start:{line:number;character:number};end:{line:number;character:number}};newText:string}[])=>void;
+    const client={...quietRequests,formatting:()=>new Promise(r=>{resolve=r;})} as unknown as import("./client").LspClient;
+    const view=new EditorView({state:EditorState.create({doc:"old",extensions:lspFeatures({client,uri:"hick:///a.py",positionAt:()=>({line:0,character:0}),offsetAt:p=>p.character})})});
+    const pending=formatView(view);
+    view.dispatch({changes:{from:0,to:3,insert:"new"}});
+    resolve([{range:{start:{line:0,character:0},end:{line:0,character:3}},newText:"stale"}]);
+    expect(await pending).toBe(false); expect(view.state.doc.toString()).toBe("new"); view.destroy();
+  });
+});

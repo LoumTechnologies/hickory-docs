@@ -1,4 +1,5 @@
 import { registerSearchEditor } from "../lib/workspaceSearch";
+import { openLiterate } from "../lib/openRepresentation";
 // A plain file, in a pane: any text file in the folder that is neither a
 // document nor a woven output. CodeMirror over `GET /api/file`, saved whole
 // as you type through lib/plainFileSave.ts — debounced, serialized, and
@@ -711,6 +712,8 @@ export function PlainFilePane({
   return (
     <div className="plain-file-pane">
       <div className="doc-tab-toolbar" role="toolbar" aria-label={`Actions for ${path}`}>
+        {!generatedBy && <button className="btn" disabled={!file || !["idle", "saved"].includes(saveState.kind)} onClick={() => void openLiterate({ kind: "files", paths: [path] }).catch(e => setNotice(e instanceof Error ? e.message : String(e)))}>Open literate view</button>}
+        {!generatedBy && <button className="btn" disabled={!file || !["idle", "saved"].includes(saveState.kind)} onClick={() => void openLiterate({ kind: "files", paths: [path] }, "HEAD").catch(e => setNotice(e instanceof Error ? e.message : String(e)))}>Review changes</button>}
         {generatedBy ? (
           // Not a disabled button: there is nothing to enable. This file is
           // already the output of a literate document, and saying which one

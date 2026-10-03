@@ -114,6 +114,11 @@ impl AgentHub {
                 .strip_prefix(root)
                 .map(|p| p.display().to_string())
                 .unwrap_or_else(|_| path.display().to_string());
+            let rel = if doc_id.starts_with("lens:") {
+                path.display().to_string()
+            } else {
+                rel
+            };
             for t in view.turns {
                 turns.push(TurnRecord {
                     id: t.id.clone(),
@@ -342,6 +347,11 @@ pub async fn start_turn(
     });
     if backend != "builtin" {
         return super::acp::start_turn(state, id, body, backend).await;
+    }
+    if id.starts_with("lens:") {
+        return Err(ApiError::bad_request(
+            "Choose an installed ACP agent to organize or edit a source-backed literate view.",
+        ));
     }
     state
         .agent
@@ -680,8 +690,10 @@ pub async fn stop_turn(
 /// Empty turns for a document nothing has asked about yet, which the dock
 /// renders as an empty conversation rather than an error.
 pub async fn list_turns(State(state): State<LocalState>, Path(id): Path<String>) -> Json<Value> {
-    if let Ok(doc_path) = super::agent_context::subject(&state, &id) {
-        state.agent.hydrate(state.index.root(), &id, &doc_path);
+    if let Ok(doc_path) = super::agent_context::subject(&state, &id)
+        && let Ok(root) = super::agent_context::session_root(&state, &id)
+    {
+        state.agent.hydrate(&root, &id, &doc_path);
     }
     let turns = state.agent.snapshot(&id);
     let selection = state.agent.selection_of(&id);

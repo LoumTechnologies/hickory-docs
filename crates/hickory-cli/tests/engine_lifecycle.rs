@@ -9,7 +9,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-const DOC: &str = r#"<hick:doc xmlns:hick="http://www.hickorydocs.com/1.0" weave="note.md">
+const DOC: &str = r#"<hick:doc xmlns:hick="http://www.hickorydocs.com/1.0" weave="reading.md">
 # A note
 <hick:file path="hello.py">print("original")
 </hick:file>
@@ -24,7 +24,7 @@ impl Project {
     fn new() -> Self {
         let dir = tempfile::tempdir().unwrap();
         let state = tempfile::tempdir().unwrap();
-        std::fs::write(dir.path().join("note.hick"), DOC).unwrap();
+        std::fs::write(dir.path().join("note.md"), DOC).unwrap();
         Self { dir, state }
     }
     fn client(&self, root: &Path, name: &str) -> Client {
@@ -126,7 +126,7 @@ async fn desktop_proxy_routes_acp_connection_configuration_and_turns() {
     use futures::StreamExt;
     let project = Project::new();
     // Use the current Markdown document surface for this regression.
-    std::fs::remove_file(project.dir.path().join("note.hick")).unwrap();
+    std::fs::remove_file(project.dir.path().join("note.md")).unwrap();
     std::fs::write(
         project.dir.path().join("note.md"),
         DOC.replace("weave=\"note.md\"", "weave=\"reading.md\""),
@@ -343,7 +343,7 @@ async fn a_cli_and_a_window_attach_in_either_order() {
         let output = project
             .hick()
             .arg("run")
-            .arg(project.dir.path().join("note.hick"))
+            .arg(project.dir.path().join("note.md"))
             .output()
             .unwrap();
         assert!(
@@ -368,7 +368,7 @@ async fn parent_and_child_views_share_room_identity_and_reverse_edits() {
     let project = Project::new();
     let sub = project.dir.path().join("child");
     std::fs::create_dir(&sub).unwrap();
-    std::fs::write(sub.join("child.hick"), DOC.replace("note.md", "child.md")).unwrap();
+    std::fs::write(sub.join("child.md"), DOC.replace("note.md", "child.md")).unwrap();
     let child = project.client(&sub, "child"); // Narrow view first is the harder case.
     let parent = project.client(project.dir.path(), "parent");
     let child_id = docs(&child).await[0]["id"].clone();
@@ -383,7 +383,7 @@ async fn parent_and_child_views_share_room_identity_and_reverse_edits() {
     let path = sub.join("hello.py");
     wait_file(&path, "original").await;
     std::fs::write(&path, "print(\"reverse\")\n").unwrap();
-    wait_file(&sub.join("child.hick"), "reverse").await;
+    wait_file(&sub.join("child.md"), "reverse").await;
     tokio::time::sleep(Duration::from_millis(500)).await;
     assert_eq!(
         std::fs::read_to_string(&path).unwrap(),
@@ -518,7 +518,7 @@ async fn symlink_aliases_attach_to_the_same_workspace() {
 #[tokio::test]
 async fn file_and_folder_windows_keep_independent_files_visibility() {
     let project = Project::new();
-    std::fs::remove_file(project.dir.path().join("note.hick")).unwrap();
+    std::fs::remove_file(project.dir.path().join("note.md")).unwrap();
     let path = project.dir.path().join("note.md");
     std::fs::write(&path, "# A note\n").unwrap();
     let folder = project.client(project.dir.path(), "folder-view");
@@ -534,4 +534,37 @@ async fn file_and_folder_windows_keep_independent_files_visibility() {
         assert_eq!(response["folder_open"], expected);
     }
     assert_eq!(docs(&folder).await, docs(&file).await);
+}
+
+// A nested filesystem helper must share the engine's existing write act.
+#[tokio::test]
+async fn representation_edits_through_the_real_engine_do_not_deadlock_or_dirty_prose() {
+    let project = Project::new();
+    std::fs::write(project.dir.path().join("plain.py"), "value = 1\n").unwrap();
+    let client = project.client(project.dir.path(), "literate-window");
+    let http = reqwest::Client::builder()
+        .timeout(Duration::from_secs(10))
+        .build()
+        .unwrap();
+    let response = http
+        .post(format!("{}/api/representations", client.url))
+        .json(&json!({"backing":{"kind":"files","paths":["plain.py"]}}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), 200);
+    let v = response.json::<Value>().await.unwrap();
+    let response=http.put(format!("{}/api/representations/{}",client.url,v["id"].as_str().unwrap())).json(&json!({"revision":v["revision"],"source":v["source"].as_str().unwrap().replace("value = 1","value = 2")})).send().await.unwrap();
+    assert_eq!(response.status(), 200, "{}", response.text().await.unwrap());
+    assert_eq!(
+        std::fs::read_to_string(project.dir.path().join("plain.py")).unwrap(),
+        "value = 2\n"
+    );
+    assert!(
+        !project
+            .dir
+            .path()
+            .join(format!("__lens-{}.md", v["id"].as_str().unwrap()))
+            .exists()
+    );
 }

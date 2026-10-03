@@ -109,6 +109,7 @@ export function hasUsage(t: AgentTotals): boolean {
 }
 
 export interface ChatDockProps {
+  initialPrompt?: string;
   docId: string;
   getContext?: () => Promise<AgentEditorContext>;
   contextLabel?: string;
@@ -280,6 +281,7 @@ export function deepestFrom(turns: AgentTurn[], from: string): string {
 }
 
 export function ChatDock({
+  initialPrompt = "",
   docId,
   getContext,
   contextLabel,
@@ -291,7 +293,7 @@ export function ChatDock({
 }: ChatDockProps) {
   const [turns, setTurns] = useState<AgentTurn[]>([]);
   const [tip, setTip] = useState<string | null>(null);
-  const [prompt, setPrompt] = useState("");
+  const [prompt, setPrompt] = useState(initialPrompt);
   const [running, setRunning] = useState<string | null>(null);
   // A stop was asked for and its terminal frame has not arrived yet. The
   // button stays pressed-looking rather than clickable twice.

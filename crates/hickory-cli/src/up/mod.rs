@@ -271,7 +271,22 @@ pub struct DirectoryLock {
 
 impl DirectoryLock {
     pub fn acquire(root: &Path) -> Result<Self> {
-        let dir = root.join(".hick-cache");
+        // Git keeps process coordination private: opening a source repository
+        // must not add an untracked cache directory to the team's checkout.
+        let dir = if root.join(".git").is_file() {
+            let git = std::fs::read_to_string(root.join(".git"))?;
+            let gitdir = git
+                .trim()
+                .strip_prefix("gitdir: ")
+                .context("invalid worktree Git directory")?;
+            root.join(gitdir)
+        } else if root.join(".git").is_dir() {
+            root.join(".git")
+        } else {
+            hickory_workspace::WorkspaceStore::for_project(root)?
+                .dir()
+                .to_path_buf()
+        };
         std::fs::create_dir_all(&dir)
             .with_context(|| format!("failed to create {}", dir.display()))?;
         let path = dir.join("up.lock");

@@ -33,6 +33,7 @@ mod agent_context;
 pub mod anchored;
 pub mod api;
 pub mod asset;
+pub mod bisect;
 pub mod debug_bridge;
 pub mod environments;
 pub mod files_ops;
@@ -48,7 +49,11 @@ pub mod merged;
 pub mod outputs;
 pub mod plain_file;
 pub mod refactor;
+pub mod representation;
+mod representation_store;
+pub mod representation_tools;
 pub mod reveal;
+pub mod revision;
 pub mod sample;
 pub mod scaffold;
 mod sessions;
@@ -118,6 +123,8 @@ pub struct RunRecord {
 /// Everything a request handler needs.
 #[derive(Clone)]
 pub struct LocalState {
+    pub representations: representation::Representations,
+    pub bisects: bisect::Bisects,
     /// Whether this view explicitly opened a folder, rather than one file.
     pub folder_open: bool,
     pub index: Arc<DocIndex>,
@@ -550,6 +557,38 @@ pub(crate) fn router(state: LocalState) -> Router {
         .route("/docs/{id}/refactor/status", get(refactor::status))
         .route("/docs/{id}/refactor/end", post(refactor::end))
         .route("/adopt", post(refactor::adopt))
+        .route(
+            "/representations",
+            get(representation::list).post(representation::create),
+        )
+        .route(
+            "/representations/{id}/preview",
+            post(representation::preview),
+        )
+        .route(
+            "/representations/{id}",
+            get(representation::get)
+                .put(representation::edit)
+                .delete(representation::discard),
+        )
+        .route(
+            "/representations/{id}/refresh",
+            post(representation::refresh),
+        )
+        .route("/representations/{id}/compare", get(revision::compare))
+        .route(
+            "/representations/{id}/arrange",
+            post(representation_tools::arrange),
+        )
+        .route(
+            "/representations/{id}/keep",
+            post(representation_tools::save),
+        )
+        .route("/git/bisect", get(bisect::list).post(bisect::start))
+        .route("/git/bisect/{id}/mark", post(bisect::mark))
+        .route("/git/bisect/{id}/open", post(bisect::open))
+        .route("/git/bisect/{id}/restore", post(bisect::restore))
+        .route("/git/bisect/{id}", delete(bisect::finish))
         .route("/install", post(install::install))
         .route("/samples", post(sample::create))
         .route("/scaffold", post(scaffold::create))
@@ -790,6 +829,8 @@ async fn prepare_inner(opts: ServeOptions, folder_open: Option<bool>) -> Result<
 
     let store = FileDocStore::new(index.clone());
     let state = LocalState {
+        representations: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
+        bisects: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
         folder_open: folder_open.unwrap_or_else(|| target.is_dir()),
         store: store.clone(),
         index: index.clone(),

@@ -23,8 +23,11 @@
 // burying it under a frequency count would be a poor trade.
 
 import { autocompletion } from "@codemirror/autocomplete";
-import type { Completion, CompletionContext, CompletionResult } from "@codemirror/autocomplete";
-import type { Extension } from "@codemirror/state";
+import type { Completion, CompletionContext, CompletionResult, CompletionSource } from "@codemirror/autocomplete";
+import { Facet, type Extension } from "@codemirror/state";
+
+/** File projections add sources to the editor’s single completion configuration. */
+export const completionSources = Facet.define<CompletionSource>();
 
 import type { LspClient } from "./client";
 import type { LspPosition } from "./positions";
@@ -127,7 +130,7 @@ export function completionSource(options: {
   lsp?: {
     client: LspClient;
     uri: string;
-    positionAt: (offset: number, view: CompletionContext["state"]) => LspPosition;
+    positionAt: (offset: number, view: CompletionContext["state"]) => LspPosition | null;
   };
   project?: (prefix: string, context: string) => Promise<ProjectSuggestion[]>;
 }): (context: CompletionContext) => Promise<CompletionResult | null> {
@@ -140,10 +143,11 @@ export function completionSource(options: {
       Math.min(context.state.doc.length, word.from + 200),
     );
 
+    const position = options.lsp?.positionAt(context.pos, context.state);
     const [lspItems, projectItems] = await Promise.all([
-      options.lsp
+      options.lsp && position
         ? options.lsp.client
-            .completion(options.lsp.uri, options.lsp.positionAt(context.pos, context.state))
+            .completion(options.lsp.uri, position)
             .catch(() => [])
         : Promise.resolve([]),
       options.project
@@ -186,12 +190,19 @@ export function completions(options: {
   lsp?: {
     client: LspClient;
     uri: string;
-    positionAt: (offset: number, state: CompletionContext["state"]) => LspPosition;
+    positionAt: (offset: number, state: CompletionContext["state"]) => LspPosition | null;
   };
   project?: (prefix: string, context: string) => Promise<ProjectSuggestion[]>;
 }): Extension {
   return autocompletion({
-    override: [completionSource(options)],
+    override: [async context => {
+      const results = (await Promise.all([completionSource(options)(context), ...context.state.facet(completionSources).map(source => source(context))])).filter((r): r is CompletionResult => r !== null);
+      if (!results.length) return null;
+      const first=results[0];
+      const ranked=results.filter(r=>r.from===first.from).flatMap(r=>r.options).sort((a,b)=>(b.boost??0)-(a.boost??0));
+      const seen=new Set<string>();
+      return {...first, options:ranked.filter(item=> { if(seen.has(item.label)) return false; seen.add(item.label); return true; })};
+    }],
     // Not while nothing has been typed: a popup that opens on its own in the
     // middle of prose is a popup people turn off.
     activateOnTyping: true,

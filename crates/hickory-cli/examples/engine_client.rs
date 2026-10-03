@@ -25,7 +25,7 @@ async fn run(args: Vec<String>) -> anyhow::Result<()> {
     };
     let connection = engine::connect(opts).await?;
     let _guard = connection.guard();
-    let router = engine::client_router(connection, Some(shell), token, None);
+    let router = engine::client_router(connection, Some(shell), token, args.get(2).cloned());
     println!("http://{}", listener.local_addr()?);
     axum::serve(listener, router.into_make_service()).await?;
     Ok(())

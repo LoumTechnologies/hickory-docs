@@ -126,14 +126,13 @@ pub async fn connect(
             ApiError::bad_request("Unknown agent. Choose an agent from the catalogue.")
         })?;
     let doc = super::agent_context::subject(&state, &doc_id)?;
+    let session_root = super::agent_context::session_root(&state, &doc_id)?;
     let path = match body.session.as_deref() {
         Some(rel) => {
-            let path = state.index.root().join(rel);
+            let path = session_root.join(rel);
             let canonical = path.canonicalize().map_err(|e| error(e.into()))?;
             if !canonical.starts_with(
-                state
-                    .index
-                    .root()
+                session_root
                     .join("sessions")
                     .canonicalize()
                     .map_err(|e| error(e.into()))?,
@@ -157,7 +156,7 @@ pub async fn connect(
             canonical
         }
         None => hickory_agent::session_file_path(
-            state.index.root(),
+            &session_root,
             &format!("{}-{:016x}", body.backend, super::rand_id()),
         ),
     };
@@ -209,15 +208,13 @@ pub async fn connect(
     let setup_error = client.setup().await.err().map(|e| format!("{e:#}"));
     let mut view = client.snapshot();
     view["error"] = json!(setup_error);
+    let record_path = client.record.lock().await.path.clone();
     view["session"] = json!(
-        client
-            .record
-            .lock()
-            .await
-            .path
+        record_path
             .strip_prefix(state.index.root())
-            .map(|p| p.display().to_string())
-            .unwrap_or_default()
+            .unwrap_or(&record_path)
+            .display()
+            .to_string()
     );
     Ok(Json(view))
 }
@@ -364,19 +361,21 @@ pub async fn start_turn(
         ));
     }
     let doc = super::agent_context::subject(&state, &doc_id)?;
-    state.agent.hydrate(state.index.root(), &doc_id, &doc);
+    state.agent.hydrate(
+        &super::agent_context::session_root(&state, &doc_id)?,
+        &doc_id,
+        &doc,
+    );
     let prompt = body.prompt.trim().to_string();
     if prompt.is_empty() {
         return Err(ApiError::bad_request("Say what you want the agent to do."));
     }
-    let session = client
-        .record
-        .lock()
-        .await
-        .path
+    let record_path = client.record.lock().await.path.clone();
+    let session = record_path
         .strip_prefix(state.index.root())
-        .map(|p| p.display().to_string())
-        .unwrap_or_default();
+        .unwrap_or(&record_path)
+        .display()
+        .to_string();
     let turn_id = format!("{:016x}", super::rand_id());
     let cancel = Arc::new(std::sync::atomic::AtomicBool::new(false));
     {

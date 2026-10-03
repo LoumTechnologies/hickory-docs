@@ -3,7 +3,7 @@ apps/web/src/components/TablePanel.tsx 1767
 apps/web/src/debug/cmDebug.ts 1049
 apps/web/src/editor/wysiwyg.ts 1035
 apps/web/src/shell/Ribbons.tsx 1399
-apps/web/src/views/WorkspaceView.tsx 1983
+apps/web/src/views/WorkspaceView.tsx 1972
 crates/hick-dap/src/build.rs 1050
 crates/hick-dap/src/session.rs 1440
 crates/hick-exec/src/dag.rs 1625

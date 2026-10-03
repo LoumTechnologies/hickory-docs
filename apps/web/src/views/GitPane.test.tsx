@@ -2,11 +2,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 
 import { GitPane, sides, when } from "./GitPane";
+import { bisects } from "../api/representations";
 import { api } from "../api/client";
 import type { GitChanges, GitCommit, GitLog } from "../api/types";
 
 beforeEach(() => {
   vi.restoreAllMocks();
+  vi.spyOn(bisects, "list").mockResolvedValue({sessions:[]});
   // The working tree is read beside the log; the history tests are about the
   // graph, so they see a repository with nothing to commit.
   vi.spyOn(api, "gitChanges").mockResolvedValue({

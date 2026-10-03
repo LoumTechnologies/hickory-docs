@@ -7,6 +7,7 @@
 // rather than about what is inside any pane.
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { openLiterate } from "../lib/openRepresentation";
 import type { EditorView } from "@codemirror/view";
 
 import { api } from "../api/client";
@@ -51,6 +52,7 @@ function DocToolbar({
   onTest,
   baseline,
   syncState,
+  docId,
 }: {
   path: string;
   running: boolean;
@@ -58,8 +60,10 @@ function DocToolbar({
   onTest: () => void;
   baseline: Baseline;
   syncState: string;
+  docId: string;
 }) {
   const [menuAt, setMenuAt] = useState<{ x: number; y: number } | null>(null);
+  const [error, setError] = useState("");
 
   const items: ContextMenuItem[] = [
     baseline.active
@@ -79,6 +83,8 @@ function DocToolbar({
 
   return (
     <div className="doc-tab-toolbar" role="toolbar" aria-label={`Actions for ${path}`}>
+      <button className="btn" onClick={() => void openLiterate({ kind: "document", doc_id: docId }, "HEAD").catch(e => setError(e instanceof Error ? e.message : String(e)))}>Review changes</button>
+      {error && <span role="alert">{error}</span>}
       <button
         className="btn btn-primary"
         disabled={running}
@@ -166,6 +172,7 @@ export function DocTabBody({
   return (
     <div className="debug-block">
       <DocToolbar
+        docId={docId}
         path={doc.path}
         running={running}
         onRun={session.runAll}

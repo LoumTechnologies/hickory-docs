@@ -94,9 +94,7 @@ import { lensSources, onLensChange } from "../lib/lensSources";
 import { welcomeActionsFor } from "./welcomeActions";
 import {
   FLEET_TAB,
-  GIT_TAB,
   MERGED_TAB,
-  STORY_TAB,
   WELCOME_TAB,
   activateDocTab,
   adoptPlainFileTab,
@@ -144,8 +142,7 @@ import { focusedEditor } from "../editor/activeEditor";
 import { useZoom } from "./useZoom";
 import { StatusBar } from "../shell/StatusBar";
 import { WelcomePane, type WelcomeAction } from "./WelcomePane";
-import { GitPane } from "./GitPane";
-import { HistoryLens } from "./HistoryLens";
+import { reviewTool, useRepresentationTabs } from "./representationTabs";
 import { PlainDebugHosts } from "../debug/plainDebugHosts";
 import { FleetPane } from "./FleetPane";
 import { MergedView } from "./MergedView";
@@ -178,6 +175,7 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
   const [layout, setLayout] = useState<Layout>(() =>
     startup ? openUntitledTab(initialWorkspace()) : initialWorkspace(),
   );
+  const openLiterateLibrary = useRepresentationTabs(setLayout);
   const introductionTab = useRef(
     startup ? panesOf(layout.root).flatMap((pane) => pane.tabs).find((tab) => tab.kind === "untitled")?.id : undefined,
   ).current;
@@ -1643,17 +1641,8 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
         </div>
       );
     }
-    if (tab.kind === "tool" && tab.target === GIT_TAB) {
-      return (
-        <GitPane
-          onOpenFile={(path) => openHit(path, 1)}
-          onOpenStory={() => setLayout(openStoryTab)}
-        />
-      );
-    }
-    if (tab.kind === "tool" && tab.target === STORY_TAB) {
-      return <HistoryLens />;
-    }
+    const review = reviewTool(tab, path => openHit(path, 1), () => setLayout(openStoryTab), openLiterateLibrary);
+    if (review) return review;
     if (tab.kind === "tool" && tab.target === FLEET_TAB) {
       return <FleetPane />;
     }

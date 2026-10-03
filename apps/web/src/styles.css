@@ -8895,3 +8895,26 @@ button.status-bar__item:hover { background: var(--bg-sunken); color: var(--fg); 
 .acp-diff { border-left: 2px solid var(--accent); padding-left: .6rem; }
 
 .chat-model input, .chat-model select, .acp-settings select { min-width: 0; max-width: 100%; }
+
+/* The current buffer keeps its coordinates while comparison evidence sits beside it. */
+.representation-pane { display: flex; flex-direction: column; height: 100%; min-height: 0; }
+.representation-pane > .document-editor { flex: 1; min-height: 16rem; }
+.representation-comparison, .representation-file-tools { display: flex; gap: .6rem; align-items: center; flex-wrap: wrap; padding: .45rem .7rem; border-bottom: 1px solid var(--border); }
+.representation-comparison label { display: flex; gap: .4rem; align-items: center; }
+.representation-comparison input { width: 12rem; }
+.representation-library { padding: 1rem; }
+.representation-library textarea { display: block; width: min(38rem, 100%); margin: .5rem 0; }
+.comparison-added { background: color-mix(in srgb, var(--diff-ins) 16%, transparent); box-shadow: inset 3px 0 var(--diff-ins); }
+.comparison-removed { padding: .35rem .75rem; background: color-mix(in srgb, var(--diff-del) 14%, transparent); border-left: 3px solid var(--diff-del); color: var(--fg); font-family: var(--font-mono, monospace); }
+.comparison-removed pre { white-space: pre-wrap; overflow-wrap: anywhere; margin: .5rem 0; }
+.comparison-removed summary { cursor: pointer; font-size: .85rem; }
+.bisect-pane { padding: .7rem; border-top: 1px solid var(--border); }
+.bisect-pane form { display: flex; gap: .5rem; flex-wrap: wrap; }
+.bisect-pane label { display: grid; gap: .25rem; }
+.bisect-pane section { margin-top: .75rem; }
+.bisect-evidence { white-space: pre-wrap; max-height: 12rem; overflow: auto; }
+.bisect-graph { list-style: none; padding: 0; max-height: 24rem; overflow: auto; }
+.bisect-graph li { display: flex; align-items: center; gap: .5rem; }
+.bisect-graph li[aria-current="step"] { background: var(--select-bg); }
+.bisect-graph strong { margin-left: auto; font-size: .8rem; }
+.bisect-graph svg { flex-shrink: 0; }

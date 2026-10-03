@@ -332,3 +332,16 @@ test-agent-context:
     cargo test -p hickory-agent -p hickory-collab --lib -- --test-threads=1
     cargo test --manifest-path apps/desktop/src-tauri/Cargo.toml --test serves_one_origin -- --test-threads=1
     just test-agent-web
+
+# Source-backed literate views, editable comparisons, and isolated visual bisect.
+test-literate-views:
+    cargo build -p hickory-cli --example engine_client --example acp_fixture
+    cargo test -p hickory-cli --test literate_views -- --test-threads=1
+    cargo test -p hickory-cli --test serve_acp acp_organizes_and_edits_a_disposable_view -- --test-threads=1
+    cargo test -p hickory-cli --test engine_lifecycle -- --test-threads=1
+    cd apps/web && npm test -- src/editor/comparison.test.ts src/lsp/representationMapping.test.ts src/lsp/cmLspFeatures.test.ts src/lsp/completion.test.ts
+
+# Watched browser flows, with their own engine, state directory and scratch Git repository.
+test-literate-editor:
+    cargo build -p hickory-cli --example engine_client
+    scripts/test-literate-editor.sh

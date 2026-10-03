@@ -9,6 +9,7 @@ use tokio::sync::Mutex;
 
 #[derive(Clone)]
 struct Bridge {
+    state: LocalState,
     context: super::client::RoomContext,
     server: Arc<Mutex<crate::mcp::Server>>,
     record: Arc<Mutex<Record>>,
@@ -37,6 +38,7 @@ impl Host {
         let server =
             crate::mcp::Server::embedded(state.index.root().to_path_buf(), doc, executor, session);
         let bridge = Bridge {
+            state: state.clone(),
             context: super::client::RoomContext {
                 index: state.index.clone(),
                 rooms: state.rooms.clone(),
@@ -72,7 +74,11 @@ async fn exchange(State(bridge): State<Bridge>, Json(message): Json<Value>) -> i
     let _record = bridge.record.lock().await;
     let mut server = bridge.server.lock().await;
     let params = message.get("params").cloned().unwrap_or(json!({}));
-    let snapshots = if method == "tools/call" {
+    let representation_call = method == "tools/call"
+        && super::super::representation_tools::catalogue()
+            .iter()
+            .any(|tool| tool["name"] == params["name"]);
+    let snapshots = if method == "tools/call" && !representation_call {
         match super::workspace::capture(&bridge.context).await {
             Ok(snapshots) => snapshots,
             Err(e) => {
@@ -87,7 +93,29 @@ async fn exchange(State(bridge): State<Bridge>, Json(message): Json<Value>) -> i
     } else {
         Default::default()
     };
-    let mut result = server.handle(method, &params).await;
+    let mut result = if representation_call {
+        super::super::representation_tools::call(
+            &bridge.state,
+            params["name"].as_str().unwrap_or(""),
+            &params["arguments"],
+        )
+        .await
+        .map_err(|e| (-32603, e.message().to_string()))
+    } else {
+        server.handle(method, &params).await
+    };
+    if representation_call {
+        let _ = _record.context(
+            "literate-view-tool",
+            &json!({"tool":params["name"],"arguments":params["arguments"],"ok":result.is_ok(),"observation":result.as_ref().ok()}),
+        );
+    }
+    if method == "tools/list"
+        && let Ok(value) = &mut result
+        && let Some(tools) = value["tools"].as_array_mut()
+    {
+        tools.extend(super::super::representation_tools::catalogue());
+    }
     if let Err(e) = super::workspace::finish(&bridge.context, snapshots).await {
         result = Err((
             -32603,

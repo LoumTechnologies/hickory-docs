@@ -37,7 +37,13 @@ pub async fn session_view(
         .canonicalize()
         .map_err(|e| ApiError::not_found(format!("no session at {}: {e}", q.path)))?;
     let root_canon = root.canonicalize().unwrap_or(root.clone());
-    if !canon.starts_with(&root_canon) {
+    let local_sessions = hickory_workspace::WorkspaceStore::for_project(&root)
+        .ok()
+        .map(|store| store.dir().join("literate-agents/sessions"));
+    if !canon.starts_with(&root_canon)
+        && !local_sessions
+            .is_some_and(|dir| dir.canonicalize().is_ok_and(|dir| canon.starts_with(dir)))
+    {
         return Err(ApiError::not_found(format!(
             "{} is outside this folder",
             q.path

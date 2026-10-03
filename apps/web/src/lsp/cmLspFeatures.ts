@@ -182,6 +182,8 @@ export interface LspFeatureOptions {
   positionAt: (offset: number, view: EditorView) => LspPosition | null;
   /** Document position → CodeMirror offset, or null when out of this view. */
   offsetAt: (position: LspPosition, view: EditorView) => number | null;
+  /** Exact writable range, for a projection that can rearrange source fragments. */
+  rangeAt?: (range: LspRange, view: EditorView) => {from:number;to:number} | null;
   /**
    * Inlay hints add inline text. Off where line geometry is measured (Split
    * view's ribbons), on in the full-width editor.
@@ -216,7 +218,7 @@ export function lspFeatures(opts: LspFeatureOptions): Extension[] {
         {
           key: cmKeyOf("editor.format"),
           run: (view: EditorView) => {
-            void formatDocument(view, opts);
+            void formatView(view);
             return true;
           },
         },
@@ -476,6 +478,8 @@ export function semanticLegend(client: LspClient): SemanticLegend | null {
 }
 
 function renameAt(view: EditorView, opts: LspFeatureOptions): boolean {
+  if (!opts.client || !opts.onRename || !opts.positionAt(view.state.selection.main.head, view)) return false;
+  const original=view.state.doc;
   void (async () => {
     const { client, uri, positionAt, offsetAt, onRename, onMessage } = opts;
     if (!client || !onRename) return;
@@ -498,12 +502,15 @@ function renameAt(view: EditorView, opts: LspFeatureOptions): boolean {
     if (!next || next === current) return;
 
     const edit = await client.rename(uri, position, next).catch(() => null);
+    if (view.state.doc !== original) { onMessage?.("The buffer changed. Request rename again."); return; }
     applyEdit(view, edit, opts);
   })();
   return true;
 }
 
 function codeActionAt(view: EditorView, opts: LspFeatureOptions): boolean {
+  if (!opts.client || !opts.onCodeActions || !opts.positionAt(view.state.selection.main.from, view)) return false;
+  const original=view.state.doc;
   void (async () => {
     const { client, uri, positionAt, onCodeActions, onMessage } = opts;
     if (!client || !onCodeActions) return;
@@ -517,6 +524,7 @@ function codeActionAt(view: EditorView, opts: LspFeatureOptions): boolean {
       return;
     }
     const chosen = await onCodeActions(actions);
+    if (view.state.doc !== original) { onMessage?.("The buffer changed. Request code actions again."); return; }
     if (chosen?.edit) applyEdit(view, chosen.edit, opts);
     else if (chosen?.command) onMessage?.(`"${chosen.title}" needs a command this editor cannot run yet.`);
   })();
@@ -535,9 +543,9 @@ export const formatter = Facet.define<(view: EditorView) => Promise<boolean>>();
 
 /** Format `view` through whatever formatter its extensions provide. Resolves
  * false when there is none, or the server had nothing to say. */
-export function formatView(view: EditorView): Promise<boolean> {
-  const format = view.state.facet(formatter)[0];
-  return format ? format(view) : Promise.resolve(false);
+export async function formatView(view: EditorView): Promise<boolean> {
+  for (const format of view.state.facet(formatter)) if (await format(view)) return true;
+  return false;
 }
 
 /**
@@ -549,17 +557,21 @@ export function formatView(view: EditorView): Promise<boolean> {
  */
 export async function formatDocument(view: EditorView, opts: LspFeatureOptions): Promise<boolean> {
   const { client, uri, offsetAt, onMessage } = opts;
-  if (!client) return false;
+  if (!client || (opts.rangeAt && !opts.positionAt(view.state.selection.main.head, view))) return false;
+  const original = view.state.doc;
   const edits = await client.formatting(uri).catch(() => []);
+  if (view.state.doc !== original) { onMessage?.("The buffer changed. Request formatting again."); return false; }
+  if (opts.rangeAt && edits.some(edit=>!opts.rangeAt!(edit.range,view))) { onMessage?.("Formatting crosses reading fragments. Format the source file instead."); return false; }
   if (edits.length === 0) {
     onMessage?.("Nothing to format — either the file is already formatted or no formatter answers for it.");
     return false;
   }
   const changes = edits
     .map((edit) => {
-      const from = offsetAt(edit.range.start, view);
-      const to = offsetAt(edit.range.end, view);
-      if (from === null || to === null) return null;
+      const mapped=opts.rangeAt?.(edit.range, view);
+      const from = mapped?.from ?? offsetAt(edit.range.start, view);
+      const to = mapped?.to ?? offsetAt(edit.range.end, view);
+      if (from === null || to === null || to < from) return null;
       return { from, to, insert: edit.newText };
     })
     .filter((change): change is { from: number; to: number; insert: string } => change !== null)
@@ -585,16 +597,18 @@ function applyEdit(view: EditorView, edit: WorkspaceEdit | null, opts: LspFeatur
     onMessage?.("The server made no changes.");
     return;
   }
+  if (opts.rangeAt && edits.some(item=>!opts.rangeAt!(item.range,view))) { onMessage?.("The edit crosses reading fragments. Apply it in the source file instead."); return; }
   const changes = edits
     .map((item) => {
-      const from = offsetAt(item.range.start, view);
-      const to = offsetAt(item.range.end, view);
-      if (from === null || to === null) return null;
+      const mapped=opts.rangeAt?.(item.range, view);
+      const from = mapped?.from ?? offsetAt(item.range.start, view);
+      const to = mapped?.to ?? offsetAt(item.range.end, view);
+      if (from === null || to === null || to < from) return null;
       return { from, to, insert: item.newText };
     })
     .filter((change): change is { from: number; to: number; insert: string } => change !== null)
     .sort((a, b) => b.from - a.from);
-  if (changes.length > 0) view.dispatch({ changes });
+  if (changes.length > 0) view.dispatch({ changes, userEvent:"input.lsp" });
 
   const elsewhere = urisInEdit(edit).filter((other) => other !== uri);
   if (elsewhere.length > 0) {

@@ -4,7 +4,7 @@ mod engine;
 mod host;
 mod native;
 mod smoke;
-mod view;
+pub(crate) mod view;
 pub use engine::Engine;
 pub use host::Host;
 pub use native::{Mount, availability};

@@ -5,7 +5,7 @@ export default defineConfig({
   timeout: 20_000,
   use: {
     baseURL: process.env.HICKORY_E2E_URL,
-    channel: "chrome",
+    channel: process.env.HICKORY_E2E_CHANNEL ?? "chrome",
     trace: "retain-on-failure",
     screenshot: "only-on-failure",
   },

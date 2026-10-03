@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { EditorState, Transaction } from "@codemirror/state";
+import { Compartment, EditorState, Transaction } from "@codemirror/state";
+import { comparisonField, setComparison } from "./comparison";
 import { EditorView, keymap, placeholder } from "@codemirror/view";
 import {
   defaultKeymap,
@@ -78,6 +79,8 @@ import type { Realtime } from "../api/realtime";
 import type { DiagramBlock, ExecBlock, ExecutorInfo } from "../api/types";
 
 export interface DocumentEditorProps {
+  comparisonBase?: string | null;
+  readOnly?: boolean;
   docId: string;
   /** Initial .md source, used to seed the Y.Doc when it is empty. */
   initialSource: string;
@@ -156,6 +159,8 @@ export { assertionStates, matchExecBlock } from "../lib/blockMatch";
  * rail's never skip. See editor/CardRail.tsx.
  */
 export function DocumentEditor({
+  comparisonBase = null,
+  readOnly = false,
   docId,
   initialSource,
   realtime,
@@ -179,6 +184,7 @@ export function DocumentEditor({
 }: DocumentEditorProps) {
   const hostRef = useRef<HTMLDivElement>(null);
   const viewRef = useRef<EditorView | null>(null);
+  const access = useMemo(() => new Compartment(), []);
   // The live view AS STATE, for the right rail — a ref never re-renders.
   const [railView, setRailView] = useState<EditorView | null>(null);
   // Read through a ref: the editor is built once per document, and a callback
@@ -449,6 +455,8 @@ export function DocumentEditor({
           yCollab(ytext, awareness),
           ...(placeholderText ? [placeholder(placeholderText)] : []),
           ...(lspExtensions ?? []),
+          comparisonField,
+          access.of([EditorState.readOnly.of(readOnly), EditorView.editable.of(!readOnly), EditorState.transactionFilter.of(tr => readOnly && tr.docChanged && tr.annotation(Transaction.userEvent) ? [] : tr)]),
           // Which buffer the Insert menu writes into. Recorded on focus
           // rather than read at insert time: opening the panel takes the
           // focus away from every editor on the page.
@@ -578,8 +586,11 @@ export function DocumentEditor({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [docId, realtime, envRegistry, renderedRegistry]);
 
-  // A card that stopped existing must not leave its popover floating over a
-  // document that no longer has it.
+  useEffect(() => {
+    viewRef.current?.dispatch({ effects: [setComparison.of({ base: comparisonBase, editable: !readOnly }), access.reconfigure([EditorState.readOnly.of(readOnly), EditorView.editable.of(!readOnly), EditorState.transactionFilter.of(tr => readOnly && tr.docChanged && tr.annotation(Transaction.userEvent) ? [] : tr)])] });
+  }, [comparisonBase, readOnly, access, docId, realtime]);
+
+  // Close a card whose source disappeared.
   useEffect(() => {
     setOpen((current) =>
       current && cards.some((c) => c.key === current.card.key) ? current : null,

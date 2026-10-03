@@ -27,6 +27,8 @@ import type { GitBranch, GitChangeFile, GitChanges, GitDiff, GitFileChange, GitL
 import { graphWidth, laneColor, layout } from "../lib/gitGraph";
 import { FILES_CHANGED_EVENT } from "../shell/FolderTreePane";
 import { DiffView } from "../components/DiffView";
+import { BisectPane } from "./BisectPane";
+import { openLiterate } from "../lib/openRepresentation";
 
 /** Row height and lane spacing, in px. Shared by the SVG and the list, which
  * is the only way the nodes line up with the text beside them. */
@@ -37,10 +39,12 @@ const EXPANDED_EXTRA = 0;
 export function GitPane({
   onOpenFile,
   onOpenStory,
+  onOpenLiterate,
 }: {
   onOpenFile?: (path: string) => void;
   /** The same repository, read as a story: the history lens. */
   onOpenStory?: () => void;
+  onOpenLiterate?: () => void;
 }) {
   const [log, setLog] = useState<GitLog | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -99,6 +103,8 @@ export function GitPane({
 
   return (
     <div className="git-pane">
+      <BisectPane />
+      {onOpenLiterate && <button className="btn" onClick={onOpenLiterate}>Literate views</button>}
       <WorkingTree tick={tick} refresh={refresh} onOpenFile={onOpenFile} head={log.commits[0]} />
       {/* The publication floor, stated rather than felt. Below it commits are
           records — someone else may be holding them; above it they are
@@ -643,6 +649,9 @@ function WorkingTree({
         </div>
       </form>
 
+      {selected && diff && (
+        <button className="btn" onClick={() => void run("review", () => openLiterate({ kind: "files", paths: [selected.path] }, selected.staged ? "HEAD" : "INDEX", selected.staged ? "INDEX" : undefined), "Opened editable review")}>Review in the main editor</button>
+      )}
       {selected && diff && (
         <DiffView path={diff.path} diff={diff.diff} binary={diff.binary} staged={selected.staged} />
       )}

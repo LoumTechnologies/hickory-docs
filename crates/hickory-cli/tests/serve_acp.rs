@@ -435,3 +435,47 @@ async fn acp_connects_to_workspace_with_untitled_context_and_resumes() {
     let ready = restarted.connect(Some(&session)).await;
     assert_eq!(ready["ready"], true, "{ready}");
 }
+
+// Guarantee: authoring/a-literate-view-writes-through-to-ordinary-source.md.
+#[tokio::test]
+async fn acp_organizes_and_edits_a_disposable_view_without_repository_session_files() {
+    let (_dir, mut app) = fixture(vec![]).await;
+    std::fs::write(app.root.join("plain.py"), "value = 1\n").unwrap();
+    let (status, view) = app
+        .request(
+            "POST",
+            "/api/representations",
+            json!({"backing":{"kind":"files","paths":["plain.py"]}}),
+        )
+        .await;
+    assert_eq!(status, 200, "{view}");
+    let view_id = view["id"].as_str().unwrap();
+    app.doc = format!("lens:{view_id}");
+    app.connect(None).await;
+    let id = app.send(&format!("literate-edit:{view_id}"), None).await;
+    let turn = app.wait(&id).await;
+    assert_eq!(turn["status"], "ok", "{turn}");
+    assert_eq!(
+        std::fs::read_to_string(app.root.join("plain.py")).unwrap(),
+        "value = 2\n"
+    );
+    assert!(!app.root.join("sessions").exists());
+    assert!(!app.root.join(format!(".hick-lens-{view_id}")).exists());
+    let session = PathBuf::from(turn["session"].as_str().unwrap());
+    assert!(!session.starts_with(&app.root));
+    let text = std::fs::read_to_string(&session).unwrap();
+    assert!(text.contains("literate-view-tool"));
+    assert!(text.contains("value = 1"));
+    hick_lang::parse_session(&text).unwrap();
+    let (status, v) = app
+        .request("GET", &format!("/api/representations/{view_id}"), json!({}))
+        .await;
+    assert_eq!(status, 200, "{v}");
+    assert!(
+        v["source"]
+            .as_str()
+            .unwrap()
+            .contains("ACP reading of the source.")
+    );
+    app.request("POST", &app.route("/stop"), json!({})).await;
+}

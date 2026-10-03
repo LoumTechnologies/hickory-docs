@@ -24,6 +24,14 @@ pub struct EditorBuffer {
 
 /// Stable conversation subject; it is an identity, never a file to create.
 pub fn subject(state: &LocalState, id: &str) -> ApiResult<std::path::PathBuf> {
+    if let Some(lens) = id.strip_prefix("lens:") {
+        if lens.len() != 16 || !lens.bytes().all(|b| b.is_ascii_hexdigit()) {
+            return Err(ApiError::bad_request(
+                "Open a literate view before starting its agent.",
+            ));
+        }
+        return Ok(state.index.root().join(format!(".hick-lens-{lens}")));
+    }
     if id == WORKSPACE_AGENT {
         Ok(state.index.root().join(".hick-workspace-agent"))
     } else {
@@ -31,6 +39,18 @@ pub fn subject(state: &LocalState, id: &str) -> ApiResult<std::path::PathBuf> {
             .index
             .absolute(id)
             .ok_or_else(|| ApiError::not_found("document no longer open"))
+    }
+}
+
+pub fn session_root(state: &LocalState, id: &str) -> ApiResult<std::path::PathBuf> {
+    if id.starts_with("lens:") {
+        Ok(
+            hickory_workspace::WorkspaceStore::for_project(state.index.root())?
+                .dir()
+                .join("literate-agents"),
+        )
+    } else {
+        Ok(state.index.root().to_path_buf())
     }
 }
 

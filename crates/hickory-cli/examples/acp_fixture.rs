@@ -99,6 +99,31 @@ async fn main() {
                     );
                     continue;
                 }
+                if let Some(view_id) = prompt.strip_prefix("literate-edit:") {
+                    let http = reqwest::Client::new();
+                    let mut n = 100;
+                    let mut call = async |name: &str, arguments: Value| {
+                        n += 1;
+                        let answer=http.post(&bridge).json(&json!({"jsonrpc":"2.0","id":n,"method":"tools/call","params":{"name":name,"arguments":arguments}})).send().await.unwrap().json::<Value>().await.unwrap();
+                        assert!(answer.get("error").is_none(), "{answer}");
+                        serde_json::from_str::<Value>(
+                            answer["result"]["content"][0]["text"].as_str().unwrap(),
+                        )
+                        .unwrap()
+                    };
+                    let view = call("read_literate_view", json!({"id":view_id})).await;
+                    let file = &view["files"][0];
+                    let arranged=call("organize_literate_view",json!({"id":view_id,"revision":view["revision"],"sections":[{"path":file["path"],"from":0,"to":file["content"].as_str().unwrap().len(),"heading":"What this code does","explanation":"ACP reading of the source."}]})).await;
+                    let source = arranged["source"]
+                        .as_str()
+                        .unwrap()
+                        .replace("value = 1", "value = 2");
+                    call(
+                        "edit_literate_view",
+                        json!({"id":view_id,"revision":arranged["revision"],"source":source}),
+                    )
+                    .await;
+                }
                 if prompt == "edit" {
                     let http = reqwest::Client::new();
                     let mut request_id = 1;
