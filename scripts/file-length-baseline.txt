@@ -12,12 +12,12 @@ crates/hick-lang/src/lib.rs 2592
 crates/hick-literate/src/lib.rs 4761
 crates/hick-lsp/src/backend.rs 2672
 crates/hick-token/src/lib.rs 1378
-crates/hickory-agent/src/tools/mod.rs 1463
+crates/hickory-agent/src/tools/mod.rs 1461
 crates/hickory-cli/src/claude_code.rs 1195
 crates/hickory-cli/src/ingest.rs 1107
 crates/hickory-cli/src/lib.rs 2289
 crates/hickory-cli/src/main.rs 4424
-crates/hickory-cli/src/mcp.rs 1236
+crates/hickory-cli/src/mcp.rs 1235
 crates/hickory-cli/src/serve/api.rs 1672
 crates/hickory-executor-sandbox/src/policy.rs 1164
 crates/hickory-executor/src/lib.rs 2262

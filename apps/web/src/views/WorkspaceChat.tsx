@@ -6,7 +6,10 @@ import type { AgentEditorContext } from "../api/agentTypes";
 import { panes, type Layout, type Tab } from "../shell/layout";
 import type { SessionRegistry } from "./documentSession";
 import { FILES_CHANGED_EVENT } from "../shell/FolderTreePane";
-import { openPlainSearchFiles } from "../lib/workspaceSearch";
+import { untitledEditor } from "../editor/activeEditor";
+import { applyAgentEdit } from "../lib/agentEdit";
+import type { AgentChange } from "../api/acp";
+import { openPlainSearchFiles, plainSearchEditor } from "../lib/workspaceSearch";
 
 export function editorTabs(layout: Layout): Tab[] {
   return panes(layout.root).flatMap(pane => pane.tabs).filter(tab =>
@@ -31,7 +34,7 @@ export async function editorContext(
         ?? visiblePlain.get(tab.target)
         ?? session?.outputs.get(tab.target)?.content ?? (await api.file(tab.target)).content;
     }
-    return { name: tab.title ?? tab.target, path: tab.kind === "untitled" ? null : tab.target,
+    return { id: tab.id, kind: tab.kind, ...(tab.kind === "generated" ? { document: session?.doc?.path ?? tabs.find(t => t.kind === "document" && t.docId === tab.docId)?.target } : {}), name: tab.title ?? tab.target, path: tab.kind === "untitled" ? null : tab.target,
       content, focused: tab.id === focused };
   }));
   return { buffers };
@@ -54,7 +57,17 @@ export function WorkspaceChat({ layout, registry, untitledSources, plainSources,
   latest.current = { tabs, focused };
   const getContext = async () => editorContext(latest.current.tabs, latest.current.focused,
     registry, untitledSources.current, plainSources.current);
-  return <ChatDock docId="workspace" realtime={realtime} getContext={getContext}
+  const applyAgentChange = (change: AgentChange) => {
+    const target = latest.current.tabs.find(tab => tab.id === (change.buffer ?? change.name));
+    if (!target) throw new Error("The target editor was closed. Reopen it and ask the agent again.");
+    const session = registry.get(target.docId);
+    const view = target.kind === "untitled" ? untitledEditor()
+      : target.kind === "document" ? session?.docEditor
+      : target.kind === "generated" ? session?.openOutputs.get(target.target)
+      : plainSearchEditor(target.target);
+    applyAgentEdit(view, change);
+  };
+  return <ChatDock docId="workspace" applyAgentChange={applyAgentChange} realtime={realtime} getContext={getContext}
     contextLabel={[folder, ...tabs.map(tab => `${tab.title ?? tab.target}${tab.kind === "untitled" ? " (unsaved)" : ""}`)].filter(Boolean).join(" · ") || "No open editors or folder"}
     onOpenSession={onOpenSession}
     onAgentFinished={() => {

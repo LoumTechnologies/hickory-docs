@@ -18,7 +18,9 @@ available for a focused indexed document whose snapshot matches disk.
 
 Sending context does not save a buffer, manufacture a filename for an untitled
 note, or overwrite disk with unsaved text. Suggested changes to unsaved buffers
-appear in the answer. Context snapshots are recorded as inert JSON in the `.md`
+appear in the answer for the built-in agent. ACP agents instead use live-buffer
+editing tools and the conversation review policy described in
+`conversation-edits-use-the-client-review-policy.md`. Context snapshots are recorded as inert JSON in the `.md`
 conversation record, for both the built-in agent and ACP adapters.
 
 ---

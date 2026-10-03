@@ -169,10 +169,10 @@ export interface DiffLine {
  * instead of replace-range edits. Trailing newlines are normalised away so a
  * missing final "\n" never shows as a phantom change.
  */
-export function diffLines(expected: string, actual: string): DiffLine[] {
+export function diffLines(expected: string, actual: string, preserveNewlines = false): DiffLine[] {
   const strip = (l: string) => (l.endsWith("\n") ? l.slice(0, -1) : l);
-  const a = splitLines(expected.replace(/\n$/, "")).map(strip);
-  const b = splitLines(actual.replace(/\n$/, "")).map(strip);
+  const a = splitLines(preserveNewlines ? expected : expected.replace(/\n$/, "")).map(l => preserveNewlines ? l : strip(l));
+  const b = splitLines(preserveNewlines ? actual : actual.replace(/\n$/, "")).map(l => preserveNewlines ? l : strip(l));
   const n = a.length;
   const m = b.length;
   const rows: DiffLine[] = [];
@@ -221,4 +221,16 @@ export function applyEdits(text: string, edits: TextEdit[]): string {
     pos = e.end;
   }
   return out + text.slice(pos);
+}
+
+/** Unified display using the same renderer as Git changes, including final-newline evidence. */
+export function unifiedDiff(path: string, before: string, after: string): string {
+  if (before === after) return "";
+  const count = (text: string) => splitLines(text).length;
+  const rows = diffLines(before, after, true).flatMap(row => {
+    const prefix = row.kind === "ins" ? "+" : row.kind === "del" ? "-" : " ";
+    const text = row.text.replace(/\n$/, "");
+    return row.text.endsWith("\n") ? [`${prefix}${text}`] : [`${prefix}${text}`, "\\ No newline at end of file"];
+  });
+  return `--- a/${path}\n+++ b/${path}\n@@ -${count(before) ? 1 : 0},${count(before)} +${count(after) ? 1 : 0},${count(after)} @@\n${rows.join("\n")}\n`;
 }

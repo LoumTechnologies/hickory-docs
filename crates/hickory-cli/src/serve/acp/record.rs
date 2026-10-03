@@ -97,6 +97,17 @@ pub fn partial_answer(path: &Path, turn: &str) -> Option<String> {
     (!text.is_empty()).then_some(text)
 }
 
+pub fn edit_mode(path: &Path) -> Option<super::edits::Mode> {
+    let source = std::fs::read_to_string(path).ok()?;
+    let doc = hick_lang::parse(&source).ok()?;
+    doc.all_tags()
+        .into_iter()
+        .filter(|t| t.name == "context" && t.get_attribute("kind") == Some("acp-edit-mode"))
+        .filter_map(|t| serde_json::from_str::<Value>(&t.text_content()).ok())
+        .filter_map(|v| serde_json::from_value(v["mode"].clone()).ok())
+        .next_back()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

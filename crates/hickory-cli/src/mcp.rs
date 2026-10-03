@@ -17,18 +17,17 @@
 //! three methods, and a dependency that moves faster than that surface would
 //! be a liability in a binary users install.
 //!
-
-use std::collections::HashMap;
-use std::io::{BufRead, Write};
-use std::path::PathBuf;
-use std::sync::Arc;
-
+#[path = "mcp_preview.rs"]
+mod preview;
+use crate::ExecutorChoice;
 use anyhow::Result;
 use hickory_agent::{EditSession, ToolInvocation, execute_tool};
 use hickory_executor::Executor;
 use serde_json::{Value, json};
-
-use crate::ExecutorChoice;
+use std::collections::HashMap;
+use std::io::{BufRead, Write};
+use std::path::PathBuf;
+use std::sync::Arc;
 
 /// The MCP revision this server implements. A client asking for a different
 /// one is answered with this; the spec expects a server to name what it
@@ -1072,7 +1071,7 @@ fn call_create_doc_tool(project: &std::path::Path, args: &Value) -> Result<Strin
         .ok_or("pass `path`: where to create the document, relative to the project root")?;
     let mut rel = PathBuf::from(raw);
     if rel.extension().is_none_or(|e| e != "md") {
-        rel.set_extension("hick");
+        rel.set_extension("md");
     }
     // A path that climbs out of the project is refused rather than
     // normalised: the tools are confined to the project by construction, and

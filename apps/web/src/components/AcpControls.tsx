@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { DiffView } from "./DiffView";
+import { unifiedDiff } from "../lib/diff";
 import { acpApi, type AcpState, type AcpUpdate, type AgentCommand, type ConfigOption } from "../api/acp";
 
 const defaults: AgentCommand[] = [
@@ -39,12 +41,13 @@ export function useAcp(doc: string, backend: string, session: string | undefined
     // A running turn owns its connection; do not reconnect on optimistic UI updates.
   }, [connect, backend]);
   useEffect(() => {
-    if (!running || backend === "builtin") return;
+    if (backend === "builtin" || (!running && !state?.ready)) return;
+    const stamp = version.current;
     let live = true;
-    const poll = () => { void acpApi.state(doc).then(s => { if (live) setState(s); }, () => undefined); };
-    poll(); const timer = setInterval(poll, 500);
+    const poll = () => { void Promise.resolve(acpApi.state(doc)).then(s => { if (s && live && stamp === version.current) setState(s); }, () => undefined); };
+    poll(); const timer = setInterval(poll, running ? 500 : 1500);
     return () => { live = false; clearInterval(timer); };
-  }, [running, backend, doc]);
+  }, [running, backend, doc, state?.ready]);
   const act = async (operation: () => Promise<AcpState>) => {
     const stamp = ++version.current;
     setBusy(true); setError(null);
@@ -118,6 +121,6 @@ export function ToolDetails({ tool }: { tool: AcpUpdate }) {
     {tool._meta?.terminal_output_delta?.data && <pre>{tool._meta.terminal_output_delta.data}</pre>}
     {tool.rawOutput !== undefined && <pre>{typeof tool.rawOutput === "string" ? tool.rawOutput : JSON.stringify(tool.rawOutput, null, 2)}</pre>}
     {tool.rawInput !== undefined && <pre>{typeof tool.rawInput === "string" ? tool.rawInput : JSON.stringify(tool.rawInput, null, 2)}</pre>}
-    {tool.content?.map((c, i) => c.type === "diff" ? <div key={i}><strong>{c.path}</strong><pre className="acp-diff">{c.oldText && `− ${c.oldText}\n`}{c.newText && `+ ${c.newText}`}</pre></div> : c.content?.text ? <pre key={i}>{c.content.text}</pre> : null)}
+    {tool.content?.map((c, i) => c.type === "diff" ? <DiffView key={i} path={c.path ?? "document"} diff={unifiedDiff(c.path ?? "document", c.oldText ?? "", c.newText ?? "")} binary={false} staged={false} label="agent edit" /> : c.content?.text ? <pre key={i}>{c.content.text}</pre> : null)}
   </div>;
 }

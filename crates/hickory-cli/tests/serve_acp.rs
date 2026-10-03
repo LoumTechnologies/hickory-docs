@@ -280,6 +280,12 @@ async fn acp_mcp_edit_maps_back_and_verifies_in_the_live_document_room() {
     let (_dir, app) = fixture(vec![]).await;
     app.state.rooms.get_or_create(&app.doc).await.unwrap();
     app.connect(None).await;
+    app.request(
+        "POST",
+        &app.route("/acp/edits"),
+        json!({"mode":"auto-accept"}),
+    )
+    .await;
     let id = app.send("edit", None).await;
     let turn = app.wait(&id).await;
     assert_eq!(turn["status"], "ok", "{turn}");
@@ -349,6 +355,12 @@ async fn live_codex_uses_hickory_tools_and_records_a_session() {
     .await;
     let ready = app.connect(None).await;
     assert_eq!(ready["ready"], true, "{ready}");
+    app.request(
+        "POST",
+        &app.route("/acp/edits"),
+        json!({"mode":"auto-accept"}),
+    )
+    .await;
     let id=app.send("Use the hick MCP server to read_doc, read_output with lineage for greet.rs, edit_output to change hello to ACP, then verify. Report done. Do not use shell tools or edit files directly.",None).await;
     let turn = tokio::time::timeout(Duration::from_secs(180), async {
         loop {
@@ -478,4 +490,240 @@ async fn acp_organizes_and_edits_a_disposable_view_without_repository_session_fi
             .contains("ACP reading of the source.")
     );
     app.request("POST", &app.route("/stop"), json!({})).await;
+}
+
+// Guarantee: docs/guarantees/agent/conversation-edits-use-the-client-review-policy.md
+async fn pending_change(app: &App) -> Value {
+    tokio::time::timeout(Duration::from_secs(10), async {
+        loop {
+            let (_, state) = app.request("GET", &app.route("/acp"), json!({})).await;
+            if let Some(change) = state["edits"]["changes"].as_array().and_then(|cs| {
+                cs.iter()
+                    .find(|c| c["status"] == "pending" || c["status"] == "applying")
+            }) {
+                return change.clone();
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    })
+    .await
+    .unwrap()
+}
+
+// Guarantee: docs/guarantees/agent/conversation-edits-use-the-client-review-policy.md
+#[tokio::test]
+async fn acp_untitled_edits_use_tools_and_wait_for_client_review() {
+    let (_dir, mut app) = fixture(vec![]).await;
+    app.doc = "workspace".into();
+    let ready = app.connect(None).await;
+    assert_eq!(ready["edits"]["mode"], "review");
+    for (accepted, parent) in [(false, None), (true, Some("previous"))] {
+        let parent = if parent.is_some() {
+            let (_, turns) = app.request("GET", &app.route("/turns"), json!({})).await;
+            Some(turns["turns"][0]["id"].as_str().unwrap().to_string())
+        } else {
+            None
+        };
+        let (status, response) = app.request("POST", &app.route(""), json!({
+            "backend":"fixture", "prompt":"buffer-edit", "parent_id":parent,
+            "context":{"buffers":[{"id":"untitled-tab","kind":"untitled","name":"Untitled 1","path":null,"content":"# Original 📝\n","focused":true}]}
+        })).await;
+        assert_eq!(status, 202, "{response}");
+        let change = pending_change(&app).await;
+        assert_eq!(change["oldText"], "# Original 📝\n");
+        assert_eq!(change["newText"], "# Changed by ACP 📝\n");
+        assert_eq!(change["name"], "Untitled 1");
+        assert_eq!(change["buffer"], "untitled-tab");
+        assert!(change["path"].is_null());
+        assert!(!app.root.join("Untitled 1").exists());
+        assert_eq!(
+            std::fs::read_to_string(app.root.join("demo.md")).unwrap(),
+            DOC
+        );
+        let (status, result) = app
+            .request(
+                "POST",
+                &app.route("/acp/edits"),
+                json!({"id":change["id"],"accepted":accepted}),
+            )
+            .await;
+        assert_eq!(status, 200, "{result}");
+        let turn = app.wait(response["session_id"].as_str().unwrap()).await;
+        assert_eq!(turn["status"], "ok", "{turn}");
+        assert!(turn["answer"].as_str().unwrap().contains(if accepted {
+            "Edited the live buffer"
+        } else {
+            "rejected this edit"
+        }));
+        let (status, _) = app
+            .request(
+                "POST",
+                &app.route("/acp/edits"),
+                json!({"id":change["id"],"accepted":true}),
+            )
+            .await;
+        assert_eq!(status, 422); // Decisions are consumed once.
+    }
+}
+
+// Guarantee: docs/guarantees/agent/conversation-edits-use-the-client-review-policy.md
+#[tokio::test]
+async fn acp_auto_accept_is_conversation_scoped_and_restored() {
+    let (_dir, mut app) = fixture(vec![]).await;
+    app.doc = "workspace".into();
+    app.connect(None).await;
+    let (status, state) = app
+        .request(
+            "POST",
+            &app.route("/acp/edits"),
+            json!({"mode":"auto-accept"}),
+        )
+        .await;
+    assert_eq!(status, 200);
+    assert_eq!(state["edits"]["mode"], "auto-accept");
+    let (_, response) = app.request("POST", &app.route(""), json!({"backend":"fixture","prompt":"buffer-edit","context":{"buffers":[{"id":"tab","name":"Untitled","path":null,"content":"original\n","focused":true}]}})).await;
+    let change = pending_change(&app).await;
+    assert_eq!(change["status"], "applying");
+    app.request(
+        "POST",
+        &app.route("/acp/edits"),
+        json!({"id":change["id"],"accepted":true}),
+    )
+    .await;
+    let turn = app.wait(response["session_id"].as_str().unwrap()).await;
+    let session = turn["session"].as_str().unwrap().to_string();
+    let root = app.root.clone();
+    drop(app);
+    let mut app = start(&root).await;
+    app.doc = "workspace".into();
+    assert_eq!(
+        app.connect(Some(&session)).await["edits"]["mode"],
+        "auto-accept"
+    );
+    // An independent conversation gets its own default.
+    app.doc = app.state.index.sole().unwrap().0;
+    assert_eq!(app.connect(None).await["edits"]["mode"], "review");
+}
+
+// Guarantee: docs/guarantees/agent/conversation-edits-use-the-client-review-policy.md
+#[tokio::test]
+async fn acp_existing_output_tool_waits_for_review_before_writing() {
+    let (_dir, app) = fixture(vec![]).await;
+    app.state.rooms.get_or_create(&app.doc).await.unwrap();
+    app.connect(None).await;
+    let id = app.send("edit", None).await;
+    let change = pending_change(&app).await;
+    assert_eq!(change["editor"], false);
+    assert!(change["newText"].as_str().unwrap().contains("ACP"));
+    assert_eq!(
+        std::fs::read_to_string(app.root.join("demo.md")).unwrap(),
+        DOC
+    );
+    app.request(
+        "POST",
+        &app.route("/acp/edits"),
+        json!({"id":change["id"],"accepted":true}),
+    )
+    .await;
+    assert_eq!(app.wait(&id).await["status"], "ok");
+    assert!(
+        std::fs::read_to_string(app.root.join("demo.md"))
+            .unwrap()
+            .contains("println!(\"ACP\")")
+    );
+}
+
+// Guarantee: docs/guarantees/agent/conversation-edits-use-the-client-review-policy.md
+#[tokio::test]
+async fn stopping_a_review_cancels_the_edit() {
+    let (_dir, mut app) = fixture(vec![]).await;
+    app.doc = "workspace".into();
+    app.connect(None).await;
+    let (_, response) = app.request("POST", &app.route(""), json!({"backend":"fixture","prompt":"buffer-edit","context":{"buffers":[{"id":"tab","name":"Untitled","path":null,"content":"original\n","focused":true}]}})).await;
+    let change = pending_change(&app).await;
+    app.request("POST", &app.route("/stop"), json!({})).await;
+    assert_eq!(
+        app.wait(response["session_id"].as_str().unwrap()).await["status"],
+        "stopped"
+    );
+    let (_, state) = app.request("GET", &app.route("/acp"), json!({})).await;
+    assert_eq!(state["edits"]["changes"][0]["status"], "rejected");
+    assert_eq!(
+        std::fs::read_to_string(app.root.join("demo.md")).unwrap(),
+        DOC
+    );
+    assert_eq!(
+        app.request(
+            "POST",
+            &app.route("/acp/edits"),
+            json!({"id":change["id"],"accepted":true})
+        )
+        .await
+        .0,
+        422
+    );
+}
+
+// Guarantee: docs/guarantees/agent/conversation-edits-use-the-client-review-policy.md
+#[tokio::test]
+#[ignore = "uses the installed authenticated Codex ACP adapter and a real model turn"]
+async fn live_codex_edits_current_note_through_review() {
+    let command = std::env::var("HICKORY_ACP_LIVE_COMMAND").unwrap();
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().canonicalize().unwrap();
+    let before = "# Original heading\n\nKeep this paragraph unchanged.\n";
+    std::fs::write(root.join("demo.md"), before).unwrap();
+    let mut app = start(&root).await;
+    app.doc = "workspace".into();
+    app.request(
+        "PUT",
+        "/api/agents",
+        json!([{"id":"fixture","name":"Codex live","command":command,"args":[]}]),
+    )
+    .await;
+    let connected = app.connect(None).await;
+    assert_eq!(connected["ready"], true, "{connected}");
+    let (_, response) = app.request("POST", &app.route(""), json!({"backend":"fixture","prompt":"Change the heading in the current document to Meeting notes. Keep its paragraph unchanged.","context":{"buffers":[{"id":"note-tab","kind":"document","name":"demo.md","path":"demo.md","content":before,"focused":true}]}})).await;
+    let change = tokio::time::timeout(Duration::from_secs(90), async {
+        loop {
+            let (_, state) = app.request("GET", &app.route("/acp"), json!({})).await;
+            if let Some(change) = state["edits"]["changes"]
+                .as_array()
+                .and_then(|cs| cs.iter().find(|c| c["status"] == "pending"))
+            {
+                break change.clone();
+            }
+            tokio::time::sleep(Duration::from_millis(250)).await;
+        }
+    })
+    .await
+    .expect("Codex should submit a tool edit rather than printing the replacement document");
+    assert_eq!(change["oldText"], before);
+    let after = "# Meeting notes\n\nKeep this paragraph unchanged.\n";
+    assert_eq!(change["newText"], after, "{change}");
+    assert_eq!(
+        std::fs::read_to_string(root.join("demo.md")).unwrap(),
+        before
+    );
+    // The real UI uses its editor transaction. Here the HTTP client applies
+    // the approved bytes through the public document route before acknowledging.
+    let doc = app.state.index.sole().unwrap().0;
+    app.request("PUT", &format!("/api/docs/{doc}"), json!({"source":after}))
+        .await;
+    app.request(
+        "POST",
+        &app.route("/acp/edits"),
+        json!({"id":change["id"],"accepted":true}),
+    )
+    .await;
+    let turn = app.wait(response["session_id"].as_str().unwrap()).await;
+    assert_eq!(turn["status"], "ok", "{turn}");
+    assert_eq!(
+        std::fs::read_to_string(root.join("demo.md")).unwrap(),
+        after
+    );
+    println!(
+        "Live Codex current-note tool edit reviewed and accepted: {}",
+        turn["answer"]
+    );
 }

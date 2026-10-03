@@ -48,5 +48,5 @@ export interface AgentTurnsResponse {
 
 /** A snapshot of what the user has open, taken when Send is pressed. */
 export interface AgentEditorContext {
-  buffers: { name: string; path: string | null; content: string; focused: boolean }[];
+  buffers: { id?: string; kind?: string; document?: string; name: string; path: string | null; content: string; focused: boolean }[];
 }

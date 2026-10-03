@@ -43,10 +43,14 @@ When the user stops a turn, pending permission requests are cancelled and a
 three seconds, it is killed. The persisted turn remains stopped after restart.
 An app-interrupted turn is recovered as stopped, with its saved evidence.
 
-Hickory MCP edits reach the live editor. They are applied against a captured
+Hickory MCP edits reach the live editor. The conversation owns a Review or
+Auto-accept setting for document edits; the agent uses the same tools in either
+mode. See `conversation-edits-use-the-client-review-policy.md` for buffer
+editing and the shared Git diff renderer. They are applied against a captured
 CRDT revision so concurrent typing outside the replaced region survives.
 Generic ACP file access is confined to canonical workspace paths. Generic writes
-refuse generated paths and require a preceding read of an open document.
+refuse generated paths and use a preceding live editor snapshot or explicit
+file read as their baseline.
 Hickory-handled file reads/writes produce the existing context evidence.
 
 Codex rewind uses its reported message id and AIR fork-point metadata. The

@@ -29,6 +29,20 @@ come from the adapter, including the models available to your account. Send:
 > Read this document and its generated code using the hick tools. Change the
 > greeting from hello to welcome, then verify the result.
 
+Choose **Document edits → Review** to inspect changes and click **Accept change**
+or **Reject change**. Choose **Auto-accept** to apply them as they arrive. The
+choice belongs to this conversation and is remembered when you reopen it;
+new conversations start with Review. Change the setting between turns.
+
+For a current note, including an untitled draft, simply ask:
+
+> Change the heading of this document to “Meeting notes”.
+
+The agent receives live editor tools and changes appear as colored diffs using
+the same view as Git changes. Accepting an untitled edit updates its buffer;
+use Save when you want a file. Typing during review can make a proposal stale,
+in which case it is refused and the agent needs to read the note again.
+
 The pane streams the answer and folds reasoning separately. Tool details and
 permission choices appear while it works. **Stop** cancels the turn; a process
 that ignores cancellation is terminated after three seconds. **Reconnect**

@@ -13,18 +13,16 @@
 //! content comparison before every edit and absorbed by one automatic
 //! re-weave; anchors that no longer resolve after that produce a structured
 //! error, never a silently misapplied edit.
-
 pub mod hashline;
-
-use std::collections::HashMap;
-use std::fmt::Write as _;
-use std::path::{Path, PathBuf};
-use std::sync::Arc;
-
+mod preview;
 use anyhow::{Context as _, Result};
 use hick_exec::node::FileContent;
 use hickory_executor::Executor;
 use hickory_lineage::{LineageError, OutputEdit, Provenance, apply_source_edits, map_edits};
+use std::collections::HashMap;
+use std::fmt::Write as _;
+use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use crate::protocol::ToolInvocation;
 mod read_file;

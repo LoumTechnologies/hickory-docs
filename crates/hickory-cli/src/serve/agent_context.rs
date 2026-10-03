@@ -13,8 +13,14 @@ pub struct EditorContext {
     pub buffers: Vec<EditorBuffer>,
 }
 
-#[derive(Deserialize, Serialize)]
+#[derive(Clone, Deserialize, Serialize)]
 pub struct EditorBuffer {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub kind: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub document: Option<String>,
     pub name: String,
     pub path: Option<String>,
     pub content: String,

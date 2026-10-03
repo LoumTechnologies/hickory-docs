@@ -1,6 +1,7 @@
 //! ACP is an optional agent extension. The language and model client stay independent.
 mod client;
 mod config;
+mod edits;
 mod mcp;
 pub(crate) mod record;
 mod transport;
@@ -418,12 +419,19 @@ pub async fn start_turn(
         .lock()
         .unwrap()
         .insert(doc_id.clone(), backend);
+    *client.host.edits.buffers.lock().unwrap() = body.context.buffers.clone();
     let context =
         if doc_id == super::agent_context::WORKSPACE_AGENT || !body.context.buffers.is_empty() {
-            super::agent_context::describe(&state, &body.context)
+            super::agent_context::describe(&state, &body.context).replace(
+                "Offer suggested edits in your answer for unsaved buffers.",
+                "Use read_buffer and edit_buffer for requested edits, including unsaved buffers.",
+            )
         } else {
             String::new()
         };
+    let context = format!(
+        "{context}\nFor changes to the current open editor, call read_buffer then edit_buffer using its hashes. Do not return a replacement document as your answer. The client handles approval. For generated code use read_output and edit_output so lineage carries the edit into its source."
+    );
     let run_id = turn_id.clone();
     tokio::spawn(async move {
         let outcome = client
@@ -473,4 +481,68 @@ pub fn recovered_status(path: &std::path::Path, turn: &str) -> (String, Option<S
         Some(s) => (s["status"].as_str().unwrap_or("error").into(), s["error"].as_str().map(str::to_string)),
         None => ("stopped".into(), Some("The app closed before this agent turn finished. Its recorded activity is preserved.".into())),
     }
+}
+
+#[derive(Deserialize)]
+pub struct EditDecision {
+    pub mode: Option<edits::Mode>,
+    pub id: Option<String>,
+    pub accepted: Option<bool>,
+    pub error: Option<String>,
+    pub current_text: Option<String>,
+}
+pub async fn edit_decision(
+    State(state): State<LocalState>,
+    Path(doc): Path<String>,
+    Json(body): Json<EditDecision>,
+) -> ApiResult<Json<Value>> {
+    let client = connection(&state, &doc).await?;
+    if let Some(mode) = body.mode {
+        if state
+            .agent
+            .turns
+            .lock()
+            .unwrap()
+            .get(&doc)
+            .is_some_and(|turns| turns.iter().any(|t| t.status == "running"))
+        {
+            return Err(ApiError::conflict(
+                "Wait for this turn to finish before changing edit approval.",
+            ));
+        }
+        // Changing modes never silently accepts an already pending edit.
+        let _operation = client.operation.try_lock().map_err(|_| {
+            ApiError::conflict("Wait for this turn to finish before changing edit approval.")
+        })?;
+        client
+            .record
+            .lock()
+            .await
+            .context("acp-edit-mode", &json!({"mode":mode}))
+            .map_err(error)?;
+        *client.host.edits.mode.lock().unwrap() = mode;
+    }
+    if let Some(id) = body.id {
+        if body.accepted != Some(true)
+            && let Some(content) = body.current_text
+        {
+            client.host.edits.refresh_rejected_buffer(&id, content);
+        }
+        let result = if body.accepted == Some(true) {
+            Ok(())
+        } else {
+            Err(body.error.unwrap_or_else(|| "The user rejected this edit. Read the buffer again before trying a different change.".into()))
+        };
+        client
+            .record
+            .lock()
+            .await
+            .context(
+                "acp-edit-decision",
+                &json!({"id":id,"accepted":result.is_ok(),"error":result.as_ref().err()}),
+            )
+            .map_err(error)?;
+        client.host.edits.resolve(&id, result).map_err(error)?;
+    }
+    Ok(Json(client.snapshot()))
 }

@@ -72,3 +72,10 @@ describe("computeEdits", () => {
     expect(bytes[0].start).toBe(byteLength("x 🎉 "));
   });
 });
+
+// Guarantee: docs/guarantees/agent/conversation-edits-use-the-client-review-policy.md
+import { unifiedDiff } from "./diff";
+it("shows a final-newline-only edit and an added empty line", () => {
+  expect(unifiedDiff("note.md", "note", "note\n")).toContain("-note\n\\ No newline at end of file\n+note");
+  expect(unifiedDiff("note.md", "", "\n")).toContain("@@ -0,0 +1,1 @@\n+\n");
+});

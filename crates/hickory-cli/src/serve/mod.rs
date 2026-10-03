@@ -607,6 +607,7 @@ pub(crate) fn router(state: LocalState) -> Router {
         .route("/docs/{id}/agent/acp/authenticate", post(acp::authenticate))
         .route("/docs/{id}/agent/acp/configure", post(acp::configure))
         .route("/docs/{id}/agent/acp/permission", post(acp::permission))
+        .route("/docs/{id}/agent/acp/edits", post(acp::edit_decision))
         .route("/docs/{id}/agent", post(agent::start_turn))
         .route("/docs/{id}/agent/stop", post(agent::stop_turn))
         .route("/docs/{id}/agent/turns", get(agent::list_turns))

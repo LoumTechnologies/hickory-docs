@@ -28,7 +28,7 @@ it("sends a startup untitled editor without a folder, using fresh text", async (
   fireEvent.change(screen.getByPlaceholderText("Ask the agent…"), { target: { value: "summarize" } });
   fireEvent.click(screen.getByRole("button", { name: "Send" }));
   await waitFor(() => expect(api.agent).toHaveBeenCalledWith("workspace", "summarize", null,
-    expect.anything(), expect.anything(), "builtin", { buffers: [{ name: untitled.title ?? untitled.target,
+    expect.anything(), expect.anything(), "builtin", { buffers: [{ id: untitled.id, kind: "untitled", name: untitled.title ?? untitled.target,
       path: null, content: "latest unsaved text", focused: true }] }));
 });
 // Guarantee: docs/guarantees/agent/the-agent-sees-the-open-editors.md

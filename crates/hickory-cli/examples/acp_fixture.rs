@@ -68,7 +68,15 @@ async fn main() {
             ),
             Some("session/prompt") => {
                 assert!(!inactive, "A fork must be resumed before prompting");
-                let prompt = params["prompt"][0]["text"].as_str().unwrap();
+                let prompt = params["prompt"][0]["text"]
+                    .as_str()
+                    .unwrap()
+                    .split("\n\n")
+                    .next()
+                    .unwrap()
+                    .lines()
+                    .next()
+                    .unwrap();
                 if prompt == "hang" {
                     continue;
                 }
@@ -123,6 +131,32 @@ async fn main() {
                         json!({"id":view_id,"revision":arranged["revision"],"source":source}),
                     )
                     .await;
+                }
+                if prompt == "buffer-edit" {
+                    let http = reqwest::Client::new();
+                    let mut n = 400;
+                    let mut call = async |name: &str, arguments: Value| {
+                        n += 1;
+                        http.post(&bridge).json(&json!({"jsonrpc":"2.0","id":n,"method":"tools/call","params":{"name":name,"arguments":arguments}})).send().await.unwrap().json::<Value>().await.unwrap()
+                    };
+                    let read = call("read_buffer", json!({})).await;
+                    let text = read["result"]["content"][0]["text"].as_str().unwrap();
+                    let hash = text
+                        .lines()
+                        .find_map(|l| {
+                            l.split_once('|')
+                                .filter(|(h, _)| h.len() == 4)
+                                .map(|(h, _)| h.to_string())
+                        })
+                        .unwrap();
+                    let result = call(
+                        "edit_buffer",
+                        json!({"run":hash,"input":"# Changed by ACP 📝"}),
+                    )
+                    .await;
+                    update(
+                        json!({"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":result["result"]["content"][0]["text"]}}),
+                    );
                 }
                 if prompt == "edit" {
                     let http = reqwest::Client::new();

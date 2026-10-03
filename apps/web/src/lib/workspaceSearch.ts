@@ -16,6 +16,10 @@ export function openPlainSearchFiles(): SearchFile[] {
   return [...plainEditors].map(([view, path]) => ({ path, content: view.state.doc.toString() }));
 }
 
+export function plainSearchEditor(path: string): EditorView | undefined {
+  return [...plainEditors].find(([view, name]) => name === path && view.dom.isConnected)?.[0];
+}
+
 export async function searchWorkspace(
   query: string,
   limit: number,

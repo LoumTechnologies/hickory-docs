@@ -14,10 +14,12 @@ struct Bridge {
     server: Arc<Mutex<crate::mcp::Server>>,
     record: Arc<Mutex<Record>>,
     workspace_gate: Arc<Mutex<()>>,
+    edits: Arc<super::edits::Edits>,
 }
 
 pub struct Host {
     pub url: String,
+    pub edits: Arc<super::edits::Edits>,
     task: tokio::task::JoinHandle<()>,
 }
 impl Drop for Host {
@@ -35,8 +37,16 @@ impl Host {
     ) -> Result<Self> {
         let executor = state.executor.build().await?;
         let session = record.lock().await.path.clone();
-        let server =
-            crate::mcp::Server::embedded(state.index.root().to_path_buf(), doc, executor, session);
+        let server = crate::mcp::Server::embedded(
+            state.index.root().to_path_buf(),
+            doc,
+            executor,
+            session.clone(),
+        );
+        let edits = Arc::new(super::edits::Edits::default());
+        if let Some(mode) = super::record::edit_mode(&session) {
+            *edits.mode.lock().unwrap() = mode;
+        }
         let bridge = Bridge {
             state: state.clone(),
             context: super::client::RoomContext {
@@ -46,6 +56,7 @@ impl Host {
             server: Arc::new(Mutex::new(server)),
             record,
             workspace_gate,
+            edits: edits.clone(),
         };
         let token = format!(
             "{:016x}{:016x}",
@@ -60,7 +71,7 @@ impl Host {
         let task = tokio::spawn(async move {
             let _ = axum::serve(listener, router).await;
         });
-        Ok(Self { url, task })
+        Ok(Self { url, edits, task })
     }
 }
 
@@ -69,17 +80,108 @@ async fn exchange(State(bridge): State<Bridge>, Json(message): Json<Value>) -> i
         return (StatusCode::ACCEPTED, Json(Value::Null));
     };
     let method = message["method"].as_str().unwrap_or("");
+    let params = message.get("params").cloned().unwrap_or(json!({}));
+    let name = params["name"].as_str().unwrap_or("");
+    let args = &params["arguments"];
+    if method == "tools/call"
+        && let Some(buffer) = bridge.edits.buffer(&json!({}))
+        && let Some(path) = buffer.document.or(buffer.path)
+    {
+        let path = bridge.state.index.root().join(path);
+        if path.exists() {
+            bridge.server.lock().await.set_default_doc(path);
+        }
+    }
+    if method == "tools/call"
+        && matches!(
+            name,
+            "read_buffer" | "edit_buffer" | "read_doc" | "edit_doc"
+        )
+        && args.get("upstream").is_none()
+        && let Some(buffer) = bridge.edits.buffer(args)
+    {
+        let outcome = buffer_call(&bridge, name, args, buffer).await;
+        let result = match outcome {
+            Ok(text) => json!({"content":[{"type":"text","text":text}],"isError":false}),
+            Err(e) => json!({"content":[{"type":"text","text":format!("{e:#}")}],"isError":true}),
+        };
+        return (
+            StatusCode::OK,
+            Json(json!({"jsonrpc":"2.0","id":id,"result":result})),
+        );
+    }
+    if method == "tools/call" && matches!(name, "read_buffer" | "edit_buffer") {
+        return (
+            StatusCode::OK,
+            Json(
+                json!({"jsonrpc":"2.0","id":id,"result":{"content":[{"type":"text","text":"No matching open editor. Use read_doc with an explicit document path."}],"isError":true}}),
+            ),
+        );
+    }
+    let reviewed =
+        if method == "tools/call" && matches!(name, "edit_doc" | "edit_output" | "create_doc") {
+            let preview = {
+                let _workspace = bridge.workspace_gate.lock().await;
+                if let Err(e) = super::workspace::capture(&bridge.context).await {
+                    return tool_error(id, &format!("Could not flush the editor: {e:#}"));
+                }
+                bridge.server.lock().await.preview_edit(name, args).await
+            };
+            match preview {
+                Ok((path, old, next)) => {
+                    let change_id = match bridge
+                        .edits
+                        .submit(
+                            path.clone(),
+                            Some(path.clone()),
+                            old.clone(),
+                            next.clone(),
+                            false,
+                        )
+                        .await
+                    {
+                        Ok(id) => id,
+                        Err(e) => return tool_error(id, &format!("{e:#}")),
+                    };
+                    Some(((path, old, next), change_id))
+                }
+                Err(e) => return tool_error(id, &e),
+            }
+        } else {
+            None
+        };
     // The same lock gates ACP writes and MCP evidence. Never two open file writers.
     let _workspace = bridge.workspace_gate.lock().await;
     let _record = bridge.record.lock().await;
     let mut server = bridge.server.lock().await;
-    let params = message.get("params").cloned().unwrap_or(json!({}));
+    let review_id = reviewed.as_ref().map(|(_, id)| id.clone());
+    let captured = if method == "tools/call"
+        && !super::super::representation_tools::catalogue()
+            .iter()
+            .any(|tool| tool["name"] == params["name"])
+    {
+        super::workspace::capture(&bridge.context).await
+    } else {
+        Ok(Default::default())
+    };
+    if let Some((preview, change_id)) = reviewed {
+        match server.preview_edit(name, args).await {
+            Ok(current) if current == preview => {}
+            _ => {
+                bridge.edits.finished(&change_id, false);
+                return tool_error(
+                    id,
+                    "The document changed during review. Read it again before editing; nothing was changed.",
+                );
+            }
+        }
+    }
     let representation_call = method == "tools/call"
         && super::super::representation_tools::catalogue()
             .iter()
             .any(|tool| tool["name"] == params["name"]);
     let snapshots = if method == "tools/call" && !representation_call {
-        match super::workspace::capture(&bridge.context).await {
+        match captured {
             Ok(snapshots) => snapshots,
             Err(e) => {
                 return (
@@ -115,12 +217,18 @@ async fn exchange(State(bridge): State<Bridge>, Json(message): Json<Value>) -> i
         && let Some(tools) = value["tools"].as_array_mut()
     {
         tools.extend(super::super::representation_tools::catalogue());
+        tools.extend(super::edits::catalogue());
     }
     if let Err(e) = super::workspace::finish(&bridge.context, snapshots).await {
         result = Err((
             -32603,
             format!("Could not merge the tool edit into the open document: {e:#}"),
         ));
+    }
+    if let Some(id) = review_id {
+        bridge
+            .edits
+            .finished(&id, result.as_ref().is_ok_and(|v| v["isError"] != true));
     }
     let reply = match result {
         Ok(value) => json!({"jsonrpc":"2.0", "id":id, "result":value}),
@@ -199,4 +307,61 @@ pub fn confined(root: &Path, raw: &str) -> Result<PathBuf> {
         path.display()
     );
     Ok(canonical)
+}
+
+async fn buffer_call(
+    bridge: &Bridge,
+    name: &str,
+    args: &Value,
+    buffer: super::super::agent_context::EditorBuffer,
+) -> Result<String> {
+    use hickory_agent::hashline::LineIndex;
+    if matches!(name, "read_doc" | "read_buffer") {
+        bridge
+            .record
+            .lock()
+            .await
+            .context("acp-buffer-read", &json!({"buffer":buffer}))?;
+        return Ok(format!(
+            "buffer {} ({}):\n{}",
+            buffer.id.as_deref().unwrap_or("focused"),
+            buffer.name,
+            LineIndex::new(&buffer.content).render()
+        ));
+    }
+    anyhow::ensure!(
+        buffer.kind.as_deref() != Some("generated"),
+        "This is generated code. Use read_output and edit_output so the edit lands in its source document through lineage."
+    );
+    let next = super::edits::replacement(&buffer.content, args)?;
+    hick_lang::parse(&next).context("This edit would break the document; nothing was changed")?;
+    bridge
+        .record
+        .lock()
+        .await
+        .context("acp-buffer-edit", &json!({"buffer":buffer,"content":next}))?;
+    bridge
+        .edits
+        .submit(
+            buffer.id.clone().unwrap_or_else(|| buffer.name.clone()),
+            buffer.path.clone(),
+            buffer.content.clone(),
+            next.clone(),
+            true,
+        )
+        .await?;
+    bridge.edits.updated(&buffer, next.clone());
+    Ok(format!(
+        "Edited the live buffer. Fresh hashes:\n{}",
+        LineIndex::new(&next).render()
+    ))
+}
+
+fn tool_error(id: &Value, message: &str) -> (StatusCode, Json<Value>) {
+    (
+        StatusCode::OK,
+        Json(
+            json!({"jsonrpc":"2.0","id":id,"result":{"content":[{"type":"text","text":message}],"isError":true}}),
+        ),
+    )
 }

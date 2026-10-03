@@ -19,7 +19,12 @@ export interface AcpPermission {
   id: string; toolCall: AcpUpdate;
   options: { optionId: string; name: string; kind: string }[];
 }
+export interface AgentChange {
+  id: string; name: string; buffer?: string | null; path: string | null; oldText: string; newText: string;
+  editor: boolean; status: "pending" | "applying" | "accepted" | "rejected" | "applied" | "failed";
+}
 export interface AcpState {
+  edits?: { mode: "review" | "auto-accept"; changes: AgentChange[] };
   backend: string; ready: boolean; canRewind?: boolean; session?: string; error?: string | null;
   authMethods?: { id: string; name: string; description?: string; type?: string }[];
   configOptions?: ConfigOption[];
@@ -37,5 +42,6 @@ export const acpApi = {
   state: (doc: string) => request<AcpState>("GET", path(doc)),
   authenticate: (doc: string, method_id: string) => request<AcpState>("POST", `${path(doc)}/authenticate`, { method_id }),
   configure: (doc: string, config_id: string, value: string | boolean) => request<AcpState>("POST", `${path(doc)}/configure`, { config_id, value }),
+  edits: (doc: string, body: { mode?: "review" | "auto-accept"; id?: string; accepted?: boolean; error?: string; current_text?: string }) => request<AcpState>("POST", `${path(doc)}/edits`, body),
   permission: (doc: string, request_id: string, option_id: string) => request<{ answered: boolean }>("POST", `${path(doc)}/permission`, { request_id, option_id }),
 };

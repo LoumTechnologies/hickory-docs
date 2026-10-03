@@ -1,3 +1,5 @@
+import { AgentChanges } from "./AgentChanges";
+import type { AgentChange } from "../api/acp";
 import type { AgentEditorContext } from "../api/agentTypes";
 // The agent chat dock along the bottom of a document.
 //
@@ -112,6 +114,7 @@ export interface ChatDockProps {
   initialPrompt?: string;
   docId: string;
   getContext?: () => Promise<AgentEditorContext>;
+  applyAgentChange?: (change: AgentChange) => void | Promise<void>;
   contextLabel?: string;
   realtime: Realtime;
   /** Collapse to the composer only. */
@@ -284,6 +287,7 @@ export function ChatDock({
   initialPrompt = "",
   docId,
   getContext,
+  applyAgentChange,
   contextLabel,
   realtime,
   collapsed = false,
@@ -633,6 +637,7 @@ export function ChatDock({
         }} />Show lineage for collapsed conversation items</label>
         </FeatureSettings>}
       </header>
+      {!collapsed && backend !== "builtin" && <AgentChanges doc={docId} state={acp.state} running={running !== null} apply={applyAgentChange} update={acp.setState} />}
       {!collapsed && <AcpControls doc={docId} backend={backend} running={running !== null} control={acp} settingsOpen={false} />}
 
       {!collapsed && (

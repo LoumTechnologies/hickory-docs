@@ -199,6 +199,7 @@ impl Client {
 
     pub fn snapshot(&self) -> Value {
         let mut view = self.view.lock().unwrap().clone();
+        view["edits"] = self.host.edits.snapshot();
         view["backend"] = json!(self.agent);
         view["canRewind"] = json!(self.can_rewind());
         view["ready"] = json!(
@@ -285,6 +286,7 @@ impl Client {
                 _ = pulse.tick() => {
                     if cancel.load(std::sync::atomic::Ordering::Relaxed) && stopped_at.is_none() {
                         stopped_at = Some(std::time::Instant::now());
+                        self.host.edits.cancel();
                         self.cancel_permissions();
                         let _ = self.rpc.notify("session/cancel", json!({"sessionId":session})).await;
                     }
@@ -297,6 +299,7 @@ impl Client {
         };
         // RPC responses pass through the same queue as updates, so the last
         // token is recorded before the prompt's response can complete.
+        self.host.edits.cancel();
         self.cancel_permissions();
         let active = self.active.lock().unwrap().take().unwrap_or_default();
         let record = self.record.lock().await;
@@ -578,6 +581,56 @@ impl Client {
     }
 
     async fn file(&self, method: &str, params: &Value) -> Result<Value> {
+        // Live editor paths take precedence over disk, including unsaved bytes.
+        let raw = params["path"].as_str().context("file path missing")?;
+        let buffer = self
+            .host
+            .edits
+            .buffers
+            .lock()
+            .unwrap()
+            .iter()
+            .find(|b| {
+                b.path
+                    .as_ref()
+                    .is_some_and(|p| self.context.index.root().join(p) == std::path::Path::new(raw))
+            })
+            .cloned();
+        if let Some(buffer) = buffer {
+            if method == "fs/read_text_file" {
+                let start = params["line"].as_u64().unwrap_or(1).saturating_sub(1) as usize;
+                let limit = params["limit"].as_u64().map_or(usize::MAX, |n| n as usize);
+                self.record
+                    .lock()
+                    .await
+                    .context("acp-buffer-read", &json!({"buffer":buffer}))?;
+                return Ok(
+                    json!({"content":buffer.content.split_inclusive('\n').skip(start).take(limit).collect::<String>()}),
+                );
+            }
+            anyhow::ensure!(
+                buffer.kind.as_deref() != Some("generated"),
+                "This is generated code. Use read_output and edit_output so the edit lands in its document."
+            );
+            let content = params["content"].as_str().context("file content missing")?;
+            hick_lang::parse(content)?;
+            self.host
+                .edits
+                .submit(
+                    buffer.id.clone().unwrap_or_else(|| buffer.name.clone()),
+                    buffer.path.clone(),
+                    buffer.content.clone(),
+                    content.into(),
+                    true,
+                )
+                .await?;
+            self.host.edits.updated(&buffer, content.into());
+            self.record.lock().await.context(
+                "acp-buffer-write",
+                &json!({"buffer":buffer,"content":content}),
+            )?;
+            return Ok(json!({}));
+        }
         if let Some(filesystem) = &self.filesystem {
             let raw = params["path"].as_str().context("file path missing")?;
             let rel = std::path::Path::new(raw).strip_prefix(&filesystem.path).context("ACP files must be inside the mounted workspace; use Hickory MCP for document paths")?.to_string_lossy().to_string();
@@ -666,6 +719,36 @@ impl Client {
                 }
             }
         }
+        let before = if let Some(room) = self.context.rooms.get(&id).await {
+            room.text().await
+        } else {
+            std::fs::read_to_string(&path).unwrap_or_default()
+        };
+        drop(_workspace);
+        let change_id = self
+            .host
+            .edits
+            .submit(
+                rel.clone(),
+                Some(rel.clone()),
+                before.clone(),
+                content.into(),
+                false,
+            )
+            .await?;
+        let _workspace = self.workspace_gate.lock().await;
+        let current = if let Some(room) = self.context.rooms.get(&id).await {
+            room.text().await
+        } else {
+            std::fs::read_to_string(&path).unwrap_or_default()
+        };
+        if current != before {
+            self.host.edits.finished(&change_id, false);
+        }
+        anyhow::ensure!(
+            current == before,
+            "The file changed during review. Read it again; nothing was applied."
+        );
         let merged = if self.context.rooms.get(&id).await.is_some() {
             let base = self.file_reads.lock().unwrap().remove(&rel).context(
                 "Read this open document before writing it, so concurrent edits can be preserved.",
@@ -675,6 +758,7 @@ impl Client {
             content.to_string()
         };
         super::super::store::write_atomic(&path, merged.as_bytes())?;
+        self.host.edits.finished(&change_id, true);
         let record = self.record.lock().await;
         record.context("acp-file-write", &json!({"path":rel,"content":merged}))?;
         let wrote = hickory_agent::Wrote {
@@ -696,6 +780,7 @@ impl Drop for Client {
         if let Some(task) = self.worker.lock().unwrap().take() {
             task.abort();
         }
+        self.host.edits.cancel();
         self.cancel_permissions();
     }
 }

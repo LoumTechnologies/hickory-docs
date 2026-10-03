@@ -22,6 +22,16 @@ the conversation's recorder. Capture the live CRDT revision before tools run,
 then apply their source changes as operations against that revision. Do not
 replace the live room with a stale disk snapshot after a whole turn.
 
+Conversation edit policy lives in `acp::edits`. `read_buffer`/`edit_buffer`
+address the editor snapshots sent with a turn; `read_doc`/`edit_doc` recognize
+those same buffers. These names never change with Review versus Auto-accept.
+A live-buffer write waits for the UI to apply its ordinary editor transaction
+and acknowledge it. Existing file/output tools preview through the shared
+hashline resolver, wait for approval, recheck the reviewed surface, then run
+the existing tool. Do not hold workspace, server, or recorder locks while
+waiting for review. Stop cancels pending decisions. `acp-edit-mode` in the
+conversation record restores the policy; it is not a global UI preference.
+
 Codex's `session/fork` creates an inactive session. **Resume it before prompting.**
 The fork point is the recorded ACP message id, carried in the adapter's AIR
 metadata. Advertising generic fork support does not establish exact rewind.

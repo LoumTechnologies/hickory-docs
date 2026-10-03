@@ -37,18 +37,20 @@ export function DiffView({
   diff,
   binary,
   staged,
+  label,
 }: {
   path: string;
   diff: string;
   binary: boolean;
   staged: boolean;
+  label?: string;
 }) {
   const lines = diff.replace(/\n$/, "").split("\n");
   return (
     <section className="diff-view" aria-label={`Diff of ${path}`}>
       <header className="diff-view__head">
         <span className="mono diff-view__path">{path}</span>
-        <span className="muted">{staged ? "staged" : "unstaged"}</span>
+        <span className="muted">{label ?? (staged ? "staged" : "unstaged")}</span>
       </header>
       {binary ? (
         <p className="muted diff-view__binary">A binary file; there are no lines to show.</p>
