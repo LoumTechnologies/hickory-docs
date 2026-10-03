@@ -6,6 +6,19 @@ and write access to `/Applications`, when `just local-install` succeeds, then
 embedded and is registered with macOS as **Hickory Docs**. It can be launched
 from Applications without a running development server or this checkout.
 
+The bundle declares `.md` files as Markdown documents with the Editor role.
+After registration, the installer checks the current user’s Markdown default
+through AppKit. If needed, it makes one asynchronous default-app request and
+waits for macOS’s consent prompt to finish before reading back the result.
+An existing Hickory Docs default needs no request or prompt. A successful
+installation makes Hickory Docs the default for opening `.md` files; it does
+not change the default for ordinary `.txt` files. An association failure
+reports an error rather than claiming installation completed.
+
+Finder’s file-open URLs are handled both at startup and while the app is
+running. A startup request selects the file before the editor loads; later
+requests open a new window/session through the same explicit-file launch path.
+
 A failed build or staging copy leaves an existing installed app untouched.
 Re-running the recipe replaces the installed bundle. User documents and
 settings are not part of that replacement.
@@ -25,6 +38,20 @@ previous pane arrangement and Welcome preference. See
 ---
 
 Last LLM verification:
+
+- Markdown defaults (2026-10-03, Codex): `just local-install` completed
+  after the user accepted macOS’s switch confirmation. The installer helper
+  now uses AppKit’s asynchronous default-app API, waits for completion, reads
+  back the result, and skips an already-selected app. A second installation
+  completed with “already the default” and no new prompt. An independent
+  `NSWorkspace.urlForApplication(toOpen:)` lookup resolved a temporary `.md`
+  to `/Applications/Hickory Docs.app`. Launching that file via `open -n`
+  (without naming an application) started the installed app; its real HTTP
+  `/api/files` response named the temporary file’s containing folder and
+  document. This checks native dispatch and workspace selection, not the
+  rendered editor tab or later requests to an already-running process.
+  `just check-desktop`, helper compilation with warnings denied,
+  `just check-file-length`, and `git diff --check` passed.
 
 - Cleanup fix (2026-10-03, Codex): `justfile::local-install` keeps installed
   app registration mandatory but treats build-copy unregistration as best

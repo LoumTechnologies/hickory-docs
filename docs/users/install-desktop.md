@@ -48,6 +48,18 @@ proves you have the bytes the release published. A signature would prove the
 same bytes came from us, which is the part that is missing until there is a
 certificate.
 
+## Markdown file associations
+
+The desktop bundles register Hickory Docs as an editor for `.md` files.
+On macOS, `just local-install` also makes it your default Markdown editor,
+so double-clicking a `.md` file in Finder opens it in Hickory Docs. Confirm
+the switch if macOS asks; reinstalling skips the request if it is already
+your default.
+
+For a drag-and-drop `.dmg` installation, choose Hickory Docs in Finder’s
+**Get Info → Open with → Change All…** for a Markdown file. On Windows or
+Linux, choose it in your system’s default-app settings.
+
 ## What it opens
 
 The app opens a folder of `.md` documents, including an empty folder. It picks one

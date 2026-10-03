@@ -20,6 +20,7 @@
 //! waiting on.
 
 pub mod dev;
+mod file_open;
 mod recent;
 pub mod server;
 
@@ -63,13 +64,11 @@ pub fn run() {
             // setup runs. Built through `.menu` it panicked before the first
             // window ("state() called before manage()").
             app.set_menu(app_menu(&handle)?)?;
-            // Off the main thread: everything below either blocks on a dialog
-            // or blocks on the runtime, and both would wedge the event loop.
-            std::thread::spawn(move || launch(handle));
             Ok(())
         })
-        .run(tauri::generate_context!())
-        .expect("error while running Hickory Docs");
+        .build(tauri::generate_context!())
+        .expect("error while building Hickory Docs")
+        .run(file_open::handler());
 }
 
 struct CloseGate(std::sync::atomic::AtomicBool);
@@ -594,7 +593,7 @@ fn dispatch_to_ui(app: &AppHandle, action: &str) {
 /// with no documents in it, and a folder another Hickory Docs process already
 /// holds — are both things the user fixes by choosing a different folder, so
 /// the app says what happened and asks again.
-fn launch(handle: AppHandle) {
+fn launch(handle: AppHandle, requested_file: Option<PathBuf>) {
     let runtime = match tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()
@@ -618,7 +617,7 @@ fn launch(handle: AppHandle) {
     // A folder named on the command line or in the environment is a deliberate
     // act, and is tried once: someone who typed a path wants that path, and
     // falling back to a picker would quietly hide their typo.
-    if let Some(dir) = server::named_dir() {
+    if let Some(dir) = requested_file.or_else(server::named_dir) {
         match runtime.block_on(server::start_with_menu(
             &dir,
             config_dir.as_deref(),

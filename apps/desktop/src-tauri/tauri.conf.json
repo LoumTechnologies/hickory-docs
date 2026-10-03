@@ -24,6 +24,21 @@
       "icons/icon.icns",
       "icons/icon.ico",
       "icons/icon.png"
+    ],
+    "fileAssociations": [
+      {
+        "ext": [
+          "md"
+        ],
+        "name": "Markdown document",
+        "description": "Markdown document",
+        "role": "Editor",
+        "rank": "Default",
+        "mimeType": "text/markdown",
+        "contentTypes": [
+          "net.daringfireball.markdown"
+        ]
+      }
     ]
   }
 }

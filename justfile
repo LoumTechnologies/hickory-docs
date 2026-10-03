@@ -182,6 +182,8 @@ local-install:
     # bundle until the replacement succeeds.
     staging="$(mktemp -d /Applications/.hickory-install.XXXXXX)"
     trap 'rm -rf "$staging"' EXIT
+    # Compile before replacing anything: no downloaded association utility.
+    rustc --edition=2024 scripts/default-markdown-editor.rs -o "$staging/default-markdown-editor"
     ditto "$bundle" "$staging/Hickory Docs.app"
     if [ -e "$destination" ]; then
       mv "$destination" "$staging/previous.app"
@@ -201,6 +203,7 @@ local-install:
       echo "Warning: macOS could not unregister the build copy; removing it anyway." >&2
     fi
     rm -rf "$bundle"
+    "$staging/default-markdown-editor" "$destination"
     echo "Installed $destination. Launch Hickory Docs from Applications or Spotlight."
 
 # Run a hick document with the local executor.
