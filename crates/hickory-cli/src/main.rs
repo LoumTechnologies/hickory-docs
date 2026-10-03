@@ -16,7 +16,8 @@ use hickory_cli::{
 #[command(
     name = "hick",
     version = main_thread::VERSION,
-    about = "Reproducible, verifiable, executable documents"
+    about = "Open Hickory Docs or run, test, and weave executable documents",
+    after_help = "Launch the editor: hick | hick . | hick notes.md\nUse hick open <path> for a path with the same name as a command."
 )]
 struct Cli {
     #[command(subcommand)]
@@ -71,10 +72,7 @@ enum Command {
     ///
     /// Returns immediately; the app outlives the terminal.
     ///
-    /// `hick` and the app are separate downloads — the archive carries the
-    /// command line, the app arrives as a .dmg, an AppImage or an .msi — so
-    /// this finds one that may not be installed and says so plainly if it is
-    /// not. `HICKORY_DESKTOP` points at a copy directly.
+    /// The desktop app bundles this CLI; CLI-only installs also work.
     Open(OpenArgs),
     /// Weave without executing: cached transcripts where present, otherwise
     /// blocks are marked never-run.
@@ -855,6 +853,8 @@ struct OpenArgs {
     /// working directory, which is what makes `hick open .` the whole gesture.
     #[arg(default_value = ".")]
     path: PathBuf,
+    #[arg(long, hide = true)]
+    blank_window: bool,
 }
 
 #[derive(clap::Args)]
@@ -1111,6 +1111,7 @@ struct AgentArgs {
     max_turns: usize,
 }
 
+mod cli_launch;
 mod main_thread;
 fn main() -> ExitCode {
     main_thread::main_exit()
@@ -1118,7 +1119,7 @@ fn main() -> ExitCode {
 
 fn run() -> ExitCode {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("warn")).init();
-    let cli = Cli::parse();
+    let cli = Cli::parse_from(cli_launch::arguments());
 
     let runtime = tokio::runtime::Runtime::new().expect("failed to build tokio runtime");
     let outcome = runtime.block_on(async {
@@ -2997,22 +2998,7 @@ fn cmd_merge_generated(args: MergeGeneratedArgs) -> Result<ExitCode> {
 
 /// `hick open [path]` — hand a folder to the desktop app and return.
 fn cmd_open(args: OpenArgs) -> Result<ExitCode> {
-    if !args.path.exists() {
-        anyhow::bail!(
-            "{} does not exist, so there is nothing to open.\n  \
-             `hick open` takes a folder of documents or a single `.md` file, \
-             and defaults to the working directory.",
-            args.path.display()
-        );
-    }
-    let Some(app) =
-        hickory_cli::open_app::find(|name| std::env::var(name).ok(), |path| path.exists())
-    else {
-        anyhow::bail!("{}", hickory_cli::open_app::not_installed());
-    };
-    hickory_cli::open_app::open(&app, &args.path)?;
-    eprintln!("opening {} in Hickory Docs", args.path.display());
-    Ok(ExitCode::SUCCESS)
+    cli_launch::open((!args.blank_window).then_some(args.path.as_path()))
 }
 
 /// `hick emit` — what a re-emission would produce. Emits nothing.

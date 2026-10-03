@@ -3,12 +3,33 @@
 For someone who wants to open a folder of `.md` documents in a window,
 rather than run `hick` in a terminal. No Rust toolchain, no Node, no clone.
 
-The desktop app and the CLI are **separate downloads**. They are the same
-engine — the app runs the local document server in its own process, so a
-document weaves, runs, and carries an output edit back exactly as it does
-under `hick up` — but a GUI application is a `.dmg`, an `.msi`, or a
-`.deb`/`.AppImage`, and a CLI is a binary on your `PATH`. Install either,
-neither, or both.
+The desktop app includes the `hick` CLI. A CLI-only archive is also available
+for terminals and CI machines that do not need the app. Both use the same engine.
+
+## Use hick from a terminal
+
+On Windows, leave **Add hick to my user PATH** checked in the MSI installer.
+On macOS or with a Linux AppImage, open **Settings → Command line → Install
+hick command…**. The command palette also finds **Shell Command: Install hick
+command in PATH…**. Linux packages put `hick` in the normal executable directory.
+
+Open a new terminal after PATH setup:
+
+```sh
+hick                 # open a blank editor window
+hick .               # open this folder
+hick notes.md        # open a document
+hick open ./test     # open a folder whose name is also a CLI command
+hick run notes.md    # execute a document
+hick test notes.md   # test it
+hick up .            # run the headless engine
+hick --help          # list CLI commands
+```
+
+Settings shows the command's location and offers removal for commands it installed.
+An existing `hick` installation is reported rather than overwritten. Keep an
+AppImage in a permanent location before installing its command; moving or deleting
+the app also breaks its command launcher.
 
 ## Download
 

@@ -6,10 +6,9 @@ releases page, then they find an installer in their platform's own shape —
 from the same commit and carrying the same version as the CLI archives beside
 it, and installing it requires no Rust toolchain, no Node, and no checkout.
 
-The two downloads are separate on purpose. A GUI application on macOS is a
+The desktop installer includes the CLI; the CLI-only archive remains a separate download. A GUI application on macOS is a
 bundle you drag, not a binary you put on `PATH`; a CLI user should not have to
-download a webview shell to run `hick test` in CI. Making them one artifact
-would make both worse.
+download a webview shell to run `hick test` in CI. The CLI-only archive does not include a webview shell.
 
 They are **one product** underneath, and that is what stops the split from
 becoming a fork: `apps/desktop` runs `hickory_cli::serve` in its own process,

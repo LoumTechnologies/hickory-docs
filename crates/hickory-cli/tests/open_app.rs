@@ -76,7 +76,7 @@ fn a_single_document_is_passed_through_rather_than_its_folder() {
     // and opens the document — so narrowing to the folder here would throw
     // away which document was asked for.
     let dir = tempfile::tempdir().unwrap();
-    let doc = dir.path().join("note.hick");
+    let doc = dir.path().join("note.md");
     std::fs::write(
         &doc,
         "<hick:doc xmlns:hick=\"http://www.hickorydocs.com/1.0\"/>",
@@ -138,4 +138,60 @@ fn a_named_app_that_is_not_there_names_it_rather_than_falling_back() {
     let stderr = String::from_utf8_lossy(&out.stderr).to_string();
     assert!(stderr.contains("/opt/nope/hickory-desktop"), "{stderr}");
     assert!(stderr.contains("unset it"), "{stderr}");
+}
+
+// Guarantee: docs/guarantees/authoring/hick-open-hands-a-folder-to-the-app.md
+#[test]
+#[cfg(unix)]
+fn short_forms_open_a_blank_window_or_the_named_document() {
+    for blank in [true, false] {
+        let dir = tempfile::tempdir().unwrap();
+        let record = dir.path().join("argv.txt");
+        let app = stub(dir.path(), &record);
+        let doc = dir.path().join("a note.md");
+        std::fs::write(&doc, "ordinary markdown").unwrap();
+        let mut command = hick();
+        command
+            .env("HICKORY_DESKTOP", app)
+            .env("HICKORY_PROJECT_DIR", "/must-not-open");
+        if !blank {
+            command.arg(&doc);
+        }
+        let output = command.output().unwrap();
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        for _ in 0..50 {
+            if record.exists() {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(40));
+        }
+        let got = std::fs::read_to_string(record).unwrap();
+        if blank {
+            assert_eq!(got, "--blank-window");
+        } else {
+            assert_eq!(Path::new(&got), doc.canonicalize().unwrap());
+        }
+    }
+}
+
+#[test]
+fn help_and_version_work_without_the_desktop_and_typos_still_get_suggestions() {
+    for arg in ["--help", "--version"] {
+        assert!(
+            hick()
+                .env("HICKORY_DESKTOP", "/missing")
+                .arg(arg)
+                .output()
+                .unwrap()
+                .status
+                .success()
+        );
+    }
+    let output = hick().arg("tes").output().unwrap();
+    assert!(!output.status.success());
+    assert!(String::from_utf8_lossy(&output.stderr).contains("test"));
 }

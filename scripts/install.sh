@@ -249,15 +249,40 @@ else
   echo "      .hick files need a newer one (HICKORY_CHANNEL=unstable)." >&2
 fi
 
-case ":$PATH:" in
-  *":$INSTALL_DIR:"*) ;;
-  *)
-    echo ""
-    echo "$INSTALL_DIR is not on your PATH. Add this to your shell profile:"
-    echo ""
-    echo "    export PATH=\"$INSTALL_DIR:\$PATH\""
-    ;;
-esac
+# User PATH setup. Existing profiles retain their bytes; only append our block.
+# Set HICKORY_MODIFY_PATH=0 to manage PATH yourself.
+setup_path() {
+  [ "${HICKORY_MODIFY_PATH:-1}" != "0" ] || return 0
+  case ":$PATH:" in *":$INSTALL_DIR:"*) return 0 ;; esac
+  quoted_dir=$(printf '%s' "$INSTALL_DIR" | sed "s/'/'\\\\''/g")
+  path_line="export PATH='$quoted_dir':\"\$PATH\""
+  user_shell="${SHELL:-}"
+  case "${user_shell##*/}" in
+    zsh) profiles="${ZDOTDIR:-$HOME}/.zshrc" ;;
+    bash)
+      login_profile="$HOME/.profile"
+      if [ -f "$HOME/.bash_profile" ]; then login_profile="$HOME/.bash_profile"
+      elif [ -f "$HOME/.bash_login" ]; then login_profile="$HOME/.bash_login"; fi
+      profiles="$HOME/.bashrc
+$login_profile" ;;
+    fish)
+      profiles="$HOME/.config/fish/conf.d/hickory-docs.fish"
+      path_line="fish_add_path --path '$quoted_dir'" ;;
+    sh|dash|ksh) profiles="$HOME/.profile" ;;
+    *) echo "Add $INSTALL_DIR to your shell's PATH to use hick."; return 0 ;;
+  esac
+  printf '%s\n' "$profiles" | while IFS= read -r profile; do
+    if [ -f "$profile" ] && grep -Fq '# >>> Hickory Docs command PATH >>>' "$profile"; then
+      echo "PATH setup already exists in $profile; keeping it."
+      continue
+    fi
+    mkdir -p "$(dirname "$profile")" || return 1
+    printf '\n%s\n%s\n%s\n' '# >>> Hickory Docs command PATH >>>' "$path_line" '# <<< Hickory Docs command PATH <<<' >> "$profile" || return 1
+    echo "Added $INSTALL_DIR to your user PATH in $profile."
+  done || return 1
+  echo "Open a new terminal to use hick."
+}
+setup_path || echo "Could not update your shell profile. Add $INSTALL_DIR to PATH manually." >&2
 
 # Cells run confined by default; on Linux that needs bubblewrap. Saying so
 # now beats the first `hick test` refusing on a machine that was just told

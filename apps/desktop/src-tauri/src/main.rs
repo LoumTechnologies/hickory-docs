@@ -5,6 +5,23 @@
 mod launch_path;
 
 fn main() {
+    if std::env::args_os().nth(1).as_deref() == Some(std::ffi::OsStr::new("--hick-cli")) {
+        let cli = std::env::current_exe()
+            .expect("application executable")
+            .parent()
+            .expect("application directory")
+            .join("hick");
+        match std::process::Command::new(cli)
+            .args(std::env::args_os().skip(2))
+            .status()
+        {
+            Ok(status) => std::process::exit(status.code().unwrap_or(1)),
+            Err(error) => {
+                eprintln!("Cannot start the bundled hick command: {error}");
+                std::process::exit(1);
+            }
+        }
+    }
     // `hick init`, run from inside this app, defines git's merge drivers as
     // THIS executable — the app has the engine and the CLI is a separate
     // download that may not be here. So a merge git starts arrives at this

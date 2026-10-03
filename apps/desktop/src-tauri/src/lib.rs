@@ -19,6 +19,7 @@
 //! calling them on the main thread deadlocks against the event loop they are
 //! waiting on.
 
+mod command_path;
 pub mod dev;
 mod file_open;
 mod recent;

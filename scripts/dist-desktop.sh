@@ -42,6 +42,7 @@ echo "==> building Hickory Docs $VERSION for $TARGET"
 # `hick` reports its version from this at compile time; the app embeds the same
 # engine, so the two agree about what they are.
 export HICKORY_VERSION="$VERSION"
+just stage-desktop-cli "$TARGET" release
 
 # What the BUNDLE records as its version, which is not always what we call the
 # build. Windows rejects `0.1.0-unstable.f957b9e4` outright — an MSI's optional
@@ -54,7 +55,7 @@ export HICKORY_VERSION="$VERSION"
 # exactly which unstable build it is is worth keeping where it is allowed.
 # `hick --version` reports HICKORY_VERSION on every platform regardless.
 case "$TARGET" in
-  *windows*) BUNDLE_VERSION="${VERSION%%-*}" ;;
+  *windows*) BUNDLE_VERSION="${VERSION%%-*}"; TAURI_BUNDLES="${TAURI_BUNDLES:-msi}" ;;
   *)         BUNDLE_VERSION="$VERSION" ;;
 esac
 if [ "$BUNDLE_VERSION" != "$VERSION" ]; then
@@ -113,6 +114,7 @@ fi
   CI=true cargo tauri build \
     --config "{\"version\": \"$BUNDLE_VERSION\"}" \
     --config "$fskit_config" \
+    --config ../../../.dev/desktop-cli.json \
     ${cross_args[@]+"${cross_args[@]}"} \
     ${TAURI_BUNDLES:+--bundles "$TAURI_BUNDLES"}
 )

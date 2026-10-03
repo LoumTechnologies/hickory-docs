@@ -266,6 +266,7 @@ pub(crate) async fn start_with_menu(
         Some(handle) => crate::recent::routes(router, handle, target, dev.ui_origin.clone()),
         None => router,
     };
+    let router = crate::command_path::routes(router, dev.ui_origin.clone());
     let bound = listener.local_addr()?;
 
     tokio::spawn(async move {
@@ -332,7 +333,7 @@ pub async fn start_blank_with_config(
     if let Some(shell) = shell {
         prepared.state.set_shell(shell);
     }
-    let router = prepared.router.fallback(ui_handler);
+    let router = crate::command_path::routes(prepared.router.fallback(ui_handler), None);
     // `just dev` reserves its configured engine port for the workspace it is
     // editing. The folderless session always takes its own
     // ephemeral port for its editor session.

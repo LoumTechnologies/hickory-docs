@@ -1,3 +1,4 @@
+import { CommandPathSettings } from "./CommandPathSettings";
 // Settings ("#/settings"): LLM API keys, plus Appearance.
 //
 // The server is the truth about what keys are configured; this view only ever
@@ -573,6 +574,7 @@ export function SettingsView() {
 
         <AppearanceSection />
         <EditingSection />
+        <CommandPathSettings />
         <AgentSettings />
       <KeyboardSection />
       </div>

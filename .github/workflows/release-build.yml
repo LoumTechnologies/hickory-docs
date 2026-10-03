@@ -237,6 +237,16 @@ jobs:
           sudo apt-get install -y --no-install-recommends \
             libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
 
+      - name: Install NASM for the bundled CLI
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          choco install nasm -y --no-progress
+          echo "C:\Program Files\NASM" >> "$GITHUB_PATH"
+
+      - name: Install the task runner
+        run: cargo install just --locked
+
       - name: Install cargo-tauri
         # Pinned like every other tool here: a bundler that changes under us
         # changes the asset names, and those are a contract with the docs.
@@ -269,6 +279,41 @@ jobs:
               exit 1
             fi
           done
+          for deb in dist/desktop/*.deb; do
+            [ -e "$deb" ] || continue
+            unpacked="$(mktemp -d)"
+            dpkg-deb -x "$deb" "$unpacked"
+            "$unpacked/usr/bin/hick" --version
+            "$unpacked/usr/bin/hick" --help
+            rm -rf "$unpacked"
+          done
+          if [[ "${{ matrix.target }}" == *apple-darwin ]]; then
+            cli="apps/desktop/src-tauri/target/release/bundle/macos/Hickory Docs.app/Contents/MacOS/hick"
+            if [ ! -f "$cli" ]; then
+              cli="apps/desktop/src-tauri/target/${{ matrix.target }}/release/bundle/macos/Hickory Docs.app/Contents/MacOS/hick"
+            fi
+            test -x "$cli"
+            if [ "${{ matrix.target }}" = "$(rustc -vV | sed -n 's/^host: //p')" ]; then
+              "$cli" --version
+              "$cli" --help
+            fi
+          fi
+
+      - name: Verify the Windows MSI includes the CLI
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $msi = Get-ChildItem dist/desktop/*.msi | Select-Object -First 1
+          if (!$msi) { throw "No MSI was produced" }
+          $destination = Join-Path $env:RUNNER_TEMP 'hickory-msi-extracted'
+          $process = Start-Process msiexec.exe -ArgumentList @('/a', "`"$($msi.FullName)`"", '/qn', "TARGETDIR=`"$destination`"") -Wait -PassThru
+          if ($process.ExitCode -ne 0) { throw "MSI extraction failed: $($process.ExitCode)" }
+          $cli = Get-ChildItem $destination -Filter hick.exe -Recurse | Select-Object -First 1
+          if (!$cli) { throw "MSI contains no hick.exe" }
+          & $cli.FullName --version
+          if ($LASTEXITCODE -ne 0) { throw "Bundled CLI version failed" }
+          & $cli.FullName --help
+          if ($LASTEXITCODE -ne 0) { throw "Bundled CLI help failed" }
 
       - uses: actions/upload-artifact@v4
         with:

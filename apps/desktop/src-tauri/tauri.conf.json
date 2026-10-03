@@ -39,6 +39,16 @@
           "net.daringfireball.markdown"
         ]
       }
-    ]
+    ],
+    "windows": {
+      "wix": {
+        "fragmentPaths": [
+          "windows/command-path.wxs"
+        ],
+        "componentRefs": [
+          "HickoryUserPath"
+        ]
+      }
+    }
   }
 }

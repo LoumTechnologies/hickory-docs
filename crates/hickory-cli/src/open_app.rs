@@ -1,16 +1,7 @@
 //! `hick open` — the CLI opening the app, the way `code .` does.
 //!
-//! The two halves of this product ship as **separate artifacts**: the archive
-//! carries `hick`, the licence and `examples/`, while the desktop app arrives
-//! as a `.dmg`, an `AppImage` or an `.msi`
-//! (`continuous-delivery-downloadable.md`). So this is a launcher, not a
-//! front end — it finds an app that may not be installed, and says so plainly
-//! when it is not, rather than reporting "not found" about a binary the user
-//! has never heard of.
-//!
-//! The app already takes a folder or a document as its first argument
-//! (`server::named_dir`), and handles either. Nothing new had to be taught to
-//! it; what was missing was only a way to say so from a terminal.
+//! The desktop installer bundles the CLI; a CLI-only archive is also shipped.
+//! Launch the copy enclosing or beside this CLI before searching other installs.
 
 use std::path::{Path, PathBuf};
 
@@ -70,7 +61,7 @@ pub fn find(
         });
     }
 
-    if let Ok(me) = std::env::current_exe()
+    if let Ok(me) = std::env::current_exe().map(|me| me.canonicalize().unwrap_or(me))
         && let Some(dir) = me.parent()
     {
         // Already inside the bundle: `…/Hickory Docs.app/Contents/MacOS/x`.
@@ -111,6 +102,20 @@ pub fn find(
         }
     }
 
+    if cfg!(windows) {
+        for (variable, relative) in [
+            ("ProgramFiles", "Hickory Docs"),
+            ("LOCALAPPDATA", "Programs/Hickory Docs"),
+        ] {
+            if let Some(base) = lookup(variable) {
+                let exe = PathBuf::from(base).join(relative).join(EXE);
+                if exists(&exe) {
+                    return Some(App::Exe(exe));
+                }
+            }
+        }
+    }
+
     // Last: whatever `PATH` has.
     let path = lookup("PATH")?;
     let sep = if cfg!(windows) { ';' } else { ':' };
@@ -128,7 +133,7 @@ pub fn find(
 /// off macOS.
 fn enclosing_bundle(exe: &Path) -> Option<PathBuf> {
     let macos = exe.parent()?;
-    if macos.file_name()? != "MacOS" {
+    if !matches!(macos.file_name()?.to_str()?, "MacOS" | "Resources") {
         return None;
     }
     let contents = macos.parent()?;
@@ -146,16 +151,11 @@ fn enclosing_bundle(exe: &Path) -> Option<PathBuf> {
 /// and reasonably assumed that was one thing.
 pub fn not_installed() -> String {
     format!(
-        "the desktop app is not on this machine — and that is not the same as \
-         a broken install.\n  \
-         `hick` and the app ship as separate downloads: the archive you have \
-         carries the command line, and the app arrives as a .dmg, an AppImage \
-         or an .msi from the releases page.\n  \
-         Next steps: install it, or point this at a copy you already have with \
-         HICKORY_DESKTOP=/path/to/{EXE}.\n  \
-         Without it, `hick up <folder>` gives you the same engine with your own \
-         editor over the top — that is the pairing the product is built around, \
-         not a fallback."
+        "Hickory Docs desktop is not installed. This installation has only the CLI.\n  \
+         Install the desktop app from https://hickorydocs.com, or set \
+         HICKORY_DESKTOP=/path/to/{EXE} to use a copy already on this machine.\n  \
+         CLI commands still work: `hick --help` lists them; `hick up <folder>` \
+         runs the engine with your own editor."
     )
 }
 
@@ -215,7 +215,14 @@ pub fn open(app: &App, target: &Path) -> Result<()> {
     // case worth reaping — leaving it would make a zombie of a process that
     // has already done its job.
     if matches!(app, App::Bundle(_)) {
-        let _ = child.wait();
+        let status = child
+            .wait()
+            .context("waiting for macOS to launch Hickory Docs")?;
+        if !status.success() {
+            bail!(
+                "macOS could not launch Hickory Docs ({status}). Open the app from Applications to check the installation."
+            );
+        }
     }
     Ok(())
 }
@@ -249,6 +256,9 @@ pub fn open_blank(app: &App) -> Result<()> {
             c
         }
     };
+    for name in SESSION_ENV {
+        command.env_remove(name);
+    }
     command
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::null())
@@ -257,7 +267,14 @@ pub fn open_blank(app: &App) -> Result<()> {
         .spawn()
         .context("could not start a blank Hickory Docs window")?;
     if matches!(app, App::Bundle(_)) {
-        let _ = child.wait();
+        let status = child
+            .wait()
+            .context("waiting for macOS to launch Hickory Docs")?;
+        if !status.success() {
+            bail!(
+                "macOS could not launch Hickory Docs ({status}). Open the app from Applications to check the installation."
+            );
+        }
     }
     Ok(())
 }
@@ -349,14 +366,14 @@ mod tests {
     }
 
     #[test]
-    fn the_refusal_says_they_are_separate_downloads_and_names_the_alternative() {
+    fn the_refusal_explains_a_cli_only_install_and_names_the_alternative() {
         // Somebody who installed "Hickory Docs" reasonably assumed that was
         // one thing, so "not installed" needs the reason attached.
         let text = not_installed();
-        assert!(text.contains("separate downloads"), "{text}");
+        assert!(text.contains("only the CLI"), "{text}");
         assert!(text.contains("HICKORY_DESKTOP"), "{text}");
         // And `hick up` is named as the pairing, never as a consolation.
         assert!(text.contains("hick up"), "{text}");
-        assert!(text.contains("not a fallback"), "{text}");
+        assert!(text.contains("hick --help"), "{text}");
     }
 }

@@ -1,3 +1,4 @@
+import { hasCommandInstaller } from "./CommandPathSettings";
 // One workspace owns the layout across navigation. Documents and tools open
 // on demand; the startup buffer is an editable introduction without a file.
 // Per-document machinery lives in documentSession.tsx.
@@ -541,13 +542,15 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
             run: () => setLayout(openWelcomeTab),
           },
         ];
+        if (await hasCommandInstaller()) all.push({
+          id: "install-hick-command", label: "Shell Command: Install hick command in PATH…",
+          detail: "Command line settings", run: () => navigate("/settings"),
+        });
         const needle = term.toLowerCase();
         return all.filter((c) => c.label.toLowerCase().includes(needle));
       }
       if (mode === "content") {
         if (!term) return [];
-        // The RANKED engine, deliberately: "where is the bit about invoices"
-        // is a question with a best answer, unlike find-and-replace.
         const found = await workspaceSearchRef.current(term, 12);
         return found.hits.map((hit, index) => ({
           id: `${hit.path}:${index}`,
@@ -556,12 +559,7 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
           run: () => openHitRef.current(hit.path, hit.start_line),
         }));
       }
-      // Files: everything the tree lists, ranked on the path.
-      //
-      // Collected whole and ranked afterwards. Filtering and capping inside
-      // the walk — which is what this replaced — made the answer depend on
-      // the order the tree was built in, and threw the best match away
-      // without looking at it.
+      // Rank all tree paths before capping the results.
       const files: FileNode[] = [];
       const walk = (nodes: readonly FileNode[]) => {
         for (const node of nodes) {

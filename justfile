@@ -171,9 +171,10 @@ local-install:
     unset APPLE_API_ISSUER APPLE_API_KEY APPLE_API_KEY_PATH APPLE_ID APPLE_PASSWORD APPLE_TEAM_ID
     unset APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD
     export APPLE_SIGNING_IDENTITY="-"
+    just stage-desktop-cli aarch64-apple-darwin release
     (
       cd apps/desktop/src-tauri
-      CI=true cargo tauri build --target aarch64-apple-darwin --bundles app
+      CI=true cargo tauri build --target aarch64-apple-darwin --bundles app --config ../../../.dev/desktop-cli.json
     )
     bundle="$CARGO_TARGET_DIR/aarch64-apple-darwin/release/bundle/macos/Hickory Docs.app"
     codesign --verify --deep --strict "$bundle"
@@ -317,7 +318,8 @@ test-startup-web:
 
 # Make a locally signed macOS bundle without replacing the installed app.
 build-desktop-app:
-    cd apps/desktop/src-tauri && APPLE_SIGNING_IDENTITY="-" cargo tauri build --debug --bundles app
+    just stage-desktop-cli "" dev
+    cd apps/desktop/src-tauri && APPLE_SIGNING_IDENTITY="-" cargo tauri build --debug --bundles app --config ../../../.dev/desktop-cli.json
     codesign --verify --deep --strict "apps/desktop/src-tauri/target/debug/bundle/macos/Hickory Docs.app"
 
 # Recent File/Folder persistence and workspace navigation.
@@ -351,3 +353,35 @@ test-literate-views:
 test-literate-editor:
     cargo build -p hickory-cli --example engine_client
     scripts/test-literate-editor.sh
+
+# Stage the CLI sidecar for Tauri. Kept out of tauri.conf so cargo-only checks
+# do not require an already-built binary. Every bundled build uses this config.
+stage-desktop-cli TARGET="" PROFILE="release":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    target="{{TARGET}}"
+    [ -n "$target" ] || target="$(rustc -vV | sed -n 's/^host: //p')"
+    profile="{{PROFILE}}"
+    host="$(rustc -vV | sed -n 's/^host: //p')"
+    build_args=()
+    output="$PWD/target"
+    if [ "$target" != "$host" ]; then
+      build_args=(--target "$target")
+      output="$output/$target"
+    fi
+    CARGO_TARGET_DIR="$PWD/target" cargo build -p hickory-cli --bin hick --profile "$profile" ${build_args[@]+"${build_args[@]}"}
+    suffix=""
+    [[ "$target" != *windows* ]] || suffix=".exe"
+    folder="$profile"
+    [ "$profile" != dev ] || folder=debug
+    mkdir -p .dev/binaries
+    cp "$output/$folder/hick$suffix" ".dev/binaries/hick-$target$suffix"
+    printf '%s\n' '{"bundle":{"externalBin":["../../../.dev/binaries/hick"]}}' > .dev/desktop-cli.json
+
+# CLI launch, user PATH ownership, and Settings controls.
+test-command-path:
+    cargo test -p hickory-cli --bin hick cli_launch::
+    cargo test -p hickory-cli --lib open_app::
+    cargo test -p hickory-cli --test open_app
+    cargo test --manifest-path apps/desktop/src-tauri/Cargo.toml --lib command_path::
+    cd apps/web && npm run typecheck && npm test -- src/views/CommandPathSettings.test.tsx src/views/SettingsView.test.tsx
