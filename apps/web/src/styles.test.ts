@@ -34,7 +34,9 @@ describe("workspace layout invariants", () => {
     const page = rule(".doc-page");
     expect(page).toContain("flex-direction: column");
     expect(page).toContain("overflow: hidden");
-    expect(page).toMatch(/height: calc\(100vh/);
+    // The native menu needs no row in the webview. Reserving the old web
+    // header's 3rem leaves an empty strip beneath the status bar.
+    expect(page).toMatch(/\bheight: 100vh;/);
   });
 
   it("lets split panes shrink so their editors scroll internally", () => {

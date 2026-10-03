@@ -526,7 +526,7 @@ textarea:focus {
 .doc-page {
   display: flex;
   flex-direction: column;
-  height: calc(100vh - 3rem);
+  height: 100vh;
   min-height: 0;
   overflow: hidden;
 }
