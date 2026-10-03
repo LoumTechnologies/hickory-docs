@@ -3,6 +3,8 @@
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { api } from "../api/client";
+import { UNTITLED_RECOVERY_KEY } from "../lib/newDoc";
 import { freeform, panes } from "../shell/layout";
 import { SessionRegistry } from "./documentSession";
 import { openUntitledTab } from "./workspaceState";
@@ -14,7 +16,8 @@ describe("closing unsaved work", () => {
   // Guarantees:
   // - docs/guarantees/authoring/new-document-is-an-act.md
   // - docs/guarantees/authoring/unsaved-work-survives-closing-the-app.md
-  it("discards an unnamed draft when its tab closes", async () => {
+  it("retains an unnamed draft when its tab closes", async () => {
+    const saveDraft = vi.spyOn(api, "saveDraft").mockResolvedValue({ ok: true });
     const layout = openUntitledTab(freeform());
     const pane = panes(layout.root).find((candidate) =>
       candidate.tabs.some((tab) => tab.kind === "untitled"),
@@ -45,13 +48,14 @@ describe("closing unsaved work", () => {
 
     await waitFor(() => expect(setLayout).toHaveBeenCalledTimes(1));
     expect(askChoice.mock.calls[0][0]).toContain(
-      "closing without saving discards these changes",
+      "restored next time you open Hickory Docs",
     );
     expect(askChoice.mock.calls[0][1].map((option: { label: string }) => option.label)).toEqual([
       "Save",
-      "Discard",
+      "Close and retain",
       "Cancel",
     ]);
-    expect(forgetUntitled).toHaveBeenCalledWith(tab.id);
+    expect(saveDraft).toHaveBeenCalledWith(expect.objectContaining({ path: UNTITLED_RECOVERY_KEY, contents: "remember this" }));
+    expect(forgetUntitled).not.toHaveBeenCalled();
   });
 });

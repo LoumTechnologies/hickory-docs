@@ -8,6 +8,7 @@
 import { useCallback, useEffect, useMemo } from "react";
 import type { Dispatch, MutableRefObject, SetStateAction } from "react";
 
+import { UNTITLED_RECOVERY_KEY } from "../lib/newDoc";
 import { api } from "../api/client";
 import type { usePrompt } from "../components/PromptPanel";
 import { activate, closeTab, panes, type Layout } from "../shell/layout";
@@ -27,6 +28,7 @@ export function useUnsavedLifecycle({
   registry,
   retainSavedDrafts,
   untitledSources,
+  untitledBaselines = {},
   untitledSourcesRef,
   forgetUntitled,
   saveUntitled,
@@ -40,6 +42,7 @@ export function useUnsavedLifecycle({
   registry: SessionRegistry;
   retainSavedDrafts: boolean;
   untitledSources: Record<string, string>;
+  untitledBaselines?: Record<string, string>;
   untitledSourcesRef: MutableRefObject<Record<string, string>>;
   forgetUntitled: (tabId: string) => void;
   saveUntitled: (saveAs: boolean) => Promise<boolean>;
@@ -51,7 +54,7 @@ export function useUnsavedLifecycle({
     const dirty = new Set<string>();
     for (const pane of panes(layout.root)) {
       for (const tab of pane.tabs) {
-        if (tab.kind === "untitled" && (untitledSources[tab.id]?.length ?? 0) > 0) {
+        if (tab.kind === "untitled" && (untitledSources[tab.id] ?? untitledBaselines[tab.id] ?? "") !== (untitledBaselines[tab.id] ?? "")) {
           dirty.add(tab.id);
         }
         if (tab.kind === "document" && tab.docId && registry.get(tab.docId)?.dirty) {
@@ -63,7 +66,7 @@ export function useUnsavedLifecycle({
     return dirty;
     // registry.version is the external session store's change signal.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [layout, untitledSources, registry, registry.version, plainDirtyTabs]);
+  }, [layout, untitledSources, untitledBaselines, registry, registry.version, plainDirtyTabs]);
 
   const dirtyPaths = useMemo(
     () =>
@@ -92,12 +95,14 @@ export function useUnsavedLifecycle({
         return;
       }
       void (async () => {
-        const recoverable = retainSavedDrafts;
+        const recoverable = tab.kind === "untitled" || retainSavedDrafts;
         const name = tab.title ?? tab.target.split("/").pop() ?? "this file";
         const answer = await prompt.askChoice(
           `Save changes to ${name}? ${
             recoverable
-              ? "If you close without saving, the unsaved changes will be retained and restored when you reopen it."
+              ? tab.kind === "untitled"
+                ? "If you close without saving, the unsaved changes will be retained and restored next time you open Hickory Docs."
+                : "If you close without saving, the unsaved changes will be retained and restored when you reopen this file."
               : "Recovery for previously saved files is off; closing without saving discards these changes."
           }`,
           [
@@ -121,7 +126,9 @@ export function useUnsavedLifecycle({
           }
           if (!saved) return;
         } else if (tab.kind === "untitled") {
-          forgetUntitled(tab.id);
+          await api.saveDraft({ path: UNTITLED_RECOVERY_KEY,
+            contents: untitledSourcesRef.current[tab.id] ?? "",
+            base: untitledBaselines[tab.id] ?? "", saved_at: Date.now() });
         } else if (tab.kind === "file") {
           const actions = plainUnsavedActions.current.get(tab.id);
           if (retainSavedDrafts) await actions?.retain();
@@ -141,7 +148,7 @@ export function useUnsavedLifecycle({
         }
         setLayout((current) => closeTab(current, paneId, tabId));
       })();
-    }, [dirtyTabIds, registry, retainSavedDrafts, saveUntitled, prompt, layoutRef, setLayout, plainUnsavedActions, untitledSourcesRef, forgetUntitled],
+    }, [dirtyTabIds, registry, retainSavedDrafts, saveUntitled, prompt, layoutRef, setLayout, plainUnsavedActions, untitledSourcesRef, untitledBaselines, forgetUntitled],
   );
 
   useEffect(() => {
@@ -166,11 +173,13 @@ export function useUnsavedLifecycle({
           .flatMap((pane) => pane.tabs)
           .filter((tab) => tab.kind === "file" && plainDirtyTabs.has(tab.id))
           .map((tab) => tab.id);
-        const hasUntitled = Object.values(untitledSourcesRef.current).some(Boolean);
+        const dirtyUntitled = panes(layoutRef.current.root).flatMap((pane) => pane.tabs)
+          .filter((tab) => tab.kind === "untitled" && dirtyTabIds.has(tab.id));
+        const hasUntitled = dirtyUntitled.length > 0;
         const retention =
           (dirtySaved.length === 0 && dirtyPlain.length === 0) || retainSavedDrafts
-            ? "All unsaved changes will still be here when you reopen their files."
-            : "Changes to previously saved files will be discarded because recovery for them is off.";
+            ? "Unsaved changes will be retained and restored next time you open Hickory Docs."
+            : `${hasUntitled ? "Untitled changes will be retained and restored next time you open Hickory Docs. " : ""}Changes to previously saved files will be discarded because recovery for them is off.`;
         const answer = await prompt.askChoice(
           `Save changes before closing Hickory Docs? ${retention}`,
           [
@@ -198,7 +207,11 @@ export function useUnsavedLifecycle({
             if (!(await saveUntitled(false))) return;
           }
         } else {
-          for (const tabId of Object.keys(untitledSourcesRef.current)) forgetUntitled(tabId);
+          for (const tab of dirtyUntitled) {
+            await api.saveDraft({ path: UNTITLED_RECOVERY_KEY,
+              contents: untitledSourcesRef.current[tab.id] ?? "",
+              base: untitledBaselines[tab.id] ?? "", saved_at: Date.now() });
+          }
           for (const session of dirtySaved) {
             if (retainSavedDrafts && session.doc && session.savedSource !== null) {
               await api.saveDraft({
@@ -222,7 +235,7 @@ export function useUnsavedLifecycle({
     };
     window.addEventListener("hickory-workspace-close-request", onWindowClose);
     return () => window.removeEventListener("hickory-workspace-close-request", onWindowClose);
-  }, [dirtyTabIds, registry, retainSavedDrafts, saveUntitled, prompt, layoutRef, setLayout, untitledSourcesRef, plainDirtyTabs, plainUnsavedActions]);
+  }, [dirtyTabIds, registry, retainSavedDrafts, saveUntitled, prompt, layoutRef, setLayout, untitledSourcesRef, untitledBaselines, plainDirtyTabs, plainUnsavedActions]);
 
   return { dirtyTabIds, dirtyPaths, requestCloseTab };
 }

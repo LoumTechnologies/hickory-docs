@@ -137,6 +137,7 @@ const TerminalPane = lazy(() =>
 import { sessionById, useTerminals } from "../terminal/useTerminals";
 import { nextInQueue } from "../lib/attentionCursor";
 import { DocTabBody, GeneratedTabBody, UntitledTab } from "./workspaceTabs";
+import { useUntitledRecovery } from "./useUntitledRecovery";
 import { useWorkspaceUi } from "./useWorkspaceUi";
 import { openSelectedFile, useFolderPane } from "./folderPane";
 import { focusedEditor } from "../editor/activeEditor";
@@ -173,8 +174,6 @@ export type WorkspaceRoute = Extract<
 >;
 
 export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
-  // What the window is arranged as. Session state, owned HERE, above any
-  // document: navigating between documents must leave it untouched.
   const startup = useRef(route.name === "new" && route.introduction === true).current;
   const [layout, setLayout] = useState<Layout>(() =>
     startup ? openUntitledTab(initialWorkspace()) : initialWorkspace(),
@@ -266,9 +265,6 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
   // rather than to a document — asking for a worktree's branch name, now that
   // terminals have no pane of their own to ask on.
   const shellPrompt = usePrompt();
-  // Untitled has no document session, so the workspace owns its explicit
-  // save baseline. One exists at a time today; keyed by tab id so the data
-  // model stays correct if that policy ever changes.
   const [untitledSources, setUntitledSources] = useState<Record<string, string>>(() => introductionTab ? { [introductionTab]: STARTUP_INTRODUCTION } : {});
   const untitledSourcesRef = useRef(untitledSources);
   untitledSourcesRef.current = untitledSources;
@@ -378,6 +374,11 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
   const workspaceUi = useWorkspaceUi(layout, (restored) => {
     if (!startup) setLayout((current) => (isWorkspaceEmpty(current) ? restored : current));
   });
+  const untitledRecovery = useUntitledRecovery({
+    hydrated: workspaceUi.hydrated, layoutRef, setLayout,
+    sourcesRef: untitledSourcesRef, setSources: setUntitledSources,
+    initialBaselines: introductionTab ? { [introductionTab]: STARTUP_INTRODUCTION } : {},
+  });
   // ⌘+ / ⌘- / ⌘0 size the whole window; adding Alt sizes only the focused
   // tab. See views/useZoom.ts for why that split, and why it is the root's
   // font size rather than a transform.
@@ -392,11 +393,6 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
     zoomOfTab: (target) => workspaceUi.zoomFor(target),
     setTabZoom: workspaceUi.setZoom,
   });
-  // ---- which document the chrome follows ---------------------------------
-  //
-  // The focused pane's active tab names a document, or the one focused last
-  // does — the toolbar, dock and ribbons must not flicker to nothing when
-  // the focus lands on the tree.
   const derivedFocus = focusedDocId(layout);
   const [lastDocId, setLastDocId] = useState<string | null>(null);
   useEffect(() => {
@@ -1519,6 +1515,7 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
     registry,
     retainSavedDrafts,
     untitledSources,
+    untitledBaselines: untitledRecovery.baselines,
     untitledSourcesRef,
     forgetUntitled,
     saveUntitled,
@@ -1601,6 +1598,7 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
       return <ScratchpadPane key={tab.id} />;
     }
     if (tab.kind === "untitled") {
+      if (!untitledRecovery.ready) return <p className="muted">Restoring document…</p>;
       return (
         <UntitledTab
           tabId={tab.id}

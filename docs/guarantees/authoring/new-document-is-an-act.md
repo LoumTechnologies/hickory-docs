@@ -36,16 +36,18 @@ document. The first Markdown heading supplies its suggested filename; without
 one, the suggestion is `untitled.md` (then `untitled-2.md`, and so on).
 The dialog remains free to choose any disk location. Saving outside the open
 folder changes this window to that file's folder, because one Hickory session
-owns one folder. Once it contains text, its tab reads `Untitled *`. Closing
-the tab or window asks whether to save; closing without saving discards the
-unnamed text.
+owns one folder. Once its contents differ from the initial blank text or startup introduction,
+its tab reads `Untitled *`. An untouched introduction closes without prompting.
+Closing an edited tab or window asks whether to save and explains that closing
+without saving retains the unnamed text for the next launch. Recovery is stored
+outside the project, with or without an open folder.
 
 ---
 
 Last LLM verification:
-- Date: 2026-09-16
-- Reviewer: Codex (GPT-5)
-- Result: verified
+- Date: 2026-10-03
+- Reviewer: Codex
+- Result: partially verified
 - Evidence: `apps/web/src/router.ts` — `NEW_DOCUMENT_EVENT`, `newDocument`;
   `apps/web/src/App.tsx` menu case `"new"`; `apps/web/src/views/WorkspaceView.tsx`
   — the new-document event, `saveUntitled`, and the native Save/Save As
@@ -56,8 +58,9 @@ Last LLM verification:
   the hash is already #/new"); `apps/web/src/views/workspaceTabs.test.tsx`
   ("does not create a project file on its first keystroke" and no prior-draft
   restore); `apps/web/src/lib/newDoc.test.ts` (heading filename suggestion);
-  and `apps/web/src/views/useUnsavedLifecycle.test.tsx` (discard wording and
-  close behavior).
+  and `apps/web/src/views/useUnsavedLifecycle.test.tsx` (retention wording and
+  close behavior); `App.test.tsx` (introductory baseline, undo, and unnamed
+  recovery with and without an open folder).
   The native dialog is checked by the desktop crate's typecheck; it has no
   headless platform-dialog test.
   The native prompt and document-creation handoff are covered by typecheck

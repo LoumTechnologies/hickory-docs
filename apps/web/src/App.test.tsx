@@ -4,7 +4,7 @@ import { EditorView } from "@codemirror/view";
 import { App } from "./App";
 import { api } from "./api/client";
 import { installMockApi } from "./mock/mockApi";
-import { STARTUP_INTRODUCTION } from "./lib/newDoc";
+import { STARTUP_INTRODUCTION, UNTITLED_RECOVERY_KEY } from "./lib/newDoc";
 import { WELCOME_KEY } from "./lib/welcomePref";
 import { openChatTab, openDocTab, initialWorkspace } from "./views/workspaceState";
 import { tab, withTree } from "./shell/layout";
@@ -68,7 +68,7 @@ describe("the startup workspace", () => {
     await waitFor(() => expect(editor(container).hasFocus).toBe(true));
     expect(getAllByRole("tab")).toHaveLength(1);
     expect(getByRole("tab").textContent).toContain("Untitled");
-    expect(getByRole("tab").textContent).toContain("*");
+    expect(getByRole("tab").textContent).not.toContain("*");
     expect(container.querySelector(".filesystem-editor")).toBeNull();
     fireEvent(window, new CustomEvent("hickory-menu", { detail: "save" }));
     await waitFor(() => expect(saveDialog).toHaveBeenCalledWith("Hickory Docs.md"));
@@ -86,12 +86,77 @@ describe("the startup workspace", () => {
     const { container, getByRole } = render(<App />);
     await waitFor(() => expect(editor(container).state.doc.toString()).toBe(STARTUP_INTRODUCTION));
     fireEvent.click(getByRole("button", { name: "Close Untitled" }));
-    await waitFor(() => expect(getByRole("button", { name: /Discard|Close and retain/ })).toBeTruthy());
-    fireEvent.click(getByRole("button", { name: /Discard|Close and retain/ }));
     await waitFor(() => expect(container.querySelector(".untitled-tab")).toBeNull());
     fireEvent(window, new CustomEvent("hickory-menu", { detail: "new" }));
     await waitFor(() => expect(editor(container).state.doc.toString()).toBe(""));
   });
+  // Guarantee: docs/guarantees/authoring/unsaved-work-survives-closing-the-app.md
+  it("closes the untouched introduction without prompting and clears dirty state on undo", async () => {
+    const close = vi.spyOn(api, "closeWindow").mockResolvedValue({ ok: true });
+    const saveDraft = vi.spyOn(api, "saveDraft");
+    const { container, getByRole, queryByRole } = render(<App />);
+    await waitFor(() => expect(editor(container).state.doc.toString()).toBe(STARTUP_INTRODUCTION));
+    act(() => editor(container).dispatch({ changes: { from: 0, insert: "edit" } }));
+    await waitFor(() => expect(getByRole("tab").textContent).toContain("*"));
+    act(() => editor(container).dispatch({ changes: { from: 0, to: 4 } }));
+    await waitFor(() => expect(getByRole("tab").textContent).not.toContain("*"));
+    fireEvent(window, new Event("hickory-workspace-close-request"));
+    await waitFor(() => expect(close).toHaveBeenCalled());
+    expect(queryByRole("button", { name: "Save all" })).toBeNull();
+    expect(saveDraft).not.toHaveBeenCalled();
+  });
+
+  // Guarantee: docs/guarantees/authoring/unsaved-work-survives-closing-the-app.md
+  it("writes a recovery draft on pagehide and deletes it when edits are undone", async () => {
+    const save = vi.spyOn(api, "saveDraft");
+    const discard = vi.spyOn(api, "discardDraft");
+    const { container } = render(<App />);
+    await waitFor(() => expect(editor(container).state.doc.toString()).toBe(STARTUP_INTRODUCTION));
+    act(() => editor(container).dispatch({ changes: { from: 0, insert: "edit" } }));
+    fireEvent(window, new Event("pagehide"));
+    await waitFor(() => expect(save).toHaveBeenCalledWith(expect.objectContaining({
+      path: UNTITLED_RECOVERY_KEY, contents: "edit" + STARTUP_INTRODUCTION,
+    })));
+    act(() => editor(container).dispatch({ changes: { from: 0, to: 4 } }));
+    await waitFor(() => expect(discard).toHaveBeenCalledWith(UNTITLED_RECOVERY_KEY));
+  });
+
+  // Guarantee: docs/guarantees/authoring/unsaved-work-survives-closing-the-app.md
+  it("flushes the latest Untitled edits before approving window close", async () => {
+    const save = vi.spyOn(api, "saveDraft");
+    const close = vi.spyOn(api, "closeWindow").mockResolvedValue({ ok: true });
+    const { container, getByRole } = render(<App />);
+    await waitFor(() => expect(editor(container).state.doc.toString()).toBe(STARTUP_INTRODUCTION));
+    act(() => editor(container).dispatch({ changes: { from: 0, insert: "edit" } }));
+    fireEvent(window, new Event("hickory-workspace-close-request"));
+    await waitFor(() => expect(getByRole("button", { name: "Close without saving" })).toBeTruthy());
+    fireEvent.click(getByRole("button", { name: "Close without saving" }));
+    await waitFor(() => expect(close).toHaveBeenCalled());
+    expect(save).toHaveBeenCalledWith(expect.objectContaining({ contents: "edit" + STARTUP_INTRODUCTION }));
+    expect(save.mock.invocationCallOrder[0]).toBeLessThan(close.mock.invocationCallOrder[0]);
+  });
+
+  // Guarantee: docs/guarantees/authoring/unsaved-work-survives-closing-the-app.md
+  it.each([true, false])("retains and restores Untitled work when folder_open is %s", async (folderOpen) => {
+    vi.spyOn(api, "files").mockResolvedValue({ folder_open: folderOpen, root: "parent", tree: [] });
+    let draft: { path: string; contents: string; base: string; saved_at: number } | undefined;
+    vi.spyOn(api, "drafts").mockImplementation(async () => ({ drafts: draft ? [draft] : [] }));
+    vi.spyOn(api, "saveDraft").mockImplementation(async (value) => { draft = value; return { ok: true }; });
+    const first = render(<App />);
+    await waitFor(() => expect(editor(first.container).state.doc.toString()).toBe(STARTUP_INTRODUCTION));
+    act(() => editor(first.container).dispatch({ changes: { from: 0, to: editor(first.container).state.doc.length, insert: "My unsaved note" } }));
+    fireEvent.click(first.getByRole("button", { name: "Close Untitled" }));
+    await waitFor(() => expect(first.getByRole("button", { name: "Close and retain" })).toBeTruthy());
+    expect(first.getByText(/Save changes to Untitled/).textContent).toContain("restored next time you open Hickory Docs");
+    fireEvent.click(first.getByRole("button", { name: "Close and retain" }));
+    await waitFor(() => expect(first.container.querySelector(".untitled-tab")).toBeNull());
+    expect(draft).toEqual(expect.objectContaining({ path: UNTITLED_RECOVERY_KEY, contents: "My unsaved note", base: STARTUP_INTRODUCTION }));
+    first.unmount();
+    const second = render(<App />);
+    await waitFor(() => expect(editor(second.container).state.doc.toString()).toBe("My unsaved note"));
+    expect(second.getByRole("tab").textContent).toContain("*");
+  });
+
 });
 
 

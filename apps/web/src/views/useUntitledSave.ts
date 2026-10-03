@@ -8,7 +8,7 @@ import { useCallback } from "react";
 import type { Dispatch, MutableRefObject, SetStateAction } from "react";
 
 import { api } from "../api/client";
-import { untitledDraftKey, untitledSaveName, wrapUntitled } from "../lib/newDoc";
+import { UNTITLED_RECOVERY_KEY, untitledDraftKey, untitledSaveName, wrapUntitled } from "../lib/newDoc";
 import { focusedEditor, untitledEditor } from "../editor/activeEditor";
 import { panes, type Layout } from "../shell/layout";
 import { redirect } from "../router";
@@ -59,6 +59,7 @@ export function useUntitledSave({
         window.dispatchEvent(new CustomEvent("hickory-untitled-saved", { detail: untitled.tabId }));
         onSaved?.(untitled.tabId);
         void api.discardDraft(untitledDraftKey(untitled.tabId));
+        await api.discardDraft(UNTITLED_RECOVERY_KEY);
         setLayout((current) =>
           adoptUntitledTab(current, untitled.tabId, created.id, created.path),
         );

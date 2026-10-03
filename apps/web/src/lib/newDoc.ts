@@ -4,6 +4,7 @@ import startupIntroduction from "../content/startup.md?raw";
 
 /** Edit content/startup.md in any Markdown editor; bundled as the startup buffer. */
 export const STARTUP_INTRODUCTION = startupIntroduction;
+export const UNTITLED_RECOVERY_KEY = "untitled:recovery";
 
 /**
  * The path the untitled document is created at: `untitled.md`, then

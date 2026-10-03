@@ -3,8 +3,11 @@
 Given a buffer that differs from its last explicit Save, the tab and the same
 file in the Files pane carry an asterisk. When its tab or the window closes,
 the app asks whether to save and says in that question whether closing without
-saving will retain the changes. An unnamed document is discarded if it is not
-saved, so every new Untitled document starts blank. A file that has been saved
+saving will retain the changes. An edited Untitled document is always retained and restored on the next
+launch of its workspace/window, whether or not a folder is open. The untouched
+startup introduction is clean: it has no asterisk, recovery draft, or Save
+prompt. Returning its contents to the original introduction clears the changes.
+File → New still starts blank. A file that has been saved
 before is retained only when **Settings → Editing → Retain unsaved changes**
 is on; that setting is off by default.
 
@@ -16,12 +19,12 @@ the person.
 Closing a window is not an implicit decision either to save or to throw away
 previously named work. The prompt is the decision, and its wording makes
 recovery visible rather than asking from the false premise that “not saved”
-means “lost.” An unnamed document is the stated exception: it must be saved
-to become a document, or it is discarded.
+means “lost.” Untitled recovery is independent of the setting for previously saved files.
+Save names a document; retaining a draft does not create a project file.
 
 Four rules make it true rather than mostly true:
 
-1. **A saved file's draft is written while you type, not at shutdown.** A draft written
+1. **A draft is written while you type, not at shutdown.** A draft written
    only on the way out is a draft that is not there after the one event most
    likely to lose work. A slow timer writes the buffer whenever it has moved,
    and `pagehide` flushes whatever the timer has not reached yet.
@@ -77,9 +80,9 @@ existing answers each throw away one side's work.
 so on the route, and never blocks a start. `HICKORY_STATE_DIR` names the
 directory for a portable install.
 
-This covers `.hick` document buffers. An unnamed document is deliberately not
-recovered: it has no identity until Save names it, and a fresh document must be
-blank. A `.hick` room may persist live bytes for crash recovery while the
+This covers `.md` document buffers. The one Untitled buffer has a recovery
+key per workspace/window rather than a disk path. A fresh File → New stays
+blank; launch restoration brings back retained work. A document room may persist live bytes for crash recovery while the
 explicit-Save baseline stays put; those are still unsaved changes in the
 user-facing sense. Plain files retain their existing short debounced-save
 window and draft machinery.
@@ -109,23 +112,19 @@ that guessed would silently throw away work.
 
 Last LLM verification:
 
-- Date: 2026-09-16
-- Reviewer: Codex (GPT-5)
+- Date: 2026-10-03
+- Reviewer: Codex
 - Result: partially verified
-- Evidence: `apps/web/src/views/documentSession.tsx` — explicit-Save baseline,
-  dirty state, recovery draft restore, save and discard;
-  `useUnsavedLifecycle.ts` — the tab/window close decisions and dirty path/id
-  derivation; `WorkspaceView.tsx` — the shared wiring;
-  `workspaceTabs.tsx` — blank Untitled buffer; `ShellView.tsx` and
-  `FolderTreePane.tsx` — the two asterisk surfaces; `SettingsView.tsx`,
-  `UiStore`, and `/api/settings/ui` — the off-by-default setting;
-  `apps/desktop/src-tauri/src/lib.rs` and `serve/shell.rs` — native close
-  interception and the approved-close handoff.
-- Test coverage: `useUnsavedLifecycle.test.tsx` (unnamed-document discard and
-  guarded close), `ShellView.test.tsx` (asterisk and guarded close),
-  `workspaceTabs.test.tsx` (a new Untitled buffer never restores old text),
-  `FolderTreePane.test.tsx` (file-tree asterisk), `SettingsView.test.tsx`
-  (default and opt-in), and `serve_ui_settings.rs` (persisted schema).
-- Caveat requiring review: a browser-level test does not yet drive the whole
-  native window-close handshake, and the pre-existing plain-file autosave path
-  is not converted to an explicit-Save baseline by this guarantee.
+- Evidence: `useUntitledRecovery.ts` restores the window's unnamed draft,
+  keeps its original baseline, and polls through `useDraftKeeper`;
+  `useUnsavedLifecycle.ts` compares against that baseline and awaits a recovery
+  write before approving tab/window close; `useUntitledSave.ts` removes recovery
+  after Save. `WorkspaceStore` stores drafts outside the project, per window.
+  Previously saved files retain their existing off-by-default recovery setting.
+- Test coverage: `App.test.tsx` checks clean introductory contents, editing and
+  undo, close-with-retention and restored text with and without an open folder;
+  `useUnsavedLifecycle.test.tsx` checks retention with saved-file recovery off.
+- Caveats: the native window-close handshake and real filesystem recovery are
+  inspected but not driven by these frontend tests. Recovery storage failures
+  can prevent a retained close; crash recovery retains the most recent periodic
+  write, so edits made since that write can be lost on an abrupt process kill.
