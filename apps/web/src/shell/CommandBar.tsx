@@ -6,9 +6,9 @@
 // field that understands a prefix has one, and the prefixes are the same ones
 // every editor already taught people.
 //
-//   (nothing)   — search the folder's contents, ranked
+//   (nothing)   — search open files and folder contents, ranked
 //   `>`         — a command
-//   `?`         — search the folder's contents, ranked (an explicit spelling
+//   `?`         — search open files and folder contents, ranked (an explicit spelling
 //                 for people who learned the earlier prefix)
 //   `:`         — a line number in the file that is open
 //
@@ -45,7 +45,7 @@ export function modeHint(mode: CommandMode): string {
     case "command":
       return "Commands";
     case "content":
-      return "Search this folder";
+      return "Search open files and folder";
     case "line":
       return "Go to line";
     case "files":

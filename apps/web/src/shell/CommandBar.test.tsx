@@ -23,7 +23,7 @@ describe("one field, four questions", () => {
   });
 
   it("says what it will do, so the prefixes need no help page", () => {
-    expect(modeHint("content")).toMatch(/search this folder/i);
+    expect(modeHint("content")).toMatch(/search open files and folder/i);
     expect(modeHint("command")).toBe("Commands");
     expect(modeHint("line")).toBe("Go to line");
   });

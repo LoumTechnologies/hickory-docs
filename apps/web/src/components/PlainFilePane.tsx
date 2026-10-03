@@ -1,3 +1,4 @@
+import { registerSearchEditor } from "../lib/workspaceSearch";
 // A plain file, in a pane: any text file in the folder that is neither a
 // document nor a woven output. CodeMirror over `GET /api/file`, saved whole
 // as you type through lib/plainFileSave.ts — debounced, serialized, and
@@ -487,8 +488,10 @@ export function PlainFilePane({
       }),
     });
     viewRef.current = view;
+    const unregisterSearch = registerSearchEditor(path, view);
     setRailView(view);
     return () => {
+      unregisterSearch();
       forgetFocusedEditor(view);
       view.destroy();
       viewRef.current = null;

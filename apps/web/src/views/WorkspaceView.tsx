@@ -19,7 +19,7 @@ import type {
   DocSummary,
   FileNode,
   OpenTerminal,
-  SearchHit,
+  SearchResponse,
 } from "../api/types";
 import { ChatDock } from "../components/ChatDock";
 import { InsertMenu } from "../components/InsertMenu";
@@ -31,10 +31,7 @@ import { WorkspaceProblems } from "../environments/WorkspaceProblems";
 import { useEnvironments } from "../environments/useEnvironments";
 import { EnvironmentNotice } from "../environments/EnvironmentPanel";
 import { PromptPanel, usePrompt } from "../components/PromptPanel";
-import {
-  resolveSearchHit,
-  type SearchNavigation,
-} from "../lib/searchNavigation";
+import { openPlainSearchFiles, searchWorkspace } from "../lib/workspaceSearch";
 import { insertTarget, type MenuAction } from "../lib/menuBridge";
 import { insertElement } from "../editor/insertElement";
 import {
@@ -200,6 +197,7 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
     () => undefined,
   );
   const focusedPathRef = useRef<string | null>(null);
+  const workspaceSearchRef = useRef<(query: string, limit: number) => Promise<SearchResponse>>(async () => ({ semantic: false, hits: [] }));
   // The tree and the outputs map are built further down; these let the
   // callbacks above read the current values without depending on declaration
   // order.
@@ -557,7 +555,7 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
         if (!term) return [];
         // The RANKED engine, deliberately: "where is the bit about invoices"
         // is a question with a best answer, unlike find-and-replace.
-        const found = await api.search(term, 12);
+        const found = await workspaceSearchRef.current(term, 12);
         return found.hits.map((hit, index) => ({
           id: `${hit.path}:${index}`,
           label: hit.path,
@@ -601,6 +599,19 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
    */
   const openHit = useCallback(
     (path: string, line: number) => {
+      const document = registry.all().find((session) => session.doc && samePath(session.doc.path, path));
+      if (document) {
+        ensureDocOpen(document.docId);
+        navigate(`/docs/${document.docId}`);
+        document.revealDocLine(Math.max(0, line - 1));
+        return;
+      }
+      const output = registry.all().find((session) => session.openOutputs.has(path));
+      if (output) {
+        openGeneratedFor(output.docId, path);
+        revealLine(path, line);
+        return;
+      }
       const node = findNodeByPath(folderRootsRef.current, path);
       const action = node
         ? fileAction(node, new Set(openableOutputsRef.current.keys()))
@@ -617,7 +628,7 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
       }
       revealLine(path, line);
     },
-    [ensureDocOpen, openGeneratedFor, openPlainFile],
+    [registry, ensureDocOpen, openGeneratedFor, openPlainFile],
   );
   openHitRef.current = openHit;
   // Whether Save formats first, read once; Settings keeps it current.
@@ -1462,48 +1473,15 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, []);
-  const resolveHit = useCallback(
-    (hit: SearchHit) =>
-      resolveSearchHit(hit, {
-        currentDocPath: focused?.doc?.path ?? null,
-        docs: folderDocs,
-        outputs: focused
-          ? [...focused.outputs.values()].map((file) => ({
-              path: file.path,
-              content: file.content,
-            }))
-          : [],
-      }),
-    [focused, folderDocs],
-  );
-  const onSearchNavigate = useCallback(
-    (target: SearchNavigation) => {
-      const session = registry.get(focusedIdRef.current);
-      switch (target.kind) {
-        case "current-doc":
-          session?.revealDocLine(target.line);
-          return;
-        case "doc":
-          // The route effect turns this into "ensure open + activate";
-          // navigating to the doc already routed still needs the ensure,
-          // because its tab may have been closed since.
-          ensureDocOpen(target.id);
-          navigate(`/docs/${target.id}`);
-          return;
-        case "generated": {
-          if (!session) return;
-          // The ribbons' own mechanism: open the pane, then reveal — waiting
-          // for the editor when the file was not open yet.
-          openGeneratedFor(session.docId, target.path);
-          session.revealOutput(target.path, target.range);
-          return;
-        }
-        case "none":
-          return;
-      }
-    },
-    [registry, ensureDocOpen, openGeneratedFor],
-  );
+  const workspaceSearch = useCallback((query: string, limit: number) => {
+    const files = openPlainSearchFiles();
+    for (const session of registry.all()) {
+      if (session.doc) files.push({ path: session.doc.path, content: session.docEditor?.state.doc.toString() ?? session.liveSource });
+      for (const [path, view] of session.openOutputs) files.push({ path, content: view.state.doc.toString() });
+    }
+    return searchWorkspace(query, limit, files, folderOpen ? api.search : undefined, folderRoots[0]?.root);
+  }, [registry, folderOpen, folderRoots]);
+  workspaceSearchRef.current = workspaceSearch;
   // What a tree click can open beyond documents: any open document's
   // generated files, each owned by the document that made it.
   const openableOutputs = useMemo(() => {
@@ -1922,8 +1900,9 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
       )}
       {searchOpen && (
         <SearchPanel
-          resolve={resolveHit}
-          onNavigate={onSearchNavigate}
+          search={workspaceSearch}
+          folderOpen={folderOpen === true}
+          onNavigate={(hit) => openHit(hit.path, hit.start_line)}
           onClose={() => setSearchOpen(false)}
         />
       )}

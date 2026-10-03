@@ -1,25 +1,20 @@
-// Project-wide search, opened with Mod-Shift-F from anywhere in the shell.
+// Search open files and the folder, opened with Mod-Shift-F from anywhere in the shell.
 //
-// An overlay rather than a pane: the question "where is X in this folder" is
-// asked from any arrangement, and the answer must not rearrange anything to
-// appear. Picking a hit navigates and the panel gets out of the way; a hit
-// with nowhere to go stays listed but disabled, because the path is still an
-// answer.
+// Picking a hit uses the workspace's existing open-and-reveal routing.
 
 import { useEffect, useRef, useState } from "react";
 
-import { api } from "../api/client";
 import type { SearchHit, SearchResponse } from "../api/types";
-import type { SearchNavigation } from "../lib/searchNavigation";
 
 export function SearchPanel({
-  resolve,
+  search,
+  folderOpen,
   onNavigate,
   onClose,
 }: {
-  /** What picking this hit would do — "none" renders it disabled. */
-  resolve: (hit: SearchHit) => SearchNavigation;
-  onNavigate: (target: SearchNavigation) => void;
+  search: (query: string, limit: number) => Promise<SearchResponse>;
+  folderOpen: boolean;
+  onNavigate: (hit: SearchHit) => void;
   onClose: () => void;
 }) {
   const [query, setQuery] = useState("");
@@ -44,7 +39,7 @@ export function SearchPanel({
     }
     let live = true;
     const timer = window.setTimeout(() => {
-      api.search(q, 20).then(
+      search(q, 20).then(
         (r) => {
           if (!live) return;
           setResult(r);
@@ -58,7 +53,7 @@ export function SearchPanel({
       live = false;
       window.clearTimeout(timer);
     };
-  }, [query]);
+  }, [query, search]);
 
   const hits = result?.hits ?? [];
 
@@ -70,9 +65,7 @@ export function SearchPanel({
   }, [selected]);
 
   const pick = (hit: SearchHit) => {
-    const target = resolve(hit);
-    if (target.kind === "none") return;
-    onNavigate(target);
+    onNavigate(hit);
     onClose();
   };
 
@@ -99,17 +92,17 @@ export function SearchPanel({
   };
 
   return (
-    <div className="search-panel" role="dialog" aria-label="Project search" onKeyDown={onKeyDown}>
+    <div className="search-panel" role="dialog" aria-label="File search" onKeyDown={onKeyDown}>
       <input
         ref={inputRef}
         className="search-panel__input"
         type="search"
-        placeholder="Search this folder — documents and generated files"
+        placeholder={folderOpen ? "Search open files and this folder" : "Search open files"}
         value={query}
         onChange={(event) => setQuery(event.target.value)}
         aria-label="Search query"
       />
-      {result && !result.semantic && (
+      {folderOpen && result && !result.semantic && (
         <p className="search-panel__hint">
           Lexical matches only — run <code>hick search --install-model</code> in a terminal to add
           semantic ranking.
@@ -121,12 +114,11 @@ export function SearchPanel({
         </p>
       )}
       {result && hits.length === 0 && !error && (
-        <p className="search-panel__status">Nothing in this folder matches.</p>
+        <p className="search-panel__status">No files match.</p>
       )}
       {hits.length > 0 && (
         <ul ref={listRef} className="search-panel__results" role="listbox">
           {hits.map((hit, index) => {
-            const target = resolve(hit);
             return (
               <li key={`${hit.path}:${hit.start_line}:${index}`}>
                 <button
@@ -134,12 +126,6 @@ export function SearchPanel({
                   className={`search-panel__hit${index === selected ? " on" : ""}`}
                   role="option"
                   aria-selected={index === selected}
-                  disabled={target.kind === "none"}
-                  data-tip={
-                    target.kind === "none"
-                      ? `${hit.path} — not open here and not a document`
-                      : undefined
-                  }
                   onMouseEnter={() => setSelected(index)}
                   onClick={() => pick(hit)}
                 >

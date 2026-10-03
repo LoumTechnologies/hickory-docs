@@ -42,3 +42,17 @@ a network request" is established by construction (no network code path in
 `hick-search`) rather than by a test that observes traffic; the semantic
 path is exercised manually (model installed, both rankings fused) but has no
 automated test because the model is a 30 MB download CI does not fetch.
+
+**Open-file scope (2026-10-03).** Given open files in the app, with or
+without an open folder, when the top search bar or search panel searches,
+then it includes the live contents of all open documents, generated-file
+editors, and plain-file editors. Open files outside the folder participate;
+unsaved contents replace indexed disk hits for the same path. With a folder
+open, its index also participates. Without a folder, search does not ask
+for a folder index. Open buffers use local lexical ranking.
+
+Verification: `apps/web/src/lib/workspaceSearch.test.ts` covers open-file
+search without a folder, combined folder and external-file results,
+replacement of stale disk hits, live edits, closed editors, deduplication,
+and result limits. Both app controls use `WorkspaceView`'s shared search
+callback. CLI and MCP search retain their folder scope.
