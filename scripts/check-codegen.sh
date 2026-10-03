@@ -50,18 +50,21 @@ build_wasm() {
   rm -f "$dir/.gitignore" "$dir/package.json" "$dir/README.md"
 }
 
+tmp="$(mktemp)"
+tmpdir="$(mktemp -d)"
+trap 'rm -rf "$tmp" "$tmpdir"' EXIT
+
 if $write; then
-  mkdir -p "$(dirname "$langs")"
-  cargo run -q -p hick-lsp --bin emit-languages > "$langs"
+  cargo run -q -p hick-lsp --bin emit-languages > "$tmp"
+  build_wasm "$tmpdir"
+  mkdir -p "$(dirname "$langs")" "$wasm_dir"
+  cp "$tmp" "$langs"
+  cp "$tmpdir"/* "$wasm_dir/"
   echo "wrote $langs"
-  build_wasm "$(pwd)/$wasm_dir"
   echo "wrote $wasm_dir"
   exit 0
 fi
 
-tmp="$(mktemp)"
-tmpdir="$(mktemp -d)"
-trap 'rm -rf "$tmp" "$tmpdir"' EXIT
 status=0
 
 cargo run -q -p hick-lsp --bin emit-languages > "$tmp"

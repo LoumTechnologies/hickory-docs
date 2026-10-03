@@ -35,21 +35,21 @@ pub const AGENTS_BLOCK_END: &str = "<!-- END HICKORY -->";
 /// outcomes in: verified(0) < drifted(1) < unverifiable(2) < expectation(3).
 const HOOK_BODY: &str = r#"# Managed by `hick init` — do not edit inside this block.
 # Re-run `hick init` to refresh it.
-hick_docs=$(git ls-files -- '*.md')
-if [ -n "$hick_docs" ]; then
+if [ -n "$(git ls-files -- '*.md')" ]; then
     if command -v hick >/dev/null 2>&1; then
-        # Continuity's repair: an unwatched edit leaves its correspondence
+        # Continuity repair: an unwatched edit leaves its correspondence
         # behind before it is committed. Does nothing unless continuity is on
         # for this project, and NEVER blocks a commit — the check is the
         # repair, and a rule with no escape hatch gets this hook disabled
         # entirely, taking the drift gate below down with it.
         hick repair || true
-        if ! hick lint $hick_docs; then
+        git ls-files -z -- '*.md' | xargs -0 sh -c '
+        if ! hick lint "$@"; then
             echo "pre-commit: \`hick lint\` found invalid hick element attributes. Fix the marked spelling before committing. Commit blocked." >&2
             exit 1
         fi
         hick_worst=0
-        for hick_doc in $hick_docs; do
+        for hick_doc do
             hick_code=0
             hick test "$hick_doc" || hick_code=$?
             if [ "$hick_code" -gt "$hick_worst" ]; then
@@ -67,6 +67,7 @@ if [ -n "$hick_docs" ]; then
             *) echo "pre-commit: \`hick test\` exited $hick_worst — see the output above. Commit blocked." >&2
                exit 1 ;;
         esac
+        ' hick-pre-commit || exit 1
     else
         echo "pre-commit: hick not found on PATH; skipping .md verification" >&2
     fi

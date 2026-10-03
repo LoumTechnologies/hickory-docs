@@ -26,8 +26,8 @@ use axum::body::Body;
 use axum::http::{StatusCode, Uri, header};
 use axum::response::{IntoResponse, Response};
 use hickory_cli::ExecutorChoice;
-use hickory_cli::serve::{OpenWhere, Shell};
 use hickory_cli::engine::{Attach, ClientGuard};
+use hickory_cli::serve::{OpenWhere, Shell};
 use tauri::Manager as _;
 use tauri_plugin_dialog::DialogExt as _;
 
@@ -59,7 +59,7 @@ pub struct Session {
 /// distinction in the type prevents a blank window from acquiring (or merely
 /// appearing to acquire) a folder.
 enum SessionResources {
-    Workspace { _client: ClientGuard },
+    Workspace { _client: Box<ClientGuard> },
     Blank,
 }
 
@@ -237,19 +237,23 @@ pub async fn start(
     let dev = crate::dev::from_env()?;
 
     let addr = SocketAddr::from((Ipv4Addr::LOCALHOST, dev.serve_port.unwrap_or(0)));
-    let listener = tokio::net::TcpListener::bind(addr).await
+    let listener = tokio::net::TcpListener::bind(addr)
+        .await
         .with_context(|| format!("binding the window's local proxy at {addr}"))?;
     let callback = format!("http://{}", listener.local_addr()?);
     let mut opts = Attach::new(target.to_path_buf(), ExecutorChoice::from_env()?);
     opts.key_store_path = config_dir.map(|dir| dir.join("llm-keys.json"));
     opts.ui_settings_path = config_dir.map(ui_settings_file);
-    if shell.is_some() { opts.callback = Some(callback); }
+    if shell.is_some() {
+        opts.callback = Some(callback);
+    }
     opts.callback_token = hickory_cli::engine::window_token();
     let token = opts.callback_token.clone();
     let connection = hickory_cli::engine::connect(opts).await?;
     let client = connection.guard();
-    let router = hickory_cli::engine::client_router(connection, shell, token, dev.ui_origin.clone())
-        .fallback(ui_handler);
+    let router =
+        hickory_cli::engine::client_router(connection, shell, token, dev.ui_origin.clone())
+            .fallback(ui_handler);
     let bound = listener.local_addr()?;
 
     tokio::spawn(async move {
@@ -271,7 +275,9 @@ pub async fn start(
             .ui_origin
             .clone()
             .unwrap_or_else(|| format!("http://{bound}")),
-        _resources: SessionResources::Workspace { _client: client },
+        _resources: SessionResources::Workspace {
+            _client: Box::new(client),
+        },
     })
 }
 

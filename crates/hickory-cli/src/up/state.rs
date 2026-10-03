@@ -103,16 +103,16 @@ impl WovenState {
     pub fn adopt_changed(&mut self, before: &HashMap<PathBuf, Vec<u8>>) -> Vec<PathBuf> {
         let mut dirty = HashSet::new();
         for (path, old) in before {
-            if let Ok(bytes) = std::fs::read(path) {
-                if &bytes != old {
-                    if let Some(output) = self.outputs.get_mut(path) {
-                        if let Ok(text) = String::from_utf8(bytes) {
-                            output.content = text;
-                            dirty.insert(output.doc.clone());
-                        }
-                    } else {
-                        dirty.insert(path.clone());
+            if let Ok(bytes) = std::fs::read(path)
+                && &bytes != old
+            {
+                if let Some(output) = self.outputs.get_mut(path) {
+                    if let Ok(text) = String::from_utf8(bytes) {
+                        output.content = text;
+                        dirty.insert(output.doc.clone());
                     }
+                } else {
+                    dirty.insert(path.clone());
                 }
             }
         }

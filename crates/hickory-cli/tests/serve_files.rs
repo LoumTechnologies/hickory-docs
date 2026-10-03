@@ -54,7 +54,11 @@ async fn start_view(single_file: bool) -> Session {
     std::fs::write(root.join("node_modules/pkg/index.js"), "x").unwrap();
 
     let prepared = prepare(ServeOptions {
-        target: if single_file { root.join("notes.md") } else { root.clone() },
+        target: if single_file {
+            root.join("notes.md")
+        } else {
+            root.clone()
+        },
         port: 0,
         params: Vec::new(),
         executor: ExecutorChoice::Local,
@@ -207,7 +211,6 @@ async fn make_literate_creates_an_openable_markdown_document() {
     );
 }
 
-
 #[tokio::test]
 async fn opening_one_file_does_not_open_its_parent_as_a_folder() {
     let session = start_view(true).await;
@@ -215,10 +218,19 @@ async fn opening_one_file_does_not_open_its_parent_as_a_folder() {
     assert_eq!(status, 200);
     assert_eq!(files["folder_open"], false);
     // The tree remains usable for path resolution, independent of Files visibility.
-    let id = files["tree"].as_array().unwrap().iter()
-        .find(|node| node["path"] == "notes.md").unwrap()["doc_id"].as_str().unwrap();
+    let id = files["tree"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|node| node["path"] == "notes.md")
+        .unwrap()["doc_id"]
+        .as_str()
+        .unwrap();
     let (status, _) = get(&session, &format!("/api/docs/{id}")).await;
-    assert_eq!(status, 200, "the opened document still works without a folder view");
+    assert_eq!(
+        status, 200,
+        "the opened document still works without a folder view"
+    );
     let (_, folder_files) = get(&start().await, "/api/files").await;
     assert_eq!(folder_files["folder_open"], true);
 }

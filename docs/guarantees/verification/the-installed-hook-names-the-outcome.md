@@ -29,39 +29,18 @@ all of them sends the author to the wrong fix for two cases out of three.
 ---
 
 Last LLM verification:
-- Date: 2026-08-10
-- Reviewer: Claude (Opus 5)
+- Date: 2026-10-03
+- Reviewer: Codex
 - Result: verified
-- Evidence: `HOOK_BODY` in `crates/hickory-cli/src/init.rs` captures each
-  document's exit code (`hick test "$hick_doc" || hick_code=$?`, written
-  in that form so the block is safe to append to a user hook running under
-  `set -e`), keeps the numeric maximum in `hick_worst`, and branches on it in
-  a `case` with one message per outcome plus a catch-all for an unexpected
-  code. The numeric maximum is the same precedence `CheckOutcome`'s `Ord`
-  gives the CLI (`crates/hickory-cli/src/lib.rs`), because the exit codes are
-  assigned in that order. Verified live in a scratch repository: a hook
-  containing a stale managed block was rewritten by `hick init` to the new
-  body, and the surrounding user content was left untouched.
-- Test coverage: `crates/hickory-cli/tests/init_tests.rs` —
-  `hook_names_drift_when_a_committed_output_is_stale` (exit `1`: asserts the
-  message says DRIFT and does *not* say FAILED EXPECTATION) and
-  `hook_passes_with_clean_doc_and_fails_on_a_false_claim` (exit `3`: asserts
-  the message names the failed-expectation outcome and no longer says
-  "documentation drift"). `init_installs_hook_idempotently` covers the
-  sentinel-delimited rewrite that gets an existing repository onto the new
-  wording.
-  The harness puts the built binary on the hook's PATH with
-  `std::env::join_paths` rather than a `:`-joined string. It used to join with
-  `:`, which is not the separator on Windows: `hick` would not be found, the
-  hook would take its "hick not found on PATH; skipping" branch, and every
-  assertion here about the hook *blocking* a commit would have been made
-  against a hook that checked nothing. The documents the hook tests use
-  `match="regex-lines"` rather than `match="exact"` for the same reason as
-  issue #18 — cmd's `echo` writes CRLF, a document in git is LF, and which of
-  the four outcomes the hook reports is what these tests are about.
-- Caveat: exit `2` (not verified) has no hook-level test — it needs a frozen
-  cell with no recording, which the other exit-`2` coverage exercises at the
-  CLI level (`test_freeze_reports_an_unrecorded_cell_as_unverifiable` in
-  `crates/hickory-cli/tests/cache_flags.rs`). The hook's `case` arm for it is
-  reviewed by LLM only; the shared branch structure is exercised by the two
-  tested arms.
+- Evidence: `HOOK_BODY` in `crates/hickory-cli/src/init.rs` discovers tracked
+  Markdown documents with NUL delimiters and passes them as quoted positional
+  arguments through `xargs -0 sh -c`. Each document's test exit is captured and
+  the strongest outcome gets its own message. The repair remains advisory.
+- Test coverage: `crates/hickory-cli/tests/init_tests.rs` exercises a clean
+  document, drift, a false expectation, an unrecorded frozen cell, filenames
+  with spaces and (on Unix) newlines, an empty repository, and idempotent
+  installation. Inputs are `.md`; drift is checked against a generated `.txt`
+  file, because Markdown documents no longer generate Markdown siblings.
+- Caveat: the repository's own `.githooks/pre-commit` runs repository checks;
+  this guarantee covers the document hook installed into a user's repository
+  by `hick init`. Platform-specific CI checks still need their target OS.

@@ -112,9 +112,18 @@ async fn a_blank_window_has_a_page_but_no_workspace_api() {
 async fn a_second_session_on_the_same_folder_attaches() {
     let dir = tempfile::tempdir().expect("tempdir");
     let (first, http) = start_in(dir.path()).await;
-    let second = hickory_desktop_lib::server::start(dir.path(), None, None).await.unwrap();
+    let second = hickory_desktop_lib::server::start(dir.path(), None, None)
+        .await
+        .unwrap();
     for session in [&first, &second] {
-        assert!(http.get(format!("{}/api/health", session.url)).send().await.unwrap().status().is_success());
+        assert!(
+            http.get(format!("{}/api/health", session.url))
+                .send()
+                .await
+                .unwrap()
+                .status()
+                .is_success()
+        );
     }
 }
 

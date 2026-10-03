@@ -59,10 +59,10 @@ impl Connection {
                     .await
                     .send()
                     .await;
-                if !lease.is_ok_and(|r| r.status().is_success()) {
-                    if let Err(error) = connection.reconnect().await {
-                        log::warn!("engine reconnect: {error:#}");
-                    }
+                if !lease.is_ok_and(|r| r.status().is_success())
+                    && let Err(error) = connection.reconnect().await
+                {
+                    log::warn!("engine reconnect: {error:#}");
                 }
             }
         });
@@ -163,12 +163,11 @@ async fn discover() -> Result<Endpoint> {
     })
     .await??;
     let http = reqwest::Client::builder().no_proxy().build()?;
-    if let Ok(bytes) = std::fs::read(dir.join("endpoint.json")) {
-        if let Ok(endpoint) = serde_json::from_slice::<Endpoint>(&bytes) {
-            if live(&http, &endpoint).await? {
-                return Ok(endpoint);
-            }
-        }
+    if let Ok(bytes) = std::fs::read(dir.join("endpoint.json"))
+        && let Ok(endpoint) = serde_json::from_slice::<Endpoint>(&bytes)
+        && live(&http, &endpoint).await?
+    {
+        return Ok(endpoint);
     }
     let owner = std::fs::OpenOptions::new()
         .create(true)
@@ -223,13 +222,12 @@ async fn discover() -> Result<Endpoint> {
     drop(owner);
     let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(15);
     loop {
-        if let Ok(bytes) = std::fs::read(dir.join("endpoint.json")) {
-            if let Ok(endpoint) = serde_json::from_slice::<Endpoint>(&bytes) {
-                if live(&http, &endpoint).await? {
-                    drop(startup);
-                    return Ok(endpoint);
-                }
-            }
+        if let Ok(bytes) = std::fs::read(dir.join("endpoint.json"))
+            && let Ok(endpoint) = serde_json::from_slice::<Endpoint>(&bytes)
+            && live(&http, &endpoint).await?
+        {
+            drop(startup);
+            return Ok(endpoint);
         }
         ensure!(
             tokio::time::Instant::now() < deadline,

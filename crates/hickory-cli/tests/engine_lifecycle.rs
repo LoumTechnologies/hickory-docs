@@ -70,10 +70,10 @@ impl Project {
 }
 impl Drop for Project {
     fn drop(&mut self) {
-        if let Ok(bytes) = std::fs::read(self.state.path().join("engine/endpoint.json")) {
-            if let Ok(endpoint) = serde_json::from_slice::<Value>(&bytes) {
-                kill(endpoint["pid"].as_u64().unwrap() as u32);
-            }
+        if let Ok(bytes) = std::fs::read(self.state.path().join("engine/endpoint.json"))
+            && let Ok(endpoint) = serde_json::from_slice::<Value>(&bytes)
+        {
+            kill(endpoint["pid"].as_u64().unwrap() as u32);
         }
     }
 }
@@ -526,7 +526,11 @@ async fn file_and_folder_windows_keep_independent_files_visibility() {
     let another_folder = project.client(project.dir.path(), "another-folder-view");
     for (client, expected) in [(&folder, true), (&file, false), (&another_folder, true)] {
         let response: Value = reqwest::get(format!("{}/api/files", client.url))
-            .await.unwrap().json().await.unwrap();
+            .await
+            .unwrap()
+            .json()
+            .await
+            .unwrap();
         assert_eq!(response["folder_open"], expected);
     }
     assert_eq!(docs(&folder).await, docs(&file).await);

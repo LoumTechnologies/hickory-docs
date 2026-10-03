@@ -525,7 +525,10 @@ fn switch_to(handle: &AppHandle, dir: &Path) {
     // Relaunch with the chosen path: a file must stay a file target.
     match open_folder_in_new_process(dir) {
         Ok(()) => handle.exit(0),
-        Err(e) => fail(handle, &format!("Could not open {}\n\n{e:#}", dir.display())),
+        Err(e) => fail(
+            handle,
+            &format!("Could not open {}\n\n{e:#}", dir.display()),
+        ),
     }
 }
 
@@ -718,8 +721,12 @@ fn open(
     if dir.is_file() {
         let path = dir.canonicalize().unwrap_or_else(|_| dir.to_path_buf());
         let mut address = tauri::Url::parse(&url).expect("local UI URL");
-        let encoded: String = path.to_string_lossy().as_bytes().iter()
-            .map(|byte| format!("%{byte:02X}")).collect();
+        let encoded: String = path
+            .to_string_lossy()
+            .as_bytes()
+            .iter()
+            .map(|byte| format!("%{byte:02X}"))
+            .collect();
         address.set_fragment(Some(&format!("/file/{encoded}")));
         url = address.to_string();
     }

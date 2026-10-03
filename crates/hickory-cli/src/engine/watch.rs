@@ -121,8 +121,10 @@ impl Coordinator {
                         }
                         for (root, mut batch) in groups {
                             let view = &views[&root];
-                            if let Ok(inbox) = crate::ingest::InboxConfig::from_env() {
-                                if batch.iter().any(|p| p.starts_with(inbox.inbox(&root))) { batch.extend(crate::up::drain_inbox(&root, &inbox)); }
+                            if let Ok(inbox) = crate::ingest::InboxConfig::from_env()
+                                && batch.iter().any(|p| p.starts_with(inbox.inbox(&root)))
+                            {
+                                batch.extend(crate::up::drain_inbox(&root, &inbox));
                             }
                             for path in &batch {
                                 if path.is_file() && path.extension().is_some_and(|e| e == "hick" || e == "md") {

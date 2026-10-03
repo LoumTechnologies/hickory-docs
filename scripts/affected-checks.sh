@@ -17,8 +17,10 @@ cd "$(dirname "$0")/.."
 
 BASE_REF="${1:?usage: affected-checks.sh <base-ref>}"
 
-changed=$(git diff --name-only "$BASE_REF" -- . 2>/dev/null || true)
-if [ -z "$changed" ]; then
+changed=$(mktemp)
+trap 'rm -f "$changed"' EXIT
+git diff --name-only -z "$BASE_REF" -- . > "$changed"
+if [ ! -s "$changed" ]; then
   exit 0
 fi
 
@@ -26,18 +28,18 @@ checks=()
 
 matches() {
   local pattern="$1"
-  while IFS= read -r f; do
+  while IFS= read -r -d '' f; do
     # shellcheck disable=SC2053
     if [[ "$f" == $pattern ]]; then
       return 0
     fi
-  done <<<"$changed"
+  done < "$changed"
   return 1
 }
 
 # Declarative path-glob -> checks table. A change touching multiple rows
 # runs the union of their checks.
-if matches "crates/*" || matches "Cargo.toml" || matches "Cargo.lock"; then
+if matches "crates/*" || matches "Cargo.toml" || matches "Cargo.lock" || matches "rust-toolchain.toml" || matches ".cargo/*" || matches "scripts/check-codegen.sh"; then
   checks+=(rust)
 fi
 if matches "apps/web/*"; then
@@ -53,7 +55,7 @@ fi
 # `rust` check never touches it — and the release path (dist scripts,
 # workflow definitions) used to have NO row at all, which is exactly how two
 # release-breaking bugs reached master with green hooks and green CI.
-if matches "apps/desktop/*" || matches "scripts/dist*.sh" || matches ".github/workflows/*"; then
+if matches "apps/desktop/*" || matches "scripts/dist*.sh" || matches "scripts/install.sh" || matches ".github/workflows/*"; then
   checks+=(desktop)
 fi
 # Expensive on purpose: the dev environment itself is only re-verified when
@@ -64,8 +66,16 @@ fi
 # `scripts/dev*.sh` mapped to rust+web — checks that build the things the dev
 # environment starts without ever executing the scripts that start them, so a
 # broken seed or a stale-fixture bug had nothing standing in its way.
-if matches "docker-compose.yml" || matches "scripts/dev*.sh" || matches "justfile"; then
+if matches "docker-compose.yml" || matches "scripts/dev*.sh" || matches "scripts/check-dev-seed.sh" || matches "justfile"; then
   checks+=(rust web dev)
+fi
+
+# Changes to the gate or its shared selector must exercise every branch.
+if matches ".githooks/*" || matches "scripts/affected-checks.sh"; then
+  checks+=(rust web desktop dev)
+fi
+if matches "scripts/check-file-length.sh" || matches "scripts/file-length-baseline.txt"; then
+  checks+=(rust web)
 fi
 
 if [ "${#checks[@]}" -gt 0 ]; then
