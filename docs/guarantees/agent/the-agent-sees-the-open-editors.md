@@ -38,7 +38,9 @@ Last LLM verification:
   contents, outside files, inactive tabs, and missing files.
   `serve_agent::workspace_agent_receives_unsaved_buffers_without_saving_them`
   checks actual model input, disk preservation, recorded context, workspace
-  WebSocket streaming, and fresh context on a continuing turn.
+  WebSocket streaming, and fresh context on a continuing turn. It starts with
+  `prepare_without_folder` and an empty document index, matching an initial
+  untitled window rather than depending on a saved primary document.
 - Additional checks: `workspace_agent_reads_a_folder_without_a_primary_document_and_recovers`
   covers folder reads and server restart hydration.
   `serve_acp::acp_connects_to_workspace_with_untitled_context_and_resumes`

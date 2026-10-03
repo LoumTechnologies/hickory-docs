@@ -333,6 +333,12 @@ test-agent-context:
     cargo test --manifest-path apps/desktop/src-tauri/Cargo.toml --test serves_one_origin -- --test-threads=1
     just test-agent-web
 
+# Folderless editor context and repository setup boundaries.
+test-folderless:
+    cargo test -p hickory-cli --test merge_driver_button --test serve_agent -- --test-threads=1
+    cargo test --manifest-path apps/desktop/src-tauri/Cargo.toml --test serves_one_origin a_blank_window_has_editor_apis_but_no_open_folder -- --test-threads=1
+    just test-agent-web
+
 # Source-backed literate views, editable comparisons, and isolated visual bisect.
 test-literate-views:
     cargo build -p hickory-cli --example engine_client --example acp_fixture

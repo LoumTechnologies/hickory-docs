@@ -1,14 +1,20 @@
 # A Missing Merge Driver Is A Button, Not A Command To Go And Type
 
-Given a clone whose `.gitattributes` routes `*.hick` at the hick merge
+Given a clone whose `.gitattributes` routes `*.md` at the hick merge
 driver but whose git config does not define it, when the app opens that
 folder and shows the banner saying so, then the banner carries a **Run
 hick init** button that runs `hick init` on the folder inside the engine
 — the same `run_init` the CLI runs: hook, `.gitignore`, `.gitattributes`,
 the driver definition, the editor and agent files — and then says what it
-wrote and that `.hick` documents now merge through hick in this clone. If
+wrote and that `.md` documents now merge through hick in this clone. If
 it cannot (the folder is not a git work tree, git is missing), the warning
 stays and the reason is beside it, in the engine's words.
+
+When no folder is open, the app shows no merge-driver banner, even if its
+internal session storage sits inside a git repository. The status route
+reports no applicable repository, and the init route refuses with a request
+to open a folder before writing anything. A single-file window also waits
+for an explicitly open folder before offering repository setup.
 
 Until this the banner ended with "Next step: run `hick init` in this
 repository", which is exactly the kind of sentence
@@ -42,8 +48,8 @@ the day after.
 ---
 
 Last LLM verification:
-- Date: 2026-09-05
-- Reviewer: Claude (Fable 5.1)
+- Date: 2026-10-03
+- Reviewer: Codex
 - Result: verified
 - Evidence: `crates/hickory-cli/src/serve/history.rs` `run_init`, routed
   as `POST /git/merge-driver` in `serve/mod.rs`;
@@ -56,3 +62,9 @@ Last LLM verification:
 - Test coverage: `apps/web/src/components/MergeDriverNotice.test.tsx`
   ("the banner's button"); `crates/hickory-cli/tests/merge_driver_button.rs`
   drives the route over real HTTP on a fresh repository.
+- Folderless coverage: `merge_driver_button::a_folderless_session_neither_checks_nor_initializes_its_storage_repository`
+  starts real HTTP over internal storage nested in a repository with a defined
+  driver and missing attributes, checks the quiet status and refused init, and
+  verifies no setup files were written. `WorkspaceView` mounts the notice only
+  when `folderOpen` is true; `App.test.tsx` verifies a folderless startup editor
+  can open Agent without querying merge-driver setup or showing its button.

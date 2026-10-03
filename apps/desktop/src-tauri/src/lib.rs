@@ -40,10 +40,6 @@ pub fn run() {
                 recent::refresh(window.app_handle());
             }
             if let WindowEvent::CloseRequested { api, .. } = event {
-                // A blank window has neither unsaved buffers nor a document API.
-                if window.app_handle().try_state::<BlankWindow>().is_some() {
-                    return;
-                }
                 let gate = window.state::<CloseGate>();
                 if !gate.0.swap(false, std::sync::atomic::Ordering::SeqCst) {
                     api.prevent_close();
@@ -528,24 +524,9 @@ fn open_file(handle: &AppHandle, file: &Path) {
 /// The folder this session serves, for "is that file already open here".
 struct OpenedDir(PathBuf);
 
-/// A process launched by File → New Window. Unlike an ordinary session, its
-/// command line carries `--blank-window`, so it must not use `restart()` to
-/// open a folder or it would launch blank again.
-struct BlankWindow;
-
 /// Switch by launching the selected target explicitly, then exiting this
 /// window. This leaves any original path or `--blank-window` flag behind.
 fn switch_to(handle: &AppHandle, dir: &Path) {
-    if handle.try_state::<BlankWindow>().is_some() {
-        match open_folder_in_new_process(dir) {
-            Ok(()) => handle.exit(0),
-            Err(e) => fail(
-                handle,
-                &format!("Could not open {}\n\n{e:#}", dir.display()),
-            ),
-        }
-        return;
-    }
     if let Ok(config_dir) = handle.path().app_config_dir() {
         server::remember(&config_dir, dir);
     }
@@ -587,12 +568,7 @@ fn dispatch_to_ui(app: &AppHandle, action: &str) {
     }
 }
 
-/// Choose a folder, start the engine in it, and open the window.
-///
-/// Loops rather than failing once: the two ways this goes wrong — a folder
-/// with no documents in it, and a folder another Hickory Docs process already
-/// holds — are both things the user fixes by choosing a different folder, so
-/// the app says what happened and asks again.
+/// Open an explicitly requested path, or an editor with no folder selected.
 fn launch(handle: AppHandle, requested_file: Option<PathBuf>) {
     let runtime = match tokio::runtime::Builder::new_multi_thread()
         .enable_all()
@@ -634,51 +610,15 @@ fn launch(handle: AppHandle, requested_file: Option<PathBuf>) {
         return;
     }
 
-    // Otherwise: the folder from last time, else the default workspace —
-    // never a dialog. Launching the app is opening it; a picker standing
-    // between the icon and a typeable page makes starting feel like a
-    // commitment, and the default workspace is an ordinary folder of .hick
-    // files (`hick up` runs on it, nothing about it is special), so there is
-    // no decision worth interrupting for. The picker survives only as the
-    // fallback for a machine where the workspace cannot be created.
-    let mut candidate = config_dir
-        .as_deref()
-        .and_then(server::last_opened)
-        .or_else(|| default_workspace(&handle));
-
-    loop {
-        let dir = match candidate.take() {
-            Some(dir) => dir,
-            None => match pick_folder(&handle) {
-                Some(dir) => dir,
-                // Cancelling the picker with nothing open is a decision not to
-                // use the app right now, not an error to report.
-                None => {
-                    handle.exit(0);
-                    return;
-                }
-            },
-        };
-
-        match runtime.block_on(server::start_with_menu(
-            &dir,
-            config_dir.as_deref(),
-            Some(server::shell_hooks(&handle, config_dir.as_deref())),
-            Some(handle.clone()),
-        )) {
-            Ok(session) => {
-                open(&handle, runtime, session, config_dir.as_deref(), &dir);
-                return;
-            }
-            Err(e) => {
-                handle
-                    .dialog()
-                    .message(format!("Could not open {}\n\n{e:#}", dir.display()))
-                    .kind(MessageDialogKind::Warning)
-                    .title("Choose another folder")
-                    .blocking_show();
-            }
-        }
+    // An ordinary launch starts an editor, not a remembered repository.
+    // Recent paths remain available through File → Recent; only an explicit
+    // path above opens a workspace and enables repository diagnostics.
+    match runtime.block_on(server::start_blank_with_config(
+        config_dir.as_deref(),
+        Some(server::shell_hooks(&handle, config_dir.as_deref())),
+    )) {
+        Ok(session) => open_blank(&handle, runtime, session, config_dir.as_deref()),
+        Err(e) => fail(&handle, &format!("Could not open the editor.\n\n{e:#}")),
     }
 }
 
@@ -696,37 +636,6 @@ fn open_folder_in_new_process(folder: &Path) -> anyhow::Result<()> {
 fn find_own_app() -> anyhow::Result<hickory_cli::open_app::App> {
     hickory_cli::open_app::find(|name| std::env::var(name).ok(), |path| path.exists())
         .context("could not find this app's own executable to start a second copy of it")
-}
-
-/// The zero-ceremony workspace: `Documents/HickoryDocs` (home as fallback),
-/// created on demand.
-///
-/// Under Documents rather than an app-data directory because these are the
-/// user's files, not the app's: visible in a file manager, syncable,
-/// greppable, and exactly what `hick up` or a git repo would be pointed at
-/// later. Nothing about the folder is special — it is simply the answer to
-/// "where", so the app never has to ask.
-fn default_workspace(handle: &AppHandle) -> Option<PathBuf> {
-    let base = handle
-        .path()
-        .document_dir()
-        .ok()
-        .or_else(|| handle.path().home_dir().ok())?;
-    let dir = base.join("HickoryDocs");
-    std::fs::create_dir_all(&dir).ok()?;
-    Some(dir)
-}
-
-/// The launch fallback's folder picker — reached only when the default
-/// workspace cannot be created. No "file or folder?" question: the fallback
-/// needs a working directory, and a single file's directory is one.
-fn pick_folder(handle: &AppHandle) -> Option<PathBuf> {
-    handle
-        .dialog()
-        .file()
-        .set_title("Open a folder of documents")
-        .blocking_pick_folder()
-        .and_then(|p| p.into_path().ok())
 }
 
 /// Open the window on a running session, and remember the folder.
@@ -798,8 +707,7 @@ fn open_blank(
     session: server::Session,
     config_dir: Option<&Path>,
 ) {
-    let url = format!("{}#/blank", session.ui_url);
-    handle.manage(BlankWindow);
+    let url = session.ui_url.clone();
     handle.manage(session);
     handle.manage(runtime);
     let built = url

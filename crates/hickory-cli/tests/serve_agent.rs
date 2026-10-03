@@ -43,12 +43,18 @@ async fn start() -> Session {
 }
 
 async fn start_with_folder(folder: bool) -> Session {
+    start_session(folder, false).await
+}
+
+async fn start_session(folder: bool, editor_only: bool) -> Session {
     let dir = tempfile::tempdir().unwrap();
-    std::fs::write(dir.path().join("demo.md"), DOC).unwrap();
+    if !editor_only {
+        std::fs::write(dir.path().join("demo.md"), DOC).unwrap();
+    }
     let root = dir.path().canonicalize().unwrap();
 
-    let prepared = prepare(ServeOptions {
-        target: if folder {
+    let opts = ServeOptions {
+        target: if folder || editor_only {
             root.clone()
         } else {
             root.join("demo.md")
@@ -58,12 +64,21 @@ async fn start_with_folder(folder: bool) -> Session {
         executor: ExecutorChoice::Local,
         key_store_path: None,
         ui_settings_path: None,
-    })
-    .await
+    };
+    let prepared = if editor_only {
+        hickory_cli::serve::prepare_without_folder(opts).await
+    } else {
+        prepare(opts).await
+    }
     .expect("session prepares");
 
     let state = prepared.state.clone();
-    let doc_id = state.index.sole().expect("one document").0;
+    let doc_id = if editor_only {
+        assert!(state.index.entries().is_empty());
+        "workspace".into()
+    } else {
+        state.index.sole().expect("one document").0
+    };
 
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let port = listener.local_addr().unwrap().port();
@@ -569,8 +584,7 @@ async fn workspace_agent_receives_unsaved_buffers_without_saving_them() {
             "scripted"
         }
     }
-    let mut session = start().await;
-    session.doc_id = "workspace".into();
+    let session = start_session(false, true).await;
     let recorder = Arc::new(Recorder::default());
     session.state.agent.set_llm_override(recorder.clone());
     std::fs::write(session.root.join("plain.txt"), "disk bytes").unwrap();

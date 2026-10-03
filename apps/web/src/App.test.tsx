@@ -30,6 +30,19 @@ function editor(container: HTMLElement): EditorView {
 }
 
 describe("the startup workspace", () => {
+  // Guarantee: docs/guarantees/collaboration/a-missing-merge-driver-is-a-button.md
+  it("does not check merge-driver setup when no folder is open", async () => {
+    const files = await api.files();
+    vi.spyOn(api, "files").mockResolvedValue({ ...files, folder_open: false });
+    const check = vi.spyOn(api, "mergeDriver");
+    const { container, getByRole } = render(<App />);
+    await waitFor(() => expect(editor(container).state.doc.toString()).toBe(STARTUP_INTRODUCTION));
+    fireEvent(window, new CustomEvent("hickory-menu", { detail: "show-agent" }));
+    await waitFor(() => expect(getByRole("tab", { name: /Agent/ })).toBeTruthy());
+    expect(check).not.toHaveBeenCalled();
+    expect(container.textContent).not.toContain("Run hick init");
+  });
+
   // Guarantee: docs/guarantees/authoring/the-measure-says-what-it-measures.md
   it("keeps a dragged prose margin in the initial untitled document and stores it", async () => {
     vi.mocked(api.workspaceUi).mockResolvedValue({ state: { version: 1, wrap: { untitled: 72 } } });

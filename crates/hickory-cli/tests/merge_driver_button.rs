@@ -36,16 +36,16 @@ async fn the_button_runs_hick_init_and_the_driver_is_then_defined() {
     let dir = tempfile::tempdir().unwrap();
     let state_dir = tempfile::tempdir().unwrap();
     let root = dir.path().canonicalize().unwrap();
-    std::fs::write(root.join("note.hick"), "# A note\n").unwrap();
+    std::fs::write(root.join("note.md"), "# A note\n").unwrap();
     // The committed half without the per-clone half: routing, no driver.
-    std::fs::write(root.join(".gitattributes"), "*.hick merge=hick\n").unwrap();
+    std::fs::write(root.join(".gitattributes"), "*.md merge=hick\n").unwrap();
     git(&root, &["init", "-q"]);
     git(&root, &["add", "-A"]);
     git(&root, &["commit", "-qm", "routing only"]);
     unsafe { std::env::set_var("HICKORY_STATE_DIR", state_dir.path()) };
 
     let prepared = prepare(ServeOptions {
-        target: root.join("note.hick"),
+        target: root.clone(),
         port: 0,
         params: Vec::new(),
         executor: ExecutorChoice::Local,
@@ -89,4 +89,54 @@ async fn the_button_runs_hick_init_and_the_driver_is_then_defined() {
         .await
         .unwrap();
     assert_eq!(again["ok"], true, "{again}");
+}
+
+// Internal storage can sit inside a repository without being an open folder.
+// Guarantee: docs/guarantees/collaboration/a-missing-merge-driver-is-a-button.md
+#[tokio::test]
+async fn a_folderless_session_neither_checks_nor_initializes_its_storage_repository() {
+    let dir = tempfile::tempdir().unwrap();
+    git(dir.path(), &["init", "-q"]);
+    git(
+        dir.path(),
+        &["config", "merge.hick.driver", "unused-driver"],
+    );
+    let storage = dir.path().join("unfiled");
+    std::fs::create_dir(&storage).unwrap();
+    let prepared = hickory_cli::serve::prepare_without_folder(ServeOptions {
+        target: storage.clone(),
+        port: 0,
+        params: Vec::new(),
+        executor: ExecutorChoice::Local,
+        key_store_path: None,
+        ui_settings_path: None,
+    })
+    .await
+    .unwrap();
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let base = format!("http://{}", listener.local_addr().unwrap());
+    let server = tokio::spawn(async move {
+        axum::serve(listener, prepared.router).await.unwrap();
+    });
+    let http = reqwest::Client::new();
+    let status: Value = http
+        .get(format!("{base}/api/git/merge-driver"))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(status["ok"], true, "{status}");
+    assert_eq!(status["status"]["repository"], false, "{status}");
+    let response = http
+        .post(format!("{base}/api/git/merge-driver"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status().as_u16(), 400);
+    assert!(response.text().await.unwrap().contains("Open a folder"));
+    assert!(std::fs::read_dir(storage).unwrap().next().is_none());
+    assert!(!dir.path().join(".gitattributes").exists());
+    server.abort();
 }

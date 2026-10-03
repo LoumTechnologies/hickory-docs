@@ -1754,7 +1754,7 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
       <div className="doc-main">
         {/* Asked at open, because a clone that never ran `hick init` merges
             `.md` documents with git's line merge and is told nothing. */}
-        <MergeDriverNotice />
+        {folderOpen && <MergeDriverNotice />}
         {banner && (
           <div className={`banner banner-${banner.kind}`} role="status">
             {banner.text}

@@ -198,6 +198,15 @@ pub async fn floor(State(state): State<LocalState>) -> ApiResult<Json<Value>> {
 /// neither the driver nor the hook that would report it missing — and git
 /// falls back to its line merge silently, which is the whole problem.
 pub async fn merge_driver(State(state): State<LocalState>) -> ApiResult<Json<Value>> {
+    if !state.folder_open {
+        let status = crate::merge_driver::MergeDriverStatus {
+            repository: false,
+            attributes: false,
+            configured: false,
+            summary: "No folder is open, so there are no merges to route.".into(),
+        };
+        return Ok(Json(json!({ "status": status, "ok": true })));
+    }
     let root = state.index.root().to_path_buf();
     let status = tokio::task::spawn_blocking(move || crate::merge_driver::status(&root))
         .await
@@ -215,6 +224,11 @@ pub async fn merge_driver(State(state): State<LocalState>) -> ApiResult<Json<Val
 /// process, so the desktop app needs no `hick` on its `PATH` to do it. The
 /// answer says what changed and re-reads the status the banner asked about.
 pub async fn run_init(State(state): State<LocalState>) -> ApiResult<Json<Value>> {
+    if !state.folder_open {
+        return Err(ApiError::bad_request(
+            "Open a folder before running hick init. It configures that folder's repository.",
+        ));
+    }
     let root = state.index.root().to_path_buf();
     let (report, status) = tokio::task::spawn_blocking(move || {
         let report = crate::init::run_init(&root).map_err(|e| format!("{e:#}"))?;

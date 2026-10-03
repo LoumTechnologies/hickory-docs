@@ -85,7 +85,26 @@ async fn an_unknown_path_returns_the_shell() {
 /// File → New Window supports editor sessions without selecting a folder.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_blank_window_has_editor_apis_but_no_open_folder() {
-    let session = hickory_desktop_lib::server::start_blank()
+    // Ordinary startup ignores remembered folders, even when they are git repos.
+    // Guarantee: docs/guarantees/authoring/the-app-starts-as-a-lightweight-editor.md
+    let config = tempfile::tempdir().unwrap();
+    let project = tempfile::tempdir().unwrap();
+    for args in [
+        vec!["init", "-q"],
+        vec!["config", "merge.hick.driver", "unused-driver"],
+    ] {
+        assert!(
+            std::process::Command::new("git")
+                .arg("-C")
+                .arg(project.path())
+                .args(args)
+                .status()
+                .unwrap()
+                .success()
+        );
+    }
+    hickory_desktop_lib::server::remember(config.path(), project.path());
+    let session = hickory_desktop_lib::server::start_blank_with_config(Some(config.path()), None)
         .await
         .expect("the blank page starts");
     let http = reqwest::Client::new();
@@ -114,6 +133,20 @@ async fn a_blank_window_has_editor_apis_but_no_open_folder() {
         .await
         .unwrap();
     assert_eq!(files["folder_open"], false);
+    assert_ne!(
+        files["root_path"],
+        project.path().to_string_lossy().as_ref()
+    );
+    let merge: serde_json::Value = http
+        .get(format!("{}/api/git/merge-driver", session.url))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(merge["ok"], true);
+    assert_eq!(merge["status"]["repository"], false);
     let turns = http
         .get(format!("{}/api/docs/workspace/agent/turns", session.url))
         .send()
