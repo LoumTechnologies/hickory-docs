@@ -13,7 +13,7 @@ test("startup is an editable unsaved introduction that expands on demand", async
   const editor = page.locator(".untitled-tab .cm-content");
   await expect(editor).toContainText("Start with a note. Grow into an IDE.");
   await expect(page.getByRole("tab", { name: /Untitled/ })).toContainText("*");
-  await expect(page.getByRole("tab")).toHaveCount(1);
+  await expect(page.getByRole("tab")).toHaveCount(before.folder_open === false ? 1 : 2);
   await expect(editor).toBeFocused();
   // Guarantee: docs/guarantees/authoring/the-measure-says-what-it-measures.md
   const marker = page.getByRole("slider", { name: "Where prose wraps" });
@@ -49,8 +49,8 @@ test("startup is an editable unsaved introduction that expands on demand", async
   await page.reload();
   await expect(marker).toHaveAttribute("aria-valuenow", String(draggedColumn));
   await expect(editor).toContainText("Start with a note. Grow into an IDE.");
-  await expect(page.getByRole("tab")).toHaveCount(1);
-  await expect(page.locator(".filesystem-editor")).toHaveCount(0);
+  await expect(page.getByRole("tab")).toHaveCount(before.folder_open === false ? 1 : 2);
+  await expect(page.locator(".filesystem-editor")).toHaveCount(before.folder_open === false ? 0 : 1);
   await page.getByRole("button", { name: "Close Untitled", exact: true }).click();
   await page.getByRole("button", { name: /Discard|Close and retain/ }).click();
   await expect(editor).toHaveCount(0);

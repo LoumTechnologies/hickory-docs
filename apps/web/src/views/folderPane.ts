@@ -1,4 +1,4 @@
-import { useCallback, useEffect, type Dispatch, type SetStateAction } from "react";
+import { useCallback, useEffect, useRef, type Dispatch, type SetStateAction } from "react";
 import { api } from "../api/client";
 import { nodeForAbsolutePath } from "../lib/openPath";
 import { isLikelyBinaryPath } from "../shell/FolderTreePane";
@@ -13,6 +13,15 @@ export function useFolderPane(
   requestFocus: Dispatch<SetStateAction<number>>,
   notice: (message: string) => void,
 ) {
+  const openedByDefault = useRef(false);
+  useEffect(() => {
+    if (folderOpen === false) openedByDefault.current = false;
+    if (!hydrated || folderOpen !== true || openedByDefault.current) return;
+    openedByDefault.current = true;
+    // Wait for restoration, then add Files without taking editor focus.
+    // Apply the default once so closing the pane remains a person's choice.
+    setLayout((current) => treePane(current) ? current : withTree(current, tab("tree", "folder", "Files")));
+  }, [folderOpen, hydrated, setLayout]);
   useEffect(() => {
     if (folderOpen !== false) return;
     // Restored furniture may have come from a folder view of the same engine.

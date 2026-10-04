@@ -31,7 +31,8 @@ fail the installed app's registration. A failed installation keeps the build
 copy available.
 
 The main window starts with an unsaved, untitled literate document explaining
-Hickory Docs, with Files and Agent available on demand. Startup ignores the
+Hickory Docs, with Files open by default when a folder is open and Agent
+available on demand. Startup ignores the
 previous pane arrangement and Welcome preference. See
 `../authoring/the-app-starts-as-a-lightweight-editor.md`.
 

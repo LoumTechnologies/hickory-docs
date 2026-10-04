@@ -11,13 +11,15 @@ gate as a folder window.
 Given Hickory Docs starts on a folder, even one with existing documents and
 previously stored Files and Agent panes, when the main window opens, then it
 shows one untitled, unsaved literate document containing an editable
-introduction to Hickory Docs. No Files, Agent, or Welcome pane opens beside it.
+introduction to Hickory Docs. Files opens beside it by default once the folder
+and stored layout have loaded; Agent and Welcome remain closed. Files can be
+closed for the rest of that window's folder session.
 The editor takes keyboard focus. Opening the app and typing into this buffer
 create no document in the folder; Save or Save As names a .md file.
 
 Given that startup buffer, when the person opens Files or Agent, then the
 chosen pane opens beside the document and the document's edits survive.
-On another launch, the introduction opens in the same small starting layout.
+On another launch, the introduction opens with Files if a folder is open.
 Explicit document routes can still restore their workspace arrangement.
 
 Given the introduction has been closed, when File → New Document is chosen,
@@ -31,6 +33,13 @@ exact contents. The Markdown file is the source for the bundled introduction.
 ---
 
 Last LLM verification:
+- Files default (2026-10-03, Codex): `useFolderPane` waits for layout
+  hydration and confirmed folder visibility, then ensures Files is present
+  once per folder session without moving keyboard focus. `App.test.tsx`
+  verifies Files alongside the focused startup editor and keeps the
+  folderless checks. `just test-agent-web` passed TypeScript and all 1,912
+  tests; `just check-file-length` and `git diff --check` passed. The updated
+  Playwright startup expectations were not run against a live app.
 - Date: 2026-10-03
 - Reviewer: Codex
 - Result: verified in the real editor under jsdom and in the installed native
