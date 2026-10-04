@@ -32,10 +32,14 @@ import {
   type Selection,
 } from "../lib/tableSelection";
 
+import { fittedRows, intrinsic } from "../lib/tableFit";
+
 import { ContextMenu } from "./ContextMenu";
 import { FormulaDebugger } from "./FormulaDebugger";
 import { TableSizeDialog } from "./TableSizeDialog";
 import { TableCell } from "./TableCell";
+import { FeatureSettings } from "./FeatureSettings";
+import { useTableLayout } from "./useTableLayout";
 
 import {
   cellAt,
@@ -65,6 +69,8 @@ import {
  * has one — see lib/uiState.ts.
  */
 export interface TableLayout {
+  /** Wrap and distribute columns inside the document's prose measure. */
+  fitProse?: boolean;
   /** The grid's visible height in pixels. Absent means the default measure. */
   height?: number;
   /** Column widths in pixels, keyed by column index. */
@@ -105,6 +111,8 @@ export interface TablePanelProps {
    * are two different jobs and dropping either one to do the other was the
    * wrong trade. */
   laneRight?: boolean;
+  /** Markdown tables default to fitting the prose measure; CSV does not. */
+  fitProseDefault?: boolean;
 }
 
 /** Apply `step` to the table `n` times (at least once).
@@ -118,9 +126,6 @@ function times(table: Csv, n: number, step: (t: Csv) => Csv): Csv {
   return out;
 }
 
-/** A column's width when nobody has dragged it. Wide enough for a short
- * label or a number, narrow enough that eight columns fit without scrolling. */
-const DEFAULT_COLUMN_WIDTH = 104;
 /** Narrow enough to tuck a column out of the way, wide enough to grab again. */
 const MIN_COLUMN_WIDTH = 40;
 /** Short enough to squeeze a row down to a line, tall enough to grab again. */
@@ -129,7 +134,6 @@ const MIN_ROW_HEIGHT = 16;
  * by content, and one enormous cell must not make a column nobody can scroll
  * past. */
 const MAX_COLUMN_WIDTH = 2000;
-const MAX_ROW_HEIGHT = 600;
 /**
  * The slack on a fit, which is not the same on both axes.
  *
@@ -165,22 +169,6 @@ const MOVE_CLIPBOARD_TYPE = "application/x-hickory-table-move";
 const clampTo = (value: number, least: number, most: number) =>
   Math.max(least, Math.min(most, Math.round(value)));
 
-function intrinsic(
-  cells: Iterable<HTMLElement>,
-  axis: "width" | "height",
-): number {
-  let most = 0;
-  for (const cell of cells) {
-    const held = cell.style[axis];
-    cell.style[axis] = "max-content";
-    most = Math.max(most, cell.getBoundingClientRect()[axis]);
-    // Restored immediately, so a fit never leaves a cell laid out differently
-    // from the ones beside it.
-    cell.style[axis] = held;
-  }
-  return Math.ceil(most);
-}
-
 export function TablePanel({
   source,
   header = true,
@@ -190,6 +178,7 @@ export function TablePanel({
   layout,
   onLayout,
   laneRight = false,
+  fitProseDefault = false,
 }: TablePanelProps) {
   // Parsed from the source on every render rather than held as state: the
   // document is the truth, and a second copy here would drift the moment
@@ -270,23 +259,8 @@ export function TablePanel({
   // Where the right-click menu is, in viewport coordinates, or null.
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
 
-  // Seeded from the remembered layout and owned from then on: the prop is a
-  // starting point, not a controlled value, so a drag does not have to make a
-  // round trip through the workspace's state on every pointermove.
-  const [size, setSize] = useState<TableLayout>(() => layout ?? {});
-  const resize = (next: TableLayout) => {
-    setSize(next);
-    onLayout?.(next);
-  };
-  const columnWidth = (column: number) =>
-    size.widths?.[String(column)] ?? DEFAULT_COLUMN_WIDTH;
-  const widen = (column: number, to: number) =>
-    resize({ ...size, widths: { ...size.widths, [String(column)]: to } });
-  const heighten = (row: number, to: number) =>
-    resize({ ...size, heights: { ...size.heights, [String(row)]: to } });
-  /** How tall one row is. Nearly every row is the default measure; a row that
-   * was dragged taller is remembered by index alongside the widths. */
-  const rowHeight = (row: number) => size.heights?.[String(row)] ?? ROW_HEIGHT;
+  const { gridRef, size, resize, fitProse, setFitProse, columnWidth, rowHeight, widen, heighten } =
+    useTableLayout(layout, onLayout, fitProseDefault, source);
   /** How tall the scrolling box is: what was remembered, or the first nine
    * rows once there are more than nine, or nothing at all for a table that
    * fits. Summed rather than multiplied, because a row that was dragged
@@ -300,7 +274,6 @@ export function TablePanel({
         )
       : undefined);
 
-  const gridRef = useRef<HTMLTableElement | null>(null);
   const inputRef = useRef<HTMLInputElement | null>(null);
   const barRef = useRef<HTMLInputElement | null>(null);
   const selectedRef = useRef<HTMLElement | null>(null);
@@ -522,23 +495,18 @@ export function TablePanel({
     );
   };
 
-  /** The same for a row. A cell holding a newline — which a paste from a web
-   * page can produce — is several lines tall, and this is what makes room for
-   * it without anybody counting them. */
-  const fitRow = (row: number) => {
-    const cells = gridRef.current?.querySelectorAll<HTMLElement>(
-      `[data-row="${row}"]`,
-    );
-    if (!cells || cells.length === 0) return;
-    heighten(
-      row,
-      clampTo(
-        intrinsic(cells, "height") + FIT_BORDER,
-        MIN_ROW_HEIGHT,
-        MAX_ROW_HEIGHT,
-      ),
-    );
-  };
+  /** Row headers fit the selection saved before the first click. */
+  const fitRow = (row: number, selected = false) =>
+    resize({
+      ...size,
+      heights: {
+        ...size.heights,
+        ...fittedRows(
+          gridRef.current, row,
+          selected ? (beforePress.current === undefined ? selection : beforePress.current) : null,
+        ),
+      },
+    });
 
   /** Take the whole table — the corner box, and Ctrl+A. */
   const selectAll = () => {
@@ -1005,18 +973,18 @@ export function TablePanel({
       {row + 1}
       <Resizer
         axis="row"
-        size={rowHeight(row)}
+        size={() => rowHeight(row)}
         least={MIN_ROW_HEIGHT}
         onResize={(next) => heighten(row, next)}
         onTap={tapped(() => takeRow(row, false))}
-        onFit={fitted(() => fitRow(row))}
+        onFit={fitted(() => fitRow(row, true))}
       />
     </th>
   );
 
   return (
     <div
-      className="table-panel"
+      className={`table-panel${fitProse ? " table-panel--fit-prose" : ""}`}
       data-testid="table-panel"
       style={
         {
@@ -1132,6 +1100,10 @@ export function TablePanel({
             }
           }}
         />
+        <FeatureSettings label="Table settings">
+          <label><input type="checkbox" checked={fitProse}
+            onChange={event => setFitProse(event.target.checked)} />Wrap to prose width</label>
+        </FeatureSettings>
       </div>
 
       <div
@@ -1150,6 +1122,9 @@ export function TablePanel({
       >
         <table
           ref={gridRef}
+          style={laneRight || fitProse ? undefined : {
+            width: `calc(${Array.from({ length: width }, (_, column) => columnWidth(column)).reduce((a, b) => a + b, 0)}px + 2.6rem)`,
+          }}
           className={`table-panel__grid${laneRight ? " table-panel__grid--laned" : ""}`}
         >
           <colgroup>
@@ -1160,7 +1135,7 @@ export function TablePanel({
                 declared widths, which is the thing they exist to stop. */}
             <col className="table-panel__gutter-col" />
             {Array.from({ length: width }, (_, column) => (
-              <col key={column} style={{ width: `${columnWidth(column)}px` }} />
+              <col key={column} style={fitProse ? undefined : { width: `${columnWidth(column)}px` }} />
             ))}
             {laneRight && <col className="table-panel__spacer-col" />}
             {laneRight && <col className="table-panel__lane-col" />}
@@ -1202,7 +1177,7 @@ export function TablePanel({
                   {columnLabel(column)}
                   <Resizer
                     axis="column"
-                    size={columnWidth(column)}
+                    size={() => columnWidth(column)}
                     least={MIN_COLUMN_WIDTH}
                     onResize={(next) => widen(column, next)}
                     onTap={tapped(() => takeColumn(column, false))}
@@ -1225,7 +1200,11 @@ export function TablePanel({
                   // end up two heights at once.
                   style={
                     {
-                      "--table-row-height": `${rowHeight(row)}px`,
+                      "--table-row-height": fitProse
+                        ? (size.heights?.[row] === undefined ? "auto" : `${size.heights[row]}px`)
+                        : `${rowHeight(row)}px`,
+                      "--table-cell-white-space":
+                        size.heights?.[String(row)] === undefined ? "pre" : "pre-wrap",
                     } as React.CSSProperties
                   }
                 >
@@ -1340,7 +1319,7 @@ export function TablePanel({
                             cell, so neither edge is a dead zone. */}
                         <Resizer
                           axis="row"
-                          size={rowHeight(row)}
+                          size={() => rowHeight(row)}
                           least={MIN_ROW_HEIGHT}
                           onResize={(next) => heighten(row, next)}
                           onTap={
@@ -1352,7 +1331,7 @@ export function TablePanel({
                         />
                         <Resizer
                           axis="column"
-                          size={columnWidth(column)}
+                          size={() => columnWidth(column)}
                           least={MIN_COLUMN_WIDTH}
                           onResize={(next) => widen(column, next)}
                           onTap={
@@ -1657,7 +1636,7 @@ function Resizer({
 }: {
   axis: "column" | "row";
   /** What it is now, in pixels — the number the drag starts from. */
-  size: number;
+  size: number | (() => number);
   least: number;
   onResize: (size: number) => void;
   /** A press that never became a drag. Absent means such a press does
@@ -1676,12 +1655,13 @@ function Resizer({
     event.preventDefault();
     event.stopPropagation();
     const from = along(event);
+    const initialSize = typeof size === "function" ? size() : size;
     let dragged = false;
     const move = (e: MouseEvent) => {
       const to = along(e);
       if (!dragged && Math.abs(to - from) < DRAG_THRESHOLD) return;
       dragged = true;
-      onResize(Math.max(least, Math.round(size + (to - from))));
+      onResize(Math.max(least, Math.round(initialSize + (to - from))));
     };
     const up = (e: MouseEvent) => {
       window.removeEventListener("mousemove", move);

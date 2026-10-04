@@ -65,6 +65,7 @@ export function tableKey(documentPath: string | null, index: number, path?: stri
 function readTableLayout(raw: unknown): TableLayout | null {
   if (!isRecord(raw)) return null;
   const out: TableLayout = {};
+  if (typeof raw.fitProse === "boolean") out.fitProse = raw.fitProse;
   if (typeof raw.height === "number" && Number.isFinite(raw.height)) {
     out.height = Math.max(64, Math.min(4000, Math.round(raw.height)));
   }
@@ -79,12 +80,11 @@ function readTableLayout(raw: unknown): TableLayout | null {
     return Object.keys(kept).length > 0 ? kept : undefined;
   };
   out.widths = measures(raw.widths, 40, 2000);
-  // A row may be dragged tall enough to hold a paragraph, and no taller: past
-  // that the table stops being something a page can hold.
-  out.heights = measures(raw.heights, 16, 600);
+  // Fitted rows must retain enough height to show all their wrapped text.
+  out.heights = measures(raw.heights, 16, Number.MAX_SAFE_INTEGER);
   if (out.widths === undefined) delete out.widths;
   if (out.heights === undefined) delete out.heights;
-  return out.height === undefined && out.widths === undefined && out.heights === undefined
+  return out.fitProse === undefined && out.height === undefined && out.widths === undefined && out.heights === undefined
     ? null
     : out;
 }

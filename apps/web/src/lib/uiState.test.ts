@@ -224,7 +224,14 @@ describe("a table's remembered size", () => {
     expect(stored.tables["path:d.csv"]).toEqual({ height: 4000 });
   });
 
-  it("remembers the rows that were dragged taller, and clamps an absurd one", () => {
+  it("remembers explicit prose fitting settings, including false, and drops invalid values", () => {
+    const stored = normalizeUi({ version: UI_STATE_VERSION, tables: {
+      a: { fitProse: true }, b: { fitProse: false }, c: { fitProse: "yes" },
+    } });
+    expect(stored.tables).toEqual({ a: { fitProse: true }, b: { fitProse: false } });
+  });
+
+  it("remembers tall fitted rows without cutting off their wrapped text", () => {
     const stored = normalizeUi({
       version: UI_STATE_VERSION,
       layout: null,
@@ -235,8 +242,8 @@ describe("a table's remembered size", () => {
         "path:b.csv": { heights: {} },
       },
     });
-    // Past a paragraph's worth the table stops being something a page holds.
-    expect(stored.tables["path:a.csv"]).toEqual({ heights: { "0": 60, "3": 600 } });
+    // A fitted row must still show all its words after reopening.
+    expect(stored.tables["path:a.csv"]).toEqual({ heights: { "0": 60, "3": 9_000 } });
     // Nothing worth keeping is nothing kept, rather than an empty record.
     expect(stored.tables["path:b.csv"]).toBeUndefined();
   });

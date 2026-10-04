@@ -158,12 +158,27 @@ spreadsheet only puts them in its headers, which is fine while the headers are
 on screen and irritating when the line you want to move is the one your
 pointer is already beside.
 
+**Wrapping to the prose measure is a per-table setting.** Markdown pipe tables
+start with it enabled unless manual widths have been saved; CSV tables start
+with it disabled. The Table settings gear changes and remembers it for either
+kind. See `markdown-tables-use-the-table-editor.md`. A column resize leaves
+that automatic mode and preserves the current widths of the other columns.
+
 **A double-click on a line fits what is behind it** — the column to the
-widest thing in it, the row to the tallest — which is the gesture every
+widest thing in it, the row to the tallest wrapped content — which is the gesture every
 spreadsheet already has on exactly this target, on all four of them: a cell's
 two edges, the line between two column letters, and the line between two row
 numbers. It cuts both ways: a column dragged too wide comes back, because "the
 smallest that still fits" is not "grow if needed".
+
+**Given** one cell, a rectangular range, or whole rows selected, **when** the
+person double-clicks a row-header boundary, **then** every selected row fits
+its contents wrapped at the existing column widths. With no selection, the
+boundary's own row fits. Cell-edge double-clicks fit their own row. Fitting
+preserves the selection, column widths, and other rows' heights, and records
+all fitted heights in one layout update. Rows with a declared height wrap
+text, including long words, and that presentation survives reopening. A row
+fit has no paragraph-height ceiling that could conceal the remaining words.
 
 This is the **one** place the grid measures rather than declares, and it has to
 be: "what will still fit" is a question about rendered text in a font this
@@ -176,7 +191,10 @@ the slack being the only thing that changed.
 
 The measurement is therefore taken with the constraint lifted: `max-content` on
 the axis being asked about, the box read back, the inline style put back at
-once. Same element, same font, same padding, only the size it was being held to
+once. For a row fit, wrapping is enabled while measuring and the column width
+remains fixed. The table itself declares the sum of its column widths plus the
+gutter so long text cannot stretch a column under intrinsic table layout.
+Same element, same font, same padding, only the size it was being held to
 removed — so the answer is exact by construction rather than by a second copy
 of the cell's styling, and no cell is left laid out unlike the ones beside it.
 The answer is then written back as a declared number like every other, which is
@@ -204,7 +222,7 @@ other way round.
 
 An empty column fits to the minimum, which is the honest answer to how much
 room nothing needs, and one enormous cell is capped rather than allowed to make
-a column nobody can scroll past.
+a column nobody can scroll past. Row heights retain their full fitted measure.
 
 That is affordable because **a press that never moves is a click**. The strip
 is five pixels along the edge of a cell somebody also wants to select, so
@@ -359,7 +377,7 @@ Last LLM verification:
   kept apart (`--lane`), and `.cm-rendered` joining the positioned layer so
   the prose measure is not drawn down a card.
   `apps/web/src/lib/uiState.ts` — `tableKey`, `readTableLayout` (total, like
-  the rest of that file, and clamping a row height to a paragraph's worth),
+  the rest of that file, and retaining a row height large enough for all its wrapped text),
   and the `tables` record; threaded through
   `useWorkspaceUi`, `WorkspaceView`, `workspaceTabs` and `DocumentEditor`.
   `apps/web/src/components/FenceTable.tsx` — the fence's grid and
@@ -509,3 +527,16 @@ Last LLM verification:
   `detail: 1`, then down/up/click at `detail: 2`, then `dblclick` — and the
   mouseup carrying it is the one on the WINDOW, which is where the handle
   listens.
+
+Row-header selection fitting is covered by `TablePanel.test.tsx`: a selected
+range fits in one update, preserves other layout values and selection, measures
+with wrapping at the existing width, and retains a height above 600px. A single
+selected cell also determines the fitted row when a different header is clicked.
+`uiState.test.ts` checks that tall fitted rows survive layout persistence.
+
+Browser verification (2026-10-03, Playwright Chromium): selected A1:A2 in a
+three-row table, then double-clicked the second row-header boundary. Both rows
+wrapped at the unchanged 104px column width and fitted to 367px and 2707px;
+every selected-row cell had `scrollHeight <= clientHeight`. The third row and
+A1:A2 selection stayed unchanged. This also caught and corrected the intrinsic
+table-width expansion that had ignored declared column widths for long text.

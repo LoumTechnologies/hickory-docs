@@ -21,6 +21,32 @@ describe("Markdown tables", () => {
     fireEvent.keyDown(input, { key: "Enter" });
     expect(onChange).toHaveBeenCalledWith(source.replace("120", "121"));
   });
+  it("fits the prose width by default, until a column is resized", () => {
+    const onLayout = vi.fn();
+    const { container } = render(<MarkdownTable source={source} onLayout={onLayout} />);
+    expect(container.querySelector(".table-panel--fit-prose")).not.toBeNull();
+    const handle = container.querySelector('[data-testid="column-resizer"]')!;
+    fireEvent.mouseDown(handle, { clientX: 100 });
+    fireEvent.mouseMove(window, { clientX: 130 });
+    fireEvent.mouseUp(window);
+    expect(container.querySelector(".table-panel--fit-prose")).toBeNull();
+    expect(onLayout).toHaveBeenLastCalledWith(expect.objectContaining({ fitProse: false, widths: { "0": 134 } }));
+  });
+
+  it("honors remembered widths and the gear setting in both directions", () => {
+    const onLayout = vi.fn();
+    const { container } = render(<MarkdownTable source={source} layout={{ widths: { "0": 200 } }} onLayout={onLayout} />);
+    expect(container.querySelector(".table-panel--fit-prose")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Table settings" }));
+    const toggle = screen.getByRole("checkbox", { name: "Wrap to prose width" });
+    fireEvent.click(toggle);
+    expect(container.querySelector(".table-panel--fit-prose")).not.toBeNull();
+    expect(onLayout).toHaveBeenLastCalledWith(expect.objectContaining({ fitProse: true }));
+    fireEvent.click(toggle);
+    expect(container.querySelector(".table-panel--fit-prose")).toBeNull();
+    expect(onLayout).toHaveBeenLastCalledWith(expect.objectContaining({ fitProse: false }));
+  });
+
   it("round trips quotes, commas, escaped pipes and inline code", () => {
     const text = '| Snippet | Value |\n| --- | --- |\n| `a\\|b` | "hi", there |';
     expect(markdownRows(text)[1]).toEqual(['`a|b`', '"hi", there']);

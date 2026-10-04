@@ -38,6 +38,16 @@ const open = (text: string) => {
 };
 
 describe("what the grid shows", () => {
+  it("keeps CSV sizing by default and lets its gear enable prose wrapping", () => {
+    const onLayout = vi.fn();
+    const { container } = grid({ onLayout });
+    expect(container.querySelector(".table-panel--fit-prose")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Table settings" }));
+    fireEvent.click(screen.getByRole("checkbox", { name: "Wrap to prose width" }));
+    expect(container.querySelector(".table-panel--fit-prose")).not.toBeNull();
+    expect(onLayout).toHaveBeenCalledWith({ fitProse: true });
+  });
+
   it("draws the A1 furniture: letters across the top, numbers down the side", () => {
     // The reference a formula needs is the thing already on screen, rather
     // than something the author counts out.
@@ -1363,6 +1373,41 @@ describe("double-clicking a grid line", () => {
     inRow(0, { box: 24, content: 40 });
     doubleClick(gutter("1").querySelector('[data-testid="row-resizer"]')!);
     expect(onLayout).toHaveBeenCalledWith({ heights: { "0": 41 } });
+  });
+
+  it("fits every selected row from a row header, wrapping at its current width", () => {
+    const onLayout = vi.fn();
+    grid({ source: "a,b\nc,d\ne,f\n", onLayout, layout: { widths: { "0": 80 }, heights: { "2": 90 } } });
+    fireEvent.mouseDown(cell("a"));
+    fireEvent.mouseEnter(cell("c"));
+    fireEvent.mouseUp(window);
+    inRow(0, { box: 24, content: 48 });
+    inRow(1, { box: 24, content: 820 });
+    const measuredCell = cell("c");
+    const measure = measuredCell.getBoundingClientRect;
+    Object.defineProperty(measuredCell, "getBoundingClientRect", { configurable: true, value: () => {
+      expect(measuredCell.style.whiteSpace).toBe("pre-wrap");
+      expect(measuredCell.style.width).toBe("");
+      return measure();
+    } });
+    doubleClick(gutter("2").querySelector('[data-testid="row-resizer"]')!);
+    expect(onLayout).toHaveBeenLastCalledWith({
+      widths: { "0": 80 }, heights: { "0": 49, "1": 821, "2": 90 },
+    });
+    expect(onLayout).toHaveBeenCalledTimes(1);
+    expect(name()).toBe("A1:A2");
+    expect(cell("c").style.whiteSpace).toBe("");
+    expect(cell("c").closest("tr")!.style.getPropertyValue("--table-cell-white-space")).toBe("pre-wrap");
+  });
+
+  it("fits the selected cell's row even from another row's header", () => {
+    const onLayout = vi.fn();
+    grid({ source: "a,b\nc,d\n", onLayout });
+    fireEvent.click(cell("a"));
+    inRow(0, { box: 24, content: 40 });
+    doubleClick(gutter("2").querySelector('[data-testid="row-resizer"]')!);
+    expect(onLayout).toHaveBeenCalledWith({ heights: { "0": 41 } });
+    expect(name()).toBe("A1");
   });
 
   it("fits an empty column to the smallest a column may be", () => {

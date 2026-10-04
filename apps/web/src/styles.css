@@ -7651,11 +7651,9 @@ button.status-bar__item:hover { background: var(--bg-sunken); color: var(--fg); 
   border-collapse: separate;
   border-spacing: 0;
   table-layout: fixed;
-  /* `max-content` and NOT `min-width: 100%`: stretching to fill the panel
-     would redistribute the declared widths, so a column dragged to 60px would
-     not be 60px and the drag would move its neighbours. A table narrower than
-     the panel simply ends, which is what its columns actually say. */
-  width: max-content;
+  /* TablePanel declares the sum of the column widths plus the gutter.
+     A numeric width makes fixed layout honor those widths even for long text.
+     A table narrower than the panel simply ends at its last column. */
 }
 .table-panel__grid th,
 .table-panel__grid td {
@@ -7773,7 +7771,8 @@ button.status-bar__item:hover { background: var(--bg-sunken); color: var(--fg); 
   box-sizing: border-box;
   overflow: hidden;
   text-overflow: ellipsis;
-  white-space: pre;
+  white-space: var(--table-cell-white-space, pre);
+  overflow-wrap: anywhere;
   cursor: cell;
 }
 /* A drag across the grid selects CELLS. Without this it also drags a text
@@ -8918,3 +8917,15 @@ button.status-bar__item:hover { background: var(--bg-sunken); color: var(--fg); 
 .bisect-graph li[aria-current="step"] { background: var(--select-bg); }
 .bisect-graph strong { margin-left: auto; font-size: .8rem; }
 .bisect-graph svg { flex-shrink: 0; }
+
+/* Prose tables share the draggable reading measure. Dataset grids opt in. */
+.table-panel--fit-prose {
+  width: 100%;
+  max-width: var(--prose-wrap, 46rem);
+}
+.table-panel--fit-prose .table-panel__grid { width: 100%; }
+.table-panel--fit-prose .table-panel__spacer-col { width: 0; }
+.table-panel--fit-prose .table-panel__cell {
+  white-space: pre-wrap;
+  height: auto;
+}
