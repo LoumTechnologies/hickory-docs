@@ -352,7 +352,7 @@ export function DocumentEditor({
       // A session opened as a DOCUMENT keeps its framed text (see
       // editor/session.test.tsx); the cards are the lens's way of drawing
       // it (views/SessionLens.tsx). Everything else renders by default.
-      const blocks = renderableBlocks(structureOf(target.state)).filter(
+      const blocks = renderableBlocks(structureOf(target.state), target.state.doc.toString()).filter(
         (b) => !slotKindOf(b)?.startsWith("session-"),
       );
       if (blocks.length === 0) return;
@@ -815,12 +815,13 @@ export function DocumentEditor({
       const view = viewRef.current;
       if (!view) return;
       const structure = structureOf(view.state);
-      const block = structure.blocks.find((b) => b.from === slot.at);
+      const block = renderableBlocks(structure, view.state.doc.toString()).find((b) => b.from === slot.at);
       if (!block) return;
-      const body = text.endsWith("\n") ? text : `${text}\n`;
+      const body = block.name === "markdown-table" ? text : text.endsWith("\n") ? text : `${text}\n`;
       if (view.state.doc.sliceString(block.contentFrom, block.contentTo) === body) return;
       view.dispatch({
         changes: { from: block.contentFrom, to: block.contentTo, insert: body },
+        effects: block.name === "markdown-table" ? renderBlock.of(block.from) : [],
         // A user event, so the CRDT and the undo history both treat it as
         // typing — which is what it is.
         userEvent,

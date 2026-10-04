@@ -92,7 +92,7 @@ export interface RenderedSlot {
   /** diagram only. */
   renderer: string;
   /** table only: the tag's own attributes, for the grid. */
-  table?: { path?: string; delimiter?: string; header: boolean; language?: string };
+  table?: { format?: string; path?: string; delimiter?: string; header: boolean; language?: string };
   /** picture only: the file this block writes, as the document spells it. */
   picture?: { path: string };
   asserts: string[];
@@ -140,6 +140,7 @@ function sameContent(a: Omit<RenderedSlot, "el">, b: Omit<RenderedSlot, "el">): 
     a.kind === b.kind &&
     a.text === b.text &&
     a.renderer === b.renderer &&
+    a.table?.format === b.table?.format &&
     a.table?.path === b.table?.path &&
     a.table?.delimiter === b.table?.delimiter &&
     a.table?.header === b.table?.header &&
@@ -254,7 +255,7 @@ function buildRendered(state: EditorState, registry: RenderedRegistry): Decorati
   // assistant's reasoning and tool calls are part of its card, and two
   // replacements over the same rows is something CodeMirror refuses.
   let drawnTo = -1;
-  for (const block of renderableBlocks(structure)) {
+  for (const block of renderableBlocks(structure, doc.toString())) {
     // Which view draws it is the registry's answer, never a guess here.
     const kind = slotKindOf(block);
     if (kind === null) continue;
@@ -295,6 +296,7 @@ function buildRendered(state: EditorState, registry: RenderedRegistry): Decorati
       table:
         kind === "table"
           ? {
+              format: block.attrs.format,
               path: block.attrs.path,
               delimiter: block.attrs.delimiter === "tab" ? "\t" : block.attrs.delimiter,
               // A CSV with a header row is the overwhelmingly common

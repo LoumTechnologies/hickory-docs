@@ -385,3 +385,7 @@ test-command-path:
     cargo test -p hickory-cli --test open_app
     cargo test --manifest-path apps/desktop/src-tauri/Cargo.toml --lib command_path::
     cd apps/web && npm run typecheck && npm test -- src/views/CommandPathSettings.test.tsx src/views/SettingsView.test.tsx
+
+# Markdown pipe tables share the grid and keep Markdown on edit.
+test-markdown-tables:
+    cd apps/web && npm run typecheck && npm test -- src/components/MarkdownTable.test.tsx src/editor/markdownTables.test.tsx src/editor/rendered.test.ts src/editor/cards.test.ts

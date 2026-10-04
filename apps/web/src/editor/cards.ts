@@ -15,6 +15,7 @@
 // This module is pure — structure in, card list out — so where the rail's
 // icons come from is testable without a browser.
 
+import { markdownTableBlocks } from "./markdownTables";
 import { execBlocksOf, blocksNamed, pictureBlocksOf, proseFences } from "./hickDoc";
 import type { HickDocStructure } from "./hickDoc";
 
@@ -106,7 +107,7 @@ export function cardsOf(structure: HickDocStructure, options: CardsOptions): Doc
 
   // A `<hick:table>` is a dataset that is also prose; the card is how its
   // grid is reached, and how the CSV underneath is got back to.
-  blocksNamed(structure, "table").forEach((block, index) => {
+  [...blocksNamed(structure, "table"), ...markdownTableBlocks(structure, options.text)].sort((a, b) => a.from - b.from).forEach((block, index) => {
     const path = block.attrs.path;
     cards.push({
       key: `table-${index}`,

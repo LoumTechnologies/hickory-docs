@@ -1,3 +1,4 @@
+import { MarkdownTable } from "../../components/MarkdownTable";
 import { Engaged } from "../../components/Engaged";
 import { TablePanel } from "../../components/TablePanel";
 import { tableKey } from "../../lib/uiState";
@@ -6,17 +7,18 @@ import type { ElementView } from "../types";
 /** `<hick:table>`: CSV in the document, drawn and edited as a grid. */
 export const tableView: ElementView = {
   kind: "table",
-  draws: (block) => block.name === "table",
+  draws: (block) => block.name === "table" || block.name === "markdown-table",
   render(slot, cx) {
     // Named by the table's own `path` where it has one, so the size
     // survives prose being written above it — see `tableKey`.
+    const Panel = slot.table?.format === "markdown" ? MarkdownTable : TablePanel;
     const key = tableKey(cx.path, slot.index, slot.table?.path);
     return (
       // Behind the engage gate: at rest the wheel scrolls the DOCUMENT
       // through the grid; clicking into the table is what buys its own
       // scrolling (styles.css hides the internal overflow until then).
       <Engaged className="rendered-table rendered-table--laned">
-        <TablePanel
+        <Panel
           laneRight
           layout={cx.tableLayouts?.[key]}
           onLayout={(size) => cx.onTableLayout?.(key, size)}

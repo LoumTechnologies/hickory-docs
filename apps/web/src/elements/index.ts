@@ -1,6 +1,7 @@
 // Every element the editor draws in place of its source, keyed by the
 // block `kind` the server uses. See ./types.ts.
 
+import { markdownTableBlocks } from "../editor/markdownTables";
 import type { HickBlock, HickDocStructure } from "../editor/hickDoc";
 import { diagramView } from "./diagram/view";
 import { execView } from "./exec/view";
@@ -36,8 +37,8 @@ export function slotKindOf(block: HickBlock): SlotKind | null {
 }
 
 /** The blocks some element renders, in document order. */
-export function renderableBlocks(structure: HickDocStructure): HickBlock[] {
-  return structure.blocks
+export function renderableBlocks(structure: HickDocStructure, text?: string): HickBlock[] {
+  return [...structure.blocks, ...(text === undefined ? [] : markdownTableBlocks(structure, text))]
     .filter((block) => slotKindOf(block) !== null)
     .sort((a, b) => a.from - b.from || b.to - a.to);
 }
