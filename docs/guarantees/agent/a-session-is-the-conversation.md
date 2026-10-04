@@ -34,8 +34,10 @@ Four properties hold it up:
    `sessionWorkFolds`) folds the work once when the file first has content —
    keeping each work element's closing tag line visible, so the whole element
    reads even folded. There is no Chat/Source toggle: the source IS the chat.
-   The dock draws the live turn tree with `SessionTurns`/`TurnCard` over
-   `GET /api/sessions/view?path=`, the same shape, the same bubble language.
+   The Agent pane draws the selected branch and live output with
+   `ConversationEditor` over `GET /api/sessions/view?path=`, using the same
+   `DocumentEditor`. Its recorded and streaming prefix is protected, followed
+   by an editable response region; the harness still owns the recorded file.
 4. **Zoom out and move.** The dock's Tree view lays turns out as a DAG (the
    git pane's lane layout), highlights the current branch, and a click makes
    a node the tip; `/rewind [N]`, `/tree`, `/new`, `/help` do the same from

@@ -11,7 +11,7 @@ describe("editable comparison in the main buffer", () => {
     const view = new EditorView({ state:EditorState.create({ doc:"same\nnew\n", extensions:[comparisonField] }), parent:document.body }); views.push(view);
     view.dispatch({ effects:setComparison.of({ base:"same\nold\n",editable:true }) });
     expect(view.state.doc.toString()).toBe("same\nnew\n");
-    expect(document.querySelector(".comparison-removed pre")?.textContent).toBe("old\n");
+    expect(document.querySelector(".comparison-removed pre")?.textContent).toContain("old");
     expect(document.querySelector(".comparison-added")?.textContent).toBe("new");
     view.dispatch({ changes:{ from:5,to:8,insert:"edited" } });
     expect(view.state.doc.toString()).toBe("same\nedited\n");

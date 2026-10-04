@@ -25,13 +25,10 @@ import type {
   AgentTurn,
   AgentWsEvent,
   RunWsMessage,
-  SessionStep,
-  SessionTurn,
   TranscriptEvent,
 } from "../api/types";
 import type { Realtime } from "../api/realtime";
-import { TurnCard } from "./SessionTurns";
-import { SessionLens } from "../views/SessionLens";
+import { ConversationEditor } from "../views/ConversationEditor";
 import { ChatTree } from "./ChatTree";
 import { StopMark } from "./icons";
 
@@ -228,21 +225,6 @@ export function rewindFrom(
 export const SLASH_HELP =
   "/rewind [N] — back N turns, keeping the branch · /rerun — a second conversation, discarding this one · /tree — zoom out to the tree · /new — start a thread · /help";
 
-/** The dock's turn as the shared renderer's shape (steps arrive lazily). */
-function asSessionTurn(t: AgentTurn): SessionTurn {
-  return {
-    id: t.id,
-    parent: t.parent_id,
-    prompt: t.prompt,
-    provider: t.provider,
-    model: t.model,
-    steps: [],
-    answer: t.answer,
-    usage: null,
-    session_line: 0,
-  };
-}
-
 /** Path from a root turn down to `tip`, oldest first. */
 export function branchOf(turns: AgentTurn[], tip: string | null): AgentTurn[] {
   if (!tip) return [];
@@ -283,6 +265,8 @@ export function deepestFrom(turns: AgentTurn[], from: string): string {
   }
 }
 
+const responseDrafts = new Map<string, string>();
+
 export function ChatDock({
   initialPrompt = "",
   docId,
@@ -295,9 +279,11 @@ export function ChatDock({
   onAgentFinished,
   onOpenSession,
 }: ChatDockProps) {
+  const [hydrated, setHydrated] = useState(false);
   const [turns, setTurns] = useState<AgentTurn[]>([]);
   const [tip, setTip] = useState<string | null>(null);
-  const [prompt, setPrompt] = useState(initialPrompt);
+  const [prompt, setPrompt] = useState(() => responseDrafts.get(docId) ?? initialPrompt);
+  useEffect(() => { responseDrafts.set(docId, prompt); }, [docId, prompt]);
   const [running, setRunning] = useState<string | null>(null);
   // A stop was asked for and its terminal frame has not arrived yet. The
   // button stays pressed-looking rather than clickable twice.
@@ -306,25 +292,6 @@ export function ChatDock({
   const [reasoning, setReasoning] = useState("");
   const [showTree, setShowTree] = useState(false);
   const [note, setNote] = useState<string | null>(null);
-  // Session views, by path, fetched when a turn's work is asked for.
-  const viewsRef = useRef(new Map<string, Promise<SessionStep[] | null>>());
-  const loadWorkFor = useCallback((turn: AgentTurn) => {
-    const path = turn.session;
-    if (!path) return undefined;
-    return async () => {
-      const cached = viewsRef.current;
-      if (!cached.has(path)) {
-        cached.set(
-          path,
-          api.sessionView(path).then(
-            (r) => r.view.turns.find((t) => t.id === turn.id)?.steps ?? [],
-            () => null,
-          ),
-        );
-      }
-      return (await cached.get(path)) ?? [];
-    };
-  }, []);
   const [error, setError] = useState<string | null>(null);
   const [unavailable, setUnavailable] = useState(false);
   const [totals, setTotals] = useState<AgentTotals | null>(null);
@@ -343,7 +310,7 @@ export function ChatDock({
   const selectedBackend = selectedTurn?.provider.startsWith("acp:") ? selectedTurn.provider.slice(4) : "builtin";
   useEffect(() => { if (selectedTurn && !running) setBackend(selectedBackend); }, [tip, selectedBackend, running]);
   const selectedSession = selectedTurn?.session;
-  const acp = useAcp(docId, selectedTurn ? selectedBackend : backend, selectedSession, running);
+  const acp = useAcp(docId, selectedTurn ? selectedBackend : backend, selectedSession, running, hydrated);
   const logRef = useRef<HTMLDivElement>(null);
   const runningRef = useRef<string | null>(null);
   runningRef.current = running;
@@ -356,6 +323,7 @@ export function ChatDock({
       api.agentTurns(docId).then(
         (r) => {
           setTurns(r.turns);
+          setHydrated(true);
           setTotals(r.totals);
           // Hydrate the controls once — later polls must not clobber a
           // choice being made in the select/input mid-conversation.
@@ -422,10 +390,6 @@ export function ChatDock({
   const sessionPath = useMemo(
     () => [...branch].reverse().find((turn) => turn.session)?.session ?? null,
     [branch],
-  );
-  const inLens = useCallback(
-    (turn: AgentTurn) => !!sessionPath && turn.session === sessionPath && turn.status === "ok",
-    [sessionPath],
   );
   const lensStamp = turns.map((turn) => `${turn.id}:${turn.status}`).join(",");
 
@@ -660,144 +624,17 @@ export function ChatDock({
             />
           ) : (
             <>
-              {/* The recorded turns, as the session document itself: line
-                  numbers, the same cards, and ribbons from what each turn
-                  read, wrote and pointed at. A lens, read-only. */}
-              {sessionPath && <SessionLens path={sessionPath} stamp={lensStamp} showCollapsedLineage={showCollapsedLineage} />}
-              {sessionPath && branch.some((turn) => inLens(turn)) && (
-                <div className="chat-turn-strip" aria-label="Turns">
-                  {branch.filter(inLens).map((turn) => (
-                    <span key={turn.id} className="chat-turn-strip__turn">
-                      <span className="muted">{turn.prompt.slice(0, 40)}</span>
-                      {(backend === "builtin" || acp.state?.canRewind) && turn.id !== tip && (
-                        <button
-                          className="btn-link chat-rewind"
-                          onClick={() => setTip(turn.id)}
-                          data-tip={REWIND_TIP}
-                        >
-                          rewind here
-                        </button>
-                      )}
-                    </span>
-                  ))}
-                  {onOpenSession && (
-                    <button
-                      className="btn-link chat-open-session"
-                      onClick={() => onOpenSession(sessionPath)}
-                      data-tip={`Open the session file this conversation is recorded in (${sessionPath})`}
-                    >
-                      session
-                    </button>
-                  )}
-                </div>
-              )}
-              {branch.filter((turn) => !inLens(turn)).map((turn) => {
-              const kids = tip ? childrenOf(turns, turn.parent_id) : [];
-              const siblings = kids.length > 1 ? kids : [];
-              const at = siblings.findIndex((k) => k.id === turn.id);
-              const isTip = turn.id === tip;
-              const controls = (
-                <div className="chat-turn-actions">
-                  {siblings.length > 1 && (
-                    <span
-                      className="chat-branch"
-                      data-tip="This turn has alternatives — the other branches from the same point"
-                    >
-                      <button
-                        className="btn-link"
-                        disabled={at <= 0}
-                        onClick={() =>
-                          setTip(deepestFrom(turns, siblings[at - 1].id))
-                        }
-                        aria-label="Previous branch"
-                      >
-                        ‹
-                      </button>
-                      {at + 1}/{siblings.length}
-                      <button
-                        className="btn-link"
-                        disabled={at >= siblings.length - 1}
-                        onClick={() =>
-                          setTip(deepestFrom(turns, siblings[at + 1].id))
-                        }
-                        aria-label="Next branch"
-                      >
-                        ›
-                      </button>
-                    </span>
-                  )}
-                  {(backend === "builtin" || acp.state?.canRewind) && !isTip && turn.status !== "running" && (
-                    <button
-                      className="btn-link chat-rewind"
-                      onClick={() => setTip(turn.id)}
-                      data-tip={REWIND_TIP}
-                    >
-                      rewind here
-                    </button>
-                  )}
-                  {turn.session && onOpenSession && (
-                    <button
-                      className="btn-link chat-open-session"
-                      onClick={() => onOpenSession(turn.session!)}
-                      data-tip={`Open the session file this turn is recorded in (${turn.session})`}
-                    >
-                      session
-                    </button>
-                  )}
-                </div>
-              );
-              const view = asSessionTurn(turn);
-              if (turn.id === running) {
-                return (
-                  <TurnCard
-                    key={turn.id}
-                    turn={view}
-                    extra={controls}
-                    live={{ text: stream, reasoning }}
-                  />
-                );
-              }
-              if (turn.status === "error" || turn.status === "stopped") {
-                // A stop is the user's own act — quiet words, never the red
-                // an actual failure gets.
-                const stopped = turn.status === "stopped";
-                return (
-                  <article key={turn.id} className="chat-turn">
-                    <div className="chat-msg chat-user">
-                      <span className="chat-role">you</span>
-                      <div className="chat-bubble">
-                        <p>{turn.prompt}</p>
-                      </div>
-                      {controls}
-                    </div>
-                    <div className="chat-msg chat-agent">
-                      <span className="chat-role">agent</span>
-                      <div className="chat-bubble">
-                        {stopped ? (
-                          <p className="chat-stopped muted">
-                            Stopped by you. Whatever it had already done is
-                            real and recorded in the session; the next message
-                            {turn.provider.startsWith("acp:") ? "continues with the agent’s retained context." : "continues as if this turn never ran."}
-                          </p>
-                        ) : (
-                          <p className="chat-error">
-                            {turn.error ?? "session failed"}
-                          </p>
-                        )}
-                      </div>
-                    </div>
-                  </article>
-                );
-              }
-              return (
-                <TurnCard
-                  key={turn.id}
-                  turn={view}
-                  extra={controls}
-                  loadWork={loadWorkFor(turn)}
-                />
-              );
-              })}
+              <ConversationEditor branch={branch} path={sessionPath} stamp={lensStamp} running={running}
+                showCollapsedLineage={showCollapsedLineage} stream={stream} reasoning={reasoning} draft={prompt} onDraft={setPrompt}
+                onSend={() => void send()} canSend={!running && !sending && (backend === "builtin" || !!acp.state?.ready)} />
+              {branch.length > 0 && <div className="chat-turn-strip" aria-label="Turns">
+                {branch.map(turn => <span key={turn.id} className="chat-turn-strip__turn">
+                  <span className="muted">{turn.prompt.slice(0, 40)}</span>
+                  {(backend === "builtin" || acp.state?.canRewind) && turn.id !== tip &&
+                    <button className="btn-link chat-rewind" onClick={() => setTip(turn.id)} data-tip={REWIND_TIP}>rewind here</button>}
+                </span>)}
+                {sessionPath && onOpenSession && <button className="btn-link" onClick={() => onOpenSession(sessionPath)}>session</button>}
+              </div>}
             </>
           )}
         </div>
@@ -805,26 +642,7 @@ export function ChatDock({
 
       {contextLabel && <p className="chat-note muted">Context: {contextLabel}. Current editor text is included when you send.</p>}
       <div className="chat-composer">
-        {/* The draft is a bubble too, tail on your side: what you are
-            typing is the next thing you will have said. */}
-        <div className="chat-bubble chat-bubble--draft">
-          <textarea
-            value={prompt}
-            rows={collapsed ? 1 : 2}
-            placeholder={
-              tip
-                ? "Reply, or rewind to an earlier turn to branch…"
-                : "Ask the agent…"
-            }
-            onChange={(e) => setPrompt(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" && !e.shiftKey) {
-                e.preventDefault();
-                void send();
-              }
-            }}
-          />
-        </div>
+        <span className="muted">Type your response at the bottom · ⌘/Ctrl+Enter to send</span>
         {running ? (
           // The way out of a runaway turn — a model looping mid-stream bills
           // tokens until somebody pulls this. Never disabled while a run is

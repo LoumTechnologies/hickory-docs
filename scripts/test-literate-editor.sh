@@ -52,4 +52,4 @@ for _ in $(seq 1 100); do
   kill -0 "$vite_pid" 2>/dev/null || { cat "$run_dir/vite.log"; exit 1; }
   sleep .1
 done
-HICKORY_E2E_CHANNEL=chromium HICKORY_E2E_URL="http://127.0.0.1:$ui_port" npm --prefix apps/web run test:e2e -- literate-editor.spec.ts
+HICKORY_ACP_FIXTURE="$(pwd)/target/debug/examples/acp_fixture" HICKORY_E2E_CHANNEL=chromium HICKORY_E2E_URL="http://127.0.0.1:$ui_port" npm --prefix apps/web run test:e2e -- literate-editor.spec.ts

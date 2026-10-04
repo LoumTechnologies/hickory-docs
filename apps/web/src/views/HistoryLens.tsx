@@ -1,3 +1,4 @@
+import { openCommit } from "../lib/readingViews";
 // The repository's history, read as a story — and, above the floor, edited.
 //
 // A LENS, not a document (docs/specs/freeform/lenses.md): the commits drawn
@@ -109,6 +110,7 @@ function CommitDetail({ sha, recipe }: { sha: string; recipe: boolean }) {
   if (!detail) return <p className="muted">Reading the change…</p>;
   return (
     <div className="story-card__detail">
+      <button className="btn" onClick={() => openCommit(sha)}>Read commit</button>
       {/* The fact the scaffold cell could never show: the output stays, AND
           it says which later commit changed it. Only worth saying on a
           recipe, where "what the command wrote" and "what is there now" are

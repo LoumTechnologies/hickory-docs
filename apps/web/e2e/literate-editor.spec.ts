@@ -17,7 +17,7 @@ test("edit ordinary source in the main literate diff, then read history without 
   await expect(pane).toBeVisible();
   const line=pane.locator(".cm-line").filter({hasText:"value = 1"});
   await expect(line).toBeVisible(); await line.click();
-  const content=pane.locator(".cm-content");
+  const content=pane.locator(".cm-content").first();
   await content.press("Home"); await content.press("Shift+End"); await content.pressSequentially("value = 7");
   await pane.getByRole("button",{name:"Save code and view"}).click();
   await expect.poll(async()=> (await (await page.request.get("/api/file?path=code.py")).json()).content).toBe("value = 7\n");
@@ -74,4 +74,55 @@ test("the visual bisect pane shows candidates, verdicts, and Git's first bad res
   } finally {
     await page.request.delete(`/api/git/bisect/${id}`);
   }
+});
+
+// Guarantees: lenses/a-commit-reads-as-a-literate-change.md;
+// agent/the-agent-pane-is-a-live-document.md; agent/conversation-edits-use-the-client-review-policy.md.
+test("review an ACP proposal in the literate editor, then read its commit", async ({ page }) => {
+  test.setTimeout(60_000);
+  test.skip(!process.env.HICKORY_E2E_URL || !process.env.HICKORY_ACP_FIXTURE, "Use the isolated literate editor harness with its ACP fixture.");
+  const errors: string[] = [];
+  page.on("pageerror", error => errors.push(error.message));
+  const catalogue = await page.request.put("/api/agents", { data: [{ id: "fixture", name: "Fixture", command: process.env.HICKORY_ACP_FIXTURE, args: [] }] });
+  expect(catalogue.ok()).toBeTruthy();
+  const created = await page.request.post("/api/projects/local/docs", { data: { path: "review-note.md", source: "# Original 📝\n\nKeep this paragraph.\n" } });
+  expect(created.ok()).toBeTruthy();
+  const note = await created.json();
+  await page.goto(`/#/docs/${note.id}`);
+  await expect(page.locator(".cm-content").filter({ hasText: "Original 📝" })).toBeVisible();
+  await page.evaluate(() => window.dispatchEvent(new CustomEvent("hickory-menu", { detail: "show-agent" })));
+  const agent = page.getByRole("region", { name: "Agent chat" });
+  await expect(agent).toBeVisible();
+  await agent.getByRole("button", { name: "Agent settings" }).click();
+  await page.getByRole("combobox", { name: "Agent", exact: true }).selectOption("fixture");
+  await page.getByRole("button", { name: "Agent settings", exact: true }).click();
+  await expect(agent.getByRole("button", { name: "Send", exact: true })).toBeDisabled();
+  const response = agent.getByRole("textbox", { name: "Agent conversation and response" });
+  await response.click(); await response.press("ControlOrMeta+End"); await response.pressSequentially("buffer-edit");
+  await agent.getByRole("button", { name: "Send", exact: true }).click();
+  const review = page.getByRole("region", { name: "Document change review" });
+  await expect(review).toBeVisible();
+  await expect(review.locator(".comparison-added")).toContainText("Changed by ACP");
+  await expect(review.locator(".comparison-removed pre")).toContainText("Original 📝");
+  expect((await (await page.request.get(`/api/docs/${note.id}`)).json()).source).toContain("Original 📝");
+  await expect(agent.getByRole("button", { name: "Stop the agent" })).toBeVisible();
+  await page.screenshot({ path: "/tmp/hickory-proposal-reading.png", fullPage: true });
+  await review.getByRole("button", { name: "Accept change" }).click();
+  await expect.poll(async () => (await (await page.request.get(`/api/docs/${note.id}`)).json()).source).toContain("Changed by ACP");
+  await expect(agent.getByRole("button", { name: "Send", exact: true })).toBeVisible();
+  // The completed answer is protected; selecting all and typing cannot erase it.
+  await response.press("ControlOrMeta+a"); await response.pressSequentially("Should not replace history");
+  await expect(response).toContainText("buffer-edit");
+  await response.press("ControlOrMeta+End"); await response.press("Enter"); await response.pressSequentially("Next response draft");
+  await expect(response).toContainText("Next response draft");
+  await page.request.post("/api/git/stage", { data: { paths: ["review-note.md"] } });
+  const committed = await page.request.post("/api/git/commit", { data: { message: "# A reviewed note\n\nThe agent changed its heading." } });
+  expect(committed.ok()).toBeTruthy();
+  const commit = await committed.json();
+  await page.evaluate(sha => window.dispatchEvent(new CustomEvent("hickory.open-reading", { detail: { id: `commit:${sha}`, title: "Commit" } })), commit.sha);
+  const reading = page.getByRole("article", { name: "Commit reading" });
+  await expect(reading).toContainText("A reviewed note");
+  await expect(reading.locator(".comparison-added").filter({ hasText: "Changed by ACP" })).toHaveCount(1);
+  await page.screenshot({ path: "/tmp/hickory-commit-reading.png", fullPage: true });
+  expect(errors).toEqual([]);
 });

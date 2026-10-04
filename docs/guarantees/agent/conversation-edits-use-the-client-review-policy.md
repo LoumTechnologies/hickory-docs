@@ -14,9 +14,12 @@ untitled note never manufactures a filename or saves that note implicitly.
 
 In Review, edits submitted through these tools, the existing `edit_output`
 and `create_doc` tools, or ACP text-file writes wait for Accept or Reject.
-In Auto-accept they proceed without a review click. Pending and completed
-changes use the same `DiffView` component as Git diffs. Agent-reported ACP diff
-content also uses that component.
+In Auto-accept they proceed without a review click. Proposals open in a document review tab beside the current panes. Accept and
+Reject live beside that editor. Proposed bytes stay in a read-only lens until
+accepted; the target buffer is never used as a temporary preview. Pending and
+completed changes use `DocumentEditor` and its `comparisonField`, the same
+mechanism as literate Git comparisons and commit readings. Adapter-reported
+raw diff content remains available in tool details.
 
 Accepting a live-buffer edit uses the ordinary editor transaction path and
 remains undoable. A changed or closed target buffer refuses application; a
@@ -39,11 +42,11 @@ Last LLM verification:
 - Result: partially verified
 - Evidence: `serve/acp/{edits,mcp,client,mod,record}.rs`, `mcp_preview.rs`,
   `hickory-agent/src/tools/preview.rs`, `WorkspaceChat`, `AgentChanges`,
-  `agentEdit`, `DiffView`, and `AcpControls.ToolDetails`.
+  `agentEdit`, `DocumentReading`, `comparisonField`, and `AcpControls.ToolDetails`.
 - Tests: `serve_acp` real HTTP/process regressions cover buffered tool calls,
   review acceptance/rejection, output-tool review, cancellation, single-use
   decisions, independent conversations, and policy recovery after restart.
-  `AgentChanges.test.tsx` covers shared diff markup, review, automatic
+  `AgentChanges.test.tsx` covers the document comparison editor, review, automatic
   application, and stale-edit reporting. `agentEdit.test.ts` uses real
   CodeMirror editors to check exact text, Unicode, undo, stale typing, and
   closed targets. Existing ACP and UI regression checks remain in place.
@@ -57,3 +60,9 @@ Last LLM verification:
 - Caveats: native desktop visual inspection has not been established for this
   change. Change cards live with the active
   connection; the setting and edit evidence are recorded in the conversation.
+
+Verification update (2026-10-04): `AgentChanges` publishes immutable readings;
+`representationTabs` opens a review alongside existing panes, and
+`DocumentReading` places the decision beside `DocumentComparison`.
+`serve_acp` also checks that reconnecting during pending review returns the
+active connection promptly. `ConversationEditor` now renders the Agent pane.

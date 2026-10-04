@@ -80,6 +80,8 @@ import type { Realtime } from "../api/realtime";
 import type { DiagramBlock, ExecBlock, ExecutorInfo } from "../api/types";
 
 export interface DocumentEditorProps {
+  editorExtensions?: Extension[];
+  preserveBytes?: boolean;
   comparisonBase?: string | null;
   readOnly?: boolean;
   docId: string;
@@ -160,6 +162,8 @@ export { assertionStates, matchExecBlock } from "../lib/blockMatch";
  * rail's never skip. See editor/CardRail.tsx.
  */
 export function DocumentEditor({
+  editorExtensions = [],
+  preserveBytes = false,
   comparisonBase = null,
   readOnly = false,
   docId,
@@ -379,7 +383,7 @@ export function DocumentEditor({
           // OUTSIDE the numbers. Off by default — see editor/blameGutter.ts.
           blameGutter(),
           history(),
-          unwrapParagraphs(),
+          ...(preserveBytes ? [] : [unwrapParagraphs()]),
           // Undo must never reach content this client did not type.
           //
           // The room's first sync arrives as an ordinary document change, and
@@ -457,6 +461,7 @@ export function DocumentEditor({
           yCollab(ytext, awareness),
           ...(placeholderText ? [placeholder(placeholderText)] : []),
           ...(lspExtensions ?? []),
+          ...editorExtensions,
           comparisonField,
           access.of([EditorState.readOnly.of(readOnly), EditorView.editable.of(!readOnly), EditorState.transactionFilter.of(tr => readOnly && tr.docChanged && tr.annotation(Transaction.userEvent) ? [] : tr)]),
           // Which buffer the Insert menu writes into. Recorded on focus

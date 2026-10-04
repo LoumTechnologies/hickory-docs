@@ -1,5 +1,6 @@
+import { responseStart } from "../editor/protectedPrefix";
 import { afterEach, expect, it, vi } from "vitest";
-import { render, screen, fireEvent, waitFor, cleanup } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor, cleanup, act } from "@testing-library/react";
 import { EditorState } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
 import { editorContext, WorkspaceChat } from "./WorkspaceChat";
@@ -8,9 +9,9 @@ import { initialWorkspace, openUntitledTab } from "./workspaceState";
 import { panes, tab } from "../shell/layout";
 import { api } from "../api/client";
 import { registerSearchEditor } from "../lib/workspaceSearch";
-vi.mock("../api/client", () => ({ api: { agent: vi.fn(), agentTurns: vi.fn(), file: vi.fn() } }));
+vi.mock("../api/client", () => ({ api: { agent: vi.fn(), agentTurns: vi.fn(), file: vi.fn(), executor: vi.fn().mockResolvedValue({}), complete: vi.fn().mockResolvedValue({ suggestions: [] }) } }));
 vi.mock("../api/acp", () => ({ acpApi: { agents: vi.fn().mockResolvedValue({ agents: [] }) } }));
-vi.mock("../api/realtime", () => ({ getWorkspaceRealtime: () => ({ onRunEvent: () => () => {} }) }));
+vi.mock("../api/realtime", async importOriginal => ({ ...await importOriginal<typeof import("../api/realtime")>(), getWorkspaceRealtime: () => ({ onRunEvent: () => () => {} }) }));
 afterEach(() => { cleanup(); vi.clearAllMocks(); localStorage.clear(); });
 // Guarantee: docs/guarantees/agent/the-agent-sees-the-open-editors.md
 it("sends a startup untitled editor without a folder, using fresh text", async () => {
@@ -25,7 +26,9 @@ it("sends a startup untitled editor without a folder, using fresh text", async (
   expect(screen.getByText(/Context:.*unsaved/)).toBeTruthy();
   source.current[untitled.id] = "latest unsaved text";
   await waitFor(() => expect(api.agentTurns).toHaveBeenCalled());
-  fireEvent.change(screen.getByPlaceholderText("Ask the agent…"), { target: { value: "summarize" } });
+  const host = await screen.findByRole("textbox", { name: "Agent conversation and response" });
+  const editor = EditorView.findFromDOM(host)!;
+  act(() => editor.dispatch({ changes: { from: editor.state.field(responseStart), to: editor.state.doc.length, insert: "summarize" }, userEvent: "input.type" }));
   fireEvent.click(screen.getByRole("button", { name: "Send" }));
   await waitFor(() => expect(api.agent).toHaveBeenCalledWith("workspace", "summarize", null,
     expect.anything(), expect.anything(), "builtin", { buffers: [{ id: untitled.id, kind: "untitled", name: untitled.title ?? untitled.target,

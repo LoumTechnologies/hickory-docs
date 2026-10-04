@@ -1,9 +1,8 @@
 import "./AgentChanges.css";
 import { useEffect, useRef, useState } from "react";
 import { acpApi, type AcpState, type AgentChange } from "../api/acp";
-import { DiffView } from "./DiffView";
+import { publishReading, forgetReading, openReading } from "../lib/readingViews";
 import { AgentEditConflict } from "../lib/agentEdit";
-import { unifiedDiff } from "../lib/diff";
 
 export function AgentChanges({ doc, state, running, apply, update }: {
   doc: string; state: AcpState | null; running: boolean;
@@ -27,6 +26,20 @@ export function AgentChanges({ doc, state, running, apply, update }: {
     catch (e) { setError(e instanceof Error ? e.message : String(e)); }
     finally { inflight.current.delete(change.id); }
   };
+  const latest = useRef(decide); latest.current = decide;
+  const opened = useRef(new Set<string>());
+  useEffect(() => {
+    state?.edits?.changes.forEach(change => {
+      const id = `proposal:${doc}:${change.id}`;
+      publishReading(id, { title: "Proposed change", path: change.path ?? change.name,
+        before: change.oldText, after: change.newText, status: change.status,
+        decide: accepted => latest.current(change, accepted) });
+      if (change.status === "pending" && !opened.current.has(id)) {
+        opened.current.add(id); openReading(id, `${change.path ?? change.name} · review`);
+      }
+    });
+  }, [doc, state?.edits?.changes]);
+  useEffect(() => () => { opened.current.forEach(forgetReading); opened.current.clear(); }, [doc]);
   useEffect(() => {
     state?.edits?.changes.filter(c => c.status === "applying").forEach(c => { void decide(c, true); });
   }, [state?.edits?.changes]);
@@ -40,12 +53,7 @@ export function AgentChanges({ doc, state, running, apply, update }: {
     {error && <p role="alert">{error}</p>}
     {state.edits.changes.map(change => <details key={change.id} open={change.status === "pending" || change.status === "applying"}>
       <summary>{change.status === "pending" ? "Proposed change" : change.status === "applying" ? "Applying change" : `${change.status.charAt(0).toUpperCase()}${change.status.slice(1)} change`} · {change.path ?? change.name}</summary>
-      <DiffView path={change.path ?? change.name} diff={unifiedDiff(change.path ?? change.name, change.oldText, change.newText)}
-        binary={false} staged={false} label={change.status === "pending" ? "proposed" : change.status} />
-      {change.status === "pending" && <div>
-        <button className="btn" onClick={() => void decide(change, true)}>Accept change</button>
-        <button className="btn" onClick={() => void decide(change, false)}>Reject change</button>
-      </div>}
+      <button className="btn" onClick={() => openReading(`proposal:${doc}:${change.id}`, `${change.path ?? change.name} · review`)}>Review in document</button>
     </details>)}
   </section>;
 }

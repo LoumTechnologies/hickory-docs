@@ -84,3 +84,9 @@ export interface GitCommitResult {
   short: string;
   subject: string;
 }
+
+/** An immutable reading, with exact blob bytes and the full commit message. */
+export interface CommitReadingData {
+  sha: string; parent: string | null; message: string;
+  files: { path: string; from: string; status: string; before: string; after: string; binary: boolean }[];
+}

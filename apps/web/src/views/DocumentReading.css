@@ -1,0 +1,22 @@
+.document-reading { height: 100%; overflow: auto; }
+.document-reading > .doc-tab-toolbar { position: sticky; top: 0; z-index: 4; background: var(--bg); }
+.commit-reading__file { margin: 1rem 0; }
+.commit-reading__file > h2 { font-size: 1rem; padding: 0.5rem 1rem; }
+.conversation-document { min-height: 100%; }
+.conversation-document .cm-editor { min-height: 12rem; }
+.conversation-document .cm-content { padding-bottom: 3rem; }
+.conversation-bookkeeping { padding: 0.3rem 0.75rem; color: var(--fg-muted); font-size: 0.85rem; }
+.conversation-bookkeeping pre { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 16rem; overflow: auto; }
+.document-reading .document-editor .cm-content,
+.conversation-document .document-editor .cm-content { --cm-pad-x: 1rem; padding-top: 0.75rem; }
+.chat-dock--pane > :not(.chat-log) { flex-shrink: 0; }
+.chat-dock--pane > .chat-log { flex: 1; min-height: 0; max-height: none; }
+.chat-composer > .muted { flex: 1; min-width: 0; font-size: 0.72rem; }
+.chat-composer > .btn { flex-shrink: 0; }
+.document-reading .editor-cm-host { display: block; min-width: 0; }
+.document-reading .document-editor .cm-editor { height: auto; min-height: 0; max-height: none; }
+.document-reading .document-editor .cm-scroller { overflow: visible; height: auto; }
+.document-reading .document-editor .cm-content { padding-bottom: 1rem; min-height: 0; }
+.document-editor .comparison-removed .cm-editor { flex: none; height: auto; min-height: 0; max-height: none; }
+.document-editor .comparison-removed .cm-scroller { overflow: visible; height: auto; }
+.document-editor .comparison-removed .cm-content { padding: 0.5rem; min-height: 0; }

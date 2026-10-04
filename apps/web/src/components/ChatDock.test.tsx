@@ -1,6 +1,9 @@
+import { EditorView } from "@codemirror/view";
+import { responseStart } from "../editor/protectedPrefix";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   cleanup,
+  act,
   fireEvent,
   render,
   screen,
@@ -8,7 +11,7 @@ import {
 } from "@testing-library/react";
 
 vi.mock("../api/client", () => ({
-  api: { agent: vi.fn(), agentTurns: vi.fn(), agentStop: vi.fn() },
+  api: { agent: vi.fn(), agentTurns: vi.fn(), agentStop: vi.fn(), executor: vi.fn().mockResolvedValue({}), sessionView: vi.fn().mockRejectedValue(new Error("No session fixture")), complete: vi.fn().mockResolvedValue({ suggestions: [] }) },
 }));
 
 vi.mock("../api/acp", () => ({ acpApi: { catalogue: vi.fn().mockResolvedValue({ agents: [] }), connect: vi.fn(), state: vi.fn() } }));
@@ -53,11 +56,11 @@ describe("switching agents", () => {
     await screen.findByRole("option", { name: "Codex (ACP)" });
     expect(screen.getByRole("option", { name: "Hickory (built-in)" })).toBeTruthy();
     expect(screen.getByRole("option", { name: "Claude Agent — install adapter" })).toBeTruthy();
-    await screen.findByText("p:old");
+    await waitFor(() => expect(document.querySelector(".cm-content")?.textContent).toContain("p:old"));
     fireEvent.change(screen.getByRole("combobox", { name: "Agent" }), { target: { value: "codex" } });
     await waitFor(() => expect(acpApi.connect).toHaveBeenCalledWith("d1", "codex", undefined));
     expect(localStorage.getItem("hickory.agent")).toBe("codex");
-    fireEvent.change(screen.getByPlaceholderText("Ask the agent…"), { target: { value: "Use Codex" } });
+    await typeResponse("Use Codex");
     await waitFor(() => expect((screen.getByRole("button", { name: "Send" }) as HTMLButtonElement).disabled).toBe(false));
     fireEvent.click(screen.getByRole("button", { name: "Send" }));
     await waitFor(() => expect(api.agent).toHaveBeenCalledWith("d1", "Use Codex", null, "anthropic", "", "codex"));
@@ -257,9 +260,7 @@ describe("the dock's model control and stats line", () => {
     fireEvent.change(select, { target: { value: "openai" } });
     expect(modelInput.placeholder).toBe("gpt-5");
     fireEvent.change(modelInput, { target: { value: "gpt-5-mini" } });
-    fireEvent.change(screen.getByPlaceholderText("Ask the agent…"), {
-      target: { value: "do the thing" },
-    });
+    await typeResponse("do the thing");
     fireEvent.click(screen.getByText("Send"));
 
     await waitFor(() =>
@@ -405,9 +406,7 @@ describe("stopping a run", () => {
     vi.mocked(api.agentStop).mockResolvedValue({ stopping: "s1" });
     dock();
 
-    fireEvent.change(screen.getByPlaceholderText("Ask the agent…"), {
-      target: { value: "loop forever" },
-    });
+    await typeResponse("loop forever");
     fireEvent.click(screen.getByText("Send"));
 
     const stop = await screen.findByRole("button", { name: "Stop the agent" });
@@ -438,3 +437,9 @@ describe("stopping a run", () => {
     expect(container.querySelector(".chat-error")).toBeNull();
   });
 });
+
+async function typeResponse(text: string) {
+  const host = await screen.findByRole("textbox", { name: "Agent conversation and response" });
+  const view = EditorView.findFromDOM(host)!;
+  act(() => view.dispatch({ changes: { from: view.state.field(responseStart), to: view.state.doc.length, insert: text }, userEvent: "input.type" }));
+}

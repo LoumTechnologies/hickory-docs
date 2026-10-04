@@ -351,7 +351,7 @@ test-literate-views:
 
 # Watched browser flows, with their own engine, state directory and scratch Git repository.
 test-literate-editor:
-    cargo build -p hickory-cli --example engine_client
+    cargo build -p hickory-cli --bin hick --example engine_client --example acp_fixture
     scripts/test-literate-editor.sh
 
 # Stage the CLI sidecar for Tauri. Kept out of tauri.conf so cargo-only checks

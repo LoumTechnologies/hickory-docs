@@ -1,3 +1,4 @@
+import { openCommit } from "../lib/readingViews";
 // The repository, as something to read.
 //
 // The graph is the point, and what makes a commit graph worth drawing is that
@@ -205,6 +206,7 @@ export function GitPane({
 
               {expanded && (
                 <div className="git-commit__detail">
+                  <button className="btn" onClick={() => openCommit(commit.sha)}>Read commit</button>
                   {commit.body && <pre className="git-commit__body">{commit.body}</pre>}
                   {commit.files.length === 0 ? (
                     <p className="muted git-commit__nofiles">

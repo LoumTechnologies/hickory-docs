@@ -205,8 +205,14 @@ pub async fn connect(
     if let Some(room) = state.rooms.get(&doc_id).await {
         super::store::write_atomic(&doc, room.text().await.as_bytes()).map_err(error)?;
     }
-    let _operation = client.operation.lock().await;
-    let setup_error = client.setup().await.err().map(|e| format!("{e:#}"));
+    // A pane remount may reconnect to a turn waiting for review. Returning its
+    // existing connection must never wait for that same turn to finish.
+    let setup_error = if client.active.lock().unwrap().is_some() {
+        None
+    } else {
+        let _operation = client.operation.lock().await;
+        client.setup().await.err().map(|e| format!("{e:#}"))
+    };
     let mut view = client.snapshot();
     view["error"] = json!(setup_error);
     let record_path = client.record.lock().await.path.clone();

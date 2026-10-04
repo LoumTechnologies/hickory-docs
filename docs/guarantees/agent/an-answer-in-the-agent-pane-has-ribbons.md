@@ -137,3 +137,13 @@ Development UI verification against a copied Codex session showed the answer
 expanded, a checked produces chip, and a connection to the output in the file
 tree. The authenticated adapter was not rerun; the installed app is unchanged. Native adapter reports are not byte-hash
 receipts; shell-only reads without structured locations remain unlinked.
+
+Amended 2026-10-04: the live Agent pane uses `ConversationEditor` over
+`DocumentEditor`, including the editable response region protected by
+`protectedPrefix`. `conversationReading` selects the current branch from
+recorded session bytes and remaps its receipts. The ordinary literate editor's
+braces and line rails remain in use; context bookkeeping is expandable and
+folded-work ribbons follow the collapsed-lineage setting. The standalone
+`SessionLens` remains a read-only card view for callers that need it. Running
+speech is a protected live region in the same editor, not a separate chat card.
+See `the-agent-pane-is-a-live-document.md` for the updated contract and tests.

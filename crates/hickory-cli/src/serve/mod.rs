@@ -34,6 +34,7 @@ pub mod anchored;
 pub mod api;
 pub mod asset;
 pub mod bisect;
+pub mod commit_reading;
 pub mod debug_bridge;
 pub mod environments;
 pub mod files_ops;
@@ -651,6 +652,7 @@ pub(crate) fn router(state: LocalState) -> Router {
         // do deliberately, where the exact command is visible — and there is
         // a terminal on every row of the tree. See serve/git.rs.
         .route("/git/log", get(git::log))
+        .route("/git/reading", get(commit_reading::read))
         .route("/git/status", get(git::status))
         // GitHub is reached by the person's own `gh` installation. Hickory
         // never receives or persists its token; a missing or signed-out CLI

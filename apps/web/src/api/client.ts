@@ -1,3 +1,4 @@
+import type { CommitReadingData } from "./git";
 import type { AgentEditorContext } from "./agentTypes";
 import type {
   AdoptResponse,
@@ -522,6 +523,7 @@ export const api = {
   /** Write the bytes a person chose — a merge's result — over a diverged file. */
   resolveOutput: (path: string, content: string) =>
     request<{ ok: boolean; path: string }>("POST", "/api/outputs/resolve", { path, content }),
+  gitReading: (sha: string) => request<CommitReadingData>("GET", `/api/git/reading?${new URLSearchParams({ sha })}`),
   gitChanges: () => request<GitChanges>("GET", "/api/git/changes"),
   gitDiff: (path: string, staged = false) =>
     request<GitDiff>(

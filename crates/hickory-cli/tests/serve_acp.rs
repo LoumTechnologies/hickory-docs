@@ -530,6 +530,22 @@ async fn acp_untitled_edits_use_tools_and_wait_for_client_review() {
         })).await;
         assert_eq!(status, 202, "{response}");
         let change = pending_change(&app).await;
+        // A remounted Agent pane can recover its active connection without
+        // blocking the review decision that lets this turn finish.
+        let resumed = tokio::time::timeout(
+            std::time::Duration::from_secs(2),
+            app.connect(ready["session"].as_str()),
+        )
+        .await
+        .expect("reconnecting during review must not wait for the turn");
+        assert_eq!(
+            resumed["edits"]["changes"]
+                .as_array()
+                .unwrap()
+                .last()
+                .unwrap()["id"],
+            change["id"]
+        );
         assert_eq!(change["oldText"], "# Original 📝\n");
         assert_eq!(change["newText"], "# Changed by ACP 📝\n");
         assert_eq!(change["name"], "Untitled 1");

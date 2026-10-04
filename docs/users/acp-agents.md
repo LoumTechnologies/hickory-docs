@@ -38,12 +38,17 @@ For a current note, including an untitled draft, simply ask:
 
 > Change the heading of this document to “Meeting notes”.
 
-The agent receives live editor tools and changes appear as colored diffs using
-the same view as Git changes. Accepting an untitled edit updates its buffer;
+The agent receives live editor tools. A proposed change opens beside your work
+in a document review tab, with additions and removals shown in the literate
+editor. Read it there, then choose **Accept change** or **Reject change**.
+Accepting an untitled edit updates its buffer;
 use Save when you want a file. Typing during review can make a proposal stale,
 in which case it is refused and the agent needs to read the note again.
 
-The pane streams the answer and folds reasoning separately. Tool details and
+The Agent pane is a live literate document. The agent's text is protected while
+it writes, and your editable **Your response** region is at the bottom. Enter
+adds a line; **Send** or Cmd/Ctrl+Enter submits it. The pane streams the answer
+and folds reasoning separately. Tool details and
 permission choices appear while it works. **Stop** cancels the turn; a process
 that ignores cancellation is terminated after three seconds. **Reconnect**
 recovers a disconnected adapter. **New thread** starts a separate conversation.
@@ -117,3 +122,7 @@ separately from text shown to the model. The mount does not restrict the agent
 from explicitly accessing other host paths. Some tools need filesystem features
 this preview does not yet implement. Signed activation and a mounted Codex
 workflow remain unverified; ordinary ACP mode is available in the meantime.
+
+In **History** or **Story**, choose **Read commit** to read its full message
+above literate comparisons of the changed files. This is a read-only view;
+opening it leaves your current files and branch in place.

@@ -8,7 +8,7 @@ const defaults: AgentCommand[] = [
   { id: "claude", name: "Claude Agent", command: "claude-agent-acp", args: [] },
 ];
 
-export function useAcp(doc: string, backend: string, session: string | undefined, running: string | null) {
+export function useAcp(doc: string, backend: string, session: string | undefined, running: string | null, hydrated = true) {
   const [agents, setAgents] = useState(defaults);
   const [state, setState] = useState<AcpState | null>(null);
   const [busy, setBusy] = useState(false);
@@ -37,9 +37,9 @@ export function useAcp(doc: string, backend: string, session: string | undefined
   }, [doc, backend, session]);
   useEffect(() => {
     if (backend === "builtin") { ++version.current; setState(null); setError(null); setBusy(false); return; }
-    if (!running) void connect();
+    if (hydrated && !running) void connect();
     // A running turn owns its connection; do not reconnect on optimistic UI updates.
-  }, [connect, backend]);
+  }, [connect, backend, hydrated]);
   useEffect(() => {
     if (backend === "builtin" || (!running && !state?.ready)) return;
     const stamp = version.current;

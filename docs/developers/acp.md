@@ -50,3 +50,16 @@ restart loading. Normal tests never invoke that adapter.
 Adapter catalogue versions are pinned in `acp::install`. Upgrade a pin only
 with a live smoke test. The current conformance surface uses ACP v1;
 unsupported protocol versions produce an actionable connection error.
+
+The UI uses `ConversationEditor` over the shared `DocumentEditor`, with a
+transaction-protected prefix and an editable response suffix. Its reading
+selects the current branch from recorded bytes and registers remapped receipts
+with `lensSources`. Owner updates preserve the draft and bypass the edit filter;
+ordinary keyboard and widget transactions cannot change the protected prefix.
+`preserveBytes` disables paragraph unwrapping in immutable and live readings.
+
+`AgentChanges` publishes proposals to the local reading registry. Review tabs
+use `DocumentComparison` and `comparisonField`; acceptance applies only to the
+identified original editor before acknowledging the tool. Commit readings use
+that same editor over immutable Git blobs from `GET /api/git/reading`. Neither
+kind of reading joins a document room or has a save/execution binding.
