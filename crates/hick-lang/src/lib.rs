@@ -11,6 +11,8 @@
 use std::fmt;
 
 mod fence;
+mod literal_files;
+pub use literal_files::{LiteralFile, LiteralSegment, literal_files, strip_opening_break};
 mod parser;
 use parser::Parser;
 pub mod structure;
@@ -19,9 +21,7 @@ pub use structure::{Structure, StructureBlock, StructureTag, structure};
 /// The XML namespace URI that identifies hick elements.
 pub const HICK_NAMESPACE: &str = "http://www.hickorydocs.com/1.0";
 
-// ---------------------------------------------------------------------------
 // Source spans
-// ---------------------------------------------------------------------------
 
 /// Byte-level source location for provenance tracking.
 ///

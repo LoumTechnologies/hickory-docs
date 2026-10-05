@@ -3347,34 +3347,7 @@ pub(crate) fn span_file_table(doc: &hick_lang::HickDocument) -> Vec<Arc<str>> {
         .collect()
 }
 
-/// Drop the single line break that ends a block's open-tag line, keeping the
-/// text's span in step so a reverse edit still lands on the right bytes.
-///
-/// Returns the text unchanged when the block's content starts on the tag's
-/// own line — there is no tag-line break to remove there, and taking a real
-/// byte would corrupt the file.
-pub(crate) fn strip_opening_break<'a>(
-    text: &'a str,
-    span: Option<&hick_lang::SourceSpan>,
-) -> (&'a str, Option<hick_lang::SourceSpan>) {
-    let stripped = text
-        .strip_prefix("\r\n")
-        .map(|rest| (rest, 2))
-        .or_else(|| text.strip_prefix('\n').map(|rest| (rest, 1)));
-    let Some((rest, taken)) = stripped else {
-        return (text, span.copied());
-    };
-    let moved = span.map(|s| hick_lang::SourceSpan {
-        start: s.start + taken,
-        end: s.end,
-        // The remaining text starts at the beginning of the NEXT line, which
-        // is where the file's first byte really comes from.
-        start_line: s.start_line + 1,
-        start_col: 0,
-        file_id: s.file_id,
-    });
-    (rest, moved)
-}
+pub(crate) use hick_lang::strip_opening_break;
 
 /// Drop a BOM only from the woven display, keeping source bytes intact.
 pub(crate) fn strip_leading_bom<'a>(

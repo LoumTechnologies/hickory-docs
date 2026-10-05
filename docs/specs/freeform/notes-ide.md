@@ -1,5 +1,10 @@
 # The notes IDE: notes are documents, meetings are inputs
 
+> **Browser amendment (2026-10-04):** notes can also be supplied by a browser
+> host. The initial embeddable editor and local JS/TS debugger are described in
+> `browser-embedding.md`. This widens delivery, not the purpose of a notes IDE.
+
+
 *Status: design of record for what the product is **for**. Adopted 2026-08-18.
 **Supersedes** `local-only.md` on two points only: its one-sentence statement
 of purpose ("literate programming where you can edit the generated files"), and

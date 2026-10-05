@@ -2,6 +2,12 @@
 /* eslint-disable */
 
 /**
+ * Versioned non-executing materialization of literal files, including lineage.
+ * Missing semantics are a diagnostic, never a successful partial program.
+ */
+export function literal_files(source: string): string;
+
+/**
  * The structure of a document — `hick_lang::Structure` as JSON.
  *
  * Offsets are byte offsets into `source`'s UTF-8; the caller converts them
@@ -13,6 +19,7 @@ export type InitInput = RequestInfo | URL | Response | BufferSource | WebAssembl
 
 export interface InitOutput {
     readonly memory: WebAssembly.Memory;
+    readonly literal_files: (a: number, b: number, c: number) => void;
     readonly structure: (a: number, b: number, c: number) => void;
     readonly __wbindgen_add_to_stack_pointer: (a: number) => number;
     readonly __wbindgen_export: (a: number, b: number) => number;

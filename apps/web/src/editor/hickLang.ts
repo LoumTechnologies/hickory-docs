@@ -14,7 +14,7 @@
 // points await `loadHickLang()` once before the first render, and the tests
 // load the bytes from disk in `test-setup.ts`.
 
-import init, { initSync, structure as wasmStructure } from "./generated/hick-lang/hick_lang.js";
+import init, { initSync, structure as wasmStructure, literal_files } from "./generated/hick-lang/hick_lang.js";
 import wasmUrl from "./generated/hick-lang/hick_lang_bg.wasm?url";
 
 /** `hick_lang::StructureTag` — byte offsets into the UTF-8 source. */
@@ -48,12 +48,13 @@ export interface RawStructure {
 }
 
 let ready = false;
+let loading: Promise<void> | null = null;
 
 /** Load the parser. Idempotent; resolves at once after the first load. */
 export async function loadHickLang(): Promise<void> {
   if (ready) return;
-  await init({ module_or_path: wasmUrl });
-  ready = true;
+  loading ??= init({ module_or_path: wasmUrl }).then(() => { ready = true; }).catch((e) => { loading = null; throw e; });
+  await loading;
 }
 
 /** Load the parser from bytes already in hand — the tests, which have a
@@ -80,4 +81,18 @@ export function rawStructure(text: string): RawStructure {
     );
   }
   return JSON.parse(wasmStructure(text)) as RawStructure;
+}
+
+export interface LiteralFile {
+  path: string;
+  content: string;
+  segments: { output: [number, number]; source: [number, number] }[];
+}
+
+export function materializeLiteralFiles(source: string): LiteralFile[] {
+  if (!ready) throw new Error("Load hick-lang before materializing files");
+  const result = JSON.parse(literal_files(source)) as { version: number; files: LiteralFile[]; error: string | null };
+  if (result.version !== 1) throw new Error("Unsupported portable document interface version");
+  if (result.error) throw new Error(result.error);
+  return result.files;
 }

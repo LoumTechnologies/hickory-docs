@@ -72,6 +72,8 @@ export interface Variable {
 
 /** What this adapter can do. Every control is gated on one of these. */
 export interface DebugCapabilities {
+  /** Transport can return another frame's locals through state(frame). */
+  frame_locals?: boolean;
   conditional_breakpoints: boolean;
   hit_conditional_breakpoints: boolean;
   log_points: boolean;
@@ -113,6 +115,7 @@ export type DebugEvent =
       frames: Frame[];
       variables: Variable[];
       line: number | null;
+      selected_frame?: number;
     }
   | { event: "breakpoints"; session: string; breakpoints: BreakpointStatus[] }
   | { event: "value"; session: string; expression: string; value: string; type: string | null; reference: number }
@@ -167,6 +170,7 @@ export type Step = "over" | "in" | "out" | "continue" | "drop_frame" | "back";
 /** The raw-frame transport, shared with the LSP channel. */
 export interface DebugWire {
   send(frame: Uint8Array): void;
+  cancelStart?: (doc: string) => void;
 }
 
 export class DebugClient {
@@ -211,9 +215,11 @@ export class DebugClient {
     this.send({ op: "breakpoints", session, breakpoints });
   }
 
-  state(session: string) {
-    this.send({ op: "state", session });
+  state(session: string, frame?: number) {
+    this.send({ op: "state", session, ...(frame === undefined ? {} : { frame }) });
   }
+
+  cancelStart(doc: string) { this.wire.cancelStart?.(doc); }
 
   /**
    * Evaluate an expression.

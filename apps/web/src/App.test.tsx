@@ -36,7 +36,10 @@ describe("the startup workspace", () => {
     vi.spyOn(api, "files").mockResolvedValue({ ...files, folder_open: false });
     const check = vi.spyOn(api, "mergeDriver");
     const { container, getByRole } = render(<App />);
-    await waitFor(() => expect(editor(container).state.doc.toString()).toBe(STARTUP_INTRODUCTION));
+    await waitFor(() => {
+      expect(editor(container).state.doc.toString()).toBe(STARTUP_INTRODUCTION);
+      expect(editor(container).hasFocus).toBe(true);
+    });
     fireEvent(window, new CustomEvent("hickory-menu", { detail: "show-agent" }));
     await waitFor(() => expect(getByRole("tab", { name: /Agent/ })).toBeTruthy());
     expect(check).not.toHaveBeenCalled();
@@ -48,7 +51,10 @@ describe("the startup workspace", () => {
     vi.mocked(api.workspaceUi).mockResolvedValue({ state: { version: 1, wrap: { untitled: 72 } } });
     const save = vi.spyOn(api, "saveWorkspaceUi");
     const { container, getByRole } = render(<App />);
-    await waitFor(() => expect(editor(container).state.doc.toString()).toBe(STARTUP_INTRODUCTION));
+    await waitFor(() => {
+      expect(editor(container).state.doc.toString()).toBe(STARTUP_INTRODUCTION);
+      expect(editor(container).hasFocus).toBe(true);
+    });
     const live = editor(container);
     const marker = getByRole("slider", { name: "Where prose wraps" });
     await waitFor(() => expect(marker.getAttribute("aria-valuenow")).toBe("72"));
@@ -77,7 +83,10 @@ describe("the startup workspace", () => {
     const create = vi.spyOn(api, "createDoc");
     const saveDialog = vi.spyOn(api, "saveFileDialog").mockResolvedValue({ path: null });
     const { container, getAllByRole, getByRole } = render(<App />);
-    await waitFor(() => expect(editor(container).state.doc.toString()).toBe(STARTUP_INTRODUCTION));
+    await waitFor(() => {
+      expect(editor(container).state.doc.toString()).toBe(STARTUP_INTRODUCTION);
+      expect(editor(container).hasFocus).toBe(true);
+    });
     await waitFor(() => expect(editor(container).hasFocus).toBe(true));
     expect(getAllByRole("tab")).toHaveLength(2);
     expect(getByRole("tab", { name: /Files/ })).toBeTruthy();
@@ -98,7 +107,10 @@ describe("the startup workspace", () => {
 
   it("opens a blank document through New after the startup document is discarded", async () => {
     const { container, getByRole } = render(<App />);
-    await waitFor(() => expect(editor(container).state.doc.toString()).toBe(STARTUP_INTRODUCTION));
+    await waitFor(() => {
+      expect(editor(container).state.doc.toString()).toBe(STARTUP_INTRODUCTION);
+      expect(editor(container).hasFocus).toBe(true);
+    });
     fireEvent.click(getByRole("button", { name: "Close Untitled" }));
     await waitFor(() => expect(container.querySelector(".untitled-tab")).toBeNull());
     fireEvent(window, new CustomEvent("hickory-menu", { detail: "new" }));
@@ -109,7 +121,10 @@ describe("the startup workspace", () => {
     const close = vi.spyOn(api, "closeWindow").mockResolvedValue({ ok: true });
     const saveDraft = vi.spyOn(api, "saveDraft");
     const { container, getByRole, queryByRole } = render(<App />);
-    await waitFor(() => expect(editor(container).state.doc.toString()).toBe(STARTUP_INTRODUCTION));
+    await waitFor(() => {
+      expect(editor(container).state.doc.toString()).toBe(STARTUP_INTRODUCTION);
+      expect(editor(container).hasFocus).toBe(true);
+    });
     act(() => editor(container).dispatch({ changes: { from: 0, insert: "edit" } }));
     await waitFor(() => expect(getByRole("tab", { name: /Untitled/ }).textContent).toContain("*"));
     act(() => editor(container).dispatch({ changes: { from: 0, to: 4 } }));
@@ -125,7 +140,10 @@ describe("the startup workspace", () => {
     const save = vi.spyOn(api, "saveDraft");
     const discard = vi.spyOn(api, "discardDraft");
     const { container } = render(<App />);
-    await waitFor(() => expect(editor(container).state.doc.toString()).toBe(STARTUP_INTRODUCTION));
+    await waitFor(() => {
+      expect(editor(container).state.doc.toString()).toBe(STARTUP_INTRODUCTION);
+      expect(editor(container).hasFocus).toBe(true);
+    });
     act(() => editor(container).dispatch({ changes: { from: 0, insert: "edit" } }));
     fireEvent(window, new Event("pagehide"));
     await waitFor(() => expect(save).toHaveBeenCalledWith(expect.objectContaining({
@@ -140,7 +158,10 @@ describe("the startup workspace", () => {
     const save = vi.spyOn(api, "saveDraft");
     const close = vi.spyOn(api, "closeWindow").mockResolvedValue({ ok: true });
     const { container, getByRole } = render(<App />);
-    await waitFor(() => expect(editor(container).state.doc.toString()).toBe(STARTUP_INTRODUCTION));
+    await waitFor(() => {
+      expect(editor(container).state.doc.toString()).toBe(STARTUP_INTRODUCTION);
+      expect(editor(container).hasFocus).toBe(true);
+    });
     act(() => editor(container).dispatch({ changes: { from: 0, insert: "edit" } }));
     fireEvent(window, new Event("hickory-workspace-close-request"));
     await waitFor(() => expect(getByRole("button", { name: "Close without saving" })).toBeTruthy());
@@ -180,7 +201,10 @@ describe("windows without an open folder", () => {
     vi.spyOn(api, "files").mockResolvedValue({ folder_open: false, root: "parent", tree: [] });
     const save = vi.spyOn(api, "saveFileDialog").mockResolvedValue({ path: null });
     const { container, queryByRole } = render(<App />);
-    await waitFor(() => expect(editor(container).state.doc.toString()).toBe(STARTUP_INTRODUCTION));
+    await waitFor(() => {
+      expect(editor(container).state.doc.toString()).toBe(STARTUP_INTRODUCTION);
+      expect(editor(container).hasFocus).toBe(true);
+    });
     fireEvent(window, new CustomEvent("hickory-menu", { detail: "files" }));
     await waitFor(() => expect(queryByRole("status")?.textContent).toContain("Open a folder"));
     expect(container.querySelector(".folder-tree")).toBeNull();

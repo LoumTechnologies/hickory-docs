@@ -1,6 +1,31 @@
 /* @ts-self-types="./hick_lang.d.ts" */
 
 /**
+ * Versioned non-executing materialization of literal files, including lineage.
+ * Missing semantics are a diagnostic, never a successful partial program.
+ * @param {string} source
+ * @returns {string}
+ */
+export function literal_files(source) {
+    let deferred2_0;
+    let deferred2_1;
+    try {
+        const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
+        const ptr0 = passStringToWasm0(source, wasm.__wbindgen_export, wasm.__wbindgen_export2);
+        const len0 = WASM_VECTOR_LEN;
+        wasm.literal_files(retptr, ptr0, len0);
+        var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
+        var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
+        deferred2_0 = r0;
+        deferred2_1 = r1;
+        return getStringFromWasm0(r0, r1);
+    } finally {
+        wasm.__wbindgen_add_to_stack_pointer(16);
+        wasm.__wbindgen_export3(deferred2_0, deferred2_1, 1);
+    }
+}
+
+/**
  * The structure of a document — `hick_lang::Structure` as JSON.
  *
  * Offsets are byte offsets into `source`'s UTF-8; the caller converts them

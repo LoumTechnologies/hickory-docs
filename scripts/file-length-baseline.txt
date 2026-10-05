@@ -1,6 +1,6 @@
 apps/web/src/api/types.ts 1207
 apps/web/src/components/TablePanel.tsx 1747
-apps/web/src/debug/cmDebug.ts 1049
+apps/web/src/debug/cmDebug.ts 1038
 apps/web/src/editor/wysiwyg.ts 1035
 apps/web/src/shell/Ribbons.tsx 1399
 apps/web/src/views/WorkspaceView.tsx 1970
@@ -9,7 +9,7 @@ crates/hick-dap/src/session.rs 1440
 crates/hick-exec/src/dag.rs 1625
 crates/hick-exec/src/state.rs 1260
 crates/hick-lang/src/lib.rs 2592
-crates/hick-literate/src/lib.rs 4761
+crates/hick-literate/src/lib.rs 4734
 crates/hick-lsp/src/backend.rs 2672
 crates/hick-token/src/lib.rs 1378
 crates/hickory-agent/src/tools/mod.rs 1461

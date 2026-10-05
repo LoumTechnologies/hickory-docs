@@ -72,6 +72,8 @@ ci:
     cargo build -p hickory-cli --example acp_fixture
     cargo test --workspace -- --test-threads=1
     cd apps/web && npm run typecheck && npm test
+    just install-test-browsers
+    just test-browser-embedding
 
 # Build the static marketing site into apps/web/dist — no server, no accounts,
 # no billing. Deploy the directory anywhere that serves files.
@@ -263,6 +265,21 @@ test-acp-live:
 check-web:
     cd apps/web && npm run typecheck
 
+# Browser embedding and static JS/TS debugging, without a native engine.
+install-browser-runtime:
+    cd apps/web && npm install --save-exact js-interpreter@6.0.2 @jridgewell/trace-mapping@0.3.31
+
+test-browser-core:
+    cargo test -p hick-lang -p hick-lang-wasm
+    cargo test -p hick-literate --test browser_literal_files
+    cd apps/web && npm run typecheck && npm test -- src/embed src/debug/browser
+
+test-browser-embedding *ARGS:
+    cd apps/web && npx playwright test --config playwright.embed.config.ts {{ARGS}}
+
+preview-browser-embedding:
+    cd apps/web && npm run build:site && npx vite preview --config vite.site.config.ts --host 127.0.0.1
+
 # Validate the agent UI without rerunning unrelated Rust suites.
 test-agent-web:
     cd apps/web && npm run typecheck && npm test
@@ -389,3 +406,11 @@ test-command-path:
 # Markdown pipe tables share the grid and keep Markdown on edit.
 test-markdown-tables:
     cd apps/web && npm run typecheck && npm test -- src/components/MarkdownTable.test.tsx src/editor/markdownTables.test.tsx src/editor/rendered.test.ts src/editor/cards.test.ts
+
+# Install the browsers used for browser embedding acceptance.
+install-test-browsers *ARGS:
+    cd apps/web && npx playwright install {{ARGS}} chromium firefox webkit
+
+# Frontend regression suite after extracting the portable surface.
+test-web:
+    cd apps/web && npm run typecheck && npm test

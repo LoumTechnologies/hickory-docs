@@ -1,0 +1,75 @@
+import { describe, expect, it } from "vitest";
+import { createMemoryStorage, exportWorkspace, StorageConflict } from "./storage";
+import { openSyncedStorage } from "./syncedStorage";
+import type { WorkspaceStorage } from "./storage";
+const bytes = (source: string) => new TextEncoder().encode(source);
+const read = async (storage: WorkspaceStorage) => new TextDecoder().decode((await storage.read("note.md"))!.bytes);
+// Guarantee: docs/guarantees/embedding/offline-edits-keep-their-sync-base.md
+describe("local-first workspace sync", () => {
+  it("persists an offline outbox and its original base across reopening", async () => {
+    const local = createMemoryStorage(), remote = createMemoryStorage();
+    const initial = await remote.write("note.md", bytes("base"), null);
+    let offline = false;
+    const connection: WorkspaceStorage = { ...remote, async batch(changes) { if (offline) throw new Error("offline"); return remote.batch(changes); } };
+    const storage = await openSyncedStorage(local, connection, "one");
+    const file = (await storage.read("note.md"))!;
+    offline = true;
+    await storage.write(file.path, bytes("draft"), file.revision);
+    expect(storage.syncState().state).toBe("pending");
+    await expect(storage.sync()).rejects.toThrow("offline");
+    expect(await read(storage)).toBe("draft"); expect(await read(remote)).toBe("base");
+    storage.close();
+    const reopened = await openSyncedStorage(local, connection, "one");
+    expect(reopened.syncState().state).toBe("pending");
+    const metadata = JSON.parse(new TextDecoder().decode((await local.read(".hick-sync/one.json"))!.bytes));
+    expect(metadata.base[0]).toEqual({ path: initial.path, revision: initial.revision, base64: btoa("base") });
+    offline = false; await reopened.sync();
+    expect(await read(remote)).toBe("draft"); expect(reopened.syncState().state).toBe("synced");
+    expect((await exportWorkspace(reopened)).files).toEqual([{ path: "note.md", base64: btoa("draft") }]);
+  });
+  it("keeps conflicting local/remote versions without retrying a blind overwrite", async () => {
+    const local = createMemoryStorage(), remote = createMemoryStorage();
+    const base = await remote.write("note.md", bytes("base"), null);
+    const storage = await openSyncedStorage(local, remote, "one");
+    const file = (await storage.read("note.md"))!;
+    await storage.write(file.path, bytes("ours"), file.revision);
+    await remote.write(base.path, bytes("theirs"), base.revision);
+    await expect(storage.sync()).rejects.toBeInstanceOf(StorageConflict);
+    expect(storage.syncState().state).toBe("conflict");
+    expect(await read(storage)).toBe("ours"); expect(await read(remote)).toBe("theirs");
+    const conflict = (await storage.reviewConflicts())[0];
+    expect(new TextDecoder().decode(conflict.base!)).toBe("base");
+    const resolution = { path: conflict.path, localRevision: conflict.local!.revision, remoteRevision: conflict.remote!.revision, bytes: conflict.local!.bytes };
+    const newer = await remote.write(conflict.path, bytes("newer theirs"), conflict.remote!.revision);
+    await expect(storage.resolveConflict(resolution)).rejects.toBeInstanceOf(StorageConflict);
+    expect(await read(storage)).toBe("ours");
+    await storage.resolveConflict({ ...resolution, remoteRevision: newer.revision });
+    await storage.sync(); expect(await read(remote)).toBe("ours");
+  });
+  it("saves during a slow sync and leaves the later revision queued", async () => {
+    const local = createMemoryStorage(), remote = createMemoryStorage();
+    let release!: () => void, submitted!: () => void;
+    const held = new Promise<void>((resolve) => { release = resolve; });
+    const ready = new Promise<void>((resolve) => { submitted = resolve; });
+    let slow = true;
+    const connection: WorkspaceStorage = { ...remote, async batch(changes) { if (slow) { submitted(); await held; } return remote.batch(changes); } };
+    const storage = await openSyncedStorage(local, connection, "one");
+    const first = await storage.write("note.md", bytes("first"), null);
+    const sync = storage.sync(); await ready;
+    await storage.write(first.path, bytes("second"), first.revision);
+    release(); await sync;
+    expect(await read(remote)).toBe("first"); expect(await read(storage)).toBe("second");
+    expect(storage.syncState().state).toBe("pending");
+    slow = false; await storage.sync(); expect(await read(remote)).toBe("second");
+  });
+  it("deletion is queued and a local transaction failure publishes no outbox", async () => {
+    const local = createMemoryStorage(), remote = createMemoryStorage();
+    await remote.write("note.md", bytes("base"), null);
+    const storage = await openSyncedStorage(local, remote, "one");
+    const file = (await storage.read("note.md"))!;
+    await expect(storage.write(file.path, bytes("bad"), "stale")).rejects.toBeInstanceOf(StorageConflict);
+    expect(storage.syncState().state).toBe("synced");
+    await storage.delete(file.path, file.revision); await storage.sync();
+    expect(await remote.list()).toEqual([]);
+  });
+});

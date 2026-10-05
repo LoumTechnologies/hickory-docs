@@ -6,6 +6,19 @@ transcripts and their AI summaries ingested as ordinary notes, and an AI agent
 whose output is literate-programming files in git. Notes can run, and an AI
 summary in one can be proven to still describe what it summarized.
 
+**Browser embedding (2026-10-04).** `browser-embedding.md` widens the
+frontend decision: a host-controlled React editor, browser-local storage and a
+cross-origin iframe can use static assets without a native engine. Browser
+JS/TS debugging is a dedicated worker/interpreter backend (currently ES5 plus
+TypeScript annotations, using `var`), shared with the homepage; it is not a
+container runtime or verified cell execution. The supported surface and limits
+are `docs/developers/browser-embedding.md`. S3 adapters publish immutable
+manifests conditionally and keep a local outbox;
+connections must pass a provider probe, and no real provider is verified yet.
+Full portable weave and browser-authenticated remote engines remain in the
+plan. Nothing requires a server, account, relay or telemetry that Hickory operates. Historical
+frontend-only/download-only paragraphs below are superseded on this boundary.
+
 **Document extension (2026-10-01).** Documents and agent sessions use `.md`.
 All creation paths, including **Make literate**, must write `.md`; UI copy,
 examples in the app, and generated project instructions must use `.md`.

@@ -8,6 +8,7 @@ import { InstallCommand } from "../components/InstallCommand";
 import { InterestSection } from "../components/InterestSection";
 import { TooltipLayer } from "../components/TooltipLayer";
 import { ProgramDemo } from "../landing/demos/ProgramDemo";
+import { BrowserDebugDemo } from "../landing/demos/BrowserDebugDemo";
 import { IntelligenceDemo } from "../landing/demos/IntelligenceDemo";
 import { DECLARED_SEGMENTS, INTERESTS } from "../landing/interests";
 
@@ -136,6 +137,8 @@ export function LandingView() {
         </p>
         <ProgramDemo />
       </section>
+
+      <BrowserDebugDemo />
 
       <section className="landing-demo" aria-labelledby="demo-intel-h">
         <h2 id="demo-intel-h">Your editor still works inside the document</h2>

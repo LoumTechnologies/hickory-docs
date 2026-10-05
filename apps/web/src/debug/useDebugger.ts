@@ -367,7 +367,7 @@ export function useDebuggerOver(client: DebugClient | null, docPath: string): De
           setPausedLine(event.line);
           setFrames(event.frames);
           setVariables(event.variables);
-          setSelectedFrame(event.frames[0]?.id ?? null);
+          setSelectedFrame(event.selected_frame ?? event.frames[0]?.id ?? null);
           clearFailure();
           break;
         case "breakpoints":
@@ -572,6 +572,7 @@ export function useDebuggerOver(client: DebugClient | null, docPath: string): De
   );
 
   const stop = useCallback(() => {
+    if (client && statusRef.current === "starting") client.cancelStart(uri);
     if (client && sessionRef.current) {
       client.stop(sessionRef.current);
       return;
@@ -583,7 +584,7 @@ export function useDebuggerOver(client: DebugClient | null, docPath: string): De
     clearFailure();
     setCapabilities(null);
     setExitCode(null);
-  }, [client]);
+  }, [client, uri]);
 
   const step = useCallback(
     (how: Step) => {
@@ -705,8 +706,9 @@ export function useDebuggerOver(client: DebugClient | null, docPath: string): De
       // Selecting a frame moves the paused marker with it, because the line
       // you are looking at should be the line whose values you are reading.
       if (frame?.line !== undefined) setPausedLine(frame.line);
+      if (capabilities?.frame_locals && client && sessionRef.current) client.state(sessionRef.current, id);
     },
-    [frames],
+    [frames, capabilities, client],
   );
 
   // One object per distinct state, not one per render: the document session

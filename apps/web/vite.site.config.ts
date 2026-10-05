@@ -36,11 +36,13 @@ function emitAsIndex(): Plugin {
 
 export default defineConfig({
   plugins: [react(), emitAsIndex()],
+  base: "./",
+  worker: { format: "iife" },
   build: {
     outDir: "dist-site",
     emptyOutDir: true,
     rollupOptions: {
-      input: resolve(import.meta.dirname, "site.html"),
+      input: { site: resolve(import.meta.dirname, "site.html"), embed: resolve(import.meta.dirname, "embed.html"), iframe: resolve(import.meta.dirname, "iframe.html") },
     },
   },
 });

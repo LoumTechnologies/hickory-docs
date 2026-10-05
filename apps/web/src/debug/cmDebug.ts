@@ -19,6 +19,7 @@
 // taller line is a ribbon pointing at the wrong place. Inline values are
 // inline widgets; the paused line is a background.
 
+import { breakpointTarget } from "./cmDebugGutter";
 import { Facet, RangeSetBuilder, StateEffect, StateField } from "@codemirror/state";
 import type { EditorState, Extension } from "@codemirror/state";
 import {
@@ -902,26 +903,14 @@ const SPACER = new (class extends GutterMarker {
  */
 function lineAtEvent(view: EditorView, block: { from: number }, event: Event): number {
   const mouse = event as MouseEvent;
+  const target = event.target instanceof Element ? event.target.closest<HTMLElement>("[data-breakpoint-line]") : null;
+  if (target) return Number(target.dataset.breakpointLine);
   if (typeof mouse.clientY === "number") {
     const pos = view.posAtCoords({ x: view.contentDOM.getBoundingClientRect().left + 1, y: mouse.clientY }, false);
     if (pos !== null) return view.state.doc.lineAt(pos).number - 1;
   }
   return view.state.doc.lineAt(block.from).number - 1;
 }
-
-/**
- * The empty-line marker: invisible until the pointer is over the gutter.
- *
- * Shared rather than made per line, because it carries no state.
- */
-const HOVER_TARGET = new (class extends GutterMarker {
-  toDOM() {
-    const dot = document.createElement("span");
-    dot.className = "cm-bp-ghost";
-    dot.dataset.tip = "Click to set a breakpoint";
-    return dot;
-  }
-})();
 
 export function debugEditor(options: DebugEditorOptions): Extension[] {
   // The eval affordance follows the paused line. Built here because its
@@ -981,7 +970,7 @@ export function debugEditor(options: DebugEditorOptions): Extension[] {
         // Nothing here yet. The ghost appears only where a breakpoint could
         // actually go: offering one beside a paragraph is an invitation to
         // find out later that it was never possible.
-        return breakpointLine(view.state, line) === null ? null : HOVER_TARGET;
+        return breakpointLine(view.state, line) === null ? null : breakpointTarget(line);
       },
       // A cell for every widget block, too.
       //

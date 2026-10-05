@@ -23,3 +23,13 @@ pub fn structure(source: &str) -> String {
     serde_json::to_string(&hick_lang::structure(source))
         .expect("a Structure holds only strings, numbers and booleans")
 }
+
+/// Versioned non-executing materialization of literal files, including lineage.
+/// Missing semantics are a diagnostic, never a successful partial program.
+#[wasm_bindgen]
+pub fn literal_files(source: &str) -> String {
+    match hick_lang::literal_files(source) {
+        Ok(files) => serde_json::json!({ "version": 1, "files": files, "error": null }).to_string(),
+        Err(error) => serde_json::json!({ "version": 1, "files": [], "error": error }).to_string(),
+    }
+}

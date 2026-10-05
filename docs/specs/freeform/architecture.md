@@ -1,5 +1,13 @@
 # Hickory Docs — Architecture
 
+> **Browser amendment (2026-10-04):** `hick-lang-wasm` now exposes a narrow
+> non-executing literal-file operation with byte lineage. The React embedding
+> boundary and a dedicated JS/TS interpreter worker are shipped in the browser;
+> native toolchains still use the existing execution boundary. Full portable
+> semantics, bucket storage and remote authentication remain under extraction.
+> See `browser-embedding.md` and `docs/developers/browser-embedding.md`.
+
+
 > **Partly superseded.** `local-first.md` (2026-08-11) settles the product's
 > shape: hick is a program you install, `hick serve` replaces the hosted
 > workspace, and the cloud shrinks to a relay, billing, and a static site. This

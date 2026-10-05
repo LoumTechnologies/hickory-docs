@@ -1,5 +1,13 @@
 # Local-only: a downloadable tool, no cloud, no money
 
+> **Browser amendment (2026-10-04).** `browser-embedding.md` widens the frontend
+> boundary: the document editor can be embedded in static browser hosts, with
+> browser-local JS/TS debugging and host-selected storage. This supersedes the
+> desktop-only React/HTTP framing below. No managed server, account, relay,
+> subscription or product telemetry is introduced. The shipped subset is
+> documented in `docs/developers/browser-embedding.md`.
+
+
 *Status: design of record for the product's shape. Adopted 2026-08-12.
 **Partly superseded** by `notes-ide.md` (2026-08-18) on exactly two points: the
 statement of purpose below ("literate programming where you can edit the

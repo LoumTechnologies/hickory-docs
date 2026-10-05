@@ -482,6 +482,7 @@ jobs:
           node-version: 22
           cache: npm
           cache-dependency-path: apps/web/package-lock.json
+      - uses: extractions/setup-just@v4
       - run: npm ci
       - run: npm test
       # The file-length ratchet, from the repository root (this job's
@@ -489,6 +490,15 @@ jobs:
       - run: scripts/check-file-length.sh
         working-directory: .
       - run: npm run build
+      - run: just install-test-browsers --with-deps
+        working-directory: .
+      - run: just test-browser-embedding
+        working-directory: .
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: browser-embedding-results
+          path: apps/web/test-results/
 
   # `just dev` is what every developer here sees the product through, and its
   # scripts had no job at all: `scripts/dev*.sh` mapped to rust+web, which

@@ -33,6 +33,8 @@ for check in "${checks[@]}"; do
       ;;
     web)
       (cd apps/web && npm test && npm run build) || status=1
+      just install-test-browsers || status=1
+      just test-browser-embedding || status=1
       scripts/check-file-length.sh || status=1
       ;;
     desktop)
