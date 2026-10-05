@@ -87,3 +87,11 @@ DNS configuration. It does not delete live records:
 ```sh
 gh workflow run terraform.yml -f stack=dns -f apply=true -f reconcile_site_dns=true
 ```
+
+After changing DNS back to Pages, an attached domain can remain inactive.
+**Deploy Site** retries validation for inactive domains and requires both to
+be active. To retry validation without rebuilding or publishing:
+
+```sh
+gh workflow run deploy-site.yml -f domains_only=true
+```
