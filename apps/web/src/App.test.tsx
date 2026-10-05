@@ -10,6 +10,10 @@ import { openChatTab, openDocTab, initialWorkspace } from "./views/workspaceStat
 import { tab, withTree } from "./shell/layout";
 import { wrapColumnOf } from "./editor/wrapColumn";
 
+// Keep this fixture wrapped so opening it exercises the clean-introduction
+// guarantee independently of edits to the bundled startup copy.
+vi.mock("./content/startup.md?raw", () => ({ default: "# Hickory Docs\n\nA wrapped introduction\ncontinues on another line.\n" }));
+
 beforeEach(() => {
   window.history.replaceState(null, "", "/");
   localStorage.setItem(WELCOME_KEY, "1");
@@ -55,7 +59,14 @@ describe("the startup workspace", () => {
       expect(editor(container).state.doc.toString()).toBe(STARTUP_INTRODUCTION);
       expect(editor(container).hasFocus).toBe(true);
     });
-    const live = editor(container);
+    // The Files pane rearranges the layout during hydration and remounts the
+    // initial editor. Wait for that pane before retaining a live view.
+    const live = await waitFor(() => {
+      getByRole("tab", { name: /Files/ });
+      const view = editor(container);
+      expect(view.hasFocus).toBe(true);
+      return view;
+    });
     const marker = getByRole("slider", { name: "Where prose wraps" });
     await waitFor(() => expect(marker.getAttribute("aria-valuenow")).toBe("72"));
     // jsdom has no layout: supply the geometry read by the real ruler.

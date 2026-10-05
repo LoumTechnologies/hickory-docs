@@ -5,7 +5,7 @@ file in the Files pane carry an asterisk. When its tab or the window closes,
 the app asks whether to save and says in that question whether closing without
 saving will retain the changes. An edited Untitled document is always retained and restored on the next
 launch of its workspace/window, whether or not a folder is open. The untouched
-startup introduction is clean: it has no asterisk, recovery draft, or Save
+startup introduction keeps its seeded bytes through opening and initial sync, and is clean: it has no asterisk, recovery draft, or Save
 prompt. Returning its contents to the original introduction clears the changes.
 File → New still starts blank. A file that has been saved
 before is retained only when **Settings → Editing → Retain unsaved changes**
@@ -112,10 +112,10 @@ that guessed would silently throw away work.
 
 Last LLM verification:
 
-- Date: 2026-10-03
+- Date: 2026-10-05
 - Reviewer: Codex
 - Result: partially verified
-- Evidence: `useUntitledRecovery.ts` restores the window's unnamed draft,
+- Evidence: `DocumentEditor` defers Untitled paragraph unwrapping until a user edit, preserving the initial baseline. `useUntitledRecovery.ts` restores the window's unnamed draft,
   keeps its original baseline, and polls through `useDraftKeeper`;
   `useUnsavedLifecycle.ts` compares against that baseline and awaits a recovery
   write before approving tab/window close; `useUntitledSave.ts` removes recovery

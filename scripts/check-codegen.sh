@@ -43,9 +43,13 @@ build_wasm() {
     echo "  rustup target add wasm32-unknown-unknown" >&2
     exit 1
   fi
-  wasm-pack build crates/hick-lang-wasm --target web --release \
+  # Dependency panic locations otherwise embed the builder's home directory.
+  # Keep those bytes identical on macOS and Linux, including newly used itoa.
+  local registry="${CARGO_HOME:-$HOME/.cargo}/registry/src"
+  local compiler_flags="${RUSTFLAGS:-} --remap-path-prefix=$registry=/cargo/registry/src"
+  RUSTFLAGS="$compiler_flags" wasm-pack build crates/hick-lang-wasm --target web --release \
     --out-dir "$dir" --out-name hick_lang >/dev/null 2>&1 \
-    || wasm-pack build crates/hick-lang-wasm --target web --release \
+    || RUSTFLAGS="$compiler_flags" wasm-pack build crates/hick-lang-wasm --target web --release \
       --out-dir "$dir" --out-name hick_lang
   rm -f "$dir/.gitignore" "$dir/package.json" "$dir/README.md"
 }

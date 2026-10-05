@@ -5,6 +5,10 @@ from the live room, or receives pasted or dropped text, then ordinary Markdown
 paragraphs have their soft line breaks replaced with spaces. The editor wraps
 the resulting paragraph visually at the ruler's measure.
 
+A seeded Untitled introduction keeps its initial bytes through opening and
+initial sync, so opening the app does not mark it edited. Paragraph reflow
+starts after the person's first edit, including pasted text.
+
 Settings → Editing → **Unwrap Markdown paragraphs** is on by default and can
 be turned off. The choice persists per browser profile, like word navigation,
 and is checked at each reflow. Turning it off does not restore past edits.
@@ -21,7 +25,7 @@ immediately reapply the reflow.
 
 Last LLM verification:
 
-- Date: 2026-10-03
+- Date: 2026-10-05
 - Reviewer: Codex
 - Result: verified
 - Evidence: `apps/web/src/editor/unwrapParagraphs.ts` uses the Markdown parser

@@ -383,7 +383,7 @@ export function DocumentEditor({
           // OUTSIDE the numbers. Off by default — see editor/blameGutter.ts.
           blameGutter(),
           history(),
-          ...(preserveBytes ? [] : [unwrapParagraphs()]),
+          ...(preserveBytes ? [] : [unwrapParagraphs({ onOpen: docId !== "untitled" })]),
           // Undo must never reach content this client did not type.
           //
           // The room's first sync arrives as an ordinary document change, and

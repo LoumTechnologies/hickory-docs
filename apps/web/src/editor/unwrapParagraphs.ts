@@ -58,14 +58,21 @@ export function paragraphUnwrapChanges(source: string): ChangeSpec[] {
 /** Open/sync and paste reflow prose; typing Enter and Undo remain literal.
  * Dispatch after the update so CRDT writes and selection mapping use the
  * normal editor path, and the formatting is a separate undoable act. */
-export function unwrapParagraphs(): Extension {
+export function unwrapParagraphs({ onOpen = true }: { onOpen?: boolean } = {}): Extension {
   return ViewPlugin.fromClass(class {
     private pending = false;
     private destroyed = false;
-    private shouldRun = true;
-    constructor(private view: EditorView) { this.schedule(); }
+    private activated = onOpen;
+    private shouldRun = onOpen;
+    constructor(private view: EditorView) { if (onOpen) this.schedule(); }
     update(update: ViewUpdate) {
       if (!update.docChanged) return;
+      // A seeded Untitled introduction is clean until the person edits it.
+      // Its initial CRDT sync must not count as that first edit either.
+      if (!this.activated) {
+        if (!update.transactions.some((tr) => tr.annotation(Transaction.userEvent) !== undefined)) return;
+        this.activated = true;
+      }
       this.shouldRun = update.transactions.every((tr) =>
         tr.annotation(Transaction.userEvent) === undefined ||
         tr.isUserEvent("input.paste") || tr.isUserEvent("input.drop"),

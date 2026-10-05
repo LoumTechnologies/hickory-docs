@@ -16,15 +16,28 @@ afterEach(() => {
   for (const view of views.splice(0)) view.destroy();
   localStorage.removeItem(UNWRAP_PARAGRAPHS_KEY);
 });
-function editor(doc: string, readOnly = false) {
+function editor(doc: string, readOnly = false, onOpen = true) {
   const view = new EditorView({ state: EditorState.create({
-    doc, extensions: [history(), unwrapParagraphs(), EditorState.readOnly.of(readOnly)],
+    doc, extensions: [history(), unwrapParagraphs({ onOpen }), EditorState.readOnly.of(readOnly)],
   }) });
   views.push(view);
   return view;
 }
 
 describe("paragraph unwrapping", () => {
+  it("keeps seeded Untitled bytes clean through sync, then reflows a real paste", async () => {
+    const original = "An introduction\nwith a soft break.";
+    const view = editor(original, false, false);
+    await Promise.resolve();
+    expect(view.state.doc.toString()).toBe(original);
+    view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: original } });
+    await Promise.resolve();
+    expect(view.state.doc.toString()).toBe(original);
+    view.dispatch({ changes: { from: view.state.doc.length, insert: "\n\nPasted prose\ncontinues." }, userEvent: "input.paste" });
+    await Promise.resolve();
+    expect(view.state.doc.toString()).toBe("An introduction with a soft break.\n\nPasted prose continues.");
+  });
+
   it("joins soft breaks without merging paragraphs or changing inline markup", () => {
     const input = "# Heading\n\nA **long** paragraph\nwith a [link](https://example.com)\nand more text.\n\nAnother paragraph\nwith text.\n";
     const output = "# Heading\n\nA **long** paragraph with a [link](https://example.com) and more text.\n\nAnother paragraph with text.\n";
