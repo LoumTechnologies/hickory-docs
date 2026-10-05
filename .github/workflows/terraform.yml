@@ -33,6 +33,10 @@ on:
         description: "Apply the plan (otherwise plan only)"
         type: boolean
         default: false
+      reconcile_site_dns:
+        description: "Reimport apex/www records recreated outside Terraform (DNS apply only)"
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -173,6 +177,28 @@ jobs:
             curl -fsS --get "https://api.cloudflare.com/client/v4/zones/$TF_VAR_zone_id/dns_records" \
               -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" --data-urlencode "name=$host" \
             | python3 -c 'import json,sys; d=json.load(sys.stdin); assert d.get("success"), d.get("errors"); print(json.dumps([{k:r.get(k) for k in ("id","name","type","content","proxied")} for r in d["result"]]))'
+          done
+
+      # Import only the two website records, without deleting live DNS. This
+      # explicit recovery option repairs state after dashboard recreation.
+      - name: Reconcile existing site DNS ownership
+        if: github.event_name == 'workflow_dispatch' && inputs.apply && inputs.reconcile_site_dns && matrix.stack == 'dns'
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+        run: |
+          set -euo pipefail
+          for label in apex www; do
+            host=hickorydocs.com
+            if [ "$label" = www ]; then host=www.hickorydocs.com; fi
+            address="cloudflare_dns_record.$label"
+            record_id=$(curl -fsS --get "https://api.cloudflare.com/client/v4/zones/$TF_VAR_zone_id/dns_records" \
+              -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" --data-urlencode "name=$host" \
+              | python3 -c 'import json,re,sys; d=json.load(sys.stdin); assert d.get("success"), d.get("errors"); rows=d["result"]; assert len(rows)==1, "Expected exactly one site record"; r=rows[0]; assert r["name"]==sys.argv[1] and r["type"] in ("A","AAAA","CNAME"); assert re.fullmatch("[0-9a-f]{32}",r["id"]); print(r["id"])' "$host")
+            held=$(terraform show -json | jq -r --arg address "$address" '.values.root_module.resources[]? | select(.address == $address) | .values.id')
+            if [ "$held" = "$record_id" ]; then continue; fi
+            if [ -n "$held" ]; then terraform state rm "$address"; fi
+            terraform import "$address" "$TF_VAR_zone_id/$record_id"
           done
 
       - name: Plan

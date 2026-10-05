@@ -78,3 +78,12 @@ The source repository is currently private. Its GitHub release links and the
 existing GitHub-based installer cannot serve strangers. The homepage says
 public downloads are coming soon until a public binary distribution is chosen.
 Changing source visibility is not required to publish binaries.
+
+If records were recreated in the Cloudflare dashboard, the ordinary plan may
+try to create duplicates. The workflow's explicit recovery option discovers
+and imports only the existing apex and `www` records, then applies the same
+DNS configuration. It does not delete live records:
+
+```sh
+gh workflow run terraform.yml -f stack=dns -f apply=true -f reconcile_site_dns=true
+```
