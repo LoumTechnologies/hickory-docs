@@ -1,0 +1,31 @@
+.landing.landing-simple { max-width: 64rem; padding-top: 1.5rem; }
+.landing-simple .landing-hero { max-width: none; }
+.landing-eyebrow { color: var(--accent-2); font-size: .85rem; margin: 0 0 .6rem; }
+.landing-simple .landing-sub { margin-bottom: 1rem; }
+.landing-simple .landing-demo { margin-top: 1.75rem; }
+.landing-demo-heading { display: flex; justify-content: space-between; align-items: center; gap: 1rem; margin-bottom: .8rem; }
+.landing-demo-heading h2 { font-size: 1.2rem; margin: 0; }
+.landing-demo-heading p { margin: .4rem 0 0; color: var(--fg-muted); font-size: .9rem; }
+.landing-demo-heading label { white-space: nowrap; font-size: .8rem; }
+.landing-demo-heading select { background: var(--bg); color: var(--fg); border: 1px solid var(--border); border-radius: 4px; padding: .3rem; }
+.landing-document-name { font: .8rem ui-monospace, monospace; padding: .5rem .8rem; background: var(--bg-elevated); border: 1px solid var(--border); border-radius: 6px 6px 0 0; }
+.landing-simple .hickory-browser-debug { display: grid; grid-template-columns: minmax(0, 1fr) 17rem; gap: .6rem 1rem; border: 1px solid var(--border); border-top: 0; border-radius: 0 0 6px 6px; }
+.landing-simple .browser-debug-actions, .landing-simple .debug-strip { grid-column: 1 / -1; padding: 0; }
+.landing-simple .hickory-embed { grid-column: 1; }
+.landing-simple .browser-debug-inspection { grid-column: 2; grid-row: 3; min-width: 0; font-size: .8rem; }
+.landing-simple .browser-debug-inspection p { margin: 0; color: var(--warn); }
+.landing-simple .browser-debug-inspection h3 { font-size: .8rem; margin: .8rem 0 .3rem; }
+.landing-simple .browser-debug-inspection ul { padding-left: 0; margin: .3rem 0 .8rem; overflow-wrap: anywhere; }
+.landing-simple .browser-debug-inspection input { width: 100%; box-sizing: border-box; margin: .3rem 0; cursor: text; }
+.landing-simple .browser-debug-output { grid-column: 1 / -1; margin: .2rem 0 0; min-height: 1.5rem; padding-top: .6rem; font-size: .8rem; }
+.landing-demo-note, .landing-demo-limits { font-size: .8rem; color: var(--fg-muted); }
+.landing-demo-note { margin-bottom: .4rem; }
+.landing-demo-limits summary { cursor: pointer; }
+.landing-demo-limits p { max-width: 42rem; }
+.landing-download { border-top: 1px solid var(--border); padding-top: 1rem; margin-top: 1.5rem; font-size: .9rem; }
+.landing-download h2 { font-size: 1.1rem; margin: 0; }
+@media (max-width: 700px) {
+  .landing-demo-heading { align-items: start; flex-direction: column; gap: .6rem; }
+  .landing-simple .hickory-browser-debug { grid-template-columns: minmax(0, 1fr); }
+  .landing-simple .browser-debug-inspection { grid-column: 1; grid-row: auto; }
+}

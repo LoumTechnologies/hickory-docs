@@ -75,7 +75,11 @@ ci:
     just install-test-browsers
     just test-browser-embedding
 
-# Build the static marketing site into apps/web/dist — no server, no accounts,
+# Hot reload for the homepage, separate from the desktop app's entry.
+dev-site:
+    cd apps/web && npm run dev:site
+
+# Build the static marketing site into apps/web/dist-site — no server, no accounts,
 # no billing. Deploy the directory anywhere that serves files.
 #   just site                      # analytics disabled
 #   POSTHOG_KEY=phc_… just site    # with browser-side capture
@@ -98,7 +102,7 @@ site:
     mkdir -p apps/web/public
     cp scripts/install.sh apps/web/public/install.sh
     cd apps/web
-    VITE_POSTHOG_KEY="$key" npm run build:site
+    HICKORY_SITE_ONLY=1 VITE_POSTHOG_KEY="$key" npm run build:site
     echo
     echo "Static site built: apps/web/dist-site"
     echo "It needs no backend. The landing page and its demos run in the browser."

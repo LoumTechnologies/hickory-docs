@@ -10,7 +10,11 @@ import type { Variable } from "../debug/client";
 import "./debug.css";
 
 /** The product's local browser backend, reusable outside the homepage. */
-export function DebuggableDocument(props: DocumentEmbedProps) {
+export interface DebuggableDocumentProps extends DocumentEmbedProps {
+  /** Explicit opt-in: start once on mount at this 0-based document breakpoint. */
+  startPausedAt?: number;
+}
+export function DebuggableDocument(props: DebuggableDocumentProps) {
   const current = useRef(props); current.current = props;
   const [backend, setBackend] = useState<ReturnType<typeof createBrowserDebugger> | null>(null);
   const [output, setOutput] = useState("");
@@ -33,7 +37,16 @@ export function DebuggableDocument(props: DocumentEmbedProps) {
     });
     return () => { off(); local.dispose(); };
   }, []);
-  const debug = useDebuggerOver(backend?.client ?? null, props.path);
+  const initial = useRef({ source: props.source, breakpoint: props.startPausedAt });
+  const startedOn = useRef<typeof backend>(null);
+  const debug = useDebuggerOver(backend?.client ?? null, props.path,
+    initial.current.breakpoint === undefined ? [] : [initial.current.breakpoint]);
+  useEffect(() => {
+    if (!backend || !view || initial.current.breakpoint === undefined || startedOn.current === backend) return;
+    startedOn.current = backend;
+    // Never start unexpectedly over a draft typed while assets were loading.
+    if (current.current.source === initial.current.source) debug.start();
+  }, [backend, view, debug.start]);
   const debugRef = useRef(debug); debugRef.current = debug;
   const extensions = useMemo(() => debugEditor({
     onToggleBreakpoint: (line) => { if (!staleRef.current) debugRef.current.toggleBreakpoint(line); },
@@ -62,7 +75,7 @@ export function DebuggableDocument(props: DocumentEmbedProps) {
   }
   return <div className="hickory-browser-debug" data-status={debug.status}>
     <div className="browser-debug-actions">
-      <button type="button" disabled={!backend || debug.status === "starting"} onClick={start} aria-label="Debug document">Debug</button>
+      <button type="button" disabled={!backend || debug.status === "starting"} onClick={start} aria-label="Debug document">{debug.status === "idle" ? "Debug" : "Restart"}</button>
       {debug.status === "running" && <button type="button" onClick={() => backend?.pause()}>Pause</button>}
       {stale && <span role="status">Running previous revision {runRevision}. <button type="button" onClick={start}>Restart with edits</button></span>}
     </div>
@@ -74,6 +87,7 @@ export function DebuggableDocument(props: DocumentEmbedProps) {
     <DocumentEmbed {...props} extensions={extensions} onViewReady={setView} />
     {debug.status === "paused" && <div className="browser-debug-inspection">
       <p>Paused on line {(debug.pausedLine ?? 0) + 1}{stale ? " of the previous revision" : ""}</p>
+      <h3>Variables</h3>
       <div aria-label="Live variables">{variables(debug.variables)}</div>
       <form onSubmit={(event) => { event.preventDefault(); if (watch.trim()) { debug.addWatch(watch.trim()); setWatch(""); } }}>
         <label>Read-only watch <input id={`watch-${props.path}`} aria-label="Watch expression" value={watch} onChange={(event) => setWatch(event.target.value)} /></label>

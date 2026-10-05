@@ -13,11 +13,10 @@ production = "hickorydocs.com"
 # See .instructions/continuous-delivery-shared.md (pre-launch exception).
 staging = ""
 
-# Substrate is Fly.io, not DigitalOcean and not Railway. Terraform here owns
-# DNS only (terraform/dns); the app is described by the committed fly.toml.
-[fly]
-app_production = "hickory-docs-production"
-primary_region = "iad"
+# The product is downloaded. Only the static homepage runs on Cloudflare Pages.
+# Terraform owns DNS; GitHub Actions publishes the Pages project.
+[cloudflare]
+pages_project = "hickory-docs"
 
 [stripe]
 mode = "sandbox"

@@ -1,8 +1,8 @@
 .hickory-embed { --embed-accent: #be7643; color: #e4ded5; background: #202522; border: 1px solid #4c514b; border-radius: 6px; overflow: hidden; font: 14px/1.6 system-ui, sans-serif; }
 .hickory-embed .cm-editor { min-height: 240px; }
 .hickory-embed .cm-scroller { font-family: ui-monospace, monospace; }
-.hickory-embed .cm-content { padding: 12px; }
-.hickory-embed .cm-cursor { border-left-color: currentColor; }
+.hickory-embed .cm-content { padding: 12px; caret-color: #e4ded5; }
+.hickory-embed .cm-cursor { border-left-color: #e4ded5; }
 .hickory-embed .cm-focused .cm-selectionBackground { background: #45584c; }
 .hickory-embed .cm-hick-tag { opacity: .65; }
 .hickory-embed .cm-heading { font-weight: 700; color: #edd2af; }
@@ -12,7 +12,7 @@
 .hickory-embed .hickory-assets img { max-width: 160px; max-height: 100px; }
 .hickory-embed .cm-hick-chrome { color: #aab4a6; font-size: .8em; }
 .hickory-embed .cm-md-heading { font-weight: 700; color: #edd2af; }
-.hickory-embed .cm-file-line, .hickory-embed .cm-cell-line { background: #1b201e; border-left: 2px solid #749b7b; font-family: ui-monospace, monospace; }
+.hickory-embed .cm-file-line, .hickory-embed .cm-cell-line { background: #1b201e; border-left: 2px solid #749b7b; font-family: ui-monospace, monospace; font-size: 13px; }
 .hickory-embed .cm-file-chip, .hickory-embed .cm-block-banner { font: 12px system-ui, sans-serif; color: #a9d1af; padding: 0 6px; background: #303a33; border-radius: 3px; margin-left: 5px; }
 .hickory-embed .tok-keyword, .hickory-embed .tok-typeName { color: #90c2ef; }
 .hickory-embed .tok-string { color: #d7b18a; }

@@ -136,3 +136,9 @@ exports omit it. Closing the wrapper leaves its independently owned local and
 remote adapters for the host to close. Local quota and memory-only limits still
 apply. A connection/acknowledgment failure retains the outbox; do not reinterpret
 it as permission to overwrite a changed head.
+
+For a deliberately live example, `DebuggableDocument` also accepts
+`startPausedAt`, a zero-based document line. It registers that initial
+breakpoint and starts once after both editor and worker transport are ready.
+Remount to start a fresh example; ordinary edits do not restart it. A draft
+changed before loading finishes cancels the automatic start.

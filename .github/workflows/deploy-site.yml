@@ -15,6 +15,9 @@ on:
     paths:
       - "apps/web/**"
       - "scripts/install.sh"
+      - "justfile"
+      - "crates/hick-lang/**"
+      - "crates/hick-lang-wasm/**"
       - ".github/workflows/deploy-site.yml"
   workflow_dispatch:
 
@@ -49,12 +52,16 @@ jobs:
       # *personal* key before building, rather than after a visitor's browser
       # has already received it. With no key set, the site simply ships
       # without analytics.
+      - uses: extractions/setup-just@v4
+      - name: Verify the homepage in Chromium, Firefox and WebKit
+        run: |
+          just install-test-browsers --with-deps
+          just test-browser-embedding --grep homepage
+
       - name: Build the site
         env:
           POSTHOG_KEY: ${{ secrets.POSTHOG_KEY }}
         run: |
-          curl -fsSL https://github.com/casey/just/releases/download/1.36.0/just-1.36.0-x86_64-unknown-linux-musl.tar.gz \
-            | tar -xz -C /usr/local/bin just
           just site
 
       # Creating the project here rather than in the dashboard keeps the whole

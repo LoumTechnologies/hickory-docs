@@ -54,10 +54,9 @@ jobs:
       fail-fast: false
       matrix:
         stack: ${{ github.event_name == 'workflow_dispatch' && fromJSON(format('["{0}"]', inputs.stack)) || fromJSON('["dns","posthog"]') }}
-    # Ungated on purpose. A plan that needs approval before it renders is a
-    # plan nobody reads, and the reviewable diff is the entire reason these
-    # stacks exist rather than the vendor dashboards.
-    environment: production-plan
+    # Read-only plans use production-plan. An explicit apply invocation uses
+    # production and its protection rules before planning or mutating anything.
+    environment: ${{ github.event_name == 'workflow_dispatch' && inputs.apply && 'production' || 'production-plan' }}
     concurrency:
       # Per stack: two applies against one zone is how a DNS record ends up
       # half-written, but dns and posthog never touch each other.
@@ -167,6 +166,15 @@ jobs:
       - name: Validate
         run: terraform validate
 
+      - name: Inspect the two site DNS records
+        if: matrix.stack == 'dns'
+        run: |
+          for host in hickorydocs.com www.hickorydocs.com; do
+            curl -fsS --get "https://api.cloudflare.com/client/v4/zones/$TF_VAR_zone_id/dns_records" \
+              -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" --data-urlencode "name=$host" \
+            | python3 -c 'import json,sys; d=json.load(sys.stdin); assert d.get("success"), d.get("errors"); print(json.dumps([{k:r.get(k) for k in ("id","name","type","content","proxied")} for r in d["result"]]))'
+          done
+
       - name: Plan
         id: plan
         env:
@@ -205,134 +213,12 @@ jobs:
               body: `### Terraform plan — ${stack}\n\n\`\`\`terraform\n` + body + '\n```',
             });
 
-      - name: Save the plan for the apply job
+      # Keep plan and apply in one runner: GitHub artifact quota must not
+      # prevent repairing DNS. The environment still gates the explicit apply
+      # invocation, and this uses the exact saved plan printed above.
+      - name: Apply the saved plan
         if: github.event_name == 'workflow_dispatch' && inputs.apply
-        uses: actions/upload-artifact@v4
-        with:
-          name: tfplan-${{ matrix.stack }}
-          path: terraform/${{ matrix.stack }}/tfplan
-          retention-days: 1
-
-  apply:
-    needs: plan
-    if: github.event_name == 'workflow_dispatch' && inputs.apply
-    runs-on: ubuntu-latest
-    # The gate. `production` requires a reviewer, and this job cannot start
-    # until that approval lands. Note this is a DIFFERENT environment from the
-    # one the app deploy uses (`production-deploy`, ungated) — the app rolls
-    # forward continuously, infrastructure does not. Do not merge the two.
-    environment: production
-    concurrency:
-      group: terraform-${{ inputs.stack }}
-      cancel-in-progress: false
-    defaults:
-      run:
-        working-directory: terraform/${{ inputs.stack }}
-    steps:
-      - uses: actions/checkout@v4
-      - uses: hashicorp/setup-terraform@v3
-        with:
-          terraform_version: ${{ env.TF_VERSION }}
-          terraform_wrapper: false
-
-      - name: Select this stack's credentials
-        env:
-          STACK: ${{ inputs.stack }}
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ZONE_ID: ${{ secrets.CLOUDFLARE_ZONE_ID }}
-          POSTHOG_PERSONAL_API_KEY: ${{ secrets.POSTHOG_PERSONAL_API_KEY }}
-        run: |
-          case "$STACK" in
-            dns)
-              {
-                echo "CLOUDFLARE_API_TOKEN=$CLOUDFLARE_API_TOKEN"
-                echo "TF_VAR_zone_id=$CLOUDFLARE_ZONE_ID"
-              } >> "$GITHUB_ENV"
-              ;;
-            posthog)
-              echo "TF_VAR_posthog_personal_api_key=$POSTHOG_PERSONAL_API_KEY" >> "$GITHUB_ENV"
-              ;;
-            *)
-              echo "::error::Unknown stack '$STACK' — add its credentials here."
-              exit 1
-              ;;
-          esac
-
-      - name: Check the state-backend account id
-        env:
-          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
-        # A malformed account id produces "dial tcp: lookup
-        # ***.r2.cloudflarestorage.com: no such host" three steps later, which
-        # reads like a network outage. It is not: Cloudflare wildcard-resolves
-        # every valid *.r2.cloudflarestorage.com name, so a lookup failure
-        # means the value is not a bare account id — most often it was pasted
-        # as a full endpoint URL, or with a trailing newline.
-        run: |
-          if ! printf '%s' "$R2_ACCOUNT_ID" | grep -qE '^[0-9a-f]{32}$'; then
-            echo "::error::R2_ACCOUNT_ID is not a bare 32-character hex account id."
-            echo "It must be JUST the id (Cloudflare dashboard → R2 → Account ID),"
-            echo "not https://<id>.r2.cloudflarestorage.com and with no trailing"
-            echo "whitespace or newline. Fix it in BOTH GitHub Environments:"
-            echo "  printf '%s' <account-id> | gh secret set R2_ACCOUNT_ID --env production-plan"
-            echo "  printf '%s' <account-id> | gh secret set R2_ACCOUNT_ID --env production"
-            exit 1
-          fi
-
-      - name: Check the state-backend credentials
-        env:
-          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
-          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
-        # Same reasoning as the account id above: a malformed key surfaces from
-        # the S3 API as `InvalidArgument: Credential access key has length 1,
-        # should be 32` during `init`, which reads like a Terraform or backend
-        # fault rather than a secret that was never set properly. R2 access key
-        # ids are 32 hex characters; the secret is longer and not fixed-width,
-        # so it is only checked for being plausibly present.
-        run: |
-          if ! printf '%s' "$R2_ACCESS_KEY_ID" | grep -qE '^[0-9a-f]{32}$'; then
-            echo "::error::R2_ACCESS_KEY_ID is not a 32-character hex R2 access key id."
-            echo "Mint a pair in the Cloudflare dashboard → R2 → API →"
-            echo "Manage API Tokens → Create API Token, with Object Read & Write"
-            echo "on the hickorydocs-terraform-state bucket. Then, in BOTH"
-            echo "environments, and with printf so no newline is appended:"
-            echo "  printf '%s' <access-key-id> | gh secret set R2_ACCESS_KEY_ID --env production-plan"
-            echo "  printf '%s' <access-key-id> | gh secret set R2_ACCESS_KEY_ID --env production"
-            exit 1
-          fi
-          if [ "$(printf '%s' "$R2_SECRET_ACCESS_KEY" | wc -c)" -lt 32 ]; then
-            echo "::error::R2_SECRET_ACCESS_KEY looks too short to be an R2 secret."
-            echo "It is issued alongside the access key id; set both together."
-            exit 1
-          fi
-
-      - name: Init
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
-          # Referenced as a shell variable rather than interpolated into the
-          # script text, so the value cannot be parsed as shell.
-          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
-        run: |
-          terraform init \
-            -backend-config="endpoints={s3=\"https://${R2_ACCOUNT_ID}.r2.cloudflarestorage.com\"}"
-
-      - uses: actions/download-artifact@v4
-        with:
-          name: tfplan-${{ inputs.stack }}
-          path: terraform/${{ inputs.stack }}
-
-      - name: Apply the reviewed plan
-        env:
-          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
-        # The saved plan file, not a fresh one: applying a re-planned diff would
-        # apply something nobody looked at.
         run: terraform apply -no-color tfplan
-
-      - name: Next step for the posthog stack
-        if: inputs.stack == 'posthog'
-        # The project write key exists now but the app cannot see it yet.
-        # Saying so here is cheaper than discovering silent no-op analytics
-        # weeks later.
-        run: |
-          echo "::notice::PostHog project applied. The server does NOT have the key yet — run 'just posthog-sync-key' to push it to Fly."

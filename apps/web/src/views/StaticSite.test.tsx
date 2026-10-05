@@ -25,17 +25,16 @@ describe("the marketing site with no server behind it", () => {
     const fetchSpy = vi.spyOn(globalThis, "fetch");
     render(<LandingView />);
     expect(screen.getByRole("heading", { level: 1 })).toBeTruthy();
-    // The demos are simulations that run in the browser; the page must not
-    // reach for an API that a static deployment does not have.
+    // Rendering mounts no API client. Asset loading and the real worker
+    // debugger are exercised by the static Playwright acceptance suite.
     expect(fetchSpy).not.toHaveBeenCalled();
     fetchSpy.mockRestore();
   });
 
   it("offers installing the tool, not signing up for a workspace", () => {
     const { container } = render(<LandingView />);
-    expect(screen.getAllByRole("button", { name: /copy install command/i }).length)
-      .toBeGreaterThan(0);
-    expect(container.textContent).toContain("curl");
+    expect(screen.getByRole("link", { name: "Get the desktop app" })).toBeTruthy();
+    expect(container.textContent).toContain("Downloadable software");
     // The hosted front door is hidden unless this build is the hosted app.
     expect(container.textContent).not.toContain("Start free");
     expect(container.textContent).not.toContain("hosted workspace");

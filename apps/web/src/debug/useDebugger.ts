@@ -280,7 +280,7 @@ export function useWorkspaceDebugger(path: string): DebugSession {
   return useDebuggerOver(client, path);
 }
 
-export function useDebuggerOver(client: DebugClient | null, docPath: string): DebugSession {
+export function useDebuggerOver(client: DebugClient | null, docPath: string, initialBreakpoints: readonly number[] = []): DebugSession {
   const [status, setStatus] = useState<DebugStatus>("idle");
   const [message, setMessage] = useState<string | null>(null);
   // A missing tool this machine can fetch, carried out of the failure so the
@@ -304,7 +304,7 @@ export function useDebuggerOver(client: DebugClient | null, docPath: string): De
   const [frames, setFrames] = useState<Frame[]>([]);
   const [variables, setVariables] = useState<Variable[]>([]);
   const [selectedFrame, setSelectedFrame] = useState<number | null>(null);
-  const [breakpoints, setBreakpoints] = useState<HeldBreakpoint[]>([]);
+  const [breakpoints, setBreakpoints] = useState<HeldBreakpoint[]>(() => initialBreakpoints.map((line) => ({ line, state: "bound" })));
   // Which file this session is running, for the panel to say so: "paused" is
   // ambiguous in a document that generates three programs.
   const [program, setProgram] = useState<string | null>(null);

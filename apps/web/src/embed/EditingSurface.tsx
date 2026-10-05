@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef } from "react";
 import { Annotation, EditorState } from "@codemirror/state";
 import type { Extension } from "@codemirror/state";
-import { EditorView, keymap } from "@codemirror/view";
+import { EditorView, keymap, drawSelection } from "@codemirror/view";
 import { defaultKeymap, history, historyKeymap } from "@codemirror/commands";
 import type * as Y from "yjs";
 import type { Awareness } from "y-protocols/awareness";
@@ -89,6 +89,7 @@ export function EditingSurface({
 
     const extensions: Extension[] = [
       history(),
+      drawSelection(),
       keymap.of([...defaultKeymap, ...historyKeymap]),
       rangeHighlightField,
       EditorView.lineWrapping,

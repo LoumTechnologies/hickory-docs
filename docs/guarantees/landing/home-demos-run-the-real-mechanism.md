@@ -1,3 +1,9 @@
+> Retired 2026-10-05. The homepage now contains one short document with a
+> real browser debugger, paused on first load, and a desktop download section.
+> Interest disclosures, the identity question, and the recorded-run demo are
+> no longer on the homepage. The historical rationale below remains a record,
+> not a guarantee of the current page. See `landing/homepage-opens-paused.md`.
+
 # The Home Page's Demo Runs The Real Mechanism, And Names What Is Simulated
 
 Given a visitor on the home page with no account, no sign-up and no network

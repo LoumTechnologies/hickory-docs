@@ -93,28 +93,37 @@ test("errors, unsupported syntax, stale source and immediate Stop", async ({ pag
   await expect(page.locator(".hickory-browser-debug")).toHaveAttribute("data-status", "idle");
 });
 
-test("homepage debugger uses the real backend without an engine", async ({ page }) => {
+test("homepage loads genuinely paused, edits with a visible caret and restarts", async ({ page }) => {
   const unexpected = await noEngine(page); await page.goto("/");
-  const demo = page.locator("section", { has: page.getByRole("heading", { name: "Edit it. Break on a line. Inspect the real values." }) });
-  const pane = demo.getByRole("group", { name: "browser-demo.md" });
-  await pane.getByLabel("Set breakpoint on line 13", { exact: true }).click();
+  const demo = page.locator("section", { has: page.getByRole("heading", { name: "Try a note. It’s already paused." }) });
+  const pane = demo.getByRole("group", { name: "hello.md" });
+  await expect(demo.getByText("Paused on line 6", { exact: true })).toBeVisible();
   await expect(pane.locator(".cm-bp")).toHaveCount(1);
-  await demo.getByRole("button", { name: "Debug document", exact: true }).click();
-  await expect(demo.getByText("Paused on line 13", { exact: true })).toBeVisible();
-  await expect(demo.getByLabel("Live variables")).toContainText("quantity = 4");
-  await demo.getByRole("button", { name: "Step into", exact: true }).click();
-  await expect(demo.getByLabel("Call stack")).toContainText("price");
-  await expect(demo.getByText("Paused on line 7", { exact: true })).toBeVisible();
-  await demo.screenshot({ path: test.info().outputPath("homepage-debugger.png") });
-  await demo.getByRole("button", { name: "Continue", exact: true }).click();
-  await expect(demo.getByLabel("Program output")).toHaveText("Total: 43\n");
+  await expect(pane.locator(".cm-paused-line")).toContainText("return message;");
+  await expect(demo.getByLabel("Live variables")).toContainText('message = "Hello, developer"');
+  await expect(demo.getByLabel("Call stack")).toContainText("greet");
+  await expect(page.getByText("Downloadable software · Runs on your machine")).toBeVisible();
+  // The paused editor stays editable, including a contrasting drawn caret.
+  const content = pane.locator(".cm-content");
+  await content.locator(".cm-line").filter({ hasText: "function greet" }).click({ position: { x: 30, y: 8 } }); await page.keyboard.press("ControlOrMeta+Home");
+  await expect(pane.locator(".cm-cursor").first()).toBeVisible();
+  expect(await pane.locator(".cm-cursor").first().evaluate((cursor) => getComputedStyle(cursor).borderLeftColor)).toBe("rgb(228, 222, 213)");
+  await page.screenshot({ path: test.info().outputPath("homepage-debugger.png"), fullPage: true });
+  await page.keyboard.type("A ");
+  await expect(demo.getByRole("status").filter({ hasText: "Running previous revision" })).toBeVisible();
+  await demo.getByRole("button", { name: "Restart with edits" }).click();
+  await expect(demo.getByText("Paused on line 6", { exact: true })).toBeVisible();
+  await demo.getByRole("button", { name: "Step out", exact: true }).click();
+  await expect(demo.getByLabel("Program output")).toHaveText("Hello, developer\n");
   await page.getByLabel("Debug language").selectOption("js");
-  await demo.getByRole("button", { name: "Debug document", exact: true }).click();
-  await expect(demo.getByLabel("Program output")).toHaveText("Total: 43\n");
+  await expect(demo.getByText("Paused on line 6", { exact: true })).toBeVisible();
+  await demo.getByRole("button", { name: "Continue", exact: true }).click();
+  await expect(demo.getByLabel("Program output")).toHaveText("Hello, developer\n");
+  await page.setViewportSize({ width: 390, height: 844 });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   expect(unexpected).toEqual([]);
 });
 
-// Guarantee: docs/guarantees/embedding/a-local-save-is-revision-checked.md
 test("local persistence survives reload and a concurrent tab cannot overwrite", async ({ page, context }) => {
   await noEngine(page); await page.goto("/embed.html?workspace");
   const note = page.getByRole("group", { name: "notes/note.md", exact: true }).locator(".cm-content");
@@ -313,7 +322,7 @@ test("static assets and debugger work below a deployment prefix with scoped CSP"
     await page.goto(`http://127.0.0.1:${address.port}/nested/embed.html`);
     await expect(page.getByRole("group", { name: "first.md", exact: true })).toContainText("An ordinary note");
     await page.getByRole("button", { name: "Debug document", exact: true }).click();
-    await expect(page.getByLabel("Program output")).toHaveText("Total: 43\n");
+    await expect(page.getByLabel("Program output")).toHaveText("Hello, developer\n");
     expect(unexpected).toEqual([]);
   } finally { server.closeAllConnections(); await new Promise<void>((done) => server.close(() => done())); }
 });

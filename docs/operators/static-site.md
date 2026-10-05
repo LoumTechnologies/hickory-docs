@@ -1,175 +1,80 @@
-# The marketing site
+# Publish the homepage
 
-*For whoever deploys hickorydocs.com. The site is a directory of files — no
-server, no database, no runtime configuration.*
+For the person editing or deploying hickorydocs.com. Hickory Docs is
+**downloadable software**; Cloudflare Pages serves only the static homepage.
+The short JavaScript / TypeScript example starts a real interpreter worker
+and pauses at a breakpoint. It needs no server or authenticated engine.
 
-The landing page and its interactive demos run entirely in the visitor's
-browser: they simulate git, script execution, and an editing room in
-TypeScript, and make no API calls. There is no pricing page, because there is
-nothing to buy. The whole marketing surface is static, which is what
-`docs/specs/freeform/local-only.md` expects — the product is a program people
-download, not a workspace they sign into.
+## Edit the copy and example
 
-## Editing the page
-
-| What | Where |
+| Change | File |
 |---|---|
-| Headline, hero, section copy | `apps/web/src/views/LandingView.tsx` |
-| The interest sections' titles and bodies | `apps/web/src/landing/interests.ts` |
-| The three interactive demos | `apps/web/src/landing/demos/` |
-| The install command block | `apps/web/src/components/InstallCommand.tsx` |
-| `<title>`, description, OG/Twitter cards | `apps/web/site.html` |
-| Styling | `apps/web/src/styles.css` |
+| Headline, description, download section | `apps/web/src/views/LandingView.tsx` |
+| Short example and instructions | `apps/web/src/landing/demos/BrowserDebugDemo.tsx` |
+| Page title and link preview descriptions | `apps/web/site.html` |
+| Homepage layout | `apps/web/src/landing/homepage.css` |
+
+The current copy is provisional. Keep the download message visible above the
+example. The source is a nine-line `.md` document; its pause and variables
+come from actual execution. Editing keeps the previous session visible as
+stale until Restart. No remote-engine authentication is part of this demo.
 
 ```sh
-cd apps/web
-npm run dev:site      # opens the marketing page with hot reload
+just preview-browser-embedding
 ```
 
-**Use `dev:site`, not `dev`.** The plain `dev` server's `/` is the *desktop
-app's* entry (`index.html`); the marketing page is a second entry
-(`site.html`). Running `dev` and finding the editor is the expected way to
-lose five minutes here.
+This builds the acceptance surface and serves it locally. For hot reload,
+use the existing `just dev-site` recipe. The desktop app's `index.html` and
+homepage's `site.html` are separate entries.
 
-Some copy is under test, on purpose — `src/views/LandingView.test.tsx` and
-`StaticSite.test.tsx` assert that the page makes no network request, offers
-installing rather than signing up, and titles every section by a job or a
-pain rather than by an audience label. A rewrite that breaks one of those is
-being told it broke an editorial rule, not a component.
-
-## Build it
+## Build and verify
 
 ```sh
-just site                          # no analytics
-POSTHOG_KEY=phc_… just site        # with browser-side capture
+just install-test-browsers
+just test-browser-embedding --grep homepage
+just site
 ```
 
-Output is `apps/web/dist-site/`. That is the **site** build (`site.html`); the
-default `npm run build` produces `dist/`, which is the desktop app's UI and
-must never be deployed here. Deploy `dist-site/` anywhere that serves files —
-Cloudflare Pages is what this project uses.
+`just site` produces `apps/web/dist-site/index.html`, hashed assets and
+`install.sh`. The production build excludes the host test fixtures. The
+acceptance build includes them to test React embedding, storage and iframes.
+Do not publish `apps/web/dist/`: that is the desktop app's UI.
 
-## Analytics is the site's, never the product's
+`POSTHOG_KEY=phc_… just site` enables the existing website analytics. With no
+key, capture is disabled. A personal `phx_…` key is refused. The downloaded
+product never receives this key or sends website analytics.
 
-The site measures its visitors with PostHog. The downloaded binary sends
-nothing, ever: no telemetry, no update check, no first-run ping. The two never
-share a key, a build, or a code path. Keep it that way — "we use analytics" and
-"the tool phones home" are the kind of pair that collapses into each other by
-accident.
+## Deploy
 
-Two requirements of the host:
+Push to `master`. **Deploy Site** uses the existing production environment's
+`CLOUDFLARE_PAGES_TOKEN` and `CLOUDFLARE_ACCOUNT_ID`, checks the homepage in
+three browsers, rebuilds the production bundle, attaches both domain names,
+and publishes to the `hickory-docs` Pages project. A failed acceptance check
+prevents publication. `workflow_dispatch` can republish the current commit.
 
-1. **SPA fallback** — unknown paths must serve `index.html`, because the client
-   routes on the URL hash and a deep link should not 404.
-2. **`/install.sh` served as-is** — `just site` copies `scripts/install.sh`
-   into the bundle, because the call to action on every page is
-   `curl -fsSL https://hickorydocs.com/install.sh | sh`. Serve it with
-   `Content-Type: text/plain` or `application/x-sh`; do not let the host
-   rewrite it.
+Cloudflare Pages [serves static requests for free without a request quota](https://developers.cloudflare.com/pages/functions/pricing/).
+There are no Pages Functions or R2 runtime objects in this demo. Its files
+fit within the [Free plan's asset limits](https://developers.cloudflare.com/pages/platform/limits/).
+R2 is used by the existing Terraform state backend, independently of the site.
 
-## Analytics
-
-With `POSTHOG_KEY` set, the page posts events straight to PostHog's
-`/capture/` endpoint. The key is inlined into the bundle and is public by
-construction — that is fine for a **project write key** (`phc_…`), which can
-only send events.
-
-It is not fine for a **personal API key** (`phx_…`), which can create and
-destroy projects. Two guards exist because that mix-up is easy to make:
-`just site` refuses to build with one, and the app refuses to use one at
-runtime (logging and disabling capture rather than crashing the page).
-
-Without the key there is no analytics, silently and harmlessly. There is no
-server-side fallback: `/api/analytics/capture` existed when the bundle was
-served by a hosted app, and that app is gone.
-
-Expect fewer events than a same-origin beacon would collect: a request to
-PostHog is among the most-blocked on the web. That is the price of not running
-a server, and it is the right price.
-
-## Deploying to Cloudflare Pages
-
-**A push to `master` that touches `apps/web/` publishes the site.** The
-**Deploy Site** workflow (`.github/workflows/deploy-site.yml`) builds it and
-uploads it; there is no gate and nothing to approve, because a manual gate here
-would mean the site silently stops tracking `master` until someone notices a
-pending approval.
-
-### One-time setup
-
-Exactly one secret is missing, and it cannot be the one already there. The
-`CLOUDFLARE_API_TOKEN` in the `production` environment is scoped to this zone's
-DNS and nothing else — that narrowness is deliberate, and it is why the token
-cannot see the account, let alone create a Pages project. Replacing it would
-break the Terraform DNS stack. So the site deploy gets its own:
-
-1. Mint a Cloudflare token with **Account → Cloudflare Pages → Edit**, scoped
-   to this account only (see below for the exact dashboard path).
-2. `gh secret set CLOUDFLARE_PAGES_TOKEN --env production`
-3. Optionally set `POSTHOG_KEY` — the `phc_…` project write key, which lives
-   in the `terraform/posthog` state. `docs/operators/analytics.md` has the
-   exact commands (the backend needs its R2 endpoint at init). Without the key
-   the site ships with no analytics, which is a working site, not a broken one.
-
-Nothing else. `CLOUDFLARE_ACCOUNT_ID` is already set, and the workflow creates
-the Pages project on its first run, so there is no dashboard step beyond
-minting the token.
-
-### Minting the token
-
-**dash.cloudflare.com → the account menu (top right) → My Profile → API Tokens
-→ Create Token → Create Custom Token.**
-
-| Field | Value |
-|---|---|
-| Token name | `hickory-docs pages deploy` |
-| Permissions | **Account** · **Cloudflare Pages** · **Edit** |
-| Account Resources | Include · `Nate@loumtechnologies.com's Account` |
-| Client IP / TTL | leave unset |
-
-One permission row is enough. Do **not** add Zone permissions: DNS is a
-separate stack with a separate token, and a token that can do both has a blast
-radius neither job needs.
-
-The token is shown once. Paste it straight into
-`gh secret set CLOUDFLARE_PAGES_TOKEN --env production`, which reads from
-stdin, rather than into a file.
-
-### Then point the domain at it
-
-Only after a deploy has succeeded and the `*.pages.dev` URL serves the page:
+If `hickory-docs.pages.dev` works but hickorydocs.com returns 522, check both
+custom-domain attachment and the Terraform-managed DNS records. Apex and
+`www` must be proxied CNAMEs to `hickory-docs.pages.dev`.
 
 ```sh
-gh workflow run terraform.yml -f stack=dns -f apply=false   # plan
-gh run watch
-# read the plan — apex and www become proxied CNAMEs, SendGrid and DMARC
-# untouched — then:
+gh workflow run terraform.yml -f stack=dns -f apply=false
+# Read that run's plan before requesting its apply.
 gh workflow run terraform.yml -f stack=dns -f apply=true
 ```
 
-Through the workflow rather than locally: the credentials are already in the
-GitHub environments, and the workflow pins the Terraform version. A local
-`apply` from a newer binary would stamp the state with a version CI can no
-longer read. See `docs/operators/dns.md` for running it locally anyway.
+The apply invocation uses the production environment's protection rules.
+It prints and applies the same saved plan in one runner, so exhausted GitHub
+artifact storage cannot prevent repairing DNS. Email records are part of the
+DNS stack; inspect the plan to ensure a site repair does not change them.
 
-`pages_hostname` defaults to the project name the workflow creates, so there is
-nothing to pass.
+## Public downloads
 
-Flipping DNS first takes the site down for as long as it takes to notice.
-`hickorydocs.com` currently still resolves to the old Fly machine, which is
-also still running and billing — destroy it once Pages is serving.
-
-Pages satisfies both host requirements above out of the box: unknown paths
-fall back to `index.html`, and `install.sh` is served as uploaded.
-
-### The custom domain is a second step, and its absence looks like an outage
-
-Pointing DNS at `<project>.pages.dev` is not enough. Until the **project**
-claims the hostname, Cloudflare's proxy has no origin to route to and every
-request to the domain returns **522 — connection timed out**, which reads like
-the site is down rather than like a setting that was never applied.
-
-**Deploy Site** attaches `hickorydocs.com` and `www.hickorydocs.com` on every
-run, so it is not something to remember. To do it by hand: Cloudflare →
-**Workers & Pages** → `hickory-docs` → **Custom domains** → **Set up a custom
-domain**, once per hostname.
+The source repository is currently private. Its GitHub release links and the
+existing GitHub-based installer cannot serve strangers. The homepage says
+public downloads are coming soon until a public binary distribution is chosen.
+Changing source visibility is not required to publish binaries.
