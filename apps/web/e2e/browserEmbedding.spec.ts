@@ -13,8 +13,13 @@ async function noEngine(page: Page) {
   return unexpected;
 }
 async function code(page: Page, program: string, language = "js") {
+  const editor = page.getByRole("group", { name: "fixture.md", exact: true }).locator(".cm-content");
+  // Parser loading mounts CodeMirror asynchronously. Replace the host source
+  // only after its editor is ready, so WebKit's initial input observation
+  // cannot race the replacement and report the previous buffer to the host.
+  await expect(editor).toBeVisible();
   await page.getByLabel("Debug source", { exact: true }).fill(`# 🦀 Source\n<hick:file path="main.${language}">\n${program}\n</hick:file>\n`);
-  await expect(page.getByRole("group", { name: "fixture.md", exact: true }).locator(".cm-content")).toContainText(program.split("\n")[0]);
+  await expect(editor).toContainText(program.split("\n")[0]);
 }
 
 test("two embeds, explicit save, replacement, read-only and disposal", async ({ page }) => {

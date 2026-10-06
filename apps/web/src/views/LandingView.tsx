@@ -18,8 +18,9 @@ export function LandingView() {
     <header className="landing-hero">
       <p className="landing-eyebrow">Downloadable software · Runs on your machine</p>
       <h1>Hickory Docs</h1>
-      <p className="landing-sub">A notes IDE. Prose and code, together in a Markdown file.</p>
+      <p className="landing-sub">Hickory Docs is a new IDE that sits at the intersection of literate programming, AI coding agents and Jupyter notebooks. It supports intellisense and debugging for many programming languages, all in Markdown code blocks.</p>
       <a className="btn" href="#download">Get the desktop app</a>
+      <p><a href="https://github.com/LoumTechnologies/hickory-docs">View source on GitHub</a></p>
     </header>
     <BrowserDebugDemo />
     <footer className="landing-download" id="download">
