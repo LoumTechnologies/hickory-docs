@@ -477,8 +477,8 @@ function EditingSection() {
               onChange={(event) => applyRetainSavedDrafts(event.target.checked)}
             />
             <span className="muted">
-              Keep recovery drafts after closing files that have been saved before.
-              New, unnamed documents are always retained.
+              Recover unsaved changes after an unexpected interruption.
+              New, unnamed documents always have crash recovery.
             </span>
           </div>
         </div>

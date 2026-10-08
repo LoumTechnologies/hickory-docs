@@ -41,8 +41,11 @@ export function useUntitledRecovery({ hydrated, layoutRef, setLayout, sourcesRef
         // Older versions kept only one unnamed draft. Adopt that into the
         // startup buffer without overwriting anything typed during hydration.
         if (draft.path === UNTITLED_RECOVERY_KEY) tab = panes(next.root).flatMap(pane => pane.tabs).find(tab => tab.kind === "untitled");
+        // The startup introduction is a fallback, not another recovered
+        // document. Reuse it for the first draft even when that draft began
+        // blank or the bundled introduction changed since the previous run.
         if (!tab && Object.keys(sources).length === 0) {
-          const startup = panes(next.root).flatMap(pane => pane.tabs).find(tab => tab.kind === "untitled" && baselinesRef.current[tab.id] === draft.base && (sourcesRef.current[tab.id] ?? draft.base) === draft.base);
+          const startup = panes(next.root).flatMap(pane => pane.tabs).find(tab => tab.kind === "untitled" && tab.id in baselinesRef.current && (sourcesRef.current[tab.id] ?? baselinesRef.current[tab.id]) === baselinesRef.current[tab.id]);
           if (startup) {
             identities.set(startup.id, id);
             next = reidentify(next, startup.id, id);
@@ -93,10 +96,16 @@ export function useUntitledRecovery({ hydrated, layoutRef, setLayout, sourcesRef
     if (!ready) return;
     const written = new Map<string, string>();
     const saved = new Set<string>();
+    const pending = new Map<string, Promise<unknown>>();
     const onSaved = (event: Event) => {
       const id = (event as CustomEvent<string>).detail;
       saved.add(id);
       void api.discardDraft(untitledDraftKey(id)).catch(() => {});
+    };
+    const onDiscarded = (event: Event) => {
+      const { id, waitUntil } = (event as CustomEvent<{ id: string; waitUntil: (operation: Promise<unknown>) => void }>).detail;
+      saved.add(id);
+      waitUntil((pending.get(id) ?? Promise.resolve()).catch(() => {}).then(() => api.discardDraft(untitledDraftKey(id))));
     };
     const flush = () => {
       for (const tab of panes(layoutRef.current.root).flatMap(pane => pane.tabs).filter(tab => tab.kind === "untitled")) {
@@ -110,17 +119,22 @@ export function useUntitledRecovery({ hydrated, layoutRef, setLayout, sourcesRef
           }
         } else if (written.get(tab.id) !== contents) {
           written.set(tab.id, contents);
-          void api.saveDraft({ path: untitledDraftKey(tab.id), contents, base, saved_at: Date.now() }).catch(() => written.delete(tab.id));
+          const write = (pending.get(tab.id) ?? Promise.resolve()).then(() =>
+            api.saveDraft({ path: untitledDraftKey(tab.id), contents, base, saved_at: Date.now() })
+          ).catch(() => written.delete(tab.id));
+          pending.set(tab.id, write);
         }
       }
     };
     const timer = window.setInterval(flush, DRAFT_POLL_MS);
     window.addEventListener("pagehide", flush);
     window.addEventListener("hickory-untitled-saved", onSaved);
+    window.addEventListener("hickory-untitled-discarded", onDiscarded);
     return () => {
       window.clearInterval(timer);
       window.removeEventListener("pagehide", flush);
       window.removeEventListener("hickory-untitled-saved", onSaved);
+      window.removeEventListener("hickory-untitled-discarded", onDiscarded);
       flush();
     };
   }, [ready, layoutRef, sourcesRef]);

@@ -1,9 +1,5 @@
-// Unsaved work, written down when the app closes.
-//
-// The promise is small and absolute: what you typed and did not save is there
-// when you come back, in the tab you left it in, still unsaved. Closing the
-// window is not a decision to throw work away, and an editor that treats it
-// as one teaches people to be afraid of ⌘W.
+// Unsaved work recovered after an unexpected interruption.
+// Explicit Discard removes recovery; Cancel leaves the buffer open.
 //
 // A draft is written to the user's own data directory (never the project —
 // see api.md, "Workspace state and drafts") along with the BASE: the file's
@@ -21,6 +17,16 @@ import { useCallback, useEffect, useRef } from "react";
 
 import { api } from "../api/client";
 import type { WorkspaceDraft } from "../api/types";
+
+type DiscardRequest = { path: string; waitUntil: (operation: Promise<unknown>) => void };
+export async function discardRecoveryDraft(path: string) {
+  const pending: Promise<unknown>[] = [];
+  window.dispatchEvent(new CustomEvent<DiscardRequest>("hickory-draft-discarded", {
+    detail: { path, waitUntil: operation => pending.push(operation) },
+  }));
+  if (pending.length) await Promise.all(pending);
+  else await api.discardDraft(path);
+}
 
 /** What to do with a draft, given what the file says now. */
 export type Disposition =
@@ -104,6 +110,13 @@ export function useDraftKeeper({
     // What we last put in the store, so an untouched buffer costs a string
     // comparison rather than a request.
     let written: string | null = null;
+    let pending: Promise<unknown> = Promise.resolve();
+    const onDiscarded = (event: Event) => {
+      const request = (event as CustomEvent<DiscardRequest>).detail;
+      if (request.path !== path) return;
+      discardedRef.current = true;
+      request.waitUntil(pending.catch(() => {}).then(() => api.discardDraft(path)));
+    };
 
     const flush = () => {
       if (discardedRef.current) return;
@@ -117,7 +130,7 @@ export function useDraftKeeper({
       }
       if (contents === written) return;
       written = contents;
-      void api.saveDraft({ path, contents, base, saved_at: Date.now() }).catch(() => {
+      pending = pending.catch(() => {}).then(() => api.saveDraft({ path, contents, base, saved_at: Date.now() })).catch(() => {
         // A draft that cannot be written must not interrupt typing. The route
         // already degrades loudly; here the honest response is to let the
         // editor keep working, and to try again on the next tick.
@@ -129,11 +142,12 @@ export function useDraftKeeper({
     // `pagehide` rather than `beforeunload`: it fires for a tab being frozen
     // or discarded as well as closed, and it is the event WebKit delivers.
     window.addEventListener("pagehide", flush);
+    window.addEventListener("hickory-draft-discarded", onDiscarded);
     return () => {
       window.clearInterval(timer);
       window.removeEventListener("pagehide", flush);
-      // Closing the pane is not saving the file: whatever is unsaved stays
-      // written down.
+      window.removeEventListener("hickory-draft-discarded", onDiscarded);
+      // Keep recovery on unmount unless an explicit Discard suppressed it.
       flush();
     };
   }, [path, enabled]);

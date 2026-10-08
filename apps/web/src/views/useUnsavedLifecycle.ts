@@ -5,6 +5,7 @@ import { viewBuffers, useViewBuffersVersion } from "../lib/viewBuffers";
 import { useCallback, useEffect, useMemo } from "react";
 import type { Dispatch, MutableRefObject, SetStateAction } from "react";
 
+import { discardRecoveryDraft } from "../lib/drafts";
 import { untitledDraftKey } from "../lib/newDoc";
 import { api } from "../api/client";
 import type { usePrompt } from "../components/PromptPanel";
@@ -17,6 +18,16 @@ type PlainActions = {
   discard: () => void;
   retain: () => Promise<void>;
 };
+
+async function discardUntitled(id: string) {
+  const pending: Promise<unknown>[] = [];
+  window.dispatchEvent(new CustomEvent("hickory-untitled-discarded", {
+    detail: { id, waitUntil: (operation: Promise<unknown>) => pending.push(operation) },
+  }));
+  // Recovery waits for any in-flight write before deleting the draft.
+  if (pending.length) await Promise.all(pending);
+  else await api.discardDraft(untitledDraftKey(id));
+}
 
 export function useUnsavedLifecycle({
   layout,
@@ -99,19 +110,12 @@ export function useUnsavedLifecycle({
       }
       void (async () => {
         const viewBuffer = viewBuffers.get(tab.id);
-        const recoverable = !viewBuffer && (tab.kind === "untitled" || retainSavedDrafts);
         const name = tab.title ?? tab.target.split("/").pop() ?? "this file";
         const answer = await prompt.askChoice(
-          `Save changes to ${name}? ${
-            recoverable
-              ? tab.kind === "untitled"
-                ? "If you close without saving, the unsaved changes will be retained and restored next time you open Hickory Docs."
-                : "If you close without saving, the unsaved changes will be retained and restored when you reopen this file."
-              : viewBuffer ? "This view has no recovery draft; closing without saving discards its edits." : "Recovery for previously saved files is off; closing without saving discards these changes."
-          }`,
+          `Save changes to ${name}? Closing without saving discards these changes.`,
           [
             { label: "Save", value: "save" as const },
-            { label: recoverable ? "Close and retain" : "Discard", value: "close" as const },
+            { label: "Discard", value: "close" as const },
             { label: "Cancel", value: "cancel" as const },
           ],
         );
@@ -133,25 +137,14 @@ export function useUnsavedLifecycle({
         } else if (viewBuffer) {
           await viewBuffer.discard();
         } else if (tab.kind === "untitled") {
-          await api.saveDraft({ path: untitledDraftKey(tab.id),
-            contents: untitledSourcesRef.current[tab.id] ?? "",
-            base: untitledBaselines[tab.id] ?? "", saved_at: Date.now() });
+          await discardUntitled(tab.id);
+          forgetUntitled(tab.id);
         } else if (tab.kind === "file") {
-          const actions = plainUnsavedActions.current.get(tab.id);
-          if (retainSavedDrafts) await actions?.retain();
-          else actions?.discard();
+          plainUnsavedActions.current.get(tab.id)?.discard();
+          await discardRecoveryDraft(tab.target);
         } else if (tab.docId) {
-          const session = registry.get(tab.docId);
-          if (session && retainSavedDrafts && session.savedSource !== null) {
-            await api.saveDraft({
-              path: tab.target,
-              contents: session.liveSource,
-              base: session.savedSource,
-              saved_at: Date.now(),
-            });
-          } else if (session) {
-            await session.discardUnsaved();
-          }
+          await registry.get(tab.docId)?.discardUnsaved();
+          await discardRecoveryDraft(tab.target);
         }
         setLayout((current) => closeTab(current, paneId, tabId));
       })();
@@ -184,13 +177,8 @@ export function useUnsavedLifecycle({
           .filter((tab) => tab.kind === "untitled" && dirtyTabIds.has(tab.id));
         const dirtyViews = panes(layoutRef.current.root).flatMap(pane => pane.tabs)
           .map(tab => viewBuffers.get(tab.id)).filter(buffer => buffer?.dirty);
-        const hasUntitled = dirtyUntitled.length > 0;
-        const retention =
-          !hasUntitled && dirtySaved.length === 0 && dirtyPlain.length === 0 ? "" : retainSavedDrafts || (dirtySaved.length === 0 && dirtyPlain.length === 0)
-            ? "Unsaved changes will be retained and restored next time you open Hickory Docs."
-            : `${hasUntitled ? "Untitled changes will be retained and restored next time you open Hickory Docs. " : ""}Changes to previously saved files will be discarded because recovery for them is off.`;
         const answer = await prompt.askChoice(
-          `Save changes before closing Hickory Docs? ${retention}${dirtyViews.length ? " Unsaved views have no recovery draft; closing without saving discards their edits." : ""}`,
+          "Save changes before closing Hickory Docs? Closing without saving discards all unsaved changes.",
           [
             { label: "Save all", value: "save" as const },
             { label: "Close without saving", value: "close" as const },
@@ -215,26 +203,17 @@ export function useUnsavedLifecycle({
         } else {
           for (const buffer of dirtyViews) await buffer?.discard();
           for (const tab of dirtyUntitled) {
-            await api.saveDraft({ path: untitledDraftKey(tab.id),
-              contents: untitledSourcesRef.current[tab.id] ?? "",
-              base: untitledBaselines[tab.id] ?? "", saved_at: Date.now() });
+            await discardUntitled(tab.id);
+            forgetUntitled(tab.id);
           }
           for (const session of dirtySaved) {
-            if (retainSavedDrafts && session.doc && session.savedSource !== null) {
-              await api.saveDraft({
-                path: session.doc.path,
-                contents: session.liveSource,
-                base: session.savedSource,
-                saved_at: Date.now(),
-              });
-            } else {
-              await session.discardUnsaved();
-            }
+            await session.discardUnsaved();
+            if (session.doc) await discardRecoveryDraft(session.doc.path);
           }
           for (const tabId of dirtyPlain) {
-            const actions = plainUnsavedActions.current.get(tabId);
-            if (retainSavedDrafts) await actions?.retain();
-            else actions?.discard();
+            plainUnsavedActions.current.get(tabId)?.discard();
+            const tab = panes(layoutRef.current.root).flatMap(pane => pane.tabs).find(tab => tab.id === tabId);
+            if (tab) await discardRecoveryDraft(tab.target);
           }
         }
         await api.closeWindow().catch(() => {});
@@ -242,7 +221,7 @@ export function useUnsavedLifecycle({
     };
     window.addEventListener("hickory-workspace-close-request", onWindowClose);
     return () => window.removeEventListener("hickory-workspace-close-request", onWindowClose);
-  }, [dirtyTabIds, registry, retainSavedDrafts, saveUntitled, prompt, layoutRef, setLayout, untitledSourcesRef, untitledBaselines, plainDirtyTabs, plainUnsavedActions]);
+  }, [dirtyTabIds, registry, retainSavedDrafts, saveUntitled, prompt, layoutRef, setLayout, untitledSourcesRef, untitledBaselines, plainDirtyTabs, plainUnsavedActions, forgetUntitled]);
 
   return { dirtyTabIds, dirtyPaths, requestCloseTab };
 }

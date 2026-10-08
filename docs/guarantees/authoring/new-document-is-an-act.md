@@ -19,12 +19,15 @@ every dirty unnamed tab. Saving outside the workspace keeps the document in
 the current window. Older
 single-buffer recovery drafts are migrated without losing their contents.
 
-The startup introduction remains an unnamed document. New Document begins
+The startup introduction is an unnamed fallback when no draft is restored.
+Restoring unnamed documents reuses that fallback for the first draft instead
+of adding another introduction on each launch, regardless of draft order or
+changes to the bundled introduction. New Document begins
 blank. Typing never creates a file; Save and Save As name a `.md` document.
 The first Markdown heading suggests the filename, otherwise `untitled.md`
 and its numbered successors do. An untouched introduction closes without a
-save prompt. Edited unnamed tabs show an asterisk and offer retention when
-closed without saving.
+save prompt. Edited unnamed tabs show an asterisk and offer Save, Discard, or Cancel.
+Discard removes their recovery draft; explicitly closed notes do not return.
 
 ---
 
@@ -32,7 +35,12 @@ Last LLM verification:
 - Date: 2026-10-08
 - Reviewer: Codex
 - Result: verified by automated checks and implementation review.
-- Validation: `just test-web` passed all 2,017 tests; the real HTTP
+- Follow-up validation: `just test-web` passed all 2,021 tests and
+  `just test-file-menu` passed 74 frontend tests and its real HTTP test. This
+  includes three consecutive recovery launches without a duplicate introduction,
+  explicit tab/window discard, and in-flight recovery write ordering. The updated
+  app built, passed signature verification, and was installed locally.
+- Original validation: `just test-web` passed all 2,017 tests; the real HTTP
   `open_selected_file` test passed for folderless and folder sessions;
   `just check-desktop` passed; the native app built, passed signature
   verification, and was installed locally. Native menu/picker clicks were
