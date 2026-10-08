@@ -1,3 +1,4 @@
+import { ChangePreview } from "./ChangePreview";
 // The Insert menu: the hick vocabulary, as something you pick rather than
 // something you remember.
 //
@@ -362,11 +363,9 @@ export function InsertMenu({
             </div>
           </div>
 
-          <div className="insert-menu__preview">
-            <h3 className="insert-menu__preview-title">{edit ? "What changes" : "What gets written"}</h3>
+          <ChangePreview heading={edit ? "What changes" : "What gets written"} effects={edit ? "Replaces this element in the focused document; unknown attributes remain intact." : placementNote}>
             <pre className="insert-menu__preview-text mono">{preview}</pre>
-            <p className="insert-menu__hint">{edit ? "Replaces this element; attributes this version does not know remain intact." : placementNote}</p>
-          </div>
+          </ChangePreview>
 
           <div className="insert-menu__actions">
             <span className="insert-menu__shortcut">

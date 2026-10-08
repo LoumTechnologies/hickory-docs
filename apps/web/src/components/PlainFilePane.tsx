@@ -1,3 +1,5 @@
+import { MoreActions } from "./MoreActions";
+import { SurfaceInfo } from "./SurfaceInfo";
 import { registerSearchEditor } from "../lib/workspaceSearch";
 import { openLiterate } from "../lib/openRepresentation";
 // A plain file, in a pane: any text file in the folder that is neither a
@@ -704,6 +706,7 @@ export function PlainFilePane({
   if (loadError) {
     return (
       <div className="plain-file-pane">
+      <SurfaceInfo name={`File · ${path}`} editable destination="Edits save automatically to this file on disk." />
         <p className="error">{loadError}</p>
       </div>
     );
@@ -711,8 +714,10 @@ export function PlainFilePane({
 
   return (
     <div className="plain-file-pane">
+      <SurfaceInfo name={`File · ${path}`} editable destination="Edits save automatically to this file on disk." />
       <div className="doc-tab-toolbar" role="toolbar" aria-label={`Actions for ${path}`}>
-        {!generatedBy && <button className="btn" disabled={!file || !["idle", "saved"].includes(saveState.kind)} onClick={() => void openLiterate({ kind: "files", paths: [path] }).catch(e => setNotice(e instanceof Error ? e.message : String(e)))}>Open literate view</button>}
+        <MoreActions label="More actions for this file">
+        {!generatedBy && <button className="btn" disabled={!file || !["idle", "saved"].includes(saveState.kind)} onClick={() => void openLiterate({ kind: "files", paths: [path] }).catch(e => setNotice(e instanceof Error ? e.message : String(e)))} data-tip="Open an editable arrangement; Save writes code back to these source files.">Open literate view</button>}
         {!generatedBy && <button className="btn" disabled={!file || !["idle", "saved"].includes(saveState.kind)} onClick={() => void openLiterate({ kind: "files", paths: [path] }, "HEAD").catch(e => setNotice(e instanceof Error ? e.message : String(e)))}>Review changes</button>}
         {generatedBy ? (
           // Not a disabled button: there is nothing to enable. This file is
@@ -728,11 +733,12 @@ export function PlainFilePane({
           // server adopts the DISK bytes, and those must be this buffer's.
           disabled={adopting || !file || saveState.kind === "saving" || saveState.kind === "conflict"}
           onClick={adopt}
-          data-tip="Wrap this file in a new literate document, byte-exactly — the file itself does not change, its ownership does"
+          data-tip="Create a .md document that owns this file’s bytes. Future edits to this generated file write back to that document."
         >
           {adopting ? "Adopting…" : "Make literate"}
         </button>
         )}
+        </MoreActions>
         {/* The way into a session, for a file hick can debug. The strip's
             own "Debug again" takes over once a session has run, so this is
             only shown while there is none. */}
@@ -774,7 +780,9 @@ export function PlainFilePane({
           mine="your unsaved text"
           theirs="the file on disk"
           onKeepMine={overwrite}
+          keepLabel="Overwrite disk with this buffer" keepEffect="Writes your unsaved text over the file on disk."
           onTakeTheirs={reload}
+          takeLabel="Reload from disk" takeEffect="Replaces this buffer with the disk version and discards its unsaved edits."
           onMerge={openMerge}
         />
       )}

@@ -149,7 +149,9 @@ export function DiagramAssertions({
         ? `This diagram is out of date: ${failing.map((a) => `#${a.id}`).join(", ")} ${
             failing.length === 1 ? "no longer holds" : "no longer hold"
           }.`
-        : `Checked by ${assertions.map((a) => `#${a.id}`).join(", ")}.`}
+        : assertions.every(a => a.state === "passing")
+          ? `Assertions passed: ${assertions.map(a => `#${a.id}`).join(", ")}.`
+          : `Assertions not yet verified: ${assertions.filter(a => a.state !== "passing").map(a => `#${a.id}`).join(", ")}.`}
     </p>
   );
 }

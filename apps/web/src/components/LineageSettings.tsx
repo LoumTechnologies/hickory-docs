@@ -20,7 +20,7 @@ export function LineageSettings() {
   return <FeatureSettings label="Lineage settings">
     <label>Draw connections as<select aria-label="Lineage style" value={style} onChange={event => {
       saveRibbonStyle(event.target.value as RibbonStyle); window.dispatchEvent(new Event(CHANGED));
-    }}><option value="braces">Braces</option><option value="bands">Bands</option></select></label>
+    }}><option value="braces">Braces</option><option value="bands">Ribbons</option></select></label>
     <label>Document connections<select aria-label="Document lineage visibility" value={visibility} onChange={event => {
       saveRibbonVisibility(event.target.value as RibbonVisibility); window.dispatchEvent(new Event(CHANGED));
     }}><option value="caret">At the caret or on hover</option><option value="always">All connections</option></select></label>

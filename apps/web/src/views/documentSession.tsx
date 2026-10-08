@@ -1,3 +1,4 @@
+import { useDocumentPersistence, type SyncState } from "./useDocumentPersistence";
 // One document's machinery, alive for as long as the workspace holds any of
 // its tabs.
 //
@@ -43,7 +44,7 @@ import { openLocation, pathOfDocUri } from "../lib/revealLine";
 import { publishPausedElsewhere } from "../lib/pausedElsewhere";
 import { navigate } from "../router";
 
-export type Banner = { kind: "pending" | "pass" | "fail"; text: string } | null;
+export type Banner = { kind: "pending" | "pass" | "fail"; text: string; retry?: { label: string; run: () => void } } | null;
 
 /** The up-loop's "this document's generated files changed on disk" event
  * (watch.rs::notify_files_changed). It rides the run channel but is neither
@@ -82,8 +83,8 @@ export interface DocSession {
   /** A failed weave, reported inline; the editor stays reachable. */
   renderError: string | null;
   banner: Banner;
-  syncState: "idle" | "editing" | "saved";
-  /** Changed since the last explicit Save, independent of crash recovery. */
+  syncState: SyncState;
+  /** Live text differs from the last confirmed disk bytes. */
   dirty: boolean;
   liveSource: string;
   savedSource: string | null;
@@ -256,10 +257,7 @@ function useDocumentSession(
   const [banner, setBanner] = useState<Banner>(null);
   const [selectSpan, setSelectSpan] = useState<[number, number] | null>(null);
   const [dirtySource, setDirtySource] = useState<string | null>(null);
-  const [savedSource, setSavedSource] = useState<string | null>(null);
-  // "saved" once the CRDT room's debounced persist has certainly landed and
-  // the server render caught up; "editing" while the user is still typing.
-  const [syncState, setSyncState] = useState<"idle" | "editing" | "saved">("idle");
+  const { savedSource, setSavedSource, syncState, setSyncState } = useDocumentPersistence(docId, doc, dirtySource, stored => { setDoc(stored); scheduleRender(); });
   const [references, setReferences] = useState<{ locations: LspLocation[]; query: string } | null>(
     null,
   );
@@ -371,8 +369,12 @@ function useDocumentSession(
     [],
   );
 
+  const loadedDoc = useRef(doc); loadedDoc.current = doc;
   const refresh = useCallback(() => {
-    api.doc(docId).then(setDoc, (e) => setFatalError(String(e.message ?? e)));
+    api.doc(docId).then(d => { setDoc(d); setFatalError(null); }, e => {
+      if (loadedDoc.current) setBanner({ kind: "fail", text: `Could not reload ${loadedDoc.current.path}: ${String(e.message ?? e)}`, retry: { label: "Retry reload", run: refresh } });
+      else setFatalError(String(e.message ?? e));
+    });
     api.render(docId).then(
       (r) => {
         setBlocks(r.blocks);
@@ -389,13 +391,9 @@ function useDocumentSession(
   }, [docId]);
 
   useEffect(refresh, [refresh]);
-  useEffect(() => {
-    if (doc && savedSource === null) setSavedSource(doc.source);
-  }, [doc, savedSource]);
 
-  // Recovery is a separate promise from saving: the room may make live
-  // bytes durable, but the explicit Save baseline stays where the person
-  // last put it. Previously saved files opt into this; Untitled never does.
+  // Recovery drafts are separate from acknowledged file persistence.
+  // Previously named files opt into recovery; Untitled has its own policy.
   useDraftKeeper({
     path: doc?.path ?? null,
     enabled: retainUnsaved && doc !== null && savedSource !== null,
@@ -440,8 +438,8 @@ function useDocumentSession(
           checkRunRef.current = null;
           setBanner(
             msg.status === "ok"
-              ? { kind: "pass", text: "Verification passed — no drift, all expectations met." }
-              : { kind: "fail", text: "Verification failed — expectation mismatch or output drift." },
+              ? { kind: "pass", text: "Test passed — expectations match and outputs have no drift." }
+              : { kind: "fail", text: "Test failed — inspect expectation differences and output drift." },
           );
         }
         setRunningCells(new Set());
@@ -512,7 +510,7 @@ function useDocumentSession(
             next.delete(execId);
             return next;
           });
-          setFatalError(e instanceof Error ? e.message : String(e));
+          setBanner({ kind: "fail", text: `Could not run this cell: ${e instanceof Error ? e.message : String(e)}`, retry: { label: "Retry cell", run: () => runCell(execId) } });
         }
       })();
     },
@@ -543,15 +541,14 @@ function useDocumentSession(
         }
       } catch (e) {
         setRunningCells(new Set());
-        setBanner(null);
-        setFatalError(e instanceof Error ? e.message : String(e));
+        setBanner({ kind: "fail", text: `Could not run this document: ${e instanceof Error ? e.message : String(e)}`, retry: { label: "Retry Run", run: runAll } });
       }
     })();
   }, [docId, scheduleRender]);
 
   const verify = useCallback(() => {
     void (async () => {
-      setBanner({ kind: "pending", text: "Verifying — re-running pipeline against expectations…" });
+      setBanner({ kind: "pending", text: "Testing — re-running cells and checking expectations and output drift…" });
       startedCellsRef.current = new Set();
       try {
         const { run_id } = await api.check(docId);
@@ -559,43 +556,18 @@ function useDocumentSession(
         if (already !== undefined) {
           setBanner(
             already === "ok"
-              ? { kind: "pass", text: "Verification passed — no drift, all expectations met." }
-              : { kind: "fail", text: "Verification failed — expectation mismatch or output drift." },
+              ? { kind: "pass", text: "Test passed — expectations match and outputs have no drift." }
+              : { kind: "fail", text: "Test failed — inspect expectation differences and output drift." },
           );
           scheduleRender();
         } else {
           checkRunRef.current = run_id;
         }
       } catch (e) {
-        setBanner({ kind: "fail", text: e instanceof Error ? e.message : String(e) });
+        setBanner({ kind: "fail", text: `Could not test this document: ${e instanceof Error ? e.message : String(e)}`, retry: { label: "Retry Test", run: verify } });
       }
     })();
   }, [docId, scheduleRender]);
-
-  // The document has no Save button: edits go into the CRDT, which the
-  // server persists (Postgres + git) 750 ms after typing stops. All this has
-  // to do is pick the server's copy back up so the cell panels, provenance
-  // spans and ribbons stop describing the previous version. Waiting longer
-  // than the server's own debounce is deliberate — re-fetching sooner would
-  // read the pre-persist source and render one keystroke behind forever.
-  useEffect(() => {
-    // The CRDT's first sync populates the buffer, which fires docChanged
-    // just like typing does. A buffer identical to the server's copy is not
-    // an edit, and reporting "Saved" for it is a lie the user cannot check.
-    if (dirtySource === null || dirtySource === doc?.source) return;
-    setSyncState("editing");
-    const timer = setTimeout(() => {
-      Promise.all([api.doc(docId), api.render(docId)]).then(
-        ([d, r]) => {
-          setDoc(d);
-          setBlocks(r.blocks);
-          setSyncState("saved");
-        },
-        () => undefined,
-      );
-    }, 1200);
-    return () => clearTimeout(timer);
-  }, [dirtySource, doc?.source, docId]);
 
   // Load every output's provenance, so a closed file still gets its stub.
   // Refreshed after a run, because a run is when they change.
@@ -658,11 +630,15 @@ function useDocumentSession(
       const saved = await api.saveDoc(doc.id, source);
       setDoc(saved);
       setSavedSource(source);
-      setSyncState("saved");
-      void api.discardDraft(doc.path).catch(() => {});
-      return true;
+      const latest = menuStateRef.current;
+      const unchanged = (latest.dirtySource ?? latest.doc?.source) === source;
+      setSyncState(unchanged ? "saved" : "editing");
+      setBanner(current => current?.retry?.label === "Retry Save" ? null : current);
+      if (unchanged) void api.discardDraft(doc.path).catch(() => {});
+      return unchanged;
     } catch (e) {
-      setBanner({ kind: "fail", text: e instanceof Error ? e.message : String(e) });
+      setSyncState("failed");
+      setBanner({ kind: "fail", text: e instanceof Error ? e.message : String(e), retry: { label: "Retry Save", run: () => { void menuSave(); } } });
       return false;
     }
   }, []);

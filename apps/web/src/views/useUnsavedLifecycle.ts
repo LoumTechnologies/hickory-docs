@@ -1,9 +1,6 @@
-// One explicit-Save fact, consumed by every surface that talks about it.
-//
-// Crash recovery and Save are deliberately separate. A CRDT room can make
-// bytes durable without deciding that the person meant to save them; this
-// hook owns that distinction at the workspace boundary: decoration, close
-// prompts, retention and discard all read the same session fields.
+import { viewBuffers, useViewBuffersVersion } from "../lib/viewBuffers";
+// Close decisions use acknowledged file persistence, not a separate Save
+// checkpoint. Recovery drafts never count as a successful file save.
 
 import { useCallback, useEffect, useMemo } from "react";
 import type { Dispatch, MutableRefObject, SetStateAction } from "react";
@@ -50,6 +47,11 @@ export function useUnsavedLifecycle({
   plainDirtyTabs: ReadonlySet<string>;
   plainUnsavedActions: MutableRefObject<Map<string, PlainActions>>;
 }) {
+  const buffersVersion = useViewBuffersVersion();
+  useEffect(() => {
+    const open = new Set(panes(layout.root).flatMap(pane => pane.tabs.map(tab => tab.id)));
+    viewBuffers.ids().filter(id => !open.has(id)).forEach(id => viewBuffers.forget(id));
+  }, [layout]);
   const dirtyTabIds = useMemo(() => {
     const dirty = new Set<string>();
     for (const pane of panes(layout.root)) {
@@ -61,12 +63,13 @@ export function useUnsavedLifecycle({
           dirty.add(tab.id);
         }
         if (tab.kind === "file" && plainDirtyTabs.has(tab.id)) dirty.add(tab.id);
+        if (viewBuffers.get(tab.id)?.dirty) dirty.add(tab.id);
       }
     }
     return dirty;
     // registry.version is the external session store's change signal.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [layout, untitledSources, untitledBaselines, registry, registry.version, plainDirtyTabs]);
+  }, [layout, untitledSources, untitledBaselines, registry, registry.version, plainDirtyTabs, buffersVersion]);
 
   const dirtyPaths = useMemo(
     () =>
@@ -95,7 +98,8 @@ export function useUnsavedLifecycle({
         return;
       }
       void (async () => {
-        const recoverable = tab.kind === "untitled" || retainSavedDrafts;
+        const viewBuffer = viewBuffers.get(tab.id);
+        const recoverable = !viewBuffer && (tab.kind === "untitled" || retainSavedDrafts);
         const name = tab.title ?? tab.target.split("/").pop() ?? "this file";
         const answer = await prompt.askChoice(
           `Save changes to ${name}? ${
@@ -103,7 +107,7 @@ export function useUnsavedLifecycle({
               ? tab.kind === "untitled"
                 ? "If you close without saving, the unsaved changes will be retained and restored next time you open Hickory Docs."
                 : "If you close without saving, the unsaved changes will be retained and restored when you reopen this file."
-              : "Recovery for previously saved files is off; closing without saving discards these changes."
+              : viewBuffer ? "This view has no recovery draft; closing without saving discards its edits." : "Recovery for previously saved files is off; closing without saving discards these changes."
           }`,
           [
             { label: "Save", value: "save" as const },
@@ -114,7 +118,8 @@ export function useUnsavedLifecycle({
         if (!answer || answer === "cancel") return;
         if (answer === "save") {
           let saved = false;
-          if (tab.kind === "untitled") {
+          if (viewBuffer) saved = await viewBuffer.save();
+          else if (tab.kind === "untitled") {
             const activated = activate(layoutRef.current, paneId, pane.tabs.indexOf(tab));
             layoutRef.current = activated;
             setLayout(activated);
@@ -125,6 +130,8 @@ export function useUnsavedLifecycle({
             saved = (await registry.get(tab.docId)?.menuSave()) === true;
           }
           if (!saved) return;
+        } else if (viewBuffer) {
+          await viewBuffer.discard();
         } else if (tab.kind === "untitled") {
           await api.saveDraft({ path: UNTITLED_RECOVERY_KEY,
             contents: untitledSourcesRef.current[tab.id] ?? "",
@@ -175,13 +182,15 @@ export function useUnsavedLifecycle({
           .map((tab) => tab.id);
         const dirtyUntitled = panes(layoutRef.current.root).flatMap((pane) => pane.tabs)
           .filter((tab) => tab.kind === "untitled" && dirtyTabIds.has(tab.id));
+        const dirtyViews = panes(layoutRef.current.root).flatMap(pane => pane.tabs)
+          .map(tab => viewBuffers.get(tab.id)).filter(buffer => buffer?.dirty);
         const hasUntitled = dirtyUntitled.length > 0;
         const retention =
-          (dirtySaved.length === 0 && dirtyPlain.length === 0) || retainSavedDrafts
+          !hasUntitled && dirtySaved.length === 0 && dirtyPlain.length === 0 ? "" : retainSavedDrafts || (dirtySaved.length === 0 && dirtyPlain.length === 0)
             ? "Unsaved changes will be retained and restored next time you open Hickory Docs."
             : `${hasUntitled ? "Untitled changes will be retained and restored next time you open Hickory Docs. " : ""}Changes to previously saved files will be discarded because recovery for them is off.`;
         const answer = await prompt.askChoice(
-          `Save changes before closing Hickory Docs? ${retention}`,
+          `Save changes before closing Hickory Docs? ${retention}${dirtyViews.length ? " Unsaved views have no recovery draft; closing without saving discards their edits." : ""}`,
           [
             { label: "Save all", value: "save" as const },
             { label: "Close without saving", value: "close" as const },
@@ -190,6 +199,7 @@ export function useUnsavedLifecycle({
         );
         if (!answer || answer === "cancel") return;
         if (answer === "save") {
+          for (const buffer of dirtyViews) if (buffer && !(await buffer.save())) return;
           for (const session of dirtySaved) if (!(await session.menuSave())) return;
           for (const tabId of dirtyPlain) {
             if (!(await plainUnsavedActions.current.get(tabId)?.save())) return;
@@ -207,6 +217,7 @@ export function useUnsavedLifecycle({
             if (!(await saveUntitled(false))) return;
           }
         } else {
+          for (const buffer of dirtyViews) await buffer?.discard();
           for (const tab of dirtyUntitled) {
             await api.saveDraft({ path: UNTITLED_RECOVERY_KEY,
               contents: untitledSourcesRef.current[tab.id] ?? "",

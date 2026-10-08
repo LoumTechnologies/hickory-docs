@@ -1,3 +1,4 @@
+import { viewBuffers } from "./viewBuffers";
 // "Save All", for panes that save themselves.
 //
 // A document has a session the workspace can reach and tell to save. A plain
@@ -15,6 +16,7 @@ export const FLUSH_SAVES_EVENT = "hickory:flush-saves";
 /** Ask every self-saving pane to write whatever it is holding, now. */
 export function requestFlushSaves(): void {
   window.dispatchEvent(new CustomEvent(FLUSH_SAVES_EVENT));
+  viewBuffers.all().filter(buffer => buffer.dirty).forEach(buffer => { void buffer.save(); });
 }
 
 /** Answer the request. Returns the unsubscribe. */

@@ -1,3 +1,8 @@
+import { SurfaceInfo } from "../components/SurfaceInfo";
+import { MoreActions } from "../components/MoreActions";
+import { ChangePreview } from "../components/ChangePreview";
+import { DocumentComparison } from "./DocumentReading";
+import { viewBuffers } from "../lib/viewBuffers";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { EditorView } from "@codemirror/view";
 import { foldEffect, unfoldAll } from "@codemirror/language";
@@ -14,14 +19,13 @@ import { filePosition, representationOffset } from "../lsp/representationMapping
 import { comparisonChanges } from "../editor/comparison";
 import { FILES_CHANGED_EVENT } from "../shell/FolderTreePane";
 import { openLiterate, showRepresentation } from "../lib/openRepresentation";
-import { onFlushSaves } from "../lib/flushSaves";
 import { isAction } from "../lib/keymap";
 
 const noCells = new Set<string>();
 const buffers = new Map<string, string>();
 const message = (error: unknown) => error instanceof Error ? error.message : String(error);
 
-export function RepresentationPane({ id, initialBase = "", initialTarget = "" }: { id: string; initialBase?: string; initialTarget?: string }) {
+export function RepresentationPane({ id, initialBase = "", initialTarget = "", bufferId = id }: { id: string; initialBase?: string; initialTarget?: string; bufferId?: string }) {
   const [record, setRecord] = useState<Representation | null>(null);
   const [source, setSource] = useState("");
   const [mappedSource, setMappedSource] = useState("");
@@ -45,6 +49,7 @@ export function RepresentationPane({ id, initialBase = "", initialTarget = "" }:
   const accept = useCallback((next: Representation) => {
     setRecord(next); setFiles(next.files); setMappedSource(next.source);
     const text = buffers.get(id) ?? next.source;
+    current.current = { ...current.current, record: next, source: text, files: next.files };
     setSource(text);
     const view = viewRef.current;
     if (view && view.state.doc.toString() !== text) view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: text } });
@@ -65,15 +70,29 @@ export function RepresentationPane({ id, initialBase = "", initialTarget = "" }:
   const save = useCallback(async () => {
     const now = current.current;
     if (!now.record || now.busy || now.comparison?.target) return false;
+    current.current.busy = true;
     setBusy(true); setNotice("");
     try {
       const next = await representations.edit(id, now.record.revision, now.source);
-      buffers.delete(id); accept(next);
+      // A user can keep typing while the request is in flight. Preserve
+      // those later edits; only the acknowledged text becomes clean.
+      if (current.current.source === now.source) buffers.delete(id);
+      else buffers.set(id, current.current.source);
+      accept(next);
+      viewBuffers.set(bufferId, { dirty: buffers.has(id), save, discard });
+      setNotice(`Saved to ${next.backing.kind === "files" ? next.files.map(file => file.path).join(", ") : "the owning document"}.`);
       window.dispatchEvent(new Event(FILES_CHANGED_EVENT));
-      return true;
-    } catch (e) { setNotice(message(e)); return false; } finally { setBusy(false); }
-  }, [id, accept]);
-  useEffect(() => onFlushSaves(async () => { const now = current.current; if (now.record && now.source !== now.record.source && !now.comparison?.target) await save(); }), [save]);
+      return !buffers.has(id);
+    } catch (e) { setNotice(message(e)); return false; } finally { current.current.busy = false; setBusy(false); }
+  }, [id, bufferId, accept]);
+  const discard = useCallback(() => {
+    buffers.delete(id);
+    const now = current.current;
+    if (now.record) accept(now.record);
+    setNotice("");
+    viewBuffers.set(bufferId, { dirty: false, save, discard });
+  }, [id, bufferId, accept, save]);
+  useEffect(() => { viewBuffers.set(bufferId, { dirty, save, discard }); }, [bufferId, dirty, save, discard]);
   useEffect(() => { const key = (event: KeyboardEvent) => { if (viewRef.current?.hasFocus && isAction(event, "file.save")) { event.preventDefault(); void save(); } }; window.addEventListener("keydown", key); return () => window.removeEventListener("keydown", key); }, [save]);
   const change = useCallback((text: string) => { setSource(text); if (!current.current.comparison?.target) buffers.set(id, text); }, [id]);
   const extensions = useMemo(() => [
@@ -110,15 +129,24 @@ export function RepresentationPane({ id, initialBase = "", initialTarget = "" }:
   if (!record) return <p role={notice ? "alert" : "status"}>{notice || "Opening literate view…"}</p>;
   const historical = !!comparison?.target;
   return <section className="representation-pane" aria-label="Literate editor">
+    <SurfaceInfo name="Literate view" editable={!historical} destination={historical ? "Historical comparison; this view writes nothing." : record.backing.kind === "files" ? `Save writes code to ${record.files.map(file => file.path).join(", ")} and keeps this reading arrangement locally.` : "Save writes changes into the owning document and keeps this reading arrangement locally."} />
     <div className="doc-tab-toolbar" role="toolbar" aria-label="Literate view actions">
-      <span>{record.backing.kind === "files" ? "Source-backed view" : "Document-backed view"}</span>
-      <button className="btn btn-primary" disabled={!dirty || busy || historical} onClick={() => void save()}>Save code and view</button>
+      <button className="btn btn-primary" disabled={!dirty || busy || historical} onClick={() => void save()}>{busy ? "Saving…" : "Save"}</button>
       <button className="btn" disabled={dirty || busy} onClick={() => void refresh()}>Refresh from source</button>
-      <button className="btn" disabled={busy || !dirty || historical} onClick={() => { buffers.delete(id); accept(record); setNotice(""); }}>Discard unsaved edits</button>
+      <span role="status">{dirty ? "Unsaved changes" : "Saved"}</span>
+      <MoreActions label="More actions for this view">
+      <button className="btn" disabled={busy || !dirty || historical} onClick={discard}>Discard unsaved edits</button>
       {record.backing.kind === "files" && <button className="btn" disabled={dirty || busy} onClick={() => void openLiterate(record.backing).catch(e => setNotice(message(e)))}>Rebuild reading from current files</button>}
-      <button className="btn" disabled={dirty} onClick={() => void representations.keep(id).then(v => setNotice(`View kept locally at ${v.path}`), e => setNotice(message(e)))}>Keep view locally</button>
-      <button className="btn" onClick={() => setAgent(v => !v)}>Explain or edit with ACP</button>
+      <button className="btn" disabled={dirty || busy || historical} onClick={() => void representations.keep(id).then(v => setNotice(`View kept locally at ${v.path}`), e => setNotice(message(e)))}>Keep view locally</button>
+      <button className="btn" disabled={historical} onClick={() => setAgent(v => !v)}>Explain or edit with ACP</button>
+      </MoreActions>
     </div>
+    {dirty && !historical && <ChangePreview heading="Review changes before saving" collapsible effects="Save writes these edits to the targets named above. This view has no recovery draft; closing without saving discards its edits.">
+      <DocumentComparison id={`${id}:preview`} path="arrangement.md" before={record.source} after={source} />
+      {files.filter(file => file.content !== record.files.find(base => base.path === file.path)?.content).map(file => <section key={file.path}><strong>{file.path}</strong>
+        <DocumentComparison id={`${id}:preview:${file.path}`} path={file.path} before={record.files.find(base => base.path === file.path)?.content ?? ""} after={file.content} />
+      </section>)}
+    </ChangePreview>}
     <form className="representation-comparison" onSubmit={e => { e.preventDefault(); void compare(); }}>
       <label>Compare from <input aria-label="Comparison base" value={base} placeholder="HEAD, branch, or commit" onChange={e => setBase(e.target.value)} /></label>
       <label>to <input aria-label="Comparison target" value={target} placeholder="working tree" onChange={e => setTarget(e.target.value)} /></label>
@@ -137,7 +165,7 @@ export function RepresentationPane({ id, initialBase = "", initialTarget = "" }:
     </form>
     {comparison && record.backing.kind === "files" && <p className="muted">Explanations belong to this reading arrangement; they are not evidence from the compared commit.</p>}
     {comparison && <p className="muted">{comparison.base.slice(0, 12)} → {comparison.target?.slice(0, 12) ?? "working tree"}{historical ? " · historical, read-only; open a worktree to run this revision" : " · current side is editable"}</p>}
-    {record.explanation_stale && <p role="status">Source changed. AI explanations need review or regeneration.</p>}
+    {record.explanation_stale && <p role="status">Stale explanation — source changed. Review or regenerate the explanation; this is not an execution verdict.</p>}
     {record.local_warning && <p role="alert">{record.local_warning}</p>}
     {notice && <p role="alert">{notice}</p>}
     {!historical && files.map(file => <RepresentationTools key={file.path} file={file} source={mappedSource} view={editor} saved={!dirty} onDiagnostics={onDiagnostics} onDebug={onDebug} onMessage={setNotice} askText={prompt.askText} askChoice={prompt.askChoice} />)}

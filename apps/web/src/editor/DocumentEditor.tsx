@@ -672,6 +672,7 @@ export function DocumentEditor({
     if (runningCells.has(block.id)) return "running";
     if (block.status === "ok") return "ok";
     if (block.status === "failed") return "failed";
+    if (block.status === "stale") return "stale";
     return "idle";
   };
 

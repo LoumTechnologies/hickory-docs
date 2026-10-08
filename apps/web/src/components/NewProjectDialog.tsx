@@ -1,3 +1,4 @@
+import { ChangePreview } from "./ChangePreview";
 // File → New Project: `dotnet new`, as a form.
 //
 // Three panes with one idea between them. On the left every template this
@@ -105,6 +106,7 @@ export function NewProjectDialog({ onStarted, onClose }: NewProjectDialogProps) 
    * away. Holds the program's name, because the screen has to say which. */
   const [missingTool, setMissingTool] = useState<string | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [reload, setReload] = useState(0);
 
   useEffect(() => {
     let live = true;
@@ -131,7 +133,7 @@ export function NewProjectDialog({ onStarted, onClose }: NewProjectDialogProps) 
     return () => {
       live = false;
     };
-  }, [toolchain]);
+  }, [toolchain, reload]);
 
   if (missingTool === "dotnet") return <NoSdkScreen onClose={onClose} />;
   if (missingTool) return <NoToolScreen tool={missingTool} onClose={onClose} />;
@@ -141,11 +143,9 @@ export function NewProjectDialog({ onStarted, onClose }: NewProjectDialogProps) 
         <div className="new-project__message">
           <h2>Could not read the templates</h2>
           <p className="new-project__error">{loadError}</p>
-          <p className="insert-menu__hint">
-            `dotnet new list` is what this asks. Running it in a terminal
-            usually says more than this can.
-          </p>
+          <p className="insert-menu__hint">Your project has not been created. Retry after addressing the reported problem.</p>
           <div className="insert-menu__actions">
+            <button type="button" className="btn" onClick={() => setReload(n => n + 1)}>Retry reading templates</button>
             <button type="button" className="btn" onClick={onClose}>
               Close
             </button>
@@ -229,7 +229,7 @@ function NoSdkScreen({ onClose }: { onClose: () => void }) {
         </p>
         <p className="insert-menu__hint">
           Install it from{" "}
-          <span className="mono">https://dotnet.microsoft.com/download</span>,
+          <a href="https://dotnet.microsoft.com/download" target="_blank" rel="noreferrer">the .NET SDK download page</a>,
           then reopen this window — a running process keeps the PATH it was
           started with, so an SDK installed just now will not be visible until
           it restarts.
@@ -797,8 +797,7 @@ function Chooser({
             </div>
           </div>
 
-          <div className="insert-menu__preview">
-            <h3 className="insert-menu__preview-title">The commit this makes</h3>
+          <ChangePreview heading="The commit this makes">
             <pre className="insert-menu__preview-text mono">
               {preview?.message ?? "…"}
             </pre>
@@ -834,7 +833,7 @@ function Chooser({
               replayed with a newer SDK later. Your changes go in the next
               commit.
             </p>
-          </div>
+          </ChangePreview>
 
           {failure && (
             <p className="insert-menu__problem" role="alert">

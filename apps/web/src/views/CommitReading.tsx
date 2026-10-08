@@ -1,3 +1,4 @@
+import { SurfaceInfo } from "../components/SurfaceInfo";
 import { useEffect, useState } from "react";
 import { api } from "../api/client";
 import type { CommitReadingData } from "../api/git";
@@ -14,6 +15,7 @@ export function CommitReading({ sha }: { sha: string }) {
   if (error) return <p role="alert">{error}</p>;
   if (!data) return <p className="muted">Reading commit…</p>;
   return <article className="document-reading" aria-label="Commit reading">
+    <SurfaceInfo name={`Commit · ${data.sha.slice(0, 12)}`} editable={false} destination="Historical bytes; this view writes nothing. Open a worktree to edit or run this revision." />
     <header className="doc-tab-toolbar">{data.sha.slice(0, 12)} · read-only · {data.parent ? "compared with its first parent" : "initial commit"}</header>
     <DocumentComparison id={`${sha}:message`} path="message.md" before={data.message} after={data.message} />
     {data.files.length === 0 && <p className="muted">No files changed.</p>}

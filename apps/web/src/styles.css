@@ -8925,3 +8925,18 @@ button.status-bar__item:hover { background: var(--bg-sunken); color: var(--fg); 
   white-space: pre-wrap;
   height: auto;
 }
+
+/* Every view identifies its write destination; action feedback stays local. */
+.surface-info { display: flex; flex-wrap: wrap; gap: .35rem .75rem; padding: .35rem .65rem; font-size: .78rem; color: var(--fg-muted); border-bottom: 1px solid var(--border); }
+.surface-info strong { color: var(--fg); font-weight: 500; }
+.action-notice { display: flex; align-items: center; flex-wrap: wrap; gap: .5rem; }
+.action-notice > span { flex: 1; }
+.diverged__effects { flex-basis: 100%; margin: .25rem 0; }
+.more-actions { position: relative; }
+.more-actions > summary { cursor: pointer; list-style: none; padding: .25rem .65rem; }
+.more-actions > summary::-webkit-details-marker { display: none; }
+.more-actions__items { position: absolute; right: 0; top: 100%; z-index: 40; min-width: 15rem; display: flex; flex-direction: column; gap: .3rem; padding: .5rem; background: var(--bg-raised); border: 1px solid var(--border); border-radius: .35rem; box-shadow: var(--shadow); }
+.change-preview > summary { cursor: pointer; padding: .5rem; }
+.change-preview > .document-reading, .change-preview > section { max-height: 20rem; overflow: auto; }
+
+.cm-card-rail__icon.is-stale { color: var(--stale); }

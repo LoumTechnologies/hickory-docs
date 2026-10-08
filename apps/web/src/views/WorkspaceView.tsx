@@ -1,3 +1,4 @@
+import { viewBuffers } from "../lib/viewBuffers";
 import { hasCommandInstaller } from "./CommandPathSettings";
 // One workspace owns the layout across navigation. Documents and tools open
 // on demand; the startup buffer is an editable introduction without a file.
@@ -1270,6 +1271,12 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
         void formatFirst().then(() => saveUntitled(detail === "save-as"));
         return;
       }
+      const active = focusedPane?.tabs[focusedPane.active];
+      const working = active && (viewBuffers.get(active.id) ?? plainUnsavedActions.current.get(active.id));
+      if (detail === "save" && working) {
+        void formatFirst().then(() => working.save());
+        return;
+      }
       const session = registry.get(focusedIdRef.current);
       if (!session) return;
       if (detail === "save") {
@@ -1484,7 +1491,6 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
     plainDirtyTabs,
     plainUnsavedActions,
   });
-  const banner = focused?.banner ?? null;
   /**
    * What one tab shows.
    *
@@ -1508,6 +1514,7 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
     if (tab.kind === "generated" && tab.docId) {
       return (
         <GeneratedTabBody
+          bufferId={tab.id}
           registry={registry}
           docId={tab.docId}
           path={tab.target}
@@ -1713,17 +1720,6 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
         {/* Asked at open, because a clone that never ran `hick init` merges
             `.md` documents with git's line merge and is told nothing. */}
         {folderOpen && <MergeDriverNotice />}
-        {banner && (
-          <div className={`banner banner-${banner.kind}`} role="status">
-            {banner.text}
-          </div>
-        )}
-        {focused?.renderError && (
-          <div className="banner banner-fail" role="status">
-            Could not weave this document — editing still works.{" "}
-            {focused.renderError}
-          </div>
-        )}
         <div className="shell-host" ref={setShellBox}>
           {/* The machinery, one per open document, none of it visible: the
               tabs below subscribe to what these publish. */}

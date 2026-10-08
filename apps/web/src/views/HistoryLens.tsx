@@ -1,3 +1,4 @@
+import { SurfaceInfo } from "../components/SurfaceInfo";
 import { openCommit } from "../lib/readingViews";
 // The repository's history, read as a story — and, above the floor, edited.
 //
@@ -568,6 +569,7 @@ export function HistoryLens() {
 
   return (
     <div className="story" role="region" aria-label="History, as a story">
+      <SurfaceInfo name="Repository history" editable destination="Actions change git history above the publication floor or create a new commit. Published commits are read-only." />
       <p className="story__banner muted" role="note">
         A lens over this repository’s history, oldest first. It exists on disk nowhere and cannot
         be saved. Cards below the publication floor are records and carry no verbs; drafts above it

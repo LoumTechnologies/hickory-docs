@@ -156,3 +156,21 @@ describe("createOutputSaver", () => {
     expect(s.hasPendingEdits()).toBe(true);
   });
 });
+
+// Guarantee: docs/guarantees/authoring/saved-means-the-displayed-bytes-reached-the-file.md
+it("Save fails while a generated edit is refused, then retries the same pending bytes", async () => {
+  let refuse = true;
+  let remote = LOADED;
+  const { s } = saver(async edits => {
+    if (refuse) throw new Error("cannot reverse this edit");
+    remote = applyEdits(remote, edits);
+  });
+  s.changed("changed\n");
+  expect(await s.flushNow()).toBe(false);
+  expect(remote).toBe(LOADED);
+  expect(s.hasPendingEdits()).toBe(true);
+  refuse = false;
+  expect(await s.flushNow()).toBe(true);
+  expect(remote).toBe("changed\n");
+  expect(s.hasPendingEdits()).toBe(false);
+});

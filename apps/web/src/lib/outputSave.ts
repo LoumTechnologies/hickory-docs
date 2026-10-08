@@ -21,6 +21,7 @@ export interface OutputSaverOptions {
   post: (edits: TextEdit[]) => Promise<unknown>;
   /** Save failed (message) or succeeded after a failure (null). */
   onError: (message: string | null) => void;
+  onState?: (state: "saving" | "saved" | "failed") => void;
   /** Pause that turns keystrokes into a save. Default 600ms. */
   debounceMs?: number;
 }
@@ -38,6 +39,9 @@ export interface OutputSaver {
    * it would eat their keystrokes.
    */
   hasPendingEdits(): boolean;
+  baselineContent(): string;
+  flushNow(): Promise<boolean>;
+  discardPending(): Promise<string>;
   /** Cancel the pending debounce (unmount). In-flight POSTs settle alone. */
   dispose(): void;
 }
@@ -64,10 +68,12 @@ export function createOutputSaver(options: OutputSaverOptions): OutputSaver {
         await options.post(edits);
         baseline = target;
         options.onError(null);
+        options.onState?.(latest === baseline ? "saved" : "saving");
       } catch (e) {
         // The baseline stays: the server refused, so it still holds the old
         // bytes, and the next save's diff must carry this edit again.
         options.onError(e instanceof Error ? e.message : String(e));
+        options.onState?.("failed");
       }
     });
   };
@@ -79,6 +85,7 @@ export function createOutputSaver(options: OutputSaverOptions): OutputSaver {
     },
     changed(next: string) {
       latest = next;
+      options.onState?.(next === baseline ? "saved" : "saving");
       if (timer !== null) clearTimeout(timer);
       timer = setTimeout(flush, debounce);
     },
@@ -86,6 +93,23 @@ export function createOutputSaver(options: OutputSaverOptions): OutputSaver {
       // A successful save sets baseline = the text it sent, so a settled
       // saver reports false even though `latest` is still populated.
       return latest !== null && latest !== baseline;
+    },
+    baselineContent() { return baseline; },
+    async flushNow() {
+      if (timer !== null) clearTimeout(timer);
+      timer = null;
+      flush();
+      await chain;
+      return latest === null || latest === baseline;
+    },
+    async discardPending() {
+      if (timer !== null) clearTimeout(timer);
+      timer = null;
+      await chain;
+      latest = null;
+      options.onError(null);
+      options.onState?.("saved");
+      return baseline;
     },
     dispose() {
       if (timer !== null) clearTimeout(timer);

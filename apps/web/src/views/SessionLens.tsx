@@ -1,3 +1,4 @@
+import { SurfaceInfo } from "../components/SurfaceInfo";
 // The agent pane's history: the session document, with line numbers, the
 // conversation's elements drawn as cards in place of their source, and the
 // provenance each element declared handed to the ribbon overlay.
@@ -236,6 +237,7 @@ export function SessionLens({ path, stamp, showCollapsedLineage = false }: Sessi
 
   return (
     <div className="session-lens" data-session-lens={path}>
+      <SurfaceInfo name="Conversation history" editable={false} destination="Reads the session document. This view writes nothing; replies belong in the conversation editor." />
       {error && <p className="error">{error}</p>}
       <div ref={hostRef} className="editor-cm-host session-lens__editor" />
       {slots.map((slot) => {

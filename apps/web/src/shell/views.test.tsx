@@ -11,13 +11,20 @@
 //    owning document's editor flashes.
 
 import { afterEach, describe, expect, it } from "vitest";
-import { cleanup, render, waitFor } from "@testing-library/react";
+import { act, cleanup, render, waitFor } from "@testing-library/react";
 import type { EditorView } from "@codemirror/view";
 import { installMockHandler } from "../api/client";
 import type { OutputFile, SourceEdit } from "../api/types";
 import { GeneratedFileView } from "./views";
+import { viewBuffers } from "../lib/viewBuffers";
 
-afterEach(cleanup);
+afterEach(async () => {
+  cleanup();
+  for (const id of viewBuffers.ids()) {
+    await viewBuffers.get(id)?.discard();
+    viewBuffers.forget(id);
+  }
+});
 
 const file = (content: string): OutputFile => ({
   path: "src/hello.py",
@@ -75,6 +82,66 @@ const rerenderWith = (
   );
 
 describe("GeneratedFileView live updates", () => {
+  // Guarantee: docs/guarantees/authoring/saved-means-the-displayed-bytes-reached-the-file.md.
+  it("retains unsent text across a tab switch and saves it through the workspace", async () => {
+    const server = serve("x = 1\n");
+    const first = mount(null);
+    await waitFor(() => expect(first.view()).not.toBeNull());
+    act(() => first.view()!.dispatch({ changes: { from: 4, to: 5, insert: "2" }, userEvent: "input" }));
+    first.unmount();
+    const second = mount(null);
+    await waitFor(() => expect(second.view()?.state.doc.toString()).toBe("x = 2\n"));
+    await act(async () => expect(await viewBuffers.get("d1:src/hello.py")!.save()).toBe(true));
+    expect(server.editBodies).toHaveLength(1);
+    expect(viewBuffers.get("d1:src/hello.py")?.dirty).toBe(false);
+  });
+
+  it("holds retained text when the generated file changed while the tab was inactive", async () => {
+    const server = serve("x = 1\n");
+    const first = mount(null);
+    await waitFor(() => expect(first.view()).not.toBeNull());
+    act(() => first.view()!.dispatch({ changes: { from: 4, to: 5, insert: "2" }, userEvent: "input" }));
+    first.unmount();
+    server.content = "x = 3\n";
+    const second = mount(null);
+    await waitFor(() => expect(second.view()?.state.doc.toString()).toBe("x = 2\n"));
+    await act(async () => expect(await viewBuffers.get("d1:src/hello.py")!.save()).toBe(false));
+    expect(server.editBodies).toHaveLength(0);
+    expect(second.container.textContent).toContain("changed while this buffer was inactive");
+    await act(async () => viewBuffers.get("d1:src/hello.py")!.discard());
+    expect(second.view()?.state.doc.toString()).toBe("x = 3\n");
+  });
+
+  it("does not duplicate an in-flight reverse edit after remounting", async () => {
+    let finish!: () => void;
+    let writes = 0;
+    let remote = "x = 1\n";
+    installMockHandler(async (method, path) => {
+      if (method === "GET" && path.includes("/outputs/file")) return file(remote);
+      if (method === "POST" && path.endsWith("/outputs/edit")) {
+        writes++;
+        await new Promise<void>(resolve => { finish = resolve; });
+        remote = "x = 2\n";
+        return { source_edits: [], applied: true };
+      }
+      throw new Error(`unexpected ${method} ${path}`);
+    });
+    const first = mount(null);
+    await waitFor(() => expect(first.view()).not.toBeNull());
+    act(() => first.view()!.dispatch({ changes: { from: 4, to: 5, insert: "2" }, userEvent: "input" }));
+    const saving = viewBuffers.get("d1:src/hello.py")!.save();
+    await waitFor(() => expect(writes).toBe(1));
+    first.unmount();
+    const second = mount(null);
+    await waitFor(() => expect(second.view()?.state.doc.toString()).toBe("x = 2\n"));
+    await act(async () => expect(await viewBuffers.get("d1:src/hello.py")!.save()).toBe(false));
+    await act(async () => { finish(); await saving; });
+    expect(writes).toBe(1);
+    expect(viewBuffers.get("d1:src/hello.py")?.dirty).toBe(true);
+    await act(async () => viewBuffers.get("d1:src/hello.py")!.discard());
+    expect(second.view()?.state.doc.toString()).toBe("x = 2\n");
+  });
+
   it("reconciles an incoming re-weave into the buffer and flashes the change", async () => {
     serve("print('one')\n");
     const utils = mount(null);

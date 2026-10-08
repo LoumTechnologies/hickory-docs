@@ -1,3 +1,6 @@
+import { viewBuffers } from "../lib/viewBuffers";
+import { ActionNotice } from "../components/ActionNotice";
+import { SurfaceInfo } from "../components/SurfaceInfo";
 // What goes inside a pane.
 //
 // The shell knows nothing about documents or generated files; these are the
@@ -17,13 +20,18 @@ import { MergeView } from "../components/MergeView";
 import type { DivergedOutput } from "../api/types";
 import type { OutputFile, SourceEdit } from "../api/types";
 import { OutputEditorPane, provToChars, type ProvChar } from "../components/OutputEditorPane";
-import { createOutputSaver } from "../lib/outputSave";
+import { createOutputSaver, type OutputSaver } from "../lib/outputSave";
 import { SamplePicker, selectedLines, type LineRange } from "./SamplePicker";
+
+const pendingOutputs = new Map<string, { contents: string; base: string }>();
+const pendingWrites = new Map<string, Promise<unknown>>();
+const bufferOwners = new Map<string, OutputSaver>();
 
 /** One generated file, live, with its provenance carried into the LSP. */
 export function GeneratedFileView({
   docId,
   path,
+  bufferId = `${docId}:${path}`,
   liveFile,
   makeOutputLsp,
   onSourceEdits,
@@ -32,6 +40,7 @@ export function GeneratedFileView({
 }: {
   docId: string;
   path: string;
+  bufferId?: string;
   onSource?: (path: string, source: string) => void;
   /**
    * The session's freshest copy of this file, refetched after every run and
@@ -55,7 +64,11 @@ export function GeneratedFileView({
 }) {
   const [file, setFile] = useState<OutputFile | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const outputView = useRef<EditorView | null>(null);
+  const [saveState, setSaveState] = useState<"saving" | "saved" | "failed" | null>(null);
+  const pendingKey = `${docId}:${path}`;
   const [saveError, setSaveError] = useState<string | null>(null);
+  const changedWhileAway = useRef(false);
   const onSourceRef = useRef(onSource);
   onSourceRef.current = onSource;
   const onSourceEditsRef = useRef(onSourceEdits);
@@ -113,10 +126,20 @@ export function GeneratedFileView({
   // re-render, so each save re-sent every earlier edit and the document
   // gained a duplicate of them all (see lib/outputSave.ts and its test).
   const saver = useMemo(
-    () =>
-      createOutputSaver({
+    () => {
+      const saver = createOutputSaver({
         post: async (edits) => {
-          const response = await api.editOutput(docId, path, edits);
+          // A tab may remount while its previous save is still settling.
+          // Never send a second diff based on the same old bytes.
+          if (pendingWrites.has(pendingKey)) throw new Error("An earlier save is still in progress. Your edits are held; reload the generated file after it finishes.");
+          if (changedWhileAway.current) throw new Error("The generated file changed while this buffer was inactive. Reload it before editing again.");
+          const pending = pendingOutputs.get(pendingKey);
+          if (pending && pending.base !== saver.baselineContent()) throw new Error("An earlier save changed this buffer’s baseline. Reload the generated file before editing again.");
+          const write = api.editOutput(docId, path, edits);
+          pendingWrites.set(pendingKey, write);
+          const response = await write.finally(() => {
+            if (pendingWrites.get(pendingKey) === write) pendingWrites.delete(pendingKey);
+          });
           // The response says WHERE in the document the edit landed; the
           // session flashes those spans in the document editor, so the
           // resolution is visible instead of silent.
@@ -124,14 +147,41 @@ export function GeneratedFileView({
           return response;
         },
         onError: setSaveError,
-      }),
-    [docId, path],
+        onState: state => {
+          const pending = pendingOutputs.get(pendingKey);
+          if (state === "saved" && pending?.contents === saver.baselineContent()) pendingOutputs.delete(pendingKey);
+          else if (state === "saved" && pending) pending.base = saver.baselineContent();
+          if (bufferOwners.get(bufferId) !== saver) return;
+          setSaveState(state);
+          viewBuffers.set(bufferId, { dirty: state !== "saved", save: () => saver.flushNow(), discard: async () => {
+            const fresh = changedWhileAway.current ? await api.outputFile(docId, path) : null;
+            const text = await saver.discardPending(); pendingOutputs.delete(pendingKey);
+            const restored = fresh?.content ?? text;
+            changedWhileAway.current = false;
+            saver.load(restored);
+            const view = outputView.current;
+            if (view) view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: restored } });
+          } });
+        },
+      });
+      bufferOwners.set(bufferId, saver);
+      return saver;
+    },
+    [docId, path, bufferId, pendingKey],
   );
   useEffect(() => () => saver.dispose(), [saver]);
   useEffect(() => {
-    if (file) saver.load(file.content);
+    if (file) {
+      const pending = pendingOutputs.get(pendingKey);
+      changedWhileAway.current = pending !== undefined && (pending.base !== file.content || pendingWrites.has(pendingKey));
+      saver.load(pending?.base ?? file.content);
+      if (pending !== undefined) saver.changed(pending.contents);
+    }
   }, [file, saver]);
-  const save = useCallback((next: string) => saver.changed(next), [saver]);
+  const save = useCallback((next: string) => {
+    pendingOutputs.set(pendingKey, { contents: next, base: saver.baselineContent() });
+    saver.changed(next);
+  }, [saver, pendingKey]);
 
   // A re-weave arrived (run, up-loop, an edit in the document pane): adopt
   // the fresh copy, which the pane reconciles into its live buffer with a
@@ -176,6 +226,8 @@ export function GeneratedFileView({
 
   return (
     <div className="generated-view">
+      <SurfaceInfo name={`Generated file · ${path}`} editable destination="Editable regions save automatically into the owning document; generated regions are read-only." />
+      {saveState && <span className="save-state" role="status">{saveState === "saving" ? "Saving…" : saveState === "saved" ? "Saved to owning document" : "Unsaved changes"}</span>}
       {diverged && dismissed !== diverged.reason && !merging && (
         <DivergedBanner
           what={path}
@@ -183,6 +235,8 @@ export function GeneratedFileView({
           mine="what is on disk"
           theirs="what the document produces"
           onKeepMine={() => setDismissed(diverged.reason)}
+          keepLabel="Leave disk unchanged" keepEffect="Dismisses this warning; the document and disk still differ."
+          takeLabel="Regenerate from document" takeEffect="Replaces disk contents with the document’s output."
           onTakeTheirs={
             diverged.kind === "held"
               ? () =>
@@ -223,15 +277,21 @@ export function GeneratedFileView({
         extensions={extensions}
         onLocalEdit={save}
         onViewReady={(view) => {
+        outputView.current = view;
+        if (view && pendingOutputs.has(pendingKey)) {
+          const pending = pendingOutputs.get(pendingKey)!.contents;
+          view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: pending } });
+        }
         if (view) onSourceRef.current?.(path, view.state.doc.toString());
         onReady?.(view ? { view, file } : null);
       }}
       />
       {range && <SamplePicker path={path} range={range} />}
       {saveError && (
-        <p className="generated-view__error" role="alert">
-          That edit could not be resolved into the document: {saveError}
-        </p>
+        <ActionNotice kind="fail" retry={{ label: "Retry Save", run: () => { void saver.flushNow(); } }}>
+          Could not save into the owning document. Your edits remain in this buffer: {saveError}
+          <button type="button" onClick={() => { void viewBuffers.get(bufferId)?.discard(); }}>Discard this buffer and reload</button>
+        </ActionNotice>
       )}
     </div>
   );

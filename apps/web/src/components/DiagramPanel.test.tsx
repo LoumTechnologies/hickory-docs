@@ -34,7 +34,7 @@ describe("the diagram panel", () => {
     );
     await waitFor(() => expect(screen.getByTestId("drawn")).toBeTruthy());
     expect(screen.getByRole("status").textContent).toContain(
-      "Checked by #no-back-edges",
+      "Assertions passed: #no-back-edges",
     );
   });
 

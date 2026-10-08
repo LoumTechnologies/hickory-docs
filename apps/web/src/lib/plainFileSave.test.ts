@@ -116,3 +116,16 @@ describe("createPlainSaver", () => {
     expect(remote.content).toBe("edited\n");
   });
 });
+
+// Guarantee: docs/guarantees/authoring/saved-means-the-displayed-bytes-reached-the-file.md
+it("does not report Save succeeded while a plain file is parked on a conflict", async () => {
+  const remote = server("base\n");
+  const { s, states } = saver(remote);
+  remote.externalWrite("external\n");
+  s.changed("buffer\n");
+  await settle();
+  expect(await s.flushNow()).toBe(false);
+  s.changed("newer buffer\n");
+  expect(states.at(-1)).toEqual({ kind: "conflict" });
+  expect(remote.content).toBe("external\n");
+});

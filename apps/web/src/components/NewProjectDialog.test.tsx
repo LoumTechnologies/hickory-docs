@@ -153,8 +153,8 @@ describe("the machine's own templates", () => {
     ready();
     await screen.findByText("-f, --framework");
     // A choice the person may decline to make at all.
-    expect(screen.getByText("(leave to dotnet)")).toBeTruthy();
-    expect(screen.getByText(/Target net9\.0/)).toBeTruthy();
+    expect(await screen.findByText("(leave to dotnet)")).toBeTruthy();
+    expect(await screen.findByText(/Target net9\.0/)).toBeTruthy();
   });
 
   it("re-reads the options when the language changes", async () => {
@@ -471,7 +471,7 @@ describe("a machine with no SDK", () => {
     // A sentence and a link, not a button: this product has no catalogue for
     // a platform install and no business fetching one.
     expect(screen.queryByRole("button", { name: /install/i })).toBeNull();
-    expect(screen.getByText(/dotnet\.microsoft\.com\/download/)).toBeTruthy();
+    expect(screen.getByRole("link", { name: "the .NET SDK download page" }).getAttribute("href")).toBe("https://dotnet.microsoft.com/download");
   });
 
   it("reports any other failure as itself", async () => {

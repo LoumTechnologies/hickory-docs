@@ -18,9 +18,13 @@ export interface DivergedBannerProps {
   theirs: string;
   /** Keep mine. Absent when keeping is the default and needs no click. */
   onKeepMine?: () => void;
+  keepLabel: string;
+  keepEffect: string;
   /** Take theirs. Absent when theirs does not exist yet; `takeTheirsHint`
    * then says what would make it exist. */
   onTakeTheirs?: () => void;
+  takeLabel: string;
+  takeEffect: string;
   takeTheirsHint?: string;
   /** Open the three-way merge. */
   onMerge?: () => void;
@@ -32,8 +36,8 @@ export function DivergedBanner({
   reason,
   mine,
   theirs,
-  onKeepMine,
-  onTakeTheirs,
+  onKeepMine, keepLabel, keepEffect,
+  onTakeTheirs, takeLabel, takeEffect,
   takeTheirsHint,
   onMerge,
   error,
@@ -45,13 +49,13 @@ export function DivergedBanner({
       </span>
       <span className="diverged__ways">
         {onKeepMine && (
-          <button type="button" className="btn btn-small" onClick={onKeepMine}>
-            Keep mine
+          <button type="button" className="btn btn-small" onClick={onKeepMine} data-tip={keepEffect}>
+            {keepLabel}
           </button>
         )}
         {onTakeTheirs ? (
-          <button type="button" className="btn btn-small" onClick={onTakeTheirs}>
-            Take theirs
+          <button type="button" className="btn btn-small" onClick={onTakeTheirs} data-tip={takeEffect}>
+            {takeLabel}
           </button>
         ) : (
           takeTheirsHint && <span className="muted">{takeTheirsHint}</span>
@@ -62,6 +66,7 @@ export function DivergedBanner({
           </button>
         )}
       </span>
+      <p className="muted diverged__effects">{onKeepMine && keepEffect} {onTakeTheirs && takeEffect}</p>
       {error && <span className="error"> {error}</span>}
     </div>
   );

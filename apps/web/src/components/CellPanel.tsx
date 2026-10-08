@@ -62,7 +62,7 @@ export interface CellPanelProps {
  *
  *  - status ok + expect: no transcript by default (the verified expect body
  *    in the source is the single visible copy); a "Replay" toggle reveals the
- *    animated transcript on demand, and the bar shows "✓ output verified".
+ *    animated transcript on demand, and the bar shows "✓ Expected output matches".
  *  - status failed + expect: the actual output earns its second copy — shown
  *    as a compact line diff against the expect body; transcript behind Replay.
  *  - no expect: the transcript IS the output — visible as before.
@@ -117,8 +117,8 @@ export function CellPanel({
         </span>
         <StatusChip status={block.status} running={running} />
         {verified && (
-          <span className="cell-verified" data-tip="the expect block above is the verified output">
-            ✓ output verified
+          <span className="cell-verified" data-tip="The recorded stdout matches this cell’s expectation; this does not assert that the prose is correct.">
+            ✓ Expected output matches
           </span>
         )}
         {block.ingested && <IngestedChip ingested={block.ingested} />}

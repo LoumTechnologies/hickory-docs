@@ -211,7 +211,7 @@ describe("DocumentEditor (WYSIWYG over raw source)", () => {
     // for, and the command it ran is shown in place of the tags.
     await waitFor(() => expect(container.querySelector(".cm-rendered-exec")).toBeTruthy());
     expect(screen.getByTestId("cell-command").textContent).toContain("$ hick --version");
-    expect(screen.getByText("ok")).toBeTruthy();
+    expect(screen.getByText("Recorded · run succeeded")).toBeTruthy();
     // The card is something to READ: not one clickable thing inside it.
     expect(container.querySelector(".cm-rendered-exec button")).toBeNull();
     // The tags are folded away, not deleted: the document still holds them.

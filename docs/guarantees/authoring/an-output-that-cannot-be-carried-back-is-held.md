@@ -61,3 +61,9 @@ Last LLM verification:
   including the hold lifting when the document catches up);
   `crates/hickory-cli/tests/round_trip.rs` (a `git checkout` of an output
   under the app's own loop stays on disk and is reported held).
+
+> **Amended 2026-10-08:** the divergence mechanism is unchanged; the historical
+> “keep mine / take theirs” labels are superseded by explicit write consequences.
+> Generated files offer “Leave disk unchanged” and “Regenerate from document”;
+> plain buffers offer “Overwrite disk with this buffer” and “Reload from disk”.
+> Dismissal is not resolution. See `conflict-actions-name-the-write.md`.

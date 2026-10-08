@@ -26,7 +26,7 @@ import type { RailAction } from "../lib/railActions";
 import type { DocCard } from "./cards";
 
 /** What an exec card's icon says about its cell without being opened. */
-export type CardState = "idle" | "running" | "ok" | "failed" | "unknown";
+export type CardState = "idle" | "running" | "ok" | "failed" | "unknown" | "stale";
 
 export interface CardRailProps {
   view: EditorView | null;
@@ -101,13 +101,15 @@ function runSuffix(state: CardState): string {
     case "running":
       return "running now";
     case "ok":
-      return "last run passed";
+      return "recorded · last run succeeded";
     case "failed":
-      return "last run failed";
+      return "recorded · last run or check failed";
+    case "stale":
+      return "stale recording — inputs changed";
     case "unknown":
       return "not known to the server yet";
     default:
-      return "never run";
+      return "unrecorded · never run";
   }
 }
 

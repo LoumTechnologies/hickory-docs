@@ -100,7 +100,7 @@ export function createPlainSaver(options: PlainSaverOptions): PlainSaver {
         });
       }
     });
-    return chain.then(() => succeeded);
+    return chain.then(() => succeeded && !conflicted && (latest === null || latest === baseContent));
   };
 
   return {
@@ -113,6 +113,7 @@ export function createPlainSaver(options: PlainSaverOptions): PlainSaver {
     },
     changed(next: string) {
       latest = next;
+      options.onState(conflicted ? { kind: "conflict" } : next === baseContent ? { kind: "saved" } : { kind: "saving" });
       if (timer !== null) clearTimeout(timer);
       timer = setTimeout(() => flush(), debounce);
     },

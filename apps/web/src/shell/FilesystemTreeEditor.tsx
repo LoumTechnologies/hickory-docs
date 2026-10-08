@@ -1,3 +1,4 @@
+import { ChangePreview } from "../components/ChangePreview";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { defaultKeymap, history, historyKeymap, indentWithTab } from "@codemirror/commands";
 import { codeFolding, foldGutter, foldService } from "@codemirror/language";
@@ -342,10 +343,11 @@ export function FilesystemTreeEditor({
       <button type="button" className="primary" onClick={() => save.current()} disabled={busy}>Apply</button>
     </div>}
     {dryRun && <aside className={`filesystem-editor__dry-run${dryRun.error ? " error" : ""}`} aria-label="Files dry run" aria-live="polite">
-      <strong>Dry run — nothing has been applied.</strong>
+      <ChangePreview heading="Dry run — nothing has been applied" effects="Apply performs the reviewed filesystem edits; the result stays in this pane.">
       {dryRun.error
         ? <p>{dryRun.error}</p>
         : <ol>{dryRun.lines?.map((line, index) => <li key={`${index}:${line}`}>{line}</li>)}</ol>}
+      </ChangePreview>
     </aside>}
     <div ref={host} className="filesystem-editor__code" aria-label="Files editor" />
     <footer className="filesystem-editor__status" aria-live="polite">

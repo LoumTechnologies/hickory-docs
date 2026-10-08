@@ -1,3 +1,4 @@
+import { SurfaceInfo } from "../components/SurfaceInfo";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { EditorView } from "@codemirror/view";
 import { DocumentEditor } from "../editor/DocumentEditor";
@@ -42,6 +43,7 @@ export function DocumentReading({ id }: { id: string }) {
     finally { setBusy(false); }
   };
   return <section className="document-reading" aria-label="Document change review">
+    <SurfaceInfo name={`Change review · ${reading.path}`} editable={false} destination={reading.status === "pending" ? "Accept writes the proposed change to its target. Reject leaves the target unchanged." : "This review does not save or execute a document."} />
     <header className="doc-tab-toolbar"><span>{reading.title} · {reading.path} · {reading.status}</span>
       {reading.status === "pending" && <><button className="btn" disabled={busy} onClick={() => void decide(true)}>Accept change</button>
         <button className="btn" disabled={busy} onClick={() => void decide(false)}>Reject change</button></>}

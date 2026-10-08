@@ -1,3 +1,5 @@
+import { SurfaceInfo } from "../components/SurfaceInfo";
+import { ActionNotice } from "../components/ActionNotice";
 // What the workspace's tabs render.
 //
 // Each body is a thin subscriber: the machinery lives in the document's
@@ -67,6 +69,7 @@ function DocToolbar({
   const [error, setError] = useState("");
 
   const items: ContextMenuItem[] = [
+    { id: "review", label: "Review changes", tip: "Compare this document with HEAD in an editable literate view." },
     baseline.active
       ? {
           id: "baseline-off",
@@ -84,7 +87,6 @@ function DocToolbar({
 
   return (
     <div className="doc-tab-toolbar" role="toolbar" aria-label={`Actions for ${path}`}>
-      <button className="btn" onClick={() => void openLiterate({ kind: "document", doc_id: docId }, "HEAD").catch(e => setError(e instanceof Error ? e.message : String(e)))}>Review changes</button>
       {error && <span role="alert">{error}</span>}
       <button
         className="btn btn-primary"
@@ -122,6 +124,7 @@ function DocToolbar({
           subject={path}
           onPick={(id) => {
             setMenuAt(null);
+            if (id === "review") void openLiterate({ kind: "document", doc_id: docId }, "HEAD").catch(e => setError(e instanceof Error ? e.message : String(e)));
             if (id === "baseline-on") baseline.begin();
             if (id === "baseline-off") baseline.end();
           }}
@@ -133,7 +136,7 @@ function DocToolbar({
       <RefactorBadge baseline={baseline} />
       {syncState !== "idle" && (
         <span className={`save-state save-state-${syncState}`} role="status">
-          {syncState === "editing" ? "Saving…" : "Saved"}
+          {syncState === "editing" ? "Saving…" : syncState === "failed" ? "Save not confirmed" : "Saved to disk"}
         </span>
       )}
     </div>
@@ -172,6 +175,7 @@ export function DocTabBody({
 
   return (
     <div className="debug-block">
+      <SurfaceInfo name={`Document · ${doc.path}`} editable destination="Edits save automatically to this document on disk." />
       <DocToolbar
         docId={docId}
         path={doc.path}
@@ -181,6 +185,9 @@ export function DocTabBody({
         baseline={baseline}
         syncState={session.syncState}
       />
+      {session.banner && <ActionNotice kind={session.banner.kind} retry={session.banner.retry}>{session.banner.text}</ActionNotice>}
+      {session.renderError && <ActionNotice kind="fail" retry={{ label: "Retry rendering", run: session.refresh }}>Could not render {doc.path}. Editing and saving remain available. {session.renderError}</ActionNotice>}
+      {session.syncState === "failed" && session.banner?.retry?.label !== "Retry Save" && <ActionNotice kind="fail" retry={{ label: "Retry Save", run: () => { void session.menuSave(); } }}>Saving could not be confirmed. Your text is still in this editor.</ActionNotice>}
       {/* The debugger's chrome, on the block being debugged. Nothing while
           idle: the file chip's Debug button is the way in. */}
       <DebugStrip
@@ -264,11 +271,13 @@ export function GeneratedTabBody({
   registry,
   docId,
   path,
+  bufferId,
   onSource,
 }: {
   registry: SessionRegistry;
   docId: string;
   path: string;
+  bufferId?: string;
   onSource?: (path: string, source: string) => void;
 }) {
   const session = useDocSession(registry, docId);
@@ -279,6 +288,7 @@ export function GeneratedTabBody({
     <GeneratedFileView
       docId={docId}
       path={path}
+      bufferId={bufferId}
       onSource={onSource}
       liveFile={session.outputs.get(path) ?? null}
       makeOutputLsp={session.makeOutputLsp}
@@ -333,6 +343,7 @@ export function UntitledTab({
   useEffect(() => () => unregisterBuffer.current(), []);
   return (
     <div className="untitled-tab">
+      <SurfaceInfo name="Untitled document" editable destination="Save names a .md file. Recovery drafts are kept outside the project." />
       <DocumentEditor
         docId="untitled"
         initialSource={initialSource}

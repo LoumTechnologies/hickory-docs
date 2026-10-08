@@ -34,7 +34,7 @@ describe("CellPanel de-duplication", () => {
     );
     // The expect body in the source is the single visible copy of the output.
     expect(container.querySelector(".transcript")).toBeNull();
-    expect(screen.getByText("✓ output verified")).toBeTruthy();
+    expect(screen.getByText("✓ Expected output matches")).toBeTruthy();
     // No separate "expects …" summary chip anymore.
     expect(container.textContent).not.toContain("expects exact");
     // Nothing in the panel is clickable now — the Replay verb is an icon on

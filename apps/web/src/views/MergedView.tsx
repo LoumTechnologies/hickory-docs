@@ -1,3 +1,4 @@
+import { SurfaceInfo } from "../components/SurfaceInfo";
 // One tab, several worktrees, and the merge already done.
 //
 // The file as it exists in several places at once: regions every source
@@ -99,6 +100,7 @@ export function MergedView({ path }: { path: string }) {
 
   return (
     <div className="merged-view">
+      <SurfaceInfo name={`Worktree comparison · ${path}`} editable={false} destination="Combines current files for reading; this view writes nothing. Edit in the source worktree." />
       <header className="merged-view__head">
         <span className="merged-view__path mono">{path}</span>
         {/* Said at the top rather than left to be discovered. */}

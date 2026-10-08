@@ -1,3 +1,4 @@
+import { ChangePreview } from "../components/ChangePreview";
 import type { EnvironmentFinding } from "../api/environments";
 import type { Environments } from "./useEnvironments";
 import { showTerminalRequest } from "../lib/revealLine";
@@ -10,8 +11,9 @@ function Finding({ finding, environments }: { finding: EnvironmentFinding; envir
     <p><strong>{finding.manager}</strong> · {finding.message}</p>
     <p className="environment-directory">{finding.project} · {finding.target}</p>
     {finding.actions.map((action) => <div key={action.id}>
+      <ChangePreview heading="Command and effects" effects={action.effects}>
       <code>{action.argv.map((part) => /\s/.test(part) ? JSON.stringify(part) : part).join(" ")}</code>
-      <p>{action.effects}</p>
+      </ChangePreview>
       <button type="button" disabled={busy} onClick={() => void environments.act(finding, action.id)}>
         {busy ? "Installing…" : action.label}
       </button>

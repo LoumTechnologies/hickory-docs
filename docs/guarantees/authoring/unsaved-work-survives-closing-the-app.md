@@ -1,6 +1,6 @@
 # Unsaved Work Survives Closing The App
 
-Given a buffer that differs from its last explicit Save, the tab and the same
+Given a buffer that differs from its last acknowledged file write, the tab and the same
 file in the Files pane carry an asterisk. When its tab or the window closes,
 the app asks whether to save and says in that question whether closing without
 saving will retain the changes. An edited Untitled document is always retained and restored on the next
@@ -11,10 +11,9 @@ File → New still starts blank. A file that has been saved
 before is retained only when **Settings → Editing → Retain unsaved changes**
 is on; that setting is off by default.
 
-When retained work is opened again, the buffer holds it, still unsaved. A
-crash-recovery write and an explicit Save are different facts: making bytes
-durable must not silently remove the asterisk or answer the Save decision for
-the person.
+When retained work is opened again, the buffer holds it, still unsaved. A recovery draft and an acknowledged file write are different facts:
+writing a draft never clears the asterisk. Automatic persistence of the current
+text into its actual file does clear it, just as explicit Save does.
 
 Closing a window is not an implicit decision either to save or to throw away
 previously named work. The prompt is the decision, and its wording makes
@@ -82,9 +81,8 @@ directory for a portable install.
 
 This covers `.md` document buffers. The one Untitled buffer has a recovery
 key per workspace/window rather than a disk path. A fresh File → New stays
-blank; launch restoration brings back retained work. A document room may persist live bytes for crash recovery while the
-explicit-Save baseline stays put; those are still unsaved changes in the
-user-facing sense. Plain files retain their existing short debounced-save
+blank; launch restoration brings back retained work. A document room persists live bytes to the actual document; an acknowledgment
+of those exact bytes advances the saved baseline. Recovery drafts stay separate. Plain files retain their existing short debounced-save
 window and draft machinery.
 
 A draft is keyed by path. Renaming a file outside the app orphans its draft
@@ -128,3 +126,9 @@ Last LLM verification:
   inspected but not driven by these frontend tests. Recovery storage failures
   can prevent a retained close; crash recovery retains the most recent periodic
   write, so edits made since that write can be lost on an abrupt process kill.
+
+> **Amended 2026-10-08:** the coherence implementation supersedes the former
+> explicit-Save checkpoint for document dirty state. Automatic writes to the
+> actual file now count as saved; recovery drafts never do. See
+> `saved-means-the-displayed-bytes-reached-the-file.md`. The earlier verification
+> account above is historical and does not validate this amended contract.

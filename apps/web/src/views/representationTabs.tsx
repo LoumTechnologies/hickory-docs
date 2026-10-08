@@ -48,7 +48,7 @@ export function reviewTool(tab: Tab, onOpenFile: (path:string)=>void, onOpenStor
   if (tab.target === "literate") return <RepresentationLibrary />;
   if (tab.target.startsWith("literate:")) {
     const query=new URLSearchParams(tab.target.slice(9));
-    return <RepresentationPane key={query.get("id")} id={query.get("id")!} initialBase={query.get("base")??""} initialTarget={query.get("target")??""} />;
+    return <RepresentationPane key={query.get("id")} id={query.get("id")!} bufferId={tab.id} initialBase={query.get("base")??""} initialTarget={query.get("target")??""} />;
   }
   return null;
 }

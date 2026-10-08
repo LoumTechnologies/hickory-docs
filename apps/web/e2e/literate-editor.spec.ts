@@ -19,7 +19,7 @@ test("edit ordinary source in the main literate diff, then read history without 
   await expect(line).toBeVisible(); await line.click();
   const content=pane.locator(".cm-content").first();
   await content.press("Home"); await content.press("Shift+End"); await content.pressSequentially("value = 7");
-  await pane.getByRole("button",{name:"Save code and view"}).click();
+  await pane.getByRole("button",{name:"Save",exact:true}).click();
   await expect.poll(async()=> (await (await page.request.get("/api/file?path=code.py")).json()).content).toBe("value = 7\n");
   await pane.getByLabel("Comparison base").fill("HEAD");
   await pane.getByRole("button",{name:"Show diff",exact:true}).click();
@@ -29,7 +29,7 @@ test("edit ordinary source in the main literate diff, then read history without 
   await expect(pane.locator(".comparison-added")).toContainText("value = 7");
   const editedLine=pane.locator(".cm-line").filter({hasText:"value = 7"});
   await editedLine.click(); await content.press("Home"); await content.press("Shift+End"); await content.pressSequentially("value = 8");
-  await pane.getByRole("button",{name:"Save code and view"}).click();
+  await pane.getByRole("button",{name:"Save",exact:true}).click();
   await expect.poll(async()=> (await (await page.request.get("/api/file?path=code.py")).json()).content).toBe("value = 8\n");
   await pane.getByLabel("Comparison target").fill("HEAD"); await pane.getByRole("button",{name:"Show diff",exact:true}).click();
   await expect(content).toHaveAttribute("contenteditable","false");
@@ -112,13 +112,15 @@ test("review an ACP proposal in the literate editor, then read its commit", asyn
   await review.getByRole("button", { name: "Accept change" }).click();
   await expect.poll(async () => (await (await page.request.get(`/api/docs/${note.id}`)).json()).source).toContain("Changed by ACP");
   await expect(agent.getByRole("button", { name: "Send", exact: true })).toBeVisible();
+  // CodeMirror virtualizes offscreen history: reveal the opening turn before inspecting it.
+  await response.press("ControlOrMeta+Home");
   // docs/guarantees/agent/a-session-is-the-conversation.md
   await expect(agent.locator(".cm-bubble-you").first()).toHaveCSS("text-align", "left");
   await expect(agent.locator(".cm-bubble-you").first()).toHaveCSS("margin-left", "0px");
   await expect(agent.locator(".cm-bubble-agent").first()).toHaveCSS("text-align", "left");
   // Context stays in native editor folds with real caret/selection positions.
   // docs/guarantees/agent/an-answer-in-the-agent-pane-has-ribbons.md
-  await expect(agent.locator("details")).toHaveCount(0);
+  await expect(response.locator("details")).toHaveCount(0);
   const context = agent.locator(".cm-line").filter({ hasText: '<hick:context kind="editor-buffers">' });
   await expect(context.locator(".cm-hick-fold-placeholder")).toBeVisible();
   await context.locator(".cm-hick-fold-placeholder").click();
@@ -168,4 +170,61 @@ test("an ACP final claim about the startup Untitled note has a visible context r
   await expect(page.locator(".untitled-tab")).toContainText("Hickory");
   await page.screenshot({ path: "/tmp/hickory-untitled-answer-ribbon.png", fullPage: true });
   expect(errors).toEqual([]);
+});
+
+// Guarantees: docs/guarantees/authoring/saved-means-the-displayed-bytes-reached-the-file.md;
+// docs/guarantees/execution/a-failed-action-keeps-its-editor.md.
+test("automatic Save clears dirty state and a failed Run keeps the editable document", async ({ page }) => {
+  test.setTimeout(45_000);
+  test.skip(!process.env.HICKORY_E2E_URL, "Use just test-literate-editor.");
+  const created = await page.request.post("/api/projects/local/docs", { data: { path: "coherence.md", source: "# Before\n" } });
+  expect(created.ok()).toBeTruthy();
+  const note = await created.json();
+  await page.goto(`/#/docs/${note.id}`);
+  const document = page.locator(".debug-block").filter({ has: page.getByRole("toolbar", { name: "Actions for coherence.md", exact: true }) });
+  const editor = document.locator(".cm-content");
+  await expect(editor).toContainText("Before");
+  await editor.click(); await editor.press("ControlOrMeta+a"); await editor.pressSequentially("# After automatic save");
+  await expect.poll(async () => (await (await page.request.get(`/api/docs/${note.id}`)).json()).source).toContain("After automatic save");
+  await expect(document.locator(".save-state")).toHaveText("Saved to disk");
+  await expect(page.getByRole("tab", { name: /coherence.md/ })).not.toContainText("*");
+  await page.route(`**/api/docs/${note.id}/run`, route => route.fulfill({ status: 503, contentType: "application/json", body: JSON.stringify({ error: "temporary runner failure" }) }));
+  await page.getByRole("button", { name: "Run", exact: true }).click();
+  const error = document.getByRole("alert");
+  await expect(error).toContainText("temporary runner failure");
+  await expect(editor).toHaveAttribute("contenteditable", "true");
+  await expect(editor).toContainText("After automatic save");
+  await page.unroute(`**/api/docs/${note.id}/run`);
+  await error.getByRole("button", { name: "Retry Run", exact: true }).click();
+  await expect(document).toContainText("Re-woven");
+  await expect(editor).toBeVisible();
+  await page.screenshot({ path: "/tmp/hickory-design-document.png", fullPage: true });
+});
+
+// Guarantee: docs/guarantees/authoring/saved-means-the-displayed-bytes-reached-the-file.md.
+test("an inactive literate view prompts before close and writes its code when Save is chosen", async ({ page }) => {
+  test.setTimeout(45_000);
+  test.skip(!process.env.HICKORY_E2E_URL, "Use just test-literate-editor.");
+  const created = await page.request.post("/api/representations", { data: { backing: { kind: "files", paths: ["code.py"] } } });
+  const view = await created.json();
+  await page.goto("/");
+  await page.evaluate(id => window.dispatchEvent(new CustomEvent("hickory.open-representation", { detail: { id } })), view.id);
+  const pane = page.getByRole("region", { name: "Literate editor" });
+  await expect(pane).toBeVisible();
+  const line = pane.locator(".cm-line").filter({ hasText: /value = / });
+  await line.click();
+  const editor = pane.locator(".cm-content");
+  await editor.press("Home"); await editor.press("Shift+End"); await editor.pressSequentially("value = 42");
+  await expect(pane).toContainText("Unsaved changes");
+  await pane.locator(".change-preview > summary").click();
+  await expect(pane.locator(".change-preview")).toContainText("Save writes these edits");
+  await page.screenshot({ path: "/tmp/hickory-design-preview.png", fullPage: true });
+  // Switching away unmounts the view. Its pending text must still be saveable.
+  await page.getByRole("tab", { name: /Untitled/ }).click();
+  await page.getByRole("button", { name: "Close Literate view", exact: true }).click();
+  const prompt = page.getByRole("dialog").filter({ hasText: "Save changes to Literate view?" });
+  await expect(prompt).toContainText("no recovery draft");
+  await prompt.getByRole("button", { name: "Save", exact: true }).click();
+  await expect.poll(async () => (await (await page.request.get("/api/file?path=code.py")).json()).content).toBe("value = 42\n");
+  await expect(page.getByRole("tab", { name: /Literate view/ })).toHaveCount(0);
 });
