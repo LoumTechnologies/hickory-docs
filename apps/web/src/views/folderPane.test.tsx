@@ -45,3 +45,16 @@ it("explains a failed file lookup", async () => {
   await openSelectedFile("/notes/note.md", vi.fn(), vi.fn(), notice);
   expect(notice).toHaveBeenCalledWith("File unavailable");
 });
+
+it("adds the first folder's Files pane while preserving existing editor tabs", async () => {
+  const { result, rerender } = renderHook(({ folderOpen }) => {
+    const [layout, setLayout] = useState(() => openUntitledTab(openUntitledTab(initialWorkspace()), true));
+    const [, requestFocus] = useState(0);
+    useFolderPane(folderOpen, true, layout, setLayout, requestFocus, vi.fn());
+    return layout;
+  }, { initialProps: { folderOpen: false } });
+  const before = panes(result.current.root).flatMap(pane => pane.tabs).map(tab => tab.id);
+  rerender({ folderOpen: true });
+  await waitFor(() => expect(panes(result.current.root).flatMap(pane => pane.tabs).filter(tab => tab.kind === "tree")).toHaveLength(1));
+  expect(panes(result.current.root).flatMap(pane => pane.tabs).filter(tab => tab.kind !== "tree").map(tab => tab.id)).toEqual(before);
+});

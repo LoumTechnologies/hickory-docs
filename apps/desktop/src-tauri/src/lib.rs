@@ -22,6 +22,7 @@
 mod command_path;
 pub mod dev;
 mod file_open;
+mod folder_session;
 mod recent;
 pub mod server;
 
@@ -427,8 +428,8 @@ fn insert_menu(
 /// Route a chosen menu item.
 ///
 /// Everything the page can act on is forwarded to it; only Open is handled
-/// here, because switching folders is a process-level act (the directory lock
-/// and the file watcher are per-process, so a new session is a restart).
+/// here: the first folder attaches to this window, and another folder
+/// starts a separate session.
 fn on_menu(app: &AppHandle, id: &str) {
     match id {
         "new-window" => {
@@ -514,19 +515,43 @@ fn open_file(handle: &AppHandle, file: &Path) {
     recent::record(handle, &file);
 }
 
-/// Open the selected folder in another window, preserving this session.
+/// Attach the first folder to this window; later folders get another window.
 fn open_folder_window(handle: &AppHandle, dir: &Path) {
-    if let Ok(config_dir) = handle.path().app_config_dir() {
-        server::remember(&config_dir, dir);
-    }
-    // Relaunch with an explicit target. Restart would preserve the original
-    // command-line path and reopen it instead of the newly selected folder.
-    match open_folder_in_new_process(dir) {
-        Ok(()) => {}
-        Err(e) => fail(
-            handle,
-            &format!("Could not open {}\n\n{e:#}", dir.display()),
-        ),
+    let config = handle.path().app_config_dir().ok();
+    let result = (|| -> anyhow::Result<()> {
+        let attached = if let (Some(session), Some(runtime)) = (
+            handle.try_state::<server::Session>(),
+            handle.try_state::<tokio::runtime::Runtime>(),
+        ) {
+            runtime.block_on(session.attach_folder(
+                dir,
+                config.as_deref(),
+                Some(server::shell_hooks(handle, config.as_deref())),
+                Some(handle.clone()),
+            ))?
+        } else {
+            false
+        };
+        if attached {
+            if let Some(window) = handle.get_webview_window("main") {
+                let _ = window.set_title(&native_title(config.as_deref(), dir));
+                let _ = window.eval("window.dispatchEvent(new Event('hickory:files-changed'))");
+            }
+            if let Some(config) = &config {
+                server::remember(config, dir);
+            }
+            recent::record(handle, dir);
+            return Ok(());
+        }
+        open_folder_in_new_process(dir)
+    })();
+    if let Err(error) = result {
+        handle
+            .dialog()
+            .message(format!("Could not open {}\n\n{error:#}", dir.display()))
+            .kind(MessageDialogKind::Error)
+            .title("Could not open folder")
+            .blocking_show();
     }
 }
 

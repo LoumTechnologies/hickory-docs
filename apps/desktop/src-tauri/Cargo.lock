@@ -3097,6 +3097,7 @@ dependencies = [
  "tauri-plugin-dialog",
  "tempfile",
  "tokio",
+ "tower 0.5.3",
 ]
 
 [[package]]

@@ -52,6 +52,7 @@ pub struct Session {
     pub ui_url: String,
     /// Held for the process's lifetime. Dropping it releases the directory.
     _resources: SessionResources,
+    pub(crate) folders: crate::folder_session::FolderSession,
 }
 
 /// What keeps a local session alive. A workspace owns an engine, its lock,
@@ -268,6 +269,18 @@ pub(crate) async fn start_with_menu(
     };
     let router = crate::command_path::routes(router, dev.ui_origin.clone());
     let bound = listener.local_addr()?;
+    let root = if target.is_dir() {
+        target
+    } else {
+        target.parent().unwrap_or(target)
+    };
+    let index = std::sync::Arc::new(hickory_cli::serve::store::DocIndex::shared(root)?);
+    let files = std::sync::Arc::new(std::sync::RwLock::new(std::collections::HashSet::new()));
+    if target.is_file() {
+        files.write().unwrap().insert(target.canonicalize()?);
+    }
+    let (router, folders) =
+        crate::folder_session::FolderSession::host(router, target.is_dir(), index, files);
 
     tokio::spawn(async move {
         if let Err(e) = axum::serve(
@@ -288,6 +301,7 @@ pub(crate) async fn start_with_menu(
             .ui_origin
             .clone()
             .unwrap_or_else(|| format!("http://{bound}")),
+        folders,
         _resources: SessionResources::Workspace {
             _client: Box::new(client),
         },
@@ -333,7 +347,12 @@ pub async fn start_blank_with_config(
     if let Some(shell) = shell {
         prepared.state.set_shell(shell);
     }
-    let router = crate::command_path::routes(prepared.router.fallback(ui_handler), None);
+    let (router, folders) = crate::folder_session::FolderSession::host(
+        crate::command_path::routes(prepared.router.fallback(ui_handler), None),
+        false,
+        prepared.state.index.clone(),
+        prepared.state.opened_files.clone(),
+    );
     // `just dev` reserves its configured engine port for the workspace it is
     // editing. The folderless session always takes its own
     // ephemeral port for its editor session.
@@ -354,6 +373,7 @@ pub async fn start_blank_with_config(
         // A shared Vite proxy targets the main workspace, so a folderless window
         // uses its own origin for both the UI and the editor API.
         ui_url: format!("http://{bound}"),
+        folders,
         _resources: SessionResources::Blank { _scratch: scratch },
     })
 }

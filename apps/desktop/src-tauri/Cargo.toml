@@ -30,6 +30,7 @@ serde_json = "1"
 hickory-cli = { path = "../../../crates/hickory-cli" }
 anyhow = "1"
 axum = "0.8"
+tower = { version = "0.5", features = ["util"] }
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "net"] }
 # The built UI, compiled into the binary. A downloaded app has no checkout to
 # find `apps/web/dist` in, and shipping a loose directory beside the executable

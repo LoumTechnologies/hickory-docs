@@ -483,3 +483,8 @@ validate-guarantee-skill SKILL_CREATOR_DIR:
 test-file-menu:
     cd apps/web && npm run typecheck && npm test -- src/App.test.tsx src/views/workspaceState.test.ts src/views/folderPane.test.tsx src/views/useUntitledSave.test.tsx src/views/useUnsavedLifecycle.test.tsx src/views/workspaceTabs.test.tsx src/router.test.ts
     cargo test -p hickory-cli --test open_selected_file -- --test-threads=1
+
+# Attaching the first folder preserves this window and its existing editors.
+test-first-folder:
+    cd apps/desktop/src-tauri && cargo test --test first_folder --test serves_one_origin -- --test-threads=1
+    cd apps/web && npm test -- src/views/folderPane.test.tsx

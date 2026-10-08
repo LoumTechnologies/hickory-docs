@@ -288,6 +288,29 @@ describe("the startup workspace", () => {
 
 
 describe("windows without an open folder", () => {
+  // Guarantee: docs/guarantees/authoring/file-menu-preserves-the-originating-window.md
+  it("keeps each unsaved editor when the first folder is attached", async () => {
+    const files = vi.spyOn(api, "files").mockResolvedValue({ folder_open: false, root: "parent", tree: [] });
+    const app = render(<App />);
+    await waitFor(() => expect(editor(app.container).state.doc.toString()).toBe(STARTUP_INTRODUCTION));
+    act(() => editor(app.container).dispatch({ changes: { from: 0, to: editor(app.container).state.doc.length, insert: "First unsaved note" } }));
+    act(() => newDocument());
+    await waitFor(() => expect(editor(app.container).state.doc.toString()).toBe(""));
+    act(() => editor(app.container).dispatch({ changes: { from: 0, insert: "Second unsaved note" } }));
+    const ids = app.getAllByRole("tab", { name: /Untitled/ }).map(tab => tab.id);
+    files.mockResolvedValue({ folder_open: true, root: "selected", tree: [] });
+    fireEvent(window, new Event("hickory:files-changed"));
+    await waitFor(() => expect(app.getByRole("tab", { name: /Files/ })).toBeTruthy());
+    expect(app.getAllByRole("tab", { name: /Untitled/ }).map(tab => tab.id)).toEqual(ids);
+    const contents = new Set<string>();
+    for (const tab of app.getAllByRole("tab", { name: /Untitled/ })) {
+      fireEvent.click(tab);
+      await waitFor(() => expect(editor(app.container).state.doc.toString()).not.toBe(""));
+      contents.add(editor(app.container).state.doc.toString());
+    }
+    expect(contents).toEqual(new Set(["First unsaved note", "Second unsaved note"]));
+  });
+
   it("keeps Files closed while editing and saving still work", async () => {
     vi.spyOn(api, "files").mockResolvedValue({ folder_open: false, root: "parent", tree: [] });
     const save = vi.spyOn(api, "saveFileDialog").mockResolvedValue({ path: null });
