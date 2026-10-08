@@ -431,17 +431,15 @@ impl Element<SessionFacts> for ContextElement {
         let Ok(value) = serde_json::from_str::<serde_json::Value>(&tag.text_content()) else {
             return vec![];
         };
-        let family = match value["kind"].as_str() {
-            Some("read" | "search") => Family::Context,
-            Some("edit") => Family::Lineage,
-            _ if value["content"]
+        let reported_read = matches!(value["kind"].as_str(), Some("read" | "search"));
+        let reported_edit = value["kind"] == "edit"
+            || value["content"]
                 .as_array()
-                .is_some_and(|items| items.iter().any(|v| v["type"] == "diff")) =>
-            {
-                Family::Lineage
-            }
-            _ => return vec![],
-        };
+                .is_some_and(|items| items.iter().any(|v| v["type"] == "diff"));
+        if !reported_read && !reported_edit {
+            return vec![];
+        }
+        let family = Family::Declared;
         let mut links = Vec::new();
         for location in value["locations"].as_array().into_iter().flatten().chain(
             value["content"]
@@ -466,7 +464,7 @@ impl Element<SessionFacts> for ContextElement {
                 to,
                 title: format!(
                     "ACP-reported {} — {}{}. Reported by the adapter; no byte hash was supplied.",
-                    if family == Family::Context {
+                    if reported_read {
                         "file access"
                     } else {
                         "file edit"
@@ -688,12 +686,23 @@ pub struct LinkWithLines {
 }
 
 fn line_of(source: &str, byte: usize) -> usize {
-    source[..byte.min(source.len())].matches('\n').count() + 1
+    source.as_bytes()[..byte.min(source.len())]
+        .iter()
+        .filter(|&&b| b == b'\n')
+        .count()
+        + 1
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn source_line_lookup_accepts_offsets_inside_unicode() {
+        let source = "first\n📝\nlast";
+        assert_eq!(line_of(source, 8), 2);
+        assert_eq!(line_of(source, usize::MAX), 3);
+    }
 
     type Summary = (String, String, Option<(usize, usize)>, usize);
     type Where = (String, String, Option<(usize, usize)>);
@@ -747,9 +756,9 @@ mod tests {
 </hick:session>"#;
         let links = session_links(source, Some(Path::new("/work")));
         assert_eq!(links.len(), 2);
-        assert_eq!(links[0].link.family, Family::Context);
+        assert_eq!(links[0].link.family, Family::Declared);
         assert_eq!(links[0].link.to.lines, Some((1, 1)));
-        assert_eq!(links[1].link.family, Family::Lineage);
+        assert_eq!(links[1].link.family, Family::Declared);
         assert!(
             links
                 .iter()

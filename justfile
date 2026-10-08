@@ -71,7 +71,7 @@ ci:
     cargo build --workspace
     cargo build -p hickory-cli --example acp_fixture
     cargo test --workspace -- --test-threads=1
-    cd apps/web && npm run typecheck && npm test
+    cd apps/web && npm run typecheck && npm test -- --maxWorkers=2
     just install-test-browsers
     just test-browser-embedding
 
@@ -256,7 +256,7 @@ test-acp:
     cargo test -p hickory-cli --lib serve::acp:: -- --test-threads=1
     cargo test -p hickory-cli --test serve_acp --test serve_agent --test byo_agent_surface --test workspace_fs -- --test-threads=1
     cargo test -p hickory-cli --test engine_lifecycle desktop_proxy_routes_acp -- --test-threads=1
-    cd apps/web && npm run typecheck && npm test
+    cd apps/web && npm run typecheck && npm test -- --maxWorkers=2
 
 # Build the local CLI used by the ACP adapter smoke test.
 build-cli:
@@ -286,7 +286,7 @@ preview-browser-embedding:
 
 # Validate the agent UI without rerunning unrelated Rust suites.
 test-agent-web:
-    cd apps/web && npm run typecheck && npm test
+    cd apps/web && npm run typecheck && npm test -- --maxWorkers=2
 
 # Check all Rust test and example targets, matching CI.
 clippy-all:
@@ -419,9 +419,30 @@ install-test-browsers *ARGS:
 
 # Frontend regression suite after extracting the portable surface.
 test-web:
-    cd apps/web && npm run typecheck && npm test
+    cd apps/web && npm run typecheck && npm test -- --maxWorkers=2
 
 # Agent conversation controls, scroll following, and generated session formatting.
 test-agent-pane:
     cargo test -p hickory-agent --lib -- --test-threads=1
     cd apps/web && npm run typecheck && npm test -- src/views/ConversationEditor.test.tsx src/components/ChatDock.test.tsx src/views/WorkspaceChat.test.tsx src/editor/session.test.tsx src/App.test.tsx
+
+# Durable model-failure evidence, assumptions, review and historical receipts.
+test-agent-audit:
+    cargo test -p hickory-cli --lib serve::audit_evidence:: -- --test-threads=1
+    cargo test -p hickory-agent --lib --test tools_edit_session --test stop_button --test turn_budget --test model_failure_audit -- --test-threads=1
+    cargo test -p hickory-cli --test transform_tests --test session_lens --test serve_agent -- --test-threads=1
+    cd apps/web && npm run typecheck && npm test -- --maxWorkers=2 src/elements/session/evidence.test.tsx src/components/AssumptionAudit.test.tsx src/components/AgentChanges.test.tsx src/views/ConversationEditor.test.tsx src/components/ChatDock.test.tsx
+
+# Re-run UI cases that depend on asynchronous editor setup with bounded contention.
+test-agent-audit-web:
+    cd apps/web && npm run typecheck && npm test -- --maxWorkers=2 src/elements/session/evidence.test.tsx src/components/AssumptionAudit.test.tsx src/components/AgentChanges.test.tsx src/views/ConversationEditor.test.tsx src/components/ChatDock.test.tsx src/views/WorkspaceChat.test.tsx src/views/SessionLens.test.tsx src/App.test.tsx src/debug/browser/runtime.test.ts
+
+# Full agent implementation, including historical external tool surfaces.
+test-agent-implementation:
+    cargo test -p hickory-agent -p hickory-cli --lib -- --test-threads=1
+    cargo test -p hickory-agent --test edits_the_chain -- --test-threads=1
+    cargo test -p hickory-cli --test agent_tools_e2e --test agent_cell_vertex --test session_lens --test transform_tests -- --test-threads=1
+
+# Validate the local guarantee-maintainer skill metadata.
+validate-guarantee-skill SKILL_CREATOR_DIR:
+    uv run --with pyyaml python "{{SKILL_CREATOR_DIR}}/scripts/quick_validate.py" .codex/skills/guarantee-maintainer

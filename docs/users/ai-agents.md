@@ -78,7 +78,7 @@ The tools:
 
 | Tool | What it does |
 | --- | --- |
-| `read_doc` | The document source, hashline-rendered: every line prefixed `hhhh\|`, a 4-hex content hash of that line. |
+| `read_doc` | The document source, hashline-rendered: every line prefixed `hash\|`, a SHA-256 content hash of that line. |
 | `read_output` | A woven output file, hashline-rendered; `with_lineage` adds per-range annotations showing which lines are editable and where they come from. |
 | `edit_output` | Edit a contiguous line run of an *output*; the edit maps back to the document byte-exactly through lineage. |
 | `edit_doc` | The same edit shape applied directly to the document source. |
@@ -126,14 +126,14 @@ Claude Code, Codex, Grok CLI — any agent that can run a command gets the
 ### The tools, as commands
 
 ```sh
-hick doc read <doc>                                  # source, each line prefixed hhhh|
+hick doc read <doc>                                  # source, each line prefixed hash|
 hick doc read-output <doc> --path f.rs --lineage     # a generated file + provenance
 hick doc edit-output <doc> --path f.rs --run aa12..bb34 < new.txt
 hick doc edit <doc> --run aa12 < new.txt
 hick doc verify <doc>
 ```
 
-The `hhhh|` prefix on every line is a hash of that line's content, and it is
+The `hash|` prefix on every line is a hash of that line's content, and it is
 what edits anchor on — never line numbers. Two consequences you can rely on:
 an edit built against a line that has since changed is **refused** rather
 than landing somewhere wrong, and an edit made through a *generated* file is
@@ -227,3 +227,9 @@ which agent produced it.
   not do yet is merge with a *live* concurrent human editor keystroke-by-
   keystroke — that is the desktop app's editor (its CRDT buffer), not a
   property of the CLI session.
+
+For a durable account of assumptions, decisions, historical inputs and executed
+checks, see [Revisit why an agent did something](debugging-agent-decisions.md).
+Pass the read's whole-surface `snapshot` to document edit tools (`--snapshot` on
+`hick doc edit`/`edit-output`) to protect changes inside a range as well as its
+endpoints. Legacy short anchors no longer resolve; read fresh SHA-256 anchors.

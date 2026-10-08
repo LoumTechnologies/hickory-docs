@@ -75,6 +75,8 @@ pub struct DocSelection {
 /// The conversation state one local session holds.
 #[derive(Default)]
 pub struct AgentHub {
+    pub(super) annotations_gate: tokio::sync::RwLock<()>,
+    pub(super) reviews: Mutex<HashMap<String, Arc<super::agent_review::NativeReview>>>,
     pub(super) acp: super::acp::Hub,
     /// Turn tree per document id, in creation order (the dock treats the
     /// last element as the default tip).
@@ -127,16 +129,8 @@ impl AgentHub {
                     answer: t
                         .answer
                         .or_else(|| super::acp::partial_answer(&path, &t.id)),
-                    status: if t.provider.as_deref().is_some_and(|p| p.starts_with("acp:")) {
-                        super::acp::recovered_status(&path, &t.id).0
-                    } else {
-                        "ok".into()
-                    },
-                    error: if t.provider.as_deref().is_some_and(|p| p.starts_with("acp:")) {
-                        super::acp::recovered_status(&path, &t.id).1
-                    } else {
-                        None
-                    },
+                    status: super::acp::recovered_status(&path, &t.id).0,
+                    error: super::acp::recovered_status(&path, &t.id).1,
                     created_at: view.start.clone().unwrap_or_default(),
                     provider: t.provider.unwrap_or_default(),
                     model: t.model.unwrap_or_default(),
@@ -494,7 +488,8 @@ pub async fn start_turn(
     let doc_id = id.clone();
     let run_key = turn_id.clone();
     tokio::spawn(async move {
-        let outcome = run_turn(
+        let _annotation_gate = task_state.agent.annotations_gate.read().await;
+        let mut outcome = run_turn(
             &task_state,
             &doc_id,
             llm,
@@ -515,6 +510,23 @@ pub async fn start_turn(
             Ok(_) => "ok",
             Err(m) if m == hickory_agent::STOPPED_BY_USER => "stopped",
             Err(_) => "failed",
+        };
+        let record =
+            super::acp::record::Record::existing(task_state.index.root().join(&session_rel));
+        if record.path.exists()
+            && let Err(error) = record.context(
+                "acp-turn-status",
+                &json!({"turn":run_key,"status":status,"error":outcome.as_ref().err()}),
+            )
+        {
+            outcome = Err(format!(
+                "Work may have happened, but recording the turn status failed: {error:#}"
+            ));
+        }
+        let status = if outcome.is_err() && status == "ok" {
+            "failed"
+        } else {
+            status
         };
         task_state.agent.finish(&doc_id, &run_key, outcome);
 
@@ -614,6 +626,28 @@ async fn run_turn(
     config.turn_id = Some(identity.turn);
     config.parent_turn_id = identity.parent;
     config.cancel = Some(identity.cancel);
+    let review = super::agent_review::queue(state, doc_id);
+    *review.cancel.lock().unwrap() = config.cancel.clone();
+    {
+        let mut session = review.session.lock().unwrap();
+        if session.as_ref() != config.session_path.as_ref() {
+            let previous = session.is_some();
+            let restored = config
+                .session_path
+                .as_ref()
+                .and_then(|path| super::acp::record::edit_mode(path))
+                .unwrap_or_else(|| {
+                    if previous {
+                        Default::default()
+                    } else {
+                        *review.edits.mode.lock().unwrap()
+                    }
+                });
+            *review.edits.mode.lock().unwrap() = restored;
+            *session = config.session_path.clone();
+        }
+    }
+    config.review = Some(review);
 
     // `run_agent`'s callback is synchronous; publishing is async. A channel
     // decouples them: the loop pushes, a forwarder task publishes in order.

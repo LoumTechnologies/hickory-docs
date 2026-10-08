@@ -1,16 +1,18 @@
 # An Agent Edit Session Never Applies A Stale Edit
 
-Given an agent edit session on a primary document, when any `edit_output` or
-`edit_doc` tool call is made, then the edit either applies against the
-document's current on-disk content or fails with a structured error — a
-stale-provenance (409-class) misapplication is impossible. Concretely: the
-session is single-writer and re-weaves immediately after every successful
-edit (refreshing hashes and provenance before the model sees another
-anchor); edits anchor on 4-hex line *content* hashes, never positions, so an
-anchor can only resolve against text that is actually present; and external
-mutation of the document file is detected by content comparison before every
-edit and absorbed by one automatic re-weave, after which anchors that no
-longer resolve produce a structured error naming the external change.
+Given an agent edit session on a primary document, when a document or upstream
+changes between read and edit, then the next edit refuses and directs another
+read. Successful edits re-weave before returning fresh SHA-256 line anchors.
+Ambiguous anchors require an occurrence; old short anchors do not resolve.
+
+When a whole-surface `snapshot` is supplied, it must match exactly, including a
+range's interior. Disk-backed in-process sessions compare current source and
+upstreams before edits. Standalone invocations have no previous in-memory read;
+callers must pass a snapshot for whole-surface freshness. Endpoint hashes alone
+do not protect a changed interior or the caller's mistaken choice of range.
+
+Review rechecks the complete preview before application. This is a refusal
+boundary, not an atomic filesystem lock against arbitrary concurrent writers.
 
 ---
 
@@ -34,3 +36,9 @@ Last LLM verification:
   edit) and the hashline unit tests
   (`stale_hash_is_a_structured_miss`,
   `ambiguous_run_lists_candidates_and_occurrence_disambiguates`).
+
+Verification update (2026-10-08): the original “impossible” wording overstated
+16-bit anchors and concurrent-writer protection. SHA-256 anchors replace them;
+`resolve_edit` refuses resynchronized surfaces and mismatched supplied snapshots.
+`tools_edit_session` and `model_failure_audit` are regression witnesses. This
+correction preserves the intended refusal behavior and records remaining limits.

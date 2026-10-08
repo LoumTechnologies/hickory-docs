@@ -6,7 +6,7 @@ then it can reach the same five tools the built-in agent uses (`read_doc`,
 `read_output`, `edit_output`, `edit_doc`, `verify`) through two surfaces, and
 gets the same guarantees from both:
 
-1. **Hashline anchors.** Every read returns lines prefixed with a 4-hex hash of
+1. **Hashline anchors.** Every read returns lines prefixed with a SHA-256 hash of
    their content, and every edit anchors on those hashes rather than on line
    numbers. An edit built against text that has since changed does not resolve
    and is **refused**, never misapplied.

@@ -22,7 +22,7 @@ notes rather than living in somebody's SaaS.
 
 The literate-programming machinery is not retired and is not a second product.
 It becomes the reason this notes IDE is unlike the others: **a note here can
-run, and an AI summary in it can be proven to still describe the thing it
+run, and an AI summary in it can carry checkable receipts for the material it
 summarized.**
 
 ## Why this is a widening and not a rewrite

@@ -1,47 +1,49 @@
 //! Hashline rendering and anchor resolution.
 //!
 //! Both editable surfaces (document source and woven outputs) are shown to
-//! the model with every line prefixed `hhhh|`, where `hhhh` is a 4-hex
-//! **content** hash of the line text. Content hashes make staleness
-//! impossible to act on: an anchor only resolves against the text that is
-//! actually there right now. Duplicate-content lines share a hash by design;
+//! the model with every line prefixed by its SHA-256 content hash. Whole-surface
+//! snapshots additionally detect changes inside a range. A short legacy hash
+//! can be parsed for a useful refusal, but cannot match new surfaces. Duplicate-content lines share a hash by design;
 //! edits disambiguate by contiguous runs and, when the run anchor pair is
 //! still ambiguous, an explicit 1-based occurrence index.
 
 use std::fmt::Write as _;
 
-/// 4-hex content hash of one line of text (FNV-1a 64, xor-folded to 16
-/// bits). Stable across runs and processes — it is pure content.
+/// SHA-256 content identity for one line. Old short anchors no longer resolve.
 pub fn line_hash(line: &str) -> String {
-    let mut h: u64 = 0xcbf29ce484222325;
-    for b in line.as_bytes() {
-        h ^= u64::from(*b);
-        h = h.wrapping_mul(0x100000001b3);
-    }
-    let folded = (h ^ (h >> 16) ^ (h >> 32) ^ (h >> 48)) & 0xffff;
-    format!("{folded:04x}")
+    line_fingerprint(line)
+}
+
+/// Strong identity used for attribution, independently of display anchors.
+pub fn line_fingerprint(line: &str) -> String {
+    use sha2::{Digest, Sha256};
+    format!("{:x}", Sha256::digest(line.as_bytes()))
 }
 
 /// A text buffer split into lines, with byte offsets and content hashes.
 pub struct LineIndex {
+    pub snapshot: String,
     /// Line texts, without their trailing newlines.
     pub lines: Vec<String>,
     /// Byte offset where each line starts.
     pub starts: Vec<usize>,
-    /// 4-hex content hash per line.
+    /// SHA-256 content hash per line.
     pub hashes: Vec<String>,
     /// Whether the buffer ends with a newline.
     pub trailing_newline: bool,
+    ends: Vec<usize>,
 }
 
 impl LineIndex {
     pub fn new(text: &str) -> Self {
         let mut lines = Vec::new();
         let mut starts = Vec::new();
+        let mut ends = Vec::new();
         let mut pos = 0;
         for line in text.split_inclusive('\n') {
             starts.push(pos);
             pos += line.len();
+            ends.push(pos);
             let content = line.strip_suffix('\n').unwrap_or(line);
             let content = content.strip_suffix('\r').unwrap_or(content);
             lines.push(content.to_string());
@@ -49,13 +51,16 @@ impl LineIndex {
         if text.is_empty() {
             starts.push(0);
             lines.push(String::new());
+            ends.push(0);
         }
         let hashes = lines.iter().map(|l| line_hash(l)).collect();
         Self {
+            snapshot: line_fingerprint(text),
             lines,
             starts,
             hashes,
             trailing_newline: text.ends_with('\n'),
+            ends,
         }
     }
 
@@ -66,12 +71,7 @@ impl LineIndex {
 
     /// Byte offset just past line `i` including its newline (if any).
     pub fn line_end(&self, i: usize) -> usize {
-        let end = self.content_end(i);
-        if i + 1 < self.starts.len() || self.trailing_newline {
-            end + 1
-        } else {
-            end
-        }
+        self.ends[i]
     }
 
     /// Render the whole buffer as hashlines.
@@ -123,7 +123,7 @@ impl std::fmt::Display for AnchorError {
 }
 
 fn valid_hash(s: &str) -> bool {
-    s.len() == 4 && s.chars().all(|c| c.is_ascii_hexdigit())
+    matches!(s.len(), 4 | 64) && s.chars().all(|c| c.is_ascii_hexdigit())
 }
 
 /// Parse the `run` / `after` argument pair of an edit tool call.
@@ -147,7 +147,7 @@ pub fn parse_anchor(run: Option<&str>, after: Option<&str>) -> Result<Anchor, An
             };
             if !valid_hash(first) || !valid_hash(last) {
                 return Err(AnchorError(format!(
-                    "run anchor '{run}' is not a 4-hex hash or first..last hash pair"
+                    "run anchor '{run}' is not a SHA-256 hash or first..last hash pair"
                 )));
             }
             Ok(Anchor::Run {
@@ -162,7 +162,7 @@ pub fn parse_anchor(run: Option<&str>, after: Option<&str>) -> Result<Anchor, An
             }
             if !valid_hash(after) {
                 return Err(AnchorError(format!(
-                    "after anchor '{after}' is not a 4-hex line hash (or \"^\")"
+                    "after anchor '{after}' is not a SHA-256 line hash (or \"^\")"
                 )));
             }
             Ok(Anchor::After(after.to_ascii_lowercase()))
@@ -256,6 +256,15 @@ fn describe_anchor(anchor: &Anchor) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn deleting_a_crlf_line_consumes_both_newline_bytes() {
+        let source = "first\r\nsecond\r\n";
+        let index = LineIndex::new(source);
+        let mut next = source.to_string();
+        next.replace_range(index.starts[0]..index.line_end(0), "");
+        assert_eq!(next, "second\r\n");
+    }
 
     #[test]
     fn hashline_render_roundtrip() {

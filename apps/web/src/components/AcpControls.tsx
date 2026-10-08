@@ -41,10 +41,10 @@ export function useAcp(doc: string, backend: string, session: string | undefined
     // A running turn owns its connection; do not reconnect on optimistic UI updates.
   }, [connect, backend, hydrated]);
   useEffect(() => {
-    if (backend === "builtin" || (!running && !state?.ready)) return;
+    if (backend !== "builtin" && !running && !state?.ready) return;
     const stamp = version.current;
     let live = true;
-    const poll = () => { void Promise.resolve(acpApi.state(doc)).then(s => { if (s && live && stamp === version.current) setState(s); }, () => undefined); };
+    const poll = () => { void Promise.resolve(acpApi.state(doc, backend)).then(s => { if (s && live && stamp === version.current) setState(s); }, () => undefined); };
     poll(); const timer = setInterval(poll, running ? 500 : 1500);
     return () => { live = false; clearInterval(timer); };
   }, [running, backend, doc, state?.ready]);

@@ -17,8 +17,7 @@
 //!
 //! **What one invocation is.** A command opens a session, runs one tool, and
 //! exits. That is weaker than the in-process loop, where the session persists
-//! and re-weaves after every edit so a stale anchor is impossible by
-//! construction. Here, freshness comes from the anchors themselves: an anchor
+//! and re-weaves after edits, refusing a changed surface until it is read again. Here, freshness comes from the anchors themselves: an anchor
 //! is a hash of the line's content, so an edit against a line that changed
 //! since it was read does not resolve, and is refused rather than misapplied.
 //! The cost is a weave per command, not correctness.
@@ -94,7 +93,46 @@ pub fn record_tool_call(
     // Close the root after every command, so the file is a parseable session
     // between calls and not only once the agent happens to stop.
     log.record(SessionEvent::End);
+    log.check()?;
     Ok(())
+}
+
+/// Durable intent before effects; failure prevents running the requested tool.
+pub fn record_intent(path: &Path, tool: &str, input: &serde_json::Value) -> Result<()> {
+    use hickory_agent::{HickSessionLog, SessionEvent, SessionLog};
+    let log = HickSessionLog::append_or_create(path)?;
+    let data = serde_json::json!({"tool":tool,"input":input,"state":"requested","recorded_at":std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH)?.as_millis().to_string(),"actor":"harness","assumption_coverage":"Not established; inspect declared audit entries"});
+    log.record(SessionEvent::Context {
+        kind: "audit-action",
+        data: &data,
+    });
+    log.record(SessionEvent::End);
+    log.check()
+}
+
+pub fn record_check(
+    path: &Path,
+    ok: bool,
+    revision: &str,
+    sources: &[serde_json::Value],
+) -> Result<()> {
+    use hickory_agent::{HickSessionLog, SessionEvent, SessionLog};
+    let log = HickSessionLog::append_or_create(path)?;
+    log.record(SessionEvent::Context { kind: "verification", data: &serde_json::json!({"state":if ok {"passed"} else {"failed"},"revision":revision,"source_snapshots":sources,"actor":"harness","tool":"verify","scope":"Document execution and expectations for this source closure; external data, semantic truth and completeness are not certified"}) });
+    log.record(SessionEvent::End);
+    log.check()
+}
+
+pub fn record_activity_result(
+    path: &Path,
+    tool: &str,
+    result: &std::result::Result<String, String>,
+) -> Result<()> {
+    use hickory_agent::{HickSessionLog, SessionEvent, SessionLog};
+    let log = HickSessionLog::append_or_create(path)?;
+    log.record(SessionEvent::Context { kind: "audit-action", data: &serde_json::json!({"tool":tool,"state":"completed","ok":result.is_ok(),"result":result.as_ref().ok(),"error":result.as_ref().err(),"actor":"harness"}) });
+    log.record(SessionEvent::End);
+    log.check()
 }
 
 /// Run one tool against `doc` and return its outcome.
@@ -127,15 +165,35 @@ pub async fn run_doc_tool(req: &DocToolRequest) -> Result<ToolOutcome> {
     let executor = ExecutorChoice::from_env()?
         .build_for(req.doc.parent())
         .await?;
-    let outcome = execute_tool(&mut session, executor.clone(), &invocation).await;
+    if let Some(path) = &req.session {
+        record_intent(
+            path,
+            &req.tool,
+            &serde_json::json!({"args":req.args,"input":req.input}),
+        )?;
+    }
+    let mut outcome = execute_tool(&mut session, executor.clone(), &invocation).await;
     executor.shutdown().await.ok();
 
     if let Some(path) = &req.session {
         // A failure to record is reported, never fatal: the edit already
         // happened, and killing the command afterwards would tell the caller
         // its work failed when the document on disk says otherwise.
-        if let Err(e) = record_tool_call(path, &invocation, &outcome) {
-            eprintln!("warning: could not record into {}: {e:#}", path.display());
+        let recorded = record_tool_call(path, &invocation, &outcome).and_then(|()| {
+            if invocation.name == "verify" {
+                record_check(
+                    path,
+                    outcome.ok,
+                    &session.revision(),
+                    &session.source_snapshots(),
+                )
+            } else {
+                Ok(())
+            }
+        });
+        if let Err(e) = recorded {
+            outcome.ok = false;
+            outcome.text.push_str(&format!("\nRecording failed after the tool ran; inspect actual files. Session {} is incomplete: {e:#}", path.display()));
         }
     }
     Ok(outcome)
@@ -214,7 +272,7 @@ pub fn edit_args(
             "an edit needs an anchor: --run <hash>[..<hash>] to replace lines, or \
              --after <hash> (or --after ^ for the top of the file) to insert.\n\
              Hashes come from `hick doc read` / `hick doc read-output` — the \
-             `hhhh|` prefix on each line."
+             `hash|` SHA-256 prefix on each line."
         );
     }
     let mut args = Vec::new();

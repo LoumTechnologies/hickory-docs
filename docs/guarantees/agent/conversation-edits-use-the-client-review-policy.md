@@ -1,6 +1,6 @@
 # Conversation edits use the client's review policy
 
-Given an ACP conversation, when the user chooses **Review** or **Auto-accept**
+Given a built-in or ACP conversation, when the user chooses **Review** or **Auto-accept**
 under **Document edits**, then that choice belongs to this conversation and is
 restored when its saved conversation is reopened. New conversations start with
 Review. Changing it during a turn is refused.
@@ -66,3 +66,14 @@ Verification update (2026-10-04): `AgentChanges` publishes immutable readings;
 `DocumentReading` places the decision beside `DocumentComparison`.
 `serve_acp` also checks that reconnecting during pending review returns the
 active connection promptly. `ConversationEditor` now renders the Agent pane.
+
+Built-in scope update (2026-10-08): `serve/agent_review.rs` and
+`react_loop.rs` submit built-in `edit_doc` and `edit_output` proposals to the same
+queue. Review is the app default, rejects writes before application, rechecks
+the complete preview after approval, and cancellation releases pending review.
+Standalone `hick agent` has no interactive review queue unless a caller supplies
+`ToolReview`; scripts continue under the selected executor. Native disk tools
+operate on saved source, and do not gain ACP's live-buffer editing capability.
+`model_failure_audit::rejected_native_edits_record_the_decision_without_changing_the_document`
+is a regression witness. Restoring a saved policy occurs when its turn starts;
+pending proposals are connection state, not reconstructed on restart.

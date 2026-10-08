@@ -127,6 +127,71 @@ async fn the_session_view_carries_blocks_and_the_three_families_of_links() {
             ),
         ]
     );
+    // Retrospective corrections survive reopening and never erase the original.
+    let client = reqwest::Client::new();
+    let endpoint = format!("http://127.0.0.1:{port}/api/sessions/audit");
+    let response = client.post(&endpoint).json(&serde_json::json!({
+        "path":"sessions/s.hick", "entry":{
+            "statement":"Checkout delay was caused by the pool change",
+            "reason":"This was the explanation originally used", "dependencies":["notes/today.hick"]
+        }
+    })).send().await.unwrap();
+    assert_eq!(response.status().as_u16(), 200);
+    let view_url = format!("http://127.0.0.1:{port}/api/sessions/view?path=sessions/s.hick");
+    let before: Value = client
+        .get(&view_url)
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let original = before["audit"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|e| e["record_kind"] == "audit")
+        .unwrap();
+    assert_eq!(original["actor"], "user-declared");
+    let id = original["id"].as_str().unwrap();
+    std::fs::write(root.join("notes/today.hick"), "# corrected context\n").unwrap();
+    let response = client.post(&endpoint).json(&serde_json::json!({
+        "path":"sessions/s.hick", "entry":{
+            "statement":"The cause is still unresolved", "reason":"The pool explanation lacks a controlled witness", "supersedes":id
+        }
+    })).send().await.unwrap();
+    assert_eq!(response.status().as_u16(), 200);
+    let after: Value = client
+        .get(&view_url)
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let declarations: Vec<_> = after["audit"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|e| e["record_kind"] == "audit")
+        .collect();
+    assert_eq!(declarations.len(), 2);
+    assert_eq!(declarations[0]["id"], id);
+    assert_eq!(
+        declarations[0]["dependency_snapshots"][0]["current_state"],
+        "changed"
+    );
+    assert_eq!(declarations[1]["entry"]["supersedes"], id);
+    assert!(
+        after["source"]
+            .as_str()
+            .unwrap()
+            .contains("Why is checkout slow?")
+    );
+    let invalid = client.post(&endpoint).json(&serde_json::json!({
+        "path":"sessions/s.hick", "entry":{"statement":"Correction", "reason":"Check", "supersedes":"nonexistent"}
+    })).send().await.unwrap();
+    assert_eq!(invalid.status().as_u16(), 422);
 }
 
 // Guarantee: docs/guarantees/agent/an-answer-in-the-agent-pane-has-ribbons.md

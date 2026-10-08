@@ -702,3 +702,69 @@ async fn workspace_agent_reads_a_folder_without_a_primary_document_and_recovers(
         .unwrap();
     assert_eq!(response["turns"][0]["id"], turn["id"], "{response}");
 }
+
+// Guarantee: docs/guarantees/agent/conversation-edits-use-the-client-review-policy.md
+#[tokio::test(flavor = "multi_thread")]
+async fn native_document_review_waits_and_records_acceptance_before_writing() {
+    let session = start().await;
+    session.state.agent.set_llm_override(Arc::new(hickory_agent::ScriptedLlmClient::new(vec![
+        format!("<hick:next>tool</hick:next>\n<hick:tool name=\"edit_doc\"><hick:arg name=\"run\">{}</hick:arg><hick:input># Reviewed</hick:input></hick:tool>",hickory_agent::hashline::line_hash("# Demo")),
+        done("Changed heading."),
+    ])));
+    let agent = format!("/api/docs/{}/agent", session.doc_id);
+    let (status, _) = post(&session, &agent, json!({"prompt":"change heading"})).await;
+    assert_eq!(status, 202);
+    let review = format!("{agent}/review");
+    let change = tokio::time::timeout(Duration::from_secs(5), async {
+        loop {
+            let (_, body) = get(&session, &review).await;
+            if let Some(change) = body["edits"]["changes"]
+                .as_array()
+                .and_then(|items| items.iter().find(|change| change["status"] == "pending"))
+            {
+                break change.clone();
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    })
+    .await
+    .unwrap();
+    assert_eq!(
+        std::fs::read_to_string(session.root.join("demo.md")).unwrap(),
+        DOC
+    );
+    let (status, _) = post(
+        &session,
+        &review,
+        json!({"id":change["id"],"accepted":true}),
+    )
+    .await;
+    assert_eq!(status, 200);
+    let turns = tokio::time::timeout(Duration::from_secs(5), async {
+        loop {
+            let (_, body) = get(&session, &format!("{agent}/turns")).await;
+            if body["turns"][0]["status"] == "ok" {
+                break body;
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    })
+    .await
+    .unwrap();
+    assert!(
+        std::fs::read_to_string(session.root.join("demo.md"))
+            .unwrap()
+            .contains("# Reviewed")
+    );
+    let source = std::fs::read_to_string(
+        session
+            .root
+            .join(turns["turns"][0]["session"].as_str().unwrap()),
+    )
+    .unwrap();
+    assert!(
+        hickory_agent::audit::timeline(&source)
+            .iter()
+            .any(|entry| entry["record_kind"] == "edit-decision" && entry["accepted"] == true)
+    );
+}

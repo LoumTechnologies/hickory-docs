@@ -435,6 +435,12 @@ impl Engine {
                 file: rel,
                 first_line: first,
                 last_line: last,
+                fingerprints: lines
+                    .iter()
+                    .skip(first - 1)
+                    .take(last - first + 1)
+                    .map(|line| hickory_agent::hashline::line_fingerprint(line))
+                    .collect(),
                 hashes: lines
                     .iter()
                     .skip(first - 1)

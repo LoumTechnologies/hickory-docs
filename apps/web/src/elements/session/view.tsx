@@ -1,3 +1,4 @@
+import { publishReading, openReading } from "../../lib/readingViews";
 import { AcpRecord } from "../../components/AcpRecord";
 // The conversation's elements, drawn as the cards the agent pane has always
 // drawn — now in place of their source in the session document, with line
@@ -34,6 +35,15 @@ function view(kind: SlotKind, name: string, render: ElementView["render"]): Elem
 /** Open a file the conversation named, at its first line when it has
  * lines — the same road a definition or a stack frame takes. */
 function openTarget(link: SessionLink) {
+  if (link.historical?.content !== undefined) {
+    const snapshot = link.historical;
+    const id = `evidence:${snapshot.sha256}:${snapshot.path}:${snapshot.first_line}:${link.span[0]}`;
+    const quoted = snapshot.quoted_literals?.map(quote => `${JSON.stringify(quote.literal)}: ${quote.present_in_recorded_passage ? "occurs in recorded passage" : "absent from recorded passage"}`).join("\n") ?? "";
+    const content = `# Historical evidence\n\nSource: ${snapshot.path}, lines ${snapshot.first_line}–${snapshot.last_line}\n\nSnapshot: ${snapshot.sha256}\n\nCurrent source: ${snapshot.current_state ?? "unchecked"}\n\n${snapshot.claim ? `## Citing paragraph\n\n${snapshot.claim}\n\n` : ""}${quoted ? `## Literal quote comparison\n\n${quoted}\n\nLiteral occurrence does not establish attribution or semantic support.\n\n` : ""}## Returned source passage\n\n${snapshot.content}`;
+    publishReading(id, { title: "Historical evidence", path: "evidence.md", before: content, after: content, status: "historical · semantic support not assessed" });
+    openReading(id, "Historical evidence");
+    return;
+  }
   openLocation(link.to.path, link.to.lines?.[0] ?? 1);
 }
 
@@ -56,7 +66,7 @@ export function SourceChips({ links }: { links: readonly SessionLink[] }) {
     return true;
   });
   return (
-    <div className="chat-sources" aria-label="What this answer rests on">
+    <div className="chat-sources" aria-label="Recorded inputs and declared references">
       {shown.map((link, i) => (
         <button
           key={i}
@@ -65,7 +75,7 @@ export function SourceChips({ links }: { links: readonly SessionLink[] }) {
           data-tip={link.title}
           onClick={() => openTarget(link)}
         >
-          <span className="chat-source__verb">{link.evidence ? "produces" : VERB[link.family]}</span>{" "}
+          <span className="chat-source__verb">{link.title.startsWith("ACP-reported") ? "reports" : link.evidence ? "produces" : VERB[link.family]}</span>{" "}
           {link.evidence && <span className="mono">{link.evidence.path} → </span>}
           <span className="mono">{link.to.path.split("/").pop() ?? link.to.path}</span>
           {link.to.lines ? (

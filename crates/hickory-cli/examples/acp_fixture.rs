@@ -156,7 +156,7 @@ async fn main() {
                         .lines()
                         .find_map(|l| {
                             l.split_once('|')
-                                .filter(|(h, _)| h.len() == 4)
+                                .filter(|(h, _)| h.len() == 64)
                                 .map(|(h, _)| h.to_string())
                         })
                         .unwrap();
@@ -186,7 +186,7 @@ async fn main() {
                         .lines()
                         .find_map(|line| {
                             line.split_once('|')
-                                .filter(|(hash, _)| hash.len() == 4)
+                                .filter(|(hash, _)| hash.len() == 64)
                                 .map(|(hash, _)| hash.to_string())
                         })
                         .unwrap();

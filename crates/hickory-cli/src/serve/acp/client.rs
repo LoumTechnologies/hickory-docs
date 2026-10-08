@@ -263,6 +263,7 @@ impl Client {
         } else {
             format!("{prompt}\n\n{context}")
         };
+        self.record.lock().await.context("model-request", &json!({"backend":format!("acp:{}", self.agent),"turn":turn,"parent":parent,"supplied_prompt":run_prompt,"scope":"Prompt supplied to adapter; adapter-managed memory, transforms and hidden reads are opaque"}))?;
         if let Some(filesystem) = &self.filesystem {
             filesystem
                 .exchange(json!({"op":"turn","turn":turn}))
@@ -512,12 +513,15 @@ impl Client {
             }
             active.turn.clone()
         };
-        if matches!(kind, "agent_message_chunk" | "agent_thought_chunk") && !text.is_empty() {
-            let _ = self
+        if matches!(kind, "agent_message_chunk" | "agent_thought_chunk")
+            && !text.is_empty()
+            && let Err(error) = self
                 .record
                 .lock()
                 .await
-                .context("acp-stream", &json!({"turn":turn,"kind":kind,"text":text}));
+                .context("acp-stream", &json!({"turn":turn,"kind":kind,"text":text}))
+        {
+            self.context.publish(&self.doc_id, &turn, json!({"kind":"error","message":format!("Could not save agent stream; record is incomplete: {error:#}")})).await;
         }
         if !matches!(kind, "agent_message_chunk" | "agent_thought_chunk")
             && let Err(e) = self.record.lock().await.context("acp-activity", update)
@@ -581,6 +585,7 @@ impl Client {
     }
 
     async fn file(&self, method: &str, params: &Value) -> Result<Value> {
+        self.record.lock().await.check()?;
         // Live editor paths take precedence over disk, including unsaved bytes.
         let raw = params["path"].as_str().context("file path missing")?;
         let buffer = self
@@ -747,6 +752,10 @@ impl Client {
             file: rel,
             first_line: 1,
             last_line: merged.lines().count().max(1),
+            fingerprints: merged
+                .lines()
+                .map(hickory_agent::hashline::line_fingerprint)
+                .collect(),
             hashes: merged
                 .lines()
                 .map(hickory_agent::hashline::line_hash)

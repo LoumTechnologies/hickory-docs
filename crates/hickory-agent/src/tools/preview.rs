@@ -1,6 +1,37 @@
 use super::*;
 
 impl EditSession {
+    /// Revision of the source closure, independent of the agent's account of it.
+    pub fn revision(&self) -> String {
+        sha256_hex(
+            serde_json::to_string(&self.source_snapshots())
+                .unwrap()
+                .as_bytes(),
+        )
+    }
+    pub fn source_snapshots(&self) -> Vec<serde_json::Value> {
+        let mut paths = vec![self.doc_path.clone()];
+        paths.extend(self.upstream.keys().cloned());
+        paths.sort();
+        paths
+            .into_iter()
+            .map(|path| {
+                let hash = std::fs::read(&path).ok().map(|bytes| sha256_hex(&bytes));
+                serde_json::json!({"path":path.display().to_string(),"sha256":hash})
+            })
+            .collect()
+    }
+    pub fn has_executable_cells(&self) -> bool {
+        std::iter::once(&self.source)
+            .chain(self.upstream.values())
+            .any(|source| {
+                hick_lang::parse(source)
+                    .is_ok_and(|doc| doc.all_tags().iter().any(|tag| tag.name == "exec"))
+            })
+    }
+    pub async fn refresh_source(&mut self) -> Result<bool, String> {
+        self.sync_with_disk().await
+    }
     /// Resolve a tool's anchors against exact buffer bytes, without any I/O.
     pub fn preview_text(source: &str, invocation: &ToolInvocation) -> Result<String, String> {
         let edit = resolve_edit(&LineIndex::new(source), invocation, false)?;

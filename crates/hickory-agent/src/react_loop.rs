@@ -76,6 +76,7 @@ pub struct AgentConfig {
     /// and after a script or tool finishes. The run then fails with
     /// [`STOPPED_BY_USER`], which callers show as a stop, not a failure.
     pub cancel: Option<Arc<std::sync::atomic::AtomicBool>>,
+    pub review: Option<Arc<dyn crate::ToolReview>>,
 }
 
 /// The message a cancelled run fails with — a contract with callers, who
@@ -108,6 +109,7 @@ impl AgentConfig {
             turn_id: None,
             parent_turn_id: None,
             cancel: None,
+            review: None,
         }
     }
 }
@@ -196,6 +198,13 @@ pub async fn run_agent(
     if let Some(context) = &config.doc_context {
         session.record(SessionEvent::EditorContext { text: context });
     }
+    if let Some(review) = &config.review {
+        session.record(SessionEvent::Context {
+            kind: "acp-edit-mode",
+            data: &serde_json::json!({"mode":review.mode()}),
+        });
+    }
+    session.check()?;
 
     // Prompt-cache contract: the FIRST system message is the frozen,
     // byte-stable prefix (protocol + tool doctrine — no timestamps, no
@@ -206,6 +215,10 @@ pub async fn run_agent(
     // frozen one. See `llm_anthropic`'s module docs for the breakpoint
     // layout.
     let mut frozen = SYSTEM_PROMPT.to_string();
+    frozen.push_str("\n\n");
+    frozen.push_str(crate::audit::INSTRUCTIONS);
+    frozen.push_str("\nAudit tools are always available, even without a primary document. Use <hick:next>tool</hick:next> followed by <hick:tool name=\"record_assumption\"><hick:input>{\"statement\":\"...\",\"reason\":\"...\"}</hick:input></hick:tool>. For audit_assumptions omit the input. JSON schemas: ");
+    frozen.push_str(&serde_json::to_string(&crate::audit::catalogue())?);
     if edit_session.is_some() {
         frozen.push_str(TOOLS_SYSTEM_PROMPT);
     }
@@ -265,6 +278,9 @@ pub async fn run_agent(
     let mut action_index = 0usize;
     let mut consecutive_invalid = 0usize;
     let mut total_usage = Usage::default();
+    let mut edited = false;
+    let mut verified_revision: Option<String> = None;
+    let mut last_check: Option<(String, bool)> = None;
 
     let cancel = config.cancel.clone();
     let cancelled = || {
@@ -286,10 +302,14 @@ pub async fn run_agent(
             cost_usd: cost_usd(llm.model_name(), &total_usage),
         });
         session.record(SessionEvent::End);
+        let error = session
+            .check()
+            .err()
+            .unwrap_or_else(|| anyhow::anyhow!(STOPPED_BY_USER));
         on_event(AgentEvent::Error {
-            message: STOPPED_BY_USER.to_string(),
+            message: error.to_string(),
         });
-        anyhow::anyhow!(STOPPED_BY_USER)
+        error
     };
 
     for turn in 0..config.max_turns {
@@ -297,6 +317,12 @@ pub async fn run_agent(
             return Err(stop_run(&session, total_usage, on_event));
         }
         on_event(AgentEvent::Thinking);
+        let request = serde_json::json!({"messages":history,"backend":"builtin","turn":config.turn_id,"parent":config.parent_turn_id,"scope":"Message envelope supplied to provider client; wire encoding and provider-managed context are outside this record"});
+        session.record(SessionEvent::Context {
+            kind: "model-request",
+            data: &request,
+        });
+        session.check()?;
         let (response, reasoning, turn_usage) =
             match stream_completion(llm, history.clone(), on_event, cancel.as_deref()).await {
                 Err(e) if e.to_string() == STOPPED_BY_USER => {
@@ -366,6 +392,10 @@ pub async fn run_agent(
                     lang: block.language.to_string(),
                     data: block.code.clone(),
                 });
+                session.record(SessionEvent::Context { kind: "audit-action", data: &serde_json::json!({"tool":"script","state":"requested","actor":"harness","input":block.code,"assumption_coverage":"Not established"}) });
+                session.check()?;
+                verified_revision = None;
+                edited = true;
 
                 let result = run_script(
                     executor.as_ref(),
@@ -388,6 +418,7 @@ pub async fn run_agent(
                     exit_code: result.exit_code,
                     text: &observation_text,
                 });
+                session.check()?;
                 on_event(AgentEvent::ScriptFinished {
                     result: result.clone(),
                 });
@@ -420,8 +451,61 @@ pub async fn run_agent(
                     name: invocation.name.clone(),
                     data: invocation.raw_xml.clone(),
                 });
+                session.check()?;
+                session.record(SessionEvent::Context { kind: "audit-action", data: &serde_json::json!({"tool":invocation.name,"state":"requested","actor":"harness","input":invocation.args,"assumption_coverage":"Not established"}) });
+                session.check()?;
+                let reviewed = if let Some(reviewer) = &config.review
+                    && matches!(invocation.name.as_str(), "edit_doc" | "edit_output")
+                    && let Some(es) = edit_session.as_mut()
+                {
+                    match es.preview_edit(&invocation).await {
+                        Ok(preview) => {
+                            let decision = reviewer.approve(&invocation, &preview).await;
+                            let data = serde_json::json!({"tool":invocation.name,"path":preview.0,"accepted":decision.is_ok(),"error":decision.as_ref().err().map(|e| e.to_string()),"actor":"client-review-policy"});
+                            session.record(SessionEvent::Context {
+                                kind: "edit-decision",
+                                data: &data,
+                            });
+                            session.check()?;
+                            match decision {
+                                Err(error) => Err(error.to_string()),
+                                Ok(()) => match es.preview_edit(&invocation).await {
+                                    Ok(current) if current == preview => Ok(()),
+                                    _ => Err("The surface changed during review. Read it again; nothing was changed.".into())
+                                }
+                            }
+                        }
+                        Err(error) => Err(error),
+                    }
+                } else {
+                    Ok(())
+                };
 
-                let outcome = if let Some(root) = &config.folder_context
+                let attempted_revision = edit_session.as_ref().map(EditSession::revision);
+                let attempted_sources = edit_session.as_ref().map(EditSession::source_snapshots);
+                let outcome = if let Err(error) = reviewed {
+                    crate::ToolOutcome::refused(&invocation.name, error)
+                } else if crate::audit::is_tool(&invocation.name) {
+                    match crate::audit::invocation_args(&invocation).and_then(|args| {
+                        crate::audit::invoke_in(
+                            &session,
+                            &invocation.name,
+                            args,
+                            Some(&config.project_dir),
+                        )
+                    }) {
+                        Ok(text) => crate::ToolOutcome {
+                            name: invocation.name.clone(),
+                            ok: true,
+                            text,
+                            reads: vec![],
+                            wrote: None,
+                        },
+                        Err(error) => {
+                            crate::ToolOutcome::refused(&invocation.name, error.to_string())
+                        }
+                    }
+                } else if let Some(root) = &config.folder_context
                     && invocation.name == "read_file"
                 {
                     crate::tools::read_file(root, root, &invocation)
@@ -438,6 +522,29 @@ pub async fn run_agent(
                 };
 
                 crate::session::record_outcome(&session, &outcome);
+                if let Some(review) = &config.review {
+                    review.completed(outcome.ok);
+                }
+                session.check()?;
+                if outcome.ok && matches!(invocation.name.as_str(), "edit_doc" | "edit_output") {
+                    edited = true;
+                    verified_revision = None;
+                }
+                if invocation.name == "verify" {
+                    last_check = attempted_revision
+                        .as_ref()
+                        .map(|revision| (revision.clone(), outcome.ok));
+                    verified_revision = outcome
+                        .ok
+                        .then(|| edit_session.as_ref().map(EditSession::revision))
+                        .flatten();
+                    let data = serde_json::json!({"state":if outcome.ok {"passed"} else {"failed"},"revision":attempted_revision,"source_snapshots":attempted_sources,"tool":"verify","actor":"harness","scope":"Document execution and expectations; no semantic truth claim"});
+                    session.record(SessionEvent::Context {
+                        kind: "verification",
+                        data: &data,
+                    });
+                    session.check()?;
+                }
                 on_event(AgentEvent::ToolFinished {
                     name: outcome.name.clone(),
                     ok: outcome.ok,
@@ -457,6 +564,24 @@ pub async fn run_agent(
                 }
             }
             Turn::Done { summary } => {
+                if let Some(es) = &mut edit_session {
+                    es.refresh_source().await.map_err(anyhow::Error::msg)?;
+                }
+                let current = edit_session.as_ref().map(EditSession::revision);
+                let needs_check = edited
+                    && edit_session
+                        .as_ref()
+                        .is_some_and(EditSession::has_executable_cells);
+                if needs_check && (verified_revision.is_none() || verified_revision != current) {
+                    history.push(Message::new(Role::Assistant, response));
+                    history.push(Message::new(Role::User, "The harness has no successful verification for the current edited source closure. Run verify before completing; a claimed test result does not count."));
+                    continue;
+                }
+                let data = serde_json::json!({"state":if verified_revision.is_some() && verified_revision == current {"passed"} else if last_check.as_ref().is_some_and(|(revision, ok)| !ok && Some(revision) == current.as_ref()) {"failed"} else if last_check.is_some() {"stale"} else {"not-run"},"revision":current,"source_snapshots":edit_session.as_ref().map(EditSession::source_snapshots),"actor":"harness","scope":"Document execution and expectations; no semantic truth claim"});
+                session.record(SessionEvent::Context {
+                    kind: "verification",
+                    data: &data,
+                });
                 session.record(SessionEvent::Assistant {
                     prose: &summary,
                     action: None,
@@ -469,6 +594,7 @@ pub async fn run_agent(
                     cost_usd: total_cost_usd,
                 });
                 session.record(SessionEvent::End);
+                session.check()?;
                 on_event(AgentEvent::Done {
                     summary: summary.clone(),
                 });
@@ -500,6 +626,8 @@ pub async fn run_agent(
             config.max_turns
         ),
     ));
+    session.record(SessionEvent::Context { kind: "model-request", data: &serde_json::json!({"messages":history,"backend":"builtin","turn":config.turn_id,"handoff":true}) });
+    session.check()?;
     let (response, wrap_reasoning, wrap_usage) =
         match stream_completion(llm, history.clone(), on_event, cancel.as_deref()).await {
             Err(e) if e.to_string() == STOPPED_BY_USER => {
@@ -529,7 +657,9 @@ pub async fn run_agent(
         usage: total_usage,
         cost_usd: cost_usd(llm.model_name(), &total_usage),
     });
+    session.record(SessionEvent::Context { kind: "verification", data: &serde_json::json!({"state":"unfinished","last_passed_revision":verified_revision,"current_revision":edit_session.as_ref().map(EditSession::revision),"actor":"harness","scope":"Turn budget exhausted; final prose is not verification"}) });
     session.record(SessionEvent::End);
+    session.check()?;
     on_event(AgentEvent::Done {
         summary: summary.clone(),
     });

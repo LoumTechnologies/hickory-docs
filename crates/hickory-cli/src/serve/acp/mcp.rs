@@ -153,6 +153,9 @@ async fn exchange(State(bridge): State<Bridge>, Json(message): Json<Value>) -> i
     // The same lock gates ACP writes and MCP evidence. Never two open file writers.
     let _workspace = bridge.workspace_gate.lock().await;
     let _record = bridge.record.lock().await;
+    if let Err(error) = _record.check() {
+        return tool_error(id, &format!("Recording failed; no tool ran: {error:#}"));
+    }
     let mut server = bridge.server.lock().await;
     let review_id = reviewed.as_ref().map(|(_, id)| id.clone());
     let captured = if method == "tools/call"
@@ -206,12 +209,11 @@ async fn exchange(State(bridge): State<Bridge>, Json(message): Json<Value>) -> i
     } else {
         server.handle(method, &params).await
     };
-    if representation_call {
-        let _ = _record.context(
+    if representation_call
+        && let Err(error) = _record.context(
             "literate-view-tool",
             &json!({"tool":params["name"],"arguments":params["arguments"],"ok":result.is_ok(),"observation":result.as_ref().ok()}),
-        );
-    }
+        ) { result = Err((-32603, format!("Tool recording failed after execution: {error:#}"))); }
     if method == "tools/list"
         && let Ok(value) = &mut result
         && let Some(tools) = value["tools"].as_array_mut()
@@ -317,15 +319,21 @@ async fn buffer_call(
 ) -> Result<String> {
     use hickory_agent::hashline::LineIndex;
     if matches!(name, "read_doc" | "read_buffer") {
-        bridge
-            .record
-            .lock()
-            .await
-            .context("acp-buffer-read", &json!({"buffer":buffer}))?;
+        let record = bridge.record.lock().await;
+        record.context("acp-buffer-read", &json!({"buffer":buffer}))?;
+        let (_, receipt) = super::read_receipt::read(
+            buffer.path.as_deref().unwrap_or(&buffer.name),
+            &buffer.content,
+            &json!({}),
+        );
+        if let Some(read) = receipt {
+            record.event(hickory_agent::SessionEvent::Read { read: &read })?;
+        }
         return Ok(format!(
-            "buffer {} ({}):\n{}",
+            "buffer {} ({}):\nsnapshot: {}\n{}",
             buffer.id.as_deref().unwrap_or("focused"),
             buffer.name,
+            LineIndex::new(&buffer.content).snapshot,
             LineIndex::new(&buffer.content).render()
         ));
     }
@@ -340,7 +348,7 @@ async fn buffer_call(
         .lock()
         .await
         .context("acp-buffer-edit", &json!({"buffer":buffer,"content":next}))?;
-    bridge
+    let decision = bridge
         .edits
         .submit(
             buffer.id.clone().unwrap_or_else(|| buffer.name.clone()),
@@ -349,7 +357,9 @@ async fn buffer_call(
             next.clone(),
             true,
         )
-        .await?;
+        .await;
+    bridge.record.lock().await.context("edit-decision", &json!({"path":buffer.path,"accepted":decision.is_ok(),"error":decision.as_ref().err().map(|e| e.to_string()),"actor":"client-review-policy"}))?;
+    decision?;
     bridge.edits.updated(&buffer, next.clone());
     Ok(format!(
         "Edited the live buffer. Fresh hashes:\n{}",

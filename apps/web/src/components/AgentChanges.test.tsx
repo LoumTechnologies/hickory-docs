@@ -20,14 +20,14 @@ it("uses the document comparison editor, waits for Accept, and applies before ac
   expect(apply).not.toHaveBeenCalled();
   if (!screen.queryByRole("button", { name: "Accept change" })) render(<DocumentReading id="proposal:workspace:change" />);
   fireEvent.click(screen.getByRole("button", { name: "Accept change" }));
-  await waitFor(() => expect(acpApi.edits).toHaveBeenCalledWith("workspace", { id: "change", accepted: true, error: undefined }));
+  await waitFor(() => expect(acpApi.edits).toHaveBeenCalledWith("workspace", { id: "change", accepted: true, error: undefined }, "codex"));
 });
 it("rejects without changing the editor", async () => {
   const apply = vi.fn(); vi.mocked(acpApi.edits).mockResolvedValue(state);
   render(<AgentChanges doc="workspace" state={state} running apply={apply} update={() => {}} />);
   render(<DocumentReading id="proposal:workspace:change" />);
   fireEvent.click(screen.getByRole("button", { name: "Reject change" }));
-  await waitFor(() => expect(acpApi.edits).toHaveBeenCalledWith("workspace", { id: "change", accepted: false, error: undefined }));
+  await waitFor(() => expect(acpApi.edits).toHaveBeenCalledWith("workspace", { id: "change", accepted: false, error: undefined }, "codex"));
   expect(apply).not.toHaveBeenCalled();
 });
 it("auto-accepts the same change without a user gesture", async () => {
@@ -41,14 +41,14 @@ it("reports a stale buffer to the agent as a failed edit", async () => {
   render(<AgentChanges doc="workspace" state={state} running apply={() => { throw new Error("The document changed."); }} update={() => {}} />);
   if (!screen.queryByRole("button", { name: "Accept change" })) render(<DocumentReading id="proposal:workspace:change" />);
   fireEvent.click(screen.getByRole("button", { name: "Accept change" }));
-  await waitFor(() => expect(acpApi.edits).toHaveBeenCalledWith("workspace", { id: "change", accepted: false, error: "The document changed." }));
+  await waitFor(() => expect(acpApi.edits).toHaveBeenCalledWith("workspace", { id: "change", accepted: false, error: "The document changed." }, "codex"));
   expect(screen.getAllByRole("alert")[0].textContent).toBe("The document changed.");
 });
 it("changes the per-conversation policy and disables it during a turn", async () => {
   vi.mocked(acpApi.edits).mockResolvedValue(state);
   const view = render(<AgentChanges doc="workspace" state={state} running={false} update={() => {}} />);
   fireEvent.change(screen.getByRole("combobox", { name: "Document edits" }), { target: { value: "auto-accept" } });
-  await waitFor(() => expect(acpApi.edits).toHaveBeenCalledWith("workspace", { mode: "auto-accept" }));
+  await waitFor(() => expect(acpApi.edits).toHaveBeenCalledWith("workspace", { mode: "auto-accept" }, "codex"));
   view.rerender(<AgentChanges doc="workspace" state={state} running update={() => {}} />);
   expect((screen.getByRole("combobox", { name: "Document edits" }) as HTMLSelectElement).disabled).toBe(true);
 });
@@ -59,5 +59,5 @@ it("returns newer editor text with a stale rejection so the agent can read again
   render(<AgentChanges doc="workspace" state={state} running apply={() => { throw new AgentEditConflict("Changed during review", "My new sentence"); }} update={() => {}} />);
   if (!screen.queryByRole("button", { name: "Accept change" })) render(<DocumentReading id="proposal:workspace:change" />);
   fireEvent.click(screen.getByRole("button", { name: "Accept change" }));
-  await waitFor(() => expect(acpApi.edits).toHaveBeenCalledWith("workspace", { id: "change", accepted: false, error: "Changed during review", current_text: "My new sentence" }));
+  await waitFor(() => expect(acpApi.edits).toHaveBeenCalledWith("workspace", { id: "change", accepted: false, error: "Changed during review", current_text: "My new sentence" }, "codex"));
 });

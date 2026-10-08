@@ -15,10 +15,13 @@
 //! error, never a silently misapplied edit.
 pub mod hashline;
 mod preview;
+mod receipts;
 use anyhow::{Context as _, Result};
 use hick_exec::node::FileContent;
 use hickory_executor::Executor;
 use hickory_lineage::{LineageError, OutputEdit, Provenance, apply_source_edits, map_edits};
+pub use receipts::{ContextRead, Wrote};
+use receipts::{changed_lines, head_commit_for, sha256_hex};
 use std::collections::HashMap;
 use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
@@ -49,39 +52,6 @@ pub struct ToolOutcome {
     /// stand after the edit. Recorded as `<hick:wrote>`; everything read
     /// earlier in the same session is that write's context.
     pub wrote: Option<Wrote>,
-}
-
-/// One thing a tool showed the model: a file, at a content hash and (when
-/// the file is in a git repository) a commit, over a 1-based inclusive line
-/// range. Derived by the tool, never declared by the model.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ContextRead {
-    /// The path as the session knows it — the document's name for the
-    /// primary, the upstream's path, an output's path, or the path given to
-    /// `read_file` resolved relative to the primary document.
-    pub path: String,
-    /// `git rev-parse HEAD` of the repository containing the file, if any.
-    /// The working tree may differ from HEAD; `sha256` is the truth about
-    /// the bytes, `commit` is where to look for them later.
-    pub commit: Option<String>,
-    /// SHA-256 of the whole file's bytes as read.
-    pub sha256: String,
-    /// First line shown, 1-based.
-    pub first_line: usize,
-    /// Last line shown, 1-based, inclusive.
-    pub last_line: usize,
-}
-
-/// The lines an edit left in a file, 1-based inclusive, with their content
-/// hashes — the anchors by which a later reader finds them again after the
-/// file has moved on.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Wrote {
-    pub file: String,
-    pub first_line: usize,
-    pub last_line: usize,
-    /// 4-hex hashline hashes of those lines, in order.
-    pub hashes: Vec<String>,
 }
 
 impl ToolOutcome {
@@ -120,71 +90,6 @@ impl ToolOutcome {
     pub fn refused(name: &str, text: String) -> Self {
         Self::err(name, text)
     }
-}
-
-/// SHA-256 of `bytes`, lowercase hex.
-fn sha256_hex(bytes: &[u8]) -> String {
-    use sha2::Digest as _;
-    let mut h = sha2::Sha256::new();
-    h.update(bytes);
-    format!("{:x}", h.finalize())
-}
-
-/// `git rev-parse HEAD` for the repository containing `path`, if there is
-/// one and git is installed. Anything else is `None`: outside a repository
-/// there is no commit to name, and the read is still recorded by its hash.
-fn head_commit_for(path: &Path) -> Option<String> {
-    let dir = if path.is_dir() {
-        path
-    } else {
-        match path.parent() {
-            Some(p) if !p.as_os_str().is_empty() => p,
-            _ => Path::new("."),
-        }
-    };
-    let out = std::process::Command::new("git")
-        .args(["rev-parse", "HEAD"])
-        .current_dir(dir)
-        .output()
-        .ok()?;
-    if !out.status.success() {
-        return None;
-    }
-    let s = String::from_utf8_lossy(&out.stdout).trim().to_string();
-    (!s.is_empty()).then_some(s)
-}
-
-/// The lines of `new` that differ from `old`: the first and last (1-based,
-/// inclusive) line indices into `new` outside the common prefix and suffix,
-/// with their hashes. `None` when nothing changed or the change was a pure
-/// deletion (no lines of `new` were written).
-fn changed_lines(old: &str, new: &str, file: &str) -> Option<Wrote> {
-    let a: Vec<&str> = old.lines().collect();
-    let b: Vec<&str> = new.lines().collect();
-    let mut prefix = 0;
-    while prefix < a.len() && prefix < b.len() && a[prefix] == b[prefix] {
-        prefix += 1;
-    }
-    let mut suffix = 0;
-    while suffix < a.len() - prefix
-        && suffix < b.len() - prefix
-        && a[a.len() - 1 - suffix] == b[b.len() - 1 - suffix]
-    {
-        suffix += 1;
-    }
-    let last = b.len().checked_sub(suffix)?;
-    if last <= prefix {
-        return None;
-    }
-    Some(Wrote {
-        file: file.to_string(),
-        first_line: prefix + 1,
-        last_line: last,
-        hashes: b[prefix..last]
-            .iter()
-            .map(|l| hashline::line_hash(l))
-            .collect(),
-    })
 }
 
 /// Weave state of one pipeline pass: text outputs plus their provenance.
@@ -255,6 +160,7 @@ impl EditSession {
             sha256: sha256_hex(source.as_bytes()),
             first_line: 1,
             last_line: lines,
+            content: source.to_string(),
         }
     }
 
@@ -269,7 +175,8 @@ impl EditSession {
     async fn sync_with_disk(&mut self) -> Result<bool, String> {
         let disk = std::fs::read_to_string(&self.doc_path)
             .map_err(|e| format!("cannot read {}: {e}", self.doc_path.display()))?;
-        if disk == self.source {
+        let upstream = upstream_closure(&self.doc_path);
+        if disk == self.source && upstream == self.upstream {
             return Ok(false);
         }
         let weave = weave_source(&self.doc_path, &self.doc_name, &disk, &self.params)
@@ -282,6 +189,7 @@ impl EditSession {
                 )
             })?;
         self.source = disk;
+        self.upstream = upstream;
         self.weave = weave;
         Ok(true)
     }
@@ -312,7 +220,11 @@ impl EditSession {
         let path = self.path_of_target(&name);
         let read = self.read_of(&path, &name, &source);
         let index = LineIndex::new(&source);
-        let mut text = format!("doc: {name}\n{}", index.render());
+        let mut text = format!(
+            "doc: {name}\nsnapshot: {}\n{}",
+            sha256_hex(source.as_bytes()),
+            index.render()
+        );
         if self.upstream.is_empty() {
             return ToolOutcome::ok("read_doc", text).with_read(read);
         }
@@ -473,7 +385,11 @@ impl EditSession {
             );
         };
         let index = LineIndex::new(content);
-        let mut text = format!("output: {path}\n{}", index.render());
+        let mut text = format!(
+            "output: {path}\nsnapshot: {}\n{}",
+            sha256_hex(content.as_bytes()),
+            index.render()
+        );
         let with_lineage = inv
             .arg("with_lineage")
             .is_some_and(|v| v == "true" || v == "1");
@@ -484,11 +400,18 @@ impl EditSession {
         }
         let lines = content.lines().count().max(1);
         ToolOutcome::ok("read_output", text).with_read(ContextRead {
-            path: path.to_string(),
+            path: self
+                .doc_path
+                .parent()
+                .unwrap_or(Path::new("."))
+                .join(path)
+                .display()
+                .to_string(),
             commit: None, // an output is derived; its document's commit is the record
             sha256: sha256_hex(content.as_bytes()),
             first_line: 1,
             last_line: lines,
+            content: content.clone(),
         })
     }
 
@@ -1062,6 +985,11 @@ pub async fn execute_tool(
     executor: Arc<dyn Executor>,
     inv: &ToolInvocation,
 ) -> ToolOutcome {
+    if matches!(inv.name.as_str(), "read_doc" | "read_output" | "verify")
+        && let Err(error) = session.sync_with_disk().await
+    {
+        return ToolOutcome::err(&inv.name, error);
+    }
     match inv.name.as_str() {
         "read_doc" => session.read_doc(inv),
         "read_output" => session.read_output(inv),
@@ -1072,7 +1000,15 @@ pub async fn execute_tool(
         ),
         "edit_output" => session.edit_output(inv).await,
         "edit_doc" => session.edit_doc(inv).await,
-        "verify" => session.verify(executor).await,
+        "verify" => {
+            let before = session.revision();
+            let mut result = session.verify(executor).await;
+            if before != session.revision() {
+                result.ok = false;
+                result.text.push_str("\nSource closure changed during verification; this result does not establish a pass for the current sources.");
+            }
+            result
+        }
         other => ToolOutcome::err(
             other,
             format!(
@@ -1102,6 +1038,14 @@ fn resolve_edit(
     inv: &ToolInvocation,
     resynced: bool,
 ) -> Result<ResolvedEdit, String> {
+    if resynced {
+        return Err("The document or an upstream changed since the previous surface. Read it again before editing; nothing was changed.".into());
+    }
+    if let Some(snapshot) = inv.arg("snapshot")
+        && snapshot != index.snapshot
+    {
+        return Err("The supplied snapshot no longer matches the whole surface, including the range interior. Read it again; nothing was changed.".into());
+    }
     let anchor: Anchor = parse_anchor(inv.arg("run"), inv.arg("after")).map_err(|e| e.0)?;
     let occurrence = match inv.arg("occurrence") {
         Some(v) => Some(

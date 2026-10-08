@@ -84,7 +84,13 @@ fn editing_the_passage_by_hand_does_not_make_it_stale() {
 async fn weaving_emits_the_pinned_passage_and_calls_no_model() {
     let dir = tempfile::tempdir().unwrap();
     let doc_path = dir.path().join("d.hick");
-    std::fs::write(&doc_path, stamped()).unwrap();
+    let source = stamped()
+        .replace(
+            "<hick:transform select",
+            "<hick:file path=\"out.md\"><hick:transform select",
+        )
+        .replace("</hick:transform>", "</hick:transform></hick:file>");
+    std::fs::write(&doc_path, source).unwrap();
 
     // No ANTHROPIC_API_KEY is set here: weaving must not need one.
     let run = hickory_cli::run_doc(
@@ -96,7 +102,6 @@ async fn weaving_emits_the_pinned_passage_and_calls_no_model() {
     .await
     .unwrap();
     hickory_cli::write_outputs(&run, None).unwrap();
-
     let woven = std::fs::read_to_string(dir.path().join("out.md")).unwrap();
     assert!(
         woven.contains("Open allows 300 execution minutes a month; Pro allows 2,000."),

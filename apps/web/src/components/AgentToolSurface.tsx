@@ -22,7 +22,7 @@
 const TOOLS: { call: string; does: string }[] = [
   {
     call: "hick doc read <doc>",
-    does: "The document source, every line prefixed with its 4-hex content hash. Those hashes are the anchors an edit takes.",
+    does: "The document source, every line prefixed with its SHA-256 content hash. Those hashes are the anchors an edit takes.",
   },
   {
     call: "hick doc read-output <doc> --path f --lineage",

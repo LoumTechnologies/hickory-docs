@@ -1,7 +1,7 @@
 //! ACP is an optional agent extension. The language and model client stay independent.
 mod client;
 mod config;
-mod edits;
+pub(super) mod edits;
 mod mcp;
 pub(super) mod read_receipt;
 pub(crate) mod record;
@@ -437,10 +437,12 @@ pub async fn start_turn(
             String::new()
         };
     let context = format!(
-        "{context}\nFor changes to the current open editor, call read_buffer then edit_buffer using its hashes. Do not return a replacement document as your answer. The client handles approval. For generated code use read_output and edit_output so lineage carries the edit into its source."
+        "{}\n{context}\nFor changes to the current open editor, call read_buffer then edit_buffer using its hashes. Do not return a replacement document as your answer. The client handles approval. For generated code use read_output and edit_output so lineage carries the edit into its source.",
+        hickory_agent::audit::INSTRUCTIONS
     );
     let run_id = turn_id.clone();
     tokio::spawn(async move {
+        let _annotation_gate = state.agent.annotations_gate.read().await;
         let outcome = client
             .prompt(
                 &run_id,

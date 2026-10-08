@@ -1,9 +1,9 @@
 // Which PROVENANCES the overlay draws. Three kinds live in this product and
 // must never look alike (docs/specs/freeform/three-provenances.md):
 //
-// - lineage  — the weave's byte-exact derivation; nobody can forge it
+// - lineage  — the weave's byte-exact derivation; recomputable from source bytes
 // - context  — what was in front of the model when it wrote these lines,
-//              derived from the session record; nobody can forge it either,
+//              derived from the session record; records the supplied context,
 //              but it says "was present", never "was used"
 // - declared — what the author (a model or a person) says it cites; anyone
 //              can write it, so it is drawn as an assertion
@@ -90,7 +90,7 @@ export function toggleLayer(
 export const LAYER_LABEL: Record<ProvenanceLayer, { short: string; tip: string }> = {
   lineage: {
     short: "Lineage",
-    tip: "Lineage — where these bytes came from, by the weave. Derived, byte-exact; nobody can forge it.",
+    tip: "Lineage — where these bytes came from, by the weave. Derived byte correspondence, not evidence that a claim is true.",
   },
   context: {
     short: "Context",

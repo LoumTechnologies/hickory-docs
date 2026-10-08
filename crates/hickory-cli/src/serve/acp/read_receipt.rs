@@ -8,13 +8,14 @@ pub(crate) fn read(path: &str, text: &str, params: &Value) -> (String, Option<Co
     let limit = params["limit"].as_u64().map_or(usize::MAX, |n| n as usize);
     let count = text.split_inclusive('\n').count();
     let shown = count.saturating_sub(start).min(limit);
-    let content = text.split_inclusive('\n').skip(start).take(limit).collect();
+    let content: String = text.split_inclusive('\n').skip(start).take(limit).collect();
     let receipt = (shown > 0).then(|| ContextRead {
         path: path.into(),
         commit: None,
         sha256: hex::encode(Sha256::digest(text.as_bytes())),
         first_line: start + 1,
         last_line: start + shown,
+        content: content.clone(),
     });
     (content, receipt)
 }

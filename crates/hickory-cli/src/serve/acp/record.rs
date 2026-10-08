@@ -6,32 +6,78 @@ use std::path::{Path, PathBuf};
 
 pub struct Record {
     pub path: PathBuf,
+    failure: std::sync::Mutex<Option<String>>,
 }
 impl Record {
+    pub fn existing(path: PathBuf) -> Self {
+        Self {
+            path,
+            failure: Default::default(),
+        }
+    }
+    pub fn check(&self) -> Result<()> {
+        if let Some(error) = &*self.failure.lock().unwrap() {
+            anyhow::bail!(
+                "Session recording is incomplete at {}: {error}",
+                self.path.display()
+            );
+        }
+        anyhow::ensure!(
+            self.path.is_file(),
+            "Session recording is incomplete at {}: record is unavailable",
+            self.path.display()
+        );
+        Ok(())
+    }
+    fn persist(&self, operation: impl FnOnce() -> Result<()>) -> Result<()> {
+        let result = self.check().and_then(|()| operation());
+        if let Err(error) = &result {
+            *self.failure.lock().unwrap() = Some(format!("{error:#}"));
+        }
+        result
+    }
     pub fn open(path: PathBuf, doc: &Path) -> Result<Self> {
         if !path.exists() {
             let log = HickSessionLog::create_for(&path, Some(doc))?;
             log.record(SessionEvent::End);
+            log.check()?;
         }
-        Ok(Self { path })
+        Ok(Self::existing(path))
     }
     pub fn event(&self, event: SessionEvent<'_>) -> Result<()> {
-        let log = HickSessionLog::append_or_create(&self.path)?;
-        log.record(event);
-        log.record(SessionEvent::End);
-        Ok(())
+        self.persist(|| {
+            let log = HickSessionLog::append_or_create(&self.path)?;
+            log.record(event);
+            log.record(SessionEvent::End);
+            log.check()?;
+            Ok(())
+        })
     }
     pub fn context(&self, kind: &str, data: &Value) -> Result<()> {
-        let source = std::fs::read_to_string(&self.path)?;
-        let content = serde_json::to_string(data)?.replace('<', "\\u003c");
-        let source = format!(
-            "{}<hick:context kind=\"{kind}\">{content}</hick:context>\n</hick:session>\n",
-            source
-                .trim_end()
-                .strip_suffix("</hick:session>")
-                .unwrap_or(&source)
-        );
-        super::super::store::write_atomic(&self.path, source.as_bytes())
+        self.persist(|| {
+            let source = std::fs::read_to_string(&self.path)?;
+            let mut data = data.clone();
+            if let Some(object) = data.as_object_mut() {
+                object.insert(
+                    "recorded_at".into(),
+                    json!(
+                        std::time::SystemTime::now()
+                            .duration_since(std::time::UNIX_EPOCH)?
+                            .as_millis()
+                            .to_string()
+                    ),
+                );
+            }
+            let content = serde_json::to_string(&data)?.replace('<', "\\u003c");
+            let source = format!(
+                "{}<hick:context kind=\"{kind}\">{content}</hick:context>\n</hick:session>\n",
+                source
+                    .trim_end()
+                    .strip_suffix("</hick:session>")
+                    .unwrap_or(&source)
+            );
+            super::super::store::write_atomic(&self.path, source.as_bytes())
+        })
     }
     /// Once the canonical assistant is durable, discard redundant token checkpoints.
     pub fn compact_stream(&self, turn: &str) -> Result<()> {
@@ -140,5 +186,31 @@ mod tests {
             "Partial reply with <hick:file> and </hick:context>."
         );
         assert_eq!(super::super::recovered_status(&path, "turn-1").0, "stopped");
+    }
+    // Guarantee: docs/guarantees/agent/recording-failure-is-visible.md
+    #[test]
+    fn an_activity_recording_gap_remains_a_failure_after_storage_recovers() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("session.md");
+        let record = Record::open(path.clone(), Path::new("note.md")).unwrap();
+        std::fs::remove_file(&path).unwrap();
+        assert!(
+            record
+                .context("acp-activity", &json!({"kind":"execute"}))
+                .is_err()
+        );
+        std::fs::write(path, "<hick:session></hick:session>\n").unwrap();
+        assert!(
+            record
+                .check()
+                .unwrap_err()
+                .to_string()
+                .contains("incomplete")
+        );
+        assert!(
+            record
+                .context("acp-turn-status", &json!({"status":"ok"}))
+                .is_err()
+        );
     }
 }

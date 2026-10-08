@@ -63,11 +63,11 @@ fn doc_cmd(args: &[&str], stdin: Option<&str>, session: Option<&Path>) -> (i32, 
     )
 }
 
-/// The 4-hex hash prefixing the first line that contains `needle`.
+/// The SHA-256 hash prefixing the first line that contains `needle`.
 fn hash_of(hashlines: &str, needle: &str) -> String {
     hashlines
         .lines()
-        .find(|l| l.contains(needle) && l.len() > 5 && l.as_bytes()[4] == b'|')
+        .find(|l| l.contains(needle) && l.len() > 65 && l.as_bytes()[64] == b'|')
         .unwrap_or_else(|| panic!("no hashline containing {needle:?} in:\n{hashlines}"))
         .split('|')
         .next()
@@ -228,6 +228,7 @@ fn the_mcp_server_speaks_the_protocol_and_keeps_one_session_open() {
     let dir = tempfile::tempdir().unwrap();
     let doc = write_doc(dir.path());
 
+    let anchor = hickory_agent::hashline::line_hash("fn greet() { println!(\"hello\"); }");
     let replies = mcp_exchange(
         &doc,
         &[
@@ -237,13 +238,13 @@ fn the_mcp_server_speaks_the_protocol_and_keeps_one_session_open() {
             json!({"jsonrpc":"2.0","id":2,"method":"tools/list"}),
             json!({"jsonrpc":"2.0","id":3,"method":"tools/call","params":{
                 "name":"edit_output",
-                "arguments":{"path":"greet.rs","run":"4f20","input":"fn greet() { println!(\"via mcp\"); }"}
+                "arguments":{"path":"greet.rs","run":anchor,"input":"fn greet() { println!(\"via mcp\"); }"}
             }}),
             // The SAME anchor again. In-process the session has already
             // re-woven, so this is stale — no re-read, no second open.
             json!({"jsonrpc":"2.0","id":4,"method":"tools/call","params":{
                 "name":"edit_output",
-                "arguments":{"path":"greet.rs","run":"4f20","input":"must not apply"}
+                "arguments":{"path":"greet.rs","run":anchor,"input":"must not apply"}
             }}),
             json!({"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"verify","arguments":{}}}),
         ],
@@ -282,6 +283,10 @@ fn the_mcp_server_speaks_the_protocol_and_keeps_one_session_open() {
             "debug_eval",
             "debug_step",
             "debug_stop",
+            "record_assumption",
+            "record_decision",
+            "record_guarantee_review",
+            "audit_assumptions",
         ]
     );
 

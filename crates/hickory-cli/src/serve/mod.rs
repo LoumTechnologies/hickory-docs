@@ -30,9 +30,11 @@
 pub mod acp;
 pub mod agent;
 mod agent_context;
+mod agent_review;
 pub mod anchored;
 pub mod api;
 pub mod asset;
+mod audit_evidence;
 pub mod bisect;
 pub mod commit_reading;
 pub mod debug_bridge;
@@ -554,6 +556,11 @@ pub(crate) fn router(state: LocalState) -> Router {
         .route("/docs/{id}/history", get(history::history))
         .route("/docs/{id}/replay", get(history::replay))
         .route("/sessions/view", get(api::session_view))
+        .route("/sessions/audit", post(sessions::annotate))
+        .route(
+            "/docs/{id}/agent/review",
+            get(agent_review::snapshot).post(agent_review::decide),
+        )
         .route("/docs/{id}/refactor/begin", post(refactor::begin))
         .route("/docs/{id}/refactor/status", get(refactor::status))
         .route("/docs/{id}/refactor/end", post(refactor::end))

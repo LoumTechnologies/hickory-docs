@@ -14,6 +14,7 @@ import { conversationFold, sessionBookkeeping } from "../editor/sessionChrome";
 import { foldEffect, unfoldEffect } from "@codemirror/language";
 import { computeEdits } from "../lib/diff";
 import "./DocumentReading.css";
+import { AssumptionAudit, VerificationStanding } from "../components/AssumptionAudit";
 const noCells = new Set<string>();
 
 export function ConversationEditor({ branch, path, running, stream, reasoning, draft, onDraft, onSend, canSend, sending = false, stamp, showCollapsedLineage = false }: {
@@ -115,6 +116,8 @@ export function ConversationEditor({ branch, path, running, stream, reasoning, d
   }, [view, path, reading, draft, showCollapsedLineage]);
   useEffect(() => () => realtime.close(), [realtime]);
   return <div className="conversation-document">
+    {path && data && <VerificationStanding records={data.audit ?? []} turn={branch.at(-1)?.id} running={!!running} />}
+    {path && data && <AssumptionAudit records={data.audit ?? []} path={path} source={data.source} />}
     <DocumentEditor docId="conversation-reading" initialSource="" realtime={realtime}
       execBlocks={[]} runningCells={noCells} onRunCell={() => {}} onViewReady={ready}
       preserveBytes editorExtensions={extensions} />

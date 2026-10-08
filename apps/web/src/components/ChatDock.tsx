@@ -596,7 +596,7 @@ export function ChatDock({
         }} />Show lineage for collapsed conversation items</label>
         </FeatureSettings>}
       </header>
-      {!collapsed && backend !== "builtin" && <AgentChanges doc={docId} state={acp.state} running={running !== null} apply={applyAgentChange} update={acp.setState} />}
+      {!collapsed && <AgentChanges doc={docId} state={acp.state} running={running !== null} apply={applyAgentChange} update={acp.setState} />}
       {!collapsed && <AcpControls doc={docId} backend={backend} running={running !== null} control={acp} settingsOpen={false} showTools={false} />}
 
       {!collapsed && (

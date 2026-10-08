@@ -317,8 +317,14 @@ async fn external_mutation_is_absorbed_or_reported_never_misapplied() {
     let mutated = DOC.replace("// header", "// HEADER");
     std::fs::write(&doc_path, &mutated).unwrap();
 
-    // 1. An edit anchored on the NEW content succeeds: the session detects
-    //    the content mismatch and re-weaves automatically before resolving.
+    // 1. Read the changed surface before constructing the next edit.
+    let refreshed = execute_tool(
+        &mut session,
+        executor(),
+        &inv("read_output", &[("path", "gen.rs")], None),
+    )
+    .await;
+    assert!(refreshed.ok);
     let out = execute_tool(
         &mut session,
         executor(),
@@ -354,8 +360,8 @@ async fn external_mutation_is_absorbed_or_reported_never_misapplied() {
     )
     .await;
     assert!(!stale.ok);
-    assert!(stale.text.contains("changed on disk"), "{}", stale.text);
-    assert!(stale.text.contains("matches no lines"), "{}", stale.text);
+    assert!(stale.text.contains("changed since"), "{}", stale.text);
+    assert!(stale.text.contains("Read it again"), "{}", stale.text);
     // The document still carries the external edit, untouched.
     assert_eq!(std::fs::read_to_string(&doc_path).unwrap(), mutated2);
 }
@@ -513,7 +519,7 @@ async fn read_file_shows_a_project_file_and_records_the_read() {
         .lines()
         .filter_map(|l| l.split_once('|'))
         .map(|(h, _)| h.to_string())
-        .rfind(|h| h.len() == 4)
+        .rfind(|h| h.len() == 64)
         .unwrap();
     let out = execute_tool(
         &mut session,
@@ -563,8 +569,7 @@ async fn the_session_records_reads_and_writes_as_elements() {
     let first_hash = doc_out
         .text
         .lines()
-        .nth(1)
-        .and_then(|l| l.split_once('|'))
+        .find_map(|l| l.split_once('|'))
         .map(|(h, _)| h.to_string())
         .unwrap();
     let out = execute_tool(

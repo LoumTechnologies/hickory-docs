@@ -19,7 +19,7 @@ const DECISIONS: &str = r##"<?xml version="1.0" encoding="UTF-8"?>
 <hick:doc xmlns:hick="http://www.hickorydocs.com/1.0" weave="decisions.md">
 # Decisions
 
-<hick:paste select=".decision" />
+<hick:file path="decisions.md"><hick:paste select=".decision" /></hick:file>
 
 <hick:copy id="d-retention" class="decision">
 Records are retained for 30 days.
@@ -33,7 +33,7 @@ const DOMAIN: &str = r##"<?xml version="1.0" encoding="UTF-8"?>
 
 <hick:upstream file="decisions.hick" />
 
-<hick:paste select=".decision" />
+<hick:file path="domain.md"><hick:paste select=".decision" /></hick:file>
 </hick:doc>
 "##;
 

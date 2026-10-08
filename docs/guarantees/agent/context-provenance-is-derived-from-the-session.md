@@ -6,35 +6,15 @@ path, the content's SHA-256, the repository commit when there is one, and the
 lines shown; when an edit tool writes, then the session records
 `<hick:wrote>` — the file, the lines as they stand after the edit, and their
 hashline hashes; and when anyone asks (`hick context`, `GET /api/docs/:id/context`,
-the app's Context layer), then every write's context is **every input before
-it in the same session** — those reads, plus the prompt, tool results and
-observations, each summarized and pointing back at its session element by
-id and line — located in the document as it stands now by the written lines'
-hashes, or reported as no longer present.
+the app's Context layer), native writes use the recorded message envelope supplied to the provider client and
+reads from this turn. Adapter writes use recorded observations from this turn,
+with opaque adapter-managed context explicitly outside that scope. Abandoned
+branches are retained historically but are never counted as supplied inputs.
+Availability is not evidence that a claim follows from a source.
 
-The reason: the question "what did the model have when it wrote this?" has an
-answer that does not depend on the model's honesty, because the tool surface
-is the model's only view of anything (`agent-cells.md`: no write primitive;
-and now no read outside the recorded tools either). Recording it at the
-tools, and deriving from the record, keeps it that way. The model's own view
-of what it used is a different thing — declared provenance — and is kept
-apart on purpose (`docs/specs/freeform/three-provenances.md`).
-
-Four properties hold it up:
-
-1. **Every input element has an id.** `hick:user`, `hick:observation`,
-   `hick:tool-result` carry `id="in<n>"`, seeded from the file when a session
-   is appended to across processes, so the derivation can name them and a
-   reader can find them.
-2. **Reads record the bytes, not the name.** `sha256` is the truth about what
-   was shown; `commit` is where to look later; `lines` is how much.
-3. **Writes record what stands, as hashes.** `changed_lines` diffs the file
-   before and after the edit (common prefix/suffix), so an `edit_output` that
-   lands in the document through lineage records the DOCUMENT lines it wrote.
-4. **`read_file` reads the project and nothing else.** Paths resolve against
-   the document's directory and must stay inside the project root (the git
-   top level, or the document's directory); a directory lists; a non-UTF-8 or
-   over-sized file is refused with the reason.
+Writes carry SHA-256 line fingerprints. Matching current text refuses weak
+legacy fingerprints and ambiguous duplicate matches. It establishes byte
+correspondence, not an author's identity or a causal explanation.
 
 ## Exact returned ranges (2026-10-07)
 
@@ -102,3 +82,14 @@ frontend step initially exposed a startup-test race: folder hydration remounts
 the introduction editor when it adds the Files split. `App.test.tsx` now waits
 for that arrangement before the close-window gesture. The final `just test-web`
 passes all 1,945 tests and TypeScript checking; the file-length check passes.
+
+Verification update (2026-10-08): `context::derive_from_session`, `locate`,
+`session::SessionEvent::Read`, native request recording and ACP supplied prompts
+now establish the narrower scopes above. `context::tests` challenge branch
+contamination, weak hashes and duplicates; `model_failure_audit` covers the
+previous 16-bit collision pair and forged nested evidence. Sessions remain
+editable user records; this is not a signed or authenticated audit trail.
+
+Provider wire encoding, context editing and model-internal processing are outside
+the recorded envelope. It is evidence of what the client was supplied, not a
+claim about what the model attended to or how the provider transformed it.

@@ -3,11 +3,10 @@
 //! Derived from the session record alone — never from anything the model
 //! says. A session file is a list of inputs (the user's words, a tool's
 //! result, a script's observation, a file a tool showed) and writes (`<hick:wrote>`,
-//! recorded by the edit tools). For every write, its context is every input
-//! that precedes it in the same session. That is the whole derivation: no
-//! judgement about which input "caused" which line, because no algorithm can
-//! know that; only the fact, checkable by anyone holding the session, that
-//! these inputs were present when these lines were produced.
+//! recorded by the edit tools). Native writes use the recorded request envelope;
+//! adapter writes use observations from this turn only, since adapter memory is
+//! opaque. Abandoned branches must never be counted as supplied context.
+//! Context establishes availability, not causal influence or semantic truth.
 //!
 //! Three kinds of provenance live in this product and must not be confused
 //! (`docs/specs/freeform/three-provenances.md`): the weave's byte-exact
@@ -64,6 +63,9 @@ pub struct WriteContext {
     pub first_line: usize,
     pub last_line: usize,
     pub hashes: Vec<String>,
+    pub fingerprints: Vec<String>,
+    /// Native message envelope or observations from this turn; provider and adapter internals are opaque.
+    pub scope: String,
     /// Every input before this write, in session order.
     pub inputs: Vec<ContextInput>,
 }
@@ -101,21 +103,30 @@ pub fn derive_from_session(session_path: &str, source: &str) -> Vec<WriteContext
     };
     let mut inputs: Vec<ContextInput> = Vec::new();
     let mut out = Vec::new();
+    let mut reads = Vec::new();
+    let mut scope = "recorded-this-turn".to_string();
     for tag in nodes {
+        if tag.name == "user" {
+            inputs.clear();
+            reads.clear();
+            scope = "recorded-this-turn".into();
+        }
         match tag.name.as_str() {
             "read" => {
                 let Some(path) = tag.get_attribute("file") else {
                     continue;
                 };
                 let (first_line, last_line) = parse_lines(tag.get_attribute("lines"));
-                inputs.push(ContextInput::File {
+                let input = ContextInput::File {
                     path: path.to_string(),
                     commit: tag.get_attribute("commit").map(str::to_string),
                     sha256: tag.get_attribute("sha256").unwrap_or_default().to_string(),
                     first_line,
                     last_line,
                     session_line: tag.source_line,
-                });
+                };
+                reads.push(input.clone());
+                inputs.push(input);
             }
             "user" | "observation" | "tool-result" => {
                 let text = tag.text_content();
@@ -142,6 +153,34 @@ pub fn derive_from_session(session_path: &str, source: &str) -> Vec<WriteContext
                     session_line: tag.source_line,
                 });
             }
+            "context" => {
+                if tag.get_attribute("kind") == Some("model-request")
+                    && let Ok(value) =
+                        serde_json::from_str::<serde_json::Value>(&tag.text_content())
+                    && let Some(messages) = value["messages"].as_array()
+                {
+                    scope = "native-message-envelope".into();
+                    inputs = messages
+                        .iter()
+                        .filter_map(|message| {
+                            let text = message["content"].as_str()?;
+                            Some(ContextInput::Conversation {
+                                element: format!(
+                                    "request-{}",
+                                    message["role"].as_str().unwrap_or("unknown")
+                                ),
+                                id: None,
+                                source: None,
+                                summary: text.chars().take(120).collect(),
+                                sha256: sha256_hex(text.as_bytes()),
+                                lines: text.lines().count(),
+                                session_line: tag.source_line,
+                            })
+                        })
+                        .collect();
+                    inputs.extend(reads.clone());
+                }
+            }
             "wrote" => {
                 let Some(file) = tag.get_attribute("file") else {
                     continue;
@@ -160,6 +199,13 @@ pub fn derive_from_session(session_path: &str, source: &str) -> Vec<WriteContext
                     first_line,
                     last_line,
                     hashes,
+                    fingerprints: tag
+                        .get_attribute("sha256-lines")
+                        .unwrap_or_default()
+                        .split_whitespace()
+                        .map(str::to_string)
+                        .collect(),
+                    scope: scope.clone(),
                     inputs: inputs.clone(),
                 });
             }
@@ -269,7 +315,7 @@ pub fn context_for_document(doc_path: &Path, doc_source: &str) -> Vec<ResolvedWr
                 if !names_document(&write.file, &dir, doc_path) {
                     continue;
                 }
-                let current_lines = locate(&index, &write.hashes);
+                let current_lines = locate(&index, &write.fingerprints);
                 out.push(ResolvedWrite {
                     write,
                     current_lines,
@@ -285,16 +331,50 @@ fn locate(index: &LineIndex, hashes: &[String]) -> Option<(usize, usize)> {
     if hashes.is_empty() || hashes.len() > index.hashes.len() {
         return None;
     }
-    index
-        .hashes
+    // Legacy 16-bit anchors are navigation hints, never evidence of identity.
+    if hashes.iter().any(|hash| hash.len() != 64) {
+        return None;
+    }
+    let strong: Vec<_> = index
+        .lines
+        .iter()
+        .map(|line| crate::hashline::line_fingerprint(line))
+        .collect();
+    let mut matches = strong
         .windows(hashes.len())
-        .position(|w| w == hashes)
-        .map(|i| (i + 1, i + hashes.len()))
+        .enumerate()
+        .filter(|(_, w)| *w == hashes);
+    let (at, _) = matches.next()?;
+    if matches.next().is_some() {
+        return None;
+    }
+    Some((at + 1, at + hashes.len()))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // Guarantee: docs/guarantees/agent/evidence-identifies-the-input-and-written-bytes.md
+    #[test]
+    fn abandoned_reads_and_weak_or_ambiguous_attribution_are_not_evidence() {
+        let session = "<hick:session><hick:user turn=\"root\">root</hick:user><hick:user turn=\"old\" parent=\"root\">old</hick:user><hick:read file=\"abandoned\" lines=\"1\"/><hick:user turn=\"new\" parent=\"root\">new</hick:user><hick:wrote file=\"note\" hashes=\"a0bf\"/></hick:session>";
+        let writes = derive_from_session("s.md", session);
+        assert_eq!(writes[0].inputs.len(), 1);
+        assert!(!format!("{:?}", writes[0].inputs).contains("abandoned"));
+        assert_eq!(
+            locate(
+                &LineIndex::new("Approval threshold: 614 dollars."),
+                &["a0bf".into()]
+            ),
+            None
+        );
+        let fingerprint = crate::hashline::line_fingerprint("same");
+        assert_eq!(
+            locate(&LineIndex::new("same\nsame\n"), &[fingerprint]),
+            None
+        );
+    }
 
     const SESSION: &str = r#"<?xml version="1.0" encoding="UTF-8"?>
 <hick:session xmlns:hick="http://www.hickorydocs.com/1.0" start="2026-08-22T00:00:00Z">
@@ -314,7 +394,7 @@ file: data/x.csv (2 lines)
 <hick:tool-result id="in2" name="edit_doc" ok="true">
 edited note.md and re-wove.
 </hick:tool-result>
-<hick:wrote file="note.md" lines="1-1" hashes="HASH"/>
+<hick:wrote file="note.md" lines="1-1" hashes="HASH" sha256-lines="STRONG"/>
 <hick:assistant>
 <hick:action lang="sh">echo later</hick:action>
 </hick:assistant>
@@ -326,7 +406,10 @@ edited note.md and re-wove.
     #[test]
     fn a_write_sees_every_input_before_it_and_none_after() {
         let hash = crate::tools::hashline::line_hash("Finding: one.");
-        let source = SESSION.replace("HASH", &hash);
+        let source = SESSION.replace("HASH", &hash).replace(
+            "STRONG",
+            &crate::hashline::line_fingerprint("Finding: one."),
+        );
         let writes = derive_from_session("s.md", &source);
         assert_eq!(writes.len(), 1);
         let w = &writes[0];
@@ -349,9 +432,9 @@ edited note.md and re-wove.
 
         // Resolved against the document as it stands now.
         let idx = LineIndex::new("Title\nFinding: one.\nMore\n");
-        assert_eq!(locate(&idx, &w.hashes), Some((2, 2)));
+        assert_eq!(locate(&idx, &w.fingerprints), Some((2, 2)));
         let idx = LineIndex::new("Title\nFinding: two.\n");
-        assert_eq!(locate(&idx, &w.hashes), None);
+        assert_eq!(locate(&idx, &w.fingerprints), None);
     }
 
     #[test]
@@ -363,7 +446,10 @@ edited note.md and re-wove.
         let hash = crate::tools::hashline::line_hash("Finding: one.");
         std::fs::write(
             dir.path().join("sessions/one.md"),
-            SESSION.replace("HASH", &hash),
+            SESSION.replace("HASH", &hash).replace(
+                "STRONG",
+                &crate::hashline::line_fingerprint("Finding: one."),
+            ),
         )
         .unwrap();
         let writes = context_for_document(&doc, &std::fs::read_to_string(&doc).unwrap());

@@ -73,9 +73,52 @@ pub async fn session_view(
     if let Some(links) = links.as_array_mut() {
         links.extend(evidence);
     }
+    let mut audit = hickory_agent::audit::timeline(&source);
+    super::audit_evidence::enrich(&root_canon, &mut audit, &links);
+    super::audit_evidence::attach_passages(&root_canon, &source, &audit, &mut links);
     Ok(Json(
-        json!({ "path": rel_path, "source": source, "view": view, "blocks": blocks, "links": links }),
+        json!({ "path": rel_path, "source": source, "view": view, "blocks": blocks, "links": links, "audit": audit }),
     ))
+}
+
+#[derive(Deserialize)]
+pub struct AuditAnnotation {
+    pub path: String,
+    pub entry: serde_json::Value,
+}
+
+pub async fn annotate(
+    State(state): State<LocalState>,
+    Json(body): Json<AuditAnnotation>,
+) -> ApiResult<Json<Value>> {
+    let _annotation_gate = state.agent.annotations_gate.try_write().map_err(|_| {
+        ApiError::conflict("Wait for active agent turns to finish before annotating a session.")
+    })?;
+    // Validate the same confinement as the read endpoint before creating a writer.
+    let _ = session_view(
+        State(state.clone()),
+        Query(SessionQuery {
+            path: body.path.clone(),
+        }),
+    )
+    .await?;
+    if state
+        .agent
+        .turns
+        .lock()
+        .unwrap()
+        .values()
+        .flatten()
+        .any(|turn| turn.status == "running")
+    {
+        return Err(ApiError::conflict(
+            "Wait for active agent turns to finish before annotating a session.",
+        ));
+    }
+    let path = state.index.root().join(&body.path);
+    let result = hickory_agent::audit::annotate_at(&path, body.entry, state.index.root())
+        .map_err(|error| ApiError::unprocessable(error.to_string()))?;
+    Ok(Json(json!({"recorded":result})))
 }
 
 /// Citation is the trigger, never the evidence. Weave without executing and

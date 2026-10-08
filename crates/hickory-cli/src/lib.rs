@@ -3,7 +3,6 @@
 //! The binary (`src/main.rs`) is a thin argument parser over these functions,
 //! so the server can drive the same run/check/weave/render code paths via
 //! library calls instead of shelling out.
-
 pub mod adopt;
 pub mod agent_cell_runner;
 pub mod agent_lineage;
@@ -32,6 +31,7 @@ pub mod java_debug;
 pub mod language_tier;
 pub mod lsp_install;
 pub mod mcp;
+mod mcp_catalogue;
 pub mod merge_driver;
 pub mod open_app;
 pub mod output;

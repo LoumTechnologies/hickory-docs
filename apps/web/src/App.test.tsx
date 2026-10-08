@@ -132,6 +132,8 @@ describe("the startup workspace", () => {
     const close = vi.spyOn(api, "closeWindow").mockResolvedValue({ ok: true });
     const saveDraft = vi.spyOn(api, "saveDraft");
     const { container, getByRole, queryByRole } = render(<App />);
+    // Folder hydration remounts the editor; exercise the settled layout.
+    await waitFor(() => expect(getByRole("tab", { name: /Files/ })).toBeTruthy());
     await waitFor(() => {
       expect(editor(container).state.doc.toString()).toBe(STARTUP_INTRODUCTION);
       expect(editor(container).hasFocus).toBe(true);
@@ -150,7 +152,9 @@ describe("the startup workspace", () => {
   it("writes a recovery draft on pagehide and deletes it when edits are undone", async () => {
     const save = vi.spyOn(api, "saveDraft");
     const discard = vi.spyOn(api, "discardDraft");
-    const { container } = render(<App />);
+    const { container, getByRole } = render(<App />);
+    // Folder hydration remounts the editor; exercise the settled layout.
+    await waitFor(() => expect(getByRole("tab", { name: /Files/ })).toBeTruthy());
     await waitFor(() => {
       expect(editor(container).state.doc.toString()).toBe(STARTUP_INTRODUCTION);
       expect(editor(container).hasFocus).toBe(true);

@@ -1,4 +1,4 @@
-apps/web/src/api/types.ts 1207
+apps/web/src/api/types.ts 1190
 apps/web/src/components/TablePanel.tsx 1747
 apps/web/src/debug/cmDebug.ts 1038
 apps/web/src/editor/wysiwyg.ts 1035
@@ -12,12 +12,11 @@ crates/hick-lang/src/lib.rs 2592
 crates/hick-literate/src/lib.rs 4733
 crates/hick-lsp/src/backend.rs 2672
 crates/hick-token/src/lib.rs 1378
-crates/hickory-agent/src/tools/mod.rs 1461
+crates/hickory-agent/src/tools/mod.rs 1405
 crates/hickory-cli/src/claude_code.rs 1195
 crates/hickory-cli/src/ingest.rs 1107
 crates/hickory-cli/src/lib.rs 2289
-crates/hickory-cli/src/main.rs 4410
-crates/hickory-cli/src/mcp.rs 1235
+crates/hickory-cli/src/main.rs 4282
 crates/hickory-cli/src/serve/api.rs 1672
 crates/hickory-executor-sandbox/src/policy.rs 1164
 crates/hickory-executor/src/lib.rs 2262

@@ -17,6 +17,7 @@
 //! conversation trees, TUI, relay, and local-llama backends were deliberately
 //! left behind — see `docs/developers/vendoring-notes.md`.
 
+pub mod audit;
 pub mod context;
 mod events;
 pub mod harness;
@@ -28,6 +29,8 @@ mod llm_openai;
 mod protocol;
 mod provider;
 mod react_loop;
+mod review;
+pub use review::ToolReview;
 mod script;
 mod scripted;
 mod session;

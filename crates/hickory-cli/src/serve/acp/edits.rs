@@ -166,14 +166,14 @@ impl Edits {
 pub fn catalogue() -> Vec<Value> {
     vec![
         json!({"name":"read_buffer","description":"Read a live open editor buffer, including an untitled or unsaved note. Omit buffer for the current focused editor; otherwise pass its id from editor context. Returns exact content and hashline anchors for edit_buffer. This does not save the buffer.","inputSchema":{"type":"object","properties":{"buffer":{"type":"string"}}}}),
-        json!({"name":"edit_buffer","description":"Edit the live editor buffer using run/after content hashes from read_buffer. Use this for requested changes to the current document, including unsaved and untitled notes, instead of printing a replacement document in your answer. The client handles approval; wait for the tool result. Does not create a disk path or explicitly save an untitled note.","inputSchema":{"type":"object","properties":{"buffer":{"type":"string"},"run":{"type":"string"},"after":{"type":"string"},"occurrence":{"type":"integer"},"input":{"type":"string"}}}}),
+        json!({"name":"edit_buffer","description":"Edit the live editor buffer using run/after content hashes from read_buffer. Use this for requested changes to the current document, including unsaved and untitled notes, instead of printing a replacement document in your answer. The client handles approval; wait for the tool result. Does not create a disk path or explicitly save an untitled note.","inputSchema":{"type":"object","properties":{"buffer":{"type":"string"},"snapshot":{"type":"string","description":"Whole-buffer SHA-256 from the latest read"},"run":{"type":"string"},"after":{"type":"string"},"occurrence":{"type":"integer"},"input":{"type":"string"}}}}),
     ]
 }
 
 /// Reuse the document tool's hashline resolver and replacement semantics.
 pub fn replacement(source: &str, args: &Value) -> Result<String> {
     let mut arguments = Vec::new();
-    for key in ["run", "after", "occurrence"] {
+    for key in ["run", "after", "occurrence", "snapshot"] {
         if let Some(value) = args.get(key) {
             arguments.push((
                 key.to_string(),

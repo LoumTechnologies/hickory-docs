@@ -28,6 +28,52 @@ freeform design specs plus strict guarantee specs.
    and caveats. Do not mark a guarantee verified unless you inspected the relevant
    implementation path.
 
+## Durable Assumption and Evidence Audit
+
+Preserve enough context to debug why a guarantee or implementation was chosen
+long after the work. Capture consequential assumptions before relying on them;
+when discovering an earlier omission, append a retrospective correction and
+identify which earlier actions it affected. Never silently replace the original.
+An audit records the assumptions found; it cannot certify that every hidden
+assumption was found. Explicitly state coverage gaps.
+
+For each guarantee, retain:
+
+- The originating requirement, its source, and the interpretation chosen.
+- Consequential assumptions about units, inputs, omissions, scope, timing,
+  platform, authority and side effects; evidence, alternatives and falsifiers.
+- Exclusions and why they are justified by the requirement. Do not invent an
+  exclusion just to make the implementation pass.
+- Independent witnesses: concrete expected behaviors, tests, source passages
+  and commands with observed results. A test that repeats the implementation
+  is weak evidence; record that limitation.
+- Challenges: plausible counterexamples and adversarial cases, including failed
+  witnesses. Record what would disprove the guarantee.
+- Evidence dependencies and their exact revisions or content hashes. Evidence
+  is stale when these change; keep the earlier result as historical evidence.
+
+Keep three separate statuses: **LLM implementation review**, **executed checks**,
+and **human judgment**. Never infer one from another, a citation, or the model's
+completion message. Unrun, failed, unavailable and stale checks must remain
+visible. A human confirmation is a declaration, not an authenticated authorship
+claim or proof of semantic truth.
+
+In Hickory agent sessions, use `record_assumption`, `record_decision` and
+`record_guarantee_review` (JSON in the built-in tool's `hick:input`, ordinary
+arguments over MCP). Set `requirement`, `evidence`, `affects`, `alternatives`,
+`exclusions`, `witnesses`, `challenges`, `falsifier` and `dependencies` as applicable.
+Dependencies are workspace-relative paths; the harness captures their hashes.
+Link earlier audit ids in `evidence`/`affects`; corrections use `supersedes`.
+`audit_assumptions` retrieves all branches, including abandoned work. If these
+tools are unavailable, preserve the same fields in the guarantee and a durable
+Markdown audit. Do not claim a tool was called when only describing this workflow.
+
+The session is the private historical account; the guarantee is the repository's
+current behavioral contract. Copy durable requirement references and evidence
+into the guarantee so a clone does not depend on a gitignored session. Retain or
+export sessions needed for later debugging. Context availability, byte lineage,
+claim support, and semantic correctness answer different questions.
+
 ## Initial Guarantee Audit
 
 Use this mode when asked to point the skill at a codebase and infer the guarantees
@@ -81,6 +127,12 @@ Last LLM verification:
 - Result: verified | partially verified | not verified
 - Evidence: cite implementation files, functions, modules, structs, and tests.
 - Test coverage: cite tests, or explain why no useful regression test exists yet.
+- Originating requirement: source and interpretation.
+- Assumptions and exclusions: evidence, alternatives and unresolved gaps.
+- Witnesses and challenges: independent examples and counterexamples.
+- Dependencies: exact inspected revisions/hashes; staleness conditions.
+- Executed checks: command, observed result and revision, or not run.
+- Human judgment: recorded separately, or not recorded.
 ```
 
 Given/when/then is the default, but use clearer prose when that structure becomes

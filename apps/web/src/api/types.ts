@@ -87,17 +87,7 @@ export type Block =
   | { kind: "session-meta"; element: string; span: [number, number] };
 
 /** Recorded links and independently checked output evidence for the session lens. */
-export interface SessionLink {
-  family: "lineage" | "context" | "declared";
-  /** Byte span in the session source. */
-  span: [number, number];
-  to: { path: string; lines?: [number, number] };
-  title: string;
-  /** Independently checked current document → output lineage. */
-  evidence?: { path: string; lines: [number, number] };
-  /** The 1-based lines of the session the span starts and ends on. */
-  lines: [number, number];
-}
+export type { SessionLink } from "./sessionTypes";
 
 export type ExecBlock = Extract<Block, { kind: "exec" }>;
 export type DiagramBlock = Extract<Block, { kind: "diagram" }>;
@@ -948,14 +938,7 @@ export interface SessionView {
   turns: SessionTurn[];
 }
 
-export interface SessionViewResponse {
-  path: string;
-  source: string;
-  view: SessionView;
-  blocks: Block[];
-  /** What each element declares about where it came from. */
-  links: SessionLink[];
-}
+export type { SessionViewResponse } from "./sessionTypes";
 
 // ---- the merged view -----------------------------------------------------
 

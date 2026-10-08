@@ -76,7 +76,11 @@ describe("the session lens", () => {
     expect(reasoning.open).toBe(false);
     expect(reasoning.querySelector("summary")?.textContent).toBe("reasoning");
     // And the overlay can find the lens: its links, from the session's lines.
-    const lens = lensSources().find((l) => l.path === "sessions/s.md");
+    const lens = await waitFor(() => {
+      const registered = lensSources().find((l) => l.path === "sessions/s.md");
+      expect(registered).toBeTruthy();
+      return registered!;
+    });
     expect(lens?.links.map((l) => [l.family, l.from.lines, l.to.path])).toEqual([
       ["context", [5, 5], "data/latency.csv"],
       ["declared", [6, 11], "data/latency.csv"],

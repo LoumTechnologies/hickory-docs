@@ -86,7 +86,15 @@ pub(crate) fn read_file(root: &Path, base: &Path, inv: &ToolInvocation) -> ToolO
         }
     };
     let (first, last) = match (parse_line("from", 1), parse_line("to", total)) {
-        (Ok(a), Ok(b)) => (a.min(total.max(1)), b.min(total.max(1))),
+        (Ok(a), Ok(b)) if a <= total && b <= total => (a, b),
+        (Ok(_), Ok(_)) => {
+            return ToolOutcome::err(
+                NAME,
+                format!(
+                    "Requested lines are outside the file ({total} lines); no read receipt was recorded"
+                ),
+            );
+        }
         (Err(e), _) | (_, Err(e)) => return ToolOutcome::err(NAME, e),
     };
     if last < first {
@@ -103,6 +111,11 @@ pub(crate) fn read_file(root: &Path, base: &Path, inv: &ToolInvocation) -> ToolO
         sha256: sha256_hex(&bytes),
         first_line: first,
         last_line: last,
+        content: text
+            .split_inclusive('\n')
+            .skip(first - 1)
+            .take(last - first + 1)
+            .collect(),
     };
     let header = if first == 1 && last == total {
         format!("file: {rel} ({total} lines)\n")
