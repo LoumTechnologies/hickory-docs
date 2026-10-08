@@ -598,15 +598,16 @@ impl Client {
             .cloned();
         if let Some(buffer) = buffer {
             if method == "fs/read_text_file" {
-                let start = params["line"].as_u64().unwrap_or(1).saturating_sub(1) as usize;
-                let limit = params["limit"].as_u64().map_or(usize::MAX, |n| n as usize);
-                self.record
-                    .lock()
-                    .await
-                    .context("acp-buffer-read", &json!({"buffer":buffer}))?;
-                return Ok(
-                    json!({"content":buffer.content.split_inclusive('\n').skip(start).take(limit).collect::<String>()}),
-                );
+                let (content, receipt) = super::read_receipt::read(raw, &buffer.content, params);
+                let record = self.record.lock().await;
+                record.context(
+                    "acp-buffer-read",
+                    &json!({"buffer":buffer,"request":params,"content":content}),
+                )?;
+                if let Some(read) = receipt {
+                    record.event(SessionEvent::Read { read: &read })?;
+                }
+                return Ok(json!({"content":content}));
             }
             anyhow::ensure!(
                 buffer.kind.as_deref() != Some("generated"),
@@ -664,32 +665,13 @@ impl Client {
             } else {
                 std::fs::read_to_string(&path)?
             };
-            let start = params["line"].as_u64().unwrap_or(1).saturating_sub(1) as usize;
-            let limit = params["limit"].as_u64().map_or(usize::MAX, |n| n as usize);
-            use sha2::Digest as _;
-            let count = text.lines().count().max(1);
-            let shown = count.saturating_sub(start).min(limit);
-            if shown > 0 {
-                let read = hickory_agent::ContextRead {
-                    path: rel.clone(),
-                    commit: None,
-                    sha256: hex::encode(sha2::Sha256::digest(text.as_bytes())),
-                    first_line: start + 1,
-                    last_line: start + shown,
-                };
+            let (content, receipt) = super::read_receipt::read(&rel, &text, params);
+            if let Some(read) = receipt {
                 self.record
                     .lock()
                     .await
                     .event(SessionEvent::Read { read: &read })?;
             }
-            let content = if params.get("line").is_none() && params.get("limit").is_none() {
-                text
-            } else {
-                text.split_inclusive('\n')
-                    .skip(start)
-                    .take(limit)
-                    .collect::<String>()
-            };
             return Ok(json!({"content":content}));
         }
         let content = params["content"].as_str().context("file content missing")?;

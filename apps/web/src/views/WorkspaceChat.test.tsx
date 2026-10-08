@@ -1,3 +1,4 @@
+import { bufferTarget } from "../lib/editorBufferTargets";
 import { responseStart } from "../editor/protectedPrefix";
 import { afterEach, expect, it, vi } from "vitest";
 import { render, screen, fireEvent, waitFor, cleanup, act } from "@testing-library/react";
@@ -31,7 +32,7 @@ it("sends a startup untitled editor without a folder, using fresh text", async (
   act(() => editor.dispatch({ changes: { from: editor.state.field(responseStart), to: editor.state.doc.length, insert: "summarize" }, userEvent: "input.type" }));
   fireEvent.click(screen.getByRole("button", { name: "Send" }));
   await waitFor(() => expect(api.agent).toHaveBeenCalledWith("workspace", "summarize", null,
-    expect.anything(), expect.anything(), "builtin", { buffers: [{ id: untitled.id, kind: "untitled", name: untitled.title ?? untitled.target,
+    expect.anything(), expect.anything(), "builtin", { buffers: [{ id: untitled.id, kind: "untitled", provenance_uri: bufferTarget(untitled.id), name: untitled.title ?? untitled.target,
       path: null, content: "latest unsaved text", focused: true }] }));
 });
 // Guarantee: docs/guarantees/agent/the-agent-sees-the-open-editors.md

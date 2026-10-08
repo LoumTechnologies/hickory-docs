@@ -274,6 +274,20 @@ impl HickSessionLog {
     }
 }
 
+/// Keep generated tag chrome on its own lines without doubling body line breaks.
+fn framed_body(text: &str) -> String {
+    format!(
+        "{}{}{}",
+        if text.starts_with('\n') { "" } else { "\n" },
+        text,
+        if text.ends_with('\n') || text.is_empty() {
+            ""
+        } else {
+            "\n"
+        }
+    )
+}
+
 /// `<hick:reasoning>` as the first child of an assistant element, when the
 /// model exposed any. Raw content: a thought that mentions a tag is a thought,
 /// not structure.
@@ -314,7 +328,7 @@ impl SessionLog for HickSessionLog {
                     writeln!(
                         writer,
                         "<hick:user id=\"{id}\">{}</hick:user>",
-                        safe_prose(text.trim())
+                        framed_body(&safe_prose(text.trim()))
                     )?;
                 }
                 SessionEvent::UserTurn {
@@ -331,7 +345,7 @@ impl SessionLog for HickSessionLog {
                     writeln!(
                         writer,
                         r#"<hick:user id="{id}" turn="{turn}"{parent} provider="{provider}" model="{model}">{}</hick:user>"#,
-                        safe_prose(text.trim())
+                        framed_body(&safe_prose(text.trim()))
                     )?;
                 }
                 SessionEvent::Assistant {
@@ -342,7 +356,11 @@ impl SessionLog for HickSessionLog {
                     let prose = safe_prose(&strip_protocol_tags(prose));
                     match (action, reasoning) {
                         (None, None) => {
-                            writeln!(writer, "<hick:assistant>{prose}</hick:assistant>")?;
+                            writeln!(
+                                writer,
+                                "<hick:assistant>{}</hick:assistant>",
+                                framed_body(&prose)
+                            )?;
                         }
                         (action, reasoning) => {
                             writeln!(writer, "<hick:assistant>")?;
@@ -394,7 +412,7 @@ impl SessionLog for HickSessionLog {
                     writeln!(
                         writer,
                         r#"<hick:observation id="{id}" source="{source}" exit="{exit}">{}</hick:observation>"#,
-                        text.trim_end()
+                        framed_body(text.trim_end())
                     )?;
                 }
                 SessionEvent::Usage {
@@ -446,7 +464,7 @@ impl SessionLog for HickSessionLog {
                         .replace('<', "\\u003c");
                     writeln!(
                         writer,
-                        "<hick:context kind=\"editor-buffers\">{json}</hick:context>"
+                        "<hick:context kind=\"editor-buffers\">\n{json}\n</hick:context>"
                     )?;
                 }
                 SessionEvent::End => {
@@ -632,7 +650,7 @@ mod tests {
         assert_eq!(
             doc.nodes[0],
             SessionNode::User {
-                text: "add a greeting file".into()
+                text: "\nadd a greeting file\n".into()
             }
         );
         match &doc.nodes[1] {
@@ -652,12 +670,50 @@ mod tests {
             } => {
                 assert_eq!(source.as_deref(), Some("action-0"));
                 assert_eq!(*exit_code, Some(0));
-                assert_eq!(text, "creating greeting");
+                assert_eq!(text, "\ncreating greeting\n");
             }
             other => panic!("expected Observation, got {other:?}"),
         }
         assert!(matches!(doc.nodes[3], SessionNode::Assistant { .. }));
         assert!(hick_lang::is_session_source(&source));
+    }
+
+    #[test]
+    // docs/guarantees/agent/a-session-is-the-conversation.md
+    fn generated_tags_stand_apart_without_doubling_newlines() {
+        assert_eq!(super::framed_body("hello"), "\nhello\n");
+        assert_eq!(super::framed_body("\nhello\n"), "\nhello\n");
+        assert_eq!(super::framed_body(""), "\n");
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("spacing.md");
+        let log = HickSessionLog::create(&path).unwrap();
+        log.record(SessionEvent::UserTurn {
+            text: "\nhello\n",
+            turn: "t1",
+            parent: None,
+            provider: "test",
+            model: "test",
+        });
+        log.record(SessionEvent::Assistant {
+            prose: "\nreply\n",
+            action: None,
+            reasoning: None,
+        });
+        log.record(SessionEvent::Observation {
+            source: "test",
+            exit_code: Some(0),
+            text: "\noutput\n",
+        });
+        let source = std::fs::read_to_string(path).unwrap();
+        assert!(source.contains(">\nhello\n</hick:user>"), "{source}");
+        assert!(
+            source.contains("<hick:assistant>\nreply\n</hick:assistant>"),
+            "{source}"
+        );
+        assert!(
+            source.contains(">\noutput\n</hick:observation>"),
+            "{source}"
+        );
     }
 
     #[test]
@@ -669,7 +725,7 @@ mod tests {
         // No End yet — the file on disk must still contain the turn.
         let source = std::fs::read_to_string(&path).unwrap();
         assert!(
-            source.contains("<hick:user id=\"in0\">hello</hick:user>"),
+            source.contains("<hick:user id=\"in0\">\nhello\n</hick:user>"),
             "{source}"
         );
     }

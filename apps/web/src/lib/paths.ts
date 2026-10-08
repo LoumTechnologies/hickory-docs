@@ -15,6 +15,7 @@
  */
 export function samePath(candidate: string, known: string): boolean {
   if (candidate === known) return true;
+  if (candidate.startsWith("hickory-buffer://") || known.startsWith("hickory-buffer://")) return false;
   const a = normalise(candidate);
   const b = normalise(known);
   if (a === b) return true;

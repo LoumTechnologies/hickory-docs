@@ -69,7 +69,7 @@ export function useAcp(doc: string, backend: string, session: string | undefined
 }
 
 type Controls = ReturnType<typeof useAcp>;
-export function AcpControls({ doc, backend, running, control, settingsOpen = true, settingsOnly = false }: { doc: string; backend: string; running: boolean; control: Controls; settingsOpen?: boolean; settingsOnly?: boolean }) {
+export function AcpControls({ doc, backend, running, control, settingsOpen = true, settingsOnly = false, showTools = true }: { doc: string; backend: string; running: boolean; control: Controls; settingsOpen?: boolean; settingsOnly?: boolean; showTools?: boolean }) {
   if (backend === "builtin") return null;
   const { state, busy, error, agents } = control;
   const agent = agents.find(a => a.id === backend);
@@ -102,7 +102,7 @@ export function AcpControls({ doc, backend, running, control, settingsOpen = tru
           catch (e) { control.setError(e instanceof Error ? e.message : String(e)); }
         }}>{option.name}</button>)}</div>
     </section>)}
-    {!settingsOnly && running && state?.tools?.map(tool => <details key={tool.toolCallId} className="acp-tool" open={tool.status === "pending"}>
+    {!settingsOnly && showTools && running && state?.tools?.map(tool => <details key={tool.toolCallId} className="acp-tool" open={tool.status === "pending"}>
       <summary>{tool.title ?? tool.kind ?? "Agent tool"} <span className="muted">{tool.status}</span></summary><ToolDetails tool={tool} />
     </details>)}
   </div>;

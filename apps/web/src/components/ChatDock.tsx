@@ -394,11 +394,6 @@ export function ChatDock({
   const lensStamp = turns.map((turn) => `${turn.id}:${turn.status}`).join(",");
 
   useEffect(() => {
-    const log = logRef.current;
-    if (log) log.scrollTop = log.scrollHeight;
-  }, [branch.length, stream, collapsed]);
-
-  useEffect(() => {
     if (!running) return;
     const timer = setInterval(() => {
       void api.agentTurns(docId).then(r => {
@@ -602,7 +597,7 @@ export function ChatDock({
         </FeatureSettings>}
       </header>
       {!collapsed && backend !== "builtin" && <AgentChanges doc={docId} state={acp.state} running={running !== null} apply={applyAgentChange} update={acp.setState} />}
-      {!collapsed && <AcpControls doc={docId} backend={backend} running={running !== null} control={acp} settingsOpen={false} />}
+      {!collapsed && <AcpControls doc={docId} backend={backend} running={running !== null} control={acp} settingsOpen={false} showTools={false} />}
 
       {!collapsed && (
         <div className="chat-log" ref={logRef}>
@@ -626,7 +621,7 @@ export function ChatDock({
             <>
               <ConversationEditor branch={branch} path={sessionPath} stamp={lensStamp} running={running}
                 showCollapsedLineage={showCollapsedLineage} stream={stream} reasoning={reasoning} draft={prompt} onDraft={setPrompt}
-                onSend={() => void send()} canSend={!running && !sending && (backend === "builtin" || !!acp.state?.ready)} />
+                onSend={() => void send()} sending={sending} canSend={!running && !sending && (backend === "builtin" || (!!acp.state?.ready && !acp.busy))} />
               {branch.length > 0 && <div className="chat-turn-strip" aria-label="Turns">
                 {branch.map(turn => <span key={turn.id} className="chat-turn-strip__turn">
                   <span className="muted">{turn.prompt.slice(0, 40)}</span>
@@ -656,7 +651,7 @@ export function ChatDock({
           >
             <StopMark /> {stopping ? "Stopping…" : "Stop"}
           </button>
-        ) : (
+        ) : (collapsed || showTree) ? (
           <button
             className="btn btn-primary"
             disabled={!prompt.trim() || sending || (backend !== "builtin" && (!acp.state?.ready || acp.busy))}
@@ -664,7 +659,7 @@ export function ChatDock({
           >
             {sending ? "Starting…" : "Send"}
           </button>
-        )}
+        ) : null}
       </div>
       {unavailable && (
         <p className="chat-note muted">

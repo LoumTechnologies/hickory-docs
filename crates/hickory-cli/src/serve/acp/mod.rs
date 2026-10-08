@@ -3,6 +3,7 @@ mod client;
 mod config;
 mod edits;
 mod mcp;
+pub(super) mod read_receipt;
 pub(crate) mod record;
 mod transport;
 mod workspace;

@@ -1,0 +1,41 @@
+// Explicit editor identities for provenance that has no filesystem path.
+import type { EditorView } from "@codemirror/view";
+import type { Dispatch, SetStateAction } from "react";
+import { activate, panes, type Layout } from "../shell/layout";
+import { registerLens } from "./lensSources";
+import { claimReveal, onRevealLine, revealLine } from "./revealLine";
+
+export const BUFFER_PREFIX = "hickory-buffer://";
+// Tab ids restart when a window reloads; old receipts must not bind to a new tab.
+const instance = Array.from(crypto.getRandomValues(new Uint8Array(16)), byte => byte.toString(16).padStart(2, "0")).join("");
+export const bufferTarget = (id: string) => `${BUFFER_PREFIX}${instance}/${id}`;
+export function registerBufferEditor(id: string, view: EditorView): () => void {
+  const path = bufferTarget(id);
+  const unregister = registerLens({ path, view, source: view.state.doc.toString(), links: [] });
+  const reveal = (target: string) => {
+    if (target !== path) return;
+    const line = claimReveal(path);
+    if (line === null) return;
+    const position = view.state.doc.line(Math.min(line, view.state.doc.lines)).from;
+    view.dispatch({ selection: { anchor: position }, scrollIntoView: true });
+    view.focus();
+  };
+  const unlisten = onRevealLine(reveal);
+  reveal(path);
+  return () => { unregister(); unlisten(); };
+}
+
+/** Consume buffer locations before any filesystem-opening path. */
+export function openBufferTarget(path: string, line: number, layout: Layout,
+  setLayout: Dispatch<SetStateAction<Layout>>, notice: (message: string) => void): boolean {
+  if (!path.startsWith(BUFFER_PREFIX)) return false;
+  for (const pane of panes(layout.root)) {
+    const index = pane.tabs.findIndex(tab => bufferTarget(tab.id) === path && tab.kind === "untitled");
+    if (index < 0) continue;
+    revealLine(path, line);
+    setLayout(current => activate(current, pane.id, index));
+    return true;
+  }
+  notice("The cited unsaved editor is no longer open. Its supplied text remains in the session context.");
+  return true;
+}

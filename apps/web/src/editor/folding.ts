@@ -118,8 +118,12 @@ export function computeFoldRanges(
     // Self-closing / empty blocks have nothing to fold.
     if (b.contentTo <= b.contentFrom) continue;
     const lineEnd = text.indexOf("\n", b.from);
-    // Single-line blocks (open + body + close on one line) aren't foldable.
-    if (lineEnd < 0 || lineEnd >= b.to) continue;
+    // Recorded ACP context is often one JSON line. Fold its body natively,
+    // keeping both tags on that line instead of replacing it with a card.
+    if (lineEnd < 0 || lineEnd >= b.to) {
+      if (WORK_BLOCKS.has(b.name)) out.push({ from: b.contentFrom, to: b.contentTo, kind: "block", name: b.name });
+      continue;
+    }
     let to = Math.min(b.to, text.length);
     // Work keeps its closing tag on screen (see WORK_BLOCKS) — when that tag
     // starts its own line, the fold stops at the end of the line before it.

@@ -1,3 +1,4 @@
+import { bufferTarget } from "../lib/editorBufferTargets";
 // The shell: the tile tree, rendered.
 //
 // Deliberately dull. Every decision about what happens to a layout lives in
@@ -368,6 +369,7 @@ function TabChip({
       // open but not the active tab terminates ON the tab, so the
       // pointer says "it's here" instead of floating a label over
       // whatever the pane is actually showing.
+      data-shell-tab-buffer={tab.kind === "untitled" ? bufferTarget(tab.id) : undefined}
       data-shell-tab-kind={tab.kind}
       data-shell-tab-target={tab.target}
       data-shell-tab-vertical={side ? "" : undefined}
@@ -510,7 +512,8 @@ function CollapsedStrip({
             className={`shell-strip__icon${index === pane.active ? " shell-strip__icon--on" : ""}`}
             // The ribbon contract survives the collapse: a ribbon to a file
             // in a strip terminates on its icon, edge-on.
-            data-shell-tab-kind={tab.kind}
+            data-shell-tab-buffer={tab.kind === "untitled" ? bufferTarget(tab.id) : undefined}
+      data-shell-tab-kind={tab.kind}
             data-shell-tab-target={tab.target}
             data-shell-tab-vertical=""
             data-tip={tab.title ?? tab.target.split("/").pop() ?? tab.target}

@@ -51,9 +51,9 @@ export function AgentChanges({ doc, state, running, apply, update }: {
         catch (e) { setError(e instanceof Error ? e.message : String(e)); }
       }}><option value="review">Review</option><option value="auto-accept">Auto-accept</option></select></label>
     {error && <p role="alert">{error}</p>}
-    {state.edits.changes.map(change => <details key={change.id} open={change.status === "pending" || change.status === "applying"}>
-      <summary>{change.status === "pending" ? "Proposed change" : change.status === "applying" ? "Applying change" : `${change.status.charAt(0).toUpperCase()}${change.status.slice(1)} change`} · {change.path ?? change.name}</summary>
+    {state.edits.changes.map(change => <div key={change.id} className="agent-change-link">
+      <span>{change.status === "pending" ? "Proposed change" : change.status === "applying" ? "Applying change" : `${change.status.charAt(0).toUpperCase()}${change.status.slice(1)} change`} · {change.path ?? change.name}</span>
       <button className="btn" onClick={() => openReading(`proposal:${doc}:${change.id}`, `${change.path ?? change.name} · review`)}>Review in document</button>
-    </details>)}
+    </div>)}
   </section>;
 }

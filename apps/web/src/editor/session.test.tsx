@@ -60,8 +60,7 @@ describe("a session document renders as a conversation", () => {
     // Every byte is still the document's own text — nothing was replaced.
     expect(container.querySelector(".cm-content")?.textContent).toContain("<hick:action");
 
-    // Top-level turns are bubbles — yours on the right, the agent's on the
-    // left (Apple Messages' sides) — and a nested action is framed inside
+    // Top-level turns are bubbles — both voices on the left — and a nested action is framed inside
     // its bubble, not bubbled.
     // docs/guarantees/agent/a-session-is-the-conversation.md
     const you = container.querySelector(".cm-turn-user.cm-bubble-you");

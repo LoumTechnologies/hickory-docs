@@ -80,10 +80,21 @@ async fn main() {
                 if prompt == "hang" {
                     continue;
                 }
+                if prompt == "untitled-paragraph" {
+                    // Deliberately omit a citation: context must still accompany final speech.
+                    update(
+                        json!({"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"The second paragraph has the most characters."}}),
+                    );
+                    result(id, json!({"stopReason":"end_turn"}));
+                    continue;
+                }
                 update(
                     json!({"sessionUpdate":"agent_thought_chunk","content":{"type":"text","text":"Checking the document."}}),
                 );
-                if matches!(prompt, "file-read" | "file-generated" | "file-outside") {
+                if matches!(
+                    prompt,
+                    "file-read" | "file-read-range" | "file-generated" | "file-outside"
+                ) {
                     prompt_waiting = Some(id);
                     let path = if prompt == "file-outside" {
                         std::env::temp_dir().join("outside-acp-file.txt")
@@ -95,8 +106,8 @@ async fn main() {
                         })
                     };
                     send(
-                        json!({"jsonrpc":"2.0","id":"file-1","method":if prompt == "file-read" {"fs/read_text_file"} else {"fs/write_text_file"},
-                        "params":{"sessionId":"fixture-session","path":path,"line":1,"limit":1,"content":"must be refused"}}),
+                        json!({"jsonrpc":"2.0","id":"file-1","method":if prompt.starts_with("file-read") {"fs/read_text_file"} else {"fs/write_text_file"},
+                        "params":{"sessionId":"fixture-session","path":path,"line":if prompt == "file-read-range" {2} else {1},"limit":1,"content":"must be refused"}}),
                     );
                     continue;
                 }

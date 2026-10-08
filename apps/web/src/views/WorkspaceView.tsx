@@ -12,7 +12,6 @@ import {
   useState,
   type ReactNode,
 } from "react";
-
 import { useRecentFiles } from "./useRecentFiles";
 import { STARTUP_INTRODUCTION } from "../lib/newDoc";
 import { api } from "../api/client";
@@ -33,6 +32,8 @@ import { WorkspaceProblems } from "../environments/WorkspaceProblems";
 import { useEnvironments } from "../environments/useEnvironments";
 import { EnvironmentNotice } from "../environments/EnvironmentPanel";
 import { PromptPanel, usePrompt } from "../components/PromptPanel";
+import { openBufferTarget } from "../lib/editorBufferTargets";
+import { workspaceRibbonSources } from "./workspaceRibbonSources";
 import { openPlainSearchFiles, searchWorkspace } from "../lib/workspaceSearch";
 import { insertTarget, type MenuAction } from "../lib/menuBridge";
 import { insertElement } from "../editor/insertElement";
@@ -45,7 +46,6 @@ import {
 } from "../lib/insertCatalog";
 import { structureOf } from "../editor/wysiwyg";
 import { useRibbonPresentation } from "../components/LineageSettings";
-
 import { loadTabStyle, type TabStyle } from "../lib/tabStyle";
 import { loadChannelWidth } from "../lib/channelWidth";
 import { windowTitle } from "../lib/windowTitle";
@@ -129,7 +129,6 @@ import { MonitorDock } from "../terminal/MonitorDock";
 // window without a terminal open never runs. Loaded the first time a terminal
 // tab is drawn, so the document you opened the app for is on screen sooner.
 import { AnchorBar } from "../terminal/AnchorBar";
-
 const TerminalPane = lazy(() =>
   import("../terminal/TerminalPane").then((m) => ({ default: m.TerminalPane })),
 );
@@ -157,7 +156,7 @@ import { totalProblems } from "../lib/problems";
 import { EditorView } from "@codemirror/view";
 import { TAB_ZOOM_VAR } from "../lib/zoom";
 import { requestFlushSaves } from "../lib/flushSaves";
-import { onOpenLocation, onShowTerminal, pathOfDocUri, revealLine } from "../lib/revealLine";
+import { openLocation, onOpenLocation, onShowTerminal, pathOfDocUri, revealLine } from "../lib/revealLine";
 import { rankFiles } from "../lib/fileRanking";
 import { allFileProblems, useFileProblemsVersion } from "../lib/fileProblems";
 import { formatOnSave, loadFormatOnSave } from "../lib/formatOnSave";
@@ -590,6 +589,7 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
    */
   const openHit = useCallback(
     (path: string, line: number) => {
+      if (openBufferTarget(path, line, layoutRef.current, setLayout, setInsertNotice)) return;
       const document = registry.all().find((session) => session.doc && samePath(session.doc.path, path));
       if (document) {
         ensureDocOpen(document.docId);
@@ -793,49 +793,9 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
     },
     [folderRoots],
   );
-  const ribbonSources: RibbonSource[] = useMemo(() => {
-    if (!focused?.doc) return [];
-    const primary: RibbonSource = {
-      // The view is optional: a closed document pane still leaves bands
-      // pointing back to it, which is how you find it again.
-      view: focused.docEditor ?? undefined,
-      docPath: focused.doc.path,
-      docSource: focused.doc.source,
-    };
-    const others = new Map<string, RibbonSource>();
-    for (const file of focused.outputs.values()) {
-      for (const p of file.provenance) {
-        if (p.origin.kind === "synthetic") continue;
-        if (samePath(p.origin.doc_path, focused.doc.path)) continue;
-        const { path } = docIdByPath(p.origin.doc_path);
-        if (others.has(path)) continue;
-        const open = registry
-          .all()
-          .find((s) => s.doc && samePath(s.doc.path, path));
-        others.set(path, {
-          view: open?.docEditor ?? undefined,
-          docPath: path,
-          docSource: open?.doc?.source ?? "",
-        });
-      }
-    }
-    // The lenses on screen — the agent pane's session — draw from their own
-    // lines, with the links their elements declared.
-    const lenses: RibbonSource[] = lensSources()
-      .filter((lens) => !others.has(lens.path) && !samePath(lens.path, primary.docPath))
-      .map((lens) => ({ view: lens.view, docPath: lens.path, docSource: lens.source }));
-    return [primary, ...others.values(), ...lenses];
-    // registry.version is what changes when another document opens or edits.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [
-    lensTick,
-    focused?.doc,
-    focused?.docEditor,
-    focused?.outputs,
-    registry,
-    registry.version,
-    docIdByPath,
-  ]);
+  const ribbonSources: RibbonSource[] = useMemo(() => workspaceRibbonSources(focused, registry, docIdByPath),
+    // Registry and lens versions publish changes to the live editors.
+    [lensTick, focused?.doc, focused?.docEditor, focused?.outputs, registry, registry.version, docIdByPath]);
   const ribbonFiles: RibbonFile[] = useMemo(
     () =>
       focused
@@ -908,7 +868,7 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
   // per declared citation, from the citing element to what it names.
   const ribbonLinks: RibbonLink[] = useMemo(() => {
     const doc = focused?.doc;
-    if (!doc) return [];
+    if (!doc) return lensSources().flatMap(lens => lens.links);
     const declaredLinks: RibbonLink[] = [];
     if (declared && declared.docId === focused.docId) {
       declared.cites.forEach((cite, ci) => {
@@ -1826,15 +1786,13 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
             visibility={ribbonVisibility}
             onNavigate={(target) => {
               const session = registry.get(focusedIdRef.current);
-              if (!session) return;
               // Clicking a band IS the navigation.
               if (target.kind === "path") {
                 // A context/declared far end: a document or a plain file.
-                if (target.path.endsWith(".md"))
-                  openDocumentByPath(target.path);
-                else openPlainFile(target.path);
+                openLocation(target.path, target.lines?.[0] ?? 1);
                 return;
               }
+              if (!session) return;
               if (target.kind === "document") {
                 // Back the way it came: the document's own bytes, selected —
                 // first bringing the document on screen when the band ended

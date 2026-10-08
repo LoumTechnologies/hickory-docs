@@ -69,7 +69,7 @@ pub async fn session_view(
     let blocks = hick_literate::session_elements::session_blocks(&source, Some(&root_canon));
     let links = hick_literate::session_elements::session_links(&source, Some(&root_canon));
     let mut links = serde_json::to_value(links).unwrap_or_default();
-    let evidence = output_evidence(&state, &root_canon, &blocks, &links).await;
+    let evidence = output_evidence(&state, &root_canon, &source, &links).await;
     if let Some(links) = links.as_array_mut() {
         links.extend(evidence);
     }
@@ -84,7 +84,7 @@ pub async fn session_view(
 async fn output_evidence(
     state: &LocalState,
     root: &Path,
-    blocks: &[hick_blocks::Block],
+    session_source: &str,
     links: &Value,
 ) -> Vec<Value> {
     let mut evidence = Vec::new();
@@ -151,17 +151,15 @@ async fn output_evidence(
                 continue;
             };
             for citation in &cited {
-                let Some(answer) = blocks.iter().find(|block| {
-                    block.kind == "session-assistant"
-                        && serde_json::to_value(block.span).ok().as_ref() == Some(&citation["span"])
-                }) else {
+                let Some(start) = citation["span"][0].as_u64() else {
                     continue;
                 };
-                let body = answer
-                    .props
-                    .get("body")
-                    .and_then(Value::as_str)
-                    .unwrap_or("");
+                let Some(end) = citation["span"][1].as_u64() else {
+                    continue;
+                };
+                let Some(body) = session_source.get(start as usize..end as usize) else {
+                    continue;
+                };
                 let output_name = output.to_string_lossy();
                 let named = body
                     .split(|c: char| c.is_whitespace() || "`\"'()<>[];,".contains(c))

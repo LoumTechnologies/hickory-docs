@@ -1378,14 +1378,13 @@ textarea:focus {
 .cm-hick-banner-turn-context .cm-hick-banner-label { color: var(--ribbon-context, var(--fg-muted)); }
 
 /* ---- speech bubbles: a session read as the conversation it is ----
-   Each top-level turn is a bubble — yours on the right, right-aligned; the
-   agent's on the left — and it is nothing but a line class:
+   Each top-level turn is a bubble, both voices left-aligned, drawn with
+   a line class:
    the line numbers count through it, the ribbons and braces still land on
    it, the tags are in it, and the caret goes anywhere. A bubble is a COLUMN
    (every line the same width) rather than shrink-wrapped per line, because
    lines are separate boxes and a ragged background is not a bubble. Both
-   columns live inside the prose measure, overlapping in the middle, so the
-   two sides stay near each other on a wide pane.
+   voices share the same column inside the prose measure.
    Padding, never margin, for the vertical gaps: CodeMirror's height map
    measures the line box and a margin is outside it. */
 .document-editor .cm-bubble {
@@ -1399,12 +1398,11 @@ textarea:focus {
   padding: 0 0.8rem;
   background: var(--bubble);
 }
-/* Sides as Apple Messages has them — and as the dock draws them: what you
-   said on the right, right-aligned; the agent on the left. */
+/* Both voices align left; colour identifies the speaker. */
 .document-editor .cm-bubble-you {
   --bubble: color-mix(in srgb, var(--accent) 20%, var(--bg));
-  margin-left: calc(var(--bubble-col) * 0.2);
-  text-align: right;
+  margin-left: 0;
+  text-align: left;
 }
 .document-editor .cm-bubble-agent {
   --bubble: var(--bg-raised);
@@ -1435,8 +1433,8 @@ textarea:focus {
 .cm-bubble-last::after { width: 10px; background: var(--chat-bg); }
 .cm-bubble-agent.cm-bubble-last::before { left: -7px; border-bottom-right-radius: 15px; }
 .cm-bubble-agent.cm-bubble-last::after { left: -10px; border-bottom-right-radius: 10px; }
-.cm-bubble-you.cm-bubble-last::before { right: -7px; border-bottom-left-radius: 15px; }
-.cm-bubble-you.cm-bubble-last::after { right: -10px; border-bottom-left-radius: 10px; }
+.cm-bubble-you.cm-bubble-last::before { left: -7px; border-bottom-right-radius: 15px; }
+.cm-bubble-you.cm-bubble-last::after { left: -10px; border-bottom-right-radius: 10px; }
 /* Breathing room between one bubble and the next: a transparent top border
    on the first line (inside the line box, so the height map is right) with
    the background clipped to the padding box so it does not paint under it. */
@@ -3315,10 +3313,8 @@ button.fleet-grant {
 }
 .chat-empty { font-size: 0.8rem; margin: 0.2rem 0; max-width: 46rem; }
 .chat-turn { display: flex; flex-direction: column; gap: 0.45rem; }
-/* A turn is two bubbles, the way a messages app draws a conversation: yours
-   on the right with its tail at the bottom right, the agent's on the left
-   with its tail at the bottom left. The tail is the speaker; the small role
-   caption above is there for a screen reader and a glance. The tail is two
+/* Both speakers align left, with their tails at the bottom left. Colour
+   and the small role caption identify the speaker. The tail is two
    blobs — one the bubble's colour, one the page's, overlapping — so it needs
    to know what it sits on: --chat-bg, set by each surface that hosts a log. */
 .chat-msg {
@@ -3329,7 +3325,7 @@ button.fleet-grant {
   font-size: 0.82rem;
   min-width: 0;
 }
-.chat-user { align-self: flex-end; align-items: flex-end; max-width: 82%; }
+.chat-user { align-self: flex-start; align-items: flex-start; max-width: 82%; }
 .chat-agent { align-self: flex-start; align-items: flex-start; max-width: 94%; }
 .chat-msg p { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
 .chat-role {
@@ -3357,8 +3353,8 @@ button.fleet-grant {
   --bubble: var(--accent);
   --bubble: color-mix(in srgb, var(--accent) 24%, var(--bg));
 }
-.chat-user .chat-bubble::before { right: -7px; border-bottom-left-radius: 15px; }
-.chat-user .chat-bubble::after { right: -10px; border-bottom-left-radius: 10px; }
+.chat-user .chat-bubble::before { left: -7px; border-bottom-right-radius: 15px; }
+.chat-user .chat-bubble::after { left: -10px; border-bottom-right-radius: 10px; }
 .chat-agent .chat-bubble { --bubble: var(--bg-raised); }
 .chat-agent .chat-bubble::before { left: -7px; border-bottom-right-radius: 15px; }
 .chat-agent .chat-bubble::after { left: -10px; border-bottom-right-radius: 10px; }
@@ -8861,7 +8857,7 @@ button.status-bar__item:hover { background: var(--bg-sunken); color: var(--fg); 
 /* In the lens the cards are the conversation, not cells: no frame around
    a bubble, no clipping (the tails hang outside the bubble), and the page
    colour behind them so a tail is cut with the right colour. Two voices,
-   two colours, two tails: yours on the right in the accent, the agent's on
+   two colours, two tails: yours on the left in the accent, the agent's on
    the left in the second accent, the way a messages app tells who spoke —
    and nothing else in the conversation (reasoning, a tool call, a result)
    is a bubble at all. */
@@ -8877,7 +8873,7 @@ button.status-bar__item:hover { background: var(--bg-sunken); color: var(--fg); 
   --bubble: color-mix(in srgb, var(--accent-2) 22%, var(--bg));
   border-bottom-left-radius: 4px;
 }
-.session-lens .chat-user .chat-bubble { border-bottom-right-radius: 4px; }
+.session-lens .chat-user .chat-bubble { border-bottom-left-radius: 4px; }
 .session-lens .chat-agent .chat-answer { color: var(--fg); }
 /* The agent's work above its bubble: folds, muted, no tail, no box. */
 .session-lens .chat-agent .chat-work { align-self: stretch; padding: 0 0.55rem; color: var(--fg-muted); }

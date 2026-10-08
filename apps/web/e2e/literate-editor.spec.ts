@@ -95,10 +95,12 @@ test("review an ACP proposal in the literate editor, then read its commit", asyn
   await expect(agent).toBeVisible();
   await agent.getByRole("button", { name: "Agent settings" }).click();
   await page.getByRole("combobox", { name: "Agent", exact: true }).selectOption("fixture");
-  await page.getByRole("button", { name: "Agent settings", exact: true }).click();
+  await page.getByRole("combobox", { name: "Agent", exact: true }).press("Escape");
   await expect(agent.getByRole("button", { name: "Send", exact: true })).toBeDisabled();
   const response = agent.getByRole("textbox", { name: "Agent conversation and response" });
   await response.click(); await response.press("ControlOrMeta+End"); await response.pressSequentially("buffer-edit");
+  // docs/guarantees/agent/the-agent-pane-is-a-live-document.md
+  await expect(agent.locator(".cm-line").filter({ hasText: "buffer-edit" }).getByRole("button", { name: "Send", exact: true })).toBeVisible();
   await agent.getByRole("button", { name: "Send", exact: true }).click();
   const review = page.getByRole("region", { name: "Document change review" });
   await expect(review).toBeVisible();
@@ -110,11 +112,23 @@ test("review an ACP proposal in the literate editor, then read its commit", asyn
   await review.getByRole("button", { name: "Accept change" }).click();
   await expect.poll(async () => (await (await page.request.get(`/api/docs/${note.id}`)).json()).source).toContain("Changed by ACP");
   await expect(agent.getByRole("button", { name: "Send", exact: true })).toBeVisible();
+  // docs/guarantees/agent/a-session-is-the-conversation.md
+  await expect(agent.locator(".cm-bubble-you").first()).toHaveCSS("text-align", "left");
+  await expect(agent.locator(".cm-bubble-you").first()).toHaveCSS("margin-left", "0px");
+  await expect(agent.locator(".cm-bubble-agent").first()).toHaveCSS("text-align", "left");
+  // Context stays in native editor folds with real caret/selection positions.
+  // docs/guarantees/agent/an-answer-in-the-agent-pane-has-ribbons.md
+  await expect(agent.locator("details")).toHaveCount(0);
+  const context = agent.locator(".cm-line").filter({ hasText: '<hick:context kind="editor-buffers">' });
+  await expect(context.locator(".cm-hick-fold-placeholder")).toBeVisible();
+  await context.locator(".cm-hick-fold-placeholder").click();
+  await expect(response).toContainText('review-note.md');
   // The completed answer is protected; selecting all and typing cannot erase it.
   await response.press("ControlOrMeta+a"); await response.pressSequentially("Should not replace history");
   await expect(response).toContainText("buffer-edit");
   await response.press("ControlOrMeta+End"); await response.press("Enter"); await response.pressSequentially("Next response draft");
   await expect(response).toContainText("Next response draft");
+  await page.screenshot({ path: "/tmp/hickory-agent-inline-send.png", fullPage: true });
   await page.request.post("/api/git/stage", { data: { paths: ["review-note.md"] } });
   const committed = await page.request.post("/api/git/commit", { data: { message: "# A reviewed note\n\nThe agent changed its heading." } });
   expect(committed.ok()).toBeTruthy();
@@ -124,5 +138,34 @@ test("review an ACP proposal in the literate editor, then read its commit", asyn
   await expect(reading).toContainText("A reviewed note");
   await expect(reading.locator(".comparison-added").filter({ hasText: "Changed by ACP" })).toHaveCount(1);
   await page.screenshot({ path: "/tmp/hickory-commit-reading.png", fullPage: true });
+  expect(errors).toEqual([]);
+});
+
+// Guarantee: agent/an-answer-in-the-agent-pane-has-ribbons.md.
+test("an ACP final claim about the startup Untitled note has a visible context ribbon", async ({ page }) => {
+  test.setTimeout(60_000);
+  test.skip(!process.env.HICKORY_E2E_URL || !process.env.HICKORY_ACP_FIXTURE, "Use just test-literate-editor.");
+  const errors: string[] = [];
+  page.on("pageerror", error => errors.push(error.message));
+  await page.request.put("/api/agents", { data: [{ id: "fixture", name: "Fixture", command: process.env.HICKORY_ACP_FIXTURE, args: [] }] });
+  await page.goto("/");
+  await expect(page.locator(".untitled-tab .cm-editor")).toBeVisible();
+  await page.evaluate(() => window.dispatchEvent(new CustomEvent("hickory-menu", { detail: "show-agent" })));
+  const agent = page.getByRole("region", { name: "Agent chat" });
+  await agent.getByRole("button", { name: "Agent settings" }).click();
+  await page.getByRole("combobox", { name: "Agent", exact: true }).selectOption("fixture");
+  await page.getByRole("combobox", { name: "Agent", exact: true }).press("Escape");
+  const response = agent.getByRole("textbox", { name: "Agent conversation and response" });
+  await response.click(); await response.press("ControlOrMeta+End"); await response.pressSequentially("untitled-paragraph");
+  await agent.getByRole("button", { name: "Send", exact: true }).click();
+  await expect(response).toContainText("The second paragraph has the most characters.");
+  // Context remains folded; its connection must originate from the answer itself.
+  const context = agent.locator(".cm-line").filter({ hasText: '<hick:context kind="editor-buffers">' });
+  await expect(context.locator(".cm-hick-fold-placeholder")).toBeVisible();
+  await agent.locator(".cm-line").filter({ hasText: "The second paragraph has the most characters." }).scrollIntoViewIfNeeded();
+  const ribbon = page.locator(".ribbon-group--context").filter({ has: page.locator("title", { hasText: "editor snapshot of Untitled" }) });
+  await expect(ribbon.locator("path.ribbon, path.ribbon-brace-link").last()).toBeVisible();
+  await expect(page.locator(".untitled-tab")).toContainText("Hickory");
+  await page.screenshot({ path: "/tmp/hickory-untitled-answer-ribbon.png", fullPage: true });
   expect(errors).toEqual([]);
 });

@@ -169,6 +169,9 @@ describe("the startup workspace", () => {
     const save = vi.spyOn(api, "saveDraft");
     const close = vi.spyOn(api, "closeWindow").mockResolvedValue({ ok: true });
     const { container, getByRole } = render(<App />);
+    // Folder hydration adds a split and remounts the introduction editor.
+    // Wait for that arrangement before testing the close gesture.
+    await waitFor(() => expect(getByRole("tab", { name: /Files/ })).toBeTruthy());
     await waitFor(() => {
       expect(editor(container).state.doc.toString()).toBe(STARTUP_INTRODUCTION);
       expect(editor(container).hasFocus).toBe(true);

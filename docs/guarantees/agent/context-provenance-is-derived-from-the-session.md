@@ -36,6 +36,21 @@ Four properties hold it up:
    top level, or the document's directory); a directory lists; a non-UTF-8 or
    over-sized file is refused with the reason.
 
+## Exact returned ranges (2026-10-07)
+
+ACP file reads and workspace `read_text` derive the receipt from the same range
+of bytes returned by the read. Reads from an unsaved editor buffer honor the
+requested line and limit, record the supplied buffer and request, and emit a
+completed read receipt with the whole snapshot's SHA-256 and only the returned
+lines. They do not save that buffer to disk. Empty, out-of-range and zero-limit
+responses contribute no invented line range. Native relative reads record the
+resolved workspace-relative path rather than the caller's relative spelling.
+
+The read's explanation identifies the snapshot hash and commit when recorded.
+A read invocation's location link says **Read request**; a completed receipt
+says **Recorded read**. Neither establishes that an assistant's conclusion is
+supported. Current file contents may differ from that recorded snapshot.
+
 ## Boundary
 
 Present, not used: nothing here claims a line was derived from an input.
@@ -68,3 +83,22 @@ Last LLM verification:
   `the_session_records_reads_and_writes_as_elements`),
   `crates/hickory-agent/src/context.rs::tests`,
   `crates/hickory-agent/src/session.rs::tests`.
+
+Verification update (2026-10-07): the native relative-path regression in
+`tools/read_file.rs`, range/hash regression in `serve/acp/read_receipt.rs`, and
+real HTTP `serve_acp::a_live_buffer_read_records_the_returned_range_and_links_to_its_snapshot`
+exercise the resolved path, Unicode/CRLF, clipped and empty ranges, an unsaved
+buffer, its recorded hash and the resulting line-specific session link.
+
+`just test-agent-pane` passes (92 native agent tests and 48 frontend tests).
+`just test-conversation-lineage` passes (10 vocabulary/receipt tests, two HTTP
+tests, 67 frontend tests and TypeScript checking), including the distinction
+between a failed read request and a separately completed read receipt. Real
+model authentication is not exercised by these fixture-based checks.
+
+The ACP backend checks pass (five unit tests, 35 integration tests and the
+desktop ACP proxy test; two authenticated model tests remain ignored). Its full
+frontend step initially exposed a startup-test race: folder hydration remounts
+the introduction editor when it adds the Files split. `App.test.tsx` now waits
+for that arrangement before the close-window gesture. The final `just test-web`
+passes all 1,945 tests and TypeScript checking; the file-length check passes.

@@ -12,6 +12,7 @@ import { lensSources } from "../lib/lensSources";
 import type { AgentTurn, SessionViewResponse } from "../api/types";
 import { conversationReading } from "./conversationReading";
 import { charToByte } from "../lib/offsets";
+import { foldedRanges, unfoldEffect } from "@codemirror/language";
 afterEach(cleanup);
 const turn = (id: string, parent: string | null = null): AgentTurn => ({ id, parent_id: parent, prompt: `Request ${id}`, answer: `Answer ${id}`, status: "ok", error: null, provider: "acp:codex", model: "", created_at: "", usage: null });
 const first = turn("a"), live = { ...turn("b", "a"), status: "running" as const, answer: null };
@@ -61,6 +62,35 @@ it("submits only with the send shortcut; ordinary Enter remains multiline editin
   fireEvent.keyDown(host, { key: "Enter", code: "Enter", ctrlKey: true });
   expect(send).toHaveBeenCalledTimes(1);
 });
+it("places Send after the multiline draft without adding bytes, and disables an empty draft", async () => {
+  const send = vi.fn();
+  const props = { branch: [], path: null, running: null, stream: "", reasoning: "", draft: "Hello\nthere", onDraft: () => {}, onSend: send, canSend: true, stamp: "" };
+  const rendered = render(<ConversationEditor {...props} />);
+  const host = await screen.findByRole("textbox", { name: "Agent conversation and response" });
+  const view = EditorView.findFromDOM(host)!;
+  const button = await screen.findByRole("button", { name: "Send" });
+  expect(button.closest(".cm-line")?.textContent).toBe("thereSend");
+  expect(view.state.doc.sliceString(view.state.field(responseStart))).toBe("Hello\nthere");
+  fireEvent.click(button);
+  expect(send).toHaveBeenCalledTimes(1);
+  rendered.rerender(<ConversationEditor {...props} draft="" />);
+  await waitFor(() => expect((screen.getByRole("button", { name: "Send" }) as HTMLButtonElement).disabled).toBe(true));
+});
+it("follows growing responses, pauses when scrolling upward, and resumes on sending", async () => {
+  const props = { branch: [live], path: null, running: "b", stream: "Writing", reasoning: "", draft: "", onDraft: () => {}, onSend: () => {}, canSend: false, stamp: "" };
+  const rendered = render(<div className="chat-log"><ConversationEditor {...props} /></div>);
+  const log = rendered.container.firstElementChild as HTMLElement;
+  Object.defineProperties(log, { scrollHeight: { configurable: true, value: 1000 }, clientHeight: { value: 200 } });
+  await waitFor(() => expect(log.scrollTop).toBe(1000));
+  log.scrollTop = 800; fireEvent.scroll(log);
+  log.scrollTop = 400; fireEvent.scroll(log);
+  Object.defineProperty(log, "scrollHeight", { value: 1200 });
+  rendered.rerender(<div className="chat-log"><ConversationEditor {...props} stream="Writing more" /></div>);
+  await act(async () => { await new Promise(resolve => requestAnimationFrame(resolve)); });
+  expect(log.scrollTop).toBe(400);
+  rendered.rerender(<div className="chat-log"><ConversationEditor {...props} sending /></div>);
+  await waitFor(() => expect(log.scrollTop).toBe(1200));
+});
 it("reads only the selected branch and remaps recorded Unicode links without claiming live evidence", () => {
   const other = turn("alternative", "a");
   const fixture = { ...data, source: data.source.replace("</hick:session>", '<hick:user turn="alternative">OTHER BRANCH</hick:user>\n<hick:assistant>other</hick:assistant>\n</hick:session>'),
@@ -70,4 +100,31 @@ it("reads only the selected branch and remaps recorded Unicode links without cla
   expect(reading.source).toContain("Live words");
   expect(reading.links).toHaveLength(1);
   expect(reading.source.slice(...reading.links[0].span)).toBe(source.slice(start, end));
+});
+
+it("folds newly arriving context with native editor folds and refreshes its receipts on unfold", async () => {
+  const contextSource = '<hick:session>\n<hick:user turn="a">Request a</hick:user>\n<hick:context kind="editor-buffers">\nSnapshot 📝\n</hick:context>\n<hick:assistant>Answer a</hick:assistant>\n</hick:session>\n';
+  const from = contextSource.indexOf("<hick:context"), to = contextSource.indexOf("</hick:context>") + 15;
+  const contextData = { ...data, source: contextSource, links: [{ ...data.links[0], span: [charToByte(contextSource, from), charToByte(contextSource, to)] as [number, number], lines: [3,5] as [number,number] }] };
+  installMockHandler(async (_method, path) => path.startsWith("/api/sessions/view") ? contextData : {});
+  const props = { branch: [first], path: data.path, stamp: "a", running: null, stream: "", reasoning: "", draft: "", onDraft: () => {}, onSend: () => {}, canSend: false };
+  const rendered = render(<ConversationEditor {...props} />);
+  const host = await screen.findByRole("textbox", { name: "Agent conversation and response" });
+  const view = EditorView.findFromDOM(host)!;
+  await waitFor(() => expect(foldedRanges(view.state).size).toBeGreaterThan(0));
+  expect(host.querySelector("details")).toBeNull();
+  expect(view.state.doc.toString()).toContain("Snapshot 📝");
+  expect(host.textContent).not.toContain("Snapshot 📝");
+  await waitFor(() => expect(lensSources().find(lens => lens.path === data.path)?.links).toHaveLength(0));
+  rendered.rerender(<ConversationEditor {...props} showCollapsedLineage />);
+  await waitFor(() => expect(lensSources().find(lens => lens.path === data.path)?.links[0]?.from.lines).toEqual([3,3]));
+  const folds: { from: number; to: number }[] = [];
+  foldedRanges(view.state).between(0, view.state.doc.length, (from, to) => { folds.push({ from, to }); });
+  act(() => view.dispatch({ effects: folds.map(f => unfoldEffect.of(f)) }));
+  await waitFor(() => expect(host.textContent).toContain("Snapshot 📝"));
+  rendered.rerender(<ConversationEditor {...props} draft="new response" />);
+  await waitFor(() => expect(view.state.doc.toString()).toContain("new response"));
+  expect(foldedRanges(view.state).size).toBe(0);
+  expect(lensSources().find(lens => lens.path === data.path)?.links[0]?.from.lines).toEqual([3,5]);
+  installMockHandler(async (_method, path) => path.startsWith("/api/sessions/view") ? data : {});
 });

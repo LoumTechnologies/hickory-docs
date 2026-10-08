@@ -7,8 +7,7 @@ parent turn id, and the provider and model it ran on; when the app restarts,
 then the dock's turn tree for a document is rebuilt from those files; and
 when a session file is opened as a document, then it is drawn — in the
 editor, over its own bytes — as the conversation it records: each top-level
-turn a speech bubble, yours on the right and right-aligned, the agent's on
-the left (the sides Apple Messages uses), the agent's work (tool calls, scripts, observations,
+turn a speech bubble, both voices on the left and left-aligned, the agent's work (tool calls, scripts, observations,
 results, reasoning) folded to its opening and closing tag lines; and every
 line of the file is still on screen with its line number, its ribbons, and
 its tags — the bubbles are formatting, not a second surface.
@@ -18,6 +17,11 @@ two stories. Before this, each turn wrote its own unlinked file, the tree
 lived only in memory (gone on restart), and a session opened in the app was
 XML with chips — the thing you were shown while it happened and the thing
 you could find afterwards were different things.
+
+Generated user, assistant, observation, and context elements put their opening
+and closing tags on separate lines from their bodies. Existing boundary line
+breaks serve that separation without adding another blank line. Opening older
+session files preserves their recorded bytes.
 
 Four properties hold it up:
 
@@ -107,3 +111,8 @@ reads Markdown sessions as well as older session records.
 `session::tests::new_sessions_use_the_markdown_document_extension` checks the
 conventional path, and the conversation/context fixtures now use `.md`.
 All 90 agent unit tests pass.
+
+Verified 2026-10-06: left alignment in the document and card styles; generated
+session tag spacing in `session::tests`. `ConversationEditor.test.tsx` checks
+inline submission and scroll following. The Chromium ACP browser flow checks both speakers' computed alignment and
+inline Send; `/tmp/hickory-agent-inline-send.png` was visually reviewed.

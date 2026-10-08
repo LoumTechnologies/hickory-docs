@@ -1,3 +1,4 @@
+import { bufferTarget } from "../lib/editorBufferTargets";
 import { useMemo, useRef, type MutableRefObject } from "react";
 import { ChatDock } from "../components/ChatDock";
 import { api } from "../api/client";
@@ -34,7 +35,7 @@ export async function editorContext(
         ?? visiblePlain.get(tab.target)
         ?? session?.outputs.get(tab.target)?.content ?? (await api.file(tab.target)).content;
     }
-    return { id: tab.id, kind: tab.kind, ...(tab.kind === "generated" ? { document: session?.doc?.path ?? tabs.find(t => t.kind === "document" && t.docId === tab.docId)?.target } : {}), name: tab.title ?? tab.target, path: tab.kind === "untitled" ? null : tab.target,
+    return { id: tab.id, kind: tab.kind, ...(tab.kind === "untitled" ? { provenance_uri: bufferTarget(tab.id) } : {}), ...(tab.kind === "generated" ? { document: session?.doc?.path ?? tabs.find(t => t.kind === "document" && t.docId === tab.docId)?.target } : {}), name: tab.title ?? tab.target, path: tab.kind === "untitled" ? null : tab.target,
       content, focused: tab.id === focused };
   }));
   return { buffers };

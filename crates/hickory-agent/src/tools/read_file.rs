@@ -94,7 +94,11 @@ pub(crate) fn read_file(root: &Path, base: &Path, inv: &ToolInvocation) -> ToolO
     }
     let shown = index.render_range(first - 1, last - 1);
     let read = ContextRead {
-        path: rel.to_string(),
+        path: canonical
+            .strip_prefix(&root)
+            .unwrap_or(&canonical)
+            .to_string_lossy()
+            .replace('\\', "/"),
         commit: head_commit_for(&canonical),
         sha256: sha256_hex(&bytes),
         first_line: first,
@@ -106,4 +110,36 @@ pub(crate) fn read_file(root: &Path, base: &Path, inv: &ToolInvocation) -> ToolO
         format!("file: {rel} lines {first}-{last} of {total}\n")
     };
     ToolOutcome::ok(NAME, format!("{header}{shown}")).with_read(read)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // Guarantee: docs/guarantees/agent/context-provenance-is-derived-from-the-session.md
+    #[test]
+    fn a_relative_read_receipt_resolves_from_the_document_directory() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        let base = root.join("notes");
+        std::fs::create_dir_all(&base).unwrap();
+        std::fs::write(root.join("source.txt"), "first\nsecond\n").unwrap();
+        let inv = ToolInvocation::synthetic(
+            "read_file",
+            vec![
+                ("path".into(), "../source.txt".into()),
+                ("from".into(), "2".into()),
+                ("to".into(), "2".into()),
+            ],
+            None,
+        )
+        .unwrap();
+        let outcome = read_file(root, &base, &inv);
+        assert!(outcome.ok, "{}", outcome.text);
+        assert_eq!(outcome.reads[0].path, "source.txt");
+        assert_eq!(
+            (outcome.reads[0].first_line, outcome.reads[0].last_line),
+            (2, 2)
+        );
+    }
 }

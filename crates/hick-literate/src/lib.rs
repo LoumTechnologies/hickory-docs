@@ -21,12 +21,12 @@ pub mod promote;
 pub mod render;
 pub mod scene;
 pub mod session_elements;
+mod session_receipts;
 pub mod store_config;
 mod text;
 pub mod volume_state;
 pub mod watch;
 mod weave;
-
 /// Image used when neither the exec nor its container declares one.
 const DEFAULT_IMAGE: &str = "alpine";
 
@@ -36,9 +36,6 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::{Context as _, Result};
-use log::{debug, info, trace, warn};
-use rand::RngCore;
-
 use hick_exec::dag;
 use hick_exec::node::{
     FileContent, InsertionPoint, Node, ProvenanceMap, ProvenanceTransformNode, SourceOrigin,
@@ -46,6 +43,8 @@ use hick_exec::node::{
 };
 use hick_exec::state::{FeatureInfo, MultiDocumentState};
 use hick_handlers::{ProcessingContext, ProcessingPhase, TagRegistry, TagResult, TranscriptEntry};
+use log::{debug, info, trace, warn};
+use rand::RngCore;
 
 use hick_feature::{FeatureDef, FeatureRegistry, FeatureSet};
 use hick_lang::{HickDocument, HickNode, HickTag, dedent};

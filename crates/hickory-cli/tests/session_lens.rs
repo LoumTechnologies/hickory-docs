@@ -117,7 +117,7 @@ async fn the_session_view_carries_blocks_and_the_three_families_of_links() {
                 "declared".into(),
                 "meetings/sync.hick".into(),
                 serde_json::json!([12, 20]),
-                12
+                13
             ),
             (
                 "lineage".into(),

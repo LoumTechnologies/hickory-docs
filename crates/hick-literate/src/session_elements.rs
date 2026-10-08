@@ -169,20 +169,7 @@ impl Element<SessionFacts> for AssistantElement {
         Some(Block::new("session-assistant", span_of(tag)).with("body", prose.trim()))
     }
     fn links(&self, tag: &HickTag, facts: &SessionFacts) -> Vec<Link> {
-        let prose = assistant_prose(tag);
-        mentions(&prose)
-            .into_iter()
-            .map(|(path, lines)| Link {
-                family: Family::Declared,
-                span: span_of(tag),
-                title: format!(
-                    "Declared — the answer points at {}{}. The model's own reference, not a derivation.",
-                    facts.relative(&path),
-                    lines_text(lines)
-                ),
-                to: target(facts, &path, lines),
-            })
-            .collect()
+        crate::session_receipts::citations(tag, facts)
     }
 }
 
@@ -277,15 +264,22 @@ impl Element<SessionFacts> for ToolElement {
             let lines = tool_arg(tag, &["lines"])
                 .and_then(|l| parse_lines(&l))
                 .or_else(|| {
+                    let first: usize = tool_arg(tag, &["from"])?.parse().ok()?;
+                    let last: usize = tool_arg(tag, &["to"])?.parse().ok()?;
+                    (first > 0 && last >= first).then_some((first, last))
+                })
+                .or_else(|| {
                     let offset: usize = tool_arg(tag, &["offset"])?.parse().ok()?;
                     let limit: usize = tool_arg(tag, &["limit"])?.parse().ok()?;
-                    (offset > 0 && limit > 0).then(|| (offset, offset + limit - 1))
+                    (offset > 0 && limit > 0)
+                        .then(|| offset.checked_add(limit - 1).map(|last| (offset, last)))
+                        .flatten()
                 });
             vec![Link {
                 family: Family::Context,
                 span: span_of(tag),
                 title: format!(
-                    "Context — the {name} tool showed the model {}{} during this turn. Derived from the session record.",
+                    "Read request — the {name} invocation names {}{}. This records requested access; a completed read receipt establishes which bytes were returned.",
                     facts.relative(&file),
                     lines_text(lines)
                 ),
@@ -360,9 +354,11 @@ impl Element<SessionFacts> for ReadElement {
             family: Family::Context,
             span: span_of(tag),
             title: format!(
-                "Context — {}{} was in front of the model when this answer was produced. Derived from the session record.",
+                "Recorded read — {}{} was returned to the model. Snapshot SHA-256: {}. Commit: {}. This proves the recorded read, not a conclusion drawn from it; the current file may have changed.",
                 facts.relative(&file),
-                lines_text(lines)
+                lines_text(lines),
+                attr(tag, "sha256").unwrap_or_else(|| "not recorded".into()),
+                attr(tag, "commit").unwrap_or_else(|| "not recorded".into())
             ),
             to: target(facts, &file, lines),
         }]
@@ -426,6 +422,9 @@ impl Element<SessionFacts> for ContextElement {
         )
     }
     fn links(&self, tag: &HickTag, facts: &SessionFacts) -> Vec<Link> {
+        if tag.get_attribute("kind") == Some("editor-buffers") {
+            return crate::session_receipts::editor_context(tag, facts);
+        }
         if tag.get_attribute("kind") != Some("acp-activity") {
             return vec![];
         }
@@ -592,7 +591,7 @@ pub fn mentions(text: &str) -> Vec<(String, Option<(usize, usize)>)> {
         let Some(close) = after.find(')') else { break };
         let target = after[..close].split_whitespace().next().unwrap_or("");
         if !target.is_empty()
-            && !target.contains("://")
+            && (!target.contains("://") || target.starts_with("hickory-buffer://"))
             && !target.starts_with("mailto:")
             && !target.starts_with('#')
         {
@@ -607,10 +606,11 @@ pub fn mentions(text: &str) -> Vec<(String, Option<(usize, usize)>)> {
                 path = file;
                 lines = Some(parsed);
             }
-            if path
-                .rsplit('/')
-                .next()
-                .is_some_and(|last| last.contains('.'))
+            if path.starts_with("hickory-buffer://")
+                || path
+                    .rsplit('/')
+                    .next()
+                    .is_some_and(|last| last.contains('.'))
             {
                 add(path.to_string(), lines);
             }
@@ -664,8 +664,9 @@ pub fn session_links(source: &str, root: Option<&Path>) -> Vec<LinkWithLines> {
         root: root.map(Path::to_path_buf),
     };
     let (doc, _) = hick_lang::parse_lenient(source);
-    session_registry()
-        .links(&doc, &facts)
+    let mut links = session_registry().links(&doc, &facts);
+    links.extend(crate::session_receipts::answer_context(&doc, &facts));
+    links
         .into_iter()
         .map(|link| {
             let lines = (
@@ -716,6 +717,25 @@ mod tests {
         assert_eq!(links.len(), 1);
         assert_eq!(links[0].link.to.path, "test2.hick");
         assert_eq!(links[0].link.to.lines, Some((8, 8)));
+    }
+
+    // Guarantee: docs/guarantees/agent/an-answer-in-the-agent-pane-has-ribbons.md
+    #[test]
+    fn requested_access_and_completed_read_evidence_have_distinct_explanations() {
+        let source = r#"<hick:session>
+<hick:tool name="read_file" path="note.md" from="2" to="3"/>
+<hick:tool-result name="read_file" ok="false">No such file</hick:tool-result>
+<hick:read file="other.md" lines="4-5" sha256="snapshot-hash" commit="abc123"/>
+</hick:session>"#;
+        let links = session_links(source, None);
+        assert_eq!(links.len(), 2);
+        assert!(links[0].link.title.starts_with("Read request"));
+        assert!(links[0].link.title.contains("completed read receipt"));
+        assert_eq!(links[0].link.to.lines, Some((2, 3)));
+        assert!(links[1].link.title.starts_with("Recorded read"));
+        assert!(links[1].link.title.contains("snapshot-hash"));
+        assert!(links[1].link.title.contains("abc123"));
+        assert_eq!(links[1].link.to.lines, Some((4, 5)));
     }
 
     #[test]
@@ -809,13 +829,13 @@ Checkout slowed after the pool change; see [the sync](meetings/sync.hick#L12-L20
                     "declared".into(),
                     "meetings/sync.hick".into(),
                     Some((12, 20)),
-                    12
+                    13
                 ),
                 (
                     "declared".into(),
                     "data/latency.csv".into(),
                     Some((3, 3)),
-                    12
+                    13
                 ),
                 (
                     "lineage".into(),

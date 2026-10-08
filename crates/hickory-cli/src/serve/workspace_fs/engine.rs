@@ -77,28 +77,13 @@ impl Engine {
                 let bytes = view.bytes(&self.state, rel)?;
                 ensure!(bytes.len() <= MAX_FILE, "file exceeds the buffer limit");
                 let text = std::str::from_utf8(&bytes)?;
-                let start = p["line"].as_u64().unwrap_or(1).saturating_sub(1) as usize;
-                let limit = p["limit"].as_u64().map_or(usize::MAX, |n| n as usize);
-                let count = text.lines().count().max(1);
-                let shown = count.saturating_sub(start).min(limit);
-                if shown > 0 {
-                    let read = hickory_agent::ContextRead {
-                        path: rel.into(),
-                        commit: None,
-                        sha256: view::hash(&bytes),
-                        first_line: start + 1,
-                        last_line: start + shown,
-                    };
+                let (content, receipt) = super::super::acp::read_receipt::read(rel, text, p);
+                if let Some(read) = receipt {
                     self.record
                         .lock()
                         .await
                         .event(hickory_agent::SessionEvent::Read { read: &read })?;
                 }
-                let content = if p.get("line").is_none() && p.get("limit").is_none() {
-                    text.to_string()
-                } else {
-                    text.split_inclusive('\n').skip(start).take(limit).collect()
-                };
                 self.reads.insert(rel.into(), (view, bytes));
                 Ok(json!({"content":content}))
             }

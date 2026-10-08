@@ -51,3 +51,16 @@ Last LLM verification:
 - Caveats: no live paid-provider call or native desktop interaction is needed for
   these tests. ACP adapter filesystem tools retain their own permissions and
   scope; context delivery does not grant them additional filesystem access.
+
+Amended 2026-10-07: the recorded editor snapshots yield context links to their
+named files and supplied line ranges. They include unsaved bytes, identify
+snapshot input explicitly, and do not claim that the current disk or editor
+still has those bytes. Untitled buffers yield no fictitious file target.
+`session_receipts::tests::both_recorders_link_supplied_buffers_using_explicit_untitled_identities`
+checks both native and ACP envelopes. `agent_context::describe` asks agents to
+cite supporting passages and acknowledge missing support for workspace claims.
+
+Untitled buffers with recorded ids now have editor-only provenance addresses
+(`hickory-buffer://<window>/<id>`), and the prompt specifies that citation syntax. Their
+context connects to final answer paragraphs even without a model citation.
+They remain unsaved; these addresses are not filesystem paths.

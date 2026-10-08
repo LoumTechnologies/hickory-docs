@@ -1,31 +1,46 @@
-import { EditorState, StateField } from "@codemirror/state";
-import { Decoration, EditorView, WidgetType, type DecorationSet } from "@codemirror/view";
-import { structureOf } from "./wysiwyg";
+// The live conversation uses the document editor's native folds. Newly
+// arriving work starts folded once; opening it survives subsequent streaming.
+import { foldEffect, foldedRanges } from "@codemirror/language";
+import { ViewPlugin, type EditorView } from "@codemirror/view";
+import { foldRangesOf, workFoldRanges } from "./folding";
 
-class Bookkeeping extends WidgetType {
-  constructor(readonly kind: string, readonly text: string, readonly from: number, readonly to: number) { super(); }
-  eq(other: Bookkeeping) { return this.kind === other.kind && this.text === other.text && this.from === other.from && this.to === other.to; }
-  toDOM() {
-    const details = document.createElement("details");
-    details.className = "conversation-bookkeeping";
-    details.dataset.sessionFrom = String(this.from); details.dataset.sessionTo = String(this.to);
-    details.appendChild(document.createElement("summary")).textContent = `Context · ${this.kind}`;
-    details.appendChild(document.createElement("pre")).textContent = this.text;
-    return details;
-  }
-  ignoreEvent() { return true; }
-}
-function decorations(state: EditorState): DecorationSet {
-  const ranges = [];
-  for (const block of structureOf(state).blocks) {
-    if (block.name === "context") ranges.push(Decoration.replace({ block: true,
-      widget: new Bookkeeping(block.attrs.kind ?? "record", state.doc.sliceString(block.contentFrom, block.contentTo), block.from, block.to),
-    }).range(block.from, block.to));
-  }
-  return Decoration.set(ranges, true);
-}
-export const sessionBookkeeping = StateField.define<DecorationSet>({
-  create: decorations,
-  update: (value, tr) => tr.docChanged ? decorations(tr.state) : value,
-  provide: field => EditorView.decorations.from(field),
+export const sessionBookkeeping = ViewPlugin.define((view: EditorView) => {
+  let seen = new Set<number>();
+  let alive = true;
+  const attempt = () => {
+    const fresh = workFoldRanges(foldRangesOf(view.state)).filter(range => !seen.has(range.from));
+    fresh.forEach(range => seen.add(range.from));
+    if (!fresh.length) return;
+    queueMicrotask(() => {
+      if (!alive) return;
+      const effects = fresh.filter(range => range.to <= view.state.doc.length).map(range => foldEffect.of(range));
+      if (effects.length) view.dispatch({ effects });
+    });
+  };
+  attempt();
+  return {
+    update(update) {
+      if (!update.docChanged) return;
+      const ranges = foldRangesOf(update.state);
+      seen = new Set([...seen].flatMap(from => {
+        const mapped = update.changes.mapPos(from, -1);
+        return ranges.some(range => range.from === mapped) ? [mapped] : [];
+      }));
+      // Only newly arrived work folds. Existing folds map with CodeMirror.
+      attempt();
+    },
+    destroy() { alive = false; },
+  };
 });
+
+/** Resolve hidden receipts to their native fold's visible opening line. */
+export function conversationFold(view: EditorView, from: number, to: number) {
+  let header: number | null = null;
+  foldedRanges(view.state).between(0, view.state.doc.length, (start, end) => {
+    if (start < to && end > from) {
+      const line = view.state.doc.lineAt(start).number;
+      header = header === null ? line : Math.min(header, line);
+    }
+  });
+  return header;
+}

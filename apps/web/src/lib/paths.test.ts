@@ -24,4 +24,10 @@ describe("is this provenance about this document", () => {
     expect(samePath("C:\\projects\\demo\\stats.md", "stats.md")).toBe(true);
     expect(samePath("./stats.md", "stats.md")).toBe(true);
   });
+  it("matches editor buffer identities exactly, without filesystem suffix matching", () => {
+    expect(samePath("hickory-buffer://u1", "hickory-buffer://u1")).toBe(true);
+    expect(samePath("hickory-buffer://u1", "u1")).toBe(false);
+    expect(samePath("hickory-buffer://u1", "hickory-buffer://u2")).toBe(false);
+  });
+
 });

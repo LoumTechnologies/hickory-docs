@@ -43,11 +43,10 @@
 // pointer entirely.
 //
 // See docs/specs/freeform/shell-layouts.md.
-
 import { useCallback, useEffect, useRef, useState } from "react";
 import { BlockType } from "@codemirror/view";
 import type { EditorView } from "@codemirror/view";
-
+import { linkShapes } from "./linkShapes";
 import { preciseTargetBeneath } from "../lib/ribbonClickThrough";
 import { highlightLines } from "../editor/lineHighlight";
 import { structureOf } from "../editor/wysiwyg";
@@ -78,7 +77,6 @@ import {
 import type { OutputFile } from "../api/types";
 import { samePath } from "../lib/paths";
 import { attrValue as attr } from "../lib/attrSelector";
-
 /**
  * The document side.
  *
@@ -200,7 +198,7 @@ interface Shape {
  * is in it, which is one predicate over the finished list rather than a line
  * repeated at all four places a shape is made.
  */
-type Draft = Omit<Shape, "caret">;
+export type Draft = Omit<Shape, "caret">;
 
 /** Thickness of the connector bar on a tab terminal's attached edge. */
 const CONNECTOR = 3;
@@ -263,7 +261,7 @@ function terminalEl(
 }
 
 
-interface Terminal {
+export interface Terminal {
   rect: DOMRect;
   ends: "tab" | "tree" | "port";
   /** A tab rendered vertically — a side-tree row, a collapsed strip's icon,
@@ -297,14 +295,15 @@ function visibleTreeRow(
  * here" divider port. (The "text" case never reaches here — a visible
  * editor is handled by the caller before terminals are consulted.)
  */
-function findTerminal(
+export function findTerminal(
   container: HTMLElement,
   kind: "document" | "generated" | "file",
   target: string,
 ): Terminal | null {
   const tab = terminalEl(
     container,
-    `[data-shell-tab-kind=${attr(kind)}][data-shell-tab-target=${attr(target)}]`,
+    target.startsWith("hickory-buffer://") ? `[data-shell-tab-buffer=${attr(target)}]`
+      : `[data-shell-tab-kind=${attr(kind)}][data-shell-tab-target=${attr(target)}]`,
   );
   const row = visibleTreeRow(container, target);
   const port = terminalEl(
@@ -355,7 +354,7 @@ function findTerminal(
  * must LEAVE the nub along it — C1 at the brace tip, no corner — which is
  * why it rides along even though the band form never needs it.
  */
-function attachTerminal(
+export function attachTerminal(
   terminal: Terminal,
   box: DOMRect,
   x0: number,
@@ -422,7 +421,7 @@ function attachTerminal(
  * height so a one-line source is still hoverable. It leans toward the
  * channel (the nub side), where the revealed shapes begin.
  */
-function revealStrip(
+export function revealStrip(
   x0: number,
   dir: 1 | -1,
   from: { yTop: number; yBot: number },
@@ -444,7 +443,7 @@ function revealStrip(
  * what ribbons anchor on — the numbers, not the text, are the ribbon's
  * x-axis vocabulary.
  */
-function paneEdges(view: EditorView): {
+export function paneEdges(view: EditorView): {
   left: number;
   right: number;
   /** Width of the left (CodeMirror gutter) rail: outer edge to the text-side
@@ -1021,91 +1020,8 @@ export function RibbonOverlay({
       }
     }
 
-    for (const link of links) {
-      if (!on(link.family)) continue;
-      const source = sources.find(
-        (s) => s.view && samePath(s.docPath, link.from.path),
-      );
-      const view = source?.view;
-      if (!source || !view) continue;
-      const kinds: ("document" | "generated" | "file")[] = link.to.kind
-        ? [link.to.kind]
-        : ["document", "generated", "file"];
-      let terminal: Terminal | null = null;
-      for (const kind of kinds) {
-        terminal = findTerminal(container, kind, link.to.path);
-        if (terminal) break;
-      }
-      if (!terminal) continue;
-      const total = view.state.doc.lines;
-      const a = Math.min(Math.max(link.from.lines[0], 1), total);
-      const b = Math.min(Math.max(link.from.lines[1], a), total);
-      const from = view.state.doc.line(a).from;
-      const to = view.state.doc.line(b).to;
-      const rect = link.anchor?.getBoundingClientRect();
-      const band = rect ? [rect.top, rect.bottom] : bandBetween(view, from, to);
-      if (!band || band[1] <= band[0]) continue;
-      const pane = view.scrollDOM.getBoundingClientRect();
-      const edges = paneEdges(view);
-      const tMid = (terminal.rect.left + terminal.rect.right) / 2 - box.left;
-      const docL = edges.left - box.left;
-      const docR = edges.right - box.left;
-      const x0 = tMid >= (docL + docR) / 2 ? docR : docL;
-      const clamped = clampBand(
-        band[0] - box.top,
-        band[1] - box.top,
-        pane.top - box.top,
-        pane.bottom - box.top,
-      );
-      const dir: 1 | -1 = x0 === docR ? 1 : -1;
-      const horn = x0 === docR ? edges.rightRailW : edges.leftRailW;
-      const nub = braces ? braceNub(x0, clamped.yTop, clamped.yBot, dir) : null;
-      const attach = attachTerminal(
-        terminal,
-        box,
-        x0,
-        clamped,
-        braces,
-        nub,
-        dir,
-      );
-      const shape: Draft = {
-        key: `${link.family}:${link.key}:${terminal.ends}`,
-        alwaysVisible: link.alwaysVisible,
-        family: link.family,
-        color: link.family === "context" ? 0 : 1,
-        clamped: clamped.clamped,
-        ends: terminal.ends,
-        reveal: revealStrip(x0, dir, clamped),
-        connector: attach.connector,
-        hl: [{ view, from, to }],
-        target: {
-          kind: "path",
-          path: link.to.path,
-          lines: link.to.lines,
-          family: link.family,
-        },
-      };
-      if (braces && attach.link) {
-        const brace = bracePath(
-          x0,
-          clamped.yTop,
-          clamped.yBot,
-          dir,
-          undefined,
-          { top: clamped.clampedTop, bottom: clamped.clampedBottom },
-          horn,
-        );
-        shape.brace = {
-          a: brace,
-          link: attach.link,
-          hit: `${brace} ${attach.link}`,
-        };
-      } else {
-        shape.band = attach.band;
-      }
-      out.push(shape);
-    }
+    out.push(...linkShapes(container, sources, files, links, on, braces,
+      { bandBetween, paneEdges, findTerminal, attachTerminal, revealStrip }));
 
     // Whose caret counts: the editor that has focus, and when focus has gone
     // to something that is not an editor — a menu, the tree, the toolbar —
@@ -1344,7 +1260,7 @@ function sourceRange(
  * clamps the result to the visible pane. The answer is EXACT: the top of the
  * first line holding `from` to the bottom of the last line holding `to`.
  */
-function bandBetween(
+export function bandBetween(
   view: EditorView,
   from: number,
   to: number,

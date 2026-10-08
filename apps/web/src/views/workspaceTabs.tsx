@@ -20,6 +20,7 @@ import type { ContextMenuItem } from "../components/ContextMenu";
 import { RefactorBadge, useBaseline } from "../components/RefactorBadge";
 import type { Baseline } from "../components/RefactorBadge";
 import { GeneratedFileView } from "../shell/views";
+import { registerBufferEditor } from "../lib/editorBufferTargets";
 import { markUntitledEditor } from "../editor/activeEditor";
 import { useDocSession, type SessionRegistry } from "./documentSession";
 
@@ -328,6 +329,8 @@ export function UntitledTab({
   useEffect(() => () => realtime.close(), [realtime]);
 
   const viewRef = useRef<EditorView | null>(null);
+  const unregisterBuffer = useRef(() => {});
+  useEffect(() => () => unregisterBuffer.current(), []);
   return (
     <div className="untitled-tab">
       <DocumentEditor
@@ -343,6 +346,8 @@ export function UntitledTab({
         onViewReady={(view) => {
           viewRef.current = view;
           markUntitledEditor(view);
+          unregisterBuffer.current();
+          unregisterBuffer.current = view ? registerBufferEditor(tabId, view) : () => {};
           // Land ready to type — an empty editor you still have to click
           // into is a chooser with extra steps.
           view?.focus();

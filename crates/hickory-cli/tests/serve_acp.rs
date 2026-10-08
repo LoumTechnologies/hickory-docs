@@ -338,6 +338,57 @@ async fn acp_file_reads_record_context_and_writes_refuse_generated_and_outside_p
     );
 }
 
+// Guarantees: agent/context-provenance-is-derived-from-the-session.md;
+// agent/an-answer-in-the-agent-pane-has-ribbons.md.
+#[tokio::test]
+async fn a_live_buffer_read_records_the_returned_range_and_links_to_its_snapshot() {
+    use sha2::{Digest, Sha256};
+    let (_dir, app) = fixture(vec![]).await;
+    app.connect(None).await;
+    let content = "# Unsaved note\nThe paragraph mentions X, Y and Z. 📝\nUnrequested material\n";
+    let (status, response) = app.request("POST", &app.route(""), json!({
+        "backend":"fixture", "prompt":"file-read-range", "context":{"buffers":[
+            {"id":"note-tab","kind":"document","name":"demo.md","path":"demo.md","content":content,"focused":true}
+        ]}
+    })).await;
+    assert_eq!(status, 202, "{response}");
+    let turn = app.wait(response["session_id"].as_str().unwrap()).await;
+    assert_eq!(turn["answer"], "The paragraph mentions X, Y and Z. 📝\n");
+    let session = turn["session"].as_str().unwrap();
+    let source = std::fs::read_to_string(app.root.join(session)).unwrap();
+    let hash = hex::encode(Sha256::digest(content.as_bytes()));
+    assert!(
+        source.contains(&format!("sha256=\"{hash}\" lines=\"2-2\"")),
+        "{source}"
+    );
+    let (status, view) = app
+        .request(
+            "GET",
+            &format!("/api/sessions/view?path={session}"),
+            Value::Null,
+        )
+        .await;
+    assert_eq!(status, 200, "{view}");
+    let receipt = view["links"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|link| {
+            link["title"]
+                .as_str()
+                .is_some_and(|title| title.starts_with("Recorded read"))
+        })
+        .unwrap();
+    assert_eq!(receipt["family"], "context");
+    assert_eq!(receipt["to"]["path"], "demo.md");
+    assert_eq!(receipt["to"]["lines"], json!([2, 2]));
+    assert!(receipt["title"].as_str().unwrap().contains(&hash));
+    assert_eq!(
+        std::fs::read_to_string(app.root.join("demo.md")).unwrap(),
+        DOC
+    );
+}
+
 #[tokio::test]
 #[ignore = "requires a real, authenticated Codex ACP adapter; just test-acp-live"]
 async fn live_codex_uses_hickory_tools_and_records_a_session() {
@@ -415,6 +466,55 @@ async fn live_codex_uses_hickory_tools_and_records_a_session() {
         "{resumed}"
     );
     println!("Live Codex rewind and restart-resume verified.");
+}
+
+// Guarantee: agent/an-answer-in-the-agent-pane-has-ribbons.md.
+#[tokio::test]
+async fn an_uncited_acp_answer_has_context_to_the_untitled_editor() {
+    let (_dir, mut app) = fixture(vec![]).await;
+    app.doc = "workspace".into();
+    app.connect(None).await;
+    let (status, response) = app.request("POST", &app.route(""), json!({
+        "backend":"fixture", "prompt":"untitled-paragraph", "context":{"buffers":[
+            {"id":"startup-note","provenance_uri":"hickory-buffer://window/startup-note","kind":"untitled","name":"Untitled","path":null,"content":"Short.\n\nThe longest paragraph. 📝","focused":true}
+        ]}
+    })).await;
+    assert_eq!(status, 202, "{response}");
+    let turn = app.wait(response["session_id"].as_str().unwrap()).await;
+    assert_eq!(
+        turn["answer"],
+        "The second paragraph has the most characters."
+    );
+    let path = turn["session"].as_str().unwrap();
+    let (status, view) = app
+        .request(
+            "GET",
+            &format!("/api/sessions/view?path={path}"),
+            Value::Null,
+        )
+        .await;
+    assert_eq!(status, 200, "{view}");
+    let source = view["source"].as_str().unwrap();
+    let link = view["links"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|link| {
+            let span = link["span"].as_array().unwrap();
+            source[span[0].as_u64().unwrap() as usize..span[1].as_u64().unwrap() as usize]
+                .starts_with("The second paragraph")
+        })
+        .unwrap_or_else(|| panic!("final claim carries recorded input context: {view}"));
+    assert_eq!(link["family"], "context");
+    assert_eq!(link["to"]["path"], "hickory-buffer://window/startup-note");
+    assert_eq!(link["to"]["lines"], json!([1, 3]));
+    assert!(
+        link["title"]
+            .as_str()
+            .unwrap()
+            .contains("not support for a claim")
+    );
+    assert!(!app.root.join("Untitled").exists());
 }
 
 // Guarantee: docs/guarantees/agent/the-agent-sees-the-open-editors.md

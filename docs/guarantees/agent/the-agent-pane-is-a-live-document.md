@@ -8,10 +8,20 @@ paste, undo, and programmatic widget edits. Only the conversation owner can
 replace that prefix. A streaming update preserves the user's response draft,
 including its line breaks.
 
-Enter inserts a line. Send or Cmd/Ctrl+Enter submits the response. During a turn,
+Both speakers are left-aligned. Enter inserts a line. Send sits inline after the
+editable draft and is disabled for an empty draft or while a turn starts/runs;
+it is a view widget and contributes no document bytes. While a turn runs,
+Send is replaced by the persistent Stop control. Send or Cmd/Ctrl+Enter
+submits the response. Sending resumes following the response as it grows in the
+conversation's single scrollbar. Scrolling upward pauses following; returning
+to the bottom resumes it. During a turn,
 Stop remains available and cancels the turn through the existing agent stop
 route. Stopped turns keep their recorded work. Reasoning remains separate and
-foldable. Bookkeeping is expandable, rather than exposed as long JSON lines.
+foldable. Context, reasoning, tool calls and results collapse through the same
+native CodeMirror fold state, gutter and keyboard commands as ordinary notes.
+Single-line ACP context folds its body while leaving both tags visible. Unfolded
+context remains selectable, searchable editor text. Newly arriving work folds
+once; streaming and draft updates do not re-close work the reader opened.
 
 The editor retains the ordinary literate formatting, braces, folds, and line
 rails. Receipts from the session are remapped into the selected branch and
@@ -24,16 +34,31 @@ bytes or the draft into the recorded session; the harness remains its writer.
 
 Last LLM verification:
 
-- Date: 2026-10-04
+- Date: 2026-10-06
 - Reviewer: Codex
-- Result: partially verified
+- Result: verified for the changed conversation controls and formatting
 - Evidence: `ConversationEditor`, `conversationReading`, `protectedPrefix`,
   `sessionBookkeeping`, `DocumentEditor`, `ChatDock`, and `registerLens`.
 - Tests: `ConversationEditor.test.tsx` drives actual CodeMirror editors through
   protected edits, streaming updates, multiline drafts, undo, submission,
-  selected-branch reads, Unicode offsets, and receipt registration.
+  selected-branch reads, Unicode offsets, receipt registration, inline Send,
+  and pausing/resuming scroll following.
   `ChatDock.test.tsx` checks model selection, requests, and stopping;
   the ACP browser flow in `e2e/literate-editor.spec.ts` covers real tools and UI.
 - Limits: the browser ACP peer is deterministic; authenticated Codex integration
   was verified for the underlying tools in the earlier review-policy change.
+  The Chromium ACP flow verifies left alignment and inline Send in a real
+  browser; `/tmp/hickory-agent-inline-send.png` was visually inspected.
   Desktop-native ribbon geometry has not been inspected for this change.
+
+Verification update (2026-10-07): `editor/sessionChrome.ts` adds newly arriving
+work to native folds, and `editor/folding.ts` covers single-line ACP records.
+`ConversationEditor` refreshes lens receipts after fold-state changes and anchors
+opted-in collapsed receipts on their opening line. Tests in
+`ConversationEditor.test.tsx` and `folding.test.ts` protect these behaviors;
+`e2e/literate-editor.spec.ts` unfolds recorded context in a real Chromium browser.
+
+The pane does not duplicate live ACP tool reports in HTML disclosures; their
+recorded context blocks appear in the conversation editor. Permission decisions
+remain explicit controls. The change-review strip links directly to the existing
+literate comparison editor without a disclosure that hides its navigation.

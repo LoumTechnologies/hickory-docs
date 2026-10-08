@@ -88,6 +88,15 @@ describe("computeFoldRanges — hick blocks", () => {
     expect(rangesOf(text).filter((r) => r.kind === "block")).toEqual([]);
   });
 
+  // Guarantee: docs/guarantees/agent/the-agent-pane-is-a-live-document.md
+  it("folds a single-line ACP context body while keeping both tags", () => {
+    const text = '<hick:context kind="editor-buffers">{"context":"snapshot"}</hick:context>\n';
+    const [range] = workFoldRanges(rangesOf(text));
+    expect(text.slice(range.from, range.to)).toBe('{"context":"snapshot"}');
+    expect(text.slice(0, range.from)).toBe('<hick:context kind="editor-buffers">');
+    expect(text.slice(range.to)).toBe('</hick:context>\n');
+  });
+
   it("folds an unclosed block to the end of the document", () => {
     const text = '<hick:exec container="shell">\nnever closed\n';
     const [r] = rangesOf(text).filter((r) => r.kind === "block");
