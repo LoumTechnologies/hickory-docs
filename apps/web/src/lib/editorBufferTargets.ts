@@ -2,7 +2,7 @@
 import type { EditorView } from "@codemirror/view";
 import type { Dispatch, SetStateAction } from "react";
 import { activate, panes, type Layout } from "../shell/layout";
-import { registerLens } from "./lensSources";
+import { lensSources, registerLens } from "./lensSources";
 import { claimReveal, onRevealLine, revealLine } from "./revealLine";
 
 export const BUFFER_PREFIX = "hickory-buffer://";
@@ -38,4 +38,8 @@ export function openBufferTarget(path: string, line: number, layout: Layout,
   }
   notice("The cited unsaved editor is no longer open. Its supplied text remains in the session context.");
   return true;
+}
+
+export function bufferEditor(id: string): EditorView | null {
+  return lensSources().find(lens => lens.path === bufferTarget(id) && lens.view.dom.isConnected)?.view ?? null;
 }

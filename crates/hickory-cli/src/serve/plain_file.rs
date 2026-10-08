@@ -37,14 +37,83 @@ pub struct PlainFileQuery {
     pub path: String,
 }
 
+/// Explicitly open a selected text file without replacing this workspace.
+pub async fn open_file(
+    State(state): State<LocalState>,
+    Json(q): Json<PlainFileQuery>,
+) -> ApiResult<Json<Value>> {
+    let path = state
+        .index
+        .root()
+        .join(&q.path)
+        .canonicalize()
+        .map_err(|e| ApiError::not_found(format!("could not open {}: {e}", q.path)))?;
+    let meta = std::fs::metadata(&path).map_err(|e| ApiError::internal(e.to_string()))?;
+    if !meta.is_file() || meta.len() > MAX_PLAIN_FILE_BYTES {
+        return Err(ApiError::unprocessable(
+            "choose a text file smaller than 10 MB",
+        ));
+    }
+    let bytes = std::fs::read(&path).map_err(|e| ApiError::internal(e.to_string()))?;
+    String::from_utf8(bytes).map_err(|_| ApiError::unprocessable("this file is not UTF-8 text"))?;
+    let target = path
+        .strip_prefix(state.index.root())
+        .unwrap_or(&path)
+        .to_string_lossy()
+        .replace('\\', "/");
+    if path.extension().is_some_and(|ext| ext == "md") {
+        let id = state.index.add(&target);
+        Ok(Json(json!({ "path": target, "doc_id": id })))
+    } else {
+        state
+            .opened_files
+            .write()
+            .map_err(|_| ApiError::internal("file registry unavailable"))?
+            .insert(path);
+        Ok(Json(json!({ "path": target })))
+    }
+}
+
+/// A native Open File may name a file outside the root. Only explicit opens
+/// authorize that exact canonical file; ordinary relative paths keep the
+/// existing workspace traversal and symlink checks.
+fn editing_root(state: &LocalState, target: &str) -> ApiResult<(PathBuf, String)> {
+    let path = FsPath::new(target);
+    if !path.is_absolute() {
+        return Ok((state.index.root().to_path_buf(), target.to_string()));
+    }
+    let canonical = path
+        .canonicalize()
+        .map_err(|e| ApiError::not_found(e.to_string()))?;
+    if canonical != path
+        || !state
+            .opened_files
+            .read()
+            .map_err(|_| ApiError::internal("file registry unavailable"))?
+            .contains(&canonical)
+    {
+        return Err(ApiError::forbidden(
+            "open this file through File → Open File first",
+        ));
+    }
+    Ok((
+        canonical.parent().unwrap().to_path_buf(),
+        canonical
+            .file_name()
+            .unwrap()
+            .to_string_lossy()
+            .into_owned(),
+    ))
+}
+
 /// `GET /api/file?path=…` — the file's text, its language tag, and the
 /// content hash a later save passes back as `base_hash`.
 pub async fn get_file(
     State(state): State<LocalState>,
     Query(q): Query<PlainFileQuery>,
 ) -> ApiResult<Json<Value>> {
-    let root = state.index.root().to_path_buf();
-    let (content, hash) = read_plain(&root, &q.path)?;
+    let (root, target) = editing_root(&state, &q.path)?;
+    let (content, hash) = read_plain(&root, &target)?;
     Ok(Json(json!({
         "path": q.path,
         "language": super::api::language_of(&q.path),
@@ -73,10 +142,10 @@ pub async fn put_file(
     State(state): State<LocalState>,
     Json(body): Json<SavePlainFile>,
 ) -> ApiResult<Json<Value>> {
-    let root = state.index.root().to_path_buf();
+    let (root, target) = editing_root(&state, &body.path)?;
     let hash = write_plain(
         &root,
-        &body.path,
+        &target,
         &body.content,
         body.base_hash.as_deref(),
         body.force,

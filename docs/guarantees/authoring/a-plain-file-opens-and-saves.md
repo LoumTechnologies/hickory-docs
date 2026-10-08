@@ -22,7 +22,7 @@ Three properties hold it up:
    resolves it — no retry loop, no last-write-wins.
 2. **The surface refuses what it cannot honestly edit.** A `.hick` document
    (whose CRDT room owns the file), a path escaping the served root (`..`,
-   absolute, or a symlink that resolves outside), non-UTF-8 bytes, and files
+   unselected absolute paths, or a symlink that resolves outside), non-UTF-8 bytes, and files
    past the size cap are all refused with a message naming the reason and the
    way forward. A read-only file — the up-loop's mark on a fully generated
    output, see [a-generated-file-refuses-an-edit](a-generated-file-refuses-an-edit.md)
@@ -33,6 +33,11 @@ Three properties hold it up:
    edits are unsent, whose save then meets the moved disk as the 409 above.
 
 ## Boundary
+
+File → Open File can explicitly select text outside the served folder. That
+exact canonical file becomes editable in this window through the same
+hash-checked save path. Markdown uses its document room. See
+[file menu window behavior](file-menu-preserves-the-originating-window.md).
 
 A writable woven output saved through this surface is not a lineage bypass:
 the in-app up-loop sees the write as an external edit and carries it back

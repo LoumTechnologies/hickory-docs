@@ -5,7 +5,7 @@ import { act, renderHook, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { api } from "../api/client";
-import { UNTITLED_RECOVERY_KEY } from "../lib/newDoc";
+import { untitledDraftKey } from "../lib/newDoc";
 import { freeform, panes, open, tab } from "../shell/layout";
 import { SessionRegistry } from "./documentSession";
 import { openUntitledTab } from "./workspaceState";
@@ -56,7 +56,7 @@ describe("closing unsaved work", () => {
       "Close and retain",
       "Cancel",
     ]);
-    expect(saveDraft).toHaveBeenCalledWith(expect.objectContaining({ path: UNTITLED_RECOVERY_KEY, contents: "remember this" }));
+    expect(saveDraft).toHaveBeenCalledWith(expect.objectContaining({ path: untitledDraftKey(tab.id), contents: "remember this" }));
     expect(forgetUntitled).not.toHaveBeenCalled();
   });
 });

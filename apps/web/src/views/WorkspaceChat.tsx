@@ -7,7 +7,7 @@ import type { AgentEditorContext } from "../api/agentTypes";
 import { panes, type Layout, type Tab } from "../shell/layout";
 import type { SessionRegistry } from "./documentSession";
 import { FILES_CHANGED_EVENT } from "../shell/FolderTreePane";
-import { untitledEditor } from "../editor/activeEditor";
+import { bufferEditor } from "../lib/editorBufferTargets";
 import { applyAgentEdit } from "../lib/agentEdit";
 import type { AgentChange } from "../api/acp";
 import { openPlainSearchFiles, plainSearchEditor } from "../lib/workspaceSearch";
@@ -62,7 +62,7 @@ export function WorkspaceChat({ layout, registry, untitledSources, plainSources,
     const target = latest.current.tabs.find(tab => tab.id === (change.buffer ?? change.name));
     if (!target) throw new Error("The target editor was closed. Reopen it and ask the agent again.");
     const session = registry.get(target.docId);
-    const view = target.kind === "untitled" ? untitledEditor()
+    const view = target.kind === "untitled" ? bufferEditor(target.id)
       : target.kind === "document" ? session?.docEditor
       : target.kind === "generated" ? session?.openOutputs.get(target.target)
       : plainSearchEditor(target.target);

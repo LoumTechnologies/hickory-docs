@@ -55,7 +55,7 @@ export const NEW_DOCUMENT_EVENT = "hickory-new-document";
  */
 export function newDocument() {
   window.dispatchEvent(new CustomEvent(NEW_DOCUMENT_EVENT));
-  navigate("/new");
+  if (parseRoute(location.hash).name !== "new") redirect("/new");
 }
 
 /** Navigate without a history entry — for hops the Back button must not

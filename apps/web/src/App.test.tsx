@@ -2,9 +2,10 @@ import { act, cleanup, fireEvent, render, waitFor } from "@testing-library/react
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { EditorView } from "@codemirror/view";
 import { App } from "./App";
+import { newDocument } from "./router";
 import { api } from "./api/client";
 import { installMockApi } from "./mock/mockApi";
-import { STARTUP_INTRODUCTION, UNTITLED_RECOVERY_KEY } from "./lib/newDoc";
+import { STARTUP_INTRODUCTION } from "./lib/newDoc";
 import { WELCOME_KEY } from "./lib/welcomePref";
 import { openChatTab, openDocTab, initialWorkspace } from "./views/workspaceState";
 import { tab, withTree } from "./shell/layout";
@@ -116,6 +117,39 @@ describe("the startup workspace", () => {
     expect(create).not.toHaveBeenCalled();
   });
 
+  it("creates independent unnamed tabs on every New request and recovers them together", async () => {
+    const drafts = new Map<string, { path: string; contents: string; base: string; saved_at: number }>();
+    vi.spyOn(api, "drafts").mockImplementation(async () => ({ drafts: [...drafts.values()] }));
+    vi.spyOn(api, "saveDraft").mockImplementation(async draft => { drafts.set(draft.path, draft); return { ok: true }; });
+    vi.spyOn(api, "discardDraft").mockImplementation(async path => { drafts.delete(path); return { ok: true }; });
+    const first = render(<App />);
+    await waitFor(() => expect(first.getByRole("tab", { name: /Files/ })).toBeTruthy());
+    await waitFor(() => expect(editor(first.container).hasFocus).toBe(true));
+    act(() => editor(first.container).dispatch({ changes: { from: 0, to: editor(first.container).state.doc.length, insert: "First note" } }));
+    fireEvent(window, new CustomEvent("hickory-menu", { detail: "new" }));
+    await waitFor(() => expect(first.getAllByRole("tab", { name: /Untitled/ })).toHaveLength(2));
+    await waitFor(() => expect(editor(first.container).state.doc.toString()).toBe(""));
+    act(() => editor(first.container).dispatch({ changes: { from: 0, insert: "Second note" } }));
+    act(() => newDocument());
+    await waitFor(() => expect(first.getAllByRole("tab", { name: /Untitled/ })).toHaveLength(3));
+    fireEvent(window, new Event("pagehide"));
+    await waitFor(() => expect([...drafts.values()].map(draft => draft.contents).sort()).toEqual(["First note", "Second note"]));
+    first.unmount();
+    window.history.replaceState(null, "", "/");
+    const second = render(<App />);
+    await waitFor(() => expect(second.getAllByRole("tab", { name: /Untitled/ }).length).toBeGreaterThanOrEqual(2));
+    await waitFor(() => expect(second.getByRole("tab", { name: /Files/ })).toBeTruthy());
+    const restored = new Set<string>();
+    for (const tab of second.getAllByRole("tab", { name: /Untitled/ })) {
+      fireEvent.click(tab);
+      await waitFor(() => expect(editor(second.container)).toBeTruthy());
+      restored.add(editor(second.container).state.doc.toString());
+    }
+    expect(restored.has("First note")).toBe(true);
+    expect(restored.has("Second note")).toBe(true);
+    await waitFor(() => expect(second.getByRole("tab", { name: /Files/ })).toBeTruthy());
+  });
+
   it("opens a blank document through New after the startup document is discarded", async () => {
     const { container, getByRole } = render(<App />);
     await waitFor(() => {
@@ -162,10 +196,10 @@ describe("the startup workspace", () => {
     act(() => editor(container).dispatch({ changes: { from: 0, insert: "edit" } }));
     fireEvent(window, new Event("pagehide"));
     await waitFor(() => expect(save).toHaveBeenCalledWith(expect.objectContaining({
-      path: UNTITLED_RECOVERY_KEY, contents: "edit" + STARTUP_INTRODUCTION,
+      path: expect.stringMatching(/^untitled:/), contents: "edit" + STARTUP_INTRODUCTION,
     })));
     act(() => editor(container).dispatch({ changes: { from: 0, to: 4 } }));
-    await waitFor(() => expect(discard).toHaveBeenCalledWith(UNTITLED_RECOVERY_KEY));
+    await waitFor(() => expect(discard).toHaveBeenCalledWith(expect.stringMatching(/^untitled:/)));
   });
 
   // Guarantee: docs/guarantees/authoring/unsaved-work-survives-closing-the-app.md
@@ -204,7 +238,7 @@ describe("the startup workspace", () => {
     expect(first.getByText(/Save changes to Untitled/).textContent).toContain("restored next time you open Hickory Docs");
     fireEvent.click(first.getByRole("button", { name: "Close and retain" }));
     await waitFor(() => expect(first.container.querySelector(".untitled-tab")).toBeNull());
-    expect(draft).toEqual(expect.objectContaining({ path: UNTITLED_RECOVERY_KEY, contents: "My unsaved note", base: STARTUP_INTRODUCTION }));
+    expect(draft).toEqual(expect.objectContaining({ path: expect.stringMatching(/^untitled:/), contents: "My unsaved note", base: STARTUP_INTRODUCTION }));
     first.unmount();
     const second = render(<App />);
     await waitFor(() => expect(editor(second.container).state.doc.toString()).toBe("My unsaved note"));

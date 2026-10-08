@@ -127,6 +127,8 @@ pub struct RunRecord {
 /// Everything a request handler needs.
 #[derive(Clone)]
 pub struct LocalState {
+    /// Text files explicitly opened outside the workspace.
+    pub opened_files: Arc<std::sync::RwLock<std::collections::HashSet<PathBuf>>>,
     pub representations: representation::Representations,
     pub bisects: bisect::Bisects,
     /// Whether this view explicitly opened a folder, rather than one file.
@@ -642,6 +644,7 @@ pub(crate) fn router(state: LocalState) -> Router {
         .route("/window/close", post(shell::close_window))
         .route("/reveal", post(reveal::reveal))
         .route("/open-external", post(reveal::open_external))
+        .route("/open-file", post(plain_file::open_file))
         .route("/file", get(plain_file::get_file).put(plain_file::put_file))
         .route("/scratchpad", post(plain_file::post_scratchpad))
         .route("/asset", get(asset::get_asset).post(asset::post_asset))
@@ -841,6 +844,7 @@ async fn prepare_inner(opts: ServeOptions, folder_open: Option<bool>) -> Result<
 
     let store = FileDocStore::new(index.clone());
     let state = LocalState {
+        opened_files: Arc::new(std::sync::RwLock::new(std::collections::HashSet::new())),
         representations: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
         bisects: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
         folder_open: folder_open.unwrap_or_else(|| target.is_dir()),

@@ -22,7 +22,7 @@ it("removes restored Files furniture without removing the editor", async () => {
 });
 
 it("opens the selected document independently of folder visibility", async () => {
-  vi.spyOn(api, "files").mockResolvedValue({ folder_open: false, root: "notes", tree: [{ name: "note.md", path: "note.md", dir: false, doc_id: "note" }] });
+  vi.spyOn(api, "openFile").mockResolvedValue({ path: "/notes/note.md", doc_id: "note" });
   const openDoc = vi.fn();
   const openPlain = vi.fn();
   const notice = vi.fn();
@@ -33,14 +33,14 @@ it("opens the selected document independently of folder visibility", async () =>
 });
 
 it("opens an ordinary text file without requiring a document session", async () => {
-  vi.spyOn(api, "files").mockResolvedValue({ folder_open: false, root: "notes", tree: [{ name: "script.py", path: "script.py", dir: false }] });
+  vi.spyOn(api, "openFile").mockResolvedValue({ path: "/outside/script.py" });
   const openPlain = vi.fn();
   await openSelectedFile("/notes/script.py", vi.fn(), openPlain, vi.fn());
-  expect(openPlain).toHaveBeenCalledWith("script.py");
+  expect(openPlain).toHaveBeenCalledWith("/outside/script.py");
 });
 
 it("explains a failed file lookup", async () => {
-  vi.spyOn(api, "files").mockRejectedValue(new Error("File unavailable"));
+  vi.spyOn(api, "openFile").mockRejectedValue(new Error("File unavailable"));
   const notice = vi.fn();
   await openSelectedFile("/notes/note.md", vi.fn(), vi.fn(), notice);
   expect(notice).toHaveBeenCalledWith("File unavailable");

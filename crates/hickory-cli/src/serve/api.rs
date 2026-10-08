@@ -195,13 +195,8 @@ pub async fn create_doc(
         std::fs::write(&absolute, &body.source).map_err(|e| {
             ApiError::internal(format!("could not write {}: {e}", absolute.display()))
         })?;
-        // A session has one open folder. Saving elsewhere makes that folder
-        // the next session, after this response has returned.
-        if !absolute.starts_with(state.index.root()) {
-            state
-                .open_folder(parent, super::OpenWhere::ThisWindow)
-                .map_err(|e| ApiError::unavailable(format!("{e:#}")))?;
-        }
+        // Naming an unnamed buffer keeps it in this window, including when
+        // the Save dialog chooses a file outside the workspace.
         let rel = absolute
             .strip_prefix(state.index.root())
             .ok()

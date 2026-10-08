@@ -309,10 +309,14 @@ describe("the scratchpad", () => {
 });
 
 describe("untitled", () => {
-  it("opens one untitled buffer and re-activates it rather than stacking more", () => {
+  it("keeps route navigation idempotent but creates distinct tabs for explicit New", () => {
     const one = openUntitledTab(initialWorkspace());
     const again = openUntitledTab(one);
     expect(allTabs(again).filter((t) => t.kind === "untitled")).toHaveLength(1);
+    const two = openUntitledTab(again, true);
+    const buffers = allTabs(two).filter(tab => tab.kind === "untitled");
+    expect(buffers.map(tab => tab.title)).toEqual(["Untitled", "Untitled 2"]);
+    expect(buffers[0].id).not.toBe(buffers[1].id);
   });
 
   it("adoptUntitledTab converts the tab in place — same pane, same position", () => {

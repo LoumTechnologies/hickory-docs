@@ -470,7 +470,7 @@ fn on_menu(app: &AppHandle, id: &str) {
                 } else if file {
                     open_file(&handle, &path);
                 } else {
-                    switch_to(&handle, &path);
+                    open_folder_window(&handle, &path);
                 }
             });
         }
@@ -484,7 +484,7 @@ fn on_menu(app: &AppHandle, id: &str) {
                     .blocking_pick_folder()
                     .and_then(|p| p.into_path().ok());
                 if let Some(dir) = picked {
-                    switch_to(&handle, &dir);
+                    open_folder_window(&handle, &dir);
                 }
             });
         }
@@ -510,31 +510,19 @@ fn on_menu(app: &AppHandle, id: &str) {
 
 fn open_file(handle: &AppHandle, file: &Path) {
     let file = file.canonicalize().unwrap_or_else(|_| file.to_path_buf());
-    let inside = handle
-        .try_state::<OpenedDir>()
-        .map(|d| file.starts_with(&d.0))
-        .unwrap_or(false);
-    if inside {
-        open_path_in_ui(handle, &file);
-        recent::record(handle, &file);
-    } else {
-        switch_to(handle, &file);
-    }
+    open_path_in_ui(handle, &file);
+    recent::record(handle, &file);
 }
 
-/// The folder this session serves, for "is that file already open here".
-struct OpenedDir(PathBuf);
-
-/// Switch by launching the selected target explicitly, then exiting this
-/// window. This leaves any original path or `--blank-window` flag behind.
-fn switch_to(handle: &AppHandle, dir: &Path) {
+/// Open the selected folder in another window, preserving this session.
+fn open_folder_window(handle: &AppHandle, dir: &Path) {
     if let Ok(config_dir) = handle.path().app_config_dir() {
         server::remember(&config_dir, dir);
     }
     // Relaunch with an explicit target. Restart would preserve the original
     // command-line path and reopen it instead of the newly selected folder.
     match open_folder_in_new_process(dir) {
-        Ok(()) => handle.exit(0),
+        Ok(()) => {}
         Err(e) => fail(
             handle,
             &format!("Could not open {}\n\n{e:#}", dir.display()),
@@ -651,9 +639,6 @@ fn open(
     config_dir: Option<&Path>,
     dir: &Path,
 ) {
-    handle.manage(OpenedDir(
-        dir.canonicalize().unwrap_or_else(|_| dir.to_path_buf()),
-    ));
     recent::record(handle, dir);
     if let Some(config_dir) = config_dir {
         server::remember(config_dir, dir);

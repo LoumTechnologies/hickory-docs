@@ -1,7 +1,5 @@
 import { useCallback, useEffect, useRef, type Dispatch, type SetStateAction } from "react";
 import { api } from "../api/client";
-import { nodeForAbsolutePath } from "../lib/openPath";
-import { isLikelyBinaryPath } from "../shell/FolderTreePane";
 import { activate, closeTab, panes, tab, treePane, withTree, type Layout } from "../shell/layout";
 
 /** Folder visibility belongs to this window, independent of the engine's working directory. */
@@ -51,11 +49,9 @@ export async function openSelectedFile(
   notice: (message: string) => void,
 ) {
   try {
-    const files = await api.files();
-    const node = nodeForAbsolutePath(files.tree, path);
-    if (node?.doc_id) openDoc(node.doc_id);
-    else if (node && !node.dir && !isLikelyBinaryPath(node.path)) openPlain(node.path);
-    else notice("This file cannot be opened as text.");
+    const selected = await api.openFile(path);
+    if (selected.doc_id) openDoc(selected.doc_id);
+    else openPlain(selected.path);
   } catch (error) {
     notice(error instanceof Error ? error.message : String(error));
   }

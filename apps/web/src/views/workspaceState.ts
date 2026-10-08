@@ -327,22 +327,29 @@ export function adoptPlainFileTab(
   return { ...layout, root: apply(layout.root) };
 }
 
-/** Open (or re-activate) the untitled buffer. One at a time: an untitled tab
- * that already exists is what "#/new" means until Save gives it a name. */
-export function openUntitledTab(layout: Layout): Layout {
-  for (const pane of panes(layout.root)) {
-    const index = pane.tabs.findIndex((t) => t.kind === "untitled");
-    if (index >= 0) return activate(layout, pane.id, index);
+/** Ensure the route has an unnamed buffer; an explicit New always adds one. */
+export function openUntitledTab(layout: Layout, create = false): Layout {
+  const existing = panes(layout.root).flatMap(pane => pane.tabs).filter(tab => tab.kind === "untitled");
+  if (!create) {
+    const focused = panes(layout.root).find(pane => pane.id === layout.focus);
+    if (focused?.tabs[focused.active]?.kind === "untitled") return layout;
+    for (const pane of panes(layout.root)) {
+      const index = pane.tabs.findIndex(tab => tab.kind === "untitled");
+      if (index >= 0) return activate(layout, pane.id, index);
+    }
   }
   const into = openablePane(layout);
-  const entry = makeTab("untitled", "untitled", "Untitled");
+  const titles = new Set(existing.map(tab => tab.title));
+  let title = "Untitled";
+  for (let n = 2; titles.has(title); n++) title = `Untitled ${n}`;
+  const entry = { ...makeTab("untitled", "untitled", title), id: `untitled-${crypto.randomUUID()}` };
+  if (existing.length) entry.target = entry.id;
   if (into) return openInLayout(layout, entry, into);
   const grown = split(layout, layout.focus, "row");
   return openInLayout(grown, entry, grown.focus);
 }
 
-/** Open (or re-activate) the scratchpad. One at a time, like the untitled
- * buffer: a second scratchpad would split someone's train of thought across
+/** Open (or re-activate) the scratchpad. One at a time: a second scratchpad would split someone's train of thought across
  * two places, and the point of it is that there is one place to put a thought
  * before it has a name. */
 export function openScratchpadTab(layout: Layout): Layout {

@@ -167,6 +167,16 @@ export function App() {
     });
   }, []);
   useEffect(() => {
+    const onOpenPath = (event: Event) => {
+      const path = (event as CustomEvent<string>).detail;
+      if (typeof path !== "string" || !path) return;
+      if (routeRef.current.name === "new" || routeRef.current.name === "doc") return;
+      navigate(`/file/${encodeURIComponent(path)}`);
+    };
+    window.addEventListener("hickory-open-path", onOpenPath);
+    return () => window.removeEventListener("hickory-open-path", onOpenPath);
+  }, []);
+  useEffect(() => {
     const onClose = () => {
       const current = routeRef.current;
       if (current.name === "doc" || current.name === "new" || current.name === "scratchpad") {

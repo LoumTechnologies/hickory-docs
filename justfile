@@ -478,3 +478,8 @@ test-python-agent-ui:
 # Validate the local guarantee-maintainer skill metadata.
 validate-guarantee-skill SKILL_CREATOR_DIR:
     uv run --with pyyaml python "{{SKILL_CREATOR_DIR}}/scripts/quick_validate.py" .codex/skills/guarantee-maintainer
+
+# File menu, independent unnamed buffers, and opening selected files in place.
+test-file-menu:
+    cd apps/web && npm run typecheck && npm test -- src/App.test.tsx src/views/workspaceState.test.ts src/views/folderPane.test.tsx src/views/useUntitledSave.test.tsx src/views/useUnsavedLifecycle.test.tsx src/views/workspaceTabs.test.tsx src/router.test.ts
+    cargo test -p hickory-cli --test open_selected_file -- --test-threads=1

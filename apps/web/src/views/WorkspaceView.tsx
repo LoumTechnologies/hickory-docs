@@ -1,3 +1,4 @@
+import { nodeForAbsolutePath } from "../lib/openPath";
 import { viewBuffers } from "../lib/viewBuffers";
 import { hasCommandInstaller } from "./CommandPathSettings";
 // One workspace owns the layout across navigation. Documents and tools open
@@ -52,7 +53,6 @@ import { loadChannelWidth } from "../lib/channelWidth";
 import { windowTitle } from "../lib/windowTitle";
 import { deriveRibbons } from "../lib/ribbons";
 import { flashTab } from "../lib/flashTab";
-import { nodeForAbsolutePath } from "../lib/openPath";
 import { ShellView, type ShellPort } from "../shell/ShellView";
 import {
   RibbonOverlay,
@@ -75,7 +75,6 @@ import type { ContextWrite, DeclaredCite } from "../api/types";
 import {
   FILES_CHANGED_EVENT,
   FolderTreePane,
-  isLikelyBinaryPath,
   useFolderTrees,
   fileAction,
 } from "../shell/FolderTreePane";
@@ -1251,7 +1250,10 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
         if (view) await formatView(view).catch(() => false);
       };
       if (detail === "save-all") {
-        void formatFirst().then(() => {
+        void formatFirst().then(async () => {
+          for (const tab of panesOf(layoutRef.current.root).flatMap(pane => pane.tabs).filter(tab => tab.kind === "untitled")) {
+            if (!(await saveUntitled(false, tab.id))) return;
+          }
           for (const open of registry.all()) open.menuSave();
           requestFlushSaves();
         });
@@ -1311,20 +1313,7 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
     const onOpenPath = (e: Event) => {
       const absolute = (e as CustomEvent<string>).detail;
       if (typeof absolute !== "string" || absolute.length === 0) return;
-      void api.files().then((files) => {
-        const node = nodeForAbsolutePath(files.tree, absolute);
-        if (node?.doc_id) {
-          navigate(`/docs/${node.doc_id}`);
-        } else if (node && !node.dir && !isLikelyBinaryPath(node.path)) {
-          // Any other text file opens as a plain-file pane, same as a
-          // click on its tree row would.
-          openPlainFile(node.path);
-        } else {
-          // A binary, a directory, or nothing the walk saw: the tree is
-          // the way to it.
-          focusTreeRef.current();
-        }
-      });
+      void openSelectedFile(absolute, ensureDocOpen, openPlainFile, setInsertNotice);
     };
     window.addEventListener("hickory-doc-command", onCommand);
     window.addEventListener("keydown", onKey);
@@ -1570,7 +1559,7 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
     if (tab.kind === "untitled") {
       if (!untitledRecovery.ready) return <p className="muted">Restoring document…</p>;
       return (
-        <UntitledTab
+        <UntitledTab key={tab.id}
           tabId={tab.id}
           wrapColumn={workspaceUi.wrapFor(tab.target)}
           onWrapColumn={(column) => workspaceUi.setWrap(tab.target, column)}

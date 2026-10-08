@@ -1,67 +1,47 @@
-# New Document Is An Act, Not A Place
+# New Document Creates Another Unnamed Buffer
 
-Given the app open on any folder, when a person asks for a new document —
-File → New Document, the `+` at the top of the file tree, or the welcome
-page's "New document…" — then an untitled buffer opens and takes focus,
-every time they ask: the first time, the second time while the first
-Untitled tab is still open (it is re-activated rather than duplicated),
-and again after that tab has been closed.
+Given the app has any number of unnamed documents open, when a person chooses
+File → New Document, its keyboard shortcut, or the tree's New document action,
+then another blank unnamed tab opens and takes focus. Existing tabs and their
+contents remain open. Tabs have distinct identities and captions (Untitled,
+Untitled 2, and so on), like a conventional text editor.
 
-It did not. Every entry point was `navigate("/new")`, and the hash is a
-place: setting it to where it already is changes nothing, so once the
-address said `#/new` — which it did from the first New Document onward —
-every further New Document did nothing at all. Closing the Untitled tab
-and asking again was the sharpest form: nothing happened, with no message.
+The explicit request is `newDocument()`'s `hickory-new-document` event. The
+workspace creates a new tab for each request. Navigation to `/new` only ensures
+an unnamed buffer exists, so the event and its route change do not create two
+tabs or switch focus back to an older buffer.
 
-Two properties hold it up:
+Each tab owns its editor, text, Save target, and recovery draft. Saving names
+only the chosen tab; a Save dialog or agent edit cannot accidentally target a
+different unnamed editor. Recovery keys are per tab, outside the project.
+Save all visits each unnamed tab, and closing the window with Save all visits
+every dirty unnamed tab. Saving outside the workspace keeps the document in
+the current window. Older
+single-buffer recovery drafts are migrated without losing their contents.
 
-1. **One function, one event.** `router.ts`'s `newDocument()` fires
-   `hickory-new-document` on `window` and then navigates to `/new`. All
-   three entry points call it; none navigates on its own.
-2. **The workspace answers the event, not only the route.** The route
-   effect still opens an untitled buffer when the address changes to
-   `/new` (a deep link, a restart), and a listener opens one whenever the
-   event fires. `openUntitledTab` re-activates an existing Untitled tab
-   rather than making a second, so the two firing together on a first
-   request is harmless.
-
-## Boundary
-
-One Untitled buffer at a time is deliberate, as with the scratchpad: a
-second unnamed buffer splits a thought across two places. File → New begins blank and never reads an older unnamed draft. The app's
-startup buffer instead contains an editable introduction to Hickory Docs. Typing never creates
-`untitled.md`; **Save** and **Save As** open the platform's file-save dialog,
-initially in the folder Hickory Docs has open, and only then create the
-document. The first Markdown heading supplies its suggested filename; without
-one, the suggestion is `untitled.md` (then `untitled-2.md`, and so on).
-The dialog remains free to choose any disk location. Saving outside the open
-folder changes this window to that file's folder, because one Hickory session
-owns one folder. Once its contents differ from the initial blank text or startup introduction,
-its tab reads `Untitled *`. An untouched introduction closes without prompting.
-Closing an edited tab or window asks whether to save and explains that closing
-without saving retains the unnamed text for the next launch. Recovery is stored
-outside the project, with or without an open folder.
+The startup introduction remains an unnamed document. New Document begins
+blank. Typing never creates a file; Save and Save As name a `.md` document.
+The first Markdown heading suggests the filename, otherwise `untitled.md`
+and its numbered successors do. An untouched introduction closes without a
+save prompt. Edited unnamed tabs show an asterisk and offer retention when
+closed without saving.
 
 ---
 
 Last LLM verification:
-- Date: 2026-10-03
+- Date: 2026-10-08
 - Reviewer: Codex
-- Result: partially verified
-- Evidence: `apps/web/src/router.ts` — `NEW_DOCUMENT_EVENT`, `newDocument`;
-  `apps/web/src/App.tsx` menu case `"new"`; `apps/web/src/views/WorkspaceView.tsx`
-  — the new-document event, `saveUntitled`, and the native Save/Save As
-  routing; `apps/web/src/views/useUntitledSave.ts` `useUntitledSave`;
-  `apps/web/src/lib/newDoc.ts` `untitledSaveName`; `serve/shell.rs`
-  `save_file_dialog`; and the desktop `server.rs` shell hook.
-- Test coverage: `apps/web/src/router.test.ts` ("fires the event even when
-  the hash is already #/new"); `apps/web/src/views/workspaceTabs.test.tsx`
-  ("does not create a project file on its first keystroke" and no prior-draft
-  restore); `apps/web/src/lib/newDoc.test.ts` (heading filename suggestion);
-  and `apps/web/src/views/useUnsavedLifecycle.test.tsx` (retention wording and
-  close behavior); `App.test.tsx` (introductory baseline, undo, and unnamed
-  recovery with and without an open folder).
-  The native dialog is checked by the desktop crate's typecheck; it has no
-  headless platform-dialog test.
-  The native prompt and document-creation handoff are covered by typecheck
-  and implementation review; they do not yet have a browser-level test.
+- Result: verified by automated checks and implementation review.
+- Validation: `just test-web` passed all 2,017 tests; the real HTTP
+  `open_selected_file` test passed for folderless and folder sessions;
+  `just check-desktop` passed; the native app built, passed signature
+  verification, and was installed locally. Native menu/picker clicks were
+  not exercised by automation.
+- Evidence: `workspaceState.ts`, `useNewDocument.ts`, `useUntitledRecovery.ts`,
+  `useUntitledSave.ts`, `useUnsavedLifecycle.ts`, `editorBufferTargets.ts`,
+  `WorkspaceChat.tsx`, and the keyed `UntitledTab` in `WorkspaceView.tsx`.
+- Tests: `just test-file-menu` exercises repeated New requests, independent
+  text, per-buffer drafts and restoration, route idempotence, and close/save
+  behavior using the real CodeMirror editors under jsdom.
+- Boundary: native platform dialogs are typechecked and reviewed; these tests
+  do not click the operating system's menu or Save dialog.

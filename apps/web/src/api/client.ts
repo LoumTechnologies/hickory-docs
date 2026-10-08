@@ -254,6 +254,9 @@ export const api = {
     request<{ ok: true }>("POST", "/api/open-external", { path }),
 
   /** Any text file in the folder, whole, with the hash a save passes back. */
+  openFile: (path: string) =>
+    request<{ path: string; doc_id?: string }>("POST", "/api/open-file", { path }),
+
   file: (path: string) =>
     request<PlainFile>("GET", `/api/file?path=${encodeURIComponent(path)}`),
   /** Adopt a plain file into a literate document, byte-exactly: the server

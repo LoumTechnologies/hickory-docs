@@ -5,7 +5,7 @@ import { viewBuffers, useViewBuffersVersion } from "../lib/viewBuffers";
 import { useCallback, useEffect, useMemo } from "react";
 import type { Dispatch, MutableRefObject, SetStateAction } from "react";
 
-import { UNTITLED_RECOVERY_KEY } from "../lib/newDoc";
+import { untitledDraftKey } from "../lib/newDoc";
 import { api } from "../api/client";
 import type { usePrompt } from "../components/PromptPanel";
 import { activate, closeTab, panes, type Layout } from "../shell/layout";
@@ -133,7 +133,7 @@ export function useUnsavedLifecycle({
         } else if (viewBuffer) {
           await viewBuffer.discard();
         } else if (tab.kind === "untitled") {
-          await api.saveDraft({ path: UNTITLED_RECOVERY_KEY,
+          await api.saveDraft({ path: untitledDraftKey(tab.id),
             contents: untitledSourcesRef.current[tab.id] ?? "",
             base: untitledBaselines[tab.id] ?? "", saved_at: Date.now() });
         } else if (tab.kind === "file") {
@@ -204,22 +204,18 @@ export function useUnsavedLifecycle({
           for (const tabId of dirtyPlain) {
             if (!(await plainUnsavedActions.current.get(tabId)?.save())) return;
           }
-          if (hasUntitled) {
-            const holder = panes(layoutRef.current.root).find((pane) =>
-              pane.tabs.some((tab) => tab.kind === "untitled"),
-            );
-            const index = holder?.tabs.findIndex((tab) => tab.kind === "untitled") ?? -1;
-            if (holder && index >= 0) {
-              const activated = activate(layoutRef.current, holder.id, index);
-              layoutRef.current = activated;
-              setLayout(activated);
-            }
+          for (const tab of dirtyUntitled) {
+            const holder = panes(layoutRef.current.root).find(pane => pane.tabs.some(entry => entry.id === tab.id));
+            if (!holder) continue;
+            const activated = activate(layoutRef.current, holder.id, holder.tabs.findIndex(entry => entry.id === tab.id));
+            layoutRef.current = activated;
+            setLayout(activated);
             if (!(await saveUntitled(false))) return;
           }
         } else {
           for (const buffer of dirtyViews) await buffer?.discard();
           for (const tab of dirtyUntitled) {
-            await api.saveDraft({ path: UNTITLED_RECOVERY_KEY,
+            await api.saveDraft({ path: untitledDraftKey(tab.id),
               contents: untitledSourcesRef.current[tab.id] ?? "",
               base: untitledBaselines[tab.id] ?? "", saved_at: Date.now() });
           }

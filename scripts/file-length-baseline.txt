@@ -3,7 +3,7 @@ apps/web/src/components/TablePanel.tsx 1723
 apps/web/src/debug/cmDebug.ts 1038
 apps/web/src/editor/wysiwyg.ts 1035
 apps/web/src/shell/Ribbons.tsx 1315
-apps/web/src/views/WorkspaceView.tsx 1924
+apps/web/src/views/WorkspaceView.tsx 1913
 crates/hick-dap/src/build.rs 1050
 crates/hick-dap/src/session.rs 1440
 crates/hick-exec/src/dag.rs 1625
@@ -17,7 +17,7 @@ crates/hickory-cli/src/claude_code.rs 1195
 crates/hickory-cli/src/ingest.rs 1107
 crates/hickory-cli/src/lib.rs 2289
 crates/hickory-cli/src/main.rs 4140
-crates/hickory-cli/src/serve/api.rs 1672
+crates/hickory-cli/src/serve/api.rs 1667
 crates/hickory-executor-sandbox/src/policy.rs 1164
 crates/hickory-executor/src/lib.rs 2262
 crates/hickory-lineage/src/lib.rs 1002

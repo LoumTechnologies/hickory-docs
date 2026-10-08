@@ -1,11 +1,18 @@
-// Untitled work has a durable identity per workspace/window, even before Save.
+// Each unnamed buffer keeps its own recovery draft outside the project.
 import { useEffect, useRef, useState } from "react";
 import type { Dispatch, MutableRefObject, SetStateAction } from "react";
 import { api } from "../api/client";
-import { useDraftKeeper } from "../lib/drafts";
-import { UNTITLED_RECOVERY_KEY } from "../lib/newDoc";
-import { panes, type Layout } from "../shell/layout";
+import { DRAFT_POLL_MS } from "../lib/drafts";
+import { UNTITLED_RECOVERY_KEY, untitledDraftKey } from "../lib/newDoc";
+import { open, panes, type Layout, type Node } from "../shell/layout";
 import { openUntitledTab } from "./workspaceState";
+
+function reidentify(layout: Layout, oldId: string, id: string): Layout {
+  const visit = (node: Node): Node => node.type === "pane"
+    ? { ...node, tabs: node.tabs.map(tab => tab.id === oldId ? { ...tab, id } : tab) }
+    : { ...node, children: node.children.map(visit) };
+  return { ...layout, root: visit(layout.root) };
+}
 
 export function useUntitledRecovery({ hydrated, layoutRef, setLayout, sourcesRef, setSources, initialBaselines }: {
   hydrated: boolean;
@@ -24,51 +31,105 @@ export function useUntitledRecovery({ hydrated, layoutRef, setLayout, sourcesRef
     let cancelled = false;
     void api.drafts().then(({ drafts }) => {
       if (cancelled) return;
-      const draft = drafts.find((entry) => entry.path === UNTITLED_RECOVERY_KEY);
-      if (draft && draft.contents !== draft.base) {
-        const next = openUntitledTab(layoutRef.current);
-        const tab = panes(next.root).flatMap((pane) => pane.tabs).find((tab) => tab.kind === "untitled")!;
-        // Do not replace text typed while hydration was in flight.
+      let next = layoutRef.current;
+      const identities = new Map<string, string>();
+      const sources: Record<string, string> = {};
+      const bases: Record<string, string> = {};
+      for (const draft of drafts.filter(draft => draft.path.startsWith("untitled:") && draft.contents !== draft.base)) {
+        const id = draft.path.slice("untitled:".length);
+        let tab = panes(next.root).flatMap(pane => pane.tabs).find(tab => tab.kind === "untitled" && tab.id === id);
+        // Older versions kept only one unnamed draft. Adopt that into the
+        // startup buffer without overwriting anything typed during hydration.
+        if (draft.path === UNTITLED_RECOVERY_KEY) tab = panes(next.root).flatMap(pane => pane.tabs).find(tab => tab.kind === "untitled");
+        if (!tab && Object.keys(sources).length === 0) {
+          const startup = panes(next.root).flatMap(pane => pane.tabs).find(tab => tab.kind === "untitled" && baselinesRef.current[tab.id] === draft.base && (sourcesRef.current[tab.id] ?? draft.base) === draft.base);
+          if (startup) {
+            identities.set(startup.id, id);
+            next = reidentify(next, startup.id, id);
+            tab = { ...startup, id };
+          }
+        }
+        if (!tab) {
+          next = openUntitledTab(next, true);
+          const pane = panes(next.root).find(pane => pane.id === next.focus)!;
+          tab = pane.tabs[pane.active];
+          if (draft.path !== UNTITLED_RECOVERY_KEY) {
+            identities.set(tab.id, id);
+            next = reidentify(next, tab.id, id);
+            tab = { ...tab, id };
+          }
+        }
         const current = sourcesRef.current[tab.id];
-        if (current === undefined || current === (baselinesRef.current[tab.id] ?? "")) {
-          setBaselines((previous) => ({ ...previous, [tab.id]: draft.base }));
-          setSources((previous) => ({ ...previous, [tab.id]: draft.contents }));
-          layoutRef.current = next;
-          setLayout(next);
+        if (current !== undefined && current !== (baselinesRef.current[tab.id] ?? "")) continue;
+        sources[tab.id] = draft.contents;
+        bases[tab.id] = draft.base;
+        if (draft.path === UNTITLED_RECOVERY_KEY) {
+          void api.saveDraft({ ...draft, path: untitledDraftKey(tab.id) }).then(() => api.discardDraft(UNTITLED_RECOVERY_KEY)).catch(() => {});
         }
       }
+      if (Object.keys(sources).length === 0) return;
+      setBaselines(previous => ({ ...previous, ...bases }));
+      setSources(previous => ({ ...previous, ...sources }));
+      const recovered = panes(next.root).flatMap(pane => pane.tabs).filter(tab => tab.id in sources);
+      setLayout(current => {
+        // Folder hydration can have added Files while drafts were loading.
+        // Apply recovered buffers to that live arrangement, never replace it
+        // with the earlier snapshot and lose newly opened panes.
+        let merged = current;
+        for (const [oldId, id] of identities) merged = reidentify(merged, oldId, id);
+        for (const tab of recovered) {
+          if (panes(merged.root).some(pane => pane.tabs.some(entry => entry.id === tab.id))) continue;
+          const editor = panes(merged.root).find(pane => !pane.tabs.some(entry => entry.kind === "tree"));
+          merged = open(merged, tab, editor?.id);
+        }
+        layoutRef.current = merged;
+        return merged;
+      });
     }).catch(() => {}).finally(() => { if (!cancelled) setReady(true); });
     return () => { cancelled = true; };
   }, [hydrated, layoutRef, setLayout, sourcesRef, setSources]);
 
-  const activeTab = panes(layoutRef.current.root).flatMap((pane) => pane.tabs).find((tab) => tab.kind === "untitled");
-  const lastTab = useRef(activeTab);
-  if (activeTab) lastTab.current = activeTab;
-  const previous = useRef<{ id: string; dirty: boolean } | null>(null);
   useEffect(() => {
-    if (!ready || !activeTab) return;
-    const base = baselines[activeTab.id] ?? "";
-    const dirty = (sourcesRef.current[activeTab.id] ?? base) !== base;
-    if (previous.current?.id === activeTab.id && previous.current.dirty && !dirty) {
-      void api.discardDraft(UNTITLED_RECOVERY_KEY).catch(() => {});
-    }
-    previous.current = { id: activeTab.id, dirty };
-  });
-  const discard = useDraftKeeper({
-    path: UNTITLED_RECOVERY_KEY,
-    enabled: ready && !!activeTab,
-    read: () => {
-      // Cleanup can run after the tab has left the layout. Its last buffer
-      // still lives in the workspace; absence must never flush empty text.
-      const tab = lastTab.current;
-      const base = tab ? baselinesRef.current[tab.id] ?? "" : "";
-      return { contents: tab ? sourcesRef.current[tab.id] ?? base : base, base };
-    },
-  });
-  useEffect(() => {
-    const onSaved = () => discard();
+    if (!ready) return;
+    const written = new Map<string, string>();
+    const saved = new Set<string>();
+    const onSaved = (event: Event) => {
+      const id = (event as CustomEvent<string>).detail;
+      saved.add(id);
+      void api.discardDraft(untitledDraftKey(id)).catch(() => {});
+    };
+    const flush = () => {
+      for (const tab of panes(layoutRef.current.root).flatMap(pane => pane.tabs).filter(tab => tab.kind === "untitled")) {
+        if (saved.has(tab.id)) continue;
+        const base = baselinesRef.current[tab.id] ?? "";
+        const contents = sourcesRef.current[tab.id] ?? base;
+        if (contents === base) {
+          if (written.has(tab.id)) {
+            written.delete(tab.id);
+            void api.discardDraft(untitledDraftKey(tab.id)).catch(() => {});
+          }
+        } else if (written.get(tab.id) !== contents) {
+          written.set(tab.id, contents);
+          void api.saveDraft({ path: untitledDraftKey(tab.id), contents, base, saved_at: Date.now() }).catch(() => written.delete(tab.id));
+        }
+      }
+    };
+    const timer = window.setInterval(flush, DRAFT_POLL_MS);
+    window.addEventListener("pagehide", flush);
     window.addEventListener("hickory-untitled-saved", onSaved);
-    return () => window.removeEventListener("hickory-untitled-saved", onSaved);
-  }, [discard]);
+    return () => {
+      window.clearInterval(timer);
+      window.removeEventListener("pagehide", flush);
+      window.removeEventListener("hickory-untitled-saved", onSaved);
+      flush();
+    };
+  }, [ready, layoutRef, sourcesRef]);
+  // Clear a persisted draft immediately when undo returns its buffer to base.
+  useEffect(() => {
+    if (!ready) return;
+    for (const [id, contents] of Object.entries(sourcesRef.current)) {
+      if (contents === (baselinesRef.current[id] ?? "")) void api.discardDraft(untitledDraftKey(id)).catch(() => {});
+    }
+  });
   return { ready, baselines };
 }
