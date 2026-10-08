@@ -58,3 +58,29 @@ export function moveFormulaReferences(
       : cell;
   });
 }
+
+/** Copying changes relative references; insertion and cut/paste move even locks. */
+export function copyFormulaReferences(formula: string, rows: number, columns: number, language = "javascript"): string {
+  if (!formula.trimStart().startsWith("=")) return formula;
+  // Skip string literals and comments. This is lexical, like reference discovery;
+  // the expression still belongs to Python/JavaScript, not a spreadsheet parser.
+  const strings = /"""[\s\S]*?"""|'''[\s\S]*?'''|"(?:\\[\s\S]|[^"\\])*"|'(?:\\[\s\S]|[^'\\])*'|`(?:\\[\s\S]|[^`\\])*`/.source;
+  const references = /(?<![A-Za-z0-9_$])(\$?[A-Za-z]{1,2}\$?[1-9]\d*)(?![A-Za-z0-9_])/.source;
+  const python = /^(python|python3|py)$/i.test(language.trim());
+  const comments = python ? /#[^\n]*/.source : /\/\/[^\n]*|\/\*[\s\S]*?\*\//.source;
+  const pattern = new RegExp(`${strings}|${comments}|${references}`, "g");
+  return formula.replace(pattern,
+    (whole: string, reference: string | undefined) => {
+      if (!reference) return whole;
+      const at = parseCellLabel(reference.replace(/\$/g, "").toUpperCase());
+      if (!at) return whole;
+      const columnAbsolute = reference.startsWith("$");
+      const rowAbsolute = /\$\d+$/.test(reference);
+      const row = at.row + (rowAbsolute ? 0 : rows);
+      const column = at.column + (columnAbsolute ? 0 : columns);
+      if (row < 0 || column < 0 || column >= 702) return "#REF!";
+      const label = cellLabel(column, row).match(/^([A-Z]+)(\d+)$/)!;
+      return `${columnAbsolute ? "$" : ""}${label[1]}${rowAbsolute ? "$" : ""}${label[2]}`;
+    },
+  );
+}

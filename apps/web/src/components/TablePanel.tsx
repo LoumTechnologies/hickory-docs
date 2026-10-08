@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { currencyInput, displayNumber, readFormats, writeFormats } from "../lib/tableFormats";
-import { TableNumberFormat } from "./TableNumberFormat";
+import { TableFormatControl } from "./TableFormatControl";
+import { TableFillHandle } from "./TableFillHandle";
+import { useTableFill } from "./useTableFill";
 import { api } from "../api/client";
 import type { FormulaStep } from "../api/types";
 import {
@@ -350,6 +352,9 @@ export function TablePanel({
     },
     [onChange, source, formats],
   );
+
+  const fill = useTableFill({ table, selection, revision: `${source}\0${formats ?? ""}`, language, gridRef,
+    onFill: (next, range) => { apply(next, false); setSelection(range); } });
 
   // `=` is ordinary text until the table declares a formula language.
   const insertTableRow = (current: Csv, at: number) =>
@@ -1183,8 +1188,10 @@ export function TablePanel({
                       <td
                         key={column}
                         className={
-                          isHeaderRow ? "table-panel__names" : undefined
+                          (isHeaderRow ? "table-panel__names " : "") + (fill.includes(row, column) ? "table-fill-preview" : "")
                         }
+                        data-fill-row={row} data-fill-column={column}
+                        onMouseEnter={() => fill.over(row, column)}
                         onContextMenu={(event) => openMenu(event, row, column)}
                         onMouseMove={() => pointRangeOver(row, column)}
                       >
@@ -1235,6 +1242,7 @@ export function TablePanel({
                             else select(row, column);
                           }}
                           onEnter={() => {
+                            if (fill.dragging()) { fill.over(row, column); return; }
                             if (pointing && rangeAnchor.current) {
                               pointRangeOver(row, column);
                               return;
@@ -1280,11 +1288,8 @@ export function TablePanel({
                           onDone={stopEditing}
                           onCancel={() => setEditing(false)}
                         />
-                        {/* The two grid lines this cell owns: its bottom edge
-                            and its right edge. After the cell in the DOM, so
-                            they sit above it and can be grabbed; a press that
-                            does not move falls back through to selecting the
-                            cell, so neither edge is a dead zone. */}
+                        {editable && !editing && fill.at(row, column) && <TableFillHandle onStart={fill.start} range={fill.preview ? selectionLabel(fill.preview) : undefined} />}
+                        {/* Grid edges resize; a stationary press selects the cell. */}
                         <Resizer
                           axis="row"
                           size={() => rowHeight(row)}
@@ -1425,19 +1430,9 @@ export function TablePanel({
               ? `− ${selectedColumns.length} Columns`
               : "− Column"}
           </button>
-          {formats !== undefined && <TableNumberFormat
-            disabled={!selection} value={selection ? (() => {
-              const values = new Set(cellsIn(selection).map(at => table.formats?.[cellLabel(at.column, at.row)] ?? "general"));
-              return values.size === 1 ? [...values][0] : "mixed";
-            })() : "general"}
-            onChange={format => {
-              if (!selection) return;
-              const next = { ...table, formats: { ...table.formats } };
-              if (editing && active) next.rows = withCell(table, active.row, active.column, draft).rows;
-              for (const at of cellsIn(selection)) next.formats[cellLabel(at.column, at.row)] = format;
-              apply(next, false);
-              setEditing(false);
-            }} />}
+          {formats !== undefined && <TableFormatControl table={table} selection={selection}
+            draft={editing && active ? { ...active, value: draft } : null}
+            onChange={next => { apply(next, false); setEditing(false); }} />}
           {language && (
             <button
               type="button"

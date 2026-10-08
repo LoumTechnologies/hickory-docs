@@ -103,3 +103,10 @@ Last LLM verification:
   changes to parsing, document offsets, persistence, or formula transport require
   revalidation.
 - Human judgment: not recorded.
+
+Subsequent revalidation (2026-10-08): the fill-handle change extracted the format
+selector into `components/TableFormatControl.tsx` and added format copying during
+fill. The original TablePanel hash above records the earlier verification.
+`TableFormatting.test.tsx`, DocumentEditor's `tableFormatting.test.tsx`, and
+`TablePanel.test.tsx` passed after extraction. The new guarantee
+`a-fill-handle-extends-formulas.md` records current fill behavior and dependencies.

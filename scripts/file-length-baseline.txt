@@ -1,5 +1,5 @@
 apps/web/src/api/types.ts 1190
-apps/web/src/components/TablePanel.tsx 1728
+apps/web/src/components/TablePanel.tsx 1723
 apps/web/src/debug/cmDebug.ts 1038
 apps/web/src/editor/wysiwyg.ts 1035
 apps/web/src/shell/Ribbons.tsx 1315
