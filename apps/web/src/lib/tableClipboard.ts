@@ -22,6 +22,7 @@
 // parsed as delimited data, with the delimiter guessed exactly as an opened
 // file's is (lib/csv.ts).
 
+import { currencyInput } from "./tableFormats";
 import { parseCsv } from "./csv";
 
 /** A rectangle of cells, row-major. */
@@ -117,6 +118,10 @@ export function parseClipboardTable(html: string | null, text: string | null): B
   // that as an extra empty row would wipe the cells under a paste.
   const trimmed = text.replace(/\r?\n$/, "");
   if (trimmed === "") return null;
-  const parsed = parseCsv(trimmed);
+  // Thousands separators in a monetary cell are not column delimiters.
+  const lines = trimmed.split(/\r?\n/);
+  if (lines.every(line => currencyInput(line))) return lines.map(line => [line]);
+  const tabs = parseCsv(trimmed, "\t");
+  const parsed = tabs.rows.some(row => row.length > 1) ? tabs : parseCsv(trimmed);
   return parsed.rows.length > 0 ? parsed.rows : null;
 }

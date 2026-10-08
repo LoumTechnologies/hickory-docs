@@ -118,6 +118,52 @@ pub fn to_markdown(rows: &[Vec<String>], header: bool) -> String {
     out.join("\n")
 }
 
+/// Keep presentation metadata beside the woven numeric table. Ordinary Markdown
+/// previews show raw numbers; Hickory restores their display formats on open.
+/// A headerless CSV gains an empty Markdown header, shifting the cell addresses.
+pub fn to_markdown_with_formats(
+    rows: &[Vec<String>],
+    header: bool,
+    formats: Option<&str>,
+) -> String {
+    let table = to_markdown(rows, header);
+    if table.is_empty() {
+        return table;
+    }
+    let entries: Vec<String> = formats
+        .unwrap_or("")
+        .split_whitespace()
+        .filter_map(|entry| {
+            let (label, kind) = entry.split_once(':')?;
+            if !matches!(
+                kind,
+                "general" | "number" | "percent" | "USD" | "EUR" | "GBP" | "JPY"
+            ) {
+                return None;
+            }
+            let split = label.find(|ch: char| ch.is_ascii_digit())?;
+            let (column, row) = label.split_at(split);
+            if column.is_empty() || !column.chars().all(|ch| ch.is_ascii_uppercase()) {
+                return None;
+            }
+            let row: usize = row.parse().ok()?;
+            if row == 0 {
+                return None;
+            }
+            let row = row.checked_add(usize::from(!header))?;
+            Some(format!("{column}{row}:{kind}"))
+        })
+        .collect();
+    if entries.is_empty() {
+        table
+    } else {
+        format!(
+            "<!-- hickory-table-formats: {} -->\n{table}",
+            entries.join(" ")
+        )
+    }
+}
+
 /// Whether a `header` attribute means "the first row names the columns".
 /// Absent means yes: a CSV with a header row is the overwhelmingly common
 /// case, and a document that has to say so every time is a document full of
@@ -129,6 +175,16 @@ pub fn header_of(value: Option<&str>) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // Guarantee: docs/guarantees/authoring/cell-formatting-keeps-numbers-numeric.md
+    #[test]
+    fn weave_keeps_format_metadata_separate_and_adjusts_headerless_addresses() {
+        let rows = parse_csv("1234.50\n", ',');
+        let woven = to_markdown_with_formats(&rows, false, Some("A1:USD A0:EUR bad:USD B1:nope"));
+        assert!(woven.starts_with("<!-- hickory-table-formats: A2:USD -->\n"));
+        assert!(woven.contains("| 1234.50 |"));
+        assert!(!woven.contains('$'));
+    }
 
     #[test]
     fn reads_plain_rows() {

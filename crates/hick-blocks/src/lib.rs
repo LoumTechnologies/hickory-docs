@@ -155,7 +155,15 @@ fn accepted_attributes(element: &str) -> Option<&'static [&'static str]> {
         "ingested" => &["key", "from", "hash", "sha256", "at", "files", "skipped"],
         "output" => &["output-for", "hash", "input-hash", "exit", "skipped"],
         "diagram" => &["renderer", "asserts"],
-        "table" => &["path", "delimiter", "header", "language", "class", "id"],
+        "table" => &[
+            "path",
+            "delimiter",
+            "header",
+            "language",
+            "formats",
+            "class",
+            "id",
+        ],
         "claim" => &["standing", "cites", "id", "class"],
         "private" => &[],
         "upstream" => &["path", "file"],
@@ -762,7 +770,8 @@ mod tests {
 
     #[test]
     fn a_table_formula_language_is_a_known_attribute() {
-        let source = "<hick:table language=\"python\">a,b\n1,2</hick:table>";
+        // Guarantee: docs/guarantees/authoring/cell-formatting-keeps-numbers-numeric.md
+        let source = "<hick:table language=\"python\" formats=\"B2:USD\">a,b\n1,2</hick:table>";
         let doc = hick_lang::parse(source).unwrap();
         assert!(attribute_errors(source, &doc).is_empty());
     }

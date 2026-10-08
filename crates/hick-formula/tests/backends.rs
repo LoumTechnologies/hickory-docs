@@ -596,3 +596,32 @@ async fn stepping_and_computing_are_the_same_evaluation() {
         }
     }
 }
+
+// Guarantee: docs/guarantees/authoring/cell-formatting-keeps-numbers-numeric.md
+#[tokio::test(flavor = "multi_thread")]
+async fn monetary_numbers_are_numeric_in_python_and_javascript() {
+    // The editor saves $1,234.50 as 1234.50 with a separate B2:USD format.
+    let entries = [("B2", "1234.50"), ("B3", "=B2 * 2"), ("B4", "=B3 + 0.25")];
+    for language in ["python", "javascript"] {
+        let interpreters = if language == "python" {
+            &["python3", "python"][..]
+        } else {
+            &["node"][..]
+        };
+        if !have(interpreters) {
+            eprintln!("skipped: currency verification needs {language}");
+            continue;
+        }
+        let dir = tempfile::tempdir().unwrap();
+        let computed = evaluate_sheet(dir.path(), language, &sheet(&entries))
+            .await
+            .unwrap();
+        assert_eq!(at(&computed, "B3").as_deref(), Some("2469"), "{language}");
+        assert_eq!(
+            at(&computed, "B4").as_deref(),
+            Some("2469.25"),
+            "{language}"
+        );
+        assert!(computed.errors.is_empty());
+    }
+}

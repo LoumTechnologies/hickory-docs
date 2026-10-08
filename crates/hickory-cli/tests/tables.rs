@@ -129,3 +129,28 @@ fn the_prose_around_a_table_is_untouched() {
     let (_dir, woven) = run(INLINE);
     assert!(woven.contains("# Sales"), "{woven}");
 }
+
+// Guarantee: docs/guarantees/authoring/cell-formatting-keeps-numbers-numeric.md
+#[test]
+fn number_formats_stay_in_the_document_and_out_of_the_csv_dataset() {
+    let dir = tempfile::tempdir().unwrap();
+    let doc = dir.path().join("cost.md");
+    let source = "<hick:table path=\"cost.csv\" formats=\"B2:USD\">\nitem,amount\nnorth,1234.50\n</hick:table>\n";
+    std::fs::write(&doc, source).unwrap();
+    // Exercise this build directly; a running desktop engine owns a different
+    // executable and must not handle a test's temporary output directory.
+    let out = hick()
+        .env("HICKORY_ENGINE_WORKER", "1")
+        .arg("weave")
+        .arg(&doc)
+        .output()
+        .unwrap();
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert_eq!(std::fs::read_to_string(&doc).unwrap(), source);
+    let csv = std::fs::read_to_string(dir.path().join("cost.csv")).unwrap();
+    assert_eq!(csv, "item,amount\nnorth,1234.50\n");
+}

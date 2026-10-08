@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
+import { currencyInput, displayNumber, readFormats, writeFormats } from "../lib/tableFormats";
+import { TableNumberFormat } from "./TableNumberFormat";
 import { api } from "../api/client";
 import type { FormulaStep } from "../api/types";
 import {
@@ -89,7 +91,9 @@ export interface TablePanelProps {
   delimiter?: string;
   /** The new CSV text after an edit. Absent means read-only — a generated
    * table has a document behind it, and editing the output is not the way. */
-  onChange?: (csv: string) => void;
+  onChange?: (csv: string, formats?: string) => void;
+  /** Present only when the document can persist number formats. */
+  formats?: string;
   /** The language this table's formulas are written in. Absent means the
    * table has no formulas: a cell beginning with `=` is then just text, which
    * is what it was before formulas existed and what a table of shell snippets
@@ -100,16 +104,7 @@ export interface TablePanelProps {
   layout?: TableLayout;
   /** Remember a new size. Absent means the size is this session's only. */
   onLayout?: (next: TableLayout) => void;
-  /** Also draw the row numbers in a lane at the FAR RIGHT of the grid, where
-   * they line up with this editor's line-number rail. A rendered table is a
-   * fold, so that rail has one number for the whole block and cannot label
-   * the rows itself.
-   *
-   * As well as, never instead of: the numbers beside the first column are
-   * where a spreadsheet puts them and where a hand goes to grab a row, and
-   * the lane on the right is about lining up with the editor's rail. Those
-   * are two different jobs and dropping either one to do the other was the
-   * wrong trade. */
+  /** Row numbers alongside both the first column and the document rail. */
   laneRight?: boolean;
   /** Markdown tables default to fitting the prose measure; CSV does not. */
   fitProseDefault?: boolean;
@@ -174,6 +169,7 @@ export function TablePanel({
   header = true,
   delimiter,
   onChange,
+  formats,
   language,
   layout,
   onLayout,
@@ -183,7 +179,7 @@ export function TablePanel({
   // Parsed from the source on every render rather than held as state: the
   // document is the truth, and a second copy here would drift the moment
   // somebody edited the CSV as text instead.
-  const table: Csv = parseCsv(source, delimiter);
+  const table: Csv = { ...parseCsv(source, delimiter), formats: readFormats(formats) };
   const width = Math.max(1, columnCount(table));
   const height = Math.max(1, table.rows.length);
   const editable = onChange !== undefined;
@@ -331,14 +327,28 @@ export function TablePanel({
   }, []);
 
   const apply = useCallback(
-    (next: Csv) => {
+    (next: Csv, inferFormat = true) => {
+      if (formats !== undefined) {
+        const detected = { ...next.formats };
+        const rows = next.rows.map((row, r) => row.map((raw, c) => {
+          const money = currencyInput(raw);
+          if (!money) return raw;
+          if (inferFormat) detected[cellLabel(c, r)] = money.format;
+          return money.value;
+        }));
+        next = { ...next, formats: detected, rows };
+      }
       const text = writeCsv(next);
+      const nextFormats = writeFormats(next.formats);
       // A write that changes nothing still marks the document dirty and still
       // lands in the undo history, which is how pressing Delete on already
       // empty cells ends up as a commit somebody has to explain.
-      if (text !== source) onChange?.(text);
+      if (text !== source || (formats !== undefined && nextFormats !== formats)) {
+        if (formats === undefined) onChange?.(text);
+        else onChange?.(text, nextFormats);
+      }
     },
-    [onChange, source],
+    [onChange, source, formats],
   );
 
   // `=` is ordinary text until the table declares a formula language.
@@ -465,21 +475,7 @@ export function TablePanel({
     beforePress.current = undefined;
   };
 
-  /**
-   * A double-click on a grid line: the column, or the row, at the smallest
-   * measure that still fits what is in it.
-   *
-   * This is the ONE place the grid measures rather than declares, and it has
-   * to be: "what will still fit" is a question about rendered text in a font
-   * this component cannot know. It asks the cells, which are the only things
-   * that know — each is clipped to its column, so its `scrollWidth` is the
-   * width its text WOULD have taken. The answer is then written back as a
-   * declared number like any other, so everything downstream (the nine-row
-   * height, entering a cell without the table moving) is unaffected.
-   *
-   * A column with nothing in it fits to the minimum, which is the honest
-   * answer to "how much room does nothing need".
-   */
+  // Double-click measures rendered content, then stores a manual width.
   const fitColumn = (column: number) => {
     const cells = gridRef.current?.querySelectorAll<HTMLElement>(
       `[data-column="${column}"]`,
@@ -603,18 +599,7 @@ export function TablePanel({
     pointRangeTo(rangeAnchor.current, row, column);
   };
 
-  /**
-   * Point one cell further in a direction, from the keyboard.
-   *
-   * The first step leaves from the cell being edited; every step after that
-   * leaves from where the pointer already is, replacing the reference the
-   * previous step wrote (pointAt's rule), so walking three cells down leaves
-   * one reference, not three. At the grid's edge the step is swallowed
-   * rather than turned back into a caret move — you are still pointing.
-   * Answers whether the key meant a step at all: it does not when the
-   * formula is not asking for an operand where the caret is, and the caller
-   * then lets the arrow do what it always did.
-   */
+  // Each navigation step replaces the last reference; edges swallow the step.
   const pointBy = (dRow: number, dColumn: number, caret: number): boolean => {
     if (!pointing || !active) return false;
     const from = pointer ?? active;
@@ -642,16 +627,7 @@ export function TablePanel({
     return true;
   };
 
-  /**
-   * An arrow key pressed while a formula is open: Excel's point mode.
-   *
-   * Up and Down always point — the field is one line, so there is nowhere
-   * else for them to go. Left and Right point only once the caret has nothing
-   * left to do: at the start or the end of the text, or while the pointer is
-   * already live (the caret sitting just after the reference it writes). In
-   * the middle of the text they move the caret, which is what an arrow key
-   * in a text field means. Answers whether the key was taken.
-   */
+  // Up/Down point; Left/Right point at edges and otherwise move the caret.
   const pointKey = (event: React.KeyboardEvent<HTMLInputElement>): boolean => {
     if (!pointing) return false;
     const field = event.currentTarget;
@@ -775,20 +751,12 @@ export function TablePanel({
     return true;
   };
 
-  /**
-   * What a cell shows when it is not being edited.
-   *
-   * A formula shows its VALUE and reveals its source when you enter it —
-   * which is what every spreadsheet does, and the only arrangement in which
-   * a table of formulas is readable. A formula with no value yet (nothing
-   * evaluated, or an error) shows its own text, because a blank cell would
-   * be a lie about there being nothing there. Ctrl+` shows every formula's
-   * text at once, which is how a sheet is read rather than used.
-   */
+  // Formatting is a view; editing and formula evaluation use raw values.
   const shownAt = (row: number, column: number): string => {
     const raw = cellAt(table, row, column);
-    if (!isFormula(raw) || showFormulas) return raw;
-    return computed.values[cellLabel(column, row)] ?? raw;
+    const label = cellLabel(column, row);
+    if (isFormula(raw) && showFormulas) return raw;
+    return displayNumber(isFormula(raw) ? computed.values[label] ?? raw : raw, table.formats?.[label]);
   };
 
   /** Keys handled by a selected-but-not-editing cell: the spreadsheet ones. */
@@ -1457,6 +1425,19 @@ export function TablePanel({
               ? `− ${selectedColumns.length} Columns`
               : "− Column"}
           </button>
+          {formats !== undefined && <TableNumberFormat
+            disabled={!selection} value={selection ? (() => {
+              const values = new Set(cellsIn(selection).map(at => table.formats?.[cellLabel(at.column, at.row)] ?? "general"));
+              return values.size === 1 ? [...values][0] : "mixed";
+            })() : "general"}
+            onChange={format => {
+              if (!selection) return;
+              const next = { ...table, formats: { ...table.formats } };
+              if (editing && active) next.rows = withCell(table, active.row, active.column, draft).rows;
+              for (const at of cellsIn(selection)) next.formats[cellLabel(at.column, at.row)] = format;
+              apply(next, false);
+              setEditing(false);
+            }} />}
           {language && (
             <button
               type="button"

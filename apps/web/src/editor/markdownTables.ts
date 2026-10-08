@@ -16,7 +16,12 @@ export function markdownTableBlocks(structure: HickDocStructure, text: string): 
   markdownLanguage.parser.parse(chars.join("")).iterate({
     enter(node) {
       if (node.name !== "Table" || node.node.parent?.name !== "Document") return;
-      const { from, to } = node;
+      let { from } = node;
+      const { to } = node;
+      // Include only an immediately adjacent format comment in the table edit.
+      const before = text.slice(0, from);
+      const metadata = /(?:^|\n)(<!-- hickory-table-formats: [^\r\n]* -->\r?\n)$/.exec(before);
+      if (metadata) from -= metadata[1].length;
       const attrs = { format: "markdown" };
       result.push({ name: "markdown-table", from, to, contentFrom: from, contentTo: to, attrs,
         open: { name: "markdown-table", from, to: from, attrs, closing: false, selfClosing: false, attrNames: [] } });

@@ -1,0 +1,8 @@
+.table-number-format {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  font-size: 0.75rem;
+  color: var(--fg-muted);
+}
+.table-number-format select { max-width: 12rem; }

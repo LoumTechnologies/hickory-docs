@@ -1,3 +1,4 @@
+import { replaceTable } from "../../editor/tableEdit";
 import { MarkdownTable } from "../../components/MarkdownTable";
 import { Engaged } from "../../components/Engaged";
 import { TablePanel } from "../../components/TablePanel";
@@ -22,15 +23,17 @@ export const tableView: ElementView = {
           laneRight
           layout={cx.tableLayouts?.[key]}
           onLayout={(size) => cx.onTableLayout?.(key, size)}
-          source={slot.text}
+          source={slot.table?.format === "markdown" ? slot.text : slot.text.replace(/^\r?\n/, "")}
           header={slot.table?.header ?? true}
           delimiter={slot.table?.delimiter}
           language={slot.table?.language}
+          formats={slot.table?.formats ?? ""}
           // An edit in the grid rewrites the CSV in the document, in place.
           // The document stays the source of truth — there is no second
           // copy of the table anywhere — which is what keeps the file a
           // file somebody reviews in a diff.
-          onChange={(csv) => cx.replaceBlockContent(slot, csv)}
+          onChange={(csv, formats = "") => slot.table?.format === "markdown"
+            ? cx.replaceBlockContent(slot, csv) : replaceTable(slot, cx, csv, formats)}
         />
       </Engaged>
     );

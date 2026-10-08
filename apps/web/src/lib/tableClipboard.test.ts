@@ -92,3 +92,10 @@ describe("what comes off it", () => {
     expect(parseClipboardTable("", null)).toBeNull();
   });
 });
+
+// Guarantee: docs/guarantees/authoring/cell-formatting-keeps-numbers-numeric.md
+it("keeps monetary thousands separators inside pasted cells", () => {
+  expect(parseClipboardTable("", "$1,234.50")).toEqual([["$1,234.50"]]);
+  expect(parseClipboardTable("", "$1,234.50\t€2,345.67")).toEqual([["$1,234.50", "€2,345.67"]]);
+  expect(parseClipboardTable("", "$1,234.50\n$2,345.67\n")).toEqual([["$1,234.50"], ["$2,345.67"]]);
+});

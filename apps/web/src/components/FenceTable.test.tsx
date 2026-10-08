@@ -51,3 +51,10 @@ describe("editing a fence as a grid", () => {
     expect(onPromote).toHaveBeenCalledWith("");
   });
 });
+
+// Guarantee: docs/guarantees/authoring/cell-formatting-keeps-numbers-numeric.md
+it("promotes fence formats to an attribute, leaving its dataset numeric", () => {
+  expect(tableElementFor("cost\n1234.50\n", "cost.csv", "A2:USD")).toBe(
+    '<hick:table path="cost.csv" formats="A2:USD">\ncost\n1234.50\n</hick:table>',
+  );
+});

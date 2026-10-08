@@ -12,6 +12,7 @@
 // being an explicit act rather than something that happens to a fence when
 // nobody was looking.
 
+import { readFormats, writeFormats } from "../lib/tableFormats";
 import { useState } from "react";
 
 import { TablePanel } from "./TablePanel";
@@ -19,12 +20,14 @@ import { TablePanel } from "./TablePanel";
 export function FenceTable({
   body,
   onChange,
+  formats,
   onPromote,
 }: {
   /** The CSV between the fence markers. */
   body: string;
   /** Replace it. */
-  onChange: (csv: string) => void;
+  onChange: (csv: string, formats?: string) => void;
+  formats?: string;
   /** Turn the fence into a `<hick:table>`, writing its CSV to `path` when one
    * is given. */
   onPromote: (path: string) => void;
@@ -33,7 +36,7 @@ export function FenceTable({
 
   return (
     <div className="fence-table">
-      <TablePanel source={body} onChange={onChange} />
+      <TablePanel source={body} formats={formats} onChange={onChange} />
       <div className="fence-table__promote">
         <p className="muted fence-table__why">
           Make it a dataset this document owns: the same rows, written to a
@@ -73,8 +76,10 @@ export function FenceTable({
  * and a promotion that reformatted the data would be a promotion nobody could
  * check.
  */
-export function tableElementFor(body: string, path: string): string {
-  const attrs = path ? ` path="${path.replace(/"/g, "&quot;")}"` : "";
+export function tableElementFor(body: string, path: string, formats = ""): string {
+  let attrs = path ? ` path="${path.replace(/"/g, "&quot;")}"` : "";
+  const normalized = writeFormats(readFormats(formats));
+  if (normalized) attrs += ` formats="${normalized}"`;
   const csv = body.replace(/\n+$/, "");
   return `<hick:table${attrs}>\n${csv}\n</hick:table>`;
 }

@@ -758,8 +758,8 @@ export function DocumentEditor({
     view.focus();
   };
 
-  /** Replace a fence's BODY, leaving its markers and its info string. */
-  const replaceFenceBody = (card: DocCard, fence: { body: string }, csv: string) => {
+  /** Commit fence data and its number-format attribute together. */
+  const replaceFenceBody = (card: DocCard, fence: { body: string }, csv: string, formats = "") => {
     const view = viewRef.current;
     if (!view) return;
     const text = view.state.doc.toString();
@@ -767,17 +767,17 @@ export function DocumentEditor({
     const bodyTo = bodyFrom + fence.body.length;
     if (bodyFrom <= 0 || bodyTo > text.length) return;
     const body = csv.replace(/\n+$/, "");
-    if (text.slice(bodyFrom, bodyTo) === body) return;
+    const opening = text.slice(card.from, bodyFrom);
+    const stripped = opening.replace(/\s+formats="[^"]*"/, "");
+    const nextOpening = formats ? stripped.replace(/\r?\n$/, ` formats="${formats}"$&`) : stripped;
+    if (text.slice(bodyFrom, bodyTo) === body && opening === nextOpening) return;
     view.dispatch({
-      changes: { from: bodyFrom, to: bodyTo, insert: body },
+      changes: { from: card.from, to: bodyTo, insert: nextOpening + body },
       userEvent: "input.table",
     });
   };
 
-  // The popover is the FENCE converter's, and only that. A cell and a diagram
-  // render in the document itself now, with their controls on the rendered
-  // block — a second copy of the Run button floating beside it would be two
-  // answers to the same question.
+  // The popover converts fences; elements render their controls in place.
   const popoverBody = (card: DocCard) => {
     const view = viewRef.current;
     if (!view || card.kind !== "fence") return null;
@@ -792,8 +792,9 @@ export function DocumentEditor({
       return (
         <FenceTable
           body={fence.body}
-          onChange={(csv) => replaceFenceBody(card, fence, csv)}
-          onPromote={(path) => convertFenceCard(card, tableElementFor(fence.body, path))}
+          formats={fence.info.match(/\bformats="([^"]*)"/)?.[1] ?? ""}
+          onChange={(csv, formats) => replaceFenceBody(card, fence, csv, formats)}
+          onPromote={(path) => convertFenceCard(card, tableElementFor(fence.body, path, fence.info.match(/\bformats="([^"]*)"/)?.[1]))}
         />
       );
     }
@@ -808,14 +809,7 @@ export function DocumentEditor({
     );
   };
 
-  /**
-   * Replace one block's CONTENT — the bytes between its tags — leaving the
-   * tags themselves alone.
-   *
-   * Used by the table grid, whose edits are edits to the document. Content
-   * offsets rather than the block span, because rewriting the span would
-   * rewrite the opening tag and lose its attributes.
-   */
+  /** Commit table data in its existing source representation. */
   const replaceBlockContent = useCallback(
     (slot: RenderedSlot, text: string, userEvent = "input.table") => {
       const view = viewRef.current;

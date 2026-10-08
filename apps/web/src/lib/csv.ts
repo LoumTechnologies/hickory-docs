@@ -24,11 +24,13 @@
 // not. The GRID pads for display; the file keeps what it had until a cell in
 // that row is actually edited.
 
+import { moveFormats, type CellFormats } from "./tableFormats";
 import { shiftFormulaReferences } from "./formulaReferences";
 
 /** A parsed table: rows of fields, exactly as many as each row had. */
 export interface Csv {
   rows: string[][];
+  formats?: CellFormats;
   /** The delimiter that was found (or the one that was asked for). */
   delimiter: string;
   /** "\n" or "\r\n" — whichever the text used. */
@@ -319,15 +321,16 @@ export function resizeTable(table: Csv, rows: number, columns: number): Csv {
     while (fields.length < wide) fields.push("");
     next.push(fields);
   }
-  return { ...table, rows: next };
+  return { ...table, rows: next, formats: moveFormats(table.formats, (row, column) => row < wanted && column < wide ? { row, column } : null) };
 }
 
 /** Insert an empty row at `at` (0-based; `rows.length` appends). */
 export function insertRow(table: Csv, at: number): Csv {
   const width = columnCount(table);
   const rows = table.rows.map((r) => [...r]);
-  rows.splice(Math.max(0, Math.min(at, rows.length)), 0, new Array(width).fill(""));
-  return { ...table, rows };
+  const index = Math.max(0, Math.min(at, rows.length));
+  rows.splice(index, 0, new Array(width).fill(""));
+  return { ...table, rows, formats: moveFormats(table.formats, (row, column) => ({ row: row >= index ? row + 1 : row, column })) };
 }
 
 /** Insert a row and keep formulas aimed at the cells that moved. */
@@ -342,7 +345,7 @@ export function insertRowWithFormulaReferences(table: Csv, at: number): Csv {
 export function removeRow(table: Csv, at: number): Csv {
   const rows = table.rows.map((r) => [...r]);
   if (at >= 0 && at < rows.length) rows.splice(at, 1);
-  return { ...table, rows };
+  return { ...table, rows, formats: moveFormats(table.formats, (row, column) => row === at ? null : ({ row: row > at ? row - 1 : row, column })) };
 }
 
 /** Insert an empty column at `at` in every row. */
@@ -357,7 +360,7 @@ export function insertColumn(table: Csv, at: number): Csv {
     next.splice(index, 0, "");
     return next;
   });
-  return { ...table, rows };
+  return { ...table, rows, formats: moveFormats(table.formats, (row, column) => ({ row, column: column >= index ? column + 1 : column })) };
 }
 
 /** Insert a column and keep formulas aimed at the cells that moved. */
@@ -378,7 +381,7 @@ export function removeColumn(table: Csv, at: number): Csv {
     if (at >= 0 && at < next.length) next.splice(at, 1);
     return next;
   });
-  return { ...table, rows };
+  return { ...table, rows, formats: moveFormats(table.formats, (row, column) => column === at ? null : ({ row, column: column > at ? column - 1 : column })) };
 }
 
 /**

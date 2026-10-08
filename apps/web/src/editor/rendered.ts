@@ -92,7 +92,7 @@ export interface RenderedSlot {
   /** diagram only. */
   renderer: string;
   /** table only: the tag's own attributes, for the grid. */
-  table?: { format?: string; path?: string; delimiter?: string; header: boolean; language?: string };
+  table?: { formats?: string; format?: string; path?: string; delimiter?: string; header: boolean; language?: string };
   /** picture only: the file this block writes, as the document spells it. */
   picture?: { path: string };
   asserts: string[];
@@ -141,6 +141,7 @@ function sameContent(a: Omit<RenderedSlot, "el">, b: Omit<RenderedSlot, "el">): 
     a.text === b.text &&
     a.renderer === b.renderer &&
     a.table?.format === b.table?.format &&
+    a.table?.formats === b.table?.formats &&
     a.table?.path === b.table?.path &&
     a.table?.delimiter === b.table?.delimiter &&
     a.table?.header === b.table?.header &&
@@ -297,15 +298,14 @@ function buildRendered(state: EditorState, registry: RenderedRegistry): Decorati
         kind === "table"
           ? {
               format: block.attrs.format,
+              formats: block.attrs.formats,
               path: block.attrs.path,
               delimiter: block.attrs.delimiter === "tab" ? "\t" : block.attrs.delimiter,
               // A CSV with a header row is the overwhelmingly common
               // case; a document that has to say so every time is a
               // document full of noise.
               header: block.attrs.header !== "false",
-              // No language means no formulas: a cell beginning with `=`
-              // is then just text, which is what a table of shell
-              // snippets needs it to be.
+              // No language means `=` is ordinary text.
               language: block.attrs.language,
             }
           : undefined,
