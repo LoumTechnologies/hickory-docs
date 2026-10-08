@@ -45,7 +45,7 @@ fi
 if matches "apps/web/*"; then
   checks+=(web)
 fi
-if matches "apps/agent/*" || matches "scripts/check-python-agent.sh" || matches "crates/hickory-cli/src/python_agent*" || matches "crates/hickory-cli/src/agent_command.rs" || matches "crates/hickory-cli/tests/python_agent.rs" || matches "crates/hickory-cli/src/mcp*" || matches "crates/hickory-agent/*" || matches "crates/hickory-executor-sandbox/*"; then
+if matches "scripts/test-python-agent-ui.sh" || matches "apps/web/e2e/python-agent.spec.ts" || matches "crates/hickory-cli/examples/python_agent_ui_fixture.rs" || matches "apps/web/src/components/Agent*" || matches "apps/web/src/components/ChatDock*" || matches "apps/web/src/components/AcpControls*" || matches "apps/web/src/views/AgentSettings*" || matches "apps/web/src/api/acp.ts" || matches "apps/agent/*" || matches "scripts/check-python-agent.sh" || matches "crates/hickory-cli/src/python_agent*" || matches "crates/hickory-cli/src/agent_command.rs" || matches "crates/hickory-cli/tests/python_agent.rs" || matches "crates/hickory-cli/tests/serve_python_agent.rs" || matches "crates/hickory-cli/src/serve/python_agent.rs" || matches "crates/hickory-cli/src/serve/agent*" || matches "crates/hickory-cli/src/serve/acp/*" || matches "crates/hickory-cli/src/serve/mod.rs" || matches "crates/hickory-cli/src/mcp*" || matches "crates/hickory-agent/*" || matches "crates/hickory-executor-sandbox/*"; then
   checks+=(python-agent)
 fi
 # Not a docs-lint row: this repo's "rust" job also verifies docs/examples

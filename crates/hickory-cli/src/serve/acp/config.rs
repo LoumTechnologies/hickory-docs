@@ -70,7 +70,7 @@ pub fn validate(commands: &[AgentCommand]) -> Result<()> {
     let mut ids = std::collections::HashSet::new();
     for agent in commands {
         if agent.id.is_empty()
-            || agent.id == "builtin"
+            || matches!(agent.id.as_str(), "builtin" | "python")
             || !agent
                 .id
                 .bytes()
@@ -78,7 +78,7 @@ pub fn validate(commands: &[AgentCommand]) -> Result<()> {
             || !ids.insert(&agent.id)
         {
             bail!(
-                "each agent needs a unique id using letters, numbers or hyphens; builtin is reserved"
+                "each agent needs a unique id using letters, numbers or hyphens; builtin and python are reserved"
             );
         }
         if agent.name.trim().is_empty() || agent.command.trim().is_empty() {

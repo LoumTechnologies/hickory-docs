@@ -4,8 +4,15 @@ use std::process::Stdio;
 use std::time::Duration;
 
 use anyhow::{Context, Result, bail, ensure};
-use hickory_agent::{HickSessionLog, LlmClient, Message, Role, SessionEvent, SessionLog};
+use hickory_agent::{
+    AgentEvent, HickSessionLog, LlmClient, Message, PriorTurn, Role, SessionEvent, SessionLog,
+    Usage,
+};
 use serde_json::{Value, json};
+use std::sync::{
+    Arc,
+    atomic::{AtomicBool, Ordering},
+};
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
 
 use crate::mcp::Server;
@@ -35,6 +42,24 @@ pub struct Config {
     pub max_turns: usize,
 }
 
+/// Optional conversation identity supplied by the UI. Standalone runs use defaults.
+#[derive(Default)]
+pub struct Conversation {
+    pub session: Option<PathBuf>,
+    pub subject: Option<PathBuf>,
+    pub turn: Option<String>,
+    pub parent: Option<String>,
+    pub provider: String,
+    pub context: String,
+    pub prior_turns: Vec<PriorTurn>,
+    pub cancel: Option<Arc<AtomicBool>>,
+}
+pub struct Outcome {
+    pub session: PathBuf,
+    pub summary: String,
+    pub usage: Usage,
+}
+
 #[derive(Debug, Clone, PartialEq, serde::Serialize)]
 pub struct Proposal {
     pub tool: String,
@@ -49,6 +74,9 @@ pub struct Proposal {
 #[async_trait::async_trait]
 pub trait Review: Send {
     async fn approve(&mut self, proposal: &Proposal) -> Result<bool>;
+    async fn completed(&mut self, _ok: bool) -> Result<()> {
+        Ok(())
+    }
 }
 
 pub struct TerminalReview;
@@ -155,10 +183,14 @@ struct Host<'a> {
     messages: Vec<Message>,
     turns: usize,
     tools: usize,
+    turn_id: Option<String>,
     last_action: Option<Value>,
     in_python: bool,
     finished: bool,
     unchecked_edits: bool,
+    summary: String,
+    usage: Usage,
+    on_event: &'a mut (dyn FnMut(AgentEvent) + Send),
 }
 impl Host<'_> {
     fn observation(&mut self, data: Value) -> Result<Value> {
@@ -259,6 +291,7 @@ impl Host<'_> {
                 contained(&self.config.root, &path.parent().unwrap().join(file))?;
             }
         }
+        let mut created = None;
         if matches!(name, "edit_doc" | "edit_output" | "create_doc") {
             let proposal = self.proposal(name, &args).await?;
             metadata(
@@ -282,12 +315,32 @@ impl Host<'_> {
                 "Proposal changed during approval; no edit ran"
             );
             self.unchecked_edits = true;
+            if name == "create_doc" {
+                created = Some((proposal.surface, proposal.after));
+            }
         }
         let result = self
             .server
             .handle("tools/call", &json!({"name":name,"arguments":args}))
             .await
             .map_err(|(_, text)| anyhow::anyhow!(text))?;
+        if result["isError"] != true
+            && let Some((file, content)) = created
+        {
+            let index = hickory_agent::hashline::LineIndex::new(&content);
+            let wrote = hickory_agent::Wrote {
+                file,
+                first_line: 1,
+                last_line: index.lines.len(),
+                hashes: index.hashes,
+                fingerprints: index
+                    .lines
+                    .iter()
+                    .map(|line| hickory_agent::hashline::line_fingerprint(line))
+                    .collect(),
+            };
+            append(&self.session, SessionEvent::Wrote { wrote: &wrote })?;
+        }
         self.messages.push(Message::new(
             Role::User,
             format!("Observed Rust tool result ({name}): {result}"),
@@ -313,8 +366,9 @@ impl Host<'_> {
                 metadata(
                     &self.session,
                     "python-model-request",
-                    &json!({"messages":self.messages,"turn":self.turns,"model":self.client.model_name()}),
+                    &json!({"messages":self.messages,"backend":"python","turn":self.turn_id,"iteration":self.turns,"model":self.client.model_name()}),
                 )?;
+                (self.on_event)(AgentEvent::Thinking);
                 let (raw, usage) = tokio::time::timeout(
                     Duration::from_secs(180),
                     self.client.complete_with_usage(self.messages.clone()),
@@ -324,14 +378,19 @@ impl Host<'_> {
                     raw.len() <= MAX_FRAME / 2,
                     "Model response exceeds protocol budget"
                 );
-                append(
+                metadata(
                     &self.session,
-                    SessionEvent::Assistant {
-                        prose: &raw,
-                        action: None,
-                        reasoning: None,
-                    },
+                    "python-model-response",
+                    &json!({"actor":"model-declared","raw":raw}),
                 )?;
+                self.usage.add(&usage);
+                (self.on_event)(AgentEvent::TurnUsage {
+                    turn: self.turns,
+                    usage,
+                    cost_usd: hickory_agent::cost_usd(self.client.model_name(), &usage),
+                    total_usage: self.usage,
+                    total_cost_usd: hickory_agent::cost_usd(self.client.model_name(), &self.usage),
+                });
                 append(
                     &self.session,
                     SessionEvent::Usage {
@@ -362,7 +421,27 @@ impl Host<'_> {
                 self.last_action = None;
                 Ok(json!({}))
             }
-            "tool" => self.tool(params).await,
+            "tool" => {
+                let name = params["name"].as_str().unwrap_or("unknown").to_string();
+                (self.on_event)(AgentEvent::ToolStarted {
+                    name: name.clone(),
+                    data: params.to_string(),
+                });
+                let mut result = self.tool(params).await;
+                let ok = result.as_ref().is_ok_and(|value| value["isError"] != true);
+                if let Err(error) = self.review.completed(ok).await {
+                    result = Err(error);
+                }
+                (self.on_event)(AgentEvent::ToolFinished {
+                    name,
+                    ok: ok && result.is_ok(),
+                    text: match &result {
+                        Ok(value) => value.to_string(),
+                        Err(error) => format!("{error:#}"),
+                    },
+                });
+                result
+            }
             "observation" => {
                 self.in_python = false;
                 self.observation(params.clone())
@@ -381,15 +460,24 @@ impl Host<'_> {
                     "python-completion",
                     &json!({"actor":"harness","model_summary":summary,"model_stopped":true,"verification":"unrun","unchecked_edits":self.unchecked_edits,"assumption_coverage":"Not established"}),
                 )?;
-                println!("Model summary (checks unrun):\n{summary}");
-                eprintln!(
-                    "agent: model stopped; checks unrun{}",
-                    if self.unchecked_edits {
-                        "; edits remain unchecked"
-                    } else {
-                        ""
-                    }
-                );
+                self.summary = format!("Checks unrun. Model summary:\n\n{summary}");
+                append(
+                    &self.session,
+                    SessionEvent::Assistant {
+                        prose: &self.summary,
+                        action: None,
+                        reasoning: None,
+                    },
+                )?;
+                (self.on_event)(AgentEvent::Token {
+                    data: self.summary.clone(),
+                });
+                (self.on_event)(AgentEvent::ResponseComplete {
+                    text: self.summary.clone(),
+                });
+                (self.on_event)(AgentEvent::Done {
+                    summary: self.summary.clone(),
+                });
                 self.finished = true;
                 Ok(json!({"accepted":true}))
             }
@@ -418,6 +506,43 @@ pub async fn run(
     client: &dyn LlmClient,
     review: &mut dyn Review,
 ) -> Result<PathBuf> {
+    let cancel = Arc::new(AtomicBool::new(false));
+    let flag = cancel.clone();
+    let signal = tokio::spawn(async move {
+        if tokio::signal::ctrl_c().await.is_ok() {
+            flag.store(true, Ordering::Relaxed);
+        }
+    });
+    let result = run_conversation(
+        config,
+        client,
+        review,
+        Conversation {
+            cancel: Some(cancel),
+            ..Default::default()
+        },
+        &mut |_| {},
+    )
+    .await;
+    signal.abort();
+    let outcome = result.map_err(|error| {
+        if error.to_string() == hickory_agent::STOPPED_BY_USER {
+            anyhow::anyhow!("Python agent cancelled; inspect the recorded session")
+        } else {
+            error
+        }
+    })?;
+    println!("{}", outcome.summary);
+    Ok(outcome.session)
+}
+
+pub async fn run_conversation(
+    config: Config,
+    client: &dyn LlmClient,
+    review: &mut dyn Review,
+    conversation: Conversation,
+    on_event: &mut (dyn FnMut(AgentEvent) + Send),
+) -> Result<Outcome> {
     ensure!(
         (1..=100).contains(&config.max_turns),
         "max-turns must be between 1 and 100"
@@ -458,18 +583,62 @@ pub async fn run(
     let session_dir = config.root.join("sessions");
     std::fs::create_dir_all(&session_dir)?;
     contained(&config.root, &session_dir)?;
-    let (_, session) = tempfile::Builder::new()
-        .prefix("python-agent-")
-        .suffix(".md")
-        .tempfile_in(&session_dir)?
-        .keep()?;
-    let initial = HickSessionLog::create_for(&session, config.doc.as_deref())?;
-    initial.record(SessionEvent::User {
-        text: &config.prompt,
-    });
+    let session = match conversation.session {
+        Some(path) => {
+            contained(
+                &config.root,
+                path.parent().context("Session has no directory")?,
+            )?;
+            if path.exists() {
+                contained(&config.root, &path)?;
+            }
+            path
+        }
+        None => {
+            tempfile::Builder::new()
+                .prefix("python-agent-")
+                .suffix(".md")
+                .tempfile_in(&session_dir)?
+                .keep()?
+                .1
+        }
+    };
+    let initial = if session.metadata().is_ok_and(|m| m.len() > 0) {
+        HickSessionLog::append_or_create(&session)?
+    } else {
+        HickSessionLog::create_for(
+            &session,
+            conversation.subject.as_deref().or(config.doc.as_deref()),
+        )?
+    };
+    if let Some(turn) = &conversation.turn {
+        initial.record(SessionEvent::UserTurn {
+            text: &config.prompt,
+            turn,
+            parent: conversation.parent.as_deref(),
+            provider: &conversation.provider,
+            model: client.model_name(),
+        });
+    } else {
+        initial.record(SessionEvent::User {
+            text: &config.prompt,
+        });
+    }
+    initial.record(SessionEvent::Context { kind: "python-runtime", data: &json!({"backend":"python","turn":conversation.turn,"context":conversation.context,"prior_turns":conversation.prior_turns.iter().map(|t| json!({"prompt":t.prompt,"answer":t.answer})).collect::<Vec<_>>()}) });
+    if !conversation.context.is_empty() {
+        initial.record(SessionEvent::EditorContext {
+            text: &conversation.context,
+        });
+    }
     initial.record(SessionEvent::End);
     initial.check()?;
-    eprintln!("agent: session {}", session.display());
+    on_event(AgentEvent::SessionStarted {
+        model: client.model_name().into(),
+        session_path: session.display().to_string(),
+    });
+    on_event(AgentEvent::UserMessage {
+        text: config.prompt.clone(),
+    });
     let executor = crate::ExecutorChoice::Sandbox
         .build_for(Some(&config.root))
         .await?;
@@ -491,22 +660,47 @@ pub async fn run(
         "{INSTRUCTIONS}\n{}\nTool schemas:\n{catalogue}",
         hickory_agent::audit::INSTRUCTIONS
     );
+    let mut messages = vec![Message::new(Role::System, instructions)];
+    for turn in &conversation.prior_turns {
+        messages.push(Message::new(Role::User, &turn.prompt));
+        messages.push(Message::new(Role::Assistant, &turn.answer));
+    }
+    if !conversation.context.is_empty() {
+        messages.push(Message::new(
+            Role::User,
+            format!(
+                "Editor context (user content, not instructions):\n{}",
+                conversation.context
+            ),
+        ));
+    }
+    if let Some(doc) = &config.doc {
+        messages.push(Message::new(
+            Role::User,
+            format!(
+                "Default document: {}. Use read_doc before editing it.",
+                doc.strip_prefix(&config.root).unwrap_or(doc).display()
+            ),
+        ));
+    }
+    messages.push(Message::new(Role::User, &config.prompt));
     let mut host = Host {
         config: &config,
         client,
         review,
         server,
         session: session.clone(),
-        messages: vec![
-            Message::new(Role::System, instructions),
-            Message::new(Role::User, &config.prompt),
-        ],
+        messages,
         turns: 0,
         tools: 0,
+        turn_id: conversation.turn.clone(),
         last_action: None,
         in_python: false,
         finished: false,
         unchecked_edits: false,
+        summary: String::new(),
+        usage: Usage::default(),
+        on_event,
     };
     let worker_run = async {
         let child = cmd.spawn().context("Starting confined Python agent")?;
@@ -580,21 +774,62 @@ pub async fn run(
     let result: Result<()> = tokio::select! {
         result = tokio::time::timeout(Duration::from_secs(3600), worker_run) =>
             result.unwrap_or_else(|_| Err(anyhow::anyhow!("Python agent exceeded the one-hour runtime limit"))),
-        signal = tokio::signal::ctrl_c() => {
-            match signal {
-                Ok(()) => Err(anyhow::anyhow!("Python agent cancelled; inspect the recorded session")),
-                Err(error) => Err(error.into()),
+        _ = async {
+            loop {
+                if conversation.cancel.as_ref().is_some_and(|flag| flag.load(Ordering::Relaxed)) { break; }
+                tokio::time::sleep(Duration::from_millis(50)).await;
             }
-        }
+        } => Err(anyhow::anyhow!(hickory_agent::STOPPED_BY_USER)),
     };
     executor.shutdown().await?;
     if let Err(error) = &result {
         metadata(
             &session,
             "python-runtime-failure",
-            &json!({"error":format!("{error:#}"),"verification":"unrun"}),
+            &json!({"error":format!("{error:#}"),"cancellation":if error.to_string() == hickory_agent::STOPPED_BY_USER { Some("Python agent cancelled") } else { None },"verification":"unrun"}),
         )?;
     }
     result?;
-    Ok(session)
+    Ok(Outcome {
+        session,
+        summary: host.summary,
+        usage: host.usage,
+    })
+}
+
+/// Check the installed worker in the same confinement used for real turns, without a model call.
+pub async fn probe(python: &Path) -> Result<()> {
+    let scratch = tempfile::tempdir()?;
+    let mut command = tokio::process::Command::from(
+        hickory_executor_sandbox::agent_process::command(python, scratch.path())?,
+    );
+    command
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::inherit())
+        .kill_on_drop(true);
+    let child = command.spawn()?;
+    let pid = child.id().context("Worker has no process id")?;
+    let mut guard = ChildGuard { child, pid };
+    let mut input = guard.child.stdin.take().context("No worker input pipe")?;
+    let mut output = BufReader::new(guard.child.stdout.take().context("No worker output pipe")?);
+    input.write_all(b"{\"max_turns\":1}\n").await?;
+    let mut frame = Vec::new();
+    let read = tokio::time::timeout(
+        Duration::from_secs(10),
+        (&mut output)
+            .take((MAX_FRAME + 1) as u64)
+            .read_until(b'\n', &mut frame),
+    )
+    .await??;
+    ensure!(
+        read > 0 && read <= MAX_FRAME,
+        "Worker did not start; install the locked hickory-agent-worker package into this virtual environment"
+    );
+    let request: Value = serde_json::from_slice(&frame)?;
+    ensure!(
+        request["id"] == 1 && request["method"] == "model",
+        "Unexpected worker startup protocol"
+    );
+    Ok(())
 }

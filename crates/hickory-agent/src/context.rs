@@ -154,9 +154,11 @@ pub fn derive_from_session(session_path: &str, source: &str) -> Vec<WriteContext
                 });
             }
             "context" => {
-                if tag.get_attribute("kind") == Some("model-request")
-                    && let Ok(value) =
-                        serde_json::from_str::<serde_json::Value>(&tag.text_content())
+                if matches!(
+                    tag.get_attribute("kind"),
+                    Some("model-request" | "python-model-request")
+                ) && let Ok(value) =
+                    serde_json::from_str::<serde_json::Value>(&tag.text_content())
                     && let Some(messages) = value["messages"].as_array()
                 {
                     scope = "native-message-envelope".into();

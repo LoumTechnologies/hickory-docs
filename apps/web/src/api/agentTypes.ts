@@ -7,6 +7,7 @@ export interface AgentUsage {
 }
 
 export interface AgentTurn {
+  backend?: string;
   id: string;
   parent_id: string | null;
   prompt: string;

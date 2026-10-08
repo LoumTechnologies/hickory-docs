@@ -307,7 +307,7 @@ export function ChatDock({
   const [model, setModel] = useState("");
 
   const selectedTurn = turns.find(t => t.id === tip);
-  const selectedBackend = selectedTurn?.provider.startsWith("acp:") ? selectedTurn.provider.slice(4) : "builtin";
+  const selectedBackend = selectedTurn?.backend ?? (selectedTurn?.provider.startsWith("acp:") ? selectedTurn.provider.slice(4) : "builtin");
   useEffect(() => { if (selectedTurn && !running) setBackend(selectedBackend); }, [tip, selectedBackend, running]);
   const selectedSession = selectedTurn?.session;
   const acp = useAcp(docId, selectedTurn ? selectedBackend : backend, selectedSession, running, hydrated);
@@ -486,8 +486,9 @@ export function ChatDock({
           status: "running",
           error: null,
           created_at: new Date().toISOString(),
-          provider: backend === "builtin" ? provider || "anthropic" : `acp:${backend}`,
-          model: backend === "builtin" ? model.trim() || defaultModelFor(provider) || "claude-sonnet-5" : "",
+          backend,
+          provider: (backend === "builtin" || backend === "python") ? provider || "anthropic" : `acp:${backend}`,
+          model: (backend === "builtin" || backend === "python") ? model.trim() || defaultModelFor(provider) || "claude-sonnet-5" : "",
           usage: null,
           session: tip ? turns.find((t) => t.id === tip)?.session : undefined,
         },
@@ -560,7 +561,7 @@ export function ChatDock({
           </button>
         )}
         {!collapsed && <FeatureSettings label="Agent settings">
-        {backend === "builtin" && <span className="chat-model" role="group" aria-label="Model choice">
+        {(backend === "builtin" || backend === "python") && <span className="chat-model" role="group" aria-label="Model choice">
           <select
             aria-label="Provider"
             value={provider}
@@ -603,7 +604,7 @@ export function ChatDock({
         <div className="chat-log" ref={logRef}>
           {branch.length === 0 && !running && (
             <p className="muted chat-empty">
-              Ask the agent to edit, extend, or verify this document. It works
+              {backend === "python" ? "Ask the Python agent to edit or extend this document. Its edits require review; checks remain unrun." : "Ask the agent to edit, extend, or verify this document."} It works
               through the document and its generated output, and every session
               is saved into the project as a <code>hick:session</code> file.
             </p>

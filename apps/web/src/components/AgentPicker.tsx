@@ -13,12 +13,14 @@ export function AgentPicker({ backend, agents, disabled, detecting, error, onCha
   backend: string; agents: AgentCommand[]; disabled: boolean; detecting: boolean;
   error: string | null; onChange: (backend: string) => void; onRefresh: () => void;
 }) {
-  const installed = agents.filter(a => a.available);
-  const missing = agents.filter(a => !a.available);
+  const python = agents.find(a => a.id === "python");
+  const installed = agents.filter(a => a.available && a.id !== "python");
+  const missing = agents.filter(a => !a.available && a.id !== "python");
   return <div className="acp-controls">
     <div className="acp-settings">
       <label>Agent<select aria-label="Agent" value={backend} disabled={disabled} onChange={e => onChange(e.target.value)}>
         <option value="builtin">Hickory (built-in)</option>
+        {python && <option value="python">{python.name}{python.available ? "" : " — configure runtime"}</option>}
         {backend !== "builtin" && !agents.some(a => a.id === backend) && <option value={backend}>{backend} (not configured)</option>}
         {installed.length > 0 && <optgroup label="Installed ACP agents">{installed.map(a => <option key={a.id} value={a.id}>{a.name} (ACP)</option>)}</optgroup>}
         {missing.length > 0 && <optgroup label="More agents">{missing.map(a => <option key={a.id} value={a.id}>{a.name} — {a.installable ? "install adapter" : "adapter not found"}</option>)}</optgroup>}
@@ -27,6 +29,7 @@ export function AgentPicker({ backend, agents, disabled, detecting, error, onCha
     </div>
     {error && <p className="chat-note error" role="alert">{error}</p>}
     <p className="muted">{backend === "builtin" ? "Hickory’s built-in agent uses a provider API key. Choose an ACP agent to use its own login."
+      : backend === "python" ? "The Python agent uses your provider API key, confined Python and Monty. Each edit needs approval; checks remain unrun. Switching agents starts a new thread."
       : `${agents.find(a => a.id === backend)?.name ?? backend} connects through ACP using its own login. Switching agents starts a new thread; previous conversations stay in the tree.`}</p>
   </div>;
 }

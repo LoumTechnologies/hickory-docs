@@ -1,6 +1,6 @@
-# Run the Python agent from a terminal
+# Use the Python agent in Hickory or a terminal
 
-For Hickory contributors testing a Python agent without opening the UI.
+For Hickory contributors testing the experimental Python agent.
 
 The experimental `hickory-agent` CLI runs a LangGraph worker in a separate
 process. Hickory confines that process with Seatbelt on macOS or Bubblewrap on
@@ -19,6 +19,33 @@ just test-python-agent
 import an editable checkout. Linux also needs a working `bwrap` with user
 namespaces enabled. The tests exercise the real process without buying model
 calls.
+
+## Use it in the UI
+
+1. Open **Settings → Agents**. Set **Python executable** to the absolute path
+   of `apps/agent/.venv/bin/python`, then click **Save Python runtime**.
+   Hickory starts the confined worker to check the installation before saving.
+2. Add a provider API key in Settings if you have not already.
+3. Open the **Agent** pane, open its settings, and choose
+   **Hickory Python (experimental)**. Choose the provider and model there.
+   Switching agents starts a new thread.
+4. Send a task. Each edit opens a comparison; choose **Accept change** or
+   **Reject change**. Auto-accept is unavailable for this runtime. **Stop** also
+   cancels a pending review without applying it.
+
+Tool activity and usage appear live. Provider answers are collected rather than
+streamed token by token. Conversations keep their turn tree, backend, model and
+session file when the UI or engine restarts. Rewind selects the prior branch's
+prompts and answers for a fresh worker; it does not undo previous edits.
+Unsaved editor text is supplied as context. The current tool bridge edits saved
+workspace documents; save an untitled note before asking the agent to edit it.
+
+`just test-python-agent` includes real confined-worker HTTP/WS tests and a
+Chromium flow covering setup, selection, review, reload and Stop. For the browser
+flow alone after setup, run `just test-python-agent-ui`. The browser harness
+uses a disposable workspace and scripted model; it makes no paid calls.
+
+## Use it from a terminal
 
 Use a provider key already configured in Hickory Settings or the provider's
 environment variable, then run:
@@ -56,12 +83,12 @@ tool receipts, assumptions, proposals, approval decisions and failures. Worker
 observations are labeled separately from Rust-observed results. The existing
 assumption audit includes these records.
 
-This CLI is an opt-in runtime. The UI and the default `hick agent` runtime still
-use the existing Rust agent. The worker environment is not bundled into releases.
+This is an opt-in runtime in both the UI and CLI. The default agent remains
+Rust. The worker environment is not bundled into releases.
 Provider responses are collected rather than streamed; reasoning is not captured
 by this path. The existing `verify` and debugger tools are withheld because they
-can write derived files without an exact edit preview. The CLI labels completion
-as **model stopped; checks unrun**. Run the appropriate project checks separately;
+can write derived files without an exact edit preview. The UI and CLI label completion
+as **checks unrun**, with the model summary kept apart from verification. Run the appropriate project checks separately;
 a model's summary cannot establish their result.
 
 Monty limits memory, execution time, recursion and host callbacks. Rust also

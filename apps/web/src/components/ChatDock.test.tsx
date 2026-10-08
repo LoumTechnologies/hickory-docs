@@ -75,6 +75,37 @@ describe("switching agents", () => {
     fireEvent.click(screen.getByRole("button", { name: "Refresh agents" }));
     await screen.findByRole("option", { name: "My agent (ACP)" });
   });
+  // Guarantee: docs/guarantees/agent/python-execution-has-two-boundaries.md
+  it("selects Python without ACP login, retains model choice and hydrates its backend", async () => {
+    vi.mocked(acpApi.connect).mockClear();
+    vi.mocked(acpApi.catalogue).mockResolvedValue({ agents: [{ id: "python", name: "Hickory Python (experimental)", command: "/venv/bin/python", args: [], available: true, kind: "python" }] });
+    vi.mocked(acpApi.state).mockResolvedValue({ backend: "python", ready: true, canRewind: true, edits: { mode: "review", changes: [] } });
+    vi.mocked(api.agentTurns).mockResolvedValue({ turns: [], backend: "builtin", provider: "anthropic", model: "claude-sonnet-5", totals: { usd: 0, input: 0, output: 0, cache_read: 0, cache_write: 0 } });
+    vi.mocked(api.agent).mockResolvedValue({ session_id: "python-turn" });
+    const realtime = { onRunEvent: () => () => undefined } as unknown as Realtime;
+    const props = { docId: "d1", realtime, onAgentFinished: () => undefined };
+    const view = render(<ChatDock {...props} />);
+    fireEvent.click(screen.getByRole("button", { name: "Agent settings" }));
+    await screen.findByRole("option", { name: "Hickory Python (experimental)" });
+    fireEvent.change(screen.getByRole("combobox", { name: "Agent" }), { target: { value: "python" } });
+    await waitFor(() => expect(acpApi.state).toHaveBeenCalledWith("d1", "python"));
+    expect(acpApi.connect).not.toHaveBeenCalled();
+    expect(screen.getByRole("combobox", { name: "Provider" })).toBeTruthy();
+    fireEvent.change(screen.getByRole("textbox", { name: "Model" }), { target: { value: "my-model" } });
+    await typeResponse("Propose a note in Python");
+    await waitFor(() => expect((screen.getByRole("button", { name: "Send" }) as HTMLButtonElement).disabled).toBe(false));
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+    await waitFor(() => expect(api.agent).toHaveBeenCalledWith("d1", "Propose a note in Python", null, "anthropic", "my-model", "python"));
+    await screen.findByRole("button", { name: "Stop the agent" });
+    expect((screen.getByRole("combobox", { name: "Agent" }) as HTMLSelectElement).value).toBe("python");
+    view.unmount();
+    vi.mocked(api.agentTurns).mockResolvedValue({ turns: [{ ...turn("python-turn", null), backend: "python", session: "sessions/python.md" }], backend: "python", provider: "anthropic", model: "my-model", totals: { usd: 0, input: 0, output: 0, cache_read: 0, cache_write: 0 } });
+    render(<ChatDock {...props} />);
+    fireEvent.click(screen.getByRole("button", { name: "Agent settings" }));
+    await waitFor(() => expect((screen.getByRole("combobox", { name: "Agent" }) as HTMLSelectElement).value).toBe("python"));
+    expect(acpApi.connect).not.toHaveBeenCalled();
+  });
+
 });
 
 function turn(id: string, parent: string | null): AgentTurn {

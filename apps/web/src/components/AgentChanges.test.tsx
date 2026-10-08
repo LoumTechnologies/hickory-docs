@@ -61,3 +61,18 @@ it("returns newer editor text with a stale rejection so the agent can read again
   fireEvent.click(screen.getByRole("button", { name: "Accept change" }));
   await waitFor(() => expect(acpApi.edits).toHaveBeenCalledWith("workspace", { id: "change", accepted: false, error: "Changed during review", current_text: "My new sentence" }, "codex"));
 });
+
+// Guarantee: docs/guarantees/agent/python-execution-has-two-boundaries.md
+it("requires a human gesture for Python proposals and labels checks unrun", async () => {
+  const pythonState: AcpState = { backend: "python", ready: true, edits: { mode: "review", changes: [{ ...change, editor: false }] } };
+  const apply = vi.fn(); vi.mocked(acpApi.edits).mockResolvedValue(pythonState);
+  render(<AgentChanges doc="workspace" state={pythonState} running={false} apply={apply} update={() => {}} />);
+  render(<DocumentReading id="proposal:workspace:change" />);
+  expect((screen.getByRole("combobox", { name: "Document edits" }) as HTMLSelectElement).disabled).toBe(true);
+  expect(screen.queryByRole("option", { name: "Auto-accept" })).toBeNull();
+  expect(screen.getByText(/Checks remain unrun/)).toBeTruthy();
+  expect(acpApi.edits).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole("button", { name: "Accept change" }));
+  await waitFor(() => expect(acpApi.edits).toHaveBeenCalledWith("workspace", { id: "change", accepted: true, error: undefined }, "python"));
+  expect(apply).not.toHaveBeenCalled(); // Rust applies approved file edits.
+});

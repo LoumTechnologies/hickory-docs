@@ -31,15 +31,16 @@ export function useAcp(doc: string, backend: string, session: string | undefined
   const connect = useCallback(async () => {
     const stamp = ++version.current;
     setBusy(true); setError(null); setState(null);
-    try { const next = await acpApi.connect(doc, backend, session); if (stamp === version.current) setState(next); }
+    try { const next = await (backend === "python" ? acpApi.state(doc, backend) : acpApi.connect(doc, backend, session)); if (stamp === version.current) setState(next); }
     catch (e) { if (stamp === version.current) setError(e instanceof Error ? e.message : String(e)); }
     finally { if (stamp === version.current) setBusy(false); }
   }, [doc, backend, session]);
+  const pythonAvailable = backend === "python" && agents.find(agent => agent.id === "python")?.available;
   useEffect(() => {
     if (backend === "builtin") { ++version.current; setState(null); setError(null); setBusy(false); return; }
     if (hydrated && !running) void connect();
     // A running turn owns its connection; do not reconnect on optimistic UI updates.
-  }, [connect, backend, hydrated]);
+  }, [connect, backend, hydrated, pythonAvailable]);
   useEffect(() => {
     if (backend !== "builtin" && !running && !state?.ready) return;
     const stamp = version.current;
@@ -72,6 +73,10 @@ type Controls = ReturnType<typeof useAcp>;
 export function AcpControls({ doc, backend, running, control, settingsOpen = true, settingsOnly = false, showTools = true }: { doc: string; backend: string; running: boolean; control: Controls; settingsOpen?: boolean; settingsOnly?: boolean; showTools?: boolean }) {
   if (backend === "builtin") return null;
   const { state, busy, error, agents } = control;
+  if (backend === "python") return <div className="acp-controls" aria-label="Python agent controls">
+    {(error || state?.error) && <p role="alert" className="chat-note error">{error || state?.error}</p>}
+    {settingsOpen && !state?.ready && <p>Set the Python runtime in <a href="#/settings">Settings → Agents</a>, then <button className="btn-link" disabled={busy} onClick={() => void control.connect()}>Check runtime</button>.</p>}
+  </div>;
   const agent = agents.find(a => a.id === backend);
   return <div className="acp-controls" aria-label="Agent controls">
     {settingsOpen && <div className="acp-settings">

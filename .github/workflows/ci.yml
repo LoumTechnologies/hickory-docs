@@ -41,6 +41,13 @@ jobs:
       - uses: dtolnay/rust-toolchain@1.96.1
       - uses: Swatinem/rust-cache@v2
       - uses: astral-sh/setup-uv@v6
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: apps/web/package-lock.json
+      - run: npm --prefix apps/web ci
+      - run: cd apps/web && npx playwright install --with-deps chromium
       - name: Enable the real process sandbox
         run: |
           sudo apt-get update && sudo apt-get install -y bubblewrap

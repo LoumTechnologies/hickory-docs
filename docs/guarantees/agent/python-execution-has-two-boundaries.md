@@ -1,6 +1,7 @@
 # Python agent code crosses two explicit boundaries
 
-Given the experimental standalone `hickory-agent` CLI with its installed,
+Given the experimental Python agent in Hickory’s UI or the standalone
+`hickory-agent` CLI with its installed,
 trusted runtime, when a model supplies executable code, then it is Python
 interpreted by Monty without host filesystem mounts. The trusted Python worker
 also runs in Hickory-managed OS confinement. Provider keys and workspace writes
@@ -10,7 +11,11 @@ refuse execution.
 An exposed workspace edit needs an independently approved proposal. Detected
 source changes while awaiting review invalidate that proposal. Requests,
 assumptions, responses, proposals, decisions and failures remain in the `.md`
-session. Rust-observed tool results and worker-reported observations are labeled
+session. UI conversation branches survive restart, record their Python backend,
+provider and model, and retain the ancestor prompts and answers actually supplied.
+Python edits always use separate approval, including when a native or ACP
+conversation used auto-accept. Stop cancels a waiting proposal without writing it.
+Rust-observed tool results and worker-reported observations are labeled
 separately. A model completion is reported with checks unrun.
 
 ---
@@ -38,15 +43,38 @@ Last LLM verification:
   imports, interpreted eval, large allocation, infinite loops, forged replies and
   exact printed text with stream labels kept apart.
   `agent_process::tests` challenges unsafe runtime paths and profile injection.
+- UI implementation: `serve/python_agent.rs` probes configured installations,
+  routes UI review separately from ACP/native policy, and bridges events through
+  the existing run channel. `run_conversation` accepts turn identity and a Stop
+  flag without registering a process-wide Ctrl-C handler. Raw model JSON remains
+  inert context, while `SessionEvent::Assistant` carries the final labeled summary.
+  `context::derive_from_session` recognizes Python request envelopes. New-file
+  writes carry hash receipts without erasing their agent origin on approval.
+- Failed browser witness and repair: an initial reload check sent its menu event
+  before the workspace listener existed. The test now waits for the document
+  editor before reopening the pane; the corrected flow passed. This is a test
+  synchronization repair, not evidence that provider behavior is safe.
+- UI witnesses: `tests/serve_python_agent.rs` exercises accepted/rejected writes,
+  rejection reasons, a forbidden auto-accept request, live-room source changes,
+  cancellation, token usage, exact branch context and engine restart. The real
+  Chromium `e2e/python-agent.spec.ts` uses `python_agent_ui_fixture` only for the
+  provider; it drives settings, selection, Accept, reload and Stop against a real
+  supervisor and confined worker. React tests cover selection/model controls,
+  mandatory review and failed setup feedback.
+- Prior CLI review: commit `1146f87` retains the earlier implementation and
+  verification record. This revision adds UI adoption and renews its evidence.
 - Executed checks: `just test-python-agent` passed on macOS 26.6 with pinned
   CPython 3.14.7 and Monty 1.1.0. Linux execution is configured in CI but was not
-  observed in this local evaluation. Record the final rerun in the change's git
-  history; no live paid-provider call was required for these tests.
+  observed in this local evaluation. The shared script includes the real-browser flow. The full React suite
+  passed 1,973 tests; native/ACP serve regressions and 102 agent/audit tests
+  also passed. No live paid-provider call was required for these tests.
 - Assumptions/exclusions: trusted installations and OS enforcement are outside
   the model-code boundary. Runtime directories must not contain credentials.
   macOS allows file metadata/root listing for startup. This is not a VM or a
-  complete native-code security proof. Windows refuses; UI adoption, bundled
-  releases and complete byte authorship are not implemented here.
+  complete native-code security proof. Windows refuses; bundled releases and complete byte authorship are not
+  implemented here. Browser-local static embeddings do not launch this runtime;
+  it needs the local Rust engine. Unsaved buffer context is preserved, but the
+  Python tool bridge edits saved documents.
 - Challenges: a filesystem escape, a write without parent approval, an inherited
   key, stale approval applied, a shell/CPython fallback, or a model claim rendered
   as independently verified would falsify the relevant boundary. Arbitrary
@@ -55,9 +83,17 @@ Last LLM verification:
 - Dependencies: the committed runtime sources and `apps/agent/uv.lock`; edits
   to either require renewed review and execution of the shared check script.
 - Inspected SHA-256 dependencies (2026-10-08):
-  - `crates/hickory-cli/src/python_agent.rs`: `5220ff3acd263830fb6248795eb44b7936eda7cf31c726efb2b7fa26ce0d39d1`
+  - `crates/hickory-cli/src/python_agent.rs`: `8fb4fdc51658dfed4d3c7fff95ab95cf0bfa0a61878db79b2fb1099d28259c80`
   - `crates/hickory-executor-sandbox/src/agent_process.rs`: `1e030edcb725350c25da649192cacbc35faa0e36a24a4119e8532caf5d0af5bc`
   - `apps/agent/src/hickory_agent_worker/__main__.py`: `f99164f232acf4bf85321fcfc646a7c50a0eed42f19e5a28914b260039289d84`
   - `apps/agent/uv.lock`: `f60af405b453a2701f1e91f710c5dd1e76c6d7ef888432845d0a1cb893539ead`
+  - `crates/hickory-cli/src/serve/python_agent.rs`: `e80e0c9fa379dbafa0ec708390197b6c63a0c095ad5128c1362ee0b03f847e39`
+  - `crates/hickory-cli/src/serve/agent.rs`: `e5d48ebfe20d16ca1497cd9cd366bf297ff6fad8e59a8cb6d39fe0d57b62c66e`
+  - `crates/hickory-cli/src/serve/acp/edits.rs`: `a1231a556edcc44ea94994c37157becbdb2d5130029a2b5403cac80dd34711bc`
+  - `crates/hickory-agent/src/context.rs`: `ae2fdf0c100069fd6c08162292bfd4ed0ca132618f9feb5497c37b095340a3f7`
+  - `apps/web/src/components/AcpControls.tsx`: `c767ef20a27f49db84898b64495e2e47e95182e17a7f14fc19c65010cec43ebc`
+  - `apps/web/src/components/AgentChanges.tsx`: `048d236918096617519a4f72786e2c1fad16a6661d30de6d09d263c964e9f660`
+  - `apps/web/e2e/python-agent.spec.ts`: `587b03eb6cc2e7372ca045dbfbf4d41a75250a861f6b1e085c10c6cd8e3e1a68`
+  - `crates/hickory-cli/tests/serve_python_agent.rs`: `ab3340cd7af95fec8168cdce2ffbf151cb488a01287053401222b1a9cb277782`
 - Human judgment: not recorded; automated test reviewers are fixtures, not
   evidence of a human's semantic approval.

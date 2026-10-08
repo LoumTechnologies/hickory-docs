@@ -51,6 +51,7 @@ pub mod lsp_bridge;
 pub mod merged;
 pub mod outputs;
 pub mod plain_file;
+mod python_agent;
 pub mod refactor;
 pub mod representation;
 mod representation_store;
@@ -606,6 +607,7 @@ pub(crate) fn router(state: LocalState) -> Router {
         .route("/scaffold/result", get(scaffold::result))
         .route("/docs/{id}/run", post(api::run_doc))
         .route("/docs/{id}/check", post(api::check_doc))
+        .merge(python_agent::routes())
         .route("/agents", get(acp::catalogue).put(acp::save_commands))
         .route("/agents/{id}/install", post(acp::install))
         .route(

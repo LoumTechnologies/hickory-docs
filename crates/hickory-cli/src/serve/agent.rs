@@ -41,6 +41,7 @@ use super::{LocalState, now_rfc3339, rand_id, store};
 /// renders (`apps/web/src/api/types.ts::AgentTurn`).
 #[derive(Clone, Serialize)]
 pub struct TurnRecord {
+    pub backend: String,
     pub id: String,
     pub parent_id: Option<String>,
     pub prompt: String,
@@ -123,6 +124,10 @@ impl AgentHub {
             };
             for t in view.turns {
                 turns.push(TurnRecord {
+                    backend: super::python_agent::session_backend(
+                        &path,
+                        t.provider.as_deref().unwrap_or_default(),
+                    ),
                     id: t.id.clone(),
                     parent_id: t.parent,
                     prompt: t.prompt,
@@ -339,7 +344,7 @@ pub async fn start_turn(
             .cloned()
             .unwrap_or_else(|| "builtin".into())
     });
-    if backend != "builtin" {
+    if !matches!(backend.as_str(), "builtin" | "python") {
         return super::acp::start_turn(state, id, body, backend).await;
     }
     if id.starts_with("lens:") {
@@ -353,7 +358,15 @@ pub async fn start_turn(
         .selected
         .lock()
         .unwrap()
-        .insert(id.clone(), "builtin".into());
+        .insert(id.clone(), backend.clone());
+    let python = if backend == "python" {
+        Some(
+            super::python_agent::runtime(&state)
+                .map_err(|e| ApiError::unavailable(format!("agent not available — {e:#}")))?,
+        )
+    } else {
+        None
+    };
     let doc_path = super::agent_context::subject(&state, &id)?;
     let context = super::agent_context::describe(&state, &body.context);
     let primary = super::agent_context::primary(&state, &body.context);
@@ -443,6 +456,14 @@ pub async fn start_turn(
                  conversation and pick a turn that does"
             )));
         }
+        if body
+            .parent_id
+            .as_deref()
+            .and_then(|p| turns.iter().find(|t| t.id == p))
+            .is_some_and(|t| t.backend != backend)
+        {
+            return Err(ApiError::conflict("Start a new thread to switch agents."));
+        }
         let prior = prior_turns_of(turns, body.parent_id.as_deref());
         // The conversation's file: the parent's when continuing, a fresh one
         // at the root of a new thread.
@@ -459,6 +480,7 @@ pub async fn start_turn(
                     .unwrap_or_else(|_| abs.display().to_string())
             });
         turns.push(TurnRecord {
+            backend: backend.clone(),
             id: turn_id.clone(),
             parent_id: body.parent_id.clone(),
             prompt: prompt.clone(),
@@ -497,6 +519,7 @@ pub async fn start_turn(
             prompt,
             prior_turns,
             TurnIdentity {
+                python,
                 session: task_state.index.root().join(&session_rel),
                 turn: run_key.clone(),
                 parent: parent_for_run.clone(),
@@ -535,7 +558,12 @@ pub async fn start_turn(
         // stale text back over the agent's work on its next debounce, so
         // every room is reconciled before anyone types again — the same
         // move `api::edit_outputs` makes.
-        for (other_id, _) in task_state.index.entries() {
+        for (other_id, _) in task_state
+            .index
+            .entries()
+            .into_iter()
+            .filter(|_| backend != "python")
+        {
             if let Some(path) = task_state.index.absolute(&other_id)
                 && let Ok(text) = std::fs::read_to_string(&path)
             {
@@ -559,15 +587,16 @@ pub async fn start_turn(
 /// channel. Returns the final answer plus the turn's total token usage, or
 /// the error message to record.
 /// Where a turn is recorded and how it is named in the file.
-struct TurnIdentity {
-    context: String,
-    primary: Option<std::path::PathBuf>,
-    session: std::path::PathBuf,
-    turn: String,
-    parent: Option<String>,
+pub(super) struct TurnIdentity {
+    pub(super) python: Option<std::path::PathBuf>,
+    pub(super) context: String,
+    pub(super) primary: Option<std::path::PathBuf>,
+    pub(super) session: std::path::PathBuf,
+    pub(super) turn: String,
+    pub(super) parent: Option<String>,
     /// The stop button's flag for this run — travels with the identity
     /// because a run without its cord is the bug this exists to fix.
-    cancel: Arc<std::sync::atomic::AtomicBool>,
+    pub(super) cancel: Arc<std::sync::atomic::AtomicBool>,
 }
 
 async fn run_turn(
@@ -593,6 +622,19 @@ async fn run_turn(
                 doc_path.display()
             ));
         }
+    }
+
+    if identity.python.is_some() {
+        return super::python_agent::run_turn(
+            state,
+            doc_id,
+            llm,
+            doc_path,
+            prompt,
+            prior_turns,
+            identity,
+        )
+        .await;
     }
 
     // The session's executor choice (HICKORY_EXECUTOR; sandbox by default)
@@ -755,7 +797,7 @@ pub async fn list_turns(State(state): State<LocalState>, Path(id): Path<String>)
         .unwrap_or_else(|| default_model_for(&provider));
     let (total, usd) = totals_of(&turns);
     Json(json!({
-        "backend": state.agent.acp.selected.lock().unwrap().get(&id).cloned().or_else(|| turns.last().and_then(|t| t.provider.strip_prefix("acp:").map(str::to_string))).unwrap_or_else(|| "builtin".into()),
+        "backend": state.agent.acp.selected.lock().unwrap().get(&id).cloned().or_else(|| turns.last().map(|t| t.backend.clone())).unwrap_or_else(|| "builtin".into()),
         "turns": turns,
         "provider": provider,
         "model": model,
@@ -775,6 +817,7 @@ mod tests {
 
     fn turn(id: &str, parent: Option<&str>, answer: Option<&str>) -> TurnRecord {
         TurnRecord {
+            backend: "builtin".into(),
             id: id.into(),
             parent_id: parent.map(Into::into),
             prompt: format!("p:{id}"),

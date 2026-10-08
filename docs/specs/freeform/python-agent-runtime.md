@@ -66,9 +66,44 @@ git blame authenticates human composition. The next layer needs durable writer
 events and byte-range ancestry that survive acceptance, copying, undo, external
 edits and synchronization. The display must distinguish observed human input,
 observed agent writes, derived bytes and unknown origin. Approval must never
-erase AI ancestry. The protection policy should live in the shared engine so
+erase AI ancestry. An initial browser challenge also observed ordinary editor
+paragraph reflow joining an inserted soft Markdown newline to the existing
+paragraph. That later editor write is distinct from the approved tool write;
+line-hash receipts alone cannot establish the ancestry of every remaining byte.
+The browser acceptance fixture uses headings to isolate the agent review flow,
+not to certify complete byte attribution through paragraph reflow.
+The protection policy should live in the shared engine so
 ACP and every other writer receive it, not only this new CLI.
 
-UI adoption and packaged environments remain separate work. Promoting this
-runtime to the default requires the existing conversation rendering, cancellation,
-approval queue, evidence states and release packaging to preserve these boundaries.
+## UI integration (2026-10-08)
+
+The user's follow-up authorized UI adoption. Hickory Python is selectable beside
+the Rust agent and ACP agents. A machine-local absolute virtual-environment path
+is configured in Settings; saving it probes the actual confined worker without
+calling a provider. No project-supplied executable is discovered or run implicitly.
+The installed environment is still trusted, not bundled or authenticated by that
+probe. Runtime packaging and promotion to the default remain separate work.
+
+Both clients use `python_agent::run_conversation`. The UI supplies conversation
+identity, prior branch prompts/answers, editor context and a per-turn Stop flag.
+Raw model protocol replies are retained as inert context; the conversational
+answer is the final summary labeled checks unrun. Usage and Rust-observed tools
+stream through the existing run channel. Source reads and model request envelopes
+feed the existing receipts; creating a document records its agent write hashes.
+
+The Python approval queue is separate from native/ACP policy and rejects
+Auto-accept. It flushes current room snapshots after approval so pending human
+keystrokes participate in the freshness check. After a tool, existing CRDT
+correspondence preserves concurrent typing when reconciling changed rooms.
+Rejection reasons, invalidated approvals, cancellation and failures remain in the
+session. Arbitrary outside editors can still race the final filesystem write.
+
+Assumption: a stored runtime path expresses the user's choice of trusted code;
+the alternative of an automatic project-local interpreter was rejected because
+it would execute workspace code before the worker boundary was established.
+Falsifier: a worker starts from an unconfigured project path, or native/ACP
+Auto-accept causes a Python write without a separate review gesture.
+
+Witnesses are real confined HTTP/WS tests and a real Chromium setup/review/reload/
+Stop flow with only the paid model replaced. Those checks establish mechanics,
+not semantic approval, complete assumption coverage or complete byte authorship.

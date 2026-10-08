@@ -1,12 +1,13 @@
 //! ACP is an optional agent extension. The language and model client stay independent.
 mod client;
-mod config;
+pub(super) mod config;
 pub(super) mod edits;
 mod mcp;
 pub(super) mod read_receipt;
 pub(crate) mod record;
 mod transport;
-mod workspace;
+pub(super) mod workspace;
+pub(super) use client::RoomContext;
 pub use mcp::proxy_argv;
 pub(super) use record::partial_answer;
 
@@ -39,12 +40,13 @@ fn error(e: anyhow::Error) -> ApiError {
 
 pub async fn catalogue(State(state): State<LocalState>) -> ApiResult<Json<Value>> {
     let dir = config::directory(&state);
-    let agents: Vec<Value> = config::commands(&state).map_err(error)?.into_iter().map(|agent| {
+    let mut agents: Vec<Value> = config::commands(&state).map_err(error)?.into_iter().map(|agent| {
         let available = config::executable(&agent.command, &dir).is_some();
         let installable = matches!(agent.id.as_str(), "codex" | "claude") && config::executable("npm", &dir).is_some();
         let cli_available = matches!(agent.id.as_str(), "codex" | "claude") && config::executable(&agent.id, &dir).is_some();
         json!({"id":agent.id,"name":agent.name,"command":agent.command,"args":agent.args,"available":available,"installable":installable,"cli_available":cli_available,"workspace_filesystem":agent.workspace_filesystem})
     }).collect();
+    agents.push(super::python_agent::catalogue(&state));
     Ok(Json(
         json!({"agents":agents,"workspace_filesystem":super::workspace_fs::availability()}),
     ))
@@ -400,6 +402,7 @@ pub async fn start_turn(
             ));
         }
         turns.push(TurnRecord {
+            backend: backend.clone(),
             id: turn_id.clone(),
             parent_id: body.parent_id.clone(),
             prompt: prompt.clone(),

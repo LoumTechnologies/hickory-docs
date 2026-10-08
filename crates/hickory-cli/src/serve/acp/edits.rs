@@ -61,7 +61,30 @@ impl Edits {
         new_text: String,
         editor: bool,
     ) -> Result<String> {
-        let auto = *self.mode.lock().unwrap() == Mode::AutoAccept;
+        self.submit_with_policy(name, path, old_text, new_text, editor, false)
+            .await
+    }
+    /// Mandatory approval remains independent of a conversation's auto-accept policy.
+    pub async fn submit_review(
+        &self,
+        name: String,
+        path: Option<String>,
+        old_text: String,
+        new_text: String,
+    ) -> Result<String> {
+        self.submit_with_policy(name, path, old_text, new_text, false, true)
+            .await
+    }
+    async fn submit_with_policy(
+        &self,
+        name: String,
+        path: Option<String>,
+        old_text: String,
+        new_text: String,
+        editor: bool,
+        force_review: bool,
+    ) -> Result<String> {
+        let auto = !force_review && *self.mode.lock().unwrap() == Mode::AutoAccept;
         let id = format!("{:016x}", super::super::rand_id());
         let (tx, rx) = oneshot::channel();
         self.replies.lock().unwrap().insert(id.clone(), tx);

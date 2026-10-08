@@ -75,6 +75,7 @@ ci:
     cd apps/web && npm run typecheck && npm test -- --maxWorkers=2
     just install-test-browsers
     just test-browser-embedding
+    just test-python-agent
 
 # Hot reload for the homepage, separate from the desktop app's entry.
 dev-site:
@@ -447,6 +448,10 @@ test-agent-implementation:
 # Exercise the locked Python worker and real OS confinement without a model key.
 test-python-agent:
     scripts/check-python-agent.sh
+
+# Real-browser Python setup, proposal review, history and cancellation.
+test-python-agent-ui:
+    scripts/test-python-agent-ui.sh
 
 # Validate the local guarantee-maintainer skill metadata.
 validate-guarantee-skill SKILL_CREATOR_DIR:
