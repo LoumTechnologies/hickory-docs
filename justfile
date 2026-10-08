@@ -155,7 +155,9 @@ dist-desktop VERSION="" TARGET="":
 # Build and install the native macOS app in Applications (no disk image needed).
 local-install:
     #!/usr/bin/env bash
-    set -euo pipefail
+    set -Eeuo pipefail
+    phase="checking prerequisites"
+    trap 'status=$?; echo "local-install failed while $phase (exit $status). See ${log:-the output above}." >&2' ERR
     if [ "$(uname -s)" != Darwin ] || [ "$(uname -m)" != arm64 ]; then
       echo "local-install requires an Apple Silicon Mac." >&2
       exit 1
@@ -168,6 +170,12 @@ local-install:
       echo "local-install needs write access to /Applications." >&2
       exit 1
     fi
+    mkdir -p .dev
+    log="$PWD/.dev/local-install.log"
+    exec > >(tee "$log") 2>&1
+    echo "Install log: $log"
+    phase="building the release app"
+    echo "Building the release app (local ad-hoc signing; notarization is skipped)."
     if [ ! -d apps/web/node_modules ]; then
       npm --prefix apps/web ci
     fi
@@ -185,15 +193,20 @@ local-install:
       CI=true cargo tauri build --target aarch64-apple-darwin --bundles app --config ../../../.dev/desktop-cli.json
     )
     bundle="$CARGO_TARGET_DIR/aarch64-apple-darwin/release/bundle/macos/Hickory Docs.app"
+    phase="verifying the release signature"
+    echo "Verifying the release signature."
     codesign --verify --deep --strict "$bundle"
     destination="/Applications/Hickory Docs.app"
     # Copy completely before replacing the installed app; keep the previous
     # bundle until the replacement succeeds.
+    phase="staging the app for installation"
+    echo "Staging $destination."
     staging="$(mktemp -d /Applications/.hickory-install.XXXXXX)"
     trap 'rm -rf "$staging"' EXIT
     # Compile before replacing anything: no downloaded association utility.
     rustc --edition=2024 scripts/default-markdown-editor.rs -o "$staging/default-markdown-editor"
     ditto "$bundle" "$staging/Hickory Docs.app"
+    phase="replacing the installed app"
     if [ -e "$destination" ]; then
       mv "$destination" "$staging/previous.app"
     fi
@@ -201,8 +214,11 @@ local-install:
       if [ -e "$staging/previous.app" ]; then
         mv "$staging/previous.app" "$destination"
       fi
+      echo "Could not replace $destination; restored the previous app if present." >&2
       exit 1
     fi
+    phase="registering the installed app with macOS"
+    echo "Registering $destination with macOS."
     /System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -f "$destination"
     # Leave only the installed app for macOS to discover, after installation
     # succeeds. Unregister the build copy while its bundle still exists.
@@ -212,7 +228,13 @@ local-install:
       echo "Warning: macOS could not unregister the build copy; removing it anyway." >&2
     fi
     rm -rf "$bundle"
-    "$staging/default-markdown-editor" "$destination"
+    echo "Installed and registered $destination."
+    phase="setting the Markdown default"
+    if ! "$staging/default-markdown-editor" "$destination" "$CARGO_TARGET_DIR"; then
+      echo "Warning: Hickory Docs is installed, but its Markdown default could not be confirmed." >&2
+      echo "In Finder, select a .md file → Get Info → Open with → choose $destination → Change All…" >&2
+      echo "Default-editor diagnostics are in $log. No rebuild is needed to use the installed app." >&2
+    fi
     echo "Installed $destination. Launch Hickory Docs from Applications or Spotlight."
 
 # Run a hick document with the local executor.

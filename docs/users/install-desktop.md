@@ -74,8 +74,12 @@ certificate.
 The desktop bundles register Hickory Docs as an editor for `.md` files.
 On macOS, `just local-install` also makes it your default Markdown editor,
 so double-clicking a `.md` file in Finder opens it in Hickory Docs. Confirm
-the switch if macOS asks; reinstalling skips the request if it is already
-your default.
+the switch if macOS asks; reinstalling skips the request if the installed app
+is already your default. If macOS does not confirm the switch, installation
+still completes with a warning. Select a `.md` file in Finder and use
+**Get Info → Open with → Change All…**, choosing `/Applications/Hickory Docs.app`.
+The build, installation, and default-editor diagnostics are saved in
+`.dev/local-install.log` in the checkout (replaced on each run).
 
 For a drag-and-drop `.dmg` installation, choose Hickory Docs in Finder’s
 **Get Info → Open with → Change All…** for a Markdown file. On Windows or

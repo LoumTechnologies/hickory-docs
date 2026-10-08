@@ -10,10 +10,20 @@ The bundle declares `.md` files as Markdown documents with the Editor role.
 After registration, the installer checks the current user’s Markdown default
 through AppKit. If needed, it makes one asynchronous default-app request and
 waits for macOS’s consent prompt to finish before reading back the result.
-An existing Hickory Docs default needs no request or prompt. A successful
-installation makes Hickory Docs the default for opening `.md` files; it does
-not change the default for ordinary `.txt` files. An association failure
-reports an error rather than claiming installation completed.
+Before requesting the default, the helper unregisters other copies with the
+same bundle identifier within this checkout's Cargo target directory; those
+files are preserved. An existing default pointing at the installed app needs
+no request or prompt. The helper allows up to five seconds for readback after
+completion and never repeats the consent request. It does not change the
+default for ordinary `.txt` files.
+
+A default-editor failure does not fail an already installed and registered app.
+It warns that the association could not be confirmed and gives Finder's
+**Get Info → Open with → Change All…** recovery steps. Logs include the content
+type, requested and current app paths, registered copies, running Hickory apps,
+and any returned macOS error domain/code. Build and installation failures remain
+fatal and identify the failed phase. The recipe saves output to
+`.dev/local-install.log`, replaced on each run after prerequisites pass.
 
 Finder’s file-open URLs are handled both at startup and while the app is
 running. A startup request selects the file before the editor loads; later
@@ -39,6 +49,36 @@ previous pane arrangement and Welcome preference. See
 ---
 
 Last LLM verification:
+
+- Duplicate-default fix (2026-10-08, Codex): the user's report showed a
+  completed build and app replacement followed by a default-editor readback
+  failure. Independent AppKit inspection resolved Markdown to
+  `apps/desktop/src-tauri/target/debug/bundle/macos/Hickory Docs.app`, with no
+  Hickory process running. Both that copy and `/Applications/Hickory Docs.app`
+  were registered under the same bundle identifier. The earlier cleanup only
+  covered the release bundle; it assumed no other checkout build competed.
+  `scripts/default-markdown-editor.rs::BRIDGE` now unregisters registered
+  copies beneath the supplied Cargo target root without deleting them.
+  Running the helper changed the resolved default to the installed app without
+  a new consent request. `justfile::local-install` now treats association failure
+  as a warning after successful installation, as requested by the user, and
+  writes phase diagnostics and output to `.dev/local-install.log`.
+  Executed checks: full `just local-install` exited 0; strict bundle signature
+  verification passed within the recipe; an independent AppKit query for an
+  actual temporary `.md` file resolved to `/Applications/Hickory Docs.app`;
+  `.txt` still resolved to TextEdit. An isolated execution of the recipe's final
+  section with a helper forced to exit 1 retained exit 0 and printed the warning,
+  Finder recovery steps, and launch message. Helper compilation with warnings
+  denied, recipe `bash -n`, file-length check, and scoped `git diff --check`
+  passed. The full diff check found pre-existing trailing whitespace in
+  `apps/web/src/content/startup.md`, left untouched.
+  Coverage gaps: the new five-second asynchronous readback timeout and native
+  error/consent paths were reviewed and compiled but not forced on macOS;
+  running-app diagnostics were not exercised with a live Hickory process.
+  No human judgment of these changes has been recorded.
+  Inspected implementation SHA-256 (evidence becomes stale when these change):
+  `justfile`: `0a5d59b2e167da1770dd58dd2c84a614a97ae0f9e2bdb6f055dce7dc0f3126c8`.
+  `scripts/default-markdown-editor.rs`: `7e88f0fefa8a164c49991c8cda5872f04f940ff3b75a9dbece47bf1e08536970`.
 
 - Markdown defaults (2026-10-03, Codex): `just local-install` completed
   after the user accepted macOS’s switch confirmation. The installer helper

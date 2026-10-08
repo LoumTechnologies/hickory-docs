@@ -64,6 +64,10 @@ cd apps/web && npm install               # frontend deps
 Run `just local-install` from the repository. It builds the release app with
 its embedded UI, installs `/Applications/Hickory Docs.app`, and registers it
 with macOS. Re-run the command to replace the installed app with a fresh build.
+It also requests the Markdown default, unregistering competing checkout build
+copies first. If macOS cannot confirm the default, the app remains installed
+and the command prints a warning with Finder recovery steps. Full output is
+saved in `.dev/local-install.log` (replaced on each run).
 
 Launch **Hickory Docs** from Applications or Spotlight. The welcome pane opens
 by default, with your restored tabs still available. Uncheck “Show this page
