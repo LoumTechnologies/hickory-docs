@@ -23,6 +23,9 @@ echo "pre-commit: running ${checks[*]} (see scripts/affected-checks.sh)"
 status=0
 for check in "${checks[@]}"; do
   case "$check" in
+    python-agent)
+      scripts/check-python-agent.sh || status=1
+      ;;
     rust)
       cargo fmt --all -- --check || status=1
       cargo clippy --workspace --all-targets -- -D warnings || status=1

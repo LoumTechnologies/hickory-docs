@@ -45,6 +45,9 @@ fi
 if matches "apps/web/*"; then
   checks+=(web)
 fi
+if matches "apps/agent/*" || matches "scripts/check-python-agent.sh" || matches "crates/hickory-cli/src/python_agent*" || matches "crates/hickory-cli/src/agent_command.rs" || matches "crates/hickory-cli/tests/python_agent.rs" || matches "crates/hickory-cli/src/mcp*" || matches "crates/hickory-agent/*" || matches "crates/hickory-executor-sandbox/*"; then
+  checks+=(python-agent)
+fi
 # Not a docs-lint row: this repo's "rust" job also verifies docs/examples
 # drift (`hickory-cli check docs/`, `check examples/`) — a docs-only change
 # genuinely needs that, unlike a typical markdown-lint-only repo.
@@ -72,7 +75,7 @@ fi
 
 # Changes to the gate or its shared selector must exercise every branch.
 if matches ".githooks/*" || matches "scripts/affected-checks.sh"; then
-  checks+=(rust web desktop dev)
+  checks+=(rust web desktop dev python-agent)
 fi
 if matches "scripts/check-file-length.sh" || matches "scripts/file-length-baseline.txt"; then
   checks+=(rust web)

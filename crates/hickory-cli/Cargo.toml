@@ -4,6 +4,11 @@ version = "0.1.0"
 edition.workspace = true
 publish.workspace = true
 license.workspace = true
+default-run = "hick"
+
+[[bin]]
+name = "hickory-agent"
+path = "src/python_agent_main.rs"
 
 [[bin]]
 name = "hick"
@@ -104,7 +109,7 @@ tracing = "0.1"
 rpassword = "7"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "sync", "time", "process", "io-util"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "sync", "time", "process", "io-util", "signal"] }
 tower = "0.5"
 tower-http = { version = "0.6", features = ["fs"] }
 tokio-tungstenite = { version = "0.24", features = ["rustls-tls-webpki-roots"] }
@@ -127,3 +132,4 @@ hick-flow = { path = "../hick-flow", features = ["serde"] }
 # plain file read and needs no crate.
 [target.'cfg(unix)'.dependencies]
 xattr = "1"
+libc = "0.2"

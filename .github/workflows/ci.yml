@@ -18,6 +18,7 @@ jobs:
       run_web: ${{ steps.filter.outputs.run_web }}
       run_desktop: ${{ steps.filter.outputs.run_desktop }}
       run_dev: ${{ steps.filter.outputs.run_dev }}
+      run_python_agent: ${{ steps.filter.outputs.run_python_agent }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -29,6 +30,22 @@ jobs:
           echo "run_web=$(grep -qx web <<<"$checks" && echo true || echo false)" >> "$GITHUB_OUTPUT"
           echo "run_desktop=$(grep -qx desktop <<<"$checks" && echo true || echo false)" >> "$GITHUB_OUTPUT"
           echo "run_dev=$(grep -qx dev <<<"$checks" && echo true || echo false)" >> "$GITHUB_OUTPUT"
+          echo "run_python_agent=$(grep -qx python-agent <<<"$checks" && echo true || echo false)" >> "$GITHUB_OUTPUT"
+
+  python-agent:
+    needs: [changes]
+    if: always() && (github.event_name == 'push' || needs.changes.outputs.run_python_agent == 'true')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.96.1
+      - uses: Swatinem/rust-cache@v2
+      - uses: astral-sh/setup-uv@v6
+      - name: Enable the real process sandbox
+        run: |
+          sudo apt-get update && sudo apt-get install -y bubblewrap
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 || true
+      - run: scripts/check-python-agent.sh
 
   rust:
     needs: [changes]

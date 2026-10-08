@@ -815,7 +815,18 @@ fn call_create_doc_tool(project: &std::path::Path, args: &Value) -> Result<Strin
     } else {
         format!("{body}\n")
     };
-    std::fs::write(&full, &body).map_err(|e| format!("could not write {}: {e}", rel.display()))?;
+    let mut file = std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&full)
+        .map_err(|e| {
+            format!(
+                "could not create {} without overwriting: {e}",
+                rel.display()
+            )
+        })?;
+    file.write_all(body.as_bytes())
+        .map_err(|e| format!("could not write {}: {e}", rel.display()))?;
     Ok(format!(
         "created {} ({} bytes). It weaves {}. Read it with read_doc to get edit anchors, \
          and call verify to execute it.",

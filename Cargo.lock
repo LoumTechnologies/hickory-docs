@@ -3440,6 +3440,7 @@ dependencies = [
  "hickory-workspace",
  "ignore",
  "iroh",
+ "libc",
  "log",
  "notify",
  "protobuf",

@@ -2,6 +2,32 @@
 use super::*;
 
 impl Server {
+    pub(crate) fn agent_bridge(
+        root: PathBuf,
+        doc: Option<PathBuf>,
+        executor: Arc<dyn Executor>,
+        session: PathBuf,
+    ) -> Self {
+        Self {
+            root,
+            sessions: HashMap::new(),
+            executor,
+            params: Vec::new(),
+            default_doc: doc,
+            session_log: Some(session),
+            debuggers: crate::debug_sessions::Registry::new(),
+        }
+    }
+    pub(crate) async fn agent_revision(
+        &mut self,
+        args: &Value,
+    ) -> Result<(String, Vec<Value>), String> {
+        let doc = self.resolve_doc(args)?;
+        let session = self.session_for(&doc).await?;
+        session.refresh_source().await?;
+        Ok((session.revision(), session.source_snapshots()))
+    }
+
     pub(crate) fn set_default_doc(&mut self, doc: PathBuf) {
         self.default_doc = Some(doc);
     }

@@ -1,5 +1,4 @@
 //! Library core of the `hick` CLI.
-//!
 //! The binary (`src/main.rs`) is a thin argument parser over these functions,
 //! so the server can drive the same run/check/weave/render code paths via
 //! library calls instead of shelling out.
@@ -35,6 +34,7 @@ mod mcp_catalogue;
 pub mod merge_driver;
 pub mod open_app;
 pub mod output;
+pub mod python_agent;
 pub mod recipe;
 pub mod replay;
 pub mod scaffold;

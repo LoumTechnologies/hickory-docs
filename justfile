@@ -15,6 +15,7 @@ test:
     cargo build --workspace
     cargo build -p hickory-cli --example acp_fixture
     cargo test --workspace -- --test-threads=1
+    just test-python-agent
 
 # Confined tool installers and the diagnostics returned to the app.
 test-tool-install:
@@ -442,6 +443,10 @@ test-agent-implementation:
     cargo test -p hickory-agent -p hickory-cli --lib -- --test-threads=1
     cargo test -p hickory-agent --test edits_the_chain -- --test-threads=1
     cargo test -p hickory-cli --test agent_tools_e2e --test agent_cell_vertex --test session_lens --test transform_tests -- --test-threads=1
+
+# Exercise the locked Python worker and real OS confinement without a model key.
+test-python-agent:
+    scripts/check-python-agent.sh
 
 # Validate the local guarantee-maintainer skill metadata.
 validate-guarantee-skill SKILL_CREATOR_DIR:

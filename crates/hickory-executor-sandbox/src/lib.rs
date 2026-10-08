@@ -36,6 +36,7 @@
 //! be the worst outcome available: the user asked for isolation, believes
 //! they have it, and does not. The error names the platform's options.
 
+pub mod agent_process;
 #[cfg(windows)]
 pub mod appcontainer;
 pub mod policy;

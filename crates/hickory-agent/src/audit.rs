@@ -188,6 +188,14 @@ pub fn timeline(source: &str) -> Vec<Value> {
                     | "filesystem-access"
                     | "filesystem-write"
                     | "filesystem-refusal"
+                    | "python-model-request"
+                    | "python-action"
+                    | "python-observation"
+                    | "python-edit-proposal"
+                    | "python-edit-review"
+                    | "python-completion"
+                    | "python-rpc-refusal"
+                    | "python-runtime-failure"
             )
         {
             if let Ok(mut data) = serde_json::from_str::<Value>(&tag.text_content())

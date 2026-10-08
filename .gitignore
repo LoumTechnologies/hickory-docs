@@ -59,3 +59,5 @@ vmtest/.artifacts/
 code-models/*/node_modules/
 sessions/
 .hick-journal/
+/apps/agent/.venv/
+**/__pycache__/
