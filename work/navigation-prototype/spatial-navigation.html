@@ -1,0 +1,159 @@
+<div id="hickory-spatial-lab" aria-label="Hickory spatial navigation prototype">
+  <style>
+    #hickory-spatial-lab { --paper:light-dark(#f7f8fa,#1d2228);--panel:light-dark(#ffffff,#242a31);--ink:light-dark(#222c37,#e0e6ed);--quiet:light-dark(#566575,#a1acba);--edge:light-dark(#c7d0db,#434d59);--amber:light-dark(#9b6500,#efbb52);--teal:light-dark(#007a79,#4ac6be);--blue:light-dark(#356ab2,#83b5ef); color:var(--ink);background:var(--paper);font:14px/1.5 system-ui,sans-serif;border-radius:10px;overflow:hidden; }
+    #hickory-spatial-lab * { box-sizing:border-box; }
+    #hickory-spatial-lab button,#hickory-spatial-lab select { font:inherit;color:var(--ink);background:var(--panel);border:1px solid var(--edge);border-radius:5px;padding:5px 9px; }
+    #hickory-spatial-lab button[aria-pressed=true] { border-color:var(--blue);background:color-mix(in srgb,var(--blue) 18%,var(--panel)); }
+    #hickory-spatial-lab .chrome { padding:12px 16px;display:flex;gap:12px;align-items:center;flex-wrap:wrap;border-bottom:1px solid var(--edge); }
+    #hickory-spatial-lab .brand { font-weight:600;margin-right:auto; }
+    #hickory-spatial-lab .tag { color:var(--quiet);font-size:12px; }
+    #hickory-spatial-lab .chrome label { display:flex;gap:7px;align-items:center; }
+    #hickory-spatial-lab .viewport { height:650px;position:relative;overflow:hidden;touch-action:pan-y; }
+    #hickory-spatial-lab .world { position:absolute;inset:0;transform-origin:0 0;transition:transform var(--motion,650ms) cubic-bezier(.2,.7,.2,1); }
+    #hickory-spatial-lab .pane { position:absolute;background:var(--panel);border:1px solid var(--edge);border-radius:9px;box-shadow:0 10px 30px color-mix(in srgb,var(--ink) 8%,transparent);overflow:hidden;transition:transform var(--motion,650ms) cubic-bezier(.2,.7,.2,1),opacity .3s,border-color .3s; }
+    #hickory-spatial-lab .pane.active { border-color:var(--blue); }
+    #hickory-spatial-lab .pane.pinned { border-color:var(--teal); }
+    #hickory-spatial-lab .pane.focused { z-index:3; }
+    #hickory-spatial-lab .pane-head { display:flex;align-items:center;flex-wrap:wrap;gap:4px;padding:8px 10px;border-bottom:1px solid var(--edge);min-height:45px; }
+    #hickory-spatial-lab .pane-head .name { flex:1;min-width:0;overflow-wrap:anywhere;font-weight:500; }
+    #hickory-spatial-lab .pane-head button { font-size:12px;padding:3px 6px; }
+    #hickory-spatial-lab .agent { left:33%;top:4%;width:34%;height:64%; }
+    #hickory-spatial-lab .files { left:33%;top:71%;width:34%;height:25%; }
+    #hickory-spatial-lab .doc { width:28%;height:41%;display:flex;flex-direction:column; }
+    #hickory-spatial-lab .doc-content { padding:12px 16px;font-size:13px;flex:1;min-height:0;overflow:auto; }
+    #hickory-spatial-lab h3 { margin:6px 0 12px;font-size:19px;font-weight:600; }
+    #hickory-spatial-lab p { margin:10px 0 18px; }
+    #hickory-spatial-lab pre { font:12px/1.8 ui-monospace,SFMono-Regular,monospace;white-space:pre-wrap;overflow-wrap:anywhere;margin:0; }
+    #hickory-spatial-lab .code-line { display:block;padding:1px 3px; }
+    #hickory-spatial-lab .code-line.selected { background:color-mix(in srgb,var(--teal) 20%,var(--panel));border-left:3px solid var(--teal); }
+    #hickory-spatial-lab .line-number { color:var(--quiet);display:inline-block;width:25px; }
+    #hickory-spatial-lab .conversation { height:calc(100% - 45px);overflow-y:auto;padding:8px 22px 50px;scroll-behavior:smooth; }
+    #hickory-spatial-lab .turn { padding:16px 0 24px;min-height:195px;border-bottom:1px solid var(--edge); }
+    #hickory-spatial-lab .speaker { font-size:11px;font-weight:600;color:var(--quiet);letter-spacing:.07em; }
+    #hickory-spatial-lab .ref { border:0;background:transparent;color:var(--amber);padding:0;text-decoration:underline;text-underline-offset:3px; }
+    #hickory-spatial-lab .turn button.ref { font-size:13px; }
+    #hickory-spatial-lab .file-row { display:flex;align-items:center;gap:8px;width:100%;text-align:left;border:0;border-radius:0;background:transparent;padding:5px 12px;font:12px/1.4 ui-monospace,monospace; }
+    #hickory-spatial-lab .file-row:before { content:'◇';color:var(--teal); }
+    #hickory-spatial-lab .file-row.current { background:color-mix(in srgb,var(--blue) 12%,var(--panel)); }
+    #hickory-spatial-lab .doc-footer { padding:4px 12px;font-size:11px;color:var(--quiet);background:var(--panel);border-top:1px solid var(--edge); }
+    #hickory-spatial-lab .log { display:block;text-align:left;width:100%;font:12px/1.5 ui-monospace,monospace;color:var(--teal);margin:4px 0; }
+    #hickory-spatial-lab .links { position:absolute;inset:0;width:100%;height:100%;overflow:visible;pointer-events:none;z-index:5; }
+    #hickory-spatial-lab .links path { fill:none;stroke:var(--amber);stroke-width:1.7;stroke-dasharray:3 5; }
+    #hickory-spatial-lab .links .bracket { stroke-dasharray:none;stroke-width:2.7; }
+    #hickory-spatial-lab .links .runtime { stroke:var(--teal);stroke-dasharray:none; }
+    #hickory-spatial-lab .links .hit { stroke:transparent;stroke-width:17;pointer-events:stroke; }
+    #hickory-spatial-lab .bottom { padding:9px 16px;display:flex;align-items:center;gap:14px;flex-wrap:wrap;border-top:1px solid var(--edge);font-size:12px;color:var(--quiet); }
+    #hickory-spatial-lab .bottom button { font-size:12px; }
+    #hickory-spatial-lab .legend { display:flex;align-items:center;gap:6px; }
+    #hickory-spatial-lab .swatch { width:22px;border-top:2px dotted var(--amber); }
+    #hickory-spatial-lab .swatch.execution { border-top:2px solid var(--teal); }
+    #hickory-spatial-lab .status { flex:1; }
+    #hickory-spatial-lab .reading-strip { display:none;padding:8px 12px;gap:8px;flex-wrap:wrap; }
+    #hickory-spatial-lab .doc.focused .doc-content { font-size:14px; }
+    #hickory-spatial-lab .doc.focused .pane-head .name { font-size:14px;flex-basis:auto; }
+    #hickory-spatial-lab .doc.focused h3 { font-size:19px; }
+    @media(max-width:600px) { #hickory-spatial-lab .viewport { height:640px; } #hickory-spatial-lab .agent,#hickory-spatial-lab .files { left:24%;width:52%; } #hickory-spatial-lab .doc { width:21%; } #hickory-spatial-lab .doc .pane-head { padding:5px; } #hickory-spatial-lab .doc .pane-head .name { font-size:11px;flex-basis:100%; } #hickory-spatial-lab .doc-content { padding:8px;font-size:11px; } #hickory-spatial-lab .doc h3 { font-size:14px; } #hickory-spatial-lab .doc .pane-head button { padding:3px;font-size:11px; } #hickory-spatial-lab .reading-strip { display:flex; } }
+    @media(prefers-reduced-motion:reduce) { #hickory-spatial-lab .world,#hickory-spatial-lab .pane { transition:none; } #hickory-spatial-lab .conversation { scroll-behavior:auto; } }
+  </style>
+  <div class="chrome">
+    <div class="brand">Hickory Docs <span class="tag">/ Navigation lab · sample workspace</span></div>
+    <label>Movement <select id="hsl-mode"><option value="spatial">Spatial zoom</option><option value="accordion">Accordion</option><option value="parallax" selected>Conversation parallax</option></select></label>
+    <button type="button" class="cursor-interaction" data-action="overview">Zoom out</button>
+    <button type="button" class="cursor-interaction" data-focus="agent">Return to agent</button>
+  </div>
+  <div class="reading-strip"><button type="button" data-focus="meeting">Meeting</button><button type="button" data-focus="summary">Summary</button><button type="button" data-focus="pipeline">Pipeline</button><button type="button" data-focus="worker">Worker</button></div>
+  <div class="viewport">
+    <div class="world">
+      <section class="pane agent" data-pane="agent" aria-label="Agent conversation">
+        <div class="pane-head"><span class="name">Agent</span><span class="tag">4 turns</span><button type="button" data-focus="agent">Zoom in</button></div>
+        <div class="conversation">
+          <article class="turn" data-turn="0"><div class="speaker">YOU · 1</div><p>What did we decide about retries in yesterday’s meeting?</p><div class="speaker">AGENT</div><p data-anchor="meeting">The team chose three retries, with a delay between attempts. The decision is in the <button type="button" class="ref" data-link="meeting">meeting notes</button>.</p><p data-anchor="summary">I recorded the decision in <button type="button" class="ref" data-link="summary">retry-policy.md</button>.</p></article>
+          <article class="turn" data-turn="1"><div class="speaker">YOU · 2</div><p>Show me how that becomes code.</p><div class="speaker">AGENT</div><p data-anchor="pipeline">The <button type="button" class="ref" data-link="pipeline">pipeline document</button> emits the worker. This cell prints each attempt as it runs.</p><p data-anchor="worker">The woven <button type="button" class="ref" data-link="worker">worker.py</button> keeps a connection back to its source.</p></article>
+          <article class="turn" data-turn="2"><div class="speaker">YOU · 3</div><p>Run it. Where did this output come from?</p><div class="speaker">AGENT</div><p>Sample stdout · <code>hick:exec</code></p><button type="button" class="log" data-log="1">attempt=1 delay=0.5s ↗</button><button type="button" class="log" data-log="2">attempt=2 delay=1.0s ↗</button><button type="button" class="log" data-log="3">attempt=3 delay=2.0s ↗</button><p class="tag">Select an event to follow its bracket to the print statement.</p></article>
+          <article class="turn" data-turn="3"><div class="speaker">YOU · 4</div><p>Keep the implementation beside the conversation while I review the decision.</p><div class="speaker">AGENT</div><p data-anchor="summary">Compare the <button type="button" class="ref" data-link="summary">written policy</button> with the implementation.</p><p data-anchor="pipeline">Pin <button type="button" class="ref" data-link="pipeline">pipeline.md</button> to either side. It will stay put as the conversation moves.</p></article>
+        </div>
+      </section>
+      <section class="pane files" data-pane="files" aria-label="Files"><div class="pane-head"><span class="name">Files</span><button type="button" data-focus="files">Zoom in</button></div><button type="button" class="file-row" data-link="meeting">meeting.md</button><button type="button" class="file-row" data-link="summary">retry-policy.md</button><button type="button" class="file-row" data-link="pipeline">pipeline.md</button><button type="button" class="file-row" data-link="worker">worker.py</button></section>
+      <section class="pane doc" data-pane="meeting" aria-label="Meeting notes"><div class="pane-head"><span class="name">meeting.md</span><button type="button" data-focus="meeting">Zoom in</button><button type="button" data-pin="meeting" data-side="left" aria-label="Pin meeting.md left">← Pin</button><button type="button" data-pin="meeting" data-side="right" aria-label="Pin meeting.md right">Pin →</button></div><div class="doc-content"><h3>Retry review</h3><p>Oct 7 · engineering</p><p data-dest="meeting">Maya: Three attempts should cover transient failures. Add exponential backoff so we don’t flood the downstream service.</p><p>Sam: Agreed. Log each attempt so we can inspect a failed run.</p></div><div class="doc-footer">Context · what the agent was shown</div></section>
+      <section class="pane doc" data-pane="summary" aria-label="Retry policy"><div class="pane-head"><span class="name">retry-policy.md</span><button type="button" data-focus="summary">Zoom in</button><button type="button" data-pin="summary" data-side="left" aria-label="Pin retry-policy.md left">← Pin</button><button type="button" data-pin="summary" data-side="right" aria-label="Pin retry-policy.md right">Pin →</button></div><div class="doc-content"><h3>Retry policy</h3><p data-dest="summary">Retry transient failures up to three times, with exponential backoff.</p><p>Log the attempt number and delay before each attempt.</p><p><code>cites="meeting.md"</code></p></div><div class="doc-footer">Declared · cited decision</div></section>
+      <section class="pane doc" data-pane="pipeline" aria-label="Pipeline source"><div class="pane-head"><span class="name">pipeline.md</span><button type="button" data-focus="pipeline">Zoom in</button><button type="button" data-pin="pipeline" data-side="left" aria-label="Pin pipeline.md left">← Pin</button><button type="button" data-pin="pipeline" data-side="right" aria-label="Pin pipeline.md right">Pin →</button></div><div class="doc-content"><h3>Retry worker</h3><pre><span class="code-line"><span class="line-number">7</span>&lt;hick:file path="worker.py"&gt;</span><span class="code-line"><span class="line-number">8</span>for attempt in range(1, 4):</span><span class="code-line"><span class="line-number">9</span>    delay = 0.5 * 2 ** (attempt - 1)</span><span class="code-line" data-dest="pipeline"><span class="line-number">10</span>    print(f"attempt={attempt} delay={delay}s")</span><span class="code-line"><span class="line-number">11</span>    retry(delay)</span><span class="code-line"><span class="line-number">12</span>&lt;/hick:file&gt;</span><span class="code-line"><span class="line-number">14</span>&lt;hick:exec command="python worker.py" /&gt;</span></pre></div><div class="doc-footer">Source · line 10 prints the sample events</div></section>
+      <section class="pane doc" data-pane="worker" aria-label="Generated worker"><div class="pane-head"><span class="name">worker.py</span><button type="button" data-focus="worker">Zoom in</button><button type="button" data-pin="worker" data-side="left" aria-label="Pin worker.py left">← Pin</button><button type="button" data-pin="worker" data-side="right" aria-label="Pin worker.py right">Pin →</button></div><div class="doc-content"><h3>Woven output</h3><pre><span class="code-line"><span class="line-number">1</span>for attempt in range(1, 4):</span><span class="code-line"><span class="line-number">2</span>    delay = 0.5 * 2 ** (attempt - 1)</span><span class="code-line" data-dest="worker"><span class="line-number">3</span>    print(f"attempt={attempt} delay={delay}s")</span><span class="code-line"><span class="line-number">4</span>    retry(delay)</span></pre><p><button type="button" class="ref" data-source="pipeline">Trace line 3 to pipeline.md:10</button></p></div><div class="doc-footer">Lineage · generated from pipeline.md</div></section>
+    </div>
+    <svg class="links" role="img" aria-label="Brackets connecting conversation passages and runtime events to document lines"></svg>
+  </div>
+  <div class="bottom"><button type="button" data-step="-1">↑ Earlier turn</button><button type="button" data-step="1">↓ Later turn</button><span class="status" aria-live="polite">Turn 1 · meeting and policy</span><span class="legend"><span class="swatch"></span>Context / citation</span><span class="legend"><span class="swatch execution"></span>Execution / lineage</span></div>
+  <script>
+  (() => {
+    const root=document.getElementById('hickory-spatial-lab'), viewport=root.querySelector('.viewport'), world=root.querySelector('.world'), svg=root.querySelector('.links'), conversation=root.querySelector('.conversation');
+    const ids=['meeting','summary','pipeline','worker'], base={meeting:['left',0],summary:['right',0],pipeline:['left',1],worker:['right',1]};
+    const settings={mode:'parallax',parallax:38,duration:650,follow:true,linkAction:'zoom'};
+    const state={focus:null,turn:0,pins:{},event:null}; let frame=0,until=0,scrollTimer;
+    function save() { if(window.openai?.setWidgetState) window.openai.setWidgetState({modelContent:{movement:settings.mode,parallax:settings.parallax,ribbonAction:settings.linkAction,pinned:state.pins,focused:state.focus,turn:state.turn},privateContent:{settings,state,scrollTop:conversation.scrollTop}}).catch(()=>{}); }
+    function restore(saved) { const v=saved?.privateContent; if(!v)return; if(v.settings)Object.assign(settings,v.settings); if(v.state)Object.assign(state,v.state); conversation.scrollTop=v.scrollTop||0; render(); }
+    function pane(id) { return root.querySelector('[data-pane="'+id+'"]'); }
+    function setFocus(id) { state.focus=id;render();save(); }
+    function reveal(id,runtime=false) { if(runtime)state.event=state.event||'1'; if(settings.linkAction==='beside'){ state.pins[id]=base[id][0];state.focus=null; }else state.focus=id;render();save(); }
+    function render() {
+      root.style.setProperty('--motion',settings.duration+'ms');root.querySelector('#hsl-mode').value=settings.mode;
+      const narrow=viewport.clientWidth<600;
+      ids.forEach(id=>{
+        const el=pane(id),side=state.pins[id]||base[id][0], slot=base[id][1];
+        const group=ids.filter(other=>(state.pins[other]||base[other][0])===side);const position=group.indexOf(id);
+        el.classList.toggle('focused',narrow&&state.focus===id);
+        el.style.width=narrow&&state.focus===id?'calc(100% - 32px)':narrow?'21%':'28%';
+        el.style.left=side==='left'?(narrow?'1%':'2%'):(narrow?'78%':'70%');
+        el.style.top=(4+(group.length>2?position*28:position*47))+'%';
+        el.style.height=group.length>2?'27%':'41%';
+        const relevant=state.turn===0?['meeting','summary'].includes(id):state.turn===3?['summary','pipeline'].includes(id):['pipeline','worker'].includes(id);
+        const offset=settings.mode==='parallax'&&!state.pins[id]?-(state.turn*settings.parallax+(conversation.scrollTop%195)*.12):0;
+        el.style.transform='translateY('+offset+'px)'+(settings.mode==='accordion'&&!state.pins[id]?' perspective(950px) rotateY('+(side==='left'?14:-14)+'deg) scale(.94)':'');
+        if(narrow&&state.focus===id){el.style.left='16px';el.style.top='20px';el.style.height='calc(100% - 40px)';el.style.transform='none';}
+        el.style.opacity=settings.follow&&!relevant&&!state.pins[id]&&state.focus!==id?'.55':'1';el.classList.toggle('pinned',!!state.pins[id]);el.classList.toggle('active',state.focus===id||relevant);
+        el.querySelectorAll('[data-pin]').forEach(b=>{const pressed=state.pins[id]===b.dataset.side;b.setAttribute('aria-pressed',pressed);b.textContent=pressed?'Unpin':b.dataset.side==='left'?'← Pin':'Pin →';});
+      });
+      root.querySelectorAll('.file-row').forEach(el=>el.classList.toggle('current',state.focus===el.dataset.link));
+      root.querySelector('[data-dest="pipeline"]').classList.toggle('selected',!!state.event);root.querySelector('[data-dest="worker"]').classList.toggle('selected',!!state.event);
+      const W=viewport.clientWidth,H=viewport.clientHeight;
+      if(!state.focus)world.style.transform='translate(0px,0px) scale(1)';
+      else { const el=pane(state.focus); if(el){const scale=Math.min((W-48)/el.offsetWidth,(H-48)/el.offsetHeight,2.9);world.style.transform='translate('+(W/2-(el.offsetLeft+el.offsetWidth/2)*scale)+'px,'+(H/2-(el.offsetTop+el.offsetHeight/2)*scale)+'px) scale('+scale+')';} }
+      const turns=['meeting and policy','source and woven code','stdout → print statement','policy and implementation'];
+      root.querySelector('.status').textContent=state.event?'Sample event '+state.event+' → worker.py:3 → pipeline.md:10':'Turn '+(state.turn+1)+' · '+turns[state.turn];
+      animateLinks();
+    }
+    function point(el,side){const r=el.getBoundingClientRect(),v=viewport.getBoundingClientRect();return {x:(side==='left'?r.left:r.right)-v.left,y:r.top-v.top+r.height/2,top:r.top-v.top,bottom:r.bottom-v.top};}
+    function drawLink(a,b,color,dest){
+      if(!a||!b)return;const ar=a.getBoundingClientRect(),br=b.getBoundingClientRect(),vr=viewport.getBoundingClientRect();
+      if(ar.bottom<vr.top+45||ar.top>vr.bottom||br.bottom<vr.top||br.top>vr.bottom)return;
+      const left=br.left+br.width/2<ar.left+ar.width/2;const p=point(a,left?'left':'right'),q=point(b,left?'right':'left');
+      p.top=Math.max(p.top,vr.top-vr.top+2);p.bottom=Math.min(p.bottom,viewport.clientHeight-2);p.y=(p.top+p.bottom)/2;
+      const sign=left?-1:1,x=p.x+sign*6,end=q.x-sign*6,delta=Math.abs(end-x)*.55;
+      const d='M '+x+' '+p.y+' C '+(x+sign*delta)+' '+p.y+', '+(end-sign*delta)+' '+q.y+', '+end+' '+q.y;
+      const bracket='M '+(x-sign*6)+' '+p.top+' H '+x+' V '+p.bottom+' H '+(x-sign*6)+' M '+(end+sign*6)+' '+q.top+' H '+end+' V '+q.bottom+' H '+(end+sign*6);
+      const ns='http://www.w3.org/2000/svg';for(const [path,cls] of [[d,color],[bracket,'bracket '+color],[d,'hit']]){const e=document.createElementNS(ns,'path');e.setAttribute('d',path);e.setAttribute('class',cls);if(cls==='hit'){e.classList.add('cursor-interaction');e.addEventListener('click',()=>reveal(dest));}svg.append(e);}
+    }
+    function draw(){svg.replaceChildren();svg.setAttribute('viewBox','0 0 '+viewport.clientWidth+' '+viewport.clientHeight);
+      const turn=root.querySelector('[data-turn="'+state.turn+'"]');turn.querySelectorAll('[data-anchor]').forEach(a=>drawLink(a,root.querySelector('[data-dest="'+a.dataset.anchor+'"]'),'context',a.dataset.anchor));
+      if(state.turn===2||state.event){const a=root.querySelector('[data-log="'+(state.event||'1')+'"]');drawLink(a,root.querySelector('[data-dest="pipeline"]'),'runtime','pipeline');}
+      if(state.focus==='worker'||state.focus==='pipeline'||state.turn===1||state.event)drawLink(root.querySelector('[data-dest="worker"]'),root.querySelector('[data-dest="pipeline"]'),'runtime','pipeline');
+    }
+    function animateLinks(){until=performance.now()+settings.duration+80;if(frame)return;const run=()=>{draw();if(performance.now()<until)frame=requestAnimationFrame(run);else frame=0;};frame=requestAnimationFrame(run);}
+    root.addEventListener('click',e=>{const b=e.target.closest('button');if(!b)return;
+      if(b.dataset.focus)setFocus(b.dataset.focus);
+      else if(b.dataset.action==='overview')setFocus(null);
+      else if(b.dataset.pin){const id=b.dataset.pin;if(state.pins[id]===b.dataset.side)delete state.pins[id];else state.pins[id]=b.dataset.side;state.focus=null;render();save();}
+      else if(b.dataset.log){state.event=b.dataset.log;reveal('pipeline',true);}
+      else if(b.dataset.source){state.event='1';reveal('pipeline',true);}
+      else if(b.dataset.link)reveal(b.dataset.link);
+      else if(b.dataset.step){state.event=null;state.turn=Math.max(0,Math.min(3,state.turn+Number(b.dataset.step)));conversation.scrollTo({top:root.querySelector('[data-turn="'+state.turn+'"] ').offsetTop-conversation.offsetTop,behavior:'smooth'});render();save();}
+    });
+    root.querySelector('#hsl-mode').addEventListener('change',e=>{settings.mode=e.target.value;state.focus=null;render();save();});
+    conversation.addEventListener('scroll',()=>{const top=conversation.getBoundingClientRect().top;let best=Infinity,index=0;root.querySelectorAll('[data-turn]').forEach(el=>{const distance=Math.abs(el.getBoundingClientRect().top-top);if(distance<best){best=distance;index=Number(el.dataset.turn);}});state.turn=index;state.event=null;render();clearTimeout(scrollTimer);scrollTimer=setTimeout(save,180);});
+    root.querySelectorAll('.doc-content').forEach(el=>el.addEventListener('scroll',animateLinks));
+    root.addEventListener('keydown',e=>{if(e.key==='Escape')setFocus(null);});
+    new ResizeObserver(render).observe(viewport);
+    render();restore(window.openai?.widgetState);
+    window.addEventListener('openai:set_globals',e=>restore(e.detail?.globals?.widgetState));
+    if(globalThis.Tweak){const tweak=new Tweak({container:root,onChange:()=>{render();save();}});tweak.addSelect(settings,'mode',{label:'Navigation movement',options:[{label:'Spatial zoom',value:'spatial'},{label:'Accordion',value:'accordion'},{label:'Conversation parallax',value:'parallax'}]});tweak.addSlider(settings,'parallax',{label:'Parallax distance',min:0,max:60,unit:'px'});tweak.addSlider(settings,'duration',{label:'Zoom duration',min:0,max:1200,step:50,unit:'ms'});tweak.addToggle(settings,'follow',{label:'Emphasize files linked to visible turn'});tweak.addSelect(settings,'linkAction',{label:'Clicking a bracket',options:[{label:'Zoom to the source',value:'zoom'},{label:'Pin beside the agent',value:'beside'}]});}
+  })();
+  </script>
+</div>
