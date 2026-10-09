@@ -254,3 +254,11 @@ describe("a table's remembered size", () => {
     expect(emptyUi().tables).toEqual({});
   });
 });
+
+// Guarantee: docs/guarantees/lineage/a-ribbon-crosses-documents.md.
+it("restores the Agent pane in a custom arrangement", () => {
+  const layout = { root: { type: "split", id: "split", direction: "row", sizes: [0.5, 0.5], children: [
+    onePane.root, { type: "pane", id: "agent", active: 0, tabs: [{ id: "chat", kind: "chat", target: "chat" }] },
+  ] }, focus: "agent" };
+  expect(panes(normalizeUi(stored(layout)).layout!.root).map(p => p.tabs[0].kind)).toEqual(["document", "chat"]);
+});

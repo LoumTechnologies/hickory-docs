@@ -224,3 +224,25 @@ its context fold closed and the final claim's connection visible. The screenshot
 `/tmp/hickory-untitled-answer-ribbon.png` was inspected. The final `just test-web` passes all 1,948 tests, including the scrolling-parent
 clipping adjustment. The file-length check passes. `just build-desktop-app`
 builds the macOS debug bundle and its deep, strict code-signature check passes. These are fixture ACP sessions, not a paid Codex model call.
+
+Amended 2026-10-08: the Agent **pane** participates in the workspace overlay's
+stacking order. It must not inherit the floating dock's raised layer, which
+covered the connection's source brace where it reached the specific conversation
+item. The floating dock retains its own stacking level. The pane correction
+changes neither receipt spans nor connection visibility.
+
+Requirement: after the Files endpoint clipping fix, the user reported that the
+other brace disappeared behind the Agent pane instead of reaching its item.
+Inspection found `.chat-dock` at z-index 20 and the ribbon overlay at 3; a flex
+item's z-index creates a stacking context even without positioned layout. The
+specific `.chat-dock.chat-dock--pane` rule in `DocumentReading.css` resets this
+inherited stacking level. The existing `ConversationEditor` source ranges and
+`linkShapes` brace construction already identify the answer's item.
+
+Implementation review: Codex inspected the styles and source anchoring and
+visually inspected the corrected Chromium screenshot. The fixture ACP browser
+flow in `e2e/literate-editor.spec.ts` probes a point on the source brace **inside**
+the Agent pane with `elementFromPoint`, asserting that the brace's hit path is
+above the pane. This regression failed with the inherited dock stacking level
+and passed with the pane override. Human judgment and the installed native-app
+presentation have not been rechecked; the native app was not rebuilt.

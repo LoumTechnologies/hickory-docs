@@ -102,6 +102,7 @@ const VIEW_KINDS: ReadonlySet<string> = new Set<ViewKind>([
   "untitled",
   "scratchpad",
   "terminal",
+  "chat",
 ]);
 
 const isRecord = (v: unknown): v is Record<string, unknown> =>

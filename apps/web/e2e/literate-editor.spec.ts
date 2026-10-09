@@ -167,6 +167,20 @@ test("an ACP final claim about the startup Untitled note has a visible context r
   await agent.locator(".cm-line").filter({ hasText: "The second paragraph has the most characters." }).scrollIntoViewIfNeeded();
   const ribbon = page.locator(".ribbon-group--context").filter({ has: page.locator("title", { hasText: "editor snapshot of Untitled" }) });
   await expect(ribbon.locator("path.ribbon, path.ribbon-brace-link").last()).toBeVisible();
+  // The source brace must be painted over its Agent item, not behind dock chrome.
+  const sourceBrace = ribbon.last().locator("path.ribbon-brace:not(.ribbon-brace-link)").first();
+  const endpoint = await sourceBrace.evaluate(element => {
+    const path = element as SVGPathElement;
+    const local = path.getPointAtLength(2);
+    const point = new DOMPoint(local.x, local.y).matrixTransform(path.getScreenCTM()!);
+    const hit = document.elementFromPoint(point.x, point.y);
+    const pane = document.querySelector('.chat-dock--pane')!.getBoundingClientRect();
+    return { x: point.x, paneLeft: pane.left, paneRight: pane.right,
+      hit: hit?.getAttribute("class"), visible: hit?.classList.contains("ribbon-brace-hit") ?? false };
+  });
+  expect(endpoint.x).toBeGreaterThan(endpoint.paneLeft);
+  expect(endpoint.x).toBeLessThan(endpoint.paneRight);
+  expect(endpoint.visible).toBe(true);
   await expect(page.locator(".untitled-tab")).toContainText("Hickory");
   await page.screenshot({ path: "/tmp/hickory-untitled-answer-ribbon.png", fullPage: true });
   expect(errors).toEqual([]);
@@ -228,3 +242,85 @@ test("an inactive literate view prompts before close and writes its code when Sa
   await expect.poll(async () => (await (await page.request.get("/api/file?path=code.py")).json()).content).toBe("value = 42\n");
   await expect(page.getByRole("tab", { name: /Literate view/ })).toHaveCount(0);
 });
+
+// Guarantee: docs/guarantees/lineage/a-ribbon-crosses-documents.md.
+test("a long Files row keeps its ribbon endpoint inside the actual scrollport", async ({ page }) => {
+  test.skip(!process.env.HICKORY_E2E_URL, "Use just test-literate-editor.");
+  await page.goto("/");
+  const row = page.locator('[data-tree-path="code.py"]');
+  await expect(row).toBeVisible();
+  // Force the existing Files editor to overflow just as a long file name does.
+  await page.addStyleTag({ content: '.filesystem-editor .cm-line { min-width: 1000px; } .filesystem-editor .cm-scroller::-webkit-scrollbar { width: 15px; height: 15px; }' });
+  const measure = () => page.evaluate(async () => {
+    const modulePath = "/src/shell/Ribbons.tsx";
+    const { findTerminal, attachTerminal } = await import(/* @vite-ignore */ modulePath);
+    const row = document.querySelector<HTMLElement>('[data-tree-path="code.py"]')!;
+    const scroller = row.closest<HTMLElement>(".cm-scroller")!;
+    const scrollBox = scroller.getBoundingClientRect();
+    const terminal = findTerminal(document.body, "file", "code.py");
+    const attachment = attachTerminal(terminal, new DOMRect(), 1800, { yTop: 100, yBot: 200 }, true, { x: 1790, y: 150 }, -1);
+    return { rowRight: row.getBoundingClientRect().right, right: terminal.rect.right,
+      left: terminal.rect.left, visibleRight: scrollBox.left + scroller.clientLeft + scroller.clientWidth,
+      visibleLeft: scrollBox.left + scroller.clientLeft, connector: attachment.connector };
+  });
+  const before = await measure();
+  expect(before.rowRight).toBeGreaterThan(before.visibleRight + 100);
+  expect(before.right).toBeLessThanOrEqual(before.visibleRight);
+  expect(before.connector.x + before.connector.width).toBe(before.right);
+  await row.evaluate(element => { element.closest(".cm-scroller")!.scrollLeft = 100; });
+  const after = await measure();
+  expect(after.right).toBe(before.right);
+  expect(after.left).toBeGreaterThanOrEqual(after.visibleLeft);
+});
+
+// Guarantee: docs/guarantees/lineage/a-ribbon-crosses-documents.md.
+for (const order of [["editor", "files", "agent"], ["files", "editor", "agent"], ["agent", "files", "editor"]]) {
+  test(`a brace opens its file toward the arrow: ${order.join(" | ")}`, async ({ page }) => {
+    test.setTimeout(45_000);
+    test.skip(!process.env.HICKORY_E2E_URL || !process.env.HICKORY_ACP_FIXTURE, "Use just test-literate-editor.");
+    const created = await page.request.post("/api/projects/local/docs", { data: { path: `direction-${order.join("-")}.md`, source: "# Directional opening\n" } });
+    expect(created.ok()).toBeTruthy(); const note = await created.json();
+    const entries = {
+      editor: { id: "editor-tab", kind: "document", target: note.path, docId: note.id, title: "Direction note" },
+      files: { id: "files-tab", kind: "tree", target: "folder", title: "Files" },
+      agent: { id: "agent-tab", kind: "chat", target: "chat", title: "Agent" },
+    };
+    const children = order.map(id => ({ type: "pane", id, tabs: [entries[id as keyof typeof entries]], active: 0 }));
+    const stored = await page.request.put("/api/workspace/ui", { data: { state: { version: 1, wrap: {}, zoom: {}, tables: {}, layout: {
+      root: { type: "split", id: "direction-root", direction: "row", children, sizes: order.map(id => id === "files" ? 0.16 : 0.42) }, focus: "agent",
+    } } } });
+    expect(stored.ok()).toBeTruthy();
+    await page.request.put("/api/agents", { data: [{ id: "fixture", name: "Fixture", command: process.env.HICKORY_ACP_FIXTURE, args: [] }] });
+    await page.goto(`/#/docs/${note.id}`);
+    const agent = page.getByRole("region", { name: "Agent chat" }); await expect(agent).toBeVisible();
+    if (await agent.getByRole("button", { name: "New thread", exact: true }).isVisible())
+      await agent.getByRole("button", { name: "New thread", exact: true }).click();
+    const editorPane = page.getByRole("tab", { name: "Direction note" }).locator("xpath=ancestor::*[contains(@class, 'shell-pane')][1]");
+    const editorId = await editorPane.getAttribute("data-shell-pane-id");
+    await agent.getByRole("button", { name: "Agent settings" }).click();
+    await page.getByRole("combobox", { name: "Agent", exact: true }).selectOption("fixture");
+    await page.getByRole("combobox", { name: "Agent", exact: true }).press("Escape");
+    const response = agent.getByRole("textbox", { name: "Agent conversation and response" });
+    await response.click(); await response.press("ControlOrMeta+End"); await response.pressSequentially("ribbon-file");
+    await agent.getByRole("button", { name: "Send", exact: true }).click();
+    await expect(response).toContainText("See");
+    const brace = page.locator(".ribbon-group--declared").filter({ has: page.locator("title", { hasText: "code.py" }) }).last().locator("path.ribbon-brace-link");
+    await expect(brace).toBeVisible();
+    const point = await brace.evaluate(element => {
+      const path = element as SVGPathElement;
+      for (const fraction of [0.25, 0.4, 0.6, 0.75]) {
+        const local = path.getPointAtLength(path.getTotalLength() * fraction);
+        const screen = new DOMPoint(local.x, local.y).matrixTransform(path.getScreenCTM()!);
+        const hit = document.elementFromPoint(screen.x, screen.y);
+        if (hit?.classList.contains("ribbon-brace-hit") && hit.parentElement === path.parentElement)
+          return { x: screen.x, y: screen.y };
+      }
+      throw new Error("No unobscured click point on the declared connection");
+    });
+    await page.mouse.click(point.x, point.y);
+    const file = page.locator('[data-shell-tab-kind="file"][data-shell-tab-target="code.py"]');
+    await expect(file).toBeVisible();
+    expect(await file.locator("xpath=ancestor::*[@data-shell-pane-id][1]").getAttribute("data-shell-pane-id")).toBe(editorId);
+    await expect(agent).toBeVisible();
+  });
+}

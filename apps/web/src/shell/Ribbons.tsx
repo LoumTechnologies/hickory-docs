@@ -1,10 +1,6 @@
 // Provenance ribbons, drawn between panes — and out to files that are not
 // open yet.
 //
-// The old Split view drew these between three fixed columns and carried its
-// own file tree to do it, which made the chrome depend on the arrangement.
-// Here they are an overlay over whatever panes exist.
-//
 // Three kinds of band:
 //
 //   * A **ribbon** runs from a block in the document to the text it produced,
@@ -46,6 +42,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { BlockType } from "@codemirror/view";
 import type { EditorView } from "@codemirror/view";
+import { ribbonOpenIntent, type RibbonOpenIntent } from "./ribbonNavigation";
 import { linkShapes } from "./linkShapes";
 import { preciseTargetBeneath } from "../lib/ribbonClickThrough";
 import { highlightLines } from "../editor/lineHighlight";
@@ -63,6 +60,7 @@ import {
   ribbonTerminalPath,
   terminalEdge,
 } from "../lib/ribbonGeometry";
+import { visibleElementRect } from "../lib/visibleElementRect";
 import { pickTerminal } from "../lib/terminalPriority";
 import type { RibbonStyle } from "../lib/ribbonStyle";
 import { caretTouches, type RibbonVisibility } from "../lib/ribbonVisibility";
@@ -276,16 +274,9 @@ export interface Terminal {
  * simply not rendered) is not a terminal anyone can see, and the connection
  * must fall through to the divider port instead.
  */
-function visibleTreeRow(
-  container: HTMLElement,
-  target: string,
-): HTMLElement | null {
+function visibleTreeRow(container: HTMLElement, target: string): DOMRect | null {
   const row = terminalEl(container, `[data-tree-path=${attr(target)}]`);
-  if (!row) return null;
-  const rect = row.getBoundingClientRect();
-  const clip = row.closest(".shell-pane__body")?.getBoundingClientRect();
-  if (clip && (rect.bottom <= clip.top || rect.top >= clip.bottom)) return null;
-  return row;
+  return row ? visibleElementRect(row) : null;
 }
 
 /**
@@ -324,7 +315,7 @@ export function findTerminal(
       // A tree row is a wide, short row: connections land on its near
       // vertical edge, exactly the way a side tab takes them.
       return {
-        rect: row!.getBoundingClientRect(),
+        rect: row!,
         ends: "tree",
         vertical: true,
       };
@@ -508,7 +499,7 @@ export function RibbonOverlay({
    * blocks (the default) or all the time (lib/ribbonVisibility.ts).
    */
   visibility?: RibbonVisibility;
-  onNavigate?: (target: RibbonTarget) => void;
+  onNavigate?: (target: RibbonTarget, intent?: RibbonOpenIntent) => void;
 }) {
   const [shapes, setShapes] = useState<Shape[]>([]);
   const frame = useRef<number | null>(null);
@@ -1071,6 +1062,7 @@ export function RibbonOverlay({
     for (const scroller of scrollers) {
       scroller.addEventListener("scroll", schedule, { passive: true });
     }
+    container?.addEventListener("scroll", schedule, true);
     window.addEventListener("resize", schedule);
     // The caret is a thing that moves, so it belongs on this list. One
     // document-level listener catches every way of moving it in every pane —
@@ -1084,6 +1076,7 @@ export function RibbonOverlay({
     return () => {
       for (const scroller of scrollers)
         scroller.removeEventListener("scroll", schedule);
+      container?.removeEventListener("scroll", schedule, true);
       window.removeEventListener("resize", schedule);
       document.removeEventListener("selectionchange", schedule);
       observer.disconnect();
@@ -1155,7 +1148,7 @@ export function RibbonOverlay({
                 beneath.click();
                 return;
               }
-              onNavigate?.(shape.target);
+              onNavigate?.(shape.target, ribbonOpenIntent(container, shape.hl[0]?.view.dom, shape.target));
             }}
           >
             {chrome && shape.reveal && (

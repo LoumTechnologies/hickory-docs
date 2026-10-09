@@ -353,7 +353,7 @@ test-conversation-lineage:
     cargo test -p hickory-cli --test session_lens -- --test-threads=1
     cargo build -p hickory-cli --example acp_fixture
     cargo test -p hickory-cli --test serve_acp an_uncited_acp_answer -- --test-threads=1
-    cd apps/web && npm run typecheck && npm test -- src/components/FeatureSettings.test.tsx src/components/ChatDock.test.tsx src/components/AcpControls.test.tsx src/views/SessionLens.test.tsx src/lib/conversationLineage.test.ts src/lib/lensSources.test.ts src/shell/linkShapes.test.ts src/views/workspaceRibbonSources.test.ts src/lib/editorBufferTargets.test.ts src/lib/paths.test.ts src/editor/folding.test.ts src/views/ConversationEditor.test.tsx
+    cd apps/web && npm run typecheck && npm test -- src/components/FeatureSettings.test.tsx src/components/ChatDock.test.tsx src/components/AcpControls.test.tsx src/views/SessionLens.test.tsx src/lib/conversationLineage.test.ts src/lib/lensSources.test.ts src/shell/linkShapes.test.ts src/lib/visibleElementRect.test.ts src/shell/ribbonNavigation.test.ts src/views/workspaceRibbonSources.test.ts src/lib/editorBufferTargets.test.ts src/lib/paths.test.ts src/editor/folding.test.ts src/views/ConversationEditor.test.tsx
 
 # Compile the frontend bundled into desktop builds.
 build-web:

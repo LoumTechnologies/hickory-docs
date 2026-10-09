@@ -364,13 +364,13 @@ export function expandPane(layout: Layout, paneId: string): Layout {
  * The new pane takes the focus, because splitting is how a person says "and
  * also show me…", and what they mean by it is next.
  */
-export function split(layout: Layout, paneId: string, direction: "row" | "column"): Layout {
+export function split(layout: Layout, paneId: string, direction: "row" | "column", before = false): Layout {
   const fresh = emptyPane(paneById(layout, paneId)?.region);
   const root = replace(layout.root, paneId, (pane) => ({
     type: "split",
     id: nextId("split"),
     direction,
-    children: [pane, fresh],
+    children: before ? [fresh, pane] : [pane, fresh],
     sizes: [0.5, 0.5],
   }));
   return { root: root ?? layout.root, focus: fresh.id };

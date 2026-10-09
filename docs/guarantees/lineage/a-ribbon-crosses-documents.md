@@ -56,3 +56,77 @@ Last LLM verification:
   (`ribbonSources`, `docIdByPath`, `openDocumentByPath`, document ports).
 - Test coverage: `apps/web/src/lib/ribbons.test.ts` covers derivation; the
   multi-source overlay is not unit-tested (it measures DOM) — LLM/manual review.
+
+Amended 2026-10-08: a Files-tree endpoint uses the **visible part** of its
+row, clipped on both axes by every scrolling or clipping ancestor. Scrollport
+bounds exclude borders and scrollbar space. A long row must not place the
+endpoint behind the neighboring pane; horizontally scrolling the Files pane
+keeps the endpoint on the visible row edge. A fully clipped row falls through
+to the divider port. Scrolling the tree schedules an immediate overlay update.
+This applies to lineage, context and declared links in both brace and band mode.
+
+Requirement: the user's screenshot and clarification identified a connection
+ending behind a neighboring pane when the Files pane was narrow. The initial
+interpretation as excessive context connections was corrected; the proposed
+Input-marker presentation was removed. The implemented correction preserves
+existing ribbon visibility and styling. Assumption: ancestor client rectangles
+are the visible bounds for the current, untransformed shell layout. Rotated or
+scaled custom hosts are outside this verification; they are not used by the
+shell. This fixes endpoint geometry, not the semantic validity of a citation.
+
+Implementation review: Codex inspected `Ribbons::findTerminal`,
+`visibleElementRect` and `attachTerminal`. Previously only vertical visibility
+against the pane body was checked, and the full row rectangle was then used.
+`visibleElementRect.test.ts` checks an overflowing 600px row in a 145px client
+scrollport, horizontal scrolling, nested clipping, scrollbar exclusion and
+fully hidden rows. Its DOM measurements are controlled unit fixtures. The
+browser regression `literate-editor.spec.ts` separately uses the real Files
+editor with horizontal overflow and measures the browser's actual client area.
+Human judgment of the corrected native-app presentation remains pending.
+
+Executed checks: 12 focused geometry/terminal tests passed; the real Chromium
+Files-editor regression passed before and after horizontal scrolling;
+TypeScript checking and the file-length check passed. The installed desktop
+binary was not rebuilt. These results describe the implementation above and
+must be rechecked when its clipping or endpoint calculations change.
+
+Directional opening (2026-10-08): clicking any
+brace or band opens its destination on the side indicated by the connection,
+independently of the currently focused pane. An already-open destination is
+activated in its existing pane. Otherwise the nearest visible editor in that
+direction takes the new tab; panes currently showing Files, Agent or another
+tool are not replaced. If no editor exists on that side, an editor pane is
+created beside the source on that side. Horizontal and vertical arrangements
+use the same rule, including Document | Files | Agent and its mirror. An
+explicit connection destination takes precedence over ordinary focus-based or
+region-based opening. Target line/span reveal remains part of navigation.
+
+Requirement: the user reported a file opening over Agent after clicking its
+connection, and asked for direction-based opening for **all** braces. The
+implementation reads the source pane and the existing target tab or visible
+file-tree/port endpoint before navigation changes focus. Direction is the
+largest center displacement between the source pane and destination. Among
+editors in that direction, distance and perpendicular separation choose the
+nearest aligned editor. This is an explicit geometric interpretation; a person
+has not yet judged ambiguous diagonal layouts. Existing targets are activated,
+not moved or duplicated. Normal non-connection opens retain their prior routing.
+
+Implementation review: `ribbonNavigation::{ribbonOpenIntent, prepareRibbonOpen}`
+is called by the common `RibbonOverlay` click handler for every provenance
+family and both rendering styles. `WorkspaceView` carries the selected pane
+through plain-file, document (including asynchronous loads), and generated-file
+openers. `layout::split` can place a new editor before or after its source.
+The custom layout's Agent tab survives restoration via `uiState::VIEW_KINDS`;
+it had been omitted from the accepted kinds. Routing tests cover mirrored and
+vertical arrangements, ordinary editor provenance, preserved Agent tabs, and
+creating a missing editor on each of four sides. Chromium fixture flows click
+a declared connection to a closed file in three real restored arrangements.
+These fixture sessions do not involve an authenticated model call. Human
+judgment of the resulting native-app behavior remains pending.
+
+Executed checks for directional opening: 166 focused frontend tests passed;
+TypeScript and file-length checks passed. Five Chromium flows passed, including
+the three directional arrangements, the Files clipping regression, and the
+Agent-side brace stacking regression. The ACP fixture compiled successfully.
+These checks apply to the inspected source; subsequent routing or layout
+changes require rechecking. The installed desktop app was not rebuilt.

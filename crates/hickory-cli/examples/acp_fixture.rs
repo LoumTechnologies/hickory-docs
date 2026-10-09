@@ -88,6 +88,13 @@ async fn main() {
                     result(id, json!({"stopReason":"end_turn"}));
                     continue;
                 }
+                if prompt == "ribbon-file" {
+                    update(
+                        json!({"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"See [code.py](code.py:1)."}}),
+                    );
+                    result(id, json!({"stopReason":"end_turn"}));
+                    continue;
+                }
                 update(
                     json!({"sessionUpdate":"agent_thought_chunk","content":{"type":"text","text":"Checking the document."}}),
                 );

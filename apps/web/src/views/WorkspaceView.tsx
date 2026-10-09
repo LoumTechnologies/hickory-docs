@@ -84,6 +84,7 @@ import {
   type Layout,
   type Tab,
 } from "../shell/layout";
+import { paneBoxes, prepareRibbonOpen } from "../shell/ribbonNavigation";
 import { regionsOf } from "../shell/layouts";
 import type { Region } from "../shell/layout";
 import { navigate, redirect, type Route, newDocument } from "../router";
@@ -156,7 +157,7 @@ import { totalProblems } from "../lib/problems";
 import { EditorView } from "@codemirror/view";
 import { TAB_ZOOM_VAR } from "../lib/zoom";
 import { requestFlushSaves } from "../lib/flushSaves";
-import { openLocation, onOpenLocation, onShowTerminal, pathOfDocUri, revealLine } from "../lib/revealLine";
+import { onOpenLocation, onShowTerminal, pathOfDocUri, revealLine } from "../lib/revealLine";
 import { rankFiles } from "../lib/fileRanking";
 import { allFileProblems, useFileProblemsVersion } from "../lib/fileProblems";
 import { formatOnSave, loadFormatOnSave } from "../lib/formatOnSave";
@@ -406,19 +407,19 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
   focusedIdRef.current = focusedId;
   const focused = registry.get(focusedId);
   // ---- opening --------------------------------------------------------------
-  const openGeneratedFor = useCallback((docId: string, path: string) => {
+  const openGeneratedFor = useCallback((docId: string, path: string, into?: string) => {
     const already = panesOf(layoutRef.current.root).some((pane) =>
       pane.tabs.some((t) => t.kind === "generated" && t.target === path),
     );
     setLayout((current) =>
-      openGeneratedTab(current, docId, path, regionsRef.current),
+      openGeneratedTab(current, docId, path, regionsRef.current, into),
     );
     if (already) flashTab("generated", path);
   }, []);
   /** Open a plain file — same "ensure open" a document gets, no owner. */
-  const openPlainFile = useCallback((path: string) => {
+  const openPlainFile = useCallback((path: string, into?: string) => {
     const already = findFileTab(layoutRef.current, path) !== null;
-    setLayout((current) => openFileTab(current, path));
+    setLayout((current) => openFileTab(current, path, into));
     if (already) flashTab("file", path);
   }, []);
   // The tree tells us the identity change, not merely that its listing is
@@ -450,7 +451,7 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
     const tab = existing?.pane.tabs[existing.index];
     if (tab) flashTab("document", tab.target);
   }, []);
-  const ensureDocOpen = useCallback((id: string) => {
+  const ensureDocOpen = useCallback((id: string, into?: string) => {
     if (findDocTab(layoutRef.current, id)) {
       setLayout((current) => activateDocTab(current, id) ?? current);
       flashDocTab(id);
@@ -464,7 +465,7 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
           flashDocTab(id);
           return;
         }
-        if (isWorkspaceEmpty(current)) {
+        if (!into && isWorkspaceEmpty(current)) {
           const declared = regionsOf(doc.source);
           if (declared.length > 0) {
             setRegions(declared);
@@ -475,14 +476,14 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
         setLayout((l) =>
           findDocTab(l, id)
             ? (activateDocTab(l, id) ?? l)
-            : openDocTab(l, id, doc.path),
+            : openDocTab(l, id, doc.path, into),
         );
       },
       () => {
         // A document that will not load still gets a tab: the session's
         // error, with its message, renders there — a workspace is not the
         // right thing to take down over one bad id in a URL.
-        setLayout((l) => (findDocTab(l, id) ? l : openDocTab(l, id, id)));
+        setLayout((l) => (findDocTab(l, id) ? l : openDocTab(l, id, id, into)));
       },
     );
   }, []);
@@ -588,18 +589,18 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
    * would eventually disagree.
    */
   const openHit = useCallback(
-    (path: string, line: number) => {
+    (path: string, line: number, into?: string) => {
       if (openBufferTarget(path, line, layoutRef.current, setLayout, setInsertNotice)) return;
       const document = registry.all().find((session) => session.doc && samePath(session.doc.path, path));
       if (document) {
-        ensureDocOpen(document.docId);
+        ensureDocOpen(document.docId, into);
         navigate(`/docs/${document.docId}`);
         document.revealDocLine(Math.max(0, line - 1));
         return;
       }
       const output = registry.all().find((session) => session.openOutputs.has(path));
       if (output) {
-        openGeneratedFor(output.docId, path);
+        openGeneratedFor(output.docId, path, into);
         revealLine(path, line);
         return;
       }
@@ -608,14 +609,14 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
         ? fileAction(node, new Set(openableOutputsRef.current.keys()))
         : ({ kind: "file", path } as const);
       if (action.kind === "doc") {
-        ensureDocOpen(action.id);
+        ensureDocOpen(action.id, into);
         navigate(`/docs/${action.id}`);
       } else if (action.kind === "generated") {
         const owner =
           action.docId ?? openableOutputsRef.current.get(action.path);
-        if (owner) openGeneratedFor(owner, action.path);
+        if (owner) openGeneratedFor(owner, action.path, into);
       } else if (action.kind === "file") {
-        openPlainFile(action.path);
+        openPlainFile(action.path, into);
       }
       revealLine(path, line);
     },
@@ -948,12 +949,12 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
     }
     return set;
   }, [layout]);
-  const reopenFocusedDocument = useCallback(() => {
+  const reopenFocusedDocument = useCallback((into?: string) => {
     const session = registry.get(focusedIdRef.current);
     if (!session?.doc) return;
     const { id, path } = session.doc;
     const already = findDocTab(layoutRef.current, id) !== null;
-    setLayout((current) => openDocTab(current, id, path));
+    setLayout((current) => openDocTab(current, id, path, into));
     if (already) flashTab("document", path);
   }, [registry]);
   /**
@@ -982,12 +983,12 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [registry, registry.version]);
   const openDocumentByPath = useCallback(
-    (path: string, span?: [number, number]) => {
+    (path: string, span?: [number, number], into?: string) => {
       const live = registry
         .all()
         .find((s) => s.doc && samePath(s.doc.path, path));
       if (live) {
-        ensureDocOpen(live.docId);
+        ensureDocOpen(live.docId, into);
         if (span) {
           if (live.docEditor) live.onSelectSpan(span);
           else pendingSelect.current = { path, span };
@@ -996,7 +997,7 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
       }
       const { id } = docIdByPath(path);
       if (span) pendingSelect.current = { path, span };
-      if (id) ensureDocOpen(id);
+      if (id) ensureDocOpen(id, into);
       else focusTreeRef.current();
     },
     [registry, ensureDocOpen, docIdByPath],
@@ -1737,10 +1738,6 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
                 Open a file from the Files tree, or split another pane.
               </span>
             }
-            // Every tab body is wrapped in its own zoom box. A pane's level
-            // is a font size on that box and nothing else moves — which is
-            // the point of a tab-scoped zoom: the furniture staying put is
-            // what makes it usable for one dense file.
             render={(tab) => (
               <div
                 className="tab-zoom"
@@ -1755,7 +1752,7 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
             )}
           />
           {/* Where this text came from, drawn between the panes showing it.
-              Not a layout: an overlay, following the focused document. */}
+              Following the focused document. */}
           <RibbonOverlay
             container={shellBox}
             sources={ribbonSources}
@@ -1769,12 +1766,14 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
             layers={drawnLayers}
             ribbonStyle={ribbonStyle}
             visibility={ribbonVisibility}
-            onNavigate={(target) => {
+            onNavigate={(target, intent) => {
+              const routed = prepareRibbonOpen(layoutRef.current, paneBoxes(shellBox), intent);
+              layoutRef.current = routed;
+              setLayout(routed);
+              const into = intent ? routed.focus : undefined;
               const session = registry.get(focusedIdRef.current);
-              // Clicking a band IS the navigation.
               if (target.kind === "path") {
-                // A context/declared far end: a document or a plain file.
-                openLocation(target.path, target.lines?.[0] ?? 1);
+                openHit(target.path, target.lines?.[0] ?? 1, into);
                 return;
               }
               if (!session) return;
@@ -1784,14 +1783,14 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
                 // at a port or an inactive tab rather than at visible prose.
                 // Another document's bytes open THAT document.
                 if (session.doc && !samePath(target.path, session.doc.path)) {
-                  openDocumentByPath(target.path, target.span);
+                  openDocumentByPath(target.path, target.span, into);
                   return;
                 }
-                if (!session.docEditor) reopenFocusedDocument();
+                if (!session.docEditor) reopenFocusedDocument(into);
                 session.onSelectSpan(target.span);
                 return;
               }
-              openGeneratedFor(session.docId, target.path);
+              openGeneratedFor(session.docId, target.path, into);
               session.revealOutput(target.path, target.range);
             }}
           />
