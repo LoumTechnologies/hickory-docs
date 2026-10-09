@@ -3,94 +3,179 @@ const assert = require('node:assert/strict');
 const path = require('node:path');
 const { pathToFileURL } = require('node:url');
 (async () => {
- const browser=await chromium.launch();const page=await browser.newPage({viewport:{width:1100,height:950}});const errors=[];
+ const browser=await chromium.launch(),page=await browser.newPage({viewport:{width:1100,height:950}}),errors=[];
  page.on('pageerror',e=>errors.push(e.message));
  await page.goto(pathToFileURL(path.join(__dirname,'preview.html')).href);
- const frame=page.frames().find(f=>f.parentFrame());await frame.waitForSelector('[data-pane="agent"]');
- await page.waitForTimeout(900);
- assert(await frame.locator('.links path').count()>0);
- assert.equal(await frame.locator('.doc.collapsed').count(),4,'documents start as filenames');
- const rects=()=>frame.evaluate(()=>Object.fromEntries([...document.querySelectorAll('.doc')].map(el=>{const r=el.getBoundingClientRect();return [el.dataset.pane,{x:r.x,y:r.y,width:r.width,height:r.height}];})));
- const unchanged=(before,after,label)=>{for(const id of Object.keys(before))for(const key of ['x','y','width','height'])assert(Math.abs(before[id][key]-after[id][key])<.2,`${label}: ${id}.${key} moved from ${before[id][key]} to ${after[id][key]}`);};
- await frame.locator('[data-step="1"]').click();await page.waitForTimeout(950);
- const beforePin=await rects();
- await frame.locator('[data-pin="pipeline"]').click();await page.waitForTimeout(900);
- unchanged(beforePin,await rects(),'pin in place');
- assert.match(await frame.locator('[data-pane="pipeline"]').getAttribute('class'),/pinned/);
- await frame.locator('[data-step="-1"]').click();await page.waitForTimeout(950);
- const whilePinned=await rects();
- unchanged({pipeline:beforePin.pipeline},{pipeline:whilePinned.pipeline},'pinned during scrolling');
- assert(Math.abs(whilePinned.worker.y-beforePin.worker.y)>5,'unpinned neighbor should move with the conversation');
- await frame.locator('[data-pin="pipeline"]').click();await page.waitForTimeout(900);
- unchanged(whilePinned,await rects(),'unpin without jumping');
- await frame.locator('[data-step="1"]').click();await page.waitForTimeout(950);
- assert(Math.abs((await rects()).pipeline.y-whilePinned.pipeline.y)>5,'unpin should resume parallax from the released position');
- // Freeze the transform partway through its animation, rather than its destination.
- const duringAnimation=await frame.evaluate(async()=>{
-   const doc=document.querySelector('[data-pane="worker"]'),scroll=document.querySelector('.conversation');scroll.scrollTop+=120;
-   await new Promise(resolve=>setTimeout(resolve,120));const before=doc.getBoundingClientRect();document.querySelector('[data-pin="worker"]').click();const after=doc.getBoundingClientRect();
-   return {before:{x:before.x,y:before.y},after:{x:after.x,y:after.y}};
+ const f=page.frames().find(f=>f.parentFrame());await f.waitForSelector('.source-scroll');
+ const watchOverlap=async frame=>frame.evaluate(()=>{window.windowOverlaps=[];const sample=()=>{const stage=document.querySelector('.stage').getBoundingClientRect(),small=stage.width<480,lower=document.querySelector('.center').getBoundingClientRect().bottom+20;const windows=[...document.querySelectorAll('.view:not([hidden]),.header-extension:not([hidden]),.center')].filter(el=>getComputedStyle(el).visibility!=='hidden').map(el=>{const r=el.getBoundingClientRect();return {id:el.dataset.view||el.dataset.headerExtension||el.className,x:Math.max(stage.left,r.left),right:Math.min(stage.right,r.right),y:Math.max(stage.top,r.top,small&&el.classList.contains('view')?lower:stage.top),bottom:Math.min(stage.bottom,r.bottom)};}).filter(r=>r.right>r.x&&r.bottom>r.y);for(let i=0;i<windows.length;i++)for(let j=i+1;j<windows.length;j++){const a=windows[i],b=windows[j];if(a.id===b.id)continue;if(Math.min(a.right,b.right)-Math.max(a.x,b.x)>.1&&Math.min(a.bottom,b.bottom)-Math.max(a.y,b.y)>.1&&window.windowOverlaps.length<12)window.windowOverlaps.push({a,b});}requestAnimationFrame(()=>setTimeout(sample,0));};sample();});
+ await watchOverlap(f);
+ const settle=()=>page.waitForTimeout(650);
+ const rect=selector=>f.locator(selector).evaluate(el=>{const r=el.getBoundingClientRect();return {x:r.x,y:r.y,w:r.width,h:r.height};});
+ const same=(a,b,label)=>{for(const key of ['x','y','w','h'])assert(Math.abs(a[key]-b[key])<.3,`${label}: ${key} ${a[key]} → ${b[key]}`);};
+ const scroll=async top=>{await f.locator('.source-scroll').evaluate((el,top)=>{el.style.scrollBehavior='auto';el.scrollTop=top;},top);await settle();};
+ const drop=async(locator,x,y)=>{const b=await locator.boundingBox();assert(b);await page.mouse.move(b.x+b.width/2,b.y+b.height/2);await page.mouse.down();await page.mouse.move(x,y,{steps:12});await page.mouse.up();await settle();};
+ const drag=async(locator,dx,dy)=>{const b=await locator.boundingBox();await drop(locator,b.x+b.width/2+dx,b.y+b.height/2+dy);};
+ assert.equal(await f.locator('#hsl-edges').inputValue(),'manual');assert.equal(await f.locator('[data-view="a0"]').getAttribute('data-auto-expanded'),'false','default is filename only');assert((await rect('[data-view="a0"]')).h<40);assert.equal(await f.locator('.view .tile-resize').count(),0,'resize dividers live outside windows');await f.locator('#hsl-edges').selectOption('auto');
+ await f.locator('#hsl-passing').selectOption('continuous');await settle();assert.equal(await f.getByRole('button',{name:/zoom/i}).count(),0);assert(await f.locator('.links path.context').count()>0);
+ assert.equal(await f.locator('[data-view="a0"]').getAttribute('data-auto-expanded'),'true');
+ await scroll(350);assert.equal(await f.locator('[data-view="a0"]').getAttribute('data-auto-expanded'),'false','edge collapse');
+ await scroll(0);assert.equal(await f.locator('[data-view="a0"]').getAttribute('data-auto-expanded'),'true','expand away from edge');
+ const allViews=()=>f.evaluate(()=>Object.fromEntries([...document.querySelectorAll('.view:not([hidden])')].map(el=>{const r=el.getBoundingClientRect();return [el.dataset.view,{x:r.x,y:r.y,w:r.width,h:r.height}];})));const beforeAll=await allViews();const beforeContent=await rect('[data-view="a0"] .view-content');assert(await f.locator('[data-resize="a0"]').first().isVisible(),'resize handles exist before pinning');const before=await rect('[data-view="a0"]');const tabBefore=await rect('.rail.left [data-passage="a0"]');await f.locator('[data-pin="a0"]').click();await settle();same(tabBefore,await rect('.rail.left [data-passage="a0"]'),'parallax filename freezes without jumping');same(before,await rect('[data-view="a0"]'),'pin');same(beforeContent,await rect('[data-view="a0"] .view-content'),'pin preserves content geometry');const afterAll=await allViews();for(const id of Object.keys(beforeAll))same(beforeAll[id],afterAll[id],'pin moves no view '+id);
+ assert.equal(await f.locator('.rail.left [data-tab="a0"]').count(),1);
+ await scroll(350);same(before,await rect('[data-view="a0"]'),'scroll with pin');assert(await f.locator('.view.passing').count()>0);
+ for(const el of await f.locator('.view.passing').all()){const r=await el.boundingBox(),p=await f.locator('[data-view="a0"]').boundingBox();assert(r.x+r.width<=p.x||r.x>=p.x+p.width,'outside bypass corridor');}
+ const released=await rect('[data-view="a0"]');await f.locator('[data-pin="a0"]').click();await settle();same(released,await rect('[data-view="a0"]'),'unpin');
+ assert.equal(await f.locator('.rail.left [data-tab="a0"]').count(),0);await scroll(450);assert(Math.abs((await rect('[data-view="a0"]')).y-released.y)>5);
+ // Release commits the exact preview, including the sidebar header, without retiling.
+ await scroll(0);await f.locator('[data-pin="a0"]').click();await f.locator('[data-pin="a1"]').click();await settle();
+ const allocation=await rect('[data-view="a0"]'),handleDrop=await f.locator('[data-view="a0"] .view-name').boundingBox();
+ await page.mouse.move(handleDrop.x+20,handleDrop.y+10);await page.mouse.down();await page.mouse.move(handleDrop.x+20,handleDrop.y+70,{steps:10});
+ const previewDrop=await rect('[data-view="a0"]'),previewTab=await rect('[data-passage="a0"]'),otherPin=await rect('[data-view="a1"]');
+ await page.mouse.up();await settle();same(previewDrop,await rect('[data-view="a0"]'),'drop retains preview');same(previewTab,await rect('[data-passage="a0"]'),'drop retains sidebar location');same(otherPin,await rect('[data-view="a1"]'),'drop does not redistribute pins');
+ await f.locator('.rail.right .rail-scroll [data-rail-file="rail-right-worker"]').click();await settle();
+ // Exact-edit permission and expandable context.
+ await f.locator('.rail.left .rail-scroll [data-rail-file="rail-left-meeting"]').click();await settle();
+ const noPinOverlap=()=>f.evaluate(()=>{
+   const pins=[...document.querySelectorAll('.view.pinned')].map(el=>({side:el.dataset.side,r:el.getBoundingClientRect()}));
+   return pins.every((a,i)=>pins.slice(i+1).every(b=>a.side!==b.side||a.r.bottom<=b.r.top+.3||b.r.bottom<=a.r.top+.3));
  });
- assert(Math.abs(duringAnimation.before.y-duringAnimation.after.y)<.2,'pin mid-animation must not jump');
- await page.waitForTimeout(950);const stopped=await rects();
- assert(Math.abs(stopped.worker.y-duringAnimation.after.y)<.2,'pinned animation must remain stopped');
- await frame.locator('[data-pin="worker"]').click();await page.waitForTimeout(900);
- unchanged(stopped,await rects(),'release mid-animation snapshot');
- await frame.locator('[data-action="overview"]').click();
- await frame.evaluate(()=>document.querySelector('.conversation').scrollTop=0);await page.waitForTimeout(950);
- await frame.locator('[data-pin="pipeline"]').click();
- // Expand the pinned filename in place, then grow and shrink context independently.
- const collapsed=(await rects()).pipeline;
- await frame.locator('[data-pane="pipeline"] button[data-toggle]:not(.name)').click();
- const expanded=(await rects()).pipeline;
- assert(Math.abs(expanded.x-collapsed.x)<.2&&Math.abs(expanded.y-collapsed.y)<.2,'expanding a pinned view keeps its location');
- assert(expanded.height>collapsed.height);
- const lineCount=()=>frame.locator('[data-pane="pipeline"] [data-line]').count();const initialLines=await lineCount();
- await frame.locator('[data-expand="pipeline"][data-edge="above"]').click();assert((await lineCount())>initialLines);
- await frame.locator('[data-shrink="pipeline"][data-edge="above"]').click();assert.equal(await lineCount(),initialLines);
- await frame.locator('[data-expand="pipeline"][data-edge="below"]').click();assert((await lineCount())>initialLines);
- await frame.locator('[data-shrink="pipeline"][data-edge="below"]').click();assert.equal(await lineCount(),initialLines);
- const drag=async(locator,dx,dy)=>{const box=await locator.boundingBox();assert(box);await page.mouse.move(box.x+box.width/2,box.y+box.height/2);await page.mouse.down();await page.mouse.move(box.x+box.width/2+dx,box.y+box.height/2+dy,{steps:10});await page.mouse.up();await page.waitForTimeout(100);};
- const beforeDrag=(await rects()).pipeline;
- await drag(frame.locator('[data-pane="pipeline"] .name'),35,-35);
- const afterDrag=(await rects()).pipeline;
- assert(Math.abs(afterDrag.x-beforeDrag.x-35)<1&&Math.abs(afterDrag.y-beforeDrag.y+35)<1,'pinned view follows manual drag');
- assert(!((await frame.locator('[data-pane="pipeline"]').getAttribute('class')).includes('collapsed')),'drag must not toggle expansion');
- const beforeResize=(await rects()).pipeline;
- await drag(frame.locator('[data-resize="pipeline"]'),50,35);
- const afterResize=(await rects()).pipeline;
- assert(Math.abs(afterResize.width-beforeResize.width-50)<1&&Math.abs(afterResize.height-beforeResize.height-35)<1,'resize corner changes pinned view size');
- assert(Math.abs(afterResize.x-beforeResize.x)<.2&&Math.abs(afterResize.y-beforeResize.y)<.2,'resize keeps top-left fixed');
- await frame.locator('[data-resize="pipeline"]').press('ArrowRight');assert((await rects()).pipeline.width>afterResize.width);
- assert.equal(await frame.locator('.pin-index [data-reveal="pipeline"]').count(),1);
- await frame.locator('#hsl-rail').selectOption('vertical');assert.match(await frame.locator('.workspace').getAttribute('class'),/vertical/);
- await frame.locator('.pin-index [data-reveal="pipeline"]').click();
- await frame.locator('#hsl-rail').selectOption('horizontal');
- const dropBox=await frame.locator('.viewport').boundingBox(),fileBox=await frame.locator('.file-row[data-link="meeting"]').boundingBox();
- await page.mouse.move(fileBox.x+fileBox.width/2,fileBox.y+fileBox.height/2);await page.mouse.down();await page.mouse.move(dropBox.x+170,dropBox.y+150,{steps:12});await page.mouse.up();await page.waitForTimeout(150);
- assert.match(await frame.locator('[data-pane="meeting"]').getAttribute('class'),/pinned/,'dragging a file places a pinned view');
- assert(!((await frame.locator('[data-pane="meeting"]').getAttribute('class')).includes('collapsed')));
- const afterDrop=await rects();await frame.locator('[data-pin="meeting"]').click();await page.waitForTimeout(150);unchanged(afterDrop,await rects(),'unpin after manually placing a file');
- await frame.locator('[data-step="1"]').click();await page.waitForTimeout(950);
- assert.match(await frame.locator('.status').textContent(),/Turn 2/);
- await frame.locator('[data-step="1"]').click();await page.waitForTimeout(950);
- await frame.locator('[data-log="2"]').click();await page.waitForTimeout(850);
- assert.match(await frame.locator('[data-dest="pipeline"]').getAttribute('class'),/selected/);
- assert(await frame.locator('[data-dest="pipeline"]').isVisible(),'log source must be revealed inside its expanded view');
- assert.match(await frame.locator('.world').getAttribute('style'),/scale\((?!1\))/);
- await frame.locator('[data-action="overview"]').click();await page.waitForTimeout(850);
- await frame.locator('#hsl-mode').selectOption('accordion');await page.waitForTimeout(850);
- assert.match(await frame.locator('[data-pane="summary"]').getAttribute('style'),/rotateY/);
- await frame.locator('#hsl-mode').selectOption('parallax');await page.waitForTimeout(850);
+ assert(await noPinOverlap(),'short-tile drops must keep pinned allocations separate');
+ const focal=f.locator('[data-view="rail-left-meeting"] [data-dest]'),original=await focal.textContent();
+ await f.locator('[data-propose="rail-left-meeting"]').click();assert.equal(await focal.textContent(),original);
+ await f.locator('[data-permission="deny"]').click();assert.equal(await focal.textContent(),original);
+ await f.locator('[data-propose="rail-left-meeting"]').click();await f.locator('[data-permission="allow"]').click();
+ assert.notEqual(await focal.textContent(),original);assert.match(await focal.getAttribute('class'),/ai-touched/);
+ assert.match(await f.locator('[data-view="rail-left-meeting"] .origin').textContent(),/AI-touched/);
+ await f.locator('[data-propose="rail-left-meeting"]').click();assert(await f.locator('.permission').isVisible());await f.locator('[data-permission="deny"]').click();
+ const count=()=>f.locator('[data-view="rail-left-meeting"] [data-line]').count(),initial=await count();
+ for(const edge of ['above','below']){await f.locator(`[data-expand="rail-left-meeting"][data-edge="${edge}"]`).click();assert(await count()>initial);await f.locator(`[data-shrink="rail-left-meeting"][data-edge="${edge}"]`).click();assert.equal(await count(),initial);}
+ // Leave a side slot for the stdout excerpt; a fully pinned side has no room for one.
+ await f.locator('[data-pin="a0"]').click();await settle();
+ const mini=await f.locator('.mini-track').boundingBox();await page.mouse.click(mini.x+mini.width/2,mini.y+mini.height*.8);await settle();
+ assert(await f.locator('.source-scroll').evaluate(el=>el.scrollTop)>200);
+ await f.locator('[data-log="2"]').click();await settle();assert(await f.locator('.links path.runtime').count()>0);assert.match(await f.locator('.status').textContent(),/stdout/);
+ assert(await f.locator('[data-view="a4"] [data-dest]').evaluate(el=>{const r=el.getBoundingClientRect(),b=el.closest('.view-content').getBoundingClientRect();return r.bottom>b.top&&r.top<b.bottom;}),'print statement visible inside excerpt');
+ // Generic document search keeps pins and uses the same minimap and anchors.
+ await f.locator('#hsl-center').selectOption('search');await settle();assert.match(await f.locator('.center .title').textContent(),/retry-review/);
+ assert(await f.locator('.source-scroll [data-anchor]').count()>4);assert.equal(await f.locator('.rail.right [data-tab="rail-right-worker"]').count(),1);
+ await f.locator('#hsl-search').fill('permission');await settle();assert.equal(await f.locator('.source-scroll [data-anchor]').count(),2);
+ assert.equal(await f.locator('#search-count').textContent(),'2 matches');assert.equal(await f.locator('.mini-picture .hit').count(),2);
+ await f.locator('#hsl-search').fill('retry');await scroll(0);
+ // Side file lists scroll only unpinned names; pinned filenames share their window's title row.
+ const alignedTab=await rect('.rail.right [data-tab="rail-right-worker"]'),alignedName=await rect('[data-view="rail-right-worker"] .view-name');
+ assert(Math.abs(alignedTab.y+6-alignedName.y)<.3,'pin filename uses the same title baseline');const listRow=await rect('.rail.right .rail-scroll [data-rail-file="rail-right-meeting"]');assert(Math.abs(alignedTab.x-listRow.x)<.3&&Math.abs(alignedTab.w-listRow.w)<.3,'pinned and unpinned names have identical list alignment');
+ assert(Math.abs(alignedTab.h-listRow.h)<.3,'pinned and unpinned row height matches');
+ await f.locator('.rail.right .rail-scroll').evaluate(el=>el.scrollTop=180);
+ same(alignedTab,await rect('.rail.right [data-tab="rail-right-worker"]'),'scrolling unpinned filenames leaves pins fixed');
+ const workerBeforeUnpin=await rect('[data-view="rail-right-worker"]');
+ await f.locator('.rail.right [data-tab="rail-right-worker"]').click();await settle();
+ assert.equal(await f.locator('.rail.right [data-tab="rail-right-worker"]').count(),0);
+ same(workerBeforeUnpin,await rect('[data-view="rail-right-worker"]'),'filename click unpins in place');same(alignedTab,await rect('.rail.right [data-passage="rail-right-worker"]'),'filename unpins without jumping');
+ await f.locator('.rail.right .pin-label[data-rail-file="rail-right-worker"]').click();await settle();assert.equal(await f.locator('.rail.right [data-tab="rail-right-worker"]').count(),1,'unpinned list filename pins its existing view');
+ // Full window follows the pointer before release; Escape cancels tentative placement.
+ const liveBefore=await rect('[data-view="rail-right-worker"]'),handle=await f.locator('.rail.right [data-tab="rail-right-worker"]').boundingBox();
+ await page.mouse.move(handle.x+handle.width/2,handle.y+handle.height/2);await page.mouse.down();
+ await page.mouse.move(handle.x+handle.width/2-45,handle.y+handle.height/2+380,{steps:8});
+ const liveDuring=await rect('[data-view="rail-right-worker"]');
+ assert(Math.abs(liveDuring.y-liveBefore.y)>1||Math.abs(liveDuring.x-liveBefore.x)>1,'actual window moves to a clear tentative slot live');
+ assert.match(await f.locator('[data-view="rail-right-worker"]').getAttribute('class'),/tentative/);assert(await f.evaluate(()=>{const header=document.querySelector('[data-header-extension="rail-right-worker"]').getBoundingClientRect(),window=document.querySelector('[data-view="rail-right-worker"]').getBoundingClientRect(),center=document.querySelector('.center').getBoundingClientRect();return Math.abs(header.x-window.x)<.1&&header.x>=center.right;}),'tentative header follows its window on the same side');
+ await page.keyboard.press('Escape');await page.mouse.up();await settle();
+ same(liveBefore,await rect('[data-view="rail-right-worker"]'),'cancel restores original tile');
+ assert.equal(await f.locator('.tentative').count(),0);
+ // Icon controls minimize a pin, restore its content, center a document, and restore a stack of centers.
+ await f.locator('[data-view="rail-left-meeting"] [data-minimize]').click();await settle();
+ assert.match(await f.locator('[data-view="rail-left-meeting"]').getAttribute('class'),/compact/);
+ assert(!(await f.locator('[data-view="rail-left-meeting"] .view-content').isVisible()));
+ await f.locator('[data-view="rail-left-meeting"] [data-minimize]').click();await settle();
+ assert(await f.locator('[data-view="rail-left-meeting"] .view-content').isVisible());
+ assert.equal(await f.locator('[data-view="rail-left-meeting"] [data-pin]').textContent().then(t=>t.includes('Pin')),false,'pin uses an icon');
+ assert.equal(await f.locator('[data-view="rail-left-meeting"] [data-expand]').first().getAttribute('aria-label'),'Show 3 more lines above');
+ await scroll(170);const previousScroll=await f.locator('.source-scroll').evaluate(el=>el.scrollTop);
+ await f.locator('[data-view="rail-left-meeting"] [data-center-view]').click();await settle();
+ assert.equal(await f.locator('.center .title').textContent(),'notes/meetings/meeting.md');
+ assert(await f.locator('.source-scroll [data-anchor]').count()>0,'centered document has related parallax views');
+ assert(!(await f.locator('[data-view="rail-left-meeting"]').isVisible()),'centered view is promoted rather than duplicated');
+ await f.locator('[data-view="rail-right-worker"] [data-center-view]').click();await settle();
+ assert.equal(await f.locator('.center .title').textContent(),'src/generated/worker.py');
+ await f.locator('.center [data-restore-center]').click();await settle();
+ assert.equal(await f.locator('.center .title').textContent(),'notes/meetings/meeting.md');
+ await f.locator('.center [data-restore-center]').click();await settle();
+ assert.equal(await f.locator('.center .title').textContent(),'notes/reviews/retry-review.md');
+ assert(Math.abs((await f.locator('.source-scroll').evaluate(el=>el.scrollTop))-previousScroll)<1,'restore retains central scroll');
+ assert(await noPinOverlap());
  if(process.env.PROTOTYPE_SCREENSHOTS)await page.screenshot({path:path.join(__dirname,'desktop.png'),fullPage:true});
- await page.setViewportSize({width:390,height:950});await page.waitForTimeout(850);
- assert(await frame.evaluate(()=>document.documentElement.scrollWidth<=document.documentElement.clientWidth));
- await frame.locator('.reading-strip [data-focus="pipeline"]').click();await page.waitForTimeout(850);
- const beforeExtraPins=await rects();
- await frame.evaluate(()=>{for(const id of ['meeting','summary','worker'])document.querySelector('[data-pin="'+id+'"]').click();});await page.waitForTimeout(150);
- unchanged(beforeExtraPins,await rects(),'adding filenames must not move the canvas at narrow widths');
- assert.equal(await frame.locator('.pin-index [data-reveal]').count(),4);
+ await page.setViewportSize({width:390,height:950});await settle();assert(await f.evaluate(()=>document.documentElement.scrollWidth<=document.documentElement.clientWidth));
+ assert(await noPinOverlap(),'narrow pinned allocations remain separate');
+ assert(await f.evaluate(()=>{const bottom=document.querySelector('.center').getBoundingClientRect().bottom;return [...document.querySelectorAll('.view.pinned')].every(el=>el.getBoundingClientRect().top>=bottom);}), 'narrow pins stay below central panes');
  if(process.env.PROTOTYPE_SCREENSHOTS)await page.screenshot({path:path.join(__dirname,'mobile.png'),fullPage:true});
- assert.deepEqual(errors,[]);console.log('PASS: filename defaults, pin/unpin without jumps, frozen scrolling and animation, resumed parallax, drag, pointer/keyboard resize, excerpt expansion/shrinking, horizontal/vertical filenames, brackets, log → source, zoom, movement modes, narrow layout; no runtime errors.');
- await browser.close();
+ assert(await page.evaluate(()=>document.documentElement.scrollHeight<=innerHeight),'no outer browser scrollbar');assert(await f.evaluate(()=>document.documentElement.scrollHeight<=innerHeight),'no nested whole-app scrollbar');
+ // Experimental filename edge navigation shifts unpinned headers independently of the source.
+ const tabs=await browser.newPage({viewport:{width:1100,height:950}});tabs.on('pageerror',e=>errors.push(e.message));await tabs.goto(pathToFileURL(path.join(__dirname,'preview.html')).href);const tf=tabs.frames().find(frame=>frame.parentFrame());await tf.waitForSelector('[data-view="a0"]');await tabs.waitForTimeout(650);await watchOverlap(tf);const trect=selector=>tf.locator(selector).evaluate(el=>{const r=el.getBoundingClientRect();return {x:r.x,y:r.y,w:r.width,h:r.height};});const hiddenCount=edge=>tf.locator('.rail.left [data-rail-step="'+edge+'"]').textContent().then(s=>Number(s.match(/\d+/)[0]));
+ assert.equal(await hiddenCount('below'),2,'two linked filenames start below the side list');assert(await tf.locator('.rail.left [data-rail-step="above"]').isDisabled());await tf.locator('[data-pin="a0"]').click();const pinnedHeader=await trect('[data-header-extension="a0"]'),pinnedView=await trect('[data-view="a0"]'),initialPassage=await trect('[data-view="a2"]');await tf.locator('.rail.left [data-rail-step="below"]').click();await tabs.waitForTimeout(650);assert.equal(await hiddenCount('below'),1,'down arrow reveals the next hidden filename');assert.equal(await tf.locator('.source-scroll').evaluate(el=>el.scrollTop),0,'filename navigation does not scroll the central source');same(pinnedHeader,await trect('[data-header-extension="a0"]'),'filename navigation leaves pinned header fixed');same(pinnedView,await trect('[data-view="a0"]'),'filename navigation leaves pinned window fixed');assert((await trect('[data-view="a2"]')).y<initialPassage.y,'unpinned filenames and windows shift together');
+ await tf.locator('.source-scroll').evaluate(el=>{el.style.scrollBehavior='auto';el.scrollTop=700;});await tabs.waitForTimeout(650);const above=await hiddenCount('above');assert(above>0,'upper edge counts filenames outside the view');await tf.locator('.rail.left [data-rail-step="above"]').click();await tabs.waitForTimeout(1000);assert((await hiddenCount('above'))<above,'up arrow brings the next hidden filename into view');same(pinnedHeader,await trect('[data-header-extension="a0"]'),'upper navigation also leaves pinned header fixed');assert.deepEqual(await tf.evaluate(()=>window.windowOverlaps),[],'connected headers do not overlap other windows while navigating');await tabs.close();
+ // Free space ignores flowing passages, but pinned blockers stop neighbor translation.
+ const resizing=await browser.newPage({viewport:{width:1100,height:950}});resizing.on('pageerror',e=>errors.push(e.message));await resizing.goto(pathToFileURL(path.join(__dirname,'preview.html')).href);const rf=resizing.frames().find(frame=>frame.parentFrame());await rf.waitForSelector('[data-view="a0"]');await watchOverlap(rf);
+ const rrect=selector=>rf.locator(selector).evaluate(el=>{const r=el.getBoundingClientRect();return {x:r.x,y:r.y,w:r.width,h:r.height};});
+ const seedPins=async pins=>{await rf.evaluate(pins=>window.dispatchEvent(new CustomEvent('openai:set_globals',{detail:{globals:{widgetState:{privateContent:{version:5,sender:'resize-fixture',settings:{auto:false,passing:'edge'},state:{pins,released:{}},scroll:0}}}}})),pins);await resizing.waitForTimeout(100);};
+ await seedPins({a0:{side:'left',y:100,h:100},a2:{side:'left',y:208,h:100},a4:{side:'left',y:348,h:100}});assert.equal(await rf.locator('[data-resize-neighbor="a2"]:not([hidden])').count(),1,'adjacent windows share one divider');assert(await rf.evaluate(()=>[...document.querySelectorAll('.tile-resize:not([hidden])')].every(handle=>{const window=document.querySelector('[data-view="'+handle.dataset.resize+'"]'),r=window.getBoundingClientRect(),h=handle.getBoundingClientRect();return Math.abs(h.top-(handle.dataset.resizeEdge==='top'?r.top-8:r.bottom))<.3;})),'rules sit immediately against window edges');const lowerBefore=await rrect('[data-view="a2"]'),lowerBlocker=await rrect('[data-view="a4"]');await rf.locator('[data-resize="a0"][data-resize-edge="bottom"]').press('Shift+ArrowDown');const lowerShifted=await rrect('[data-view="a2"]');assert(Math.abs(lowerShifted.y-lowerBefore.y-30)<.3&&Math.abs(lowerShifted.h-lowerBefore.h)<.3,'free gap below shifts neighbor before resizing');same(lowerBlocker,await rrect('[data-view="a4"]'),'lower pinned blocker stays fixed');await rf.locator('[data-resize="a0"][data-resize-edge="bottom"]').press('ArrowDown');const lowerLimited=await rrect('[data-view="a2"]');assert(Math.abs(lowerLimited.y-lowerShifted.y-10)<.3&&Math.abs(lowerLimited.h-lowerShifted.h+8)<.3,'remaining two pixels of free space are consumed before neighbor shrinks eight pixels');same(lowerBlocker,await rrect('[data-view="a4"]'),'growth never moves lower blocker');
+ await seedPins({a0:{side:'left',y:80,h:100},a2:{side:'left',y:228,h:100},a4:{side:'left',y:336,h:100}});const upperBefore=await rrect('[data-view="a2"]'),upperBlocker=await rrect('[data-view="a0"]');await rf.locator('[data-resize-neighbor="a4"]').press('Shift+ArrowUp');const upperShifted=await rrect('[data-view="a2"]');assert(Math.abs(upperShifted.y-upperBefore.y+30)<.3&&Math.abs(upperShifted.h-upperBefore.h)<.3,'free gap above shifts neighbor before resizing');await rf.locator('[data-resize-neighbor="a4"]').press('Shift+ArrowUp');const upperLimited=await rrect('[data-view="a2"]');assert(Math.abs(upperLimited.y-upperShifted.y+10)<.3&&Math.abs(upperLimited.h-upperShifted.h+20)<.3,'top expansion uses remaining gap before shrinking neighbor');same(upperBlocker,await rrect('[data-view="a0"]'),'upper blocker stays fixed');assert.deepEqual(await rf.evaluate(()=>window.windowOverlaps),[],'shift-first resizing never overlaps windows');await resizing.close();
+ // Default filename-only flow: expand/collapse, parallax, stable pin labels, external dotted dividers.
+ const defaults=await browser.newPage({viewport:{width:1100,height:950}});defaults.on('pageerror',e=>errors.push(e.message));await defaults.goto(pathToFileURL(path.join(__dirname,'preview.html')).href);const df=defaults.frames().find(frame=>frame.parentFrame());await df.waitForSelector('[data-view="a0"]');await defaults.waitForTimeout(650);await watchOverlap(df);
+ const drect=selector=>df.locator(selector).evaluate(el=>{const r=el.getBoundingClientRect();return {x:r.x,y:r.y,w:r.width,h:r.height};});
+ assert.equal(await df.locator('#hsl-edges').inputValue(),'manual');await df.locator('[data-view="a0"] .view-name').click();await defaults.waitForTimeout(650);assert((await drect('[data-view="a0"]')).h>95,'filename expands excerpt');assert(await df.evaluate(()=>{const e=document.querySelector('[data-header-extension="a0"]').getBoundingClientRect(),r=document.querySelector('[data-view="a0"]').getBoundingClientRect();return Math.abs(e.y-r.y)<.1&&Math.abs(e.right-r.right)<.1;}),'expanded header stays attached');await df.locator('[data-view="a0"] .view-name').click();await defaults.waitForTimeout(650);assert((await drect('[data-view="a0"]')).h<40,'filename collapses excerpt');
+ const connectedHeader=()=>df.evaluate(()=>['left','right'].every(side=>{const rail=document.querySelector('.rail.'+side).getBoundingClientRect();return [...document.querySelectorAll('.rail.'+side+' [data-passage]')].every(tab=>{const id=tab.dataset.passage,window=document.querySelector('[data-view="'+id+'"]'),extension=document.querySelector('[data-header-extension="'+id+'"]');if(!extension)return false;const r=window.getBoundingClientRect(),e=extension.getBoundingClientRect(),t=tab.getBoundingClientRect();return Math.abs(e.y-r.y)<.1&&Math.abs(e.y-t.y)<.1&&Math.abs((side==='left'?e.x:e.right)-(side==='left'?rail.x:rail.right))<.1&&Math.abs((side==='left'?e.right:e.x)-(side==='left'?r.right:r.x))<.1&&getComputedStyle(extension).backgroundColor===getComputedStyle(window.querySelector('.view-head')).backgroundColor;});}));assert(await connectedHeader(),'collapsed header spans continuously from rail to window');
+ const initialLabel=await drect('.rail.left [data-passage="a0"]');await df.locator('.source-scroll').evaluate(el=>{el.style.scrollBehavior='auto';el.scrollTop+=100;});await defaults.waitForTimeout(650);const flowingLabel=await drect('.rail.left [data-passage="a0"]');assert(Math.abs(initialLabel.y-flowingLabel.y)>20,'side filename participates in parallax');await df.evaluate(()=>window.originalFilenameNode=document.querySelector('.rail.left [data-passage="a0"]'));
+ await df.locator('.rail.left [data-passage="a0"]').click();await defaults.waitForTimeout(650);same(flowingLabel,await drect('.rail.left [data-passage="a0"]'),'pin freezes label in place');assert(await connectedHeader(),'pinned header remains connected');await df.locator('.source-scroll').evaluate(el=>el.scrollTop+=100);await defaults.waitForTimeout(650);same(flowingLabel,await drect('.rail.left [data-passage="a0"]'),'pinned side filename stays stationary');await df.locator('.rail.left [data-passage="a0"]').click();await defaults.waitForTimeout(650);same(flowingLabel,await drect('.rail.left [data-passage="a0"]'),'unpin leaves filename in place');assert(await df.evaluate(()=>window.originalFilenameNode===document.querySelector('.rail.left [data-passage="a0"]')),'pinning retains the filename node');
+ assert(await df.evaluate(()=>[...document.querySelectorAll('.tile-resize:not([hidden])')].every(handle=>{const r=handle.getBoundingClientRect();return handle.parentElement.classList.contains('stage')&&getComputedStyle(handle,'::after').borderTopStyle==='dotted'&&[...document.querySelectorAll('.view:not([hidden])')].every(el=>{const w=el.getBoundingClientRect();return r.right<=w.left||r.left>=w.right||r.bottom<=w.top+.1||r.top>=w.bottom-.1;});})),'dotted dividers occupy gaps outside every window');assert.deepEqual(await df.evaluate(()=>window.windowOverlaps),[]);await defaults.close();
+ // Folder trees collect braces, while pinned descendants stay frozen; relative paths identify every view.
+ const treePage=await browser.newPage({viewport:{width:1100,height:950}});treePage.on('pageerror',e=>errors.push(e.message));await treePage.goto(pathToFileURL(path.join(__dirname,'preview.html')).href);const tree=treePage.frames().find(frame=>frame.parentFrame());await tree.waitForSelector('[data-view="a0"]');await treePage.waitForTimeout(650);await watchOverlap(tree);
+ const treeRect=selector=>tree.locator(selector).evaluate(el=>{const r=el.getBoundingClientRect();return {x:r.x,y:r.y,w:r.width,h:r.height};});
+ assert.equal(await tree.locator('.files').count(),0,'sidebars replace the central Files pane');assert.equal(await tree.locator('[data-view="a0"] .view-name').textContent(),'notes/meetings/meeting.md');assert.equal(await tree.locator('.rail.left [data-passage="a0"] .rail-filename').textContent(),'notes/meetings/meeting.md');
+ await tree.locator('[data-pin="a0"]').click();const treePin=await treeRect('[data-view="a0"]');await tree.locator('.rail.left [data-folder="notes"]').click();await treePage.waitForTimeout(650);same(treePin,await treeRect('[data-view="a0"]'),'folder collapse preserves pinned descendant');assert.equal(await tree.locator('.rail.left .rail-scroll [data-rail-file="rail-left-meeting"]').count(),0);assert(await tree.locator('[data-view="a6"]').evaluate(el=>el.hidden),'unpinned descendant preview is folded');assert(await tree.locator('.links path.context[data-destination="a0"][data-target-folder="notes"]').count()>0,'brace terminates at collapsed folder');assert.equal(await tree.locator('.rail.right [data-folder="notes"]').getAttribute('aria-expanded'),'true','trees fold independently');
+ assert(await tree.evaluate(()=>{const path=document.querySelector('.links path.context[data-destination="a0"]'),point=path.getPointAtLength(path.getTotalLength()),base=document.querySelector('.workspace').getBoundingClientRect(),folder=document.querySelector('.rail.left [data-folder="notes"]').getBoundingClientRect();return Math.abs(base.top+point.y-(folder.top+folder.height/2))<.5&&Math.abs(base.left+point.x-folder.right-5)<.5;}),'folder endpoint uses the folder row geometry');
+ await tree.locator('.rail.left [data-folder="notes"]').click();await treePage.waitForTimeout(650);assert.equal(await tree.locator('.links [data-destination="a0"][data-target-folder]').count(),0,'expansion restores file endpoint');await tree.locator('.rail.right [data-folder="src/generated"]').click();await treePage.waitForTimeout(650);assert(await tree.locator('.links path.context[data-destination="a3"][data-target-folder="src/generated"]').count()>0,'nested folder can collect a brace');
+ const dragTree=await tree.locator('[data-view="a0"] .view-name').boundingBox(),rightTree=await tree.locator('[data-view="a1"]').boundingBox();await treePage.mouse.move(dragTree.x+20,dragTree.y+12);await treePage.mouse.down();await treePage.mouse.move(rightTree.x+25,rightTree.y+130,{steps:12});const crossPreview=await treeRect('[data-view="a0"]'),crossTab=await treeRect('.rail.right [data-passage="a0"]');await treePage.mouse.up();await treePage.waitForTimeout(650);same(crossPreview,await treeRect('[data-view="a0"]'),'cross-side drop commits preview');same(crossTab,await treeRect('.rail.right [data-passage="a0"]'),'cross-side tab never jumps on drop');assert.deepEqual(await tree.evaluate(()=>window.windowOverlaps),[]);await treePage.close();
+ // Source and destination share a horizontal connection in the central reading band.
+ const alignmentPage=await browser.newPage({viewport:{width:1100,height:950}});alignmentPage.on('pageerror',e=>errors.push(e.message));await alignmentPage.goto(pathToFileURL(path.join(__dirname,'preview.html')).href);const af=alignmentPage.frames().find(frame=>frame.parentFrame());await af.waitForSelector('[data-view="a2"]');await alignmentPage.waitForTimeout(650);await watchOverlap(af);
+ await af.locator('.source-scroll').evaluate(el=>{const anchor=document.querySelector('[data-anchor="a2"]').getBoundingClientRect(),r=el.getBoundingClientRect();el.style.scrollBehavior='auto';el.scrollTop+=(anchor.top+anchor.bottom-r.top-r.bottom)/2;});await alignmentPage.waitForTimeout(650);
+ const horizontal=()=>af.locator('.links path.context:not(.bracket)[data-destination="a2"]').evaluate(path=>{const first=path.getPointAtLength(0),last=path.getPointAtLength(path.getTotalLength());return Math.abs(first.y-last.y)<.3;});assert(await horizontal(),'collapsed preview aligns its header with centered source');await af.locator('#hsl-edges').selectOption('auto');await alignmentPage.waitForTimeout(650);assert(await horizontal(),'expanded preview aligns its actual linked line with centered source');assert.deepEqual(await af.evaluate(()=>window.windowOverlaps),[]);await alignmentPage.close();
+ // Frozen headers at either list edge reserve complete regular rows; partial catalogue rows are hidden.
+ const edgesPage=await browser.newPage({viewport:{width:1100,height:620}});edgesPage.on('pageerror',e=>errors.push(e.message));await edgesPage.goto(pathToFileURL(path.join(__dirname,'preview.html')).href);const edgeFrame=edgesPage.frames().find(frame=>frame.parentFrame());await edgeFrame.waitForSelector('[data-view="a0"]');await edgesPage.waitForTimeout(650);
+ for(const edge of ['top','bottom']){await edgeFrame.evaluate(edge=>{const stage=document.querySelector('.stage'),rail=document.querySelector('.rail.left'),clip=rail.querySelector('.rail-scroll').getBoundingClientRect(),base=stage.getBoundingClientRect(),y=(edge==='top'?clip.top-18:clip.bottom-18)-base.top;window.dispatchEvent(new CustomEvent('openai:set_globals',{detail:{globals:{widgetState:{privateContent:{version:5,sender:'edge-rows',settings:{auto:false},state:{pins:{a0:{side:'left',y,h:36}},released:{}},scroll:0}}}}}));},edge);await edgeFrame.locator('.rail.left .rail-scroll').evaluate(el=>el.scrollTop=133);await edgesPage.waitForTimeout(650);assert(await edgeFrame.evaluate(()=>{const rail=document.querySelector('.rail.left'),pin=rail.querySelector('[data-passage="a0"]').getBoundingClientRect(),clip=rail.querySelector('.rail-scroll').getBoundingClientRect(),rows=[...rail.querySelectorAll('.rail-scroll button')].filter(el=>getComputedStyle(el).visibility!=='hidden').map(el=>el.getBoundingClientRect());return rows.length>0&&rows.every(r=>r.top>=clip.top-.1&&r.bottom<=clip.bottom+.1&&(r.bottom<=pin.top+.1||r.top>=pin.bottom-.1)&&Math.abs((r.top-pin.top)/36-Math.round((r.top-pin.top)/36))<.01);}),edge+' pin keeps complete, evenly spaced neighboring rows');}
+ await edgesPage.close();
+ // Fresh experiment: cross the fixed top edge, pause immediately, and let the route finish.
+ const experiment=await browser.newPage({viewport:{width:1100,height:950}});
+ experiment.on('pageerror',e=>errors.push(e.message));
+ await experiment.goto(pathToFileURL(path.join(__dirname,'preview.html')).href);
+ const ef=experiment.frames().find(frame=>frame.parentFrame());await ef.waitForSelector('[data-view="a0"]');await experiment.waitForTimeout(650);
+ await watchOverlap(ef);assert.equal(await ef.locator('#hsl-passing').inputValue(),'edge');
+ await ef.locator('#hsl-edges').selectOption('auto');await ef.locator('[data-pin="a0"]').click();
+ const gate=await ef.evaluate(()=>{const source=document.querySelector('.source-scroll'),stage=document.querySelector('.stage').getBoundingClientRect(),pin=document.querySelector('[data-view="a0"]').getBoundingClientRect(),anchor=document.querySelector('[data-anchor="a2"]').getBoundingClientRect(),pivot=source.getBoundingClientRect().top+source.clientHeight/2,initial=(anchor.top+anchor.bottom)/2-pivot,band=source.clientHeight*.22;let low=0,high=source.scrollHeight-source.clientHeight;for(let i=0;i<40;i++){const scroll=(low+high)/2,delta=initial-scroll,natural=pivot-stage.top+delta-.25*Math.sign(delta)*Math.max(0,Math.abs(delta)-band);if(natural>pin.top-stage.top)low=scroll;else high=scroll;}return (low+high)/2;});
+ await ef.locator('.source-scroll').evaluate((el,top)=>{el.style.scrollBehavior='auto';el.scrollTop=top;},gate-4);await experiment.waitForTimeout(650);
+ assert.equal(await ef.locator('.view.crossing').count(),0,'before crossing the edge, no timed route starts');
+ await ef.locator('.source-scroll').evaluate((el,top)=>el.scrollTop=top,gate+4);await experiment.waitForTimeout(100);
+ assert.match(await ef.locator('[data-view="a2"]').getAttribute('class'),/crossing/,'crossing fixed edge starts a route');
+ const stoppedScroll=await ef.locator('.source-scroll').evaluate(el=>el.scrollTop);
+ await experiment.waitForTimeout(850);
+ assert.equal(await ef.locator('.view.crossing').count(),0,'route finishes with no further scroll');
+ assert.equal(await ef.locator('.source-scroll').evaluate(el=>el.scrollTop),stoppedScroll);
+ assert(await ef.evaluate(()=>{const view=document.querySelector('[data-view="a2"]').getBoundingClientRect(),pin=document.querySelector('[data-view="a0"]').getBoundingClientRect();return view.bottom<=pin.top-11&&view.width>100;}),'finished route is fully above the pin, not stranded in its gutter');
+ // Resize is available on an unpinned view and freezes it before changing its size.
+ await ef.locator('.source-scroll').evaluate(el=>el.scrollTop=0);await experiment.waitForTimeout(650);
+ const unpinned=ef.locator('[data-view="a1"]'),resizeBefore=await unpinned.boundingBox();
+ await ef.locator('[data-resize="a1"][data-resize-edge="bottom"]').press('ArrowDown');
+ const resizeAfter=await unpinned.boundingBox();assert.match(await unpinned.getAttribute('class'),/pinned/);
+ assert(Math.abs(resizeBefore.x-resizeAfter.x)<.3&&Math.abs(resizeBefore.y-resizeAfter.y)<.3&&Math.abs(resizeBefore.width-resizeAfter.width)<.3,'implicit pin adds no position or width jump');
+ assert(Math.abs(resizeAfter.height-resizeBefore.height-10)<.3,'only the requested resize changes height');if(process.env.PROTOTYPE_SCREENSHOTS)await experiment.screenshot({path:path.join(__dirname,'desktop.png'),fullPage:true});
+ // A layout edit during a route reallocates immediately rather than intersecting its old path.
+ await ef.locator('.source-scroll').evaluate((el,top)=>el.scrollTop=top,gate+4);await experiment.waitForTimeout(100);
+ await ef.locator('[data-resize="a0"][data-resize-edge="bottom"]').press('ArrowDown');
+ await experiment.waitForTimeout(650);
+ // Rapid reversals exercise crossing reservations while scroll keeps changing.
+ for(const top of [180,420,650,280,760,50,500,0]){await ef.locator('.source-scroll').evaluate((el,top)=>el.scrollTop=top,top);await experiment.waitForTimeout(65);}
+ await experiment.waitForTimeout(1800);
+ await experiment.setViewportSize({width:1100,height:620});await experiment.waitForTimeout(650);
+ assert(await experiment.evaluate(()=>document.documentElement.scrollHeight<=innerHeight),'short browser viewport has no outer scrollbar');
+ assert(await ef.evaluate(()=>document.documentElement.scrollHeight<=innerHeight),'short app viewport has no nested outer scrollbar');
+ assert.deepEqual(await f.evaluate(()=>window.windowOverlaps),[],'no overlap throughout scrolling, pinning, resize or tentative drag');assert.deepEqual(await ef.evaluate(()=>window.windowOverlaps),[],'no overlap throughout completed crossing animations');assert.deepEqual(errors,[]);console.log('PASS: exact drop geometry on both sides, relative paths, nested folder endpoints with stationary pins, edge-aligned and shared resize rules; connected tab/window headers, counted filename edge navigation with stationary pins; collapsed defaults, filename expand/collapse, parallax side labels without pin/unpin jumps, external dotted dividers; frame-sampled non-overlap during scrolling, rapid reversals, crossing animations, resize and drag; completed edge crossing after scroll pauses, always-present resize handles and implicit pinning, no-motion pinning, matching side rows, no outer scrollbars, live tentative drag, icon controls, Center/Restore, shared resizing, protected edits, excerpts, minimap, search; no runtime errors.');await browser.close();
 })().catch(e=>{console.error(e);process.exit(1);});
