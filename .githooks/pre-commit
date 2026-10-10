@@ -1,10 +1,18 @@
 #!/usr/bin/env bash
-# Runs exactly the checks scripts/affected-checks.sh selects for this diff —
-# never more, never less than what CI runs for the same diff (see
-# .instructions/pre-commit-ci-parity.md). Installed by `just dev` via
-# `git config core.hooksPath .githooks`.
+# Runs the checks scripts/affected-checks.sh selects for this diff, plus the
+# one check CI runs unconditionally — never more, never less than what CI runs
+# for the same diff (see .instructions/pre-commit-ci-parity.md). Installed by
+# `just dev` via `git config core.hooksPath .githooks`.
 set -euo pipefail
 cd "$(git rev-parse --show-toplevel)"
+
+status=0
+
+# CI's `guest-scripts` job is not gated by scripts/affected-checks.sh: a broken
+# vmtest .sh or a non-ASCII .ps1 passes every selective check and then fails in
+# CI, which is exactly the gap .instructions/pre-commit-ci-parity.md forbids.
+# The check is cheap by design (bash -n plus a grep), so run it on every commit.
+scripts/check-guest-scripts.sh || status=1
 
 base=$(git merge-base HEAD master 2>/dev/null || echo HEAD)
 checks=()
@@ -15,12 +23,11 @@ done <<<"$selected"
 
 if [ "${#checks[@]}" -eq 0 ]; then
   echo "pre-commit: no path in this diff requires a check."
-  exit 0
+  exit "$status"
 fi
 
 echo "pre-commit: running ${checks[*]} (see scripts/affected-checks.sh)"
 
-status=0
 for check in "${checks[@]}"; do
   case "$check" in
     python-agent)
