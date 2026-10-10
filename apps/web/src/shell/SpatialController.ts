@@ -62,8 +62,21 @@ export class SpatialController {
   pin(key: string) {
     this.snapshot(); const state = this.adapter.state(), r = this.hold!.frames.get(key); if (!r) return;
     const side = state.views[key]?.side ?? this.adapter.items().find(item => item.key === key)?.side ?? "left";
-    if (state.views[key]?.pin) this.released.set(key, { r, scroll: this.scroll() }); else this.released.delete(key);
-    this.adapter.update(current => ({ ...current, views: { ...current.views, [key]: { ...current.views[key], side, pin: current.views[key]?.pin ? undefined : r } } }));
+    if (state.views[key]?.pin) {
+      this.released.set(key, { r, scroll: this.scroll() });
+      this.adapter.update(current => ({ ...current, views: { ...current.views, [key]: { ...current.views[key], side, pin: undefined } } }));
+      return;
+    }
+    this.released.delete(key);
+    // A pin must land where it can be seen: the frame a parallax view was
+    // flowing through can sit far off the lane while its source is scrolled
+    // out, and freezing it there would pin the document out of sight.
+    const root = this.adapter.root(); if (!root) return;
+    const lane = spatialRegions(root.clientWidth, root.clientHeight, state.columns)[side];
+    const occupied = Object.entries(state.views).filter(([id, view]) => id !== key && view.side === side && view.pin).map(([, view]) => view.pin!);
+    const pinned = clearSpatialSlot(r, occupied, lane.y, lane.y + lane.h)
+      ?? { ...r, y: Math.max(lane.y, Math.min(lane.y + lane.h - Math.min(r.h, lane.h), r.y)), h: Math.min(r.h, lane.h) };
+    this.adapter.update(current => ({ ...current, views: { ...current.views, [key]: { ...current.views[key], side, pin: pinned } } }));
   }
   toggle(key: string) {
     const state = this.adapter.state(), placement = state.views[key], current = this.frames.get(key), expanded = placement?.pin ? placement.pin.h > 36 : placement?.expanded === true;
@@ -164,7 +177,10 @@ export class SpatialController {
       const distance = Math.min(c - lane.y, lane.y + lane.h - c), expanded = state.views[item.key]?.expanded ?? (state.auto && distance > 100), h = held?.h ?? release?.r.h ?? (expanded && !item.port ? Math.min(253, lane.h) : 36);
       el.hidden = false; el.dataset.spatialCenter = "false"; el.dataset.expanded = String(h > 36); el.style.width = `${lane.w}px`; el.style.height = `${h}px`;
       const offset = release || held ? h / 2 : this.endpoint(el, relation?.range, h > 36), requested = held ?? { x: lane.x, y: c - offset, w: lane.w, h }, pins = Object.entries(state.views).filter(([key, p]) => key !== item.key && p.side === side && p.pin), map = this.gates.get(item.key) ?? new Map<string, boolean>(); this.gates.set(item.key, map);
-      let low = regions.small ? lane.y : -5000, high = regions.small ? lane.y + lane.h : 5000, crossed = false;
+      // Expanded views are a reading/editing surface: they stay inside the
+      // lane so a reveal or pin always lands where it can be seen. Collapsed
+      // filename views may still flow off the lane as surplus passages do.
+      let low = regions.small || h > 36 ? lane.y : -5000, high = regions.small || h > 36 ? lane.y + lane.h : 5000, crossed = false;
       for (const [key, p] of pins) { const above = c < p.pin!.y, old = map.get(key); if (old !== undefined && old !== above) crossed = true; map.set(key, above); if (above) high = Math.min(high, p.pin!.y - 12); else low = Math.max(low, p.pin!.y + p.pin!.h + 12); }
       const r = held ?? clearSpatialSlot(requested, occupied, low, high);
       if (!r) { el.hidden = true; continue; }
@@ -174,6 +190,11 @@ export class SpatialController {
     for (const [key, { r, side, from }] of planned) {
       const el = elements.get(key); if (!el) continue;
       el.hidden = false; el.dataset.spatialCenter = "false"; el.dataset.spatialSide = side; el.dataset.expanded = String(r.h > 36); el.classList.toggle("spatial-view--pinned", !!state.views[key]?.pin); el.classList.toggle("spatial-view--tentative", this.gesture?.key === key && this.gesture.moved); el.style.visibility = "";
+      // A pinned view is the full editable buffer, never a provenance excerpt:
+      // the excerpt hides lines behind reveal controls, which is right for a
+      // flowing context preview and wrong for a document a person pinned to
+      // read and edit in place.
+      if (state.views[key]?.pin) { const view = editorOf(el); if (view) showSpatialExcerpt(view, null); }
       if (!this.routes.has(key)) {
         setRect(el, r);
         const lane = regions[side], x = side === "left" ? lane.x - 26 : lane.x + lane.w + 2, corridor = from && { x, y: Math.min(from.y, r.y), w: 24, h: Math.max(from.y + from.h, r.y + r.h) - Math.min(from.y, r.y) };

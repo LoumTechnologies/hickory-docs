@@ -712,7 +712,7 @@ export function RibbonOverlay({
             const [outFrom, outTo] = trimmedOut ?? [fullOutFrom, fullOutTo];
             const hoverOnlySide = trimmedSrc === null || trimmedOut === null;
             const to = bandBetween(entry.view, outFrom, outTo);
-            if (!band || !to) continue;
+            if (!band || !to || band[1] <= left.top || band[0] >= left.bottom) continue;
             // EXACT: the band's vertical extent is [top of first involved
             // line, bottom of last], clamped to the pane — no minimum-height
             // inflation, because a line is already a readable, clickable row.
@@ -846,7 +846,7 @@ export function RibbonOverlay({
             drawnRange(source.docSource, fullRange[0], fullRange[1]) ??
             fullRange;
           const band = bandBetween(documentView, range[0], range[1]);
-          if (!band) continue;
+          if (!band || band[1] <= left.top || band[0] >= left.bottom) continue;
           const from = clampBand(
             band[0] - box.top,
             band[1] - box.top,
@@ -943,7 +943,7 @@ export function RibbonOverlay({
               fullOutTo,
             ) ?? [fullOutFrom, fullOutTo];
             const band = bandBetween(entry.view, outFrom, outTo);
-            if (!band) continue;
+            if (!band || band[1] <= pane.top || band[0] >= pane.bottom) continue;
             const from = clampBand(
               band[0] - box.top,
               band[1] - box.top,

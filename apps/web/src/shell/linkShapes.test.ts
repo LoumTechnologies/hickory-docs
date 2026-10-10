@@ -52,6 +52,26 @@ it("clips a conversation's connections to its actual scrolling parent", () => {
   log.remove();
 });
 
+it("skips a connection whose source passage is scrolled out of the editor viewport", () => {
+  const container = document.createElement("div"); document.body.appendChild(container);
+  const source = new EditorView({ parent: container, state: EditorState.create({ doc: "Claim\nOther claim" }) });
+  const target = new EditorView({ parent: container, state: EditorState.create({ doc: "Title\n\nSupporting paragraph\ncontinued\nOther material" }) });
+  views.push(source, target);
+  const box = (left: number) => ({ left, right: left + 100, top: 0, bottom: 200, width: 100, height: 200, x: left, y: 0, toJSON() {} });
+  vi.spyOn(container, "getBoundingClientRect").mockReturnValue(box(0));
+  vi.spyOn(source.scrollDOM, "getBoundingClientRect").mockReturnValue(box(0));
+  vi.spyOn(target.scrollDOM, "getBoundingClientRect").mockReturnValue(box(300));
+  const link: RibbonLink = { key: "claim", family: "declared", from: { path: "sessions/s.md", lines: [1, 1] }, to: { path: "note.md", lines: [3, 4] }, title: "citation" };
+  const geometry = {
+    bandBetween: () => [-500, -400] as [number, number],
+    paneEdges: (view: EditorView) => ({ left: view === source ? 0 : 300, right: view === source ? 100 : 400, leftRailW: 12, rightRailW: 12 }),
+    findTerminal: vi.fn(() => null), attachTerminal: vi.fn(), revealStrip: vi.fn(),
+  };
+  const sources = [{ docPath: "sessions/s.md", docSource: "", view: source }, { docPath: "note.md", docSource: "", view: target }];
+  expect(linkShapes(container, sources, [], [link], () => true, false, geometry)).toHaveLength(0);
+  container.remove();
+});
+
 // Guarantee: docs/guarantees/shell/spatial-views-preserve-the-editor.md
 it("draws from a centered cited document back to a collapsed conversation header", () => {
   const container = document.createElement("div"); document.body.append(container);

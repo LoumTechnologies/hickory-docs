@@ -18,6 +18,20 @@ export interface Band {
 }
 
 /**
+ * Whether a vertical band [yTop, yBot] overlaps a viewport [viewTop, viewBot]
+ * at all. A band fully above or below the viewport is invisible, and its
+ * connection is only drawn when the anchored section is on screen.
+ */
+export function bandVisible(
+  yTop: number,
+  yBot: number,
+  viewTop: number,
+  viewBot: number,
+): boolean {
+  return yBot > viewTop && yTop < viewBot;
+}
+
+/**
  * Clamp a vertical band [yTop, yBot] to the visible pane [viewTop, viewBot].
  * A band fully outside collapses to a thin sliver at the nearer edge so the
  * ribbon still points the right way.

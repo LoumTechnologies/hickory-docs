@@ -2,7 +2,8 @@
 import type { EditorView } from "@codemirror/view";
 import type { Draft, Terminal, RibbonFamily, RibbonLink, RibbonSource, RibbonFile } from "./Ribbons";
 import { samePath } from "../lib/paths";
-import { anchorEdges, clampBand, braceNub, bracePath, braceLinkPath, ribbonPath } from "../lib/ribbonGeometry";
+import { anchorEdges, bandVisible, clampBand, braceNub, bracePath, braceLinkPath, ribbonPath } from "../lib/ribbonGeometry";
+import { visibleElementRect } from "../lib/visibleElementRect";
 
 type Geometry = Pick<typeof import("./Ribbons"), "bandBetween" | "paneEdges" | "findTerminal" | "attachTerminal" | "revealStrip">;
 export function linkShapes(container: HTMLElement, sources: readonly RibbonSource[], files: readonly RibbonFile[], links: readonly RibbonLink[], on: (family: RibbonFamily) => boolean, braces: boolean, geometry: Geometry): Draft[] {
@@ -36,10 +37,18 @@ export function linkShapes(container: HTMLElement, sources: readonly RibbonSourc
       const b = Math.min(Math.max(link.from.lines[1], a), total);
       const from = view.state.doc.line(a).from;
       const to = view.state.doc.line(b).to;
-      const rect = link.anchor?.getBoundingClientRect();
-      const band = rect ? [rect.top, rect.bottom] : bandBetween(view, from, to);
-      if (!band || band[1] <= band[0]) continue;
+      // An anchored source (an agent message card) reports its visible rect
+      // only when it is on screen; a scrolled-out anchor produces no band at
+      // all. A line-anchored source (a document section) is measured from the
+      // height map and then checked against the editor's viewport the same
+      // way, so invisible prose stops drawing its connection.
       const pane = editorViewport(view);
+      const anchorRect = link.anchor ? visibleElementRect(link.anchor) : undefined;
+      let band: [number, number] | null = anchorRect
+        ? [anchorRect.top, anchorRect.bottom]
+        : bandBetween(view, from, to);
+      if (band && !anchorRect && !bandVisible(band[0], band[1], pane.top, pane.bottom)) band = null;
+      if (!band || band[1] <= band[0]) continue;
       const edges = paneEdges(view);
       if (targetView && targetView !== view && link.to.lines) {
         const range = lineRange(targetView, link.to.lines);

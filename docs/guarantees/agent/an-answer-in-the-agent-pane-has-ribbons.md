@@ -80,6 +80,10 @@ session record.
 
 Conversation connections draw for expanded rendered items by default, using
 the card's screen bounds. Closed tool/reasoning folds contribute no connection.
+A connection also draws only while the anchored message or document section
+is visible in its pane's scroll viewport: a passage scrolled out of the agent
+conversation or the document editor stops drawing its ribbon or brace rather
+than leaving a clamped sliver over prose nobody can see.
 The Agent gear offers a persisted **Show lineage for collapsed conversation
 items** setting; opting in anchors their connections to the visible summary.
 Opening or closing a fold updates the overlay. Conversation visibility is

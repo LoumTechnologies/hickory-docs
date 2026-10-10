@@ -29,7 +29,13 @@ vertical coordinate without a speed offset. A default side view is collapsed
 to its filename; explicit opening/reveal requests can expand it. Optional
 automatic accordion behavior expands views away from the viewport edges.
 Expanded context excerpts hide lines with up/down controls over the unchanged
-buffer, independently of language folding. Center shows the full buffer.
+buffer, independently of language folding. Center shows the full buffer. A
+pinned view also shows the full editable buffer, never an excerpt: the excerpt
+is a reading window for a flowing preview, and a person pinning a document is
+asking to read and edit it in place. Expanded and revealed side views stay
+inside their lane — an opening/reveal request, a pin, or an automatic accordion
+expansion is answered where it can be seen, never beyond the lane's scroll
+area. Collapsed filename views may still flow off the lane with their source.
 
 Given pinned obstacles, placement reserves their rectangles. Once a moving
 view crosses an obstacle's edge, a permitted bypass animation runs to completion

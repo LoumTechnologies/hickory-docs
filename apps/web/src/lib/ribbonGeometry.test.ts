@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { anchorEdges, atLeast, bandAround, braceDepth, braceLinkPath, braceLinkToEdgePath, braceNub, bracePath, clampBand, linkArm, ribbonPath, ribbonPathVia, ribbonStubPath, ribbonTerminalPath, terminalEdge, thicknessFor } from "./ribbonGeometry";
+import { anchorEdges, atLeast, bandAround, bandVisible, braceDepth, braceLinkPath, braceLinkToEdgePath, braceNub, bracePath, clampBand, linkArm, ribbonPath, ribbonPathVia, ribbonStubPath, ribbonTerminalPath, terminalEdge, thicknessFor } from "./ribbonGeometry";
 
 /** Parse a single-cubic path `M x y C c1x c1y c2x c2y x y` into its points. */
 function cubic(d: string) {
@@ -16,6 +16,20 @@ function cubic(d: string) {
     end: { x: n[6], y: n[7] },
   };
 }
+
+describe("bandVisible", () => {
+  it("is true when the band overlaps the viewport", () => {
+    expect(bandVisible(120, 140, 100, 500)).toBe(true);
+    expect(bandVisible(90, 110, 100, 500)).toBe(true);
+    expect(bandVisible(490, 510, 100, 500)).toBe(true);
+  });
+
+  it("is false when the band sits fully above or below the viewport", () => {
+    expect(bandVisible(0, 99, 100, 500)).toBe(false);
+    expect(bandVisible(0, 100, 100, 500)).toBe(false);
+    expect(bandVisible(500, 700, 100, 500)).toBe(false);
+  });
+});
 
 describe("clampBand", () => {
   it("passes a fully visible band through untouched", () => {
