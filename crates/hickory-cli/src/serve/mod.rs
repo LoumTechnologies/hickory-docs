@@ -52,6 +52,9 @@ pub mod merged;
 pub mod outputs;
 pub mod plain_file;
 mod python_agent;
+
+/// A Python runtime shipped inside this app, found from the executable's path.
+pub use python_agent::bundled_runtime;
 pub mod refactor;
 pub mod representation;
 mod representation_store;
@@ -185,6 +188,11 @@ pub struct LocalState {
     /// Everything behind it is refused with a sentence when it is `None`,
     /// never guessed at. See [`Shell`].
     pub shell: Arc<Mutex<Option<Shell>>>,
+    /// The Python runtime the app that started this engine shipped inside its
+    /// own bundle, when it did. `None` — the CLI and the tests — falls back to
+    /// a runtime discovered from the executable ([`bundled_runtime`]). A
+    /// runtime named in Settings always wins. See [`python_agent`].
+    pub python_runtime_path: Option<PathBuf>,
     /// The running loop's command inbox, set when the loop starts.
     pub up_commands:
         Arc<std::sync::Mutex<Option<tokio::sync::mpsc::UnboundedSender<crate::up::UpCommand>>>>,
@@ -872,6 +880,7 @@ async fn prepare_inner(opts: ServeOptions, folder_open: Option<bool>) -> Result<
         held: Arc::new(std::sync::Mutex::new(HashMap::new())),
         scaffolds: Arc::new(Mutex::new(HashMap::new())),
         shell: Arc::new(Mutex::new(None)),
+        python_runtime_path: None,
         up_commands: Arc::new(std::sync::Mutex::new(None)),
         writes: Arc::new(tokio::sync::Mutex::new(())),
         window_slot: None,

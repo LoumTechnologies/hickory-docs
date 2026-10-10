@@ -27,3 +27,13 @@ it("keeps a failed runtime check visible without claiming it was saved", async (
   expect((await screen.findByRole("alert")).textContent).toBe("Confinement unavailable");
   expect(screen.queryByRole("status")).toBeNull();
 });
+// Guarantee: docs/guarantees/agent/a-desktop-app-bundles-its-python-agent.md
+it("names the runtime bundled with the app without pretending it was configured", async () => {
+  const bundled = "/Applications/Hickory Docs.app/Contents/Resources/python-agent/bin/python";
+  vi.mocked(acpApi.pythonSettings).mockResolvedValueOnce({ python: "", available: true, bundled });
+  render(<AgentSettings />);
+  await screen.findByText(new RegExp("bundled with this app"));
+  const field = screen.getByRole("textbox", { name: "Python executable" }) as HTMLInputElement;
+  expect(field.value).toBe("");
+  expect(field.placeholder).toBe(bundled);
+});

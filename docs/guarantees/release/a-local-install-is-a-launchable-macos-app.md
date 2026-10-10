@@ -29,6 +29,13 @@ Finder’s file-open URLs are handled both at startup and while the app is
 running. A startup request selects the file before the editor loads; later
 requests open a new window/session through the same explicit-file launch path.
 
+The installed bundle also carries the experimental Python agent as a
+self-contained runtime under `Contents/Resources/python-agent`, staged by
+`scripts/build-python-agent-runtime.sh`. The app discovers it from its own
+location, so the agent needs no path in Settings; an explicitly configured
+runtime still wins. See
+`../agent/a-desktop-app-bundles-its-python-agent.md`.
+
 A failed build or staging copy leaves an existing installed app untouched.
 Re-running the recipe replaces the installed bundle. User documents and
 settings are not part of that replacement.
@@ -50,6 +57,16 @@ previous pane arrangement and Welcome preference. See
 
 Last LLM verification:
 
+- Bundled Python agent (2026-10-10, Codex): the recipe now runs
+  `just stage-python-agent` before `cargo tauri build` and passes the generated
+  `bundle.macOS.files` config. A debug `.app` built the same way contained
+  `Contents/Resources/python-agent`, its `bin/python` symlink was preserved,
+  `codesign --verify --deep --strict` passed, and the worker imported from the
+  bundle. Starting that bundle's own `hick up` engine returned
+  `available: true` from `/api/agents/python`. The `.dmg` path
+  (`scripts/dist-desktop.sh`) shares the staging step; a disk image was not
+  rebuilt for this entry. Full evidence:
+  `../agent/a-desktop-app-bundles-its-python-agent.md`.
 - Duplicate-default fix (2026-10-08, Codex): the user's report showed a
   completed build and app replacement followed by a default-editor readback
   failure. Independent AppKit inspection resolved Markdown to

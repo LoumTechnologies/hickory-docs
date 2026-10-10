@@ -247,6 +247,14 @@ jobs:
       - name: Install the task runner
         run: cargo install just --locked
 
+      - name: Install uv for the bundled Python agent
+        # Only the macOS bundles carry the Python agent, and staging it needs
+        # the locked environment under apps/agent installed with uv.
+        if: runner.os == 'macOS'
+        run: |
+          curl -LsSf https://astral.sh/uv/install.sh | sh
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
       - name: Install cargo-tauri
         # Pinned like every other tool here: a bundler that changes under us
         # changes the asset names, and those are a contract with the docs.

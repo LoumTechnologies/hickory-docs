@@ -37,6 +37,11 @@ pub struct Attach {
     pub run: bool,
     pub key_store_path: Option<PathBuf>,
     pub ui_settings_path: Option<PathBuf>,
+    /// A runtime the attaching app ships inside its own bundle, if it does.
+    /// Sent over the wire because the engine may have been started by another
+    /// program (the CLI) and would otherwise have no way to know about it.
+    #[serde(default)]
+    pub python_runtime_path: Option<PathBuf>,
     pub callback: Option<String>,
     pub callback_token: String,
     pub client: String,
@@ -51,6 +56,7 @@ impl Attach {
             run: false,
             key_store_path: None,
             ui_settings_path: None,
+            python_runtime_path: None,
             callback: None,
             callback_token: String::new(),
             client: secret(),

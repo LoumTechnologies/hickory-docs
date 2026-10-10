@@ -18,6 +18,14 @@ through the same `hick-lsp` an editor uses, driven in-process — see
 [the-notebook-asks-the-same-questions-an-editor-does](../editor-intelligence/the-notebook-asks-the-same-questions-an-editor-does.md).
 Nothing in it reaches the network: no telemetry, no update check, no account.
 
+On macOS the `.dmg` also carries the experimental Python agent as a
+self-contained runtime under `Contents/Resources/python-agent`,
+staged by `scripts/build-python-agent-runtime.sh`. The app discovers it from
+its own location, so the agent works in a downloaded app with no path set in
+Settings. See `../agent/a-desktop-app-bundles-its-python-agent.md`. The CLI
+archives do not carry it, and neither do the Linux and Windows desktop
+bundles yet.
+
 **Asset names are a contract, as they are for the CLI.** Tauri names bundles
 from `productName` — `Hickory Docs_0.1.0_amd64.deb`, with a space — so
 `scripts/dist-desktop.sh` renames every bundle to one shape,

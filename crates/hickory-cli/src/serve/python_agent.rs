@@ -27,15 +27,57 @@ fn load(state: &LocalState) -> anyhow::Result<Settings> {
 }
 pub fn runtime(state: &LocalState) -> anyhow::Result<PathBuf> {
     let settings = load(state)?;
-    anyhow::ensure!(
-        !settings.python.is_empty(),
-        "Configure the Python agent runtime in Settings → Agents."
-    );
-    let path = PathBuf::from(settings.python);
+    let path = effective_runtime(&settings, state)?;
     let scratch = tempfile::tempdir()?;
     // No local executor fallback, regardless of the current cell-executor preference.
     hickory_executor_sandbox::agent_process::command(&path, scratch.path())?;
     Ok(path)
+}
+
+/// The runtime to use, in the order that makes each one honest: what a person
+/// chose in Settings, then the runtime the app that started this engine handed
+/// over, then one shipped inside the app.
+///
+/// The last is discovered from the running executable, not configured, because
+/// that is what it literally is — the same bytes the app was installed with.
+/// It is the zero-configuration default that makes the experimental Python
+/// agent work in a downloaded app without naming a path.
+fn effective_runtime(settings: &Settings, state: &LocalState) -> anyhow::Result<PathBuf> {
+    if !settings.python.trim().is_empty() {
+        return Ok(PathBuf::from(&settings.python));
+    }
+    if let Some(path) = &state.python_runtime_path {
+        return Ok(path.clone());
+    }
+    bundled_runtime()
+        .ok_or_else(|| anyhow::anyhow!("Configure the Python agent runtime in Settings → Agents."))
+}
+
+/// A Python runtime shipped inside this app, located from the running
+/// executable's own path — the same bytes the app was installed with.
+///
+/// On macOS that is `Hickory Docs.app/Contents/MacOS/<binary>`, with the
+/// runtime at `Contents/Resources/python-agent/bin/python`; a bare executable
+/// looks for `python-agent/` beside it. `None` — the CLI, the tests, a build
+/// that ships none — means no runtime was bundled and Settings must name one.
+pub fn bundled_runtime() -> Option<PathBuf> {
+    bundled_runtime_for(std::env::current_exe().ok()?)
+}
+
+/// The path logic behind [`bundled_runtime`], split out so a test can place a
+/// fake bundle and ask without moving the test executable into it.
+fn bundled_runtime_for(exe: PathBuf) -> Option<PathBuf> {
+    let dir = exe.parent()?;
+    [
+        // A macOS application bundle: Contents/MacOS/<binary>.
+        dir.parent()
+            .map(|contents| contents.join("Resources/python-agent/bin/python")),
+        // A bare executable with the runtime beside it.
+        Some(dir.join("python-agent/bin/python")),
+    ]
+    .into_iter()
+    .flatten()
+    .find(|path| path.is_file())
 }
 pub fn catalogue(state: &LocalState) -> Value {
     let result = runtime(state);
@@ -43,8 +85,15 @@ pub fn catalogue(state: &LocalState) -> Value {
 }
 pub async fn settings(State(state): State<LocalState>) -> ApiResult<Json<Value>> {
     let settings = load(&state).map_err(|e| ApiError::unprocessable(format!("{e:#}")))?;
+    // `bundled` lets Settings say "this app already ships a runtime" without
+    // pretending the person configured one: the field is a hint, never saved.
+    let bundled = state
+        .python_runtime_path
+        .clone()
+        .or_else(bundled_runtime)
+        .map(|path| path.display().to_string());
     Ok(Json(
-        json!({"python":settings.python,"available":runtime(&state).is_ok()}),
+        json!({"python":settings.python,"available":runtime(&state).is_ok(),"bundled":bundled}),
     ))
 }
 pub async fn configure(
@@ -285,4 +334,37 @@ pub(super) fn routes() -> axum::Router<LocalState> {
         .route("/agents/python", get(settings).put(configure))
         .route("/docs/{id}/agent/python", get(snapshot))
         .route("/docs/{id}/agent/python/review", post(decide))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::bundled_runtime_for;
+
+    // Guarantee: docs/guarantees/agent/a-desktop-app-bundles-its-python-agent.md
+    #[test]
+    fn a_runtime_is_found_inside_an_app_bundle_and_beside_a_bare_executable() {
+        let root = tempfile::tempdir().unwrap();
+        let bundle = root.path().join("Hickory Docs.app");
+        let exe = bundle.join("Contents/MacOS/hickory-desktop");
+        std::fs::create_dir_all(exe.parent().unwrap()).unwrap();
+        let bundled = bundle.join("Contents/Resources/python-agent/bin/python");
+        std::fs::create_dir_all(bundled.parent().unwrap()).unwrap();
+        std::fs::write(&bundled, b"").unwrap();
+        assert_eq!(bundled_runtime_for(exe), Some(bundled));
+
+        // A bare executable with the runtime beside it.
+        let bare = root.path().join("bin/hick");
+        std::fs::create_dir_all(bare.parent().unwrap()).unwrap();
+        let sibling = root.path().join("bin/python-agent/bin/python");
+        std::fs::create_dir_all(sibling.parent().unwrap()).unwrap();
+        std::fs::write(&sibling, b"").unwrap();
+        assert_eq!(bundled_runtime_for(bare), Some(sibling));
+    }
+
+    // Guarantee: docs/guarantees/agent/a-desktop-app-bundles-its-python-agent.md
+    #[test]
+    fn nothing_is_found_when_no_runtime_was_shipped() {
+        let root = tempfile::tempdir().unwrap();
+        assert_eq!(bundled_runtime_for(root.path().join("hick")), None);
+    }
 }

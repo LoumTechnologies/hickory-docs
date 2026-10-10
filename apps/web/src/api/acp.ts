@@ -35,8 +35,8 @@ export interface AcpState {
 
 const path = (doc: string) => `/api/docs/${encodeURIComponent(doc)}/agent/acp`;
 export const acpApi = {
-  pythonSettings: () => request<{ python: string; available: boolean }>("GET", "/api/agents/python"),
-  savePython: (python: string) => request<{ python: string; available: boolean }>("PUT", "/api/agents/python", { python }),
+  pythonSettings: () => request<{ python: string; available: boolean; bundled?: string | null }>("GET", "/api/agents/python"),
+  savePython: (python: string) => request<{ python: string; available: boolean; bundled?: string | null }>("PUT", "/api/agents/python", { python }),
   catalogue: () => request<{ agents: AgentCommand[]; workspace_filesystem?: { supported: boolean; bundled: boolean; message: string } }>("GET", "/api/agents"),
   save: (agents: AgentCommand[]) => request<{ agents: AgentCommand[] }>("PUT", "/api/agents", agents),
   install: (agent: string) => request<{ agents: AgentCommand[] }>("POST", `/api/agents/${encodeURIComponent(agent)}/install`),

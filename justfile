@@ -166,6 +166,10 @@ local-install:
       echo "Install the desktop build tool first: cargo install tauri-cli --version '^2' --locked" >&2
       exit 1
     fi
+    if ! command -v uv >/dev/null 2>&1; then
+      echo "Install uv first (the bundled Python agent is built with it): https://docs.astral.sh/uv/getting-started/installation/" >&2
+      exit 1
+    fi
     if [ ! -w /Applications ]; then
       echo "local-install needs write access to /Applications." >&2
       exit 1
@@ -188,9 +192,14 @@ local-install:
     unset APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD
     export APPLE_SIGNING_IDENTITY="-"
     just stage-desktop-cli aarch64-apple-darwin release
+    # Bundle the Python agent so the experimental runtime works in the
+    # installed app without naming a path in Settings.
+    just stage-python-agent
     (
       cd apps/desktop/src-tauri
-      CI=true cargo tauri build --target aarch64-apple-darwin --bundles app --config ../../../.dev/desktop-cli.json
+      CI=true cargo tauri build --target aarch64-apple-darwin --bundles app \
+        --config ../../../.dev/desktop-cli.json \
+        --config ../../../.dev/desktop-python-agent.json
     )
     bundle="$CARGO_TARGET_DIR/aarch64-apple-darwin/release/bundle/macos/Hickory Docs.app"
     phase="verifying the release signature"
@@ -384,7 +393,8 @@ test-startup-web:
 # Make a locally signed macOS bundle without replacing the installed app.
 build-desktop-app:
     just stage-desktop-cli "" dev
-    cd apps/desktop/src-tauri && APPLE_SIGNING_IDENTITY="-" cargo tauri build --debug --bundles app --config ../../../.dev/desktop-cli.json
+    just stage-python-agent
+    cd apps/desktop/src-tauri && APPLE_SIGNING_IDENTITY="-" cargo tauri build --debug --bundles app --config ../../../.dev/desktop-cli.json --config ../../../.dev/desktop-python-agent.json
     codesign --verify --deep --strict "apps/desktop/src-tauri/target/debug/bundle/macos/Hickory Docs.app"
 
 # Recent File/Folder persistence and workspace navigation.
@@ -418,6 +428,13 @@ test-literate-views:
 test-literate-editor:
     cargo build -p hickory-cli --bin hick --example engine_client --example acp_fixture
     scripts/test-literate-editor.sh
+
+# Stage the self-contained Python agent runtime a desktop build bundles.
+# Writes .dev/python-agent/runtime and the Tauri `files` config that ships it.
+# Needs uv; see scripts/build-python-agent-runtime.sh for why the runtime is
+# folded out of the locked environment rather than pointed at it.
+stage-python-agent:
+    ./scripts/build-python-agent-runtime.sh
 
 # Stage the CLI sidecar for Tauri. Kept out of tauri.conf so cargo-only checks
 # do not require an already-built binary. Every bundled build uses this config.

@@ -271,6 +271,19 @@ async fn attach(
         engine.workspaces.lock().await.get_mut(&root).unwrap().ui = ui.clone();
         state.ui = ui;
     }
+    // A runtime bundled by the attaching app overrides a runtime this engine
+    // discovered on its own (or did not), so an app that opens a workspace
+    // served by a CLI-started engine still gets its own Python agent.
+    if let Some(path) = &opts.python_runtime_path {
+        engine
+            .workspaces
+            .lock()
+            .await
+            .get_mut(&root)
+            .unwrap()
+            .python_runtime_path = Some(path.clone());
+        state.python_runtime_path = Some(path.clone());
+    }
     let clients = engine.clients.lock().await;
     let slot = if let Some(client) = clients.get(&opts.client) {
         client.slot.clone()

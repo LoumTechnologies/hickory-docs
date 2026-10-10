@@ -22,9 +22,20 @@ calls.
 
 ## Use it in the UI
 
-1. Open **Settings → Agents**. Set **Python executable** to the absolute path
+A desktop build ships its own self-contained runtime inside the app bundle,
+under `Contents/Resources/python-agent` (built by
+`scripts/build-python-agent-runtime.sh`, which `just local-install` and
+`scripts/dist-desktop.sh` call). **Nothing has to be configured**: open
+Settings → Agents and the page says it is using the bundled runtime, and the
+Agent pane offers **Hickory Python (experimental)** already available. The
+runtime is discovered from the app's own location, never written into
+`python.json`.
+
+1. To use a different environment — a source checkout without a bundle, or a
+   venv you maintain yourself — set **Python executable** to the absolute path
    of `apps/agent/.venv/bin/python`, then click **Save Python runtime**.
    Hickory starts the confined worker to check the installation before saving.
+   Clearing the field returns to the bundled runtime.
 2. Add a provider API key in Settings if you have not already.
 3. Open the **Agent** pane, open its settings, and choose
    **Hickory Python (experimental)**. Choose the provider and model there.
@@ -84,7 +95,9 @@ observations are labeled separately from Rust-observed results. The existing
 assumption audit includes these records.
 
 This is an opt-in runtime in both the UI and CLI. The default agent remains
-Rust. The worker environment is not bundled into releases.
+Rust. The worker environment is **not** bundled into the CLI archives; macOS
+desktop builds (`.dmg` and `just local-install`) do bundle it, which is why the
+runtime needs no path there. Other desktop platforms do not bundle it yet.
 Provider responses are collected rather than streamed; reasoning is not captured
 by this path. The existing `verify` and debugger tools are withheld because they
 can write derived files without an exact edit preview. The UI and CLI label completion

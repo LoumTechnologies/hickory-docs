@@ -107,3 +107,17 @@ Auto-accept causes a Python write without a separate review gesture.
 Witnesses are real confined HTTP/WS tests and a real Chromium setup/review/reload/
 Stop flow with only the paid model replaced. Those checks establish mechanics,
 not semantic approval, complete assumption coverage or complete byte authorship.
+
+## Runtime packaging (2026-10-10)
+
+The earlier line that the installed environment is "not bundled" is now
+narrowed: a **macOS desktop build** bundles a self-contained runtime at
+`Contents/Resources/python-agent`, built by
+`scripts/build-python-agent-runtime.sh` from the same locked environment, and
+the app discovers it from its own location so no path has to be configured.
+The probe still trusts what it is given; bundling packages the trusted
+environment rather than authenticating it. The CLI archives still do not carry
+the runtime, a cross-compiled Intel macOS bundle is skipped because `uv`
+installs the host interpreter, and Linux/Windows desktop bundles are sequenced.
+The guarantee is
+[`a-desktop-app-bundles-its-python-agent.md`](../../guarantees/agent/a-desktop-app-bundles-its-python-agent.md).

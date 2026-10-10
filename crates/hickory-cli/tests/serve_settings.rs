@@ -40,12 +40,12 @@ struct Session {
 /// same shape the desktop app passes (`<app config dir>/llm-keys.json`).
 async fn start() -> Session {
     let dir = tempfile::tempdir().unwrap();
-    std::fs::write(dir.path().join("demo.hick"), DOC).unwrap();
+    std::fs::write(dir.path().join("demo.md"), DOC).unwrap();
     let root = dir.path().canonicalize().unwrap();
     let key_path = root.join("config").join("llm-keys.json");
 
     let prepared = prepare(ServeOptions {
-        target: root.join("demo.hick"),
+        target: root.join("demo.md"),
         port: 0,
         params: Vec::new(),
         executor: ExecutorChoice::Local,

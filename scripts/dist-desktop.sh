@@ -86,6 +86,29 @@ if [[ "$TARGET" == *apple-darwin ]] && [ "${HICKORY_BUNDLE_FSKIT:-0}" = "1" ]; t
   just build-fskit "$TARGET"
   fskit_config='{ "bundle": { "macOS": { "files": { "PlugIns/HickoryWorkspace.appex": "../../../.dev/fskit/HickoryWorkspace.appex" } } } }'
 fi
+
+# The bundled Python agent is a macOS concern for now: the app discovers it
+# inside a `.app` bundle, and the Tauri `files` map that ships it is
+# macOS-only. `just stage-python-agent` writes the runtime and the config that
+# points at it.
+#
+# Only when the target IS this machine's architecture: `uv` installs the
+# host's interpreter, so a cross-compiled Intel bundle built on an arm64
+# runner would otherwise carry an arm64 Python that cannot run where the app
+# does — worse than not shipping it. Intel macOS falls back to configuring a
+# runtime by hand, as every platform without a bundle does.
+python_args=()
+case "$TARGET" in
+  aarch64-apple-darwin) bundled_arch=arm64 ;;
+  x86_64-apple-darwin)  bundled_arch=x86_64 ;;
+  *)                    bundled_arch="" ;;
+esac
+if [ -n "$bundled_arch" ] && [ "$bundled_arch" = "$(uname -m)" ]; then
+  just stage-python-agent
+  python_args=(--config ../../../.dev/desktop-python-agent.json)
+elif [ -n "$bundled_arch" ]; then
+  echo "==> not bundling the Python agent: $TARGET does not match $(uname -m)"
+fi
 cross_args=()
 if [ "$TARGET" != "$HOST_TARGET" ]; then
   cross_args=(--target "$TARGET")
@@ -115,6 +138,7 @@ fi
     --config "{\"version\": \"$BUNDLE_VERSION\"}" \
     --config "$fskit_config" \
     --config ../../../.dev/desktop-cli.json \
+    ${python_args[@]+"${python_args[@]}"} \
     ${cross_args[@]+"${cross_args[@]}"} \
     ${TAURI_BUNDLES:+--bundles "$TAURI_BUNDLES"}
 )

@@ -183,6 +183,12 @@ async fn runtime_setup_refuses_invalid_installations_and_reserved_acp_ids() {
         .request("PUT", "/api/agents/python", json!({"python":"python3"}))
         .await;
     assert_eq!(status, 422);
+    // No runtime is configured and the test executable ships none, so the
+    // Settings route reports nothing available and no bundled default.
+    let (status, settings) = app.request("GET", "/api/agents/python", Value::Null).await;
+    assert_eq!(status, 200);
+    assert_eq!(settings["available"], false);
+    assert!(settings["bundled"].is_null());
     let (status, _) = app
         .request(
             "PUT",

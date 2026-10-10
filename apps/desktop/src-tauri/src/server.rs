@@ -253,6 +253,10 @@ pub(crate) async fn start_with_menu(
     let mut opts = Attach::new(target.to_path_buf(), ExecutorChoice::from_env()?);
     opts.key_store_path = config_dir.map(|dir| dir.join("llm-keys.json"));
     opts.ui_settings_path = config_dir.map(ui_settings_file);
+    // The Python runtime this app ships, if it does. Sent over the attach
+    // rather than assumed, because the engine outlives one window and may have
+    // been started by the CLI — which has no bundle to point at.
+    opts.python_runtime_path = hickory_cli::serve::bundled_runtime();
     if shell.is_some() {
         opts.callback = Some(callback);
     }
