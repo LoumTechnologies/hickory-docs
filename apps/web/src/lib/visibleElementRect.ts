@@ -1,5 +1,6 @@
 /** Visible part of an element, clipped to ancestor scrollports (excluding scrollbars). */
 export function visibleElementRect(element: HTMLElement): DOMRect | null {
+  if (getComputedStyle(element).visibility === "hidden") return null;
   let { left, right, top, bottom } = element.getBoundingClientRect();
   for (let parent = element.parentElement; parent; parent = parent.parentElement) {
     const style = getComputedStyle(parent);

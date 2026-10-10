@@ -247,7 +247,7 @@ test("an inactive literate view prompts before close and writes its code when Sa
 test("a long Files row keeps its ribbon endpoint inside the actual scrollport", async ({ page }) => {
   test.skip(!process.env.HICKORY_E2E_URL, "Use just test-literate-editor.");
   await page.goto("/");
-  const row = page.locator('[data-tree-path="code.py"]');
+  const row = page.locator('[data-spatial-files=left] [data-tree-path="code.py"]');
   await expect(row).toBeVisible();
   // Force the existing Files editor to overflow just as a long file name does.
   await page.addStyleTag({ content: '.filesystem-editor .cm-line { min-width: 1000px; } .filesystem-editor .cm-scroller::-webkit-scrollbar { width: 15px; height: 15px; }' });

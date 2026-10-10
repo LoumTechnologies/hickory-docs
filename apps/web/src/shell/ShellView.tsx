@@ -894,7 +894,7 @@ function useTabDrag(layout: Layout, onLayout: (next: Layout) => void): TabDraggi
  * text: anything that edits belongs to the editor in the pane, which already
  * has its own keymap and its own idea of what has focus.
  */
-function useShellKeys(
+export function useShellKeys(
   layout: Layout,
   onLayout: (next: Layout) => void,
   onSearch?: () => void,

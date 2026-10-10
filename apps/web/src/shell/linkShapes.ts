@@ -15,7 +15,11 @@ export function linkShapes(container: HTMLElement, sources: readonly RibbonSourc
         (s) => s.view && samePath(s.docPath, link.from.path),
       );
       const view = source?.view;
-      if (!source || !view) continue;
+      if (!source || !view) {
+        const reverse = link.to.lines && (sources.some(s => s.view && samePath(s.docPath, link.to.path)) || files.some(f => f.view && samePath(f.file.path, link.to.path)));
+        if (reverse) out.push(...linkShapes(container, [...sources, ...files.filter(f => f.view).map(f => ({ docPath: f.file.path, docSource: f.file.content, view: f.view }))], [], [{ ...link, key: `${link.key}:reverse`, from: { path: link.to.path, lines: link.to.lines! }, to: { path: link.from.path, lines: link.from.lines }, anchor: undefined }], on, braces, geometry));
+        continue;
+      }
       const kinds: ("document" | "generated" | "file")[] = link.to.kind
         ? [link.to.kind]
         : ["document", "generated", "file"];

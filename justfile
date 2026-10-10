@@ -293,6 +293,24 @@ test-acp-live:
 check-web:
     cd apps/web && npm run typecheck
 
+# Headless-friendly workspace preview; prints its URL without opening a browser.
+dev-spatial-mock:
+    cd apps/web && npm run dev:mock
+
+# Serve the real editor against an already-running scratch engine, without opening a browser.
+dev-web api_origin:
+    cd apps/web && HICKORY_API_ORIGIN={{quote(api_origin)}} npm run dev
+
+test-spatial-browser url:
+    cd apps/web && HICKORY_E2E_CHANNEL=chromium HICKORY_SPATIAL_URL={{quote(url)}} npx playwright test e2e/spatialWorkspace.spec.ts
+
+test-files-browser url:
+    cd apps/web && HICKORY_E2E_CHANNEL=chromium HICKORY_E2E_URL={{quote(url)}} npx playwright test e2e/files-editor.spec.ts
+
+# Spatial layout geometry and native editor behavior.
+test-spatial:
+    cd apps/web && npm run typecheck && npm test -- src/shell/spatialLayout.test.ts src/shell/SpatialShellView.test.tsx src/editor/spatialExcerpt.test.ts
+
 # Browser embedding and static JS/TS debugging, without a native engine.
 install-browser-runtime:
     cd apps/web && npm install --save-exact js-interpreter@6.0.2 @jridgewell/trace-mapping@0.3.31

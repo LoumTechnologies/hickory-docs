@@ -61,6 +61,7 @@ import {
   terminalEdge,
 } from "../lib/ribbonGeometry";
 import { visibleElementRect } from "../lib/visibleElementRect";
+import { treeEndpoint, spatialEditorVisible } from "./spatialTerminals";
 import { pickTerminal } from "../lib/terminalPriority";
 import type { RibbonStyle } from "../lib/ribbonStyle";
 import { caretTouches, type RibbonVisibility } from "../lib/ribbonVisibility";
@@ -254,8 +255,8 @@ function terminalEl(
   container: HTMLElement,
   selector: string,
 ): HTMLElement | null {
-  const el = container.querySelector(selector);
-  return el instanceof HTMLElement ? el : null;
+  const matches = [...container.querySelectorAll<HTMLElement>(selector)];
+  return matches.find(el => visibleElementRect(el)) ?? matches.find(el => !el.closest("[data-spatial-shell]")) ?? null;
 }
 
 
@@ -268,15 +269,8 @@ export interface Terminal {
   vertical: boolean;
 }
 
-/**
- * A folder-tree row for `target`, but only when the row is actually visible:
- * a row scrolled out of its pane (or inside a collapsed directory, which is
- * simply not rendered) is not a terminal anyone can see, and the connection
- * must fall through to the divider port instead.
- */
 function visibleTreeRow(container: HTMLElement, target: string): DOMRect | null {
-  const row = terminalEl(container, `[data-tree-path=${attr(target)}]`);
-  return row ? visibleElementRect(row) : null;
+  return treeEndpoint(container, target)?.rect ?? null;
 }
 
 /**
@@ -291,10 +285,10 @@ export function findTerminal(
   kind: "document" | "generated" | "file",
   target: string,
 ): Terminal | null {
-  const tab = terminalEl(
+  const tab = treeEndpoint(container, target)?.folder ? null : terminalEl(
     container,
     target.startsWith("hickory-buffer://") ? `[data-shell-tab-buffer=${attr(target)}]`
-      : `[data-shell-tab-kind=${attr(kind)}][data-shell-tab-target=${attr(target)}]`,
+      : `[data-shell-tab-kind=${attr(kind)}][data-shell-tab-target=${attr(target)}], [data-shell-tab-source=${attr(target)}]`,
   );
   const row = visibleTreeRow(container, target);
   const port = terminalEl(
@@ -642,6 +636,8 @@ export function RibbonOverlay({
     }
     const box = container.getBoundingClientRect();
     const braces = ribbonStyle === "braces";
+    const shownSources = sources.map(source => ({ ...source, view: spatialEditorVisible(source.view, container) }));
+    const shownFiles = files.map(file => ({ ...file, view: spatialEditorVisible(file.view, container) }));
     const out: Draft[] = [];
     const colours = new Map<string, number>();
     const colourFor = (fragment: string) => {
@@ -653,9 +649,7 @@ export function RibbonOverlay({
       return assigned;
     };
 
-    for (const source of anyLineage ? sources : []) {
-      // A fragment is identified by its span IN ITS DOCUMENT: the same byte
-      // range in two documents is two fragments, two colours.
+    for (const source of anyLineage ? shownSources : []) {
       const fragmentIn = (key: string) => `${source.docPath}\u0000${key}`;
       const documentView = source.view ?? null;
       const documentVisible = documentView !== null;
@@ -667,7 +661,7 @@ export function RibbonOverlay({
       const structure = documentView ? structureOf(documentView.state) : null;
       const sourceLength = documentView?.state.doc.length ?? 0;
 
-      for (const entry of files) {
+      for (const entry of shownFiles) {
         const ribbons = deriveRibbons(
           entry.file,
           source.docPath,
@@ -921,7 +915,7 @@ export function RibbonOverlay({
       // as often.
       if (!documentVisible) {
         const terminal = findTerminal(container, "document", source.docPath);
-        for (const entry of files) {
+        for (const entry of shownFiles) {
           if (!entry.view || !terminal) continue;
           const pane = entry.view.scrollDOM.getBoundingClientRect();
           const genEdges = paneEdges(entry.view);
@@ -1011,7 +1005,7 @@ export function RibbonOverlay({
       }
     }
 
-    out.push(...linkShapes(container, sources, files, links, on, braces,
+    out.push(...linkShapes(container, shownSources, shownFiles, links, on, braces,
       { bandBetween, paneEdges, findTerminal, attachTerminal, revealStrip }));
 
     // Whose caret counts: the editor that has focus, and when focus has gone
@@ -1063,11 +1057,8 @@ export function RibbonOverlay({
       scroller.addEventListener("scroll", schedule, { passive: true });
     }
     container?.addEventListener("scroll", schedule, true);
+    container?.addEventListener("hickory-spatial-frame", schedule);
     window.addEventListener("resize", schedule);
-    // The caret is a thing that moves, so it belongs on this list. One
-    // document-level listener catches every way of moving it in every pane —
-    // typing, arrows, a click, a drag — where per-view key handlers would
-    // catch some of them.
     document.addEventListener("selectionchange", schedule);
     const observer = new ResizeObserver(schedule);
     if (container) observer.observe(container);
@@ -1077,6 +1068,7 @@ export function RibbonOverlay({
       for (const scroller of scrollers)
         scroller.removeEventListener("scroll", schedule);
       container?.removeEventListener("scroll", schedule, true);
+      container?.removeEventListener("hickory-spatial-frame", schedule);
       window.removeEventListener("resize", schedule);
       document.removeEventListener("selectionchange", schedule);
       observer.disconnect();

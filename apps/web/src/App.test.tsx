@@ -29,7 +29,7 @@ afterEach(() => {
 });
 
 function editor(container: HTMLElement): EditorView {
-  const element = container.querySelector(".untitled-tab .cm-editor");
+  const element = container.querySelector("[data-spatial-center=true] .untitled-tab .cm-editor") ?? container.querySelector(".untitled-tab .cm-editor");
   if (!element) throw new Error("no untitled editor");
   return EditorView.findFromDOM(element as HTMLElement)!;
 }
@@ -100,7 +100,7 @@ describe("the startup workspace", () => {
       expect(editor(container).hasFocus).toBe(true);
     });
     await waitFor(() => expect(editor(container).hasFocus).toBe(true));
-    expect(getAllByRole("tab")).toHaveLength(2);
+    expect(getAllByRole("tab")).toHaveLength(3);
     expect(getByRole("tab", { name: /Files/ })).toBeTruthy();
     expect(getByRole("tab", { name: /Untitled/ }).textContent).toContain("Untitled");
     expect(getByRole("tab", { name: /Untitled/ }).textContent).not.toContain("*");

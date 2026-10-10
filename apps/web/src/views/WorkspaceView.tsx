@@ -53,7 +53,9 @@ import { loadChannelWidth } from "../lib/channelWidth";
 import { windowTitle } from "../lib/windowTitle";
 import { deriveRibbons } from "../lib/ribbons";
 import { flashTab } from "../lib/flashTab";
-import { ShellView, type ShellPort } from "../shell/ShellView";
+import { SpatialShellView as ShellView } from "../shell/SpatialShellView";
+import { revealSpatialSource } from "../shell/spatialNavigation";
+import type { ShellPort } from "../shell/ShellView";
 import {
   RibbonOverlay,
   type RibbonFile,
@@ -1633,14 +1635,13 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
     if (tab.kind === "tree") {
       return (
         <FolderTreePane
-          focusRequest={treeFocusRequest}
+          focusRequest={tab.target === "folder:right" ? 0 : treeFocusRequest}
           roots={folderRoots}
           error={folderError}
           openable={new Set(openableOutputs.keys())}
           activeDocId={focusedId ?? undefined}
           dirtyPaths={dirtyPaths}
           onNewDocument={newDocument}
-          // The session cwd places each terminal among the files where it runs.
           sessions={terminals.sessions.map((session) => ({
             id: session.id,
             title: session.title,
@@ -1723,6 +1724,7 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
             />
           ))}
           <ShellView
+            sources={ribbonSources} files={ribbonFiles} links={ribbonLinks} folderRoot={folderRoots[0]?.root_path ?? folderRoots[0]?.root}
             layout={layout}
             onLayout={setLayout}
             onSearch={() => setSearchOpen(true)}
@@ -1751,8 +1753,6 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
               </div>
             )}
           />
-          {/* Where this text came from, drawn between the panes showing it.
-              Following the focused document. */}
           <RibbonOverlay
             container={shellBox}
             sources={ribbonSources}
@@ -1773,15 +1773,12 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
               const into = intent ? routed.focus : undefined;
               const session = registry.get(focusedIdRef.current);
               if (target.kind === "path") {
+                if (revealSpatialSource(shellBox, ribbonSources, ribbonFiles, target)) return;
                 openHit(target.path, target.lines?.[0] ?? 1, into);
                 return;
               }
               if (!session) return;
               if (target.kind === "document") {
-                // Back the way it came: the document's own bytes, selected —
-                // first bringing the document on screen when the band ended
-                // at a port or an inactive tab rather than at visible prose.
-                // Another document's bytes open THAT document.
                 if (session.doc && !samePath(target.path, session.doc.path)) {
                   openDocumentByPath(target.path, target.span, into);
                   return;

@@ -11,7 +11,7 @@ test("the live Files pane navigates and renames like an editor", async ({ page }
     await page.request.post("/api/files/op", { data: { op: "create", path: before } });
     await page.goto("/");
     await page.evaluate(() => window.dispatchEvent(new CustomEvent("hickory-menu", { detail: "files" })));
-    const content = page.locator(".filesystem-editor .cm-content");
+    const content = page.locator("[data-spatial-files=left] .filesystem-editor .cm-content");
     await content.click();
     await content.press("Control+End");
     const line = content.locator(".cm-line", { hasText: before });
@@ -27,7 +27,7 @@ test("the live Files pane navigates and renames like an editor", async ({ page }
     const beforeApply = JSON.stringify(await (await page.request.get("/api/files")).json());
     expect(beforeApply).toContain(before);
     expect(beforeApply).not.toContain(after);
-    await content.press("Control+s");
+    await content.press("ControlOrMeta+s");
     await expect.poll(async () => JSON.stringify(await (await page.request.get("/api/files")).json())).toContain(after);
     await page.reload();
     await page.evaluate(() => window.dispatchEvent(new CustomEvent("hickory-menu", { detail: "files" })));
@@ -50,7 +50,7 @@ test("the live Files pane navigates and renames like an editor", async ({ page }
     // than the editor instance that is being replaced.
     await page.reload();
     await page.evaluate(() => window.dispatchEvent(new CustomEvent("hickory-menu", { detail: "files" })));
-    const refreshedContent = page.locator(".filesystem-editor .cm-content");
+    const refreshedContent = page.locator("[data-spatial-files=left] .filesystem-editor .cm-content");
     await refreshedContent.click();
     await refreshedContent.press("Control+End");
     const createdLine = refreshedContent.locator(`[data-tree-path="${created}"]`);

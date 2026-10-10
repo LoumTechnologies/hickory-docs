@@ -5,6 +5,7 @@ import { EditorState } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
 import { editorViewport, linkShapes } from "./linkShapes";
 import type { RibbonLink } from "./Ribbons";
+import { attachTerminal, revealStrip } from "./Ribbons";
 
 const views: EditorView[] = [];
 afterEach(() => views.splice(0).forEach(view => view.destroy()));
@@ -49,4 +50,19 @@ it("clips a conversation's connections to its actual scrolling parent", () => {
   vi.spyOn(log, "getBoundingClientRect").mockReturnValue({ top: 100, bottom: 400 } as DOMRect);
   expect(editorViewport(view)).toEqual({ top: 100, bottom: 400 });
   log.remove();
+});
+
+// Guarantee: docs/guarantees/shell/spatial-views-preserve-the-editor.md
+it("draws from a centered cited document back to a collapsed conversation header", () => {
+  const container = document.createElement("div"); document.body.append(container);
+  const view = new EditorView({ parent: container, state: EditorState.create({ doc: "Title\nSupporting paragraph\nOther" }) }); views.push(view);
+  vi.spyOn(view.scrollDOM, "getBoundingClientRect").mockReturnValue(new DOMRect(300, 0, 400, 300));
+  const link: RibbonLink = { key: "receipt", family: "context", from: { path: "sessions/agent.md", lines: [10, 12] }, to: { path: "notes.md", lines: [2, 2] }, title: "context receipt" };
+  const shapes = linkShapes(container, [{ docPath: "sessions/agent.md", docSource: "" }, { docPath: "notes.md", docSource: "", view }], [], [link], () => true, true, {
+    bandBetween: () => [80, 110], paneEdges: () => ({ left: 300, right: 700, leftRailW: 10, rightRailW: 10 }),
+    findTerminal: () => ({ rect: new DOMRect(0, 78, 150, 36), ends: "tab", vertical: true }), attachTerminal, revealStrip,
+  });
+  expect(shapes).toHaveLength(1); expect(shapes[0].family).toBe("context");
+  expect(shapes[0].target).toMatchObject({ path: "sessions/agent.md", lines: [10, 12] });
+  expect(shapes[0].hl[0].view).toBe(view); expect(shapes[0].brace?.link).toBeTruthy(); container.remove();
 });

@@ -16,7 +16,7 @@ export function ribbonOpenIntent(container: HTMLElement | null, source: HTMLElem
   const origin = source?.closest<HTMLElement>("[data-shell-pane-id]");
   if (!container || !origin) return;
   const tab = [...container.querySelectorAll<HTMLElement>("[data-shell-tab-target]")].find(el =>
-    ["document", "generated", "file", "untitled"].includes(el.dataset.shellTabKind ?? "") &&
+    samePath(el.dataset.shellTabSource ?? "", target.path) || ["document", "generated", "file", "untitled"].includes(el.dataset.shellTabKind ?? "") &&
     (samePath(el.dataset.shellTabTarget ?? "", target.path) || el.dataset.shellTabBuffer === target.path));
   const destination = tab?.closest<HTMLElement>("[data-shell-pane-id]");
   const tree = [...container.querySelectorAll<HTMLElement>("[data-tree-path]")].find(el => samePath(el.dataset.treePath ?? "", target.path));

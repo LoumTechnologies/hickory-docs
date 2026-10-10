@@ -13,7 +13,7 @@ test("startup is an editable unsaved introduction that expands on demand", async
   const editor = page.locator(".untitled-tab .cm-content");
   await expect(editor).toContainText("Start with a note. Grow into an IDE.");
   await expect(page.getByRole("tab", { name: /Untitled/ })).toContainText("*");
-  await expect(page.getByRole("tab")).toHaveCount(before.folder_open === false ? 1 : 2);
+  await expect(page.getByRole("tab")).toHaveCount(before.folder_open === false ? 1 : 3);
   await expect(editor).toBeFocused();
   // Guarantee: docs/guarantees/authoring/the-measure-says-what-it-measures.md
   const marker = page.getByRole("slider", { name: "Where prose wraps" });
@@ -38,7 +38,7 @@ test("startup is an editable unsaved introduction that expands on demand", async
   await editor.press("Enter");
   await expect(editor).toContainText("My startup note");
   await page.evaluate(() => window.dispatchEvent(new CustomEvent("hickory-menu", { detail: "files" })));
-  await expect(page.locator(".filesystem-editor")).toBeVisible();
+  await expect(page.locator("[data-spatial-files=left] .filesystem-editor")).toBeVisible();
   await page.evaluate(() => window.dispatchEvent(new CustomEvent("hickory-menu", { detail: "show-agent" })));
   await expect(page.getByRole("tab", { name: /Agent/ })).toBeVisible();
   await expect(editor).toContainText("My startup note");
@@ -49,8 +49,8 @@ test("startup is an editable unsaved introduction that expands on demand", async
   await page.reload();
   await expect(marker).toHaveAttribute("aria-valuenow", String(draggedColumn));
   await expect(editor).toContainText("Start with a note. Grow into an IDE.");
-  await expect(page.getByRole("tab")).toHaveCount(before.folder_open === false ? 1 : 2);
-  await expect(page.locator(".filesystem-editor")).toHaveCount(before.folder_open === false ? 0 : 1);
+  await expect(page.getByRole("tab")).toHaveCount(before.folder_open === false ? 1 : 3);
+  await expect(page.locator(".filesystem-editor")).toHaveCount(before.folder_open === false ? 0 : 2);
   await page.getByRole("button", { name: "Close Untitled", exact: true }).click();
   await page.getByRole("button", { name: /Discard|Close and retain/ }).click();
   await expect(editor).toHaveCount(0);
