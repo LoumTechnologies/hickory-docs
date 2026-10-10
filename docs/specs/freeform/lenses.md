@@ -17,7 +17,7 @@ patches) and of why a durable claim must not point into a cache; it is
 superseded here on where a scaffold lives. `changes-not-commits.md`,
 `expression-and-log.md` and `three-axes.md` are assumed and not restated.*
 
-> "`.hick` files are still a thing, but the hick viewer views more than just
+> "`.md` files are still a thing, but the hick viewer views more than just
 > files. It can view git logs or multiple files across branches, and serve as
 > a way to edit git commits, create new commits, alter files in unison —
 > almost like block-level editing."
@@ -48,7 +48,7 @@ things that are not documents, and to say what the rule is.
 ## What a lens is
 
 A **lens** is a synthesized document: blocks drawn with the same cards a
-`.hick` document is drawn with, over something that is not a `.hick` file.
+`.md` document is drawn with, over something that is not a `.md` file.
 Every block in a lens declares three things:
 
 1. **What it is a view of.** A span of a file. A span of a generated file. A
@@ -67,7 +67,7 @@ edit's `422` for synthetic bytes, the merged view's "a variant may only add",
 the floor `hick emit` and the Git pane's amend already refuse below. What is
 new is that the question is asked **per block instead of per tab**.
 
-The viewer is therefore a **block editor**. A `.hick` document is the one
+The viewer is therefore a **block editor**. A `.md` document is the one
 thing it views whose blocks are also its storage. Everything else is a lens.
 
 ### The four lenses
@@ -84,7 +84,7 @@ fourth is this document.
 
 ### What a lens is not
 
-**A lens is never saved.** It has no path and no `.hick` extension, so nobody
+**A lens is never saved.** It has no path and no `.md` extension, so nobody
 can commit a view and mistake it for a source. The merged view drew that line
 — "the view is the merge, held live" — and it holds for all of them. Dired
 cannot be saved, and that is the model rather than the exception.
@@ -94,7 +94,7 @@ is a fact git reports; a file boundary is a fact the filesystem reports. No
 lens is parsed out of text it drew, so the parser's byte-for-byte invariant is
 untouched and there is no second grammar.
 
-**A `.hick` file stays the only thing that is authored.** Lenses read many
+**A `.md` file stays the only thing that is authored.** Lenses read many
 things and write back to each through its own verb. The risk this document
 exists to prevent is that "the viewer views more than files" quietly becomes
 a second document format with its own save path.
@@ -275,7 +275,7 @@ existing *make literate* path, **by choice and never by default**.
 
 ## What it does not replace
 
-Not the `.hick` document. The document describes the present and is
+Not the `.md` document. The document describes the present and is
 runnable; the history describes how the present got here and is replayable
 only into new commits. Same cards, opposite arrow of time, and a card in the
 history never claims it can regenerate itself in place.

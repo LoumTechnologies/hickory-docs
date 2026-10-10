@@ -26,7 +26,7 @@ e = mc^2
 
 fn weave(source: &str) -> String {
     let dir = tempfile::tempdir().unwrap();
-    let doc = dir.path().join("physics.hick");
+    let doc = dir.path().join("physics.md");
     std::fs::write(&doc, source).unwrap();
     let out = hick().arg("weave").arg(&doc).output().unwrap();
     assert!(

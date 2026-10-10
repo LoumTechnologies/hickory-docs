@@ -255,7 +255,7 @@ mod tests {
                 },
             ],
         );
-        let report = missing.report("report.hick");
+        let report = missing.report("report.md");
         assert!(report.contains("2 programs"));
         assert!(report.contains("duckdb — declared at line 12 (the queries)"));
         assert!(report.contains("gnuplot — declared at line 13"));
@@ -276,7 +276,7 @@ mod tests {
                 source_line: 3,
             }],
         );
-        let report = missing.report("d.hick");
+        let report = missing.report("d.md");
         assert!(
             report.contains("1 program that is not installed"),
             "{report}"
@@ -285,6 +285,6 @@ mod tests {
 
     #[test]
     fn nothing_missing_is_not_an_error() {
-        assert!(require(&Missing::default(), "d.hick").is_ok());
+        assert!(require(&Missing::default(), "d.md").is_ok());
     }
 }

@@ -43,9 +43,9 @@ Last LLM verification:
 - Date: 2026-08-22
 - Reviewer: Claude Fable 5
 - Result: verified by driving the served UI: on
-  `examples/receipts/claude-code/message.hick` the overlay listed declared
+  `examples/receipts/claude-code/message.md` the overlay listed declared
   shapes for every `cites=` (to the meeting's tab, analysis's tree row, fix's
-  port) and on `examples/receipts/hick-agent/analysis.hick` context shapes for
+  port) and on `examples/receipts/hick-agent/analysis.md` context shapes for
   the CSV and for each session input; the three toggles render with their
   swatches. Screenshots: `examples/receipts/context-ribbon.png`,
   `examples/receipts/declared-ribbon.png`.

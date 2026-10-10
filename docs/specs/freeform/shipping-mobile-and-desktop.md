@@ -115,7 +115,7 @@ itself — installed as a real `.app` on a booted iPhone 17 Pro simulator
 | Check | Result |
 |---|---|
 | the app container is writable | pass |
-| a `.hick` document parses | pass |
+| a `.md` document parses | pass |
 | the block model builds with no run behind it | pass |
 | prose renders to HTML | pass |
 | an unrun cell is marked `never-run`, not shown as fresh | pass |
@@ -175,7 +175,7 @@ Every `git` invocation in the repository is local plumbing or reporting:
 
 | Where | What it runs | Needed on a phone? |
 |---|---|---|
-| `hick-store/git_backend.rs` | `git init --bare` and object plumbing for `.hick/git/` | No — this is the internal version store, **not** the user's repository |
+| `hick-store/git_backend.rs` | `git init --bare` and object plumbing for `.md/git/` | No — this is the internal version store, **not** the user's repository |
 | `hickory-cli/agent_lineage.rs` | `git blame`, `git config` | Yes, eventually — this is the authorship half of `provenance-and-standing.md` |
 | `hickory-cli/init.rs` | `rev-parse`, hook paths | No — `hick init` is a CLI act |
 | `hick-term/src/git.rs` | `worktree add` | No — terminals are desktop-only |

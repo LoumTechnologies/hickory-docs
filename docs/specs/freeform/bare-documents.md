@@ -1,6 +1,6 @@
 # Bare documents: the wrapper is optional, the markdown is not
 
-*Status: design of record for the surface syntax of a `.hick` document.
+*Status: design of record for the surface syntax of a `.md` document.
 Adopted 2026-08-18. Additive to the language — every document that parses today
 parses unchanged, with one deliberate behaviour change named under "The weave
 default" below. Does not touch the no-escaping invariant, which is what makes
@@ -21,7 +21,7 @@ sat down to write. It is indefensible for a **notes IDE** (`notes-ide.md`),
 where the file is a thing you open on a phone in a meeting, and where the first
 impression of the format is the first line of the file.
 
-So: **a `.hick` file may begin with markdown.**
+So: **a `.md` file may begin with markdown.**
 
 ```
 # Standup, Tuesday
@@ -59,7 +59,7 @@ opens `PREFIX:doc`, the document is wrapped; otherwise it is bare, and
 does not close its root is still an error — the ambiguity is only about whether
 a root was ever opened.
 
-**4. `weave` defaults to the document's own name.** `notes/standup.hick` weaves
+**4. `weave` defaults to the document's own name.** `notes/standup.md` weaves
 `notes/standup.md`. An explicit `weave=` still wins, and `weave="none"` opts
 out.
 
@@ -145,7 +145,7 @@ arrives, is met with a decision instead of a surprise.
 ## Open edges
 
 - **Round-tripping frontmatter through the reverse-edit path** is unproven.
-  `hick up` carries an edit made in `standup.md` back into `standup.hick`; an
+  `hick up` carries an edit made in `standup.md` back into `standup.md`; an
   edit made *inside the woven frontmatter block* is a case that has never
   existed before and needs a decision — most likely the same one generated
   regions get.

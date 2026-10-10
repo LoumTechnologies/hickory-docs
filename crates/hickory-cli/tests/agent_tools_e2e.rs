@@ -49,7 +49,7 @@ fn tool_turn(thought: &str, name: &str, args: &[(&str, &str)], input: Option<&st
 async fn agent_tool_session_edits_verifies_and_replays() {
     let project = tempfile::tempdir().unwrap();
     let project_dir = project.path();
-    let doc_path = project_dir.join("doc.hick");
+    let doc_path = project_dir.join("doc.md");
     std::fs::write(&doc_path, DOC).unwrap();
 
     let hello = line_hash("    println!(\"hello\");");
@@ -131,7 +131,7 @@ async fn agent_tool_session_edits_verifies_and_replays() {
         .expect("the duplicated-paste edit must be refused");
     assert!(refusal.contains("routing, not failure"), "{refusal}");
     assert!(refusal.contains("edit_doc"), "{refusal}");
-    assert!(refusal.contains("doc.hick"), "{refusal}");
+    assert!(refusal.contains("doc.md"), "{refusal}");
     assert!(doc_source.contains("const SHARED: u8 = 2;"));
 
     // (e) verify passed and wrote the outputs.
@@ -173,7 +173,7 @@ async fn agent_tool_session_edits_verifies_and_replays() {
         "{session_source}"
     );
 
-    // And it REPLAYS: `hick run session.hick` semantics via hick-literate.
+    // And it REPLAYS: `hick run session.md` semantics via hick-literate.
     hick_literate::run_pipeline_cmd(hick_literate::PipelineRunOpts {
         files: vec![outcome.session_path.clone()],
         config_path: None,

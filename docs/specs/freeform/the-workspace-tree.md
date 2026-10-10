@@ -25,7 +25,7 @@ Given this machine:
 ```text
 notes/
   meetings/
-    launch.hick
+    launch.md
   terminal: summarize meetings                    working
   JIRA-142: Correct the launch summary             2 unread
 feature-retry/                                     worktree
@@ -169,7 +169,7 @@ the total down by source so a count never becomes an unexplained red number.
 
 The first implementation copied dired's commands onto a button tree and put a
 small editor over a name after F2. Dogfooding showed that this missed the
-requirement. A `.hick` pane does not need a shortcut before its bytes become
+requirement. A `.md` pane does not need a shortcut before its bytes become
 editable, and neither does Files.
 
 The filesystem is therefore a CodeMirror buffer. Each line is one entry,

@@ -90,7 +90,7 @@ with the new auth flow" as `<hick:when test="new-auth">` and let everyone work
 in one file.
 
 **What is genuinely attractive.** Merge conflicts in this product are unusually
-expensive, because a `.hick` document is one file that generates many. Two
+expensive, because a `.md` document is one file that generates many. Two
 branches editing two different generated files still collide in the document
 that writes both. A representation where the difference is *declared* rather
 than *inferred by diff* would sidestep that, and the three-way merge machinery
@@ -146,7 +146,7 @@ costs: nothing composes multiplicatively in any file, there is no conditional
 on disk to go undeleted, the branches stay real branches so git is not
 replaced, and every edit lands in a real file on a real branch so blame and
 provenance keep working. The measurement this document asked for before
-revisiting (3) — how often merging `.hick` documents actually hurts — is still
+revisiting (3) — how often merging `.md` documents actually hurts — is still
 worth taking, but it now sizes a prize rather than deciding a question.
 
 ## What I would actually do
@@ -161,7 +161,7 @@ worth taking, but it now sizes a prize rather than deciding a question.
    feature. It already works; what it lacks is anyone knowing it does.
 
 The one thing I would want before revisiting (3): a real count of how often
-merging `.hick` documents actually hurts. The argument for it rests entirely
+merging `.md` documents actually hurts. The argument for it rests entirely
 on that pain being large, and right now that is an assumption rather than a
 measurement — and the merge UI that just landed is about to make it visible
 for the first time.

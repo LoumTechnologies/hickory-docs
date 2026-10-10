@@ -20,7 +20,7 @@
 //
 // A relative destination resolves against the LINKING document's directory,
 // which is what it means in every other markdown tool and what keeps a folder
-// of notes movable. Resolution and the `.hick` → `.md` rewrite for the weave
+// of notes movable. Resolution and the `.md` → `.md` rewrite for the weave
 // are both in lib/mdLinks.ts, shared with the weaver's own rule so the editor
 // and the woven file cannot come to disagree about where a link goes.
 

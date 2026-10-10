@@ -32,6 +32,6 @@ Last LLM verification:
 - Test coverage: `tests/engine_lifecycle.rs` exercises shared clients, restart,
   reverse editing and source-backed view publication through the real engine.
   `tests/literate_views.rs` exercises independent linked inspection worktrees.
-- Limits: the older `tests/up_loop.rs` suite still uses retired `.hick` fixtures;
+- Limits: the older `tests/up_loop.rs` suite still uses retired `.md` fixtures;
   it has not been migrated as part of this change. Overlapping roots remain
   outside the guarantee.

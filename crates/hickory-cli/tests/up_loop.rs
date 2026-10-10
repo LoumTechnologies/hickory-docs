@@ -68,7 +68,7 @@ struct Loop {
 impl Loop {
     fn start(doc: &str) -> Self {
         let dir = tempfile::tempdir().expect("tempdir");
-        std::fs::write(dir.path().join("greeter.hick"), doc).expect("write doc");
+        std::fs::write(dir.path().join("greeter.md"), doc).expect("write doc");
         let log = tempfile::NamedTempFile::new().expect("stderr capture");
         let sink = log.reopen().expect("reopen stderr capture");
         let child = hick()
@@ -186,7 +186,7 @@ fn an_edit_saved_in_a_woven_file_lands_in_the_document() {
     );
     save_atomically(&output, &woven.replace("Hello, {name}!", "Howdy, {name}!"));
 
-    let doc_path = up.path("greeter.hick");
+    let doc_path = up.path("greeter.md");
     let doc = up.wait_for(
         &doc_path,
         |c| c.contains("Howdy"),
@@ -209,7 +209,7 @@ fn an_edit_saved_in_a_woven_file_lands_in_the_document() {
 fn an_edit_saved_in_the_document_reaches_the_woven_file() {
     let mut up = Loop::start(DOC);
 
-    let doc_path = up.path("greeter.hick");
+    let doc_path = up.path("greeter.md");
     let doc = std::fs::read_to_string(&doc_path).expect("read doc");
     save_atomically(
         &doc_path,
@@ -240,7 +240,7 @@ fn two_regions_edited_in_one_save_both_land() {
         .replace("greet(\"world\")", "greet(\"world\", \"?\")");
     save_atomically(&output, &edited);
 
-    let doc_path = up.path("greeter.hick");
+    let doc_path = up.path("greeter.md");
     let doc = up.wait_for(
         &doc_path,
         |c| c.contains("punct"),
@@ -320,14 +320,14 @@ fn a_fully_generated_file_is_read_only_and_a_forced_edit_is_held_not_undone() {
     );
 
     // The document is untouched: a refusal must not half-apply.
-    let doc = std::fs::read_to_string(up.path("greeter.hick")).expect("read doc");
+    let doc = std::fs::read_to_string(up.path("greeter.md")).expect("read doc");
     assert!(!doc.contains("tampered"), "{doc}");
 
     // The hold lifts when the document catches up: an edit to the document
     // that makes the weave produce exactly the held bytes.
-    let source = std::fs::read_to_string(up.path("greeter.hick")).expect("read doc");
+    let source = std::fs::read_to_string(up.path("greeter.md")).expect("read doc");
     save_atomically(
-        &up.path("greeter.hick"),
+        &up.path("greeter.md"),
         &source.replace("greeter.py", "tampered.py"),
     );
     let after = up.wait_for(
@@ -370,11 +370,11 @@ fn an_empty_directory_is_an_error_that_says_so() {
 
     assert!(!out.status.success());
     let stderr = String::from_utf8_lossy(&out.stderr);
-    assert!(stderr.contains("No .hick files found"), "{stderr}");
+    assert!(stderr.contains("No .md files found"), "{stderr}");
     // The message every other command gives, with its list of ways out —
     // `up` must not grow a second, thinner one.
     assert!(
-        stderr.contains("Add .hick files to the directory"),
+        stderr.contains("Add .md files to the directory"),
         "{stderr}"
     );
 }

@@ -35,7 +35,7 @@ Measured on that rewrite rather than assumed: the same three rules cost 163
 lines in Python and 185 in C#, moving the break-even point of the whole
 exercise from eight endpoints to nine. Choosing the language your team already
 maintains is worth paying that for. It is not worth paying unknowingly, which
-is why `50-review-surface.hick` prints it.
+is why `50-review-surface.md` prints it.
 
 ---
 
@@ -59,7 +59,7 @@ Last LLM verification:
     `git diff` on `src/Warehouse.Web/Api/Generated/` is **empty** against the
     output of the Python generator it replaced.
   - The Python client is generated beside it into `tools/model/python/` and
-    used by `40-layering.hick`, so both clients are exercised on every run.
+    used by `40-layering.md`, so both clients are exercised on every run.
 - Test coverage:
   `typed_client::emit::runtime_tests::every_runtime_is_the_language_it_claims_to_be`
   (each runtime is the right file and carries its error check — the failure

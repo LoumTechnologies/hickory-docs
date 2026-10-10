@@ -4,7 +4,7 @@
 //!
 //! # Semantics relative to `LocalExecutor`
 //!
-//! - **Images are honored.** Every `.hick` image ref must map through
+//! - **Images are honored.** Every `.md` image ref must map through
 //!   `CANOPY_IMAGE_MAP` to a Nix store image path in the tenant ledger.
 //! - **One microVM per container.** Each `ensure_started` spawns a sandbox;
 //!   `shutdown` destroys every sandbox this executor spawned.

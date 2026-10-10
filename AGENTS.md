@@ -59,7 +59,7 @@ a `.md` of its own name.
 
 An open question, investigated and deliberately not built, is
 `docs/specs/freeform/two-branches-in-one-document.md`: whether feature flags
-could replace branching in a `.hick` document. The short answer is that the
+could replace branching in a `.md` document. The short answer is that the
 branch→feature-set half is worth doing and the branches-as-flags half would
 cost the provenance that this product exists for.
 
@@ -148,7 +148,7 @@ a derivation from a foreign artifact, and **line-offset patches** are the
 fifty-year-old version of the same mistake. What killed that document's `from=`
 is worth remembering generally — **it built a durable claim on a gitignored
 artifact** (`.hick-cache/`), so the base did not survive a clone. **Built
-(2026-08-23):** `hick ingest --from '#cell' <doc>.hick`, the `<hick:ingested>`
+(2026-08-23):** `hick ingest --from '#cell' <doc>.md`, the `<hick:ingested>`
 element, the gitignore filter, the non-UTF-8 refusal, and the ingested origin —
 plus one rule the spec did not name: **a volume a document has ingested is no
 longer flushed as a pipeline output** (it arrives in
@@ -190,7 +190,7 @@ and across branches and worktrees — is `docs/specs/freeform/the-merged-view.md
 one tab synthesizes a file from N sources with `<hick:when>`-shaped variants
 that **exist on disk nowhere**, so **the view is the merge, held live** (a
 shared region is agreed by construction and cannot conflict later). It is a
-**lens, not a document** — no save path, no `.hick` extension — and it closes
+**lens, not a document** — no save path, no `.md` extension — and it closes
 `two-branches-in-one-document.md` without adopting branches-as-flags. A
 committed variant names a **property, never a machine**: *the distinction lives
 in the document, which machine matches lives on the machine.* The invariant that
@@ -267,7 +267,7 @@ evidence), **edited** (a declared layer over a frozen base, marked *in the
 bytes*, not merely in the rendering), and **staged** (authored, never executed,
 carried by the existing never-run marking). **Built (2026-08-23):** rewind and
 re-run named apart in the dock, and `hick ingest --from carry` — which settled the carry's
-home by inventing nothing: it is an ordinary `.hick` document, written outside
+home by inventing nothing: it is an ordinary `.md` document, written outside
 the gitignored `sessions/`. Equivalence between two attempts is
 an **instrument, never a gate** — the person is the judge, and their
 understanding is allowed to move. The constraint that does the work is
@@ -300,7 +300,7 @@ declared and unverifiable, and the two must never render alike.** Say
 "human-verified", which nothing can prove.
 
 A proposal, not built, is `docs/specs/freeform/local-history.md`: git's
-resolution is a commit, but in a `.hick` folder **you are not the only
+resolution is a commit, but in a `.md` folder **you are not the only
 writer** — runs, weaves, reverse edits, ingests, the agent, find-and-replace
 and the merge driver all write between two commits, and six of those have no
 way back. **The unit is the act, not the file**, because almost every writer
@@ -551,7 +551,7 @@ decides.
 A plain file in the repository — `src/main.rs`, `app.py` — has **the same
 language server a document has**
 (`docs/guarantees/editor-intelligence/a-plain-file-has-the-same-language-server.md`,
-2026-09-02): `hick-lsp` hands a file that is not a `.hick` document to its
+2026-09-02): `hick-lsp` hands a file that is not a `.md` document to its
 child **as itself**, at its real path, with `PositionMap::identity`, rooted at
 the folder the app opened. Until then the app was an editor for documents and
 a viewer for the repository around them, and the whole language server sat
@@ -695,7 +695,7 @@ and **reword/move/drop** as `git rebase -i` with `GIT_SEQUENCE_EDITOR=cp
 <todo>` (`story.rs`), drafts only. A join that stops is `409` with git's
 words and the repository is left where git left it. The re-ingest merge is
 retired: a second `hick ingest --from '#cell'` is refused by name.) A **lens** is a synthesized document — the same cards — over
-something that is not a `.hick` file, and every block declares three things:
+something that is not a `.md` file, and every block declares three things:
 what it is a view of, how a change gets home, and whether a change is
 allowed right now. The third column is entirely rules already decided
 elsewhere (synthetic bytes refuse the reverse edit, a merged-view variant may
@@ -812,7 +812,7 @@ tree is a lens, not a file stored on disk, but **its surface really is text**:
 the filesystem is one CodeMirror buffer, folders end in `/`, and two spaces of
 significant indentation place an entry beneath the folder above it. This
 corrects the first implementation, which was a button tree with editor-like
-keys and an F2 rename field and did not feel like editing a `.hick` pane. There
+keys and an F2 rename field and did not feel like editing a `.md` pane. There
 is no edit mode: ordinary caret movement, selection, multiple cursors, column
 editing, history, and folding are the editor's own. Saving changed names or
 indentation performs filesystem rename/move operations. Double-click selects
@@ -979,14 +979,14 @@ knows nothing about chat. A lens is read-only and never saved.
 <!-- HICKORY -->
 ## Hickory executable documents
 
-This repository contains `.hick` documents: reproducible, verifiable,
-executable documents. Every example in a `.hick` file actually runs, and
+This repository contains `.md` documents: reproducible, verifiable,
+executable documents. Every example in a `.md` file actually runs, and
 drift between the document and reality fails `hick test`, and misspelled
 element attributes fail `hick lint` (the pre-commit hook enforces both).
 
 ### Grammar essentials
 
-A `.hick` file is XML-ish with one unusual rule: **only tags carrying the
+A `.md` file is XML-ish with one unusual rule: **only tags carrying the
 `hick:` namespace prefix are structure; every other byte is raw text** —
 no escaping, no CDATA, no entities. Shell one-liners, generics, and heredocs
 paste in verbatim.
@@ -1003,7 +1003,7 @@ paste in verbatim.
 
 ### Golden rules for coding agents
 
-1. Edit `.hick` sources, not the generated outputs (woven `.md`,
+1. Edit `.md` sources, not the generated outputs (woven `.md`,
    `hick:file` products) — those are overwritten on every run. The one
    exception is a change made through lineage, which maps back into the
    document byte-exactly: `hick doc edit-output` (below), or any editor
@@ -1013,7 +1013,7 @@ paste in verbatim.
    then `hick lint <doc>` and `hick test <doc>` and fix whatever fails before committing. `hick up`
    does the regenerating half continuously while you work; it does not
    replace `hick test`.
-3. Agent sessions live in `sessions/*.hick` (`hick:session` documents);
+3. Agent sessions live in `sessions/*.md` (`hick:session` documents);
    `hick ingest --from session <session>` compacts one into a clean pipeline doc.
 
 ### The document tools — prefer these over editing files by hand
@@ -1041,7 +1041,7 @@ If your harness speaks MCP, `hick mcp` serves the same five tools over
 stdio and keeps the edit session open between calls, which is strictly
 better than the per-command path. This repo's `.mcp.json` registers it.
 
-Set `HICKORY_SESSION=sessions/<name>.hick` and every tool call you make is
+Set `HICKORY_SESSION=sessions/<name>.md` and every tool call you make is
 appended to a replayable `hick:session` document — the same artifact the
 built-in agent produces. (Your own reasoning is not captured there; only
 what you did to the document.)

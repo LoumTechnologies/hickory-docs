@@ -12,7 +12,7 @@ separate failures stacked:
 capabilities from each `<hick:container>` tag and dropped its `image`
 attribute on the floor, so the only image an executor ever saw came from an
 `image=` on the `<hick:exec>` tag itself. Every shipped example declares its
-image on the container — `examples/grand-tour.hick` asks for `python:3.12` and
+image on the container — `examples/grand-tour.md` asks for `python:3.12` and
 `duckdb/duckdb:v1.5.5` — so all of them were silently running on the host.
 Nothing surfaced it, because the one executor in use ignored images anyway.
 

@@ -56,8 +56,8 @@ command that fixes whichever is missing.
    something, it is what is in this checkout — with one exception, which it
    prints by name: a fixture *you* edited is kept rather than overwritten.
 2. `just dev-seed` — writes `.dev/project/`: a two-stage chain
-   (`decisions.hick` → `stats.hick` → `stats.py`), because a single document
-   cannot show the lineage browser doing its job, plus `cards.hick`, the
+   (`decisions.md` → `stats.md` → `stats.py`), because a single document
+   cannot show the lineage browser doing its job, plus `cards.md`, the
    editor-chrome fixture. `just dev` runs this for you; run it directly only
    to re-seed without opening the app.
 

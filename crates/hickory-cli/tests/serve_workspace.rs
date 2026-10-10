@@ -47,11 +47,11 @@ fn state_dir() -> &'static std::path::Path {
 async fn start() -> Session {
     let _ = state_dir();
     let dir = tempfile::tempdir().unwrap();
-    std::fs::write(dir.path().join("demo.hick"), DOC).unwrap();
+    std::fs::write(dir.path().join("demo.md"), DOC).unwrap();
     let root = dir.path().canonicalize().unwrap();
 
     let prepared = prepare(ServeOptions {
-        target: root.join("demo.hick"),
+        target: root.join("demo.md"),
         port: 0,
         params: Vec::new(),
         executor: ExecutorChoice::Local,
@@ -111,8 +111,8 @@ async fn a_window_layout_round_trips() {
     );
 
     let layout = json!({
-        "panes": [{ "tabs": ["demo.hick"], "active": 0 }],
-        "wrap": { "demo.hick": 72 },
+        "panes": [{ "tabs": ["demo.md"], "active": 0 }],
+        "wrap": { "demo.md": 72 },
     });
     let (status, _) = put(&session, "/api/workspace/ui", json!({ "state": layout })).await;
     assert_eq!(status, 200);
@@ -132,7 +132,7 @@ async fn a_draft_comes_back_with_the_bytes_it_was_taken_from() {
         &session,
         "/api/workspace/drafts",
         json!({
-            "path": "demo.hick",
+            "path": "demo.md",
             "contents": "half a sentence",
             "base": "# Demo\n",
             "saved_at": 1_700_000_000_000u64,
@@ -145,7 +145,7 @@ async fn a_draft_comes_back_with_the_bytes_it_was_taken_from() {
     assert_eq!(status, 200);
     let drafts = body["drafts"].as_array().expect("a list of drafts");
     assert_eq!(drafts.len(), 1);
-    assert_eq!(drafts[0]["path"], "demo.hick");
+    assert_eq!(drafts[0]["path"], "demo.md");
     assert_eq!(drafts[0]["contents"], "half a sentence");
     assert_eq!(drafts[0]["base"], "# Demo\n");
 }
@@ -156,14 +156,14 @@ async fn saving_the_file_throws_its_draft_away() {
     put(
         &session,
         "/api/workspace/drafts",
-        json!({ "path": "demo.hick", "contents": "x", "base": "", "saved_at": 1 }),
+        json!({ "path": "demo.md", "contents": "x", "base": "", "saved_at": 1 }),
     )
     .await;
 
     let (status, _) = send(
         &session,
         reqwest::Method::DELETE,
-        "/api/workspace/drafts?path=demo.hick",
+        "/api/workspace/drafts?path=demo.md",
         None,
     )
     .await;
@@ -180,7 +180,7 @@ async fn discarding_a_draft_that_is_not_there_is_not_an_error() {
     let (status, _) = send(
         &session,
         reqwest::Method::DELETE,
-        "/api/workspace/drafts?path=never-existed.hick",
+        "/api/workspace/drafts?path=never-existed.md",
         None,
     )
     .await;
@@ -202,7 +202,7 @@ async fn nothing_is_written_inside_the_project_folder() {
     put(
         &session,
         "/api/workspace/drafts",
-        json!({ "path": "demo.hick", "contents": "unsaved", "base": "", "saved_at": 1 }),
+        json!({ "path": "demo.md", "contents": "unsaved", "base": "", "saved_at": 1 }),
     )
     .await;
 
@@ -212,7 +212,7 @@ async fn nothing_is_written_inside_the_project_folder() {
         .collect();
     assert_eq!(
         names,
-        vec!["demo.hick".to_string()],
+        vec!["demo.md".to_string()],
         "the project folder grew something: {names:?}"
     );
 }

@@ -10,7 +10,7 @@ Both halves matter, and they are the reason this is its own origin rather than
 a reuse of an existing one:
 
 1. **Present, so editable.** An ingested byte is a byte-precise span in the
-   `.hick` document, so an edit made in the generated file maps back through
+   `.md` document, so an edit made in the generated file maps back through
    the path that already exists (`Origin::source()`), and lands in the
    document. Exec-origin bytes are synthetic and refused with 422 — correctly,
    because there is nowhere in a document to put an edit to a command's
@@ -40,7 +40,7 @@ Corollaries that are part of the guarantee:
 Rendered shape (`hick lineage`):
 
 ```
-       0..512      ingested     app.hick bytes 1204..1716 · run 9f2c0f1a2b3c
+       0..512      ingested     app.md bytes 1204..1716 · run 9f2c0f1a2b3c
 ```
 
 ---
@@ -68,7 +68,7 @@ Last LLM verification:
     `apps/web/src/styles.css` — `cm-prov-ingested`.
   - Test: `crates/hickory-cli/tests/ingest_scaffold.rs::ingested_bytes_report_their_run_rather_than_reading_as_yours`
     drives the real binary end to end.
-- Caveat, found 2026-08-24 while writing `examples/scaffolded-service.hick`:
+- Caveat, found 2026-08-24 while writing `examples/scaffolded-service.md`:
   **an edit made INSIDE an ingested block still reports as `ingested`.** The
   origin is stamped for the whole `hick:file` body, so "your four lines" carry
   the run's fingerprint alongside the generator's bytes. The design's

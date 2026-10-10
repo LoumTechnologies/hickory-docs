@@ -11,7 +11,7 @@
 //!
 //! A cell runs through `sh -c` on Unix and `cmd.exe /C` on Windows
 //! (`LocalExecutor::shell`), and cmd's `echo` emits CRLF — there is no way to
-//! ask it not to. `<hick:expect>` bodies, meanwhile, are text inside a `.hick`
+//! ask it not to. `<hick:expect>` bodies, meanwhile, are text inside a `.md`
 //! file in git, so they are LF. Without this, a document that passes on macOS
 //! reports drift on Windows for a line-ending reason rather than a real one,
 //! and `match="exact"` is unusable there for any output containing a newline.

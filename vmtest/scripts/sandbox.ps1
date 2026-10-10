@@ -83,7 +83,7 @@ echo escaped > "$escape" & echo WROTE
 </hick:exec>
 </hick:doc>
 "@
-$docPath = Join-Path $work 'confined.hick'
+$docPath = Join-Path $work 'confined.md'
 # UTF-8 WITHOUT a BOM. PowerShell 5.1's `-Encoding UTF8` writes one, and a
 # leading BOM used to make hick parse a wrapped document as a bare one -- the
 # cells never ran and the run still exited 0. That is fixed in the parser, but

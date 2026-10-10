@@ -28,7 +28,7 @@ async fn setup() -> (tempfile::TempDir, Engine, hickory_cli::serve::LocalState) 
     .await
     .unwrap();
     let state = prepared.state;
-    let engine = Engine::open(state.clone(), dir.path().join("access.hick")).unwrap();
+    let engine = Engine::open(state.clone(), dir.path().join("access.md")).unwrap();
     (dir, engine, state)
 }
 async fn open(engine: &mut Engine, path: &str, write: bool) -> String {
@@ -80,7 +80,7 @@ async fn buffered_output_save_reverse_edits_source_and_live_room() {
     assert_eq!(room.text().await, SOURCE.replace("hello", "goodbye"));
     let next = open(&mut engine, "greet.rs", false).await;
     assert_eq!(read(&mut engine, &next).await, after);
-    let session = std::fs::read_to_string(dir.path().join("access.hick")).unwrap();
+    let session = std::fs::read_to_string(dir.path().join("access.md")).unwrap();
     assert!(session.contains("filesystem-access") && session.contains("filesystem-write"));
     assert!(
         !session.contains("<hick:read"),
@@ -221,7 +221,7 @@ async fn text_frontend_shares_reverse_edits_and_records_actual_context() {
         .request(&json!({"op":"write_text","path":"greet.rs","content":after}))
         .await
         .unwrap();
-    let session = std::fs::read_to_string(dir.path().join("access.hick")).unwrap();
+    let session = std::fs::read_to_string(dir.path().join("access.md")).unwrap();
     assert!(session.contains("<hick:read") && session.contains("<hick:wrote"));
     assert!(
         std::fs::read_to_string(dir.path().join("demo.md"))

@@ -170,7 +170,7 @@ Last LLM verification:
     workdir into the policy as given, and Seatbelt matches the path the kernel
     resolves to — on macOS `/var` is a symlink to `/private/var`, so the grant
     named a path the kernel never sees. Every cell that wrote a file failed with
-    `Operation not permitted`, and `hick test examples/text-tools-tour.hick`
+    `Operation not permitted`, and `hick test examples/text-tools-tour.md`
     failed on its first cell. The profile now resolves the path (`resolve`), and
     `the_seatbelt_profile_grants_the_resolved_workdir_not_the_symlinked_one`
     pins it.

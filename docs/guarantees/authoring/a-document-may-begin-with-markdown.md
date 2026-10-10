@@ -1,6 +1,6 @@
 # A Document May Begin With Markdown
 
-Given a `.hick` file whose prologue does not open a `<PREFIX:doc>` element,
+Given a `.md` file whose prologue does not open a `<PREFIX:doc>` element,
 when it is parsed, then the whole file is the body of an implicit root: there
 is no wrapper to write at the top and none to close at the bottom, the
 namespace prefix is `hick` without any `xmlns:` declaration, and every byte of
@@ -84,9 +84,9 @@ Last LLM verification:
   `a_non_mapping_fence_is_content`,
   `a_colon_without_a_space_is_not_a_mapping_entry`. The previous
   `error_on_missing_root` test was replaced: `ParseError::MissingRoot` is no
-  longer reachable from a rootless `.hick` file, and survives only on the
+  longer reachable from a rootless `.md` file, and survives only on the
   `parse_session` path.
-- Run end to end on this machine: a bare `notes/standup.hick` with frontmatter
+- Run end to end on this machine: a bare `notes/standup.md` with frontmatter
   (`date`, `attendees`, a `tags` block list), a heading, `hick:copy`, and
   `hick:paste` wove `notes/standup.md` with the frontmatter block reproduced
   byte-for-byte and the paste resolved; `hick test` then reported `ok`. The
@@ -98,7 +98,7 @@ Last LLM verification:
     document sensibly — in particular whether the frontmatter block is
     presented as metadata rather than as prose — is unverified and untested.
   - **The reverse-edit path over frontmatter is unproven.** `hick up` carries
-    an edit made in `standup.md` back into `standup.hick`; an edit made *inside
+    an edit made in `standup.md` back into `standup.md`; an edit made *inside
     the woven frontmatter block* is a case that has never existed before, and
     nothing here establishes what it does. Named as an open edge in
     `bare-documents.md`.
@@ -111,7 +111,7 @@ Last LLM verification:
 Measured on Windows, 2026-08-20, by running the shipped binary on a real
 machine rather than in CI.
 
-A `.hick` file saved by Notepad, by PowerShell's `Set-Content -Encoding UTF8`,
+A `.md` file saved by Notepad, by PowerShell's `Set-Content -Encoding UTF8`,
 or by any of the Windows editors that write a UTF-8 BOM began with `U+FEFF`.
 `str::trim_start` does **not** remove that — it is a format character, not
 `White_Space` — so `opens_root` tested the BOM against `<?xml` and `<hick:doc`,

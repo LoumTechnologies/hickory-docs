@@ -12,7 +12,7 @@ that order, as three sections:
 
 1. **The claim.** An agent's session, the reasoning behind a change, and the
    change itself are three separate artifacts today, and two of them are
-   discarded. A `.hick` document is where they converge.
+   discarded. A `.md` document is where they converge.
 2. **The mechanism.** An MCP server and five tools, so the agent the visitor
    already runs produces that document as a side effect of working.
 3. **The proof.** One demo of the document itself, driven in the visitor's own

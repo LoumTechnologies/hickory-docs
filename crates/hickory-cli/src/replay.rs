@@ -261,36 +261,36 @@ mod tests {
             "abc123d",
             "1700000000",
             "Ada Lovelace",
-            "Rename the document\n\ndocs/old-name.hick\n",
+            "Rename the document\n\ndocs/old-name.md\n",
         ]);
-        let commits = parse_history(&text, "docs/new-name.hick");
+        let commits = parse_history(&text, "docs/new-name.md");
         assert_eq!(commits.len(), 1);
         assert_eq!(commits[0].sha, "abc123");
         assert_eq!(commits[0].subject, "Rename the document");
-        assert_eq!(commits[0].path, "docs/old-name.hick");
+        assert_eq!(commits[0].path, "docs/old-name.md");
         assert_eq!(commits[0].time, 1_700_000_000);
     }
 
     #[test]
     fn a_commit_with_no_name_block_keeps_the_path_asked_about() {
         let text = record(&["a", "a", "1", "N", "Subject"]);
-        let commits = parse_history(&text, "app.hick");
-        assert_eq!(commits[0].path, "app.hick");
+        let commits = parse_history(&text, "app.md");
+        assert_eq!(commits[0].path, "app.md");
     }
 
     #[test]
     fn an_empty_history_is_no_commits_rather_than_a_broken_one() {
-        assert!(parse_history("", "app.hick").is_empty());
-        assert!(parse_history("\n\n", "app.hick").is_empty());
+        assert!(parse_history("", "app.md").is_empty());
+        assert!(parse_history("\n\n", "app.md").is_empty());
     }
 
     #[test]
     fn the_boundary_says_replay_works_back_to_the_last_grammar_change() {
         // The exact words matter: this is the sentence that tells a reader
         // the tool is at its limit rather than that their document is broken.
-        let msg = grammar_boundary_message("abc123", "app.hick", "unexpected tag");
+        let msg = grammar_boundary_message("abc123", "app.md", "unexpected tag");
         assert!(msg.contains("Replay works back to the last grammar change"));
-        assert!(msg.contains("git show abc123:app.hick"));
+        assert!(msg.contains("git show abc123:app.md"));
         assert!(msg.contains("Nothing is wrong with the commit"));
     }
 }

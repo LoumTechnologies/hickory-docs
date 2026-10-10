@@ -79,7 +79,7 @@ pub struct HickBackend {
     prepared_hierarchy: Arc<RwLock<HashMap<String, PreparedHierarchyItem>>>,
     /// The folder the editor opened, from `initialize`.
     ///
-    /// A `.hick` document's code is staged and its children rooted there; a
+    /// A `.md` document's code is staged and its children rooted there; a
     /// plain file is handed to its language server AS ITSELF, rooted at the
     /// project it belongs to — which is this folder when the file is under
     /// it, and the nearest enclosing repository otherwise.
@@ -107,9 +107,9 @@ struct DocEntry {
     vfile_version: i32,
 }
 
-/// Maps a virtual file URI back to the source .hick document.
+/// Maps a virtual file URI back to the source .md document.
 struct VFileMapping {
-    /// The .hick document URI.
+    /// The .md document URI.
     hick_uri: Url,
     /// The language ID of this virtual file (for routing to child LSPs).
     language_id: String,
@@ -266,7 +266,7 @@ impl HickBackend {
 
         // 4. Determine the root URI child LSPs are initialised against.
         //
-        //    The document's own staging directory, not the folder the `.hick`
+        //    The document's own staging directory, not the folder the `.md`
         //    file sits in, so a child like rust-analyzer does not go
         //    discovering unrelated projects beside it.
         //
@@ -520,7 +520,7 @@ impl HickBackend {
         entry.vfile_version = vfile_version;
     }
 
-    /// Close all virtual files associated with a .hick document.
+    /// Close all virtual files associated with a .md document.
     ///
     /// Sends `textDocument/didClose` to each child LSP so that re-opening the
     /// same URI later is not a protocol violation. Only prunes accumulated
@@ -587,7 +587,7 @@ impl HickBackend {
     }
 
     /// Find the virtual file (and translated position) for a position in a
-    /// .hick document, if any virtual file covers that source line.
+    /// .md document, if any virtual file covers that source line.
     async fn virtual_target(
         &self,
         hick_uri: &Url,
@@ -958,7 +958,7 @@ impl HickBackend {
     }
 
     /// Start a background task that drains child LSP notifications and
-    /// translates diagnostics back to .hick coordinates.
+    /// translates diagnostics back to .md coordinates.
     fn spawn_notification_handler(&self) {
         let client = self.client.clone();
         let notification_rx = Arc::clone(&self.notification_rx);
@@ -998,7 +998,7 @@ enum StructuralKind {
 }
 
 /// Translate every `{uri, range}` / `{targetUri, targetRange…}` location in a
-/// child LSP result from virtual-file coordinates back to .hick coordinates.
+/// child LSP result from virtual-file coordinates back to .md coordinates.
 ///
 /// Locations whose URI is not a known virtual file, or whose positions fall on
 /// lines the position map cannot translate (e.g. pasted/synthetic content),
@@ -1363,7 +1363,7 @@ fn copy_manifests(staging: &StagingArea, hick_uri: &Url) {
 ///
 /// Instead of publishing each child's diagnostics independently (which would
 /// cause later children to overwrite earlier ones), we accumulate diagnostics
-/// per virtual file and publish the merged set for the whole .hick document.
+/// per virtual file and publish the merged set for the whole .md document.
 async fn handle_child_diagnostics(
     client: &Client,
     vfile_index: &Arc<RwLock<HashMap<Url, VFileMapping>>>,
@@ -1431,7 +1431,7 @@ async fn handle_child_diagnostics(
             .and_then(|v| v.as_u64())
             .unwrap_or(0) as u32;
 
-        // Translate from virtual file coordinates to .hick source coordinates.
+        // Translate from virtual file coordinates to .md source coordinates.
         let (src_start_line, src_start_char) = position_map
             .to_source(start_line, start_char)
             .unwrap_or((start_line, start_char));
@@ -1841,7 +1841,7 @@ impl LanguageServer for HickBackend {
             )
             .await;
 
-        // Child references, translated back to .hick coordinates, merged in.
+        // Child references, translated back to .md coordinates, merged in.
         if let Some((vf_uri, lang, vpos)) = self.virtual_target(&uri, pos).await
             && let Some(result) = self
                 .child_request(
@@ -2405,8 +2405,8 @@ fn reindent(text: &str, indent: usize, ends_at_column_zero: bool) -> String {
 /// Whether a URI names a hick document rather than a plain file it forwards
 /// whole. Bare documents are Markdown now, so their extension cannot decide:
 /// the namespace marker is the syntax boundary.
-fn is_hick_document(uri: &Url, source: &str) -> bool {
-    uri.path().ends_with(".hick") || source.contains("<hick:")
+fn is_hick_document(_uri: &Url, source: &str) -> bool {
+    source.contains("<hick:") // content, not extension: every document is `.md`
 }
 
 /// The language a plain file is in, by its name.
@@ -2470,10 +2470,10 @@ mod tests {
 
     #[test]
     fn references_result_translates_to_hick_coordinates() {
-        // Virtual file lines 0..3 map to .hick source lines 9..12 (1-based
+        // Virtual file lines 0..3 map to .md source lines 9..12 (1-based
         // 10..13), each indented 4 columns.
         let map = PositionMap::build(&[seg("fn a() {}\nfn b() {\n    a();\n}\n", 10, 4)]);
-        let index = index_with("file:///tmp/vf/main.rs", "hick:///doc.hick", map);
+        let index = index_with("file:///tmp/vf/main.rs", "hick:///doc.md", map);
 
         let child_result = serde_json::json!([
             { "uri": "file:///tmp/vf/main.rs",
@@ -2487,7 +2487,7 @@ mod tests {
         let translated = translate_locations(child_result, &index);
         let locs: Vec<Location> = serde_json::from_value(translated).unwrap();
         assert_eq!(locs.len(), 2);
-        assert_eq!(locs[0].uri.as_str(), "hick:///doc.hick");
+        assert_eq!(locs[0].uri.as_str(), "hick:///doc.md");
         assert_eq!(locs[0].range.start, Position::new(9, 7));
         assert_eq!(locs[0].range.end, Position::new(9, 8));
         assert_eq!(locs[1].range.start, Position::new(11, 8));
@@ -2497,7 +2497,7 @@ mod tests {
     #[test]
     fn references_in_unknown_vfile_pass_through() {
         let map = PositionMap::build(&[seg("x\n", 1, 0)]);
-        let index = index_with("file:///tmp/vf/main.rs", "hick:///doc.hick", map);
+        let index = index_with("file:///tmp/vf/main.rs", "hick:///doc.md", map);
 
         let child_result = serde_json::json!([
             { "uri": "file:///somewhere/else.rs",
@@ -2515,7 +2515,7 @@ mod tests {
         // pasted content beyond the mapped segment) must survive untouched so
         // the server-side bridge can map it through provenance.
         let map = PositionMap::build(&[seg("only one line\n", 3, 0)]);
-        let index = index_with("file:///tmp/vf/main.rs", "hick:///doc.hick", map);
+        let index = index_with("file:///tmp/vf/main.rs", "hick:///doc.md", map);
 
         let child_result = serde_json::json!([
             { "uri": "file:///tmp/vf/main.rs",
@@ -2530,7 +2530,7 @@ mod tests {
     #[test]
     fn location_links_translate_target_ranges() {
         let map = PositionMap::build(&[seg("fn a() {}\n", 5, 2)]);
-        let index = index_with("file:///tmp/vf/main.rs", "hick:///doc.hick", map);
+        let index = index_with("file:///tmp/vf/main.rs", "hick:///doc.md", map);
 
         let child_result = serde_json::json!([
             { "targetUri": "file:///tmp/vf/main.rs",
@@ -2543,7 +2543,7 @@ mod tests {
         let translated = translate_locations(child_result, &index);
         assert_eq!(
             translated[0]["targetUri"].as_str().unwrap(),
-            "hick:///doc.hick"
+            "hick:///doc.md"
         );
         assert_eq!(translated[0]["targetRange"]["start"]["line"], 4);
         assert_eq!(translated[0]["targetRange"]["start"]["character"], 2);

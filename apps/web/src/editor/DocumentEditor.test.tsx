@@ -300,7 +300,7 @@ describe("DocumentEditor (WYSIWYG over raw source)", () => {
   });
 
   it("colours a C# file block and an XML one, in the document itself", async () => {
-    // The question a reader actually asks: opening scaffolding.hick, is the
+    // The question a reader actually asks: opening scaffolding.md, is the
     // `Program.cs` that `dotnet new` wrote coloured like code? Until the
     // registry learned C# and XML it was flat grey text, whatever the
     // document said the file was.

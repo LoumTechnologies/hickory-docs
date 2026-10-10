@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { sourcePositionAt, type OutputProvenance } from "./outputMapping";
 
-// gen.rs is woven from two copy blocks in doc.hick. Byte spans below index
+// gen.rs is woven from two copy blocks in doc.md. Byte spans below index
 // the document source; charFrom/charTo index the generated output.
 const DOC = ['<hick:doc>', '<hick:copy id="a">fn alpha() {}', '</hick:copy>', '</hick:doc>'].join(
   "\n",

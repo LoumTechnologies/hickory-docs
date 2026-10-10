@@ -1,7 +1,7 @@
 # The Hick Language
 
 Hick is a document format for describing secure, containerised workflows.
-A `.hick` file is XML that uses a single namespace to define containers,
+A `.md` file is XML that uses a single namespace to define containers,
 capabilities, execution steps, and file outputs — all validated as a
 directed acyclic graph before anything runs.
 
@@ -229,7 +229,7 @@ cd /out &amp;&amp; dotnet new webapi -o .
 Then, once:
 
 ```
-hick ingest --from '#scaffold' app.hick
+hick ingest --from '#scaffold' app.md
 ```
 
 The document gains, inside that cell:
@@ -305,7 +305,7 @@ paste collects the wrong number of them. `min`/`max` count what is emitted, so
 
 ### Contributing across documents
 
-**Every other `.hick` in the same folder contributes its fragments**, and
+**Every other `.md` in the same folder contributes its fragments**, and
 neither document names the other — they meet on the class. This is how several
 documents fill one generated file:
 
@@ -331,9 +331,9 @@ A document's own fragment always wins over a contributed one with the same id;
 `.class` collects both. `hick:upstream` is still there for naming a specific
 document, including one in another folder.
 
-A cell can contribute too: a `.hick` file a cell writes into an output volume
+A cell can contribute too: a `.md` file a cell writes into an output volume
 is read back, and the fragments in it are available to the documents in the
-run. Only `.hick` outputs are read this way — a generator's ordinary output is
+run. Only `.md` outputs are read this way — a generator's ordinary output is
 bytes, and scanning it for markup would make `<hick:` unwritable by any
 program.
 
@@ -413,7 +413,7 @@ Environment: <hick:val name="env" />
 Variables can be overridden from the command line with `--param`:
 
 ```
-hick --param env=staging file.hick
+hick --param env=staging file.md
 ```
 
 CLI params take priority over `<hick:var>` declarations, which in turn
@@ -539,8 +539,8 @@ boundary).
 
 ```yaml
 files:
-  - docs/*.hick
-  - reference.hick
+  - docs/*.md
+  - reference.md
 
 vars:
   version: "2.0.0"
@@ -570,9 +570,9 @@ when inputs haven't changed. Cache keys are SHA-256 hashes of the
 container image, capabilities, command text, and secret names.
 
 ```
-hick run --cache file.hick   # Record every cell, reuse on match
-hick run --freeze file.hick  # Serve every cell from its recording
-hick test --freeze file.hick # Verify against recordings, never execute
+hick run --cache file.md   # Record every cell, reuse on match
+hick run --freeze file.md  # Serve every cell from its recording
+hick test --freeze file.md # Verify against recordings, never execute
 ```
 
 There is one setting here, not two switches, and it says **what a missing
@@ -673,7 +673,7 @@ cells unbounded.
 
 ## 14. Multi-Stage Pipeline
 
-When a pipeline produces `.hick` files as output, they are automatically
+When a pipeline produces `.md` files as output, they are automatically
 fed as sources to a subsequent pipeline stage. This enables containers
 to generate hick documents that drive further execution.
 
@@ -681,7 +681,7 @@ to generate hick documents that drive further execution.
 
 <hick:container name="scaffolder" image="alpine" />
 <hick:exec container="scaffolder">
-cat &gt; /output/build.hick &lt;&lt;'EOF'
+cat &gt; /output/build.md &lt;&lt;'EOF'
 <?xml version="1.0" encoding="UTF-8"?>
 <hick:doc xmlns:hick="http://www.hickorydocs.com/1.0">
 <hick:file path="generated.txt">built by scaffolder</hick:file>
@@ -691,9 +691,9 @@ EOF
 ```
 
 Rules:
-- `.hick` files are removed from the final output (they are intermediate)
+- `.md` files are removed from the final output (they are intermediate)
 - The pipeline repeats up to `max_stages` times (default 3)
-- If `.hick` files are still being produced at the limit, an error is raised
+- If `.md` files are still being produced at the limit, an error is raised
 - Stage 1 files get `HickFile` provenance, stage 2+ get `GeneratedHick`
 
 ---
@@ -704,7 +704,7 @@ The `hick up` command runs the pipeline and watches source files for
 changes, re-running automatically with merge-aware snapshots.
 
 ```
-hick up docs/guide.hick
+hick up docs/guide.md
 
 Options:
   --store auto|git|builtin   Version store backend (default: auto)
@@ -718,7 +718,7 @@ Options:
 1. Initial pipeline run produces output files
 2. Output is merged with any user edits via three-way merge
 3. A snapshot is committed to the version store
-4. File watcher monitors `.hick` sources (debounced 100ms)
+4. File watcher monitors `.md` sources (debounced 100ms)
 5. On change: re-run pipeline, merge, snapshot, write outputs
 
 ### Three-way merge
@@ -735,15 +735,15 @@ The merge system tracks three versions of each file:
 | Both different | — | Delegate to merge strategy |
 
 Files with `HickFile` provenance always use the generated version
-(users edit the `.hick` source, not the output).
+(users edit the `.md` source, not the output).
 
 ### Store backends
 
 | Backend | Storage | When to use |
 |---------|---------|-------------|
 | `auto` | Detects `.git` → git, else builtin | Default |
-| `git` | Git plumbing at `.hick/git/` | When you want git-compatible history |
-| `builtin` | Content-addressed files at `.hick/store/` | Standalone projects |
+| `git` | Git plumbing at `.md/git/` | When you want git-compatible history |
+| `builtin` | Content-addressed files at `.md/store/` | Standalone projects |
 
 ---
 
@@ -795,18 +795,18 @@ rather than parsed tags.
 ## 19. Running Hick
 
 ```
-hick [file.hick ...]               Single-shot pipeline (default)
-hick run [file.hick ...] [options]  Explicit single-shot mode
-hick up <file.hick> [options]       Watch mode with merge snapshots
+hick [file.md ...]               Single-shot pipeline (default)
+hick run [file.md ...] [options]  Explicit single-shot mode
+hick up <file.md> [options]       Watch mode with merge snapshots
 hick open [path]                    Open a folder or document in the desktop
                                     app, the way `code .` does. The app is a
                                     separate download; HICKORY_DESKTOP points
                                     at a copy directly
-hick ingest --from '#id' <file.hick>  Ingest a cell's output volume (§4);
+hick ingest --from '#id' <file.md>  Ingest a cell's output volume (§4);
                                     running it again is a three-way merge
                                     against the base, recovered from the commit
                                     that introduced the recorded fingerprint
-hick ingest --from carry &lt;session.hick&gt;           Distil a session into what carries to the
+hick ingest --from carry &lt;session.md&gt;           Distil a session into what carries to the
                                     next attempt: a prompt, the tests you kept,
                                     the approaches you ruled out
 hick emit [dir]                     Show the commits a re-emission WOULD
@@ -825,7 +825,7 @@ hick broker serve|allow|deny|log    One road out for a sealed machine, with a
 hick sealed --check                 Whether this machine holds no credential
                                     worth stealing. NOT an airgap: a machine
                                     that talks to a model is on a network
-hick lineage <file.hick> --output <f> [--at <commit>] [--history]
+hick lineage <file.md> --output <f> [--at <commit>] [--history]
                                     Byte-precise lineage; --at replays it
                                     as it stood at a commit, weave-only
                                     and without checking anything out
@@ -860,7 +860,7 @@ relative to the current directory.
 
 ## 20. Live Demo
 
-This guide is itself a `.hick` file (`docs/hick-guide.hick`). It uses
+This guide is itself a `.md` file (`docs/hick-guide.md`). It uses
 the `h:` prefix so that `hick:` code examples appear as literal text.
 
 The file defines two containers with restricted capabilities, a shared

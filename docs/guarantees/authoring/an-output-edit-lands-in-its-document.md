@@ -1,11 +1,11 @@
 # An Edit Saved In A Woven File Lands In Its Document
 
 Given `hick up` running over a folder, when a generated output file is saved
-with a change to bytes that came from a `.hick` document, then that change
+with a change to bytes that came from a `.md` document, then that change
 appears in the document — byte-exactly, inside the block it came from — and
 the output file is left holding the same bytes the user just typed.
 
-This is what makes a `.hick` document editable with an editor that has never
+This is what makes a `.md` document editable with an editor that has never
 heard of hick. The document stays the source of truth; the generated file is
 a working surface onto it, and the surface is writable in both directions.
 

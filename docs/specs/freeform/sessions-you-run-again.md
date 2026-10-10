@@ -176,7 +176,7 @@ Two consequences worth stating because they simplify the design:
    opening prompt and leaves the other two slots empty and named — it does not
    distil for you, because the tests worth carrying are the ones you read and
    kept. One thing the design left open is now settled: the carry **invents no
-   fourth artifact**. It is an ordinary `.hick` document, written outside
+   fourth artifact**. It is an ordinary `.md` document, written outside
    `sessions/` so it survives the session being discarded.
 3. **Edited sessions** — the declared layer over the frozen base, and the
    in-the-bytes marking. This is the one piece of new format.
@@ -194,7 +194,7 @@ Two consequences worth stating because they simplify the design:
   Which one it opens by default, and how it shows that the others exist, is not
   designed here.
 - ~~**The carry has no home.**~~ **Answered 2026-08-23** by building it: a
-  carry is an ordinary `.hick` document — no new file type, no new store, no
+  carry is an ordinary `.md` document — no new file type, no new store, no
   new gitignore rule — written outside `sessions/` and therefore committed by
   default, which it must be, since a carry whose only support is a gitignored
   session dangles by construction. The resistance the design asked for is what

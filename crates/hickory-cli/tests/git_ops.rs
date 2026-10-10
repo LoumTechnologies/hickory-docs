@@ -42,7 +42,7 @@ async fn start(with_repo: bool) -> Session {
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path().canonicalize().unwrap();
     std::fs::write(
-        root.join("notes.hick"),
+        root.join("notes.md"),
         "<hick:doc xmlns:hick=\"http://www.hickorydocs.com/1.0\" weave=\"notes.md\">\n# Notes\n</hick:doc>\n",
     )
     .unwrap();
@@ -55,7 +55,7 @@ async fn start(with_repo: bool) -> Session {
         git(&root, &["commit", "-q", "-m", "First"]);
     }
     let prepared = prepare(ServeOptions {
-        target: root.join("notes.hick"),
+        target: root.join("notes.md"),
         port: 0,
         params: Vec::new(),
         executor: ExecutorChoice::Local,
@@ -416,7 +416,7 @@ async fn commit_reading_preserves_messages_blobs_and_the_working_tree() {
     )
     .unwrap();
     std::fs::write(session.root.join("binary.bin"), [0, 255, 1]).unwrap();
-    git(&session.root, &["rm", "notes.hick"]);
+    git(&session.root, &["rm", "notes.md"]);
     git(&session.root, &["add", "-A"]);
     git(
         &session.root,
@@ -444,7 +444,7 @@ async fn commit_reading_preserves_messages_blobs_and_the_working_tree() {
     assert_eq!(renamed["from"], "a.txt");
     assert_eq!(renamed["before"], "one\ntwo\n");
     assert_eq!(renamed["before"], renamed["after"]);
-    let deleted = files.iter().find(|f| f["path"] == "notes.hick").unwrap();
+    let deleted = files.iter().find(|f| f["path"] == "notes.md").unwrap();
     assert!(!deleted["before"].as_str().unwrap().is_empty());
     assert_eq!(deleted["after"], "");
     assert_eq!(

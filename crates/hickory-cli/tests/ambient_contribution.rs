@@ -31,16 +31,16 @@ fn weave(dir: &tempfile::TempDir, doc: &str) -> std::process::Output {
 #[test]
 fn a_sibling_contributes_without_either_document_naming_the_other() {
     let dir = folder(&[
-        ("owner.hick", OWNER),
+        ("owner.md", OWNER),
         (
-            "bot-a.hick",
+            "bot-a.md",
             r##"<hick:doc xmlns:hick="http://www.hickorydocs.com/1.0" weave="bot-a.md">
 <hick:copy class="ignore">bin/</hick:copy>
 </hick:doc>
 "##,
         ),
         (
-            "bot-b.hick",
+            "bot-b.md",
             r##"<hick:doc xmlns:hick="http://www.hickorydocs.com/1.0" weave="bot-b.md">
 <hick:copy class="ignore">node_modules/</hick:copy>
 <hick:copy class="ignore">bin/</hick:copy>
@@ -48,7 +48,7 @@ fn a_sibling_contributes_without_either_document_naming_the_other() {
 "##,
         ),
     ]);
-    assert!(weave(&dir, "owner.hick").status.success());
+    assert!(weave(&dir, "owner.md").status.success());
     let out = std::fs::read_to_string(dir.path().join("dist/ignore.txt")).unwrap();
     // Sorted by filename, document order within each, and `distinct` drops
     // bot-b's repeat of bot-a's line.
@@ -58,16 +58,16 @@ fn a_sibling_contributes_without_either_document_naming_the_other() {
 #[test]
 fn a_private_document_keeps_its_fragments() {
     let dir = folder(&[
-        ("owner.hick", OWNER),
+        ("owner.md", OWNER),
         (
-            "bot-a.hick",
+            "bot-a.md",
             r##"<hick:doc xmlns:hick="http://www.hickorydocs.com/1.0" weave="bot-a.md">
 <hick:copy class="ignore">bin/</hick:copy>
 </hick:doc>
 "##,
         ),
         (
-            "secret.hick",
+            "secret.md",
             r##"<hick:doc xmlns:hick="http://www.hickorydocs.com/1.0" weave="secret.md">
 <hick:private />
 <hick:copy class="ignore">do-not-share/</hick:copy>
@@ -75,7 +75,7 @@ fn a_private_document_keeps_its_fragments() {
 "##,
         ),
     ]);
-    assert!(weave(&dir, "owner.hick").status.success());
+    assert!(weave(&dir, "owner.md").status.success());
     let out = std::fs::read_to_string(dir.path().join("dist/ignore.txt")).unwrap();
     assert_eq!(out, "bin/", "a private document contributed anyway");
 }
@@ -83,20 +83,20 @@ fn a_private_document_keeps_its_fragments() {
 #[test]
 fn lineage_names_the_contributing_document() {
     let dir = folder(&[
-        ("owner.hick", OWNER),
+        ("owner.md", OWNER),
         (
-            "bot-a.hick",
+            "bot-a.md",
             r##"<hick:doc xmlns:hick="http://www.hickorydocs.com/1.0" weave="bot-a.md">
 <hick:copy class="ignore">bin/</hick:copy>
 </hick:doc>
 "##,
         ),
     ]);
-    assert!(weave(&dir, "owner.hick").status.success());
+    assert!(weave(&dir, "owner.md").status.success());
     let out = hick()
         .args([
             "lineage",
-            dir.path().join("owner.hick").to_str().unwrap(),
+            dir.path().join("owner.md").to_str().unwrap(),
             "--output",
             "dist/ignore.txt",
         ])
@@ -106,7 +106,7 @@ fn lineage_names_the_contributing_document() {
     // The bytes belong to the contributor, not to the document that collected
     // them — otherwise a reverse edit lands in the wrong file.
     assert!(
-        report.contains("bot-a.hick"),
+        report.contains("bot-a.md"),
         "lineage did not name the contributing document:\n{report}"
     );
 }
@@ -117,24 +117,24 @@ fn a_contributor_does_not_drag_in_its_own_upstreams() {
     // back through the resolver, which made every document upstream of every
     // other — and the first explicit chain in the folder was then a cycle.
     let dir = folder(&[
-        ("owner.hick", OWNER),
+        ("owner.md", OWNER),
         (
-            "middle.hick",
+            "middle.md",
             r##"<hick:doc xmlns:hick="http://www.hickorydocs.com/1.0" weave="middle.md">
-<hick:upstream file="base.hick" />
+<hick:upstream file="base.md" />
 <hick:copy class="ignore">bin/</hick:copy>
 </hick:doc>
 "##,
         ),
         (
-            "base.hick",
+            "base.md",
             r##"<hick:doc xmlns:hick="http://www.hickorydocs.com/1.0" weave="base.md">
 <hick:copy id="base-note">a note</hick:copy>
 </hick:doc>
 "##,
         ),
     ]);
-    for doc in ["owner.hick", "middle.hick", "base.hick"] {
+    for doc in ["owner.md", "middle.md", "base.md"] {
         let out = weave(&dir, doc);
         let stderr = String::from_utf8_lossy(&out.stderr);
         assert!(out.status.success(), "weaving {doc} failed:\n{stderr}");
@@ -149,7 +149,7 @@ fn a_contributor_does_not_drag_in_its_own_upstreams() {
 fn a_local_fragment_wins_over_a_contributed_one_of_the_same_id() {
     let dir = folder(&[
         (
-            "owner.hick",
+            "owner.md",
             r##"<hick:doc xmlns:hick="http://www.hickorydocs.com/1.0" weave="owner.md">
 <hick:copy id="ver">mine</hick:copy>
 <hick:file path="dist/v.txt"><hick:paste select="#ver" /></hick:file>
@@ -157,14 +157,14 @@ fn a_local_fragment_wins_over_a_contributed_one_of_the_same_id() {
 "##,
         ),
         (
-            "other.hick",
+            "other.md",
             r##"<hick:doc xmlns:hick="http://www.hickorydocs.com/1.0" weave="other.md">
 <hick:copy id="ver">theirs</hick:copy>
 </hick:doc>
 "##,
         ),
     ]);
-    assert!(weave(&dir, "owner.hick").status.success());
+    assert!(weave(&dir, "owner.md").status.success());
     assert_eq!(
         std::fs::read_to_string(dir.path().join("dist/v.txt")).unwrap(),
         "mine",

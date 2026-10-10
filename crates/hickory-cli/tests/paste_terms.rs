@@ -10,7 +10,7 @@ fn hick() -> std::process::Command {
 /// Write one document into a fresh directory and return (dir, doc path).
 fn doc(source: &str) -> (tempfile::TempDir, std::path::PathBuf) {
     let dir = tempfile::tempdir().unwrap();
-    let path = dir.path().join("n.hick");
+    let path = dir.path().join("n.md");
     std::fs::write(&path, source).unwrap();
     (dir, path)
 }

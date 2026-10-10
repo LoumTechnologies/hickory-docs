@@ -10,7 +10,7 @@ promoted?" turned out to be a symptom of the same thing. Pairs with
 log), `provenance-and-standing.md` (derived vs declared), and
 `sessions-you-run-again.md` (run, edited, staged).*
 
-A `.hick` document, a cell in it, and a file it produces can each be in a
+A `.md` document, a cell in it, and a file it produces can each be in a
 great many named states today, and a person using the product meets those
 names in commands, attributes, badges, and banners. Counted from the code:
 

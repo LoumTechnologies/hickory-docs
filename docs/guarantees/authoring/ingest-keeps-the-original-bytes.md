@@ -1,6 +1,6 @@
 # Ingest Keeps The Original Bytes, Calls No Model, And Never Deletes Your File
 
-Given a file in the notes folder's inbox, when it is ingested, then a `.hick`
+Given a file in the notes folder's inbox, when it is ingested, then a `.md`
 note is written holding the file's bytes verbatim, its attendees derived from
 who actually spoke, and its summary passages **empty and stale**; and the source
 file is **moved** into `inbox/ingested/`, never deleted. When the same bytes are
@@ -181,7 +181,7 @@ Last LLM verification:
     window and then resumes could be read mid-flight; the next pass corrects
     it, but the first note would be briefly wrong.
   - **Note names can collide in ways that surprise.** Two meetings with the
-    same title on the same day become `…-2.hick`, which is correct but is not
+    same title on the same day become `…-2.md`, which is correct but is not
     a naming scheme anyone chose.
   - **Nothing decides whether a notes repository wants the pre-commit drift
     gate.** A commit blocked because a meeting summary is stale is defensible

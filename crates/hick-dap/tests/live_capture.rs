@@ -55,7 +55,7 @@ struct Project {
 fn project() -> Option<Project> {
     let dir = tempfile::tempdir().ok()?;
     std::fs::create_dir_all(dir.path().join(".git")).ok()?;
-    std::fs::write(dir.path().join("doc.hick"), DOC).ok()?;
+    std::fs::write(dir.path().join("doc.md"), DOC).ok()?;
     borrow_this_repos_adapters(dir.path());
     hick_dap::discover("python", dir.path())?;
     Some(Project { dir })
@@ -100,7 +100,7 @@ async fn a_capture_records_a_value_from_inside_a_function_on_every_hit() {
         return;
     };
     let captured = run(
-        Path::new("doc.hick"),
+        Path::new("doc.md"),
         DOC,
         project.dir.path(),
         &[spec(SUBTOTAL, &["quantity", "quantity * unit_price"])],
@@ -133,7 +133,7 @@ async fn a_condition_records_only_the_hits_it_names() {
     let mut spec = spec(SUBTOTAL, &["quantity"]);
     // A raw `>` inside an attribute is what a document would write.
     spec.condition = Some("quantity > 2".into());
-    let captured = run(Path::new("doc.hick"), DOC, project.dir.path(), &[spec])
+    let captured = run(Path::new("doc.md"), DOC, project.dir.path(), &[spec])
         .await
         .expect("the capture run finishes");
 
@@ -149,7 +149,7 @@ async fn hits_are_bounded_and_the_document_is_told() {
     };
     let mut spec = spec(SUBTOTAL, &["quantity"]);
     spec.max = 2;
-    let captured = run(Path::new("doc.hick"), DOC, project.dir.path(), &[spec])
+    let captured = run(Path::new("doc.md"), DOC, project.dir.path(), &[spec])
         .await
         .expect("the capture run finishes");
 
@@ -168,7 +168,7 @@ async fn an_expression_that_is_not_in_scope_is_recorded_rather_than_fatal() {
         return;
     };
     let captured = run(
-        Path::new("doc.hick"),
+        Path::new("doc.md"),
         DOC,
         project.dir.path(),
         &[spec(SUBTOTAL, &["quantity", "no_such_name"])],
@@ -196,7 +196,7 @@ async fn a_capture_run_writes_nothing_into_the_project() {
         .collect();
 
     run(
-        Path::new("doc.hick"),
+        Path::new("doc.md"),
         DOC,
         project.dir.path(),
         &[spec(SUBTOTAL, &["quantity"])],
@@ -228,7 +228,7 @@ async fn a_capture_follows_a_breakpoint_the_adapter_moves() {
         return;
     };
     let captured = run(
-        Path::new("doc.hick"),
+        Path::new("doc.md"),
         DOC,
         project.dir.path(),
         &[spec(BLANK, &["LINES"])],
@@ -249,7 +249,7 @@ async fn a_location_the_document_does_not_generate_says_so() {
         return;
     };
     let captured = run(
-        Path::new("doc.hick"),
+        Path::new("doc.md"),
         DOC,
         project.dir.path(),
         &[spec(9_000, &["quantity"])],

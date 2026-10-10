@@ -9,7 +9,7 @@
 Given a visitor on the home page with no account, no sign-up and no network
 beyond loading the page, when they drive the demo, then the lineage they see is
 computed by the same code the product runs — the document is parsed by the real
-`.hick` parser, woven by the real weaver, and the Sankey ribbons are drawn from
+`.md` parser, woven by the real weaver, and the Sankey ribbons are drawn from
 real provenance ranges over live editor geometry. Nothing on the page replays a
 recording of a weave that happened somewhere else.
 

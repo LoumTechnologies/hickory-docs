@@ -1,6 +1,6 @@
 # Replay Recomputes Exact Lineage At Any Commit, And Names Its One Limit
 
-Given a `.hick` document in a git repository, when a reader asks for its
+Given a `.md` document in a git repository, when a reader asks for its
 lineage at an earlier commit — `hick lineage --at <commit>`, or the time
 slider on the lineage view — then that commit's document is read out of git,
 woven **without executing anything**, and its provenance reported exactly;

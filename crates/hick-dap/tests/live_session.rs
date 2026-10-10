@@ -66,7 +66,7 @@ fn fixture() -> Option<Fixture> {
     let dir = tempfile::tempdir().ok()?;
     let root = dir.path();
     std::fs::create_dir_all(root.join(".git")).ok()?;
-    std::fs::write(root.join("doc.hick"), DOC).ok()?;
+    std::fs::write(root.join("doc.md"), DOC).ok()?;
 
     // The generated file, as a run would produce it — through `weave_into`,
     // which is the one place that decides what those bytes are. This used to
@@ -74,7 +74,7 @@ fn fixture() -> Option<Fixture> {
     // disagree with the mapping the moment the bytes changed: the fixture's
     // own comment claimed the two could not drift, while the code made sure
     // they could.
-    let mapping = Mapping::for_document(Path::new("doc.hick"), DOC, root).ok()?;
+    let mapping = Mapping::for_document(Path::new("doc.md"), DOC, root).ok()?;
     hick_dap::weave_into(DOC, root).ok()?;
 
     borrow_this_repos_adapters(root);

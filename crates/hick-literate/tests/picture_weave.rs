@@ -19,7 +19,7 @@ fn hick_doc(body: &str) -> String {
 
 async fn woven(body: &str) -> String {
     let src = hick_doc(body);
-    let result = hick_literate::run_pipeline(&[("test.hick", &src)], &[])
+    let result = hick_literate::run_pipeline(&[("test.md", &src)], &[])
         .await
         .expect("pipeline runs");
     result
@@ -79,7 +79,7 @@ async fn the_fence_shows_the_files_real_first_line() {
     // docs/guarantees/language/a-generated-file-starts-at-its-first-byte.md.
     let src =
         hick_doc("<hick:file path=\"app.py\">\n#!/usr/bin/env python\nprint(1)\n</hick:file>");
-    let result = hick_literate::run_pipeline(&[("test.hick", &src)], &[])
+    let result = hick_literate::run_pipeline(&[("test.md", &src)], &[])
         .await
         .expect("pipeline runs");
     let file = result.files.get("app.py").unwrap().to_string();

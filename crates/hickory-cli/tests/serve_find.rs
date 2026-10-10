@@ -25,7 +25,7 @@ async fn start(files: &[(&str, &str)]) -> Session {
     let root = dir.path().canonicalize().unwrap();
     let target = files
         .iter()
-        .find(|(p, _)| p.ends_with(".hick"))
+        .find(|(p, _)| p.ends_with(".md"))
         .map(|(p, _)| root.join(p))
         .unwrap_or_else(|| root.clone());
 
@@ -156,7 +156,7 @@ async fn replace_refuses_a_generated_file_and_names_its_document() {
     // Writing here either loses the edit at the next weave or fights the
     // up-loop for it. Naming the document points at the change that survives
     // — and that fixes every other copy at the same time.
-    let session = start(&[("app.hick", DOC), ("orders.py", "total = 1\n")]).await;
+    let session = start(&[("app.md", DOC), ("orders.py", "total = 1\n")]).await;
 
     let (status, body) = post(
         &session,
@@ -178,13 +178,13 @@ async fn replace_refuses_a_generated_file_and_names_its_document() {
     let on_disk = std::fs::read_to_string(session.dir.path().join("orders.py")).unwrap();
     assert_eq!(on_disk, "total = 1\n");
     // ...and the document, which IS source, was rewritten.
-    let doc = std::fs::read_to_string(session.dir.path().join("app.hick")).unwrap();
+    let doc = std::fs::read_to_string(session.dir.path().join("app.md")).unwrap();
     assert!(doc.contains("sum = 1"), "the document is source:\n{doc}");
 }
 
 #[tokio::test(flavor = "multi_thread")]
 async fn find_marks_a_generated_file_before_anyone_presses_replace() {
-    let session = start(&[("app.hick", DOC), ("orders.py", "total = 1\n")]).await;
+    let session = start(&[("app.md", DOC), ("orders.py", "total = 1\n")]).await;
     let (_, body) = get(&session, "/api/find?q=total").await;
     let files = body["files"].as_array().unwrap();
     let orders = files.iter().find(|f| f["path"] == "orders.py").unwrap();

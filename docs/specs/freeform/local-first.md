@@ -42,7 +42,7 @@ Four facts, none of them speculative, all of them already in this repo:
    running as our user. Moving execution to the author's machine deletes that
    whole category — the cost *and* the risk *and* the reason the front door is
    locked.
-3. **The artifact was always a file.** `.hick` documents live in the user's git
+3. **The artifact was always a file.** `.md` documents live in the user's git
    repository; the hosted side mirrored them into Postgres and committed them
    to a server-side git store. That mirror was scaffolding around the real
    thing.
@@ -59,7 +59,7 @@ boundary, and native verification. These parts of it are superseded:
   built on further.
 - **State model** — "Postgres holds accounts, workspaces, run metadata,
   billing" describes the hosted deployment only. In the product, the git repo
-  of `.hick` files is the *entire* state model; Yrs CRDT docs are the live
+  of `.md` files is the *entire* state model; Yrs CRDT docs are the live
   layer within one session.
 - **Delivery** — "continuous deployment to production" describes the hosted
   service. The product's delivery path is the release channels

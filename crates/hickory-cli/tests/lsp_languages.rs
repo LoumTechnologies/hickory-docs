@@ -13,7 +13,7 @@
 //!     driving the LSP bridge over the same WebSocket the app's window uses.
 //!
 //! Both must answer in DOCUMENT coordinates, because that is the whole claim:
-//! the buffer you are editing is the `.hick` file, not the virtual file the
+//! the buffer you are editing is the `.md` file, not the virtual file the
 //! child language server actually saw.
 //!
 //! ## Each project is built the way that ecosystem builds one
@@ -253,7 +253,7 @@ fn scaffold(language: &Language) -> (tempfile::TempDir, PathBuf, u32) {
     // of the header except the last, which is the tag itself.
     let first_code_line = header.lines().count() as u32;
     let document = format!("{header}{}</hick:file>\n</hick:doc>\n", language.code);
-    let path = dir.path().join("doc.hick");
+    let path = dir.path().join("doc.md");
     std::fs::write(&path, document).unwrap();
     (dir, path, first_code_line)
 }
@@ -569,7 +569,7 @@ fn drive_one_language(language: &Language) -> bool {
             let target = first_location(&result);
             if let Some((target_uri, target_line)) = target {
                 assert!(
-                    target_uri.ends_with("doc.hick"),
+                    target_uri.ends_with("doc.md"),
                     "{}: definition pointed outside the document: {target_uri}",
                     language.id
                 );
@@ -1050,7 +1050,7 @@ fn a_document_runs_confined_through_the_real_binary() {
         </hick:exec>\n\
         </hick:doc>\n"
     );
-    let path = dir.path().join("confined.hick");
+    let path = dir.path().join("confined.md");
     std::fs::write(&path, doc).unwrap();
 
     let output = Command::new(hick)
@@ -1180,11 +1180,11 @@ fn a_cell_is_confined_unless_someone_says_otherwise() {
         </hick:exec>\n\
         </hick:doc>\n"
     );
-    std::fs::write(dir.path().join("d.hick"), doc).unwrap();
+    std::fs::write(dir.path().join("d.md"), doc).unwrap();
 
     let run = |executor: Option<&str>| {
         let mut command = Command::new(&hick);
-        command.arg("run").arg("d.hick").current_dir(dir.path());
+        command.arg("run").arg("d.md").current_dir(dir.path());
         match executor {
             Some(value) => command.env("HICKORY_EXECUTOR", value),
             // Cleared, not merely unset: this process may have inherited one.

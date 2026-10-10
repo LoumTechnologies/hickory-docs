@@ -24,7 +24,7 @@ fn note(body: &str) -> String {
 #[test]
 fn a_claim_weaves_an_attribution_a_reader_can_see() {
     let dir = tempfile::tempdir().unwrap();
-    let doc = dir.path().join("sync.hick");
+    let doc = dir.path().join("sync.md");
     std::fs::write(
         &doc,
         note(

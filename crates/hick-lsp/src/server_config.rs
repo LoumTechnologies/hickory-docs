@@ -185,7 +185,7 @@ mod tests {
             r#"{"servers": {"python": {"command": ["inner"]}}}"#,
         )
         .unwrap();
-        let found = find_and_parse(&nested.join("doc.hick")).unwrap();
+        let found = find_and_parse(&nested.join("doc.md")).unwrap();
         assert_eq!(found["python"], vec!["inner"]);
     }
 }

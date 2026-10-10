@@ -6,7 +6,7 @@
 //!
 //! ## Coordinates
 //!
-//! A breakpoint is set on a line of the `.hick` document; the adapter needs a
+//! A breakpoint is set on a line of the `.md` document; the adapter needs a
 //! line in the generated file. A stack frame comes back in the generated file
 //! and has to be shown on the document's line. That mapping already exists —
 //! it is what makes the language server work — so this uses it rather than a
@@ -101,7 +101,7 @@ impl Capabilities {
 /// A breakpoint, in the document's own coordinates.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Breakpoint {
-    /// 0-based line in the `.hick` document.
+    /// 0-based line in the `.md` document.
     pub line: u32,
     /// Stop only when this is true, in the debuggee's language.
     #[serde(default)]
@@ -1373,7 +1373,7 @@ mod tests {
              </hick:file>\n\
              </hick:doc>\n";
         let dir = tempfile::tempdir().unwrap();
-        let mapping = Mapping::for_document(Path::new("d.hick"), source, dir.path()).expect("maps");
+        let mapping = Mapping::for_document(Path::new("d.md"), source, dir.path()).expect("maps");
 
         // The mapping and the bytes are one decision, so they are asserted
         // together: whatever `weave_into` writes is what the map describes.
@@ -1410,7 +1410,7 @@ mod tests {
              # Just prose here\n\
              </hick:doc>\n";
         let dir = tempfile::tempdir().unwrap();
-        let mapping = Mapping::for_document(Path::new("d.hick"), source, dir.path()).unwrap();
+        let mapping = Mapping::for_document(Path::new("d.md"), source, dir.path()).unwrap();
         assert_eq!(mapping.to_generated(2), None);
     }
 

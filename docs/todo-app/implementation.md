@@ -1,7 +1,8 @@
-
+<?xml version="1.0" encoding="UTF-8"?>
+<hick:doc xmlns:hick="http://www.hickorydocs.com/1.0" weave="implementation.md">
 # Todo app — implementation
 
-
+<hick:upstream file="requirements.md" />
 
 The code lives here, in prose order, and is tangled into `todo.py`. The cells
 at the bottom run the real CLI and pin its output, so this document is both
@@ -10,41 +11,14 @@ satisfying the requirements it was written from.
 
 ## Requirements being implemented
 
+<hick:paste select="#r-add,#r-list,#r-done,#r-storage,#r-rename" />
 
-`todo add "<title>"` creates an open task and prints its id. The id is short,
-opaque, and assigned at creation; it is never derived from the title.
-
-`todo list` prints every task in creation order as `<id> <state> <title>`.
-Dropped and blocked tasks are included — retaining them is pointless if the
-default view hides them. `--state open|blocked|done|dropped` filters.
-
-`todo done <id>` moves a task to done. `todo drop <id>` moves it to dropped.
-`todo block <id>` moves it to blocked. All are idempotent: re-running on a
-task already in that state succeeds and changes nothing, so a retried
-command is never an error.
-
-Tasks persist to `tasks.json` in the working directory, created on first
-write. A missing file reads as an empty list, not an error — the first run of
-a fresh install must behave like every later run.
-
-`todo rename <id> "<new title>"` changes a task's title, leaving its id and
-state untouched. This is the requirement the opaque-id decision exists for:
-anything referencing a task must survive a retitle. An unknown id exits
-nonzero, like the other commands that take one.
-
+<hick:container name="app" image="host" />
 
 ## Storage
 
-## Commands
-
-## Entry point
-
-
-### `todo.py`
-
-```python
-
-"""A todo list. Tangled from docs/todo-app/implementation.hick — edit the
+<hick:copy id="c-storage" class="todo-py">
+"""A todo list. Tangled from docs/todo-app/implementation.md — edit the
 document, not this file."""
 import json
 import os
@@ -66,7 +40,11 @@ def load():
 def save(tasks):
     with open(PATH, "w") as fh:
         json.dump(tasks, fh, indent=2)
+</hick:copy>
 
+## Commands
+
+<hick:copy id="c-commands" class="todo-py">
 
 
 def add(title):
@@ -104,7 +82,11 @@ def rename(task_id, new_title):
             save(tasks)
             return True
     return False
+</hick:copy>
 
+## Entry point
+
+<hick:copy id="c-main" class="todo-py">
 
 
 def main(argv):
@@ -138,9 +120,11 @@ def main(argv):
 
 if __name__ == "__main__":
     sys.exit(main(sys.argv[1:]))
+</hick:copy>
 
-```
-
+<hick:file path="todo.py">
+<hick:paste select=".todo-py" />
+</hick:file>
 
 ## Acceptance
 
@@ -148,71 +132,116 @@ These cells run the real CLI. Ids are opaque and random, so the tests set
 titles and filter on state rather than pinning ids — pinning a random id
 would make the document fail on every run for no reason.
 
-$ cd project && rm -f /tmp/todo-acceptance.json && export TODO_FILE=/tmp/todo-acceptance.json
-  python3 todo.py list
-  echo "--- empty file reads as empty list, no error: $?"
+<hick:volume name="src" input="." />
+
+<hick:exec container="app" mount="src:/project">
+cd project && rm -f /tmp/todo-acceptance.json && export TODO_FILE=/tmp/todo-acceptance.json
+python3 todo.py list
+echo "--- empty file reads as empty list, no error: $?"
+<hick:expect match="exact">--- empty file reads as empty list, no error: 0
+</hick:expect>
+
+<hick:ingested key="4d245f1d344ce0fd23128f8f639b57fe1533a54e184c5b27fc897cab9567c28d" sha256="6daafe54016f3acc282286aed436c7190470a1254950aef626bac7b100ea9398" at="2026-09-03">
 --- empty file reads as empty list, no error: 0
+</hick:ingested>
+</hick:exec>
 
+<hick:exec container="app" mount="src:/project">
+cd project && export TODO_FILE=/tmp/todo-acceptance.json
+python3 todo.py add "write the spec" > /dev/null
+python3 todo.py add "ship it" > /dev/null
+python3 todo.py add "abandon this one" > /dev/null
+python3 todo.py list | awk '{$1=""; print substr($0,2)}'
+<hick:expect match="exact">open write the spec
+open ship it
+open abandon this one
+</hick:expect>
 
-
-$ cd project && export TODO_FILE=/tmp/todo-acceptance.json
-  python3 todo.py add "write the spec" > /dev/null
-  python3 todo.py add "ship it" > /dev/null
-  python3 todo.py add "abandon this one" > /dev/null
-  python3 todo.py list | awk '{$1=""; print substr($0,2)}'
+<hick:ingested key="18ffa64a9c607653460809a67ac2ee15cc54cd87ee92a5c4eb753a403b69122e" sha256="8658905462420830ffd21e662b9e0d9ee01386573036ae192281c8c9fbfda6ec" at="2026-09-03">
 open write the spec
 open ship it
 open abandon this one
+</hick:ingested>
+</hick:exec>
 
+<hick:exec container="app" mount="src:/project">
+cd project && export TODO_FILE=/tmp/todo-acceptance.json
+first=$(python3 todo.py list | head -1 | cut -d' ' -f1)
+last=$(python3 todo.py list | tail -1 | cut -d' ' -f1)
+python3 todo.py done "$first"
+python3 todo.py done "$first"   # idempotent: a retry is never an error
+python3 todo.py drop "$last"
+python3 todo.py list | awk '{$1=""; print substr($0,2)}'
+<hick:expect match="exact">done write the spec
+open ship it
+dropped abandon this one
+</hick:expect>
 
-
-$ cd project && export TODO_FILE=/tmp/todo-acceptance.json
-  first=$(python3 todo.py list | head -1 | cut -d' ' -f1)
-  last=$(python3 todo.py list | tail -1 | cut -d' ' -f1)
-  python3 todo.py done "$first"
-  python3 todo.py done "$first"   # idempotent: a retry is never an error
-  python3 todo.py drop "$last"
-  python3 todo.py list | awk '{$1=""; print substr($0,2)}'
+<hick:ingested key="cdde3274c29a8995ce1194d0a059359d9efe0a2f896dfc634ab98a3d4b4d0c66" sha256="f3a533af07be18087b8efa7bc5dee1a76723f1e39498f8c0ca95d30cc8d62142" at="2026-09-03">
 done write the spec
 open ship it
 dropped abandon this one
+</hick:ingested>
+</hick:exec>
 
+<hick:exec container="app" mount="src:/project">
+cd project && export TODO_FILE=/tmp/todo-acceptance.json
+python3 todo.py list --state open | awk '{$1=""; print substr($0,2)}'
+echo "--- unknown id exits nonzero:"
+python3 todo.py done nosuchid 2>/dev/null || echo "yes"
+<hick:expect match="exact">open ship it
+--- unknown id exits nonzero:
+yes
+</hick:expect>
 
-
-$ cd project && export TODO_FILE=/tmp/todo-acceptance.json
-  python3 todo.py list --state open | awk '{$1=""; print substr($0,2)}'
-  echo "--- unknown id exits nonzero:"
-  python3 todo.py done nosuchid 2>/dev/null || echo "yes"
+<hick:ingested key="a5b0240565524c5d24b8e35b19877d5b57163804e5917fc676e85cdbafd9a714" sha256="626211412a1d9fa27d8b74c73ce56a57da58975765617814c3de73a96f651e17" at="2026-09-03">
 open ship it
 --- unknown id exits nonzero:
 yes
+</hick:ingested>
+</hick:exec>
 
+<hick:exec container="app" mount="src:/project">
+cd project && export TODO_FILE=/tmp/todo-acceptance.json
+id=$(python3 todo.py list --state open | head -1 | cut -d' ' -f1)
+python3 todo.py rename "$id" "ship it today"
+python3 todo.py list --state open | awk '{$1=""; print substr($0,2)}'
+echo "--- id survived the retitle:"
+python3 todo.py list --state open | head -1 | cut -d' ' -f1 | grep -qx "$id" && echo "yes"
+echo "--- unknown id exits nonzero:"
+python3 todo.py rename nosuchid "x" 2>/dev/null || echo "yes"
+<hick:expect match="exact">open ship it today
+--- id survived the retitle:
+yes
+--- unknown id exits nonzero:
+yes
+</hick:expect>
 
-
-$ cd project && export TODO_FILE=/tmp/todo-acceptance.json
-  id=$(python3 todo.py list --state open | head -1 | cut -d' ' -f1)
-  python3 todo.py rename "$id" "ship it today"
-  python3 todo.py list --state open | awk '{$1=""; print substr($0,2)}'
-  echo "--- id survived the retitle:"
-  python3 todo.py list --state open | head -1 | cut -d' ' -f1 | grep -qx "$id" && echo "yes"
-  echo "--- unknown id exits nonzero:"
-  python3 todo.py rename nosuchid "x" 2>/dev/null || echo "yes"
+<hick:ingested key="83ce121ec746c0461d5232e5519f6832e2983b186812930d148c0cd2ee76d64c" sha256="48aadf260222743257630badc22113e7e322ce1f7280363e297ccbaa633f9d5c" at="2026-09-03">
 open ship it today
 --- id survived the retitle:
 yes
 --- unknown id exits nonzero:
 yes
+</hick:ingested>
+</hick:exec>
+<hick:exec container="app" mount="src:/project">
+cd project && export TODO_FILE=/tmp/todo-acceptance.json
+id=$(python3 todo.py list --state open | head -1 | cut -d' ' -f1)
+python3 todo.py block "$id"
+python3 todo.py block "$id"   # idempotent: a retry is never an error
+python3 todo.py list --state blocked | awk '{$1=""; print substr($0,2)}'
+echo "--- unknown id exits nonzero:"
+python3 todo.py block nosuchid 2>/dev/null || echo "yes"
+<hick:expect match="exact">blocked ship it today
+--- unknown id exits nonzero:
+yes
+</hick:expect>
 
-
-$ cd project && export TODO_FILE=/tmp/todo-acceptance.json
-  id=$(python3 todo.py list --state open | head -1 | cut -d' ' -f1)
-  python3 todo.py block "$id"
-  python3 todo.py block "$id"   # idempotent: a retry is never an error
-  python3 todo.py list --state blocked | awk '{$1=""; print substr($0,2)}'
-  echo "--- unknown id exits nonzero:"
-  python3 todo.py block nosuchid 2>/dev/null || echo "yes"
+<hick:ingested key="2f4d497b1350ce18ab0438be03d7ca365454f1cd0b97822d10432728e6157ca3" sha256="d2dc3dde6faa68d10159a3b7dd4c550120871f1eed85498aa7c44cdb723ecb8a" at="2026-09-03">
 blocked ship it today
 --- unknown id exits nonzero:
 yes
-
-
+</hick:ingested>
+</hick:exec>
+</hick:doc>

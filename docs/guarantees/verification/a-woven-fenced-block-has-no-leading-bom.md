@@ -51,7 +51,7 @@ Last LLM verification:
   into `crates/hick-literate/src/weave.rs`'s
   `process_file_children_to_weave` alongside `strip_opening_break`.
   Verified end to end against the real ingested `Program.cs` in
-  `.../scratchpad/tutorial-hick/tutorial.hick` — both fenced blocks
+  `.../scratchpad/tutorial-hick/tutorial.md` — both fenced blocks
   (`app/Program.cs`, `app/TodoApp.csproj`) lost their leading BOM with no
   other byte changed.
 - Test coverage: unit tests in `crates/hick-literate/src/lib.rs`'s `tests`
@@ -69,7 +69,7 @@ Last LLM verification:
   rendering (the `$ cat Program.cs` shell-style block, a different code path
   from the fenced-file display this fix covers) still shows a BOM when the
   command it ran genuinely printed one — confirmed present in
-  `tutorial.hick`'s Step 0 transcript after this fix. Left alone
+  `tutorial.md`'s Step 0 transcript after this fix. Left alone
   deliberately: a transcript is a claim about what a real command really
   printed, and this codebase treats manufacturing drift from a transcript's
   own fidelity as a worse failure than a stray invisible character. Whether

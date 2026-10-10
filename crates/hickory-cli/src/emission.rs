@@ -230,12 +230,12 @@ mod tests {
             dir.path(),
             &[
                 (
-                    "requirements.hick".into(),
+                    "requirements.md".into(),
                     "# What the thing must do\n\nprose".into(),
                     vec!["spec.md".into()],
                 ),
                 (
-                    "implementation.hick".into(),
+                    "implementation.md".into(),
                     "no heading here".into(),
                     vec!["src/main.rs".into(), "src/lib.rs".into()],
                 ),
@@ -245,7 +245,7 @@ mod tests {
         assert_eq!(plan.commits[0].subject, "What the thing must do");
         // A document with no heading still gets an honest subject rather than
         // an empty one.
-        assert_eq!(plan.commits[1].subject, "Emit implementation.hick");
+        assert_eq!(plan.commits[1].subject, "Emit implementation.md");
         // Files in path order, so two runs plan the same commit.
         assert_eq!(plan.commits[1].files, vec!["src/lib.rs", "src/main.rs"]);
     }
@@ -267,7 +267,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let plan = plan(
             dir.path(),
-            &[("a.hick".into(), "# A".into(), vec!["a.txt".into()])],
+            &[("a.md".into(), "# A".into(), vec!["a.txt".into()])],
         );
         assert!(plan.summary.contains("Nothing is emitted"));
     }

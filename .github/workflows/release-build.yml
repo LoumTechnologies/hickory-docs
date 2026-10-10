@@ -151,7 +151,7 @@ jobs:
           ./hick --help > /dev/null
           # text-tools-tour needs nothing but a POSIX shell, so it is the one
           # example that is a fair check on any machine.
-          ./hick test examples/text-tools-tour.hick
+          ./hick test examples/text-tools-tour.md
           # The language server ships in the same archive, so it is verified
           # here too. It speaks LSP over stdio and has no --version; closed
           # stdin is the one input that makes it exit rather than wait, so an

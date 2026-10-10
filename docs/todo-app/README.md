@@ -2,16 +2,16 @@
 
 This is the demo. It is a working CLI todo app whose entire lifecycle —
 meeting, domain model, requirements, tickets, code, acceptance tests — lives
-in `.hick` documents that verify each other.
+in `.md` documents that verify each other.
 
 ```
-meetings/2026-08-07-kickoff.hick    decisions, each written down exactly once
+meetings/2026-08-07-kickoff.md    decisions, each written down exactly once
         ↓ hick:upstream
-domain.hick                          glossary + those decisions, by reference
+domain.md                          glossary + those decisions, by reference
         ↓ hick:upstream
-requirements.hick                    requirements, tangled into work/*.task.md
+requirements.md                    requirements, tangled into work/*.task.md
         ↓ hick:upstream
-implementation.hick                  the code + acceptance cells that run it
+implementation.md                  the code + acceptance cells that run it
         ↓ hick:file
 todo.py                              the shipped program
 ```
@@ -22,7 +22,7 @@ todo.py                              the shipped program
 hick test docs/todo-app/          # all four documents pass
 ```
 
-Now change one sentence — in `meetings/2026-08-07-kickoff.hick`, make the
+Now change one sentence — in `meetings/2026-08-07-kickoff.md`, make the
 states decision say "four states" instead of "three":
 
 ```sh

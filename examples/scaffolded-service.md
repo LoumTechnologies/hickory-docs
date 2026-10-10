@@ -1,4 +1,5 @@
-
+<?xml version="1.0" encoding="UTF-8"?>
+<hick:doc xmlns:hick="http://www.hickorydocs.com/1.0" weave="scaffolded-service.md">
 # Owning what a scaffolder wrote
 
 `dotnet new webapi` writes forty files nobody typed, and the interesting work
@@ -20,11 +21,15 @@ generator at all.
 
 This document does that, with a generator small enough to read.
 
+<hick:container name="gen" image="alpine:3.20" />
+
 ## The volume the generator writes into
 
 `output="service"` means the volume's contents land under `service/`, and they
 keep landing there after the ingest — an ingest must not rearrange the tree it
 was asked to preserve.
+
+<hick:volume name="project" output="service" />
 
 ## The generator
 
@@ -36,51 +41,49 @@ The command lives in a `hick:copy` child rather than as loose text in the cell.
 That is not decoration: once forty file bodies sit beside it, nothing would
 mark which bytes get run.
 
-$ mkdir -p out/src out/node_modules/left-pad
-  printf '{\n  "name": "greeter",\n  "version": "0.1.0",\n  "main": "src/index.js"\n}\n' > out/package.json
-  printf 'export function greet(who) {\n  return "hello, " + who;\n}\n' > out/src/index.js
-  printf '# greeter\n\nGenerated. Do not edit by hand.\n' > out/README.md
-  printf 'module.exports = function () {};\n' > out/node_modules/left-pad/index.js
-  ls out
-README.md
+<hick:exec container="gen" mount="project:out">
+<hick:copy id="scaffold">
+mkdir -p out/src out/node_modules/left-pad
+printf '{\n  "name": "greeter",\n  "version": "0.1.0",\n  "main": "src/index.js"\n}\n' > out/package.json
+printf 'export function greet(who) {\n  return "hello, " + who;\n}\n' > out/src/index.js
+printf '# greeter\n\nGenerated. Do not edit by hand.\n' > out/README.md
+printf 'module.exports = function () {};\n' > out/node_modules/left-pad/index.js
+ls out
+</hick:copy>
+<hick:expect match="exact">README.md
 node_modules
 package.json
 src
-
-
-*Ingested from `#scaffold` on 2026-08-24 — run `5826f56b23bc`, 3 file(s), 1 skipped. These bytes came from that run, not from this document's author.*
-
-### `service/README.md`
-
-```markdown
-# greeter
+</hick:expect>
+<hick:ingested from="#scaffold" sha256="5826f56b23bcfcb25b1af1071b3ecfbbd92c24f36bae26a1473bbefc6fc05243" at="2026-08-24" files="3" skipped="1">
+<hick:file path="service/README.md"># greeter
 
 Generated. Do not edit by hand.
-```
-
-### `service/package.json`
-
-```json
-{
+</hick:file>
+<hick:file path="service/package.json">{
   "name": "greeter",
   "version": "0.1.0",
   "main": "src/index.js"
 }
-```
-
-### `service/src/index.js`
-
-```javascript
-export function greet(who) {
+</hick:file>
+<hick:file path="service/src/index.js">export function greet(who) {
   if (!who) throw new TypeError("greet needs somebody to greet");
   return "hello, " + who;
 }
-```
-
+</hick:file>
+</hick:ingested>
+<hick:ingested key="d465fadaeedc3d60d9a94c7d44ba5339837b4851d06faec8e51c5ec384eadbb9" sha256="0f12803b81433090ab2fdc15f50d457207585b55435537f0d508ee08091ea97e" at="2026-09-03">
+README.md
+node_modules
+package.json
+src
+</hick:ingested></hick:exec>
 
 ## What ingest did with it
 
 The block below was written by:
+
+<hick:copy id="how">hick ingest --from '#scaffold' examples/scaffolded-service.md</hick:copy>
 
 Three things about it are worth reading rather than skimming.
 
@@ -125,11 +128,19 @@ same division of labour a re-ingest already relies on — but the weave does not
 consult git, so the ribbon cannot either. Naming that limit is better than a
 report that quietly guesses.
 
-$ cat out/package.json
+<hick:exec container="gen" mount="project:out">
+cat out/package.json
+<hick:expect match="exact">{
+  "name": "greeter",
+  "version": "0.1.0",
+  "main": "src/index.js"
+}
+</hick:expect>
+<hick:ingested key="6a1f8a900d0eee3185f86c5555c022122d04a8282fb9ae4816cf9a171f582e51" sha256="cd91811ea65e567c6367fd0690c7d011060b07e42dd2bbb0fe5b13cd5f597bfc" at="2026-09-03">
 {
   "name": "greeter",
   "version": "0.1.0",
   "main": "src/index.js"
 }
-
-
+</hick:ingested></hick:exec>
+</hick:doc>

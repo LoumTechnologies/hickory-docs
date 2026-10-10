@@ -19,17 +19,17 @@ Both verify: `hick test examples/receipts`.
 ## Walk it
 
 ```sh
-hick lineage examples/receipts/claude-code/message.hick --output messages/2026-08-24-eng-reply.txt
-#  48..181  paste  …/meetings/2026-08-20-checkout-latency-sync.hick bytes 1408..1541   ← Sam's turn
+hick lineage examples/receipts/claude-code/message.md --output messages/2026-08-24-eng-reply.txt
+#  48..181  paste  …/meetings/2026-08-20-checkout-latency-sync.md bytes 1408..1541   ← Sam's turn
 hick test examples/receipts/claude-code            # checks + expectations + drift, no tokens
 ```
 
-In the app: open `message.hick`, open `messages/2026-08-24-eng-reply.txt`
+In the app: open `message.md`, open `messages/2026-08-24-eng-reply.txt`
 from the port in the divider, hover the quoted line — the ribbon reaches the
 meeting note's tab (`ribbons-across-documents.png`); click it to go there.
 
 Change a fact — make Sam say "forty-five" in the `.vtt`-derived transcript
-block, or edit a finding in `analysis.hick` — and `hick test` reports the
+block, or edit a finding in `analysis.md` — and `hick test` reports the
 check under the affected sentence STALE until `hick refresh` re-checks it.
 
 ## Rebuild from nothing
@@ -38,26 +38,26 @@ check under the affected sentence STALE until `hick refresh` re-checks it.
 cd examples/receipts/claude-code
 hick ingest .                                   # inbox/*.vtt → a note; moves the source to inbox/ingested/
 hick refresh meetings                           # summary + action items (needs a provider key)
-hick run . && hick refresh message.hick         # cells, files, then the four checks
+hick run . && hick refresh message.md         # cells, files, then the four checks
 hick test .
 ```
 
 The agent variant was driven with `hick agent --dir . --doc <stub> "<prompt>"`;
 the prompts are the first `<hick:user>` of each session file. The message
 it drafted invented its numbers, and the checks said so — read
-`hick-agent/message.hick` and then
+`hick-agent/message.md` and then
 `docs/specs/freeform/receipts-for-a-message.md` for what this test fixed and
 what it found still painful.
 
 ## Three provenances, on these files
 
-- `hick lineage claude-code/message.hick --output messages/2026-08-24-eng-reply.txt`
+- `hick lineage claude-code/message.md --output messages/2026-08-24-eng-reply.txt`
   — the weave: the quoted line is the meeting file's bytes.
-- `hick context hick-agent/analysis.hick` — the session record: the finding
+- `hick context hick-agent/analysis.md` — the session record: the finding
   the agent wrote on line 72 had `data/checkout-latency.csv` lines 1–8 (by
   hash, at commit `ab7a2d9`) in front of the model, plus the prompt and every
   tool result before it. `context-ribbon.png` is the app drawing it.
-- `hick cites claude-code/message.hick` — what each check and claim *says* it
+- `hick cites claude-code/message.md` — what each check and claim *says* it
   rests on (`cites=`), resolved to the meeting turns and findings.
   `declared-ribbon.png` is the app drawing one, dashed, as an assertion.
 

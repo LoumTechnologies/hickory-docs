@@ -13,7 +13,7 @@ use crate::config::{HickConfig, find_config};
 
 /// `hick pipeline show` — print the full pipeline DAG with file ownership.
 ///
-/// For each `.hick` source listed in `_hick.yml`, shows which output files it
+/// For each `.md` source listed in `_hick.yml`, shows which output files it
 /// owns and what named paste slots are available.
 pub fn pipeline_show(project_dir: &Path) -> Result<()> {
     let (config_path, config) = load_config(project_dir)?;
@@ -23,7 +23,7 @@ pub fn pipeline_show(project_dir: &Path) -> Result<()> {
     println!();
 
     if config.files.is_empty() {
-        println!("  (no .hick files listed — add entries under `files:` in _hick.yml)");
+        println!("  (no .md files listed — add entries under `files:` in _hick.yml)");
         return Ok(());
     }
 
@@ -63,7 +63,7 @@ pub fn pipeline_show(project_dir: &Path) -> Result<()> {
 
 /// `hick pipeline status` — show which output files are pipeline-owned vs untracked.
 ///
-/// Pipeline-owned files declared in `.hick` sources are marked with their
+/// Pipeline-owned files declared in `.md` sources are marked with their
 /// ownership source. Files present on disk that are not declared by any
 /// pipeline source are listed as untracked.
 pub fn pipeline_status(project_dir: &Path) -> Result<()> {
@@ -174,7 +174,7 @@ fn load_config(project_dir: &Path) -> Result<(PathBuf, HickConfig)> {
     Ok((config_path, config))
 }
 
-/// Scan each `.hick` file listed in `config` and return an ordered map of
+/// Scan each `.md` file listed in `config` and return an ordered map of
 /// hick_relative_path → Vec<OwnedFile>.
 fn scan_pipeline(
     config_dir: &Path,
@@ -200,7 +200,7 @@ fn scan_pipeline(
     Ok(result)
 }
 
-/// Parse a `.hick` source and collect `<hick:file>` declarations with their paste slots.
+/// Parse a `.md` source and collect `<hick:file>` declarations with their paste slots.
 fn extract_owned_files(source: &str) -> Vec<OwnedFile> {
     let Ok(doc) = hick_lang::parse(source) else {
         return Vec::new();
@@ -228,7 +228,7 @@ fn extract_owned_files(source: &str) -> Vec<OwnedFile> {
 ///
 /// Returns relative paths (forward-slash separated).
 fn walk_project_files(project_dir: &Path) -> Vec<String> {
-    let skip_dirs = [".git", "target", ".hick", "node_modules"];
+    let skip_dirs = [".git", "target", ".md", "node_modules"];
 
     let mut files = Vec::new();
 
@@ -253,8 +253,8 @@ fn walk_project_files(project_dir: &Path) -> Vec<String> {
             .unwrap_or(entry.path())
             .to_string_lossy()
             .replace('\\', "/");
-        // Skip the pipeline config itself and .hick source files
-        if rel == "_hick.yml" || rel.ends_with(".hick") {
+        // Skip the pipeline config itself and .md source files
+        if rel == "_hick.yml" || rel.ends_with(".md") {
             continue;
         }
         files.push(rel);
@@ -350,7 +350,7 @@ def foo(): pass
     fn pipeline_show_with_files() {
         let dir = tempfile::tempdir().unwrap();
         let src = hick_doc(r#"<hick:file path="src/lib.rs">fn lib() {}</hick:file>"#);
-        setup_project(dir.path(), &[("main.hick", &src)]);
+        setup_project(dir.path(), &[("main.md", &src)]);
         pipeline_show(dir.path()).unwrap();
     }
 
@@ -358,7 +358,7 @@ def foo(): pass
     fn pipeline_status_owned_on_disk() {
         let dir = tempfile::tempdir().unwrap();
         let src = hick_doc(r#"<hick:file path="out.txt">hello</hick:file>"#);
-        setup_project(dir.path(), &[("main.hick", &src)]);
+        setup_project(dir.path(), &[("main.md", &src)]);
         // Write the output file so it appears as present
         fs::write(dir.path().join("out.txt"), "hello").unwrap();
         pipeline_status(dir.path()).unwrap();
@@ -368,7 +368,7 @@ def foo(): pass
     fn pipeline_status_missing_output() {
         let dir = tempfile::tempdir().unwrap();
         let src = hick_doc(r#"<hick:file path="out.txt">hello</hick:file>"#);
-        setup_project(dir.path(), &[("main.hick", &src)]);
+        setup_project(dir.path(), &[("main.md", &src)]);
         // out.txt not on disk
         pipeline_status(dir.path()).unwrap();
     }
@@ -400,12 +400,12 @@ def foo(): pass
     fn walk_project_files_skips_hick_yml_and_hick_sources() {
         let dir = tempfile::tempdir().unwrap();
         fs::write(dir.path().join("_hick.yml"), "files: []").unwrap();
-        fs::write(dir.path().join("main.hick"), "<hick:doc/>").unwrap();
+        fs::write(dir.path().join("main.md"), "<hick:doc/>").unwrap();
         fs::write(dir.path().join("out.txt"), "data").unwrap();
 
         let files = walk_project_files(dir.path());
         assert!(files.contains(&"out.txt".to_string()));
         assert!(!files.contains(&"_hick.yml".to_string()));
-        assert!(!files.contains(&"main.hick".to_string()));
+        assert!(!files.contains(&"main.md".to_string()));
     }
 }

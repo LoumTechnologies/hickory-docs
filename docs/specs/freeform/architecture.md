@@ -17,7 +17,7 @@
 > product's backend), the **state model**'s Postgres role, and **Delivery**'s
 > hosted framing. Nothing is deleted yet; the sequence is in `local-first.md`.
 
-Reproducible, verifiable, executable documents. A `.hick` file is simultaneously
+Reproducible, verifiable, executable documents. A `.md` file is simultaneously
 prose, a program, a test suite, and an audit trail. Hickory Docs is an open-source
 Jupyter/RMarkdown-class tool built on the hick language, with execution on
 Cloud Canopy microVM nodes, a collaborative web/mobile app, and an AI agent whose
@@ -30,7 +30,7 @@ output is literate-programming files committed to git.
   (the exedocs vision, implemented natively — no cram, no VHS, no third-party CLIs).
 - **Readable statistical papers** — documents whose figures and numbers are
   reproduced from source data at render time.
-- **AI output as literate programming** — agent sessions are `.hick` files
+- **AI output as literate programming** — agent sessions are `.md` files
   (`hick:session`), promoted into clean pipelines (`hick:doc`); the git repo is
   the state, with full provenance from every output byte back to its origin.
 - An exploration of literate programming, the semantic web, code scaffolding,
@@ -49,7 +49,7 @@ runtime (`hick-container`, `wasm-net`, `native2wasm`, container2wasm images).
 | `hick-flow` | hick-reactive | Reactive `Node` graph, converge, `ProvenanceMap` |
 | `hick-exec` | hick-exec | DAG builder (containers, volumes, copy/paste, fork, attenuate), multi-doc state |
 | `hick-literate` | monorepo `crates/hick-literate` | Pipeline orchestration, weave (literate output), promote (session→pipeline), compact/equiv, cache, provenance |
-| `hick-store`, `hick-merge` | hick-store | Git-backed version store (`.hick/git/` plumbing, separate from user `.git`), three-way merge |
+| `hick-store`, `hick-merge` | hick-store | Git-backed version store (`.md/git/` plumbing, separate from user `.git`), three-way merge |
 | `hick-token`, `hick-classify`, `hick-sink`, `hick-secrets` | hick-security | Macaroon capability tokens, data classification, egress sinks, age-encrypted secrets |
 | `hick-grove` (+ server routes) | hick-reactive | Yrs (Yjs) CRDT engine over XML — the shared-state layer |
 | `hick-agent-sdk` | hick-agent | `LlmClient` trait + Anthropic client, ReAct loop, session logging (`SessionLog`/`XmlSessionLog`), conversation tree |
@@ -92,7 +92,7 @@ Implementations:
 3. Fork semantics degrade to command-history replay on both backends (as the
    original design did).
 
-`.hick` adaptation: `image=` attributes name OCI-style references
+`.md` adaptation: `image=` attributes name OCI-style references
 (`python:3.12`). LocalExecutor ignores them (host tools). CanopyExecutor maps
 them through a configured image table to Nix store sandbox images declared in
 the node's ledger. Documents don't change shape; the mapping is deployment config.
@@ -127,16 +127,16 @@ crates/
 docs/  guarantees/  specs/freeform/  users/  developers/
 ```
 
-- **State model**: git repo of `.hick` files is durable truth (hick-store's
+- **State model**: git repo of `.md` files is durable truth (hick-store's
   `GitVersionStore`); Yrs CRDT docs are the live collaborative layer; Postgres
   holds accounts, workspaces, run metadata, billing. Sessions/pipelines round-trip:
-  CRDT ⇄ `.hick` text on save/load.
+  CRDT ⇄ `.md` text on save/load.
 - **Sharing state across web/iOS/Android**: all three are the same React+TS
   client speaking the same WS Yrs protocol; Tauri contributes native shell +
   offline file access, nothing else diverges.
 - **Where the server runs is not fixed**: `hick serve` puts the same rooms,
   the same client, and the same executor on a contributor's own machine, with
-  the `.hick` file standing in for Postgres. The collaboration layer is shared
+  the `.md` file standing in for Postgres. The collaboration layer is shared
   (`crates/hickory-collab`, one `DocStore` trait, two implementations) rather
   than reimplemented per host. See `local-collaboration.md` for the trust model
   (capability links, and why a shared session that grants `run` refuses to

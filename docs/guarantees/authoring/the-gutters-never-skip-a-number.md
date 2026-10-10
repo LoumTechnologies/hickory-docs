@@ -8,7 +8,7 @@ contiguous run of lines, and no decoration ever adds a row that no line
 accounts for.
 
 Monospace is a promise that position means something. A person reading a
-`.hick` file counts lines: to find what a stack trace named, to say where a
+`.md` file counts lines: to find what a stack trace named, to say where a
 ribbon starts, to tell a collaborator where to look. CodeMirror's *block*
 widget breaks that promise in the most confusing possible way — it is a real
 screen row that no gutter can label, so the numbers step over it, and the
@@ -36,7 +36,7 @@ Three rules keep it:
    text even though it skipped nothing. This is the *other* way to break the
    promise, and it is worse than a skipped number because the numbers all
    still look right: they are simply drawn beside the wrong line. Measured on
-   `scaffolding.hick`, one exec card's `margin: 0.35rem 0` put every number
+   `scaffolding.md`, one exec card's `margin: 0.35rem 0` put every number
    below it 11.2px above its own line — half a row, for the whole rest of the
    document — and broke Home and End inside the file blocks underneath, since
    `moveToLineBoundary` resolves a boundary by asking `posAtCoords` about a
@@ -102,7 +102,7 @@ Last LLM verification:
   `margin` on `.cm-rendered` to `padding` on the frame, and `.cm-md-image`
   (the other block widget, in `apps/web/src/editor/mdLinks.ts`) moved its own
   gap to padding for the same reason. Confirmed in the running app on
-  `.dev/project/scaffolding.hick`: the worst gutter-to-line offset over the
+  `.dev/project/scaffolding.md`: the worst gutter-to-line offset over the
   whole viewport went from 11.21px to 0.02px, and Home/End inside the
   `app/app.csproj` block land on the boundaries of their own line again.
 - Evidence: `apps/web/src/editor/wysiwyg.ts` — no `block: true` decoration
@@ -134,12 +134,12 @@ Last LLM verification:
   rail icon swaps it for the source" covers the toggle in both directions. `apps/web/src/lib/cardRail.test.ts` (12 tests:
   stacking, monotonicity, recovery, visibility band, popover clamping).
   `apps/web/src/editor/cards.test.ts` (what the rail lists, in order).
-- By-eye fixture: `just dev-seed` writes `.dev/project/cards.hick` (every
+- By-eye fixture: `just dev-seed` writes `.dev/project/cards.md` (every
   rail card, inline chip, banner, and both fold kinds in one document — and,
   since 2026-08-21, a **bare** document, so the gutter is read on a file whose
   line 1 is its first heading rather than an XML declaration; see
   `docs/specs/freeform/bare-documents.md`) and
-  `.dev/project/sessions/20260820-090000-every-turn-chip.hick` (the turn
+  `.dev/project/sessions/20260820-090000-every-turn-chip.md` (the turn
   chips, which a `hick:doc` cannot carry because a session is its own root
   element). Open both and read the left gutter top to bottom; the numbers
   must run unbroken. That is what the jsdom assertion below cannot do.

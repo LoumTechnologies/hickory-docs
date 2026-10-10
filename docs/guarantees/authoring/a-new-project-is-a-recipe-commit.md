@@ -22,7 +22,7 @@ person is still typing, and says so when it is not the open one.
 The commit holds exactly the scaffolder's files (filtered by the
 repository's own `.gitignore`) and nothing of the person's: work that was
 staged stays staged, work that was unstaged stays unstaged, and the
-scaffold's own paths are clean in `git status` afterwards. No `.hick`
+scaffold's own paths are clean in `git status` afterwards. No `.md`
 document is written. The dialog shows the exact commit message before it is
 made, rendered by the same function that writes it.
 

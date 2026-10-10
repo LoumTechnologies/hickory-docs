@@ -106,7 +106,7 @@ renderer says so, and the document still weaves.
   pastes, so a picture whose edges come from a fragment is no longer a paste
   tag on screen.
 - ~~**Deriving a diagram from a cell's output.**~~ Built (2026-08-25):
-  `examples/architecture-that-draws-itself.hick` is the worked loop — code,
+  `examples/architecture-that-draws-itself.md` is the worked loop — code,
   an expect-pinned `hick diagram` scan (the new deterministic generator over
   `hick-structure`; `--refresh` re-writes the fragment, layout untouched), a
   fragment, a derived graph diagram, and the SCIP-in-a-user-container

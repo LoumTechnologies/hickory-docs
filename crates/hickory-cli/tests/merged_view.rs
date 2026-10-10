@@ -52,7 +52,7 @@ async fn start() -> Session {
     git(&root, &["config", "user.email", "t@example.com"]);
     git(&root, &["config", "user.name", "T"]);
     git(&root, &["config", "commit.gpgsign", "false"]);
-    std::fs::write(root.join("demo.hick"), DOC).unwrap();
+    std::fs::write(root.join("demo.md"), DOC).unwrap();
     std::fs::write(root.join("shared.txt"), "head\nmaster only\ntail\n").unwrap();
     git(&root, &["add", "-A"]);
     git(&root, &["commit", "-q", "--no-verify", "-m", "base"]);
@@ -67,7 +67,7 @@ async fn start() -> Session {
     std::fs::write(side.join("shared.txt"), "head\nside only\ntail\n").unwrap();
 
     let prepared = prepare(ServeOptions {
-        target: root.join("demo.hick"),
+        target: root.join("demo.md"),
         port: 0,
         params: Vec::new(),
         executor: ExecutorChoice::Local,

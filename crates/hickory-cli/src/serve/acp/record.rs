@@ -161,7 +161,7 @@ mod tests {
     #[test]
     fn interrupted_stream_remains_parseable_and_recoverable() {
         let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("session.hick");
+        let path = dir.path().join("session.md");
         let record = Record::open(path.clone(), &dir.path().join("note.md")).unwrap();
         record
             .event(SessionEvent::UserTurn {

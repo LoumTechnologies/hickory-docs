@@ -34,7 +34,7 @@ fn hick_doc(body: &str) -> String {
 async fn run(src: &str) -> anyhow::Result<hick_literate::PipelineResult> {
     let executor = Arc::new(LocalExecutor::new().unwrap());
     hick_literate::run_pipeline_live(
-        &[("test.hick", src)],
+        &[("test.md", src)],
         &hick_literate::PipelineConfig::default(),
         &[],
         None,
@@ -245,7 +245,7 @@ async fn the_declared_network_capability_reaches_the_executor() {
     let executor = Arc::new(LocalExecutor::new().unwrap());
     let recorder: Arc<dyn Executor> = executor.clone();
     hick_literate::run_pipeline_live(
-        &[("test.hick", &src)],
+        &[("test.md", &src)],
         &hick_literate::PipelineConfig::default(),
         &[],
         None,

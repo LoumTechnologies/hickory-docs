@@ -877,14 +877,14 @@ fn span_node_returns_source_origin() {
 
     let span = SourceSpan::new(10, 20, 3, 5);
     let origin = SourceOrigin::Literal {
-        file: Arc::from("test.hick"),
+        file: Arc::from("test.md"),
         span,
     };
     let node = SpanNode::new("some text", origin);
     let retrieved = node.source_origin().expect("should have origin");
     match retrieved {
         SourceOrigin::Literal { file, span } => {
-            assert_eq!(&**file, "test.hick");
+            assert_eq!(&**file, "test.md");
             assert_eq!(span.start, 10);
             assert_eq!(span.end, 20);
             assert_eq!(span.start_line, 3);
@@ -911,14 +911,14 @@ async fn span_node_in_insertion_point() {
     ip.add(Arc::new(SpanNode::new(
         "hello ",
         SourceOrigin::Literal {
-            file: Arc::from("test.hick"),
+            file: Arc::from("test.md"),
             span: SourceSpan::new(0, 6, 1, 0),
         },
     )));
     ip.add(Arc::new(SpanNode::new(
         "world",
         SourceOrigin::Literal {
-            file: Arc::from("test.hick"),
+            file: Arc::from("test.md"),
             span: SourceSpan::new(6, 11, 1, 6),
         },
     )));
@@ -940,7 +940,7 @@ async fn converge_with_provenance_tracks_span_nodes() {
     ip.add(Arc::new(SpanNode::new(
         "hello ",
         SourceOrigin::Literal {
-            file: Arc::from("a.hick"),
+            file: Arc::from("a.md"),
             span: SourceSpan::new(0, 6, 1, 0),
         },
     )));
@@ -964,7 +964,7 @@ async fn converge_with_provenance_tracks_span_nodes() {
     assert_eq!(spans[0].output_start, 0);
     assert_eq!(spans[0].output_end, 6);
     match &spans[0].origin {
-        SourceOrigin::Literal { file, .. } => assert_eq!(&**file, "a.hick"),
+        SourceOrigin::Literal { file, .. } => assert_eq!(&**file, "a.md"),
         other => panic!("Expected Literal, got {:?}", other),
     }
 
@@ -1010,7 +1010,7 @@ async fn converge_with_provenance_mixed_nodes() {
     ip.add(Arc::new(SpanNode::new(
         "tracked",
         SourceOrigin::Literal {
-            file: Arc::from("src.hick"),
+            file: Arc::from("src.md"),
             span: SourceSpan::new(10, 17, 2, 0),
         },
     )));
@@ -1036,7 +1036,7 @@ async fn converge_with_provenance_mixed_nodes() {
     assert_eq!(spans[1].output_start, 4);
     assert_eq!(spans[1].output_end, 11);
     match &spans[1].origin {
-        SourceOrigin::Literal { file, .. } => assert_eq!(&**file, "src.hick"),
+        SourceOrigin::Literal { file, .. } => assert_eq!(&**file, "src.md"),
         other => panic!("Expected Literal, got {:?}", other),
     }
 

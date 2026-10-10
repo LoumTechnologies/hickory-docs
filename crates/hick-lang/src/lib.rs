@@ -1,4 +1,4 @@
-//! Parser and AST for `.hick` files.
+//! Parser and AST for `.md` files.
 //!
 //! Tags prefixed with the namespace bound to `http://www.hickorydocs.com/1.0`
 //! are parsed as structured elements. Content between them is raw text that
@@ -25,7 +25,7 @@ pub const HICK_NAMESPACE: &str = "http://www.hickorydocs.com/1.0";
 
 /// Byte-level source location for provenance tracking.
 ///
-/// Tracks where a piece of text or tag originated in the `.hick` source file.
+/// Tracks where a piece of text or tag originated in the `.md` source file.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct SourceSpan {
@@ -137,7 +137,7 @@ fn collect_text(nodes: &[HickNode], out: &mut String) {
     }
 }
 
-/// A parsed `.hick` document.
+/// A parsed `.md` document.
 #[derive(Debug, Clone)]
 pub struct HickDocument {
     /// Children of the root doc element.
@@ -226,10 +226,10 @@ pub enum SessionNode {
     Command { text: String },
 }
 
-/// A parsed `.hick` session file (root element: `hick:session`).
+/// A parsed `.md` session file (root element: `hick:session`).
 ///
 /// Session files record AI agent conversations as both a transcript and a
-/// replayable program.  Running `hick run session.hick` re-executes all
+/// replayable program.  Running `hick run session.md` re-executes all
 /// side-effecting steps without calling the LLM.
 #[derive(Debug, Clone)]
 pub struct SessionDocument {
@@ -662,13 +662,13 @@ fn opens_root(input: &str, prefix: &str, root: &str) -> bool {
 /// The markdown file a document weaves when it does not name one: its own
 /// file name with a `.md` extension.
 ///
-/// `notes/standup.hick` weaves `notes/standup.md`. See `bare-documents.md` —
+/// `notes/standup.md` weaves `notes/standup.md`. See `bare-documents.md` —
 /// a note that has no readable form is not a note.
 ///
 /// The returned path is the **file name only**, because `weave` — like every
 /// `<hick:file path=…>` — is resolved relative to the document's own output
 /// directory, and an absolute one is refused as an escaping output path. So
-/// this is `standup.md`, which lands beside `notes/standup.hick`.
+/// this is `standup.md`, which lands beside `notes/standup.md`.
 pub fn default_weave_path(doc_path: &std::path::Path) -> String {
     let stem = doc_path
         .file_stem()
@@ -684,7 +684,7 @@ pub const WEAVE_NONE: &str = "none";
 // Parser
 // ---------------------------------------------------------------------------
 
-/// Parse a `.hick` file from source text.
+/// Parse a `.md` file from source text.
 ///
 /// The parser detects the namespace prefix from the `xmlns:` declaration
 /// that binds to [`HICK_NAMESPACE`], then only recognizes tags with that
@@ -714,7 +714,7 @@ pub fn parse_lenient(source: &str) -> (HickDocument, Option<ParseError>) {
     (doc, parser.recovered.take())
 }
 
-/// Parse a `.hick` file that came from `doc_path`, resolving the weave default.
+/// Parse a `.md` file that came from `doc_path`, resolving the weave default.
 ///
 /// This is [`parse`] plus the one thing a parser cannot know on its own: which
 /// markdown file the document weaves when it does not name one. Every document
@@ -738,7 +738,7 @@ pub fn parse_from_path(
     Ok(doc)
 }
 
-/// Parse a `.hick` session file whose root element is `<PREFIX:session>`.
+/// Parse a `.md` session file whose root element is `<PREFIX:session>`.
 ///
 /// Returns typed [`SessionNode`]s extracted from the session's turns.
 /// Returns [`ParseError::MissingRoot`] if the source does not contain a
@@ -2145,32 +2145,32 @@ hello
     #[test]
     fn a_document_weaves_a_markdown_file_of_its_own_name() {
         // The file name alone: outputs resolve relative to the document's own
-        // directory, so this lands beside `notes/standup.hick`. An absolute
+        // directory, so this lands beside `notes/standup.md`. An absolute
         // path here would be refused as an escaping output path.
-        let doc = parse_from_path("# Standup\n", Path::new("notes/standup.hick")).unwrap();
+        let doc = parse_from_path("# Standup\n", Path::new("notes/standup.md")).unwrap();
         assert_eq!(doc.weave_path, Some("standup.md".to_string()));
 
-        let absolute = parse_from_path("# Standup\n", Path::new("/tmp/x/standup.hick")).unwrap();
+        let absolute = parse_from_path("# Standup\n", Path::new("/tmp/x/standup.md")).unwrap();
         assert_eq!(absolute.weave_path, Some("standup.md".to_string()));
     }
 
     #[test]
     fn an_explicit_weave_beats_the_default() {
         let src = "---\nweave: elsewhere.md\n---\n# T\n";
-        let doc = parse_from_path(src, Path::new("notes/standup.hick")).unwrap();
+        let doc = parse_from_path(src, Path::new("notes/standup.md")).unwrap();
         assert_eq!(doc.weave_path, Some("elsewhere.md".to_string()));
     }
 
     #[test]
     fn weave_none_opts_out_of_the_default() {
         let src = "---\nweave: none\n---\n# T\n";
-        let doc = parse_from_path(src, Path::new("notes/standup.hick")).unwrap();
+        let doc = parse_from_path(src, Path::new("notes/standup.md")).unwrap();
         assert!(doc.weave_path.is_none());
 
         let wrapped = r#"<hick:doc xmlns:hick="http://www.hickorydocs.com/1.0" weave="none">
 x
 </hick:doc>"#;
-        let doc = parse_from_path(wrapped, Path::new("g.hick")).unwrap();
+        let doc = parse_from_path(wrapped, Path::new("g.md")).unwrap();
         assert!(doc.weave_path.is_none());
     }
 

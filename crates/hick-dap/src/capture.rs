@@ -94,7 +94,7 @@ pub struct Captured {
 
 /// Run a document's captures.
 ///
-/// `document` is the `.hick` file (for naming and for the mapping), `source`
+/// `document` is the `.md` file (for naming and for the mapping), `source`
 /// its text, `project` the directory adapters are discovered from.
 pub async fn run(
     document: &Path,

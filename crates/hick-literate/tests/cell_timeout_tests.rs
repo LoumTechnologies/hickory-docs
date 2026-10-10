@@ -30,7 +30,7 @@ async fn run_with_default(src: &str, cell_timeout: CellTimeoutDefault) -> anyhow
         ..Default::default()
     };
     run_pipeline_live(
-        &[("test.hick", src)],
+        &[("test.md", src)],
         &config,
         &[],
         None,

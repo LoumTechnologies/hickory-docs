@@ -11,7 +11,7 @@ document stays a file in the host's git repository and every cell that runs,
 runs on the host's hardware.
 
 This is not a second product. It is the same React client, the same Yjs
-protocol, the same `Executor` trait, and the same `.hick` files, with the
+protocol, the same `Executor` trait, and the same `.md` files, with the
 server role moved from a Fly machine to a laptop.
 
 ## Why this shape
@@ -20,7 +20,7 @@ Four problems collapse into one answer:
 
 - **Local lineage.** The Sankey ribbon view (`SplitView`) is driven by
   `api.outputs(docId)` / `api.outputFile(docId, path)` — server endpoints keyed
-  by a database row. There has been no way to see the ribbons for a `.hick`
+  by a database row. There has been no way to see the ribbons for a `.md`
   file on your own disk. A local server answers those endpoints from the file
   and the ribbons appear, with nothing in the client changed.
 - **The downloadable CLI had no reason to exist** beyond `hick test` in CI.
@@ -43,7 +43,7 @@ is a real limit, not a bug (see *What hosted still sells*).
 outputs, the ribbons, live presence, and whatever the host's policy allows.
 
 **Relay** — optional, ours. Makes the host reachable from outside its network
-and nothing more: it forwards bytes and never sees a `.hick` file it is
+and nothing more: it forwards bytes and never sees a `.md` file it is
 entitled to keep, never executes anything, and holds no durable state.
 
 ## Trust model
@@ -88,7 +88,7 @@ a pull request, and it is stated so nobody assumes otherwise.
 
 The hosted server persists a room to Postgres (`docs.source` + `docs.crdt_state`,
 migration 0003). Locally the same two values belong to the filesystem: the
-`.hick` file, and a small sidecar for the encoded CRDT state under
+`.md` file, and a small sidecar for the encoded CRDT state under
 `.hick-cache/`. Same debounce, same "resume, never re-seed" rule that migration
 0003 exists to enforce.
 
@@ -169,7 +169,7 @@ Two decisions worth recording, because both were arrived at by writing the
 code and neither was obvious from the design:
 
 - **The host is not a guest.** The first version applied the link's scope to
-  everyone, which meant `hick serve doc.hick` could not run its own
+  everyone, which meant `hick serve doc.md` could not run its own
   document. Two tokens fixed it: the scope governs the people the link was
   sent to.
 - **Write permission is per *message*, not per socket.** Dropping every

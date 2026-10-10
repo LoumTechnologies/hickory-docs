@@ -1,4 +1,4 @@
-# Local mode: `.hick` documents in your own git repo
+# Local mode: `.md` documents in your own git repo
 
 > Historical guide to the former hosted and shared local mode. The current
 > product is described in `docs/specs/freeform/local-only.md` and uses `.md`
@@ -12,7 +12,7 @@ a hosted workspace.*
 
 | | Cloud workspace | Local git repo (this doc) |
 |---|---|---|
-| Where documents live | Per-project server-side git, mirrored to Postgres | `.hick` files in your repo |
+| Where documents live | Per-project server-side git, mirrored to Postgres | `.md` files in your repo |
 | Editing | Web/mobile notebook UI with live CRDT sync (multiple cursors, offline merge) | Your editor + `hick-lsp` ([editor setup](editor-setup.md)) — or the same notebook UI, hosted by your own machine (`hick serve`, below) |
 | Execution | Firecracker microVMs on Cloud Canopy nodes | `hick` CLI, executor of your choice (below) |
 | Drift gate | Server re-checks on save/run | `hick init` pre-commit hook + `hick test` in CI |
@@ -34,8 +34,8 @@ hick init
 
 1. installs a **pre-commit hook** (a sentinel-delimited `### HICKORY ###`
    block, appended to any hook you already have; `core.hooksPath` is
-   respected). At commit time the hook discovers all tracked `*.hick` files
-   and runs `hick test` on each; any drift blocks the commit. No `.hick`
+   respected). At commit time the hook discovers all tracked `*.md` files
+   and runs `hick test` on each; any drift blocks the commit. No `.md`
    files, no-op.
 2. adds `.hick-cache/` to `.gitignore` (cached transcripts).
 3. writes a managed `<!-- HICKORY -->` section into `AGENTS.md` teaching
@@ -45,7 +45,7 @@ hick init
    (Claude Code does) gets the document tools without per-developer setup.
 5. wires up the editor: it writes `.hick-lsp.json` from the language servers
    this repository's editor config already names, and registers `hick-lsp` for
-   `*.hick` in `.helix/languages.toml` and `.vscode/settings.json` where those
+   `*.md` in `.helix/languages.toml` and `.vscode/settings.json` where those
    files can do the job. See [editor-setup](editor-setup.md).
 6. prints a toolchain doctor: warnings (non-fatal) for missing child language
    servers like `rust-analyzer` or `pyright-langserver`.
@@ -53,10 +53,10 @@ hick init
 Daily loop:
 
 ```sh
-$EDITOR docs/quickstart.hick
-hick run docs/quickstart.hick    # execute, weave quickstart.md, write outputs
-hick test docs/quickstart.hick  # verify — same command the hook runs
-git add -A && git commit            # hook re-checks every tracked .hick doc
+$EDITOR docs/quickstart.md
+hick run docs/quickstart.md    # execute, weave quickstart.md, write outputs
+hick test docs/quickstart.md  # verify — same command the hook runs
+git add -A && git commit            # hook re-checks every tracked .md doc
 ```
 
 ## Editing with any editor: `hick up`
@@ -71,7 +71,7 @@ It writes every document's output files and then watches the folder. Change a
 document and its outputs are rewritten. **Change one of the generated files
 and the change lands back in the document it came from** — so you can open
 `analysis.py` in whatever editor you already use, edit it as an ordinary
-Python file, and the `.hick` document it lives in is what actually changes.
+Python file, and the `.md` document it lives in is what actually changes.
 
 Some of a generated file comes from the document and some of it does not.
 Command output, transcripts, and interpolated values have no source to carry
@@ -161,8 +161,8 @@ platforms.
 ## Work on it together, from your machine
 
 ```sh
-hick serve docs/tour.hick              # just you: opens on 127.0.0.1
-hick serve docs/tour.hick --share      # + a link for people on your network
+hick serve docs/tour.md              # just you: opens on 127.0.0.1
+hick serve docs/tour.md --share      # + a link for people on your network
 ```
 
 The second form prints two URLs: yours, and one to send to whoever you are
@@ -173,7 +173,7 @@ hickorydocs.com serves.
 What makes this different from a hosted workspace is where the state lives:
 
 - **Your file is the document.** Every edit anyone makes lands in
-  `docs/tour.hick` on your disk within a second, so your editor, `git diff`,
+  `docs/tour.md` on your disk within a second, so your editor, `git diff`,
   and `hick test` see your collaborator's work as ordinary changes.
 - **Your machine runs the code.** Cells execute through your executor, on your
   hardware, under your rules.
@@ -200,7 +200,7 @@ so: the local executor runs commands as you, with your files and your network,
 so a forwarded link would be a shell on your machine. Sandbox it first:
 
 ```sh
-HICKORY_EXECUTOR=docker hick serve docs/tour.hick --share --scope run
+HICKORY_EXECUTOR=docker hick serve docs/tour.md --share --scope run
 ```
 
 ### Someone who isn't on your network
@@ -209,7 +209,7 @@ HICKORY_EXECUTOR=docker hick serve docs/tour.hick --share --scope run
 
 ```sh
 hick login --signup                          # once: email and password
-hick serve docs/tour.hick --share --public
+hick serve docs/tour.md --share --public
 ```
 
 That prints a link anyone can open, forwarded to your machine by our relay.
@@ -233,10 +233,10 @@ Prefer your own tunnel? `--public` uses it if you have one:
 
 ```sh
 # any tunnel you already run — Cloudflare, ngrok, Tailscale, an SSH reverse tunnel
-HICKORY_PUBLIC_URL=https://your-tunnel.example hick serve doc.hick --share --public
+HICKORY_PUBLIC_URL=https://your-tunnel.example hick serve doc.md --share --public
 
 # or PortZero, which its daemon picks up from the environment at launch
-PZ_TUNNEL=hick hick serve doc.hick --share --public
+PZ_TUNNEL=hick hick serve doc.md --share --public
 ```
 
 With none of the three, `--public` refuses rather than printing a link that
@@ -251,7 +251,7 @@ a release does not carry the client yet.
 
 ## Don't assume
 
-- **The pre-commit hook checks *tracked* `.hick` files, not just staged
+- **The pre-commit hook checks *tracked* `.md` files, not just staged
   ones** — a doc drifted by someone else's change still blocks your commit,
   which is the point.
 - **`hick test` re-executes documents.** A slow document makes commits
@@ -261,7 +261,7 @@ a release does not carry the client yet.
   to render without executing.
 - **Editing a file in your editor is still just a file.** `hick serve` adds
   live sync for the people connected to *that session*; two people editing the
-  same `.hick` in their own editors still merge through git like any other
+  same `.md` in their own editors still merge through git like any other
   file.
 - **A share link is a credential.** Anyone it is forwarded to has whatever the
   link's scope allows, it does not expire, and the only way to revoke it is to

@@ -18,7 +18,7 @@ image can be replaced without touching the note.
 
 ## The rules
 
-1. **Beside the document, not at the root.** `notes/weekly/mon.hick` puts its
+1. **Beside the document, not at the root.** `notes/weekly/mon.md` puts its
    images in `notes/weekly/assets/`, and the markdown destination is
    `assets/…` — relative to the note, so the folder can be moved.
 2. **Images only, refused by name.** The types a woven `.md` can actually
@@ -53,7 +53,7 @@ beside the repository rather than inside it, and the refusal says so.
 
 Nothing rewrites an image destination at weave time: `assets/c.png` is already
 correct in both the source and the weave, because both sit in the same
-directory. Only `.hick` destinations are rewritten
+directory. Only `.md` destinations are rewritten
 (`a-link-between-documents-lands-in-the-weave.md`).
 
 Dropping an image into a fenced block or a generated file's body still writes

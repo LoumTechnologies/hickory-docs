@@ -73,7 +73,7 @@ async fn a_breakpoint_on_a_java_document_line_stops_in_the_jvm() {
     }
     let dir = tempfile::tempdir().expect("scratch");
     let root = dir.path();
-    std::fs::write(root.join("doc.hick"), DOC).expect("write the document");
+    std::fs::write(root.join("doc.md"), DOC).expect("write the document");
     borrow_this_repos_installs(root);
 
     if hick_dap::java::installed(root).is_none() {
@@ -81,8 +81,7 @@ async fn a_breakpoint_on_a_java_document_line_stops_in_the_jvm() {
         return;
     }
 
-    let mapping =
-        Arc::new(Mapping::for_document(Path::new("doc.hick"), DOC, root).expect("mapping"));
+    let mapping = Arc::new(Mapping::for_document(Path::new("doc.md"), DOC, root).expect("mapping"));
     let files = hick_dap::weave_into(DOC, root).expect("the document weaves");
     let entry = hick_dap::entry_point(&files).expect("Main.java is debuggable");
     assert!(entry.ends_with("Main.java"), "{entry:?}");

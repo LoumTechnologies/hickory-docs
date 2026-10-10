@@ -1,5 +1,5 @@
 
-"""A todo list. Tangled from docs/todo-app/implementation.hick — edit the
+"""A todo list. Tangled from docs/todo-app/implementation.md — edit the
 document, not this file."""
 import json
 import os

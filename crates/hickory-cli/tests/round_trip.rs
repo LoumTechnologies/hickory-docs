@@ -63,13 +63,13 @@ fn wait_until(what: &str, deadline: Duration, pred: impl Fn() -> bool) {
 fn a_chain_that_regenerates_a_client_from_a_spec_is_stable_across_runs_and_weaves() {
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path().canonicalize().unwrap();
-    std::fs::write(root.join("service.hick"), CHAIN).unwrap();
+    std::fs::write(root.join("service.md"), CHAIN).unwrap();
     git(&root, &["init", "-q", "-b", "master"]);
 
     let run = |label: &str| {
         let out = hick()
             .arg("run")
-            .arg(root.join("service.hick"))
+            .arg(root.join("service.md"))
             .output()
             .expect("hick run");
         assert!(
@@ -110,7 +110,7 @@ fn a_chain_that_regenerates_a_client_from_a_spec_is_stable_across_runs_and_weave
     for pass in 1..=2 {
         let out = hick()
             .arg("weave")
-            .arg(root.join("service.hick"))
+            .arg(root.join("service.md"))
             .output()
             .expect("hick weave");
         let stderr = String::from_utf8_lossy(&out.stderr);
@@ -133,7 +133,7 @@ fn a_chain_that_regenerates_a_client_from_a_spec_is_stable_across_runs_and_weave
     // Edit the spec cell: the client's recording is downstream of it and is
     // re-executed, so the client follows — and nothing is left stale.
     let edited = CHAIN.replace(r#"{"/pets":{}}"#, r#"{"/pets":{},"/owners":{}}"#);
-    std::fs::write(root.join("service.hick"), edited).unwrap();
+    std::fs::write(root.join("service.md"), edited).unwrap();
     run("edited run");
     assert!(
         std::fs::read_to_string(root.join("client/client.py"))
@@ -151,11 +151,11 @@ fn a_chain_that_regenerates_a_client_from_a_spec_is_stable_across_runs_and_weave
 fn a_git_checkout_of_a_generated_file_under_the_loop_is_held_not_undone() {
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path().canonicalize().unwrap();
-    std::fs::write(root.join("service.hick"), CHAIN).unwrap();
+    std::fs::write(root.join("service.md"), CHAIN).unwrap();
     git(&root, &["init", "-q", "-b", "master"]);
     let out = hick()
         .arg("run")
-        .arg(root.join("service.hick"))
+        .arg(root.join("service.md"))
         .output()
         .unwrap();
     assert!(
@@ -169,10 +169,10 @@ fn a_git_checkout_of_a_generated_file_under_the_loop_is_held_not_undone() {
     // A second version, committed, then the working tree taken back to the
     // first: what a teammate's push and a `git checkout` of one file does.
     let v2 = CHAIN.replace(r#"{"/pets":{}}"#, r#"{"/pets":{},"/owners":{}}"#);
-    std::fs::write(root.join("service.hick"), v2).unwrap();
+    std::fs::write(root.join("service.md"), v2).unwrap();
     let out = hick()
         .arg("run")
-        .arg(root.join("service.hick"))
+        .arg(root.join("service.md"))
         .output()
         .unwrap();
     assert!(
@@ -220,7 +220,7 @@ fn a_git_checkout_of_a_generated_file_under_the_loop_is_held_not_undone() {
     );
     // And the document was not rewritten either.
     assert!(
-        std::fs::read_to_string(root.join("service.hick"))
+        std::fs::read_to_string(root.join("service.md"))
             .unwrap()
             .contains("/owners")
     );
@@ -235,11 +235,11 @@ fn a_git_checkout_of_a_generated_file_under_the_loop_is_held_not_undone() {
 fn a_cell_whose_inputs_moved_is_stale_and_shows_its_last_recording() {
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path().canonicalize().unwrap();
-    std::fs::write(root.join("service.hick"), CHAIN).unwrap();
+    std::fs::write(root.join("service.md"), CHAIN).unwrap();
     git(&root, &["init", "-q", "-b", "master"]);
     let out = hick()
         .arg("run")
-        .arg(root.join("service.hick"))
+        .arg(root.join("service.md"))
         .output()
         .unwrap();
     assert!(
@@ -257,7 +257,7 @@ fn a_cell_whose_inputs_moved_is_stale_and_shows_its_last_recording() {
     std::fs::write(root.join("extra.txt"), "changes the digest\n").unwrap();
     let out = hick()
         .arg("weave")
-        .arg(root.join("service.hick"))
+        .arg(root.join("service.md"))
         .output()
         .unwrap();
     let stderr = String::from_utf8_lossy(&out.stderr);
@@ -283,7 +283,7 @@ fn a_cell_whose_inputs_moved_is_stale_and_shows_its_last_recording() {
     // `hick test` names it as the drift it is, with the run that fixes it.
     let out = hick()
         .arg("test")
-        .arg(root.join("service.hick"))
+        .arg(root.join("service.md"))
         .output()
         .unwrap();
     let stderr = String::from_utf8_lossy(&out.stderr);
@@ -291,7 +291,7 @@ fn a_cell_whose_inputs_moved_is_stale_and_shows_its_last_recording() {
     // the run afterwards leaves nothing stale.
     let out = hick()
         .arg("run")
-        .arg(root.join("service.hick"))
+        .arg(root.join("service.md"))
         .output()
         .unwrap();
     assert!(
@@ -301,7 +301,7 @@ fn a_cell_whose_inputs_moved_is_stale_and_shows_its_last_recording() {
     );
     let out = hick()
         .arg("weave")
-        .arg(root.join("service.hick"))
+        .arg(root.join("service.md"))
         .output()
         .unwrap();
     let stderr = String::from_utf8_lossy(&out.stderr);
@@ -316,11 +316,11 @@ fn a_cell_whose_inputs_moved_is_stale_and_shows_its_last_recording() {
 fn a_recording_kept_in_the_document_survives_without_the_cache_and_follows_a_run() {
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path().canonicalize().unwrap();
-    std::fs::write(root.join("service.hick"), CHAIN).unwrap();
+    std::fs::write(root.join("service.md"), CHAIN).unwrap();
     git(&root, &["init", "-q", "-b", "master"]);
     let out = hick()
         .arg("run")
-        .arg(root.join("service.hick"))
+        .arg(root.join("service.md"))
         .output()
         .unwrap();
     assert!(
@@ -334,7 +334,7 @@ fn a_recording_kept_in_the_document_survives_without_the_cache_and_follows_a_run
     // Keep the recordings in the document.
     let out = hick()
         .args(["ingest", "--from", "recording"])
-        .arg(root.join("service.hick"))
+        .arg(root.join("service.md"))
         .output()
         .unwrap();
     let said = String::from_utf8_lossy(&out.stdout);
@@ -344,7 +344,7 @@ fn a_recording_kept_in_the_document_survives_without_the_cache_and_follows_a_run
         String::from_utf8_lossy(&out.stderr)
     );
     assert!(said.contains("2 recording(s) now kept"), "{said}");
-    let doc = std::fs::read_to_string(root.join("service.hick")).unwrap();
+    let doc = std::fs::read_to_string(root.join("service.md")).unwrap();
     assert_eq!(doc.matches("<hick:ingested key=").count(), 2, "{doc}");
     assert!(
         doc.contains("/pets"),
@@ -356,7 +356,7 @@ fn a_recording_kept_in_the_document_survives_without_the_cache_and_follows_a_run
     std::fs::remove_dir_all(root.join(".hick-cache")).unwrap();
     let out = hick()
         .arg("weave")
-        .arg(root.join("service.hick"))
+        .arg(root.join("service.md"))
         .output()
         .unwrap();
     let stderr = String::from_utf8_lossy(&out.stderr);
@@ -378,7 +378,7 @@ fn a_recording_kept_in_the_document_survives_without_the_cache_and_follows_a_run
     std::fs::write(root.join("extra.txt"), "moves the key\n").unwrap();
     let out = hick()
         .arg("weave")
-        .arg(root.join("service.hick"))
+        .arg(root.join("service.md"))
         .output()
         .unwrap();
     let stderr = String::from_utf8_lossy(&out.stderr);
@@ -392,7 +392,7 @@ fn a_recording_kept_in_the_document_survives_without_the_cache_and_follows_a_run
     // A run brings the document's recordings forward; a clone is whole again.
     let out = hick()
         .arg("run")
-        .arg(root.join("service.hick"))
+        .arg(root.join("service.md"))
         .output()
         .unwrap();
     let stderr = String::from_utf8_lossy(&out.stderr);
@@ -401,7 +401,7 @@ fn a_recording_kept_in_the_document_survives_without_the_cache_and_follows_a_run
     std::fs::remove_dir_all(root.join(".hick-cache")).unwrap();
     let out = hick()
         .arg("weave")
-        .arg(root.join("service.hick"))
+        .arg(root.join("service.md"))
         .output()
         .unwrap();
     let stderr = String::from_utf8_lossy(&out.stderr);

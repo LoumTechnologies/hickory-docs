@@ -15,7 +15,7 @@ document that emits history needs git more rather than less.
 
 > "I'm curious about the similarities of this development mode with jujutsu's
 > ability to move changes between commits; and how agent sessions can span
-> multiple commits; and how maybe the `.hick` file should actually produce
+> multiple commits; and how maybe the `.md` file should actually produce
 > different commits instead of just producing different files."
 
 ## The observation underneath the question is correct
@@ -32,7 +32,7 @@ axis, and has never said so.
 | | jujutsu | Hickory Docs |
 |---|---|---|
 | The axis | history: this change belongs in *that revision* | the tangle: these bytes belong in *that source span* |
-| The move | `jj squash --into <rev>` | `up::reverse` — an edit saved in a generated file, mapped through `Provenance` onto a span of the `.hick` document |
+| The move | `jj squash --into <rev>` | `up::reverse` — an edit saved in a generated file, mapped through `Provenance` onto a span of the `.md` document |
 | Identity of the thing moved | a change id, stable across rewrites | a `Provenance` range, recomputed exactly on every weave |
 | Refusal | conflicts are stored, not blocked | a span with no editable origin refuses the save and says why |
 
@@ -46,7 +46,7 @@ change to…" is a better description of the reverse-edit gesture than "save",
 and a destination picker that offers *the shared source span* or *just this
 machine* is one instance of a general operation rather than a one-off button.
 
-## Should a `.hick` document produce commits?
+## Should a `.md` document produce commits?
 
 Three readings, increasingly ambitious, and they separate cleanly.
 

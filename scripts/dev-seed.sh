@@ -399,13 +399,13 @@ The feature section. `--features extra` was passed.
 If the gutter counted straight from line 1 to here, the cards are behaving.
 EOF
 
-seed_file "$PROJECT_DIR/sessions/20260820-090000-every-turn-chip.hick" <<'EOF'
+seed_file "$PROJECT_DIR/sessions/20260820-090000-every-turn-chip.md" <<'EOF'
 <?xml version="1.0" encoding="UTF-8"?>
 <hick:session xmlns:hick="http://www.hickorydocs.com/1.0" start="2026-08-20T09:00:00Z">
 <hick:user>Show me every turn chip at once — you, agent, tool, result, ran, output.</hick:user>
 <hick:assistant>
 A session is the other half of the card fixture: turn chips are the annotations
-a `.hick` document cannot carry, because a session is its own root element.
+a `.md` document cannot carry, because a session is its own root element.
 Each one below rides the end of the line its element opens on.
 
 <hick:tool name="read_doc">

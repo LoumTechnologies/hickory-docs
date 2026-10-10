@@ -89,7 +89,7 @@ three
 fn run_succeeds_and_records_failed_expectation_without_failing() {
     // On `run`, expectations are evaluated and recorded but do NOT fail.
     let dir = tempfile::tempdir().unwrap();
-    let doc = write_doc(dir.path(), "drifted.hick", &drifted_doc());
+    let doc = write_doc(dir.path(), "drifted.md", &drifted_doc());
     let out = hick().args(["run"]).arg(&doc).output().expect("run hick");
     assert!(
         out.status.success(),
@@ -103,7 +103,7 @@ fn run_succeeds_and_records_failed_expectation_without_failing() {
 #[test]
 fn test_passes_on_matching_expectations() {
     let dir = tempfile::tempdir().unwrap();
-    let doc = write_doc(dir.path(), "passing.hick", &passing_doc());
+    let doc = write_doc(dir.path(), "passing.md", &passing_doc());
     // First run writes the woven output so check has committed files.
     assert!(hick().args(["run"]).arg(&doc).status().unwrap().success());
     let out = hick().args(["test"]).arg(&doc).output().unwrap();
@@ -120,14 +120,14 @@ fn test_fails_on_drifted_expectation() {
     // The failing block must be reported with doc path, line, and
     // expected-vs-actual.
     let dir = tempfile::tempdir().unwrap();
-    let doc = write_doc(dir.path(), "drifted.hick", &drifted_doc());
+    let doc = write_doc(dir.path(), "drifted.md", &drifted_doc());
     let out = hick().args(["test"]).arg(&doc).output().unwrap();
     assert!(
         !out.status.success(),
         "check must exit non-zero on an unmet expectation"
     );
     let stderr = String::from_utf8_lossy(&out.stderr);
-    assert!(stderr.contains("drifted.hick"), "doc path listed: {stderr}");
+    assert!(stderr.contains("drifted.md"), "doc path listed: {stderr}");
     assert!(stderr.contains(":7"), "block source line listed: {stderr}");
     assert!(stderr.contains("three"), "expected shown: {stderr}");
     assert!(stderr.contains("two"), "actual shown: {stderr}");
@@ -138,7 +138,7 @@ fn test_fails_on_committed_output_drift() {
     // Drift between the freshly woven output and the committed file also
     // fails check, even when expectations pass.
     let dir = tempfile::tempdir().unwrap();
-    let doc = write_doc(dir.path(), "passing.hick", &passing_doc());
+    let doc = write_doc(dir.path(), "passing.md", &passing_doc());
     assert!(hick().args(["run"]).arg(&doc).status().unwrap().success());
     // Tamper with the committed woven markdown.
     let woven = dir.path().join("passing.md");
@@ -150,7 +150,7 @@ fn test_fails_on_committed_output_drift() {
 }
 
 /// Unix only, and this one genuinely is: the fixture is a copy of the shipped
-/// `examples/text-tools-tour.hick`, whose whole subject is `sort`, `awk` and
+/// `examples/text-tools-tour.md`, whose whole subject is `sort`, `awk` and
 /// `wc`. There is no cmd rewrite of that document that is still the shipped
 /// example, and a rewritten one would be testing something else.
 #[cfg(unix)]
@@ -159,7 +159,7 @@ fn test_fails_on_drifted_fixture_copy_of_shipped_example() {
     // The shipped example, deliberately drifted (apple 12 -> apple 13).
     let out = hick()
         .args(["test"])
-        .arg(fixture("drifted-tour.hick"))
+        .arg(fixture("drifted-tour.md"))
         .output()
         .unwrap();
     assert!(!out.status.success());
@@ -173,7 +173,7 @@ fn regex_lines_expectations_pass_and_fail() {
     let dir = tempfile::tempdir().unwrap();
     let doc = write_doc(
         dir.path(),
-        "regex.hick",
+        "regex.md",
         // `weave="none"`: this test is about expectations, not about output
         // drift. Without it the document weaves `regex.md`, which has never
         // been committed, and `hick test` reports drift before it ever gets to
@@ -205,7 +205,7 @@ fn regex_lines_expectations_pass_and_fail() {
     // Expectation must cover ALL output lines.
     let doc2 = write_doc(
         dir.path(),
-        "regex-short.hick",
+        "regex-short.md",
         &format!(
             r#"<?xml version="1.0" encoding="UTF-8"?>
 <hick:doc xmlns:hick="http://www.hickorydocs.com/1.0" weave="none">
@@ -227,7 +227,7 @@ fn regex_lines_expectations_pass_and_fail() {
 #[test]
 fn json_block_model_has_spans_transcripts_statuses() {
     let dir = tempfile::tempdir().unwrap();
-    let doc = write_doc(dir.path(), "passing.hick", &passing_doc());
+    let doc = write_doc(dir.path(), "passing.md", &passing_doc());
     let out = hick().args(["run", "--json"]).arg(&doc).output().unwrap();
     assert!(out.status.success());
     let v: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
@@ -252,7 +252,7 @@ fn canopy_executor_without_config_fails_actionably() {
     // asserted only loosely: canopy API knowledge stays in the adapter crate
     // (docs/guarantees/execution/canopy-api-isolated-to-one-crate.md).
     let dir = tempfile::tempdir().unwrap();
-    let doc = write_doc(dir.path(), "passing.hick", &passing_doc());
+    let doc = write_doc(dir.path(), "passing.md", &passing_doc());
     let out = hick()
         .args(["run"])
         .arg(&doc)
@@ -323,7 +323,7 @@ fn record_frozen_cell(project_dir: &Path, output: &str) {
 #[test]
 fn test_exits_verified_when_nothing_changed() {
     let dir = tempfile::tempdir().unwrap();
-    let doc = write_doc(dir.path(), "passing.hick", &passing_doc());
+    let doc = write_doc(dir.path(), "passing.md", &passing_doc());
     assert!(hick().arg("run").arg(&doc).status().unwrap().success());
     let out = hick().arg("test").arg(&doc).output().unwrap();
     assert_eq!(
@@ -341,7 +341,7 @@ fn test_exits_drifted_when_a_committed_output_is_out_of_date() {
     // may reasonably auto-fix this one, so it must not share a code with a
     // failed expectation.
     let dir = tempfile::tempdir().unwrap();
-    let doc = write_doc(dir.path(), "passing.hick", &passing_doc());
+    let doc = write_doc(dir.path(), "passing.md", &passing_doc());
     assert!(hick().arg("run").arg(&doc).status().unwrap().success());
     std::fs::write(dir.path().join("passing.md"), "hand-edited\n").unwrap();
     let out = hick().arg("test").arg(&doc).output().unwrap();
@@ -356,7 +356,7 @@ fn test_exits_expectation_failed_when_a_claim_is_false() {
     // of its own output, and no amount of regenerating fixes that. It gets
     // its own code (3) so CI can auto-fix drift and never auto-fix this.
     let dir = tempfile::tempdir().unwrap();
-    let doc = write_doc(dir.path(), "drifted.hick", &drifted_doc());
+    let doc = write_doc(dir.path(), "drifted.md", &drifted_doc());
     // Commit the woven output first, so the ONLY finding is the expectation.
     assert!(hick().arg("run").arg(&doc).status().unwrap().success());
     let out = hick().arg("test").arg(&doc).output().unwrap();
@@ -382,7 +382,7 @@ fn a_failed_expectation_outranks_drift() {
     // or a CI job that auto-regenerates on drift would quietly bury a false
     // claim by committing over it.
     let dir = tempfile::tempdir().unwrap();
-    let doc = write_doc(dir.path(), "drifted.hick", &drifted_doc());
+    let doc = write_doc(dir.path(), "drifted.md", &drifted_doc());
     assert!(hick().arg("run").arg(&doc).status().unwrap().success());
     std::fs::write(dir.path().join("drifted.md"), "hand-edited\n").unwrap();
     let out = hick().arg("test").arg(&doc).output().unwrap();
@@ -406,7 +406,7 @@ fn test_exits_unverifiable_when_a_cell_has_no_baseline() {
     // nothing to be checked against — nothing was ever established, which is
     // not the same fact as "something changed".
     let dir = tempfile::tempdir().unwrap();
-    let doc = write_doc(dir.path(), "frozen.hick", &frozen_doc());
+    let doc = write_doc(dir.path(), "frozen.md", &frozen_doc());
     let out = hick().arg("test").arg(&doc).output().unwrap();
     let stderr = String::from_utf8_lossy(&out.stderr);
     assert_eq!(
@@ -415,10 +415,7 @@ fn test_exits_unverifiable_when_a_cell_has_no_baseline() {
         "unverifiable gets its own exit code, not drift's: {stderr}"
     );
     // Per .instructions/user-facing-errors.md: which cell, why, what to do.
-    assert!(
-        stderr.contains("frozen.hick"),
-        "names the document: {stderr}"
-    );
+    assert!(stderr.contains("frozen.md"), "names the document: {stderr}");
     assert!(stderr.contains("container 'c'"), "names the cell: {stderr}");
     assert!(
         stderr.contains("line 7") || stderr.contains("line 8"),
@@ -461,7 +458,7 @@ fn run_records_a_cell_frozen_from_the_start_and_test_then_verifies_it() {
     // `hick run` once, and `hick test` is verified — with no edit to the
     // document in between, and no --cache flag anywhere.
     let dir = tempfile::tempdir().unwrap();
-    let doc = write_doc(dir.path(), "frozen.hick", &frozen_doc());
+    let doc = write_doc(dir.path(), "frozen.md", &frozen_doc());
 
     let out = hick().arg("test").arg(&doc).output().unwrap();
     assert_eq!(
@@ -502,7 +499,7 @@ fn test_reports_unverifiable_when_the_recording_directory_exists_but_the_cell_is
     let changed = echo_lines(&["changed"]);
     let doc = write_doc(
         dir.path(),
-        "frozen.hick",
+        "frozen.md",
         &frozen_doc().replace(&two_lines(), &changed),
     );
     let out = hick().arg("test").arg(&doc).output().unwrap();
@@ -520,7 +517,7 @@ fn unverifiable_outranks_drift() {
     // untrustworthy, so the stronger "nothing was established" wins even
     // though the committed output is also stale.
     let dir = tempfile::tempdir().unwrap();
-    let doc = write_doc(dir.path(), "frozen.hick", &frozen_doc());
+    let doc = write_doc(dir.path(), "frozen.md", &frozen_doc());
     std::fs::write(dir.path().join("frozen.md"), "hand-edited\n").unwrap();
     let out = hick().arg("test").arg(&doc).output().unwrap();
     let stderr = String::from_utf8_lossy(&out.stderr);
@@ -541,7 +538,7 @@ fn a_failed_expectation_outranks_unverifiable() {
     let dir = tempfile::tempdir().unwrap();
     let doc = write_doc(
         dir.path(),
-        "mixed.hick",
+        "mixed.md",
         &format!(
             r#"<?xml version="1.0" encoding="UTF-8"?>
 <hick:doc xmlns:hick="http://www.hickorydocs.com/1.0" weave="mixed.md">
@@ -581,7 +578,7 @@ fn a_frozen_cell_served_from_its_recording_is_verified_not_unverifiable() {
     // absence of one. A frozen cell WITH a recording has been verified
     // against something, and must report verified.
     let dir = tempfile::tempdir().unwrap();
-    let doc = write_doc(dir.path(), "frozen.hick", &frozen_doc());
+    let doc = write_doc(dir.path(), "frozen.md", &frozen_doc());
     record_frozen_cell(dir.path(), "one\ntwo\n");
 
     // `run` serves the frozen cell from the recording and writes frozen.md.
@@ -612,7 +609,7 @@ fn a_frozen_cell_served_from_its_recording_is_verified_not_unverifiable() {
 /// cell in the document.
 #[test]
 fn the_old_check_subcommand_is_gone() {
-    let out = hick().arg("check").arg("some-doc.hick").output().unwrap();
+    let out = hick().arg("check").arg("some-doc.md").output().unwrap();
     assert!(
         !out.status.success(),
         "the removed `hick check` subcommand still runs: {out:?}"

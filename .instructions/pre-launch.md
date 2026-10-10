@@ -14,7 +14,7 @@ irreversible instead is **anything already published**.
 - **A published release is permanent.** Someone may already have it. Never
   delete or move a published tag or release asset; roll forward with a new
   version instead.
-- **Document formats deserve more care than code.** A `.hick` document is a
+- **Document formats deserve more care than code.** A `.md` document is a
   file in someone's git repository. Even pre-launch, a parser change that makes
   previously-valid documents fail is worth a deliberate decision rather than a
   side effect — that is the one artifact that outlives any version of this

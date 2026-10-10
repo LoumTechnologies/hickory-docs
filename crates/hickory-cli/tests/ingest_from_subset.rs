@@ -58,7 +58,7 @@ this-command-does-not-exist-and-fails
 fn ingest_succeeds_even_though_an_unrelated_later_cell_is_still_broken() {
     let dir = tempfile::tempdir().expect("tempdir");
     repo(dir.path());
-    let doc_path = dir.path().join("app.hick");
+    let doc_path = dir.path().join("app.md");
     std::fs::write(&doc_path, doc()).expect("write doc");
 
     // Confirm the premise first: running the WHOLE document really does

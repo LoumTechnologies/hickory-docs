@@ -41,7 +41,7 @@ fn a_diagram_weaves_into_a_fence_its_renderer_understands() {
     // installed and no notebook. If the picture only existed inside our own
     // editor, the document would be worth less than the drawing it replaced.
     let dir = tempfile::tempdir().unwrap();
-    let doc = dir.path().join("arch.hick");
+    let doc = dir.path().join("arch.md");
     std::fs::write(&doc, DOC).unwrap();
 
     let out = hick().arg("weave").arg(&doc).output().unwrap();
@@ -68,7 +68,7 @@ fn a_diagram_weaves_into_a_fence_its_renderer_understands() {
 fn the_renderer_names_the_fence_so_a_new_one_is_a_value_not_a_migration() {
     let source = DOC.replace(r##"renderer="mermaid""##, r##"renderer="d3""##);
     let dir = tempfile::tempdir().unwrap();
-    let doc = dir.path().join("arch.hick");
+    let doc = dir.path().join("arch.md");
     std::fs::write(&doc, &source).unwrap();
 
     hick().arg("weave").arg(&doc).output().unwrap();
@@ -113,7 +113,7 @@ fn an_unchecked_diagram_still_weaves() {
     // draw where it cannot see.
     let source = DOC.replace(r##" asserts="#no-back-edges""##, "");
     let dir = tempfile::tempdir().unwrap();
-    let doc = dir.path().join("arch.hick");
+    let doc = dir.path().join("arch.md");
     std::fs::write(&doc, &source).unwrap();
 
     let out = hick().arg("weave").arg(&doc).output().unwrap();
@@ -192,7 +192,7 @@ fn a_graph_scene_weaves_to_the_picture_that_was_drawn() {
     // author's positions, sizes, shapes and colours — because a mermaid
     // downgrade re-laid the diagram out and looked like a different drawing.
     let dir = tempfile::tempdir().unwrap();
-    let doc = dir.path().join("arch.hick");
+    let doc = dir.path().join("arch.md");
     std::fs::write(&doc, GRAPH_DOC).unwrap();
 
     let out = hick().arg("weave").arg(&doc).output().unwrap();
@@ -234,7 +234,7 @@ fn a_scene_that_does_not_parse_weaves_as_its_json_and_is_warned_about() {
     );
 
     let dir = tempfile::tempdir().unwrap();
-    let doc = dir.path().join("arch.hick");
+    let doc = dir.path().join("arch.md");
     std::fs::write(&doc, &source).unwrap();
     let out = hick().arg("weave").arg(&doc).output().unwrap();
     assert!(
@@ -274,7 +274,7 @@ fn a_derived_scene_takes_its_topology_from_a_fragment_and_keeps_its_own_layout()
 </hick:doc>
 "##;
     let dir = tempfile::tempdir().unwrap();
-    let doc = dir.path().join("arch.hick");
+    let doc = dir.path().join("arch.md");
     std::fs::write(&doc, source).unwrap();
     let out = hick().arg("weave").arg(&doc).output().unwrap();
     assert!(

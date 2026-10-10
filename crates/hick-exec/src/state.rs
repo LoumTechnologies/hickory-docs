@@ -219,7 +219,7 @@ impl MultiDocumentState {
         self.paste_failures.lock().unwrap().clear();
     }
 
-    /// Files this run produced whose name ends in `.hick`.
+    /// Files this run produced whose name ends in `.md`.
     ///
     /// The rounds loop reads these so a cell can write fragments into an
     /// output VOLUME, which is where a generator's files actually land —
@@ -230,7 +230,7 @@ impl MultiDocumentState {
             .lock()
             .unwrap()
             .iter()
-            .filter(|(path, _)| path.ends_with(".hick"))
+            .filter(|(path, _)| path.ends_with(".md"))
             .map(|(path, text)| (path.clone(), text.clone()))
             .collect()
     }

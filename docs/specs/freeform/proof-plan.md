@@ -9,10 +9,10 @@ command you can run or a test that already gates CI.
 | Claim | Proof |
 |---|---|
 | The language + abilities work without the wasm runtime | `cargo test --workspace -- --test-threads=1` — 55 suites, 0 failures; no wasmtime in the tree |
-| Docs really execute and self-verify | `just run examples/text-tools-tour.hick && just verify examples/` (also a CI step) |
-| Drift is a build failure with a precise message | `cargo run -p hickory-cli -- test crates/hickory-cli/tests/fixtures/drifted-tour.hick` → exit 1, line + diff |
-| A statistical paper reproduces its own figure | `just run examples/bootstrap-ci.hick` → regenerates `bootstrap-histogram.svg` from seeded data |
-| The flagship demo: weaving, SQL, Polars, feature gates | `cargo run -p hickory-cli -- test examples/grand-tour.hick` — assembles + runs `analysis.py` from prose sections, verifies DuckDB tables exactly, fits a Polars regression and regenerates `regression-explorer.html`; add `--features with-r` for the ggplot section (CI does; locally needs `sudo apt install r-base r-cran-ggplot2`) |
+| Docs really execute and self-verify | `just run examples/text-tools-tour.md && just verify examples/` (also a CI step) |
+| Drift is a build failure with a precise message | `cargo run -p hickory-cli -- test crates/hickory-cli/tests/fixtures/drifted-tour.md` → exit 1, line + diff |
+| A statistical paper reproduces its own figure | `just run examples/bootstrap-ci.md` → regenerates `bootstrap-histogram.svg` from seeded data |
+| The flagship demo: weaving, SQL, Polars, feature gates | `cargo run -p hickory-cli -- test examples/grand-tour.md` — assembles + runs `analysis.py` from prose sections, verifies DuckDB tables exactly, fits a Polars regression and regenerates `regression-explorer.html`; add `--features with-r` for the ggplot section (CI does; locally needs `sudo apt install r-base r-cran-ggplot2`) |
 | Agent output is literate programming in git | `cargo test -p hickory-cli --test agent_promote_e2e` — scripted LLM → `hick:session` file → parses → promotes to a `hick:doc` → passes check, zero network |
 | Canopy protocol correctness | `cargo test -p hickory-executor-canopy` — 9-test mock-gRPC contract suite (pty framing, forks, tar volumes, tokens); live dev-agent smoke reached authz + spawn, blocked only on a real guest image |
 | Canopy API stays in one crate | `tests/isolation.rs` scans the whole workspace (guarantee doc: verified) |
@@ -22,7 +22,7 @@ command you can run or a test that already gates CI.
 ## Hands-on demo (the stack is still running)
 
 1. Open http://localhost:8080 — log in `smoke@test.dev` / `hunter2hunter2`
-   (dev-only account). Project "smoke" → `tour.hick`.
+   (dev-only account). Project "smoke" → `tour.md`.
 2. Click **Verify** → green "Verification passed" banner. Edit the source
    (Source toggle), change an expected number, save, Verify → red banner with
    the exact mismatch; run detail includes the line number.
@@ -30,14 +30,14 @@ command you can run or a test that already gates CI.
    the player scrubs through timed output.
 4. Pricing page renders `plans.json` through the API (no hard-coded prices).
 5. CLI: `hick agent "…"` works once `ANTHROPIC_API_KEY` is set — sessions
-   land in `sessions/*.hick`, `hick ingest --from session` compacts them.
-6. The editor, live: the "smoke" project now has `weave-demo.hick` — open it
+   land in `sessions/*.md`, `hick ingest --from session` compacts them.
+6. The editor, live: the "smoke" project now has `weave-demo.md` — open it
    to see the Typora-style Document view (syntax visible, styled like the
    render), then switch to **Output** → `pleasantries.py`: hover to see each
    character's source lineage, click "Edit output", change a word, save —
    the source `hick:copy` block is rewritten through provenance and a re-run
    reproduces your edit byte-for-byte (verified live against this server).
-7. The grand tour: `cargo run -p hickory-cli -- run examples/grand-tour.hick`
+7. The grand tour: `cargo run -p hickory-cli -- run examples/grand-tour.md`
    (needs `duckdb` and `uv` on PATH) — read `examples/grand-tour.md`, open
    `examples/regression-explorer.html` in a browser and drag the slider. Add
    `--features with-r` for the ggplot chapter; R locally requires
@@ -67,7 +67,7 @@ honest about boundaries (local executor is not sandboxed; hosted beta in
 progress).
 
 **Itch.** The loop that has been in your head for years now runs end to end:
-prompt → agent session as a literate `.hick` file → promote → clean pipeline
+prompt → agent session as a literate `.md` file → promote → clean pipeline
 → `check` gates drift forever → provenance from every output byte to its
 source span. That's literate programming + executable notebooks + scaffolding
 + an agent harness in one artifact, with the semantic-web thread (XML

@@ -1,4 +1,5 @@
-
+<?xml version="1.0" encoding="UTF-8"?>
+<hick:doc xmlns:hick="http://www.hickorydocs.com/1.0" weave="text-tools-tour.md">
 # A Verified Tour of Unix Text Tools
 
 This document is executable. Every example below actually runs when the
@@ -16,45 +17,48 @@ recorded provenance, not an enforced sandbox; on Cloud Canopy the image
 ref maps to a Nix-defined cell image declared in `flake.nix`, and the
 card shows the resolved store path (or warns when the ref is unmapped).
 
-
+<hick:container name="shell" image="alpine:3.20" />
 
 ## Setting the stage
 
 We create a small data file that the rest of the document uses.
 
-$ printf 'cherry,7\napple,3\nbanana,5\napple,9\n' > fruit.csv
-  cat fruit.csv
-cherry,7
+<hick:exec container="shell">
+printf 'cherry,7\napple,3\nbanana,5\napple,9\n' > fruit.csv
+cat fruit.csv
+<hick:expect match="exact">cherry,7
 apple,3
 banana,5
 apple,9
-
-
+</hick:expect>
+</hick:exec>
 
 ## Sorting
 
 `sort` orders lines lexicographically by default; `-t, -k2 -n` sorts by the
 numeric second field instead.
 
-$ sort -t, -k2 -n fruit.csv
-apple,3
+<hick:exec container="shell">
+sort -t, -k2 -n fruit.csv
+<hick:expect match="exact">apple,3
 banana,5
 cherry,7
 apple,9
-
-
+</hick:expect>
+</hick:exec>
 
 ## Aggregating with awk
 
 Summing the counts per fruit is one awk idiom every engineer ends up
 needing:
 
-$ awk -F, '{sum[$1]+=$2} END {for (k in sum) print k, sum[k]}' fruit.csv | sort
-apple 12
+<hick:exec container="shell">
+awk -F, '{sum[$1]+=$2} END {for (k in sum) print k, sum[k]}' fruit.csv | sort
+<hick:expect match="exact">apple 12
 banana 5
 cherry 7
-
-
+</hick:expect>
+</hick:exec>
 
 ## Verifying claims, not vibes
 
@@ -62,7 +66,9 @@ Documentation often claims "this is fast" or "this handles the edge case."
 Here the claim *is* the test. An empty input produces no output — and the
 document proves it:
 
-$ printf '' | awk -F, '{sum[$1]+=$2} END {for (k in sum) print k, sum[k]}' | wc -l
-0
-
-
+<hick:exec container="shell">
+printf '' | awk -F, '{sum[$1]+=$2} END {for (k in sum) print k, sum[k]}' | wc -l
+<hick:expect match="exact">0
+</hick:expect>
+</hick:exec>
+</hick:doc>

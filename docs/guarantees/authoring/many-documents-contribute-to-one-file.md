@@ -1,7 +1,7 @@
 # Many Documents Contribute To One File, And None Of Them Names The Others
 
 Given `<hick:paste select=".ignore" />` in the document that owns a generated
-file, when any other `.hick` document **in the same folder** declares
+file, when any other `.md` document **in the same folder** declares
 `<hick:copy class="ignore">`, then that fragment is collected into the file —
 and the owning document names no contributor, while the contributor names no
 collector. They meet on the class.
@@ -57,10 +57,10 @@ Last LLM verification:
     the contributor, takes `fragments_of` its own nodes only, stamps
     `span_file_id` so spans index the contributor, and appends one
     `hick:upstream` node holding them.
-  - Verified by hand in a three-document folder: `owner.hick` naming nobody
-    wove `bin/` and `node_modules/` from `bot-a.hick` and `bot-b.hick`;
-    `hick lineage` reported `literal bot-a.hick bytes 26..30` and
-    `literal bot-b.hick bytes 26..39`; adding `<hick:private />` to a third
+  - Verified by hand in a three-document folder: `owner.md` naming nobody
+    wove `bin/` and `node_modules/` from `bot-a.md` and `bot-b.md`;
+    `hick lineage` reported `literal bot-a.md bytes 26..30` and
+    `literal bot-b.md bytes 26..39`; adding `<hick:private />` to a third
     document removed its line.
 - Test coverage: `crates/hickory-cli/tests/ambient_contribution.rs`.
 - Caveat requiring LLM review: id collision between a contributor and the

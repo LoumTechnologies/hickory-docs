@@ -118,11 +118,11 @@ fn main() {
     // 1. The language.
     let doc = match hick_lang::parse(DOC) {
         Ok(doc) => {
-            report.check("a .hick document parses", true);
+            report.check("a .md document parses", true);
             doc
         }
         Err(e) => {
-            report.check(&format!("a .hick document parses — {e}"), false);
+            report.check(&format!("a .md document parses — {e}"), false);
             finish(&report);
             return;
         }

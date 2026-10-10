@@ -8,16 +8,16 @@ use hickory_cli::{CheckFailure, CheckOutcome, check_outcome, dangling_citations,
 #[test]
 fn cites_resolve_across_the_chain_and_report_dangling_ones() {
     let dir = tempfile::tempdir().unwrap();
-    let meeting = dir.path().join("meeting.hick");
+    let meeting = dir.path().join("meeting.md");
     std::fs::write(
         &meeting,
         "<hick:transcript id=\"t\" format=\"vtt\">\nWEBVTT\n\n00:00:01.000 --> 00:00:02.000\n<v Sam>Forty is safe.\n</hick:transcript>\n",
     )
     .unwrap();
-    let note = dir.path().join("note.hick");
+    let note = dir.path().join("note.md");
     std::fs::write(
         &note,
-        "<hick:upstream file=\"meeting.hick\" />\n\n<hick:copy id=\"finding\" class=\"f\">Pool is 40.</hick:copy>\n\n<hick:claim by=\"nate\" standing=\"judgment\" cites=\"#t-u1,#finding,#missing\">We are fine.</hick:claim>\n",
+        "<hick:upstream file=\"meeting.md\" />\n\n<hick:copy id=\"finding\" class=\"f\">Pool is 40.</hick:copy>\n\n<hick:claim by=\"nate\" standing=\"judgment\" cites=\"#t-u1,#finding,#missing\">We are fine.</hick:claim>\n",
     )
     .unwrap();
     let source = std::fs::read_to_string(&note).unwrap();
@@ -41,17 +41,17 @@ fn cites_resolve_across_the_chain_and_report_dangling_ones() {
         c.to.iter()
             .find(|p| p.element == "said")
             .expect("the meeting turn");
-    assert!(turn.path.ends_with("meeting.hick"), "{}", turn.path);
+    assert!(turn.path.ends_with("meeting.md"), "{}", turn.path);
     assert_eq!(turn.first_line, 5);
     let finding = c.to.iter().find(|p| p.element == "copy").unwrap();
-    assert!(finding.path.ends_with("note.hick"));
+    assert!(finding.path.ends_with("note.md"));
     assert_eq!(finding.id.as_deref(), Some("finding"));
 }
 
 #[test]
 fn a_cited_claim_weaves_its_citation_as_words() {
     let dir = tempfile::tempdir().unwrap();
-    let note = dir.path().join("n.hick");
+    let note = dir.path().join("n.md");
     std::fs::write(
         &note,
         "<hick:doc xmlns:hick=\"http://www.hickorydocs.com/1.0\" weave=\"n.md\">\n<hick:copy id=\"a\">x</hick:copy>\n<hick:claim by=\"nate\" standing=\"report\" cites=\"#a\">Said so.</hick:claim>\n</hick:doc>\n",
@@ -76,7 +76,7 @@ fn a_cited_claim_weaves_its_citation_as_words() {
 #[test]
 fn a_dangling_citation_fails_verification() {
     let dir = tempfile::tempdir().unwrap();
-    let note = dir.path().join("note.hick");
+    let note = dir.path().join("note.md");
     std::fs::write(
         &note,
         "<hick:copy id=\"finding\" class=\"f\">Pool is 40.</hick:copy>\n\n         <hick:claim by=\"nate\" standing=\"judgment\" cites=\"#finding,#missing\">We are fine.</hick:claim>\n",
@@ -106,7 +106,7 @@ fn a_dangling_citation_fails_verification() {
 #[test]
 fn a_citation_that_resolves_is_not_reported() {
     let dir = tempfile::tempdir().unwrap();
-    let note = dir.path().join("note.hick");
+    let note = dir.path().join("note.md");
     std::fs::write(
         &note,
         "<hick:copy id=\"finding\" class=\"f\">Pool is 40.</hick:copy>\n\n         <hick:claim by=\"nate\" standing=\"judgment\" cites=\"#finding,.f\">We are fine.</hick:claim>\n",
@@ -134,7 +134,7 @@ mod edited_passages {
     }
 
     fn write(dir: &std::path::Path, source: &str) -> std::path::PathBuf {
-        let path = dir.join("note.hick");
+        let path = dir.join("note.md");
         std::fs::write(&path, source).unwrap();
         path
     }

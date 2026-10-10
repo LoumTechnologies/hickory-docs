@@ -4,29 +4,29 @@
 <hick:usage turn="0" input="2399" cache-write="0" cache-read="0" output="55"/>
 <hick:assistant>
 <hick:tool name="read_doc">
-<hick:arg name="doc">fix.hick</hick:arg>
+<hick:arg name="doc">fix.md</hick:arg>
 </hick:tool>
 </hick:assistant>
 <hick:tool-result name="read_doc" ok="true">
-doc: fix.hick
+doc: fix.md
 f636|---
 f7ec|date: 2026-08-21
 f636|---
 f011|
 051a|# The pool fix
 f011|
-56d8|<hick:upstream file="meetings/2026-08-20-checkout-latency-sync.hick" />
+56d8|<hick:upstream file="meetings/2026-08-20-checkout-latency-sync.md" />
 
-upstream of this session (readable and editable by passing <hick:arg name="doc">NAME</hick:arg>): meetings/2026-08-20-checkout-latency-sync.hick
+upstream of this session (readable and editable by passing <hick:arg name="doc">NAME</hick:arg>): meetings/2026-08-20-checkout-latency-sync.md
 </hick:tool-result>
 <hick:usage turn="1" input="2609" cache-write="0" cache-read="0" output="69"/>
 <hick:assistant>
 <hick:tool name="read_doc">
-<hick:arg name="doc">meetings/2026-08-20-checkout-latency-sync.hick</hick:arg>
+<hick:arg name="doc">meetings/2026-08-20-checkout-latency-sync.md</hick:arg>
 </hick:tool>
 </hick:assistant>
 <hick:tool-result name="read_doc" ok="true">
-doc: meetings/2026-08-20-checkout-latency-sync.hick
+doc: meetings/2026-08-20-checkout-latency-sync.md
 f636|---
 f49b|date: 2026-08-20
 4ea9|attendees: [Sam, Nate, Priya]
@@ -85,7 +85,7 @@ de6d|- Priya: Run the latency numbers comparing before and after the fix goes li
 4b85|- Nate: Post a summary in #eng with the before and after latency results
 6eda|</hick:transform>
 
-upstream of this session (readable and editable by passing <hick:arg name="doc">NAME</hick:arg>): meetings/2026-08-20-checkout-latency-sync.hick
+upstream of this session (readable and editable by passing <hick:arg name="doc">NAME</hick:arg>): meetings/2026-08-20-checkout-latency-sync.md
 </hick:tool-result>
 <hick:usage turn="2" input="4101" cache-write="0" cache-read="0" output="551"/>
 <hick:assistant>
@@ -152,10 +152,10 @@ Forty connections per replica is safe: the Postgres instance is configured for 2
 </hick:tool>
 </hick:assistant>
 <hick:tool-result name="edit_doc" ok="true">
-edited fix.hick and re-wove.
+edited fix.md and re-wove.
 edited region (fresh hashes):
 f011|
-56d8|<hick:upstream file="meetings/2026-08-20-checkout-latency-sync.hick" />
+56d8|<hick:upstream file="meetings/2026-08-20-checkout-latency-sync.md" />
 f011|
 a4d4|## Proposal
 f011|
@@ -235,7 +235,7 @@ EOF
 </hick:tool>
 </hick:assistant>
 <hick:tool-result name="edit_doc" ok="true">
-edited fix.hick and re-wove.
+edited fix.md and re-wove.
 edited region (fresh hashes):
 d718|</hick:file>
 f011|
@@ -312,7 +312,7 @@ EOF
 </hick:tool>
 </hick:assistant>
 <hick:tool-result name="edit_doc" ok="true">
-edited fix.hick and re-wove.
+edited fix.md and re-wove.
 edited region (fresh hashes):
 d718|</hick:file>
 f011|
@@ -385,7 +385,7 @@ EOF
 </hick:tool>
 </hick:assistant>
 <hick:tool-result name="edit_doc" ok="true">
-edited fix.hick and re-wove.
+edited fix.md and re-wove.
 edited region (fresh hashes):
 d718|</hick:file>
 f011|

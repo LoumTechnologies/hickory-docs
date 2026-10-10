@@ -146,7 +146,7 @@ type Provenance = {
 ## Editor model (v0.2)
 
 The web UI has TWO views (replacing Notebook/Source):
-1. **Document** — one Typora-style WYSIWYG editor over the raw `.hick`
+1. **Document** — one Typora-style WYSIWYG editor over the raw `.md`
    source: syntax stays visible (tags, markdown marks) while styled like the
    rendered result; exec cells render run buttons/status/transcripts inline
    as widgets. Collab (Yjs) runs on the raw source exactly as before.
@@ -156,7 +156,7 @@ The web UI has TWO views (replacing Notebook/Source):
 ## Editor intelligence — LSP bridge (v0.3)
 
 The server runs `hick-lsp` (the meta-LSP: virtual files per `hick:file`,
-child language servers, positions mapped to `.hick` coordinates) against the
+child language servers, positions mapped to `.md` coordinates) against the
 project checkout, bridged to the browser on the existing doc WebSocket:
 
 - Channel byte `0x02` + JSON-RPC 2.0 payload (UTF-8): a plain LSP stream,
@@ -279,7 +279,7 @@ occurrences. These two are **exhaustive** and ordered by path.
 **Replace refuses a generated file**, and names its document. Writing to one
 either loses the edit at the next weave or fights the up-loop for it; changing
 the document is the edit that survives, and it fixes every other copy at the
-same time. A `.hick` document is *not* refused: it is source, and a rename
+same time. A `.md` document is *not* refused: it is source, and a rename
 inside one is exactly what somebody means.
 
 Find and replace build their matcher from one pattern, once — every option is

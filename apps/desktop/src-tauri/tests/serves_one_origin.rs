@@ -21,7 +21,7 @@ print("hello")
 "#;
 
 async fn start_in(dir: &Path) -> (hickory_desktop_lib::server::Session, reqwest::Client) {
-    std::fs::write(dir.join("demo.hick"), DOC).expect("write doc");
+    std::fs::write(dir.join("demo.md"), DOC).expect("write doc");
     let session = hickory_desktop_lib::server::start(dir, None, None)
         .await
         .expect("the engine starts");

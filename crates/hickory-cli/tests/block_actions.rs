@@ -31,13 +31,13 @@ async fn start() -> Session {
     let env = ENV_LOCK.clone().lock_owned().await;
     let dir = tempfile::tempdir().unwrap();
     let state_dir = tempfile::tempdir().unwrap();
-    std::fs::write(dir.path().join("demo.hick"), DOC).unwrap();
+    std::fs::write(dir.path().join("demo.md"), DOC).unwrap();
     let root = dir.path().canonicalize().unwrap();
     // Per-user state goes to a throwaway directory, never the developer's.
     unsafe { std::env::set_var("HICKORY_STATE_DIR", state_dir.path()) };
 
     let prepared = prepare(ServeOptions {
-        target: root.join("demo.hick"),
+        target: root.join("demo.md"),
         port: 0,
         params: Vec::new(),
         executor: ExecutorChoice::Local,

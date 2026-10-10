@@ -1,6 +1,6 @@
 # hick-exec
 
-Reactive execution engine for `.hick` pipelines.
+Reactive execution engine for `.md` pipelines.
 
 Implements a port of `DynamicCombineLatest`, `Node`, `InsertionPoint`, and
 related reactive types, and adds an information-flow DAG for validating execution

@@ -37,7 +37,7 @@ pub fn echo_lines(lines: &[&str]) -> String {
             .collect::<Vec<_>>()
             .join("& ")
     } else {
-        // Literal backslash-n: this string is written into a `.hick` document,
+        // Literal backslash-n: this string is written into a `.md` document,
         // where it is the shell that interprets it, not Rust.
         format!("printf '{}\\n'", lines.join("\\n"))
     }

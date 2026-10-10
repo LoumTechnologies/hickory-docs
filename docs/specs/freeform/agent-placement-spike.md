@@ -109,7 +109,7 @@ converge returns the *old* document's output
 (`c2_flow_agent_edit_is_invisible_to_the_run_that_produced_it` asserts the
 converged text does not contain the agent's bytes), because the graph closed
 before converge began. A second whole-pipeline pass is required, and nothing
-in the pipeline schedules one — `max_rounds` only re-parses generated `.hick`
+in the pipeline schedules one — `max_rounds` only re-parses generated `.md`
 files, and it has already finished by the time the agent runs.
 
 Under exec placement the edit lands before assembly, so one pass carries it

@@ -31,7 +31,7 @@ Last LLM verification:
   generated code file lands in the document byte-exactly) and
   `a_prose_edit_in_the_woven_markdown_lands_in_the_document` (the `weave=`
   output is listed, its prose carries non-synthetic provenance, an edit
-  through POST `/outputs/edit` lands in the `.hick`, and a re-weave
+  through POST `/outputs/edit` lands in the `.md`, and a re-weave
   reproduces it byte-stably); `crates/hickory-lineage/src/lib.rs` unit tests;
   `crates/hick-literate/tests/pipeline_tests.rs::test_copy_paste_provenance_carries_source_spans`.
 - Caveat requiring review: the guarantee text above still describes the

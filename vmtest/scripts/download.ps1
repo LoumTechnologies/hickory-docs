@@ -188,7 +188,7 @@ Phase 'lsp-loads' (Ran-Ok (Invoke-Native -Exe $lsp -StdIn $empty))
 # rendering -- and `hick test` then reports drift against a file this script
 # clobbered. Verify first, against the bytes as shipped; weave afterwards, into
 # a directory of its own.
-$doc = Join-Path $root.FullName 'examples\text-tools-tour.hick'
+$doc = Join-Path $root.FullName 'examples\text-tools-tour.md'
 
 # The SHIPPED EXAMPLES cannot run here, and the reason is not the one this
 # script used to give.
@@ -203,7 +203,7 @@ $doc = Join-Path $root.FullName 'examples\text-tools-tour.hick'
 # the real reason. Windows cell execution proper is covered by the `sandbox`
 # flavor, which uses a cmd-syntax document.
 if (Get-Command sh -ErrorAction SilentlyContinue) {
-    $run = Invoke-Native -Exe $hick -Arguments @('test', 'examples\text-tools-tour.hick') `
+    $run = Invoke-Native -Exe $hick -Arguments @('test', 'examples\text-tools-tour.md') `
         -WorkDir $root.FullName
     Phase 'execute-a-document' (Ran-Ok $run)
     if (-not (Ran-Ok $run)) {

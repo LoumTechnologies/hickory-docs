@@ -4,7 +4,7 @@ Given a project, when a document is created, saved via `PUT /api/docs/:id`,
 or persisted from the collaborative CRDT session, then the server writes the
 file into the project's plain git repository under `GIT_DATA_DIR` and
 commits it (one commit per save; unchanged content is a no-op) — git is the
-durable truth for `.hick` sources, and run checkouts are seeded from it.
+durable truth for `.md` sources, and run checkouts are seeded from it.
 
 ---
 

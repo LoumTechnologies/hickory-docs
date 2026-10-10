@@ -19,7 +19,7 @@ fn hick_doc(body: &str) -> String {
 
 async fn file_out(body: &str, path: &str) -> String {
     let src = hick_doc(body);
-    let result = hick_literate::run_pipeline(&[("test.hick", &src)], &[])
+    let result = hick_literate::run_pipeline(&[("test.md", &src)], &[])
         .await
         .expect("pipeline runs");
     result
@@ -92,7 +92,7 @@ async fn a_leading_blank_line_the_author_wrote_is_kept() {
 #[tokio::test]
 async fn a_windows_line_ending_counts_as_one_break() {
     let src = hick_doc("<hick:file path=\"a.txt\">\r\nvalue\n</hick:file>");
-    let result = hick_literate::run_pipeline(&[("test.hick", &src)], &[])
+    let result = hick_literate::run_pipeline(&[("test.md", &src)], &[])
         .await
         .expect("pipeline runs");
     assert_eq!(result.files.get("a.txt").unwrap().to_string(), "value\n");

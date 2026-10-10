@@ -47,7 +47,7 @@ Last LLM verification:
 - Reviewer: Claude Fable 5
 - Result: verified by driving the served UI (Playwright) against
   `examples/receipts/claude-code`: opening `messages/2026-08-24-eng-reply.txt`
-  drew one ribbon titled "Open meetings/2026-08-20-checkout-latency-sync.hick —
+  drew one ribbon titled "Open meetings/2026-08-20-checkout-latency-sync.md —
   this text came from it" ending on the meeting's inactive tab; clicking it
   navigated to the meeting document. Screenshot:
   `examples/receipts/ribbons-across-documents.png`.

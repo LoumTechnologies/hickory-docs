@@ -41,7 +41,7 @@ the generated file is a working surface onto it. A synthetic document assembled
 *from* files points the other way — and that only becomes an inversion if the
 thing pretends to be a document you could save.
 
-So it must not. No save-to-disk path, no `.hick` extension, no place in the
+So it must not. No save-to-disk path, no `.md` extension, no place in the
 folder tree. It is the same category as a diff view or a merge view, and nobody
 mistakes `git diff` output for a source artifact.
 
@@ -87,7 +87,7 @@ late means rewriting the routing.
 ## Why this matters more here than it would elsewhere
 
 `two-branches-in-one-document.md` established that merge pain is unusually
-expensive in this product: a `.hick` document is one file that generates many,
+expensive in this product: a `.md` document is one file that generates many,
 so two branches editing two *different* generated files still collide in the
 document that writes both.
 

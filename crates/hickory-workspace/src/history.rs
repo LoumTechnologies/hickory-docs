@@ -1,7 +1,7 @@
 //! Local history: the interval below the commit.
 //!
 //! `docs/specs/freeform/local-history.md`. Git's resolution is a commit, and
-//! in a `.hick` folder **you are not the only writer** — a run, a weave, a
+//! in a `.md` folder **you are not the only writer** — a run, a weave, a
 //! reverse edit, an ingest, the agent, find-and-replace and the merge driver
 //! all write between two commits, and most of them have no way back shorter
 //! than "commit before every risky thing, forever". That is a discipline, and
@@ -641,11 +641,11 @@ mod tests {
                 Some("invoice_id → invoice_ref".into()),
                 "2026-08-27T14:02:11Z",
                 &[
-                    change("a.hick", Some("invoice_id"), Some("invoice_ref")),
-                    change("b.hick", Some("invoice_id"), Some("invoice_ref")),
+                    change("a.md", Some("invoice_id"), Some("invoice_ref")),
+                    change("b.md", Some("invoice_id"), Some("invoice_ref")),
                     // Touched and unchanged: a batch writer rewrites files it
                     // does not change, and those must not become copies.
-                    change("c.hick", Some("untouched"), Some("untouched")),
+                    change("c.md", Some("untouched"), Some("untouched")),
                 ],
             )
             .unwrap()
@@ -656,7 +656,7 @@ mod tests {
                 ActKind::Typed,
                 None,
                 "2026-08-27T14:03:00Z",
-                &[change("a.hick", Some("invoice_ref"), Some("invoice_ref x"))],
+                &[change("a.md", Some("invoice_ref"), Some("invoice_ref x"))],
             )
             .unwrap()
             .expect("an act");
@@ -667,10 +667,10 @@ mod tests {
         assert_eq!(acts[0].kind, ActKind::Typed);
         assert_eq!(acts[1].changed().count(), 2, "the unchanged file counted");
 
-        assert_eq!(history.acts_for("a.hick").len(), 2);
-        assert_eq!(history.acts_for("b.hick").len(), 1);
+        assert_eq!(history.acts_for("a.md").len(), 2);
+        assert_eq!(history.acts_for("b.md").len(), 1);
         assert!(
-            history.acts_for("c.hick").is_empty(),
+            history.acts_for("c.md").is_empty(),
             "a file that did not change is not part of its own timeline"
         );
     }
@@ -701,9 +701,9 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let root = dir.path().join("project");
         let history = store(dir.path());
-        fs::write(root.join("a.hick"), "invoice_ref").unwrap();
-        fs::write(root.join("b.hick"), "invoice_ref").unwrap();
-        fs::write(root.join("c.hick"), "somebody edited this since").unwrap();
+        fs::write(root.join("a.md"), "invoice_ref").unwrap();
+        fs::write(root.join("b.md"), "invoice_ref").unwrap();
+        fs::write(root.join("c.md"), "somebody edited this since").unwrap();
 
         let act = history
             .record(
@@ -712,29 +712,23 @@ mod tests {
                 None,
                 "2026-08-27T14:02:11Z",
                 &[
-                    change("a.hick", Some("invoice_id"), Some("invoice_ref")),
-                    change("b.hick", Some("invoice_id"), Some("invoice_ref")),
-                    change("c.hick", Some("invoice_id"), Some("invoice_ref")),
+                    change("a.md", Some("invoice_id"), Some("invoice_ref")),
+                    change("b.md", Some("invoice_id"), Some("invoice_ref")),
+                    change("c.md", Some("invoice_id"), Some("invoice_ref")),
                 ],
             )
             .unwrap()
             .unwrap();
 
         let out = history.revert(&root, &act, None).unwrap();
-        assert_eq!(
-            out.restored,
-            vec!["a.hick".to_string(), "b.hick".to_string()]
-        );
+        assert_eq!(out.restored, vec!["a.md".to_string(), "b.md".to_string()]);
         // Reported, never silently skipped: somebody undoing a batch is
         // already unsure what happened, and a quiet partial revert is how
         // they come to trust a state that never existed.
-        assert_eq!(out.moved_on, vec!["c.hick".to_string()]);
+        assert_eq!(out.moved_on, vec!["c.md".to_string()]);
+        assert_eq!(fs::read_to_string(root.join("a.md")).unwrap(), "invoice_id");
         assert_eq!(
-            fs::read_to_string(root.join("a.hick")).unwrap(),
-            "invoice_id"
-        );
-        assert_eq!(
-            fs::read_to_string(root.join("c.hick")).unwrap(),
+            fs::read_to_string(root.join("c.md")).unwrap(),
             "somebody edited this since"
         );
     }
@@ -744,8 +738,8 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let root = dir.path().join("project");
         let history = store(dir.path());
-        fs::write(root.join("a.hick"), "after").unwrap();
-        fs::write(root.join("b.hick"), "after").unwrap();
+        fs::write(root.join("a.md"), "after").unwrap();
+        fs::write(root.join("b.md"), "after").unwrap();
         let act = history
             .record(
                 Path::new("."),
@@ -753,15 +747,15 @@ mod tests {
                 None,
                 "2026-08-27T14:02:11Z",
                 &[
-                    change("a.hick", Some("before"), Some("after")),
-                    change("b.hick", Some("before"), Some("after")),
+                    change("a.md", Some("before"), Some("after")),
+                    change("b.md", Some("before"), Some("after")),
                 ],
             )
             .unwrap()
             .unwrap();
-        let out = history.revert(&root, &act, Some("a.hick")).unwrap();
-        assert_eq!(out.restored, vec!["a.hick".to_string()]);
-        assert_eq!(fs::read_to_string(root.join("b.hick")).unwrap(), "after");
+        let out = history.revert(&root, &act, Some("a.md")).unwrap();
+        assert_eq!(out.restored, vec!["a.md".to_string()]);
+        assert_eq!(fs::read_to_string(root.join("b.md")).unwrap(), "after");
     }
 
     #[test]
@@ -769,20 +763,20 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let root = dir.path().join("project");
         let history = store(dir.path());
-        fs::write(root.join("new.hick"), "scaffolded").unwrap();
+        fs::write(root.join("new.md"), "scaffolded").unwrap();
         let act = history
             .record(
                 Path::new("."),
                 ActKind::Ingest,
                 None,
                 "2026-08-27T14:02:11Z",
-                &[change("new.hick", None, Some("scaffolded"))],
+                &[change("new.md", None, Some("scaffolded"))],
             )
             .unwrap()
             .unwrap();
         history.revert(&root, &act, None).unwrap();
         assert!(
-            !root.join("new.hick").exists(),
+            !root.join("new.md").exists(),
             "going back left the file behind"
         );
     }
@@ -836,7 +830,7 @@ mod tests {
                 ActKind::Typed,
                 None,
                 "2026-08-27T14:02:11Z",
-                &[change("a.hick", Some("x"), Some("y"))],
+                &[change("a.md", Some("x"), Some("y"))],
             )
             .unwrap()
             .unwrap();
@@ -862,7 +856,7 @@ mod tests {
                     ActKind::Typed,
                     None,
                     &format!("2026-08-27T14:0{n}:00Z"),
-                    &[change("a.hick", Some("x"), Some(&format!("y{n}")))],
+                    &[change("a.md", Some("x"), Some(&format!("y{n}")))],
                 )
                 .unwrap();
         }
@@ -883,7 +877,7 @@ mod tests {
                 ActKind::Typed,
                 None,
                 "2026-01-01T10:00:00Z",
-                &[change("a.hick", Some("ancient"), Some("also ancient"))],
+                &[change("a.md", Some("ancient"), Some("also ancient"))],
             )
             .unwrap();
         let recent = history
@@ -892,7 +886,7 @@ mod tests {
                 ActKind::Typed,
                 None,
                 "2026-08-27T10:00:00Z",
-                &[change("a.hick", Some("new"), Some("newer"))],
+                &[change("a.md", Some("new"), Some("newer"))],
             )
             .unwrap()
             .unwrap();
@@ -928,14 +922,14 @@ mod tests {
                 None,
                 "2026-08-27T14:02:11Z",
                 &[
-                    change("secret.hick", Some("sk-real"), Some("sk-realer")),
-                    change("fine.hick", Some("a"), Some("b")),
+                    change("secret.md", Some("sk-real"), Some("sk-realer")),
+                    change("fine.md", Some("a"), Some("b")),
                 ],
             )
             .unwrap();
-        history.forget(Some("secret.hick")).unwrap();
-        assert!(history.acts_for("secret.hick").is_empty());
-        assert_eq!(history.acts_for("fine.hick").len(), 1);
+        history.forget(Some("secret.md")).unwrap();
+        assert!(history.acts_for("secret.md").is_empty());
+        assert_eq!(history.acts_for("fine.md").len(), 1);
         // And the bytes are actually gone, not merely unlisted.
         let secret = format!("{:x}", Sha256::digest(b"sk-real"));
         assert!(
@@ -954,7 +948,7 @@ mod tests {
                 ActKind::Typed,
                 None,
                 "2026-08-27T14:02:11Z",
-                &[change("a.hick", Some("x"), Some("y"))],
+                &[change("a.md", Some("x"), Some("y"))],
             )
             .unwrap();
         assert_eq!(history.forget(None).unwrap(), 1);
@@ -965,7 +959,7 @@ mod tests {
                 ActKind::Typed,
                 None,
                 "2026-08-27T15:00:00Z",
-                &[change("a.hick", Some("y"), Some("z"))],
+                &[change("a.md", Some("y"), Some("z"))],
             )
             .unwrap();
         assert_eq!(history.acts().len(), 1);

@@ -11,7 +11,7 @@ function editorWith(doc: string, options: Parameters<typeof mdLinks>[0]) {
   });
 }
 
-const inNotes = { docPath: () => "notes/a.hick" };
+const inNotes = { docPath: () => "notes/a.md" };
 
 afterEach(() => {
   document.body.innerHTML = "";
@@ -19,25 +19,25 @@ afterEach(() => {
 
 describe("what counts as a link", () => {
   it("skips the ranges the caller says are not prose", () => {
-    const doc = "prose [a](a.hick)\ncode [b](b.hick)";
+    const doc = "prose [a](a.md)\ncode [b](b.md)";
     const state = EditorState.create({ doc });
     const all = linksIn(state, inNotes);
-    expect(all.map((l) => l.link.target)).toEqual(["a.hick", "b.hick"]);
+    expect(all.map((l) => l.link.target)).toEqual(["a.md", "b.md"]);
     const skipped = linksIn(state, { ...inNotes, skip: () => [[18, doc.length]] });
-    expect(skipped.map((l) => l.link.target)).toEqual(["a.hick"]);
+    expect(skipped.map((l) => l.link.target)).toEqual(["a.md"]);
   });
 
   it("finds the link under a position, brackets included", () => {
-    const state = EditorState.create({ doc: "see [the plan](plan.hick) now" });
-    expect(linkAt(state, inNotes, 6)?.target).toBe("plan.hick");
+    const state = EditorState.create({ doc: "see [the plan](plan.md) now" });
+    expect(linkAt(state, inNotes, 6)?.target).toBe("plan.md");
     expect(linkAt(state, inNotes, 27)).toBeNull();
   });
 });
 
 describe("how a link looks", () => {
   it("lights the label and dims the punctuation without hiding anything", () => {
-    const view = editorWith("see [the plan](plan.hick)", inNotes);
-    expect(view.state.doc.toString()).toBe("see [the plan](plan.hick)");
+    const view = editorWith("see [the plan](plan.md)", inNotes);
+    expect(view.state.doc.toString()).toBe("see [the plan](plan.md)");
     expect(view.contentDOM.querySelector(".cm-md-link")?.textContent).toBe("the plan");
     expect(view.contentDOM.querySelectorAll(".cm-md-link-mark").length).toBe(2);
     view.destroy();
@@ -65,14 +65,14 @@ describe("following a link", () => {
     const seen: string[] = [];
     const listener = (e: Event) => seen.push((e as CustomEvent<string>).detail);
     window.addEventListener("hickory-open-path", listener);
-    followLink("notes/weekly/mon.hick", "../plan.hick");
+    followLink("notes/weekly/mon.md", "../plan.md");
     window.removeEventListener("hickory-open-path", listener);
-    expect(seen).toEqual(["/notes/plan.hick"]);
+    expect(seen).toEqual(["/notes/plan.md"]);
   });
 
   it("sends a web address to the browser", () => {
     const open = vi.spyOn(window, "open").mockReturnValue(null);
-    followLink("a.hick", "https://example.com");
+    followLink("a.md", "https://example.com");
     expect(open).toHaveBeenCalledWith(
       "https://example.com",
       "_blank",
@@ -86,7 +86,7 @@ describe("following a link", () => {
     const seen: string[] = [];
     const listener = (e: Event) => seen.push((e as CustomEvent<string>).detail);
     window.addEventListener("hickory-open-path", listener);
-    followLink("a.hick", "#section");
+    followLink("a.md", "#section");
     window.removeEventListener("hickory-open-path", listener);
     expect(open).not.toHaveBeenCalled();
     expect(seen).toEqual([]);

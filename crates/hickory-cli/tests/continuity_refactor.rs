@@ -74,7 +74,7 @@ async fn start(continuity: bool) -> Session {
     let env = ENV_LOCK.clone().lock_owned().await;
     let dir = tempfile::tempdir().unwrap();
     let state_dir = tempfile::tempdir().unwrap();
-    std::fs::write(dir.path().join("demo.hick"), BEFORE).unwrap();
+    std::fs::write(dir.path().join("demo.md"), BEFORE).unwrap();
     let root = dir.path().canonicalize().unwrap();
 
     // The switch lives in the per-user state directory, keyed by the
@@ -88,7 +88,7 @@ async fn start(continuity: bool) -> Session {
     }
 
     let prepared = prepare(ServeOptions {
-        target: root.join("demo.hick"),
+        target: root.join("demo.md"),
         port: 0,
         params: Vec::new(),
         executor: ExecutorChoice::Local,
@@ -153,7 +153,7 @@ async fn a_restructure_that_moved_every_line_records_what_moved() {
 
     // Restructure. The outputs are unchanged; every byte of the document
     // moved.
-    std::fs::write(session.root.join("demo.hick"), AFTER).unwrap();
+    std::fs::write(session.root.join("demo.md"), AFTER).unwrap();
 
     let ended = post(&session, &format!("/api/docs/{id}/refactor/end"), json!({})).await;
     assert_eq!(ended["active"], json!(false));
@@ -193,7 +193,7 @@ async fn a_restructure_that_changed_the_outputs_records_nothing() {
     .await;
 
     std::fs::write(
-        session.root.join("demo.hick"),
+        session.root.join("demo.md"),
         BEFORE.replace("hello", "goodbye"),
     )
     .unwrap();
@@ -216,7 +216,7 @@ async fn with_continuity_off_a_refactor_records_nothing_at_all() {
         json!({}),
     )
     .await;
-    std::fs::write(session.root.join("demo.hick"), AFTER).unwrap();
+    std::fs::write(session.root.join("demo.md"), AFTER).unwrap();
     let ended = post(&session, &format!("/api/docs/{id}/refactor/end"), json!({})).await;
     assert_eq!(ended["recorded"], json!(0), "{ended}");
     assert!(!session.root.join(".hick-journal").exists());

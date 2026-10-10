@@ -2,7 +2,7 @@
 
 Given the desktop app open on a document, when anyone editing it makes a
 change — the person typing in the app's editor, or `hick up` carrying an edit
-back out of a generated file — then the change lands in the `.hick` **file on
+back out of a generated file — then the change lands in the `.md` **file on
 that machine's disk**, within the persist debounce, and nowhere else is
 authoritative.
 

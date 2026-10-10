@@ -1073,7 +1073,7 @@ mod tests {
         // quotes one is wrapped where the parser captures verbatim.
         let jsonl = r#"
 {"type":"user","uuid":"u1","parentUuid":null,"timestamp":"2026-01-01T00:00:00.000Z","message":{"role":"user","content":"What does <hick:exec> do?"}}
-{"type":"assistant","uuid":"a1","parentUuid":"u1","timestamp":"2026-01-01T00:00:01.000Z","message":{"id":"m1","model":"claude-opus-5","content":[{"type":"tool_use","id":"t1","name":"Read","input":{"file_path":"a.hick"}}],"usage":{"input_tokens":1,"output_tokens":1}}}
+{"type":"assistant","uuid":"a1","parentUuid":"u1","timestamp":"2026-01-01T00:00:01.000Z","message":{"id":"m1","model":"claude-opus-5","content":[{"type":"tool_use","id":"t1","name":"Read","input":{"file_path":"a.md"}}],"usage":{"input_tokens":1,"output_tokens":1}}}
 {"type":"user","uuid":"u2","parentUuid":"a1","timestamp":"2026-01-01T00:00:02.000Z","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"t1","content":"<hick:doc>\n<hick:exec container=\"x\">\nls\n"}]}}
 {"type":"assistant","uuid":"a2","parentUuid":"u2","timestamp":"2026-01-01T00:00:03.000Z","message":{"id":"m2","model":"claude-opus-5","content":[{"type":"text","text":"It runs a cell, written as <hick:exec>."}],"usage":{"input_tokens":1,"output_tokens":1}}}
 {"type":"user","uuid":"u3","parentUuid":"a2","timestamp":"2026-01-01T00:00:04.000Z","message":{"role":"user","content":"Thanks"}}
@@ -1129,7 +1129,7 @@ mod tests {
         // `</hick:tool-result>` inside it would end the element early.
         let jsonl = r#"
 {"type":"user","uuid":"u1","parentUuid":null,"timestamp":"2026-01-01T00:00:00.000Z","message":{"role":"user","content":"show the session"}}
-{"type":"assistant","uuid":"a1","parentUuid":"u1","timestamp":"2026-01-01T00:00:01.000Z","message":{"id":"m1","model":"m","content":[{"type":"tool_use","id":"t1","name":"Read","input":{"file_path":"s.hick"}}],"usage":{}}}
+{"type":"assistant","uuid":"a1","parentUuid":"u1","timestamp":"2026-01-01T00:00:01.000Z","message":{"id":"m1","model":"m","content":[{"type":"tool_use","id":"t1","name":"Read","input":{"file_path":"s.md"}}],"usage":{}}}
 {"type":"user","uuid":"u2","parentUuid":"a1","timestamp":"2026-01-01T00:00:02.000Z","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"t1","content":"<hick:tool-result name=\"x\">\nhi\n</hick:tool-result>\nafter"}]}}
 {"type":"assistant","uuid":"a2","parentUuid":"u2","timestamp":"2026-01-01T00:00:03.000Z","message":{"id":"m2","model":"m","content":[{"type":"text","text":"Done."}],"usage":{}}}
 "#;
@@ -1145,7 +1145,7 @@ mod tests {
     fn a_tool_input_quoting_a_hick_tag_is_written_as_json() {
         let jsonl = r#"
 {"type":"user","uuid":"u1","parentUuid":null,"timestamp":"2026-01-01T00:00:00.000Z","message":{"role":"user","content":"edit"}}
-{"type":"assistant","uuid":"a1","parentUuid":"u1","timestamp":"2026-01-01T00:00:01.000Z","message":{"id":"m1","model":"m","content":[{"type":"tool_use","id":"t1","name":"Edit","input":{"file_path":"a.hick","new_string":"<hick:file path=\"x\">"}}],"usage":{}}}
+{"type":"assistant","uuid":"a1","parentUuid":"u1","timestamp":"2026-01-01T00:00:01.000Z","message":{"id":"m1","model":"m","content":[{"type":"tool_use","id":"t1","name":"Edit","input":{"file_path":"a.md","new_string":"<hick:file path=\"x\">"}}],"usage":{}}}
 "#;
         let c = convert(jsonl).unwrap();
         assert!(c.hick.contains("<hick:input>\n{\n"));

@@ -24,7 +24,7 @@ enabling incremental re-generation of only the affected parts of the output.
 ## Provenance
 
 `SourceOrigin`, `ProvenanceMap`, and `ProvenanceSpan` map generated output bytes
-back to their `.hick` source file positions or container/script origins.
+back to their `.md` source file positions or container/script origins.
 
 Terminal consumers call `converge` / `converge_to_string` to collect the tree
 into a final string with optional provenance attached.

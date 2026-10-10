@@ -1,7 +1,7 @@
 //! Character-level provenance tracking for generated output.
 //!
 //! Maps output byte ranges back to their source origins, enabling
-//! tools like hick-lens to know which `.hick` source positions
+//! tools like hick-lens to know which `.md` source positions
 //! produced each region of a generated file.
 
 use crate::node::SourceOrigin;
@@ -90,7 +90,7 @@ mod tests {
             output_start: 0,
             output_end: 5,
             origin: SourceOrigin::Literal {
-                file: Arc::from("a.hick"),
+                file: Arc::from("a.md"),
                 span: SourceSpan::new(0, 5, 1, 0),
             },
         });
@@ -105,7 +105,7 @@ mod tests {
         });
 
         match map.origin_at(2) {
-            Some(SourceOrigin::Literal { file, .. }) => assert_eq!(&**file, "a.hick"),
+            Some(SourceOrigin::Literal { file, .. }) => assert_eq!(&**file, "a.md"),
             other => panic!("Expected Literal, got {:?}", other),
         }
         match map.origin_at(7) {
@@ -150,7 +150,7 @@ mod tests {
             output_start: 0,
             output_end: 42,
             origin: SourceOrigin::Literal {
-                file: Arc::from("main.hick"),
+                file: Arc::from("main.md"),
                 span: SourceSpan::new(100, 142, 5, 2),
             },
         });
@@ -192,7 +192,7 @@ mod tests {
         assert_eq!(map2.spans()[0].output_end, 42);
         match &map2.spans()[0].origin {
             SourceOrigin::Literal { file, span } => {
-                assert_eq!(file.as_ref(), "main.hick");
+                assert_eq!(file.as_ref(), "main.md");
                 assert_eq!(span.start, 100);
                 assert_eq!(span.end, 142);
             }
@@ -211,7 +211,7 @@ mod tests {
         let origin = SourceOrigin::Agent {
             session: Arc::from("abc123"),
             turn: 7,
-            file: Some(Arc::from("doc.hick")),
+            file: Some(Arc::from("doc.md")),
             span: Some(SourceSpan::new(10, 20, 3, 0)),
         };
         let json = serde_json::to_string(&origin).unwrap();
@@ -225,7 +225,7 @@ mod tests {
             } => {
                 assert_eq!(session.as_ref(), "abc123");
                 assert_eq!(turn, 7);
-                assert_eq!(file.as_deref(), Some("doc.hick"));
+                assert_eq!(file.as_deref(), Some("doc.md"));
                 assert_eq!(span.unwrap().start, 10);
             }
             other => panic!("Expected Agent, got {other:?}"),
@@ -251,7 +251,7 @@ mod tests {
 
         // And the pre-existing variants are undisturbed.
         let literal = SourceOrigin::Literal {
-            file: Arc::from("main.hick"),
+            file: Arc::from("main.md"),
             span: SourceSpan::new(0, 5, 1, 0),
         };
         let json = serde_json::to_string(&literal).unwrap();

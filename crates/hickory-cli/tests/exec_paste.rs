@@ -11,7 +11,7 @@ fn hick() -> std::process::Command {
 #[test]
 fn a_cells_output_pastes_by_id_and_a_copy_inside_a_claim_registers() {
     let dir = tempfile::tempdir().unwrap();
-    let doc = dir.path().join("n.hick");
+    let doc = dir.path().join("n.md");
     std::fs::write(
         &doc,
         r##"<hick:doc xmlns:hick="http://www.hickorydocs.com/1.0" weave="n.md">

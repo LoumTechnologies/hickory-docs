@@ -36,7 +36,7 @@ printf 'alpha\nbeta\ngamma\n' > out/thing.txt
 
 fn run(source: &str) -> (tempfile::TempDir, String) {
     let dir = tempfile::tempdir().unwrap();
-    let path = dir.path().join("api.hick");
+    let path = dir.path().join("api.md");
     std::fs::write(&path, source).unwrap();
     let out = hick().arg("run").arg(&path).output().unwrap();
     assert!(
@@ -68,7 +68,7 @@ fn the_lines_reach_the_reader_and_the_document_never_gains_them() {
         "the reader is not told where this came from:\n{woven}"
     );
     // The document is the point: it holds the element, not the bytes.
-    let after = std::fs::read_to_string(dir.path().join("api.hick")).unwrap();
+    let after = std::fs::read_to_string(dir.path().join("api.md")).unwrap();
     assert_eq!(after, source, "the run wrote into the document");
     assert!(
         after.contains("hick:sample"),

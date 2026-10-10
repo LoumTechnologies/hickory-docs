@@ -44,7 +44,7 @@ content, and because a failed script costs a full retry loop.
 
 ## E2 — Read surface: document vs raw repo
 
-**Hypothesis.** Reading a `.hick` document (prose intent + cells) costs fewer
+**Hypothesis.** Reading a `.md` document (prose intent + cells) costs fewer
 input tokens to reach a correct edit than reading the generated files plus
 hunting for context, because the document colocates rationale with code.
 
@@ -168,7 +168,7 @@ just tokens-run experiments/token-economics/tasks/e1-edit-surface.json
 just tokens-run experiments/token-economics/tasks/e2-read-surface.json
 just tokens-run experiments/token-economics/tasks/e4-effort-sweep.json
 just tokens-report
-just tokens-count examples/grand-tour.hick examples/grand-tour.md   # E2 static sizes
+just tokens-count examples/grand-tour.md examples/grand-tour.md   # E2 static sizes
 HICKORY_AGENT_LIVE=1 cargo test -p hickory-agent -- --ignored       # E3 live cache test
 ```
 

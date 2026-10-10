@@ -1,6 +1,6 @@
 # Document-View Styling Never Mutates the Source
 
-Given any `.hick` document open in the web app's Document view (the
+Given any `.md` document open in the web app's Document view (the
 Typora-style WYSIWYG editor), when the view styles headings, inline markdown,
 hick tag chrome, cell/file/fragment frames, conditional banners, paste chips,
 inline directive tokens, embedded-language syntax highlighting inside block

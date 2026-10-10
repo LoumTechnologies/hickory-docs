@@ -151,7 +151,7 @@ result is accountable, not the model.
 - **Unresolvable lineage is a designed outcome, not an error.** A byte whose
   session you cannot read still reports the session id, the turn, and the
   committing author. **Shipped** (issue #5): `resolve_reasoning` resolves
-  `<project_dir>/sessions/<id>.hick` and reports *why* it could not — missing,
+  `<project_dir>/sessions/<id>.md` and reports *why* it could not — missing,
   unreadable, unparseable, or a turn the session does not record — rather than
   raising. `blame` does the same for authorship: no git, no repository, an
   untracked file, and an uncommitted line each resolve to a stated outcome, and

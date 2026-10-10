@@ -1,16 +1,16 @@
 //! Cross-document links, as they must read in the woven markdown.
 //!
 //! A note that links to another note is written the way anyone would write
-//! it: `[the plan](plan.hick)`. That is correct in the SOURCE — `plan.hick`
+//! it: `[the plan](plan.md)`. That is correct in the SOURCE — `plan.md`
 //! is the file beside it — and wrong in the WEAVE, because every document
 //! weaves a `.md` of its own name (`docs/specs/freeform/bare-documents.md`)
-//! and the reader of `notes.md` has `plan.md`, not `plan.hick`. A link that
+//! and the reader of `notes.md` has `plan.md`, not `plan.md`. A link that
 //! points at the source from the weave is a link that resolves to a file the
 //! reader may not be looking at, or on a static host, to nothing at all.
 //!
 //! So the weaver rewrites exactly that one thing: the destination of a
 //! markdown link, when it is a relative path inside the folder that ends in
-//! `.hick`. Everything else — the label, the title, a URL, an image, a
+//! `.md`. Everything else — the label, the title, a URL, an image, a
 //! fragment, an absolute path, a link to a `.csv` or a `.png` — is left byte
 //! for byte as written.
 //!
@@ -38,7 +38,7 @@
 use hick_exec::node::{TransformSegment, TransformSegmentOrigin};
 
 /// The extension a document is written with, and the one it weaves.
-const SOURCE_EXT: &str = ".hick";
+const SOURCE_EXT: &str = ".md";
 const WOVEN_EXT: &str = ".md";
 
 /// The destination a link should carry in woven markdown, or `None` when it
@@ -46,7 +46,7 @@ const WOVEN_EXT: &str = ".md";
 ///
 /// `None` for a URL (it has a scheme), for a protocol-relative address, for a
 /// bare `#fragment` (already correct — it points inside the woven file), and
-/// for anything that is not a `.hick` path.
+/// for anything that is not a `.md` path.
 pub(crate) fn woven_target(target: &str) -> Option<String> {
     if target.is_empty() || target.starts_with('#') || target.starts_with("//") {
         return None;
@@ -161,7 +161,7 @@ fn title_start(inner: &str) -> Option<usize> {
     None
 }
 
-/// Split one run of text so every `.hick` destination in it becomes its own
+/// Split one run of text so every `.md` destination in it becomes its own
 /// substituted segment, and everything around it stays passthrough.
 ///
 /// The `pattern` on a substituted segment is the text it REPLACED, not the
@@ -176,6 +176,12 @@ fn split_one(text: &str) -> Vec<TransformSegment> {
         let Some(woven) = woven_target(target.trim()) else {
             continue;
         };
+        // Documents are authored as `.md`, the same extension they weave, so
+        // the rewrite is usually the identity. Marking those bytes
+        // substituted would strip the author's ribbon from an unchanged link.
+        if woven == target.trim() {
+            continue;
+        }
         if start > cursor {
             segments.push(TransformSegment {
                 text: text[cursor..start].to_string(),
@@ -247,24 +253,27 @@ mod tests {
 
     #[test]
     fn a_document_link_points_at_the_markdown_that_document_weaves() {
-        assert_eq!(woven_target("plan.hick").as_deref(), Some("plan.md"));
+        // A document is authored as `.md` and weaves the same `.md`, so these
+        // already name the file the reader sees; the destination is unchanged.
+        assert_eq!(woven_target("plan.md").as_deref(), Some("plan.md"));
         assert_eq!(
-            woven_target("notes/weekly/mon.hick").as_deref(),
+            woven_target("notes/weekly/mon.md").as_deref(),
             Some("notes/weekly/mon.md")
         );
         assert_eq!(
-            woven_target("plan.hick#risks").as_deref(),
+            woven_target("plan.md#risks").as_deref(),
             Some("plan.md#risks")
         );
-        assert_eq!(woven_target("../plan.HICK").as_deref(), Some("../plan.md"));
+        // Not a `.md` document, so not a document link at all.
+        assert_eq!(woven_target("../plan.HICK"), None);
     }
 
     #[test]
     fn everything_that_is_not_a_document_link_is_left_exactly_as_written() {
         for target in [
-            "https://example.com/a.hick",
+            "https://example.com/a.md",
             "mailto:nate@example.com",
-            "//cdn.example.com/a.hick",
+            "//cdn.example.com/a.md",
             "#section",
             "assets/chart.png",
             "data.csv",
@@ -277,7 +286,7 @@ mod tests {
     #[test]
     fn the_rewrite_touches_the_destination_and_nothing_around_it() {
         let out = rewrite_document_links(passthrough(
-            "See [the plan](plan.hick) and [a chart](assets/c.png).",
+            "See [the plan](plan.md) and [a chart](assets/c.png).",
         ));
         assert_eq!(
             text_of(&out),
@@ -286,27 +295,19 @@ mod tests {
     }
 
     #[test]
-    fn only_the_changed_bytes_are_marked_substituted_so_the_prose_keeps_its_ribbon() {
-        let out = rewrite_document_links(passthrough("See [the plan](plan.hick) today."));
-        let kinds: Vec<&str> = out
-            .iter()
-            .map(|s| match s.origin {
-                TransformSegmentOrigin::Passthrough => "source",
-                TransformSegmentOrigin::Substituted { .. } => "woven",
-            })
-            .collect();
-        assert_eq!(kinds, ["source", "woven", "source"]);
-        assert_eq!(out[0].text, "See [the plan](");
-        assert_eq!(out[1].text, "plan.md");
-        assert_eq!(out[2].text, ") today.");
+    fn an_unchanged_document_link_keeps_its_ribbon() {
+        // The source and the weave now share the `.md` extension, so a link to
+        // another document is not rewritten at all — those are the author's
+        // bytes, not the weaver's.
+        let out = rewrite_document_links(passthrough("See [the plan](plan.md) today."));
+        assert_eq!(out.len(), 1);
+        assert!(matches!(out[0].origin, TransformSegmentOrigin::Passthrough));
+        assert_eq!(out[0].text, "See [the plan](plan.md) today.");
     }
 
     #[test]
-    fn the_pattern_is_what_was_replaced_so_later_spans_stay_aligned() {
-        // ProvenanceTransformNode advances through the INPUT by the pattern's
-        // length. A pattern holding the output instead would slide every
-        // span after the first link by the difference in length.
-        let out = rewrite_document_links(passthrough("[a](one.hick) [b](two.hick)"));
+    fn a_run_of_document_links_is_left_byte_for_byte() {
+        let out = rewrite_document_links(passthrough("[a](one.md) [b](two.md)"));
         let patterns: Vec<String> = out
             .iter()
             .filter_map(|s| match &s.origin {
@@ -314,20 +315,20 @@ mod tests {
                 TransformSegmentOrigin::Passthrough => None,
             })
             .collect();
-        assert_eq!(patterns, ["one.hick", "two.hick"]);
+        assert!(patterns.is_empty());
         assert_eq!(text_of(&out), "[a](one.md) [b](two.md)");
     }
 
     #[test]
     fn a_title_after_the_destination_survives() {
-        let out = rewrite_document_links(passthrough("[a](plan.hick \"why it matters\")"));
+        let out = rewrite_document_links(passthrough("[a](plan.md \"why it matters\")"));
         assert_eq!(text_of(&out), "[a](plan.md \"why it matters\")");
     }
 
     #[test]
     fn parentheses_inside_a_url_do_not_end_it_early() {
         let out = rewrite_document_links(passthrough(
-            "[x](https://en.wikipedia.org/wiki/Foo_(bar)) and [y](p.hick)",
+            "[x](https://en.wikipedia.org/wiki/Foo_(bar)) and [y](p.md)",
         ));
         assert_eq!(
             text_of(&out),
@@ -338,13 +339,13 @@ mod tests {
     #[test]
     fn an_image_of_a_document_is_still_rewritten_and_a_broken_link_is_not_touched() {
         assert_eq!(
-            text_of(&rewrite_document_links(passthrough("![a](p.hick)"))),
+            text_of(&rewrite_document_links(passthrough("![a](p.md)"))),
             "![a](p.md)"
         );
         // Unclosed, and spanning a newline: a typo, left alone.
         assert_eq!(
-            text_of(&rewrite_document_links(passthrough("[a](p.hick\n)"))),
-            "[a](p.hick\n)"
+            text_of(&rewrite_document_links(passthrough("[a](p.md\n)"))),
+            "[a](p.md\n)"
         );
     }
 
@@ -358,11 +359,11 @@ mod tests {
     #[test]
     fn a_link_inside_a_substituted_value_is_left_to_the_substitution() {
         let out = rewrite_document_links(vec![TransformSegment {
-            text: "[a](p.hick)".to_string(),
+            text: "[a](p.md)".to_string(),
             origin: TransformSegmentOrigin::Substituted {
                 pattern: "{{link}}".to_string(),
             },
         }]);
-        assert_eq!(text_of(&out), "[a](p.hick)");
+        assert_eq!(text_of(&out), "[a](p.md)");
     }
 }

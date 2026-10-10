@@ -26,7 +26,7 @@ hick \\d+\\.\\d+\\.\\d+
 Initialise a project. This installs the pre-commit verification hook:
 
 <hick:exec container="shell">
-hick init demo && ls demo/.hick
+hick init demo && ls demo/.md
 </hick:exec>
 
 Write a document and run it. Output below is captured as a timed
@@ -53,7 +53,7 @@ const versionTranscript: TranscriptEvent[] = [
 ];
 
 const initTranscript: TranscriptEvent[] = [
-  { t: 0, kind: "cmd", data: "hick init demo && ls demo/.hick" },
+  { t: 0, kind: "cmd", data: "hick init demo && ls demo/.md" },
   { t: 420, kind: "out", data: "initialised demo/\n" },
   { t: 700, kind: "out", data: "installed pre-commit hook (sentinel-delimited)\n" },
   { t: 1100, kind: "out", data: "cache  git  hooks\n" },
@@ -86,8 +86,8 @@ export const CLI_BLOCKS: Block[] = [
     kind: "exec",
     id: "cli-init",
     container: "shell",
-    command: "hick init demo && ls demo/.hick",
-    span: span(CLI_SOURCE, '<hick:exec container="shell">\nhick init demo && ls demo/.hick\n</hick:exec>'),
+    command: "hick init demo && ls demo/.md",
+    span: span(CLI_SOURCE, '<hick:exec container="shell">\nhick init demo && ls demo/.md\n</hick:exec>'),
     transcript: initTranscript,
     status: "ok",
   },

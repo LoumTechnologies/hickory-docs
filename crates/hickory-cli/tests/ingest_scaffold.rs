@@ -4,7 +4,7 @@
 //! and `docs/guarantees/lineage/ingested-bytes-are-not-yours.md`.
 //!
 //! Drives the real binary against a real run, because the claim being made is
-//! about what ends up in the `.hick` file on disk and what the document then
+//! about what ends up in the `.md` file on disk and what the document then
 //! produces from it — not about a function in isolation.
 
 use std::path::Path;
@@ -65,7 +65,7 @@ fn repo(dir: &Path, gitignore: &str) {
 fn an_ingest_writes_the_runs_files_into_the_document_and_skips_what_git_ignores() {
     let dir = tempfile::tempdir().unwrap();
     repo(dir.path(), "obj/\n");
-    let doc = dir.path().join("app.hick");
+    let doc = dir.path().join("app.md");
     std::fs::write(&doc, doc_source()).unwrap();
 
     let out = hick()
@@ -116,7 +116,7 @@ fn ingesting_outside_a_git_repository_warns_that_gitignore_was_never_consulted()
     // which is exactly the case `gitignored()` returns `None` for — "could
     // not check" rather than "checked, found nothing to skip".
     let dir = tempfile::tempdir().unwrap();
-    let doc = dir.path().join("app.hick");
+    let doc = dir.path().join("app.md");
     std::fs::write(&doc, doc_source()).unwrap();
 
     let out = hick()
@@ -150,7 +150,7 @@ fn the_ingested_document_produces_the_scaffold_from_a_clone() {
     // the scaffolder's files.
     let dir = tempfile::tempdir().unwrap();
     repo(dir.path(), "obj/\n");
-    let doc = dir.path().join("app.hick");
+    let doc = dir.path().join("app.md");
     std::fs::write(&doc, doc_source()).unwrap();
     assert!(
         hick()
@@ -186,7 +186,7 @@ fn an_ingested_body_starts_on_its_own_line_without_changing_a_byte() {
     // impossible then and makes it safe now.
     let dir = tempfile::tempdir().unwrap();
     repo(dir.path(), "obj/\n");
-    let doc = dir.path().join("app.hick");
+    let doc = dir.path().join("app.md");
     std::fs::write(&doc, doc_source()).unwrap();
     assert!(
         hick()
@@ -226,7 +226,7 @@ fn ingested_bytes_report_their_run_rather_than_reading_as_yours() {
     // you most want to edit.
     let dir = tempfile::tempdir().unwrap();
     repo(dir.path(), "obj/\n");
-    let doc = dir.path().join("app.hick");
+    let doc = dir.path().join("app.md");
     std::fs::write(&doc, doc_source()).unwrap();
     assert!(
         hick()
@@ -259,7 +259,7 @@ fn ingested_bytes_report_their_run_rather_than_reading_as_yours() {
 fn a_second_ingest_is_refused_and_names_the_recorded_base() {
     let dir = tempfile::tempdir().unwrap();
     repo(dir.path(), "obj/\n");
-    let doc = dir.path().join("app.hick");
+    let doc = dir.path().join("app.md");
     std::fs::write(&doc, doc_source()).unwrap();
     assert!(
         hick()
@@ -299,7 +299,7 @@ fn a_binary_the_project_would_keep_is_refused_by_name() {
     // silently mangled.
     let dir = tempfile::tempdir().unwrap();
     repo(dir.path(), "");
-    let doc = dir.path().join("app.hick");
+    let doc = dir.path().join("app.md");
     let write = if cfg!(windows) {
         // `certutil -decode` is the portable-enough way to land a NUL byte.
         "mkdir out & echo hello> out\\main.txt & copy /b nul out\\logo.png & echo. >> out\\logo.png"
@@ -347,7 +347,7 @@ fn a_binary_the_project_would_keep_is_refused_by_name() {
 fn an_id_that_is_not_in_a_cell_is_refused_with_the_ids_that_are() {
     let dir = tempfile::tempdir().unwrap();
     repo(dir.path(), "");
-    let doc = dir.path().join("app.hick");
+    let doc = dir.path().join("app.md");
     std::fs::write(&doc, doc_source()).unwrap();
 
     let out = hick()
@@ -369,7 +369,7 @@ fn the_app_shows_the_ingested_files_as_blocks_and_not_as_the_command() {
     // have been invisible in the editor.
     let dir = tempfile::tempdir().unwrap();
     repo(dir.path(), "obj/\n");
-    let doc = dir.path().join("app.hick");
+    let doc = dir.path().join("app.md");
     std::fs::write(&doc, doc_source()).unwrap();
     assert!(
         hick()
@@ -410,7 +410,7 @@ fn ingesting_does_not_move_the_files_the_volume_already_placed() {
     // file appearing in a new place on the next run.
     let dir = tempfile::tempdir().unwrap();
     repo(dir.path(), "obj/\n");
-    let doc = dir.path().join("app.hick");
+    let doc = dir.path().join("app.md");
     std::fs::write(&doc, doc_source()).unwrap();
 
     // Where it lands BEFORE the ingest.
@@ -466,7 +466,7 @@ fn an_ingest_takes_the_volume_and_not_the_documents_own_files() {
     // written them.
     let dir = tempfile::tempdir().unwrap();
     repo(dir.path(), "");
-    let doc = dir.path().join("app.hick");
+    let doc = dir.path().join("app.md");
     let write = if cfg!(windows) {
         "mkdir out & echo scaffolded> out\\generated.txt"
     } else {

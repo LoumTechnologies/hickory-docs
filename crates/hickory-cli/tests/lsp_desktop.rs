@@ -64,7 +64,7 @@ async fn open_app() -> App {
         "[project]\nname = \"fixture\"\nversion = \"0.1.0\"\n",
     )
     .unwrap();
-    std::fs::write(root.join("doc.hick"), DOC).unwrap();
+    std::fs::write(root.join("doc.md"), DOC).unwrap();
 
     let prepared = prepare(ServeOptions {
         target: root.clone(),
@@ -112,7 +112,7 @@ async fn the_apps_window_gets_answers_in_document_coordinates() {
 
     // The document is addressed in the CLIENT's scheme. The browser never
     // learns where the file is on disk, and the bridge rewrites it both ways.
-    let uri = "hick:///doc.hick";
+    let uri = "hick:///doc.md";
     send(&mut socket, json!({
         "jsonrpc": "2.0",
         "method": "textDocument/didOpen",
@@ -207,12 +207,12 @@ async fn a_sessions_problems_reach_the_window_as_diagnostics() {
     // The room is any open document's; the text the window sends is what
     // gets linted, exactly as when a session tab opens in the app.
     let app = open_app().await;
-    std::fs::write(app.root.join("session.hick"), SESSION).unwrap();
+    std::fs::write(app.root.join("session.md"), SESSION).unwrap();
     let url = format!("{}/api/ws?doc=doc:{}", app.base, app.doc_id);
     let (mut socket, _) = tokio_tungstenite::connect_async(&url)
         .await
         .expect("the app's window connects");
-    let uri = "hick:///session.hick";
+    let uri = "hick:///session.md";
     send(&mut socket, json!({
         "jsonrpc": "2.0",
         "method": "textDocument/didOpen",
@@ -273,7 +273,7 @@ async fn a_window_opened_where_no_server_exists_still_works() {
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path().to_path_buf();
     std::fs::write(
-        root.join("doc.hick"),
+        root.join("doc.md"),
         "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n\
          <hick:doc xmlns:hick=\"http://www.hickorydocs.com/1.0\" weave=\"out.md\">\n\
          # No server for this\n\n\
@@ -303,11 +303,11 @@ async fn a_window_opened_where_no_server_exists_still_works() {
 
     let url = format!("ws://127.0.0.1:{port}/api/ws?doc=doc:{doc_id}");
     let (mut socket, _) = tokio_tungstenite::connect_async(&url).await.unwrap();
-    let text = std::fs::read_to_string(root.join("doc.hick")).unwrap();
+    let text = std::fs::read_to_string(root.join("doc.md")).unwrap();
     send(&mut socket, json!({
         "jsonrpc": "2.0",
         "method": "textDocument/didOpen",
-        "params": {"textDocument": {"uri": "hick:///doc.hick", "languageId": "hick", "version": 1, "text": text}},
+        "params": {"textDocument": {"uri": "hick:///doc.md", "languageId": "hick", "version": 1, "text": text}},
     }))
     .await;
 
@@ -326,7 +326,7 @@ async fn a_window_opened_where_no_server_exists_still_works() {
     let hover = request_until(
         &mut socket,
         "textDocument/hover",
-        json!({"textDocument": {"uri": "hick:///doc.hick"}, "position": {"line": 5, "character": 2}}),
+        json!({"textDocument": {"uri": "hick:///doc.md"}, "position": {"line": 5, "character": 2}}),
         Duration::from_secs(5),
     )
     .await;

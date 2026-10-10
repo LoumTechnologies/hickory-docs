@@ -43,7 +43,7 @@ struct Session {
 
 impl Session {
     fn doc_path(&self) -> PathBuf {
-        self.root.join("demo.hick")
+        self.root.join("demo.md")
     }
     fn source_on_disk(&self) -> String {
         std::fs::read_to_string(self.doc_path()).unwrap()
@@ -52,11 +52,11 @@ impl Session {
 
 async fn start() -> Session {
     let dir = tempfile::tempdir().unwrap();
-    std::fs::write(dir.path().join("demo.hick"), DOC).unwrap();
+    std::fs::write(dir.path().join("demo.md"), DOC).unwrap();
     let root = dir.path().canonicalize().unwrap();
 
     let prepared = prepare(ServeOptions {
-        target: root.join("demo.hick"),
+        target: root.join("demo.md"),
         port: 0,
         params: Vec::new(),
         executor: ExecutorChoice::Local,
@@ -167,7 +167,7 @@ async fn the_language_channel_answers_in_document_coordinates() {
             "jsonrpc": "2.0",
             "method": "textDocument/didOpen",
             "params": { "textDocument": {
-                "uri": "hick:///demo.hick",
+                "uri": "hick:///demo.md",
                 "languageId": "hick",
                 "version": 1,
                 "text": DOC,
@@ -178,7 +178,7 @@ async fn the_language_channel_answers_in_document_coordinates() {
 
     let published = next_lsp(&mut ws, "textDocument/publishDiagnostics").await;
     // The browser never learns where this project lives on disk.
-    assert_eq!(published["params"]["uri"], "hick:///demo.hick");
+    assert_eq!(published["params"]["uri"], "hick:///demo.md");
     assert!(
         published["params"]["diagnostics"].is_array(),
         "a publish always carries a list, even an empty one: {published}"
@@ -193,7 +193,7 @@ async fn the_language_channel_answers_in_document_coordinates() {
             "id": 1,
             "method": "textDocument/hover",
             "params": {
-                "textDocument": { "uri": "hick:///demo.hick" },
+                "textDocument": { "uri": "hick:///demo.md" },
                 // The `<hick:paste select="#greet" />` line.
                 "position": { "line": 6, "character": 30 },
             },
@@ -231,7 +231,7 @@ async fn the_language_channel_answers_in_document_coordinates() {
 async fn structure_names_definitions_and_links_references_to_them() {
     let dir = tempfile::tempdir().unwrap();
     std::fs::write(
-        dir.path().join("code.hick"),
+        dir.path().join("code.md"),
         r##"<?xml version="1.0" encoding="UTF-8"?>
 <hick:doc xmlns:hick="http://www.hickorydocs.com/1.0" weave="code.md">
 <hick:file path="app.py">

@@ -45,13 +45,13 @@ async fn an_edit_to_included_content_lands_in_the_included_file() {
     let dir = tempfile::tempdir().unwrap();
     let chapter = write_doc(
         dir.path(),
-        "chapter.hick",
+        "chapter.md",
         "<hick:file path=\"app.py\">def helper():\n    return 41\n</hick:file>",
     );
     let main = write_doc(
         dir.path(),
-        "main.hick",
-        "Main prose.\n<hick:include file=\"chapter.hick\" />",
+        "main.md",
+        "Main prose.\n<hick:include file=\"chapter.md\" />",
     );
 
     let run = weave(&main).await;
@@ -60,8 +60,8 @@ async fn an_edit_to_included_content_lands_in_the_included_file() {
 
     let provenance = output_lineage(&run, "app.py").expect("app.py has lineage");
 
-    // Every editable byte of this output must name chapter.hick, not
-    // main.hick — the offsets are chapter.hick's.
+    // Every editable byte of this output must name chapter.md, not
+    // main.md — the offsets are chapter.md's.
     let chapter_canonical = chapter.canonicalize().unwrap();
     let chapter_source = std::fs::read_to_string(&chapter).unwrap();
     let mut saw_chapter = false;
@@ -78,7 +78,7 @@ async fn an_edit_to_included_content_lands_in_the_included_file() {
             assert_eq!(
                 &chapter_source[s..e],
                 &content[p.start..p.end],
-                "span {s}..{e} of chapter.hick does not match output {}..{}",
+                "span {s}..{e} of chapter.md does not match output {}..{}",
                 p.start,
                 p.end
             );
@@ -118,13 +118,13 @@ async fn an_edit_to_included_content_lands_in_the_included_file() {
         std::fs::read_to_string(&chapter)
             .unwrap()
             .contains("return 42"),
-        "edit did not land in chapter.hick"
+        "edit did not land in chapter.md"
     );
     let main_source = std::fs::read_to_string(&main).unwrap();
     assert!(main_source.contains("Main prose."), "{main_source}");
     assert!(
         !main_source.contains("42"),
-        "main.hick was corrupted: {main_source}"
+        "main.md was corrupted: {main_source}"
     );
 
     // And the round trip closes: re-weaving reproduces the edited output.
@@ -139,13 +139,13 @@ async fn an_edit_to_a_pasted_upstream_fragment_lands_upstream() {
     let dir = tempfile::tempdir().unwrap();
     let notes = write_doc(
         dir.path(),
-        "notes.hick",
+        "notes.md",
         "<hick:copy id=\"rule\">Refuse, do not queue.</hick:copy>",
     );
     let main = write_doc(
         dir.path(),
-        "main.hick",
-        "<hick:upstream file=\"notes.hick\" />\n<hick:file path=\"rules.txt\">\
+        "main.md",
+        "<hick:upstream file=\"notes.md\" />\n<hick:file path=\"rules.txt\">\
          <hick:paste select=\"#rule\" /></hick:file>",
     );
 
@@ -167,7 +167,7 @@ async fn an_edit_to_a_pasted_upstream_fragment_lands_upstream() {
         source_edits
             .iter()
             .all(|e| Path::new(&e.doc_path) == notes_canonical),
-        "expected the edit to route to notes.hick: {source_edits:?}"
+        "expected the edit to route to notes.md: {source_edits:?}"
     );
 
     let mut sources = HashMap::new();
@@ -194,9 +194,9 @@ async fn an_edit_to_a_pasted_upstream_fragment_lands_upstream() {
 #[test]
 fn a_mid_character_source_span_is_an_error_not_a_panic() {
     let mut sources = HashMap::new();
-    sources.insert("doc.hick".to_string(), "café".to_string());
+    sources.insert("doc.md".to_string(), "café".to_string());
     let edits = vec![hickory_lineage::SourceEdit {
-        doc_path: "doc.hick".into(),
+        doc_path: "doc.md".into(),
         span: (3, 4), // inside the two-byte 'é'
         text: "x".into(),
     }];

@@ -18,7 +18,7 @@ decision.
 
 **The carry is what moves between them**, and it is not the transcript: a
 better opening prompt, the tests you kept, the approaches you ruled out.
-`hick ingest --from carry <session>` writes the opening prompt into an ordinary `.hick`
+`hick ingest --from carry <session>` writes the opening prompt into an ordinary `.md`
 document and leaves the rest as empty, named slots.
 
 Corollaries that are part of the guarantee:
@@ -30,7 +30,7 @@ Corollaries that are part of the guarantee:
   wanted, and carrying all of them binds the next attempt to the first one's
   arbitrary decisions while appearing to have chosen freely. The guard is not
   mechanical, and the tool must not pretend otherwise.
-- **A carry invents no fourth artifact.** It is an ordinary `.hick` document:
+- **A carry invents no fourth artifact.** It is an ordinary `.md` document:
   no new file type, no new store, no new gitignore rule.
 - **A carry is written outside `sessions/`**, and therefore committed by
   default. `sessions/` is gitignored, and a carry that vanished with the

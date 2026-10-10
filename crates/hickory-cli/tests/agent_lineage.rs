@@ -33,11 +33,11 @@ fn repo_with_committed_doc() -> tempfile::TempDir {
     git(dir.path(), &["config", "user.name", "Nate Loum"]);
     git(dir.path(), &["config", "user.email", "nate@example.com"]);
     std::fs::write(
-        dir.path().join("doc.hick"),
+        dir.path().join("doc.md"),
         "first line\nsecond line\nthird line\n",
     )
     .unwrap();
-    git(dir.path(), &["add", "doc.hick"]);
+    git(dir.path(), &["add", "doc.md"]);
     git(dir.path(), &["commit", "-q", "-m", "agent work"]);
     dir
 }
@@ -50,7 +50,7 @@ fn agent_span(session: &str, turn: usize, doc_span: Option<SourceSpan>) -> Prove
         origin: SourceOrigin::Agent {
             session: Arc::from(session),
             turn,
-            file: doc_span.map(|_| Arc::from("doc.hick")),
+            file: doc_span.map(|_| Arc::from("doc.md")),
             span: doc_span,
         },
     });
@@ -66,7 +66,7 @@ fn agent_bytes_render_session_turn_author_and_missing_reasoning() {
     let (session, turn) = provenance[0].origin.agent().expect("agent origin");
     let (_, doc_start, _) = provenance[0].origin.location().expect("document span");
 
-    let doc_source = std::fs::read_to_string(dir.path().join("doc.hick")).unwrap();
+    let doc_source = std::fs::read_to_string(dir.path().join("doc.md")).unwrap();
     let entry = agent_lineage::describe(
         dir.path(),
         "foo.rs",
@@ -74,7 +74,7 @@ fn agent_bytes_render_session_turn_author_and_missing_reasoning() {
         session,
         turn,
         Some((
-            Path::new("doc.hick"),
+            Path::new("doc.md"),
             agent_lineage::line_of(&doc_source, doc_start),
         )),
     );
@@ -117,7 +117,7 @@ fn uncommitted_agent_work_is_attributed_to_the_reader() {
     let dir = repo_with_committed_doc();
     // The agent edited the document but nobody has committed it yet.
     std::fs::write(
-        dir.path().join("doc.hick"),
+        dir.path().join("doc.md"),
         "first line\nrewritten by the agent\nthird line\n",
     )
     .unwrap();
@@ -127,7 +127,7 @@ fn uncommitted_agent_work_is_attributed_to_the_reader() {
         42,
         "abc123",
         7,
-        Some((Path::new("doc.hick"), 2)),
+        Some((Path::new("doc.md"), 2)),
     );
     match &entry.authorship {
         Authorship::Uncommitted { who } => assert!(who.contains("Nate Loum"), "{who}"),
@@ -159,7 +159,7 @@ fn a_readable_session_is_reported_as_readable() {
         42,
         "abc123",
         0,
-        Some((Path::new("doc.hick"), 2)),
+        Some((Path::new("doc.md"), 2)),
     );
     assert!(matches!(entry.reasoning, Reasoning::Available { .. }));
     assert!(entry.to_string().contains("reasoning in "), "{entry}");

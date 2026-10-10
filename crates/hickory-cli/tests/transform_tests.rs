@@ -32,7 +32,7 @@ fn stamped() -> String {
 
 #[test]
 fn a_passage_whose_input_is_unchanged_is_not_stale() {
-    let failures = stale_transforms(std::path::Path::new("d.hick"), &stamped()).unwrap();
+    let failures = stale_transforms(std::path::Path::new("d.md"), &stamped()).unwrap();
     assert!(failures.is_empty(), "{failures:?}");
 }
 
@@ -41,7 +41,7 @@ fn changing_the_input_makes_the_passage_stale() {
     // The exact failure this element exists to close: a number in the machine
     // form moves and the prose beside it keeps saying the old one.
     let drifted = stamped().replace(r#""open": 300,"#, r#""open": 500,"#);
-    let failures = stale_transforms(std::path::Path::new("d.hick"), &drifted).unwrap();
+    let failures = stale_transforms(std::path::Path::new("d.md"), &drifted).unwrap();
     assert_eq!(failures.len(), 1);
     match &failures[0] {
         CheckFailure::StaleTransform { select, line, .. } => {
@@ -57,7 +57,7 @@ fn changing_the_instruction_makes_the_passage_stale() {
     // Otherwise "summarize" -> "summarize briefly" would leave stale prose
     // still carrying its attestation.
     let reworded = stamped().replace("One sentence. Numbers exact.", "One sentence. Be terse.");
-    let failures = stale_transforms(std::path::Path::new("d.hick"), &reworded).unwrap();
+    let failures = stale_transforms(std::path::Path::new("d.md"), &reworded).unwrap();
     assert_eq!(
         failures.len(),
         1,
@@ -73,7 +73,7 @@ fn editing_the_passage_by_hand_does_not_make_it_stale() {
         "Open allows 300 execution minutes a month; Pro allows 2,000.",
         "Open gives you 300 minutes of execution each month. Pro gives 2,000.",
     );
-    let failures = stale_transforms(std::path::Path::new("d.hick"), &edited).unwrap();
+    let failures = stale_transforms(std::path::Path::new("d.md"), &edited).unwrap();
     assert!(
         failures.is_empty(),
         "hand-editing a passage is not drift: {failures:?}"
@@ -83,7 +83,7 @@ fn editing_the_passage_by_hand_does_not_make_it_stale() {
 #[tokio::test(flavor = "multi_thread")]
 async fn weaving_emits_the_pinned_passage_and_calls_no_model() {
     let dir = tempfile::tempdir().unwrap();
-    let doc_path = dir.path().join("d.hick");
+    let doc_path = dir.path().join("d.md");
     let source = stamped()
         .replace(
             "<hick:transform select",
@@ -118,15 +118,15 @@ async fn weaving_emits_the_pinned_passage_and_calls_no_model() {
 #[test]
 fn a_transform_over_an_upstream_fragment_fingerprints_the_upstream_bytes() {
     let dir = tempfile::tempdir().unwrap();
-    let meeting = dir.path().join("meeting.hick");
-    let note = dir.path().join("note.hick");
+    let meeting = dir.path().join("meeting.md");
+    let note = dir.path().join("note.md");
     std::fs::write(
         &meeting,
         r##"<hick:copy id="decision" class="decision">Ship on Friday.</hick:copy>
 "##,
     )
     .unwrap();
-    let note_src = r##"<hick:upstream file="meeting.hick" />
+    let note_src = r##"<hick:upstream file="meeting.md" />
 
 <hick:transform select="#decision" from="FINGERPRINT" instruct="One line.">
 We ship Friday.
@@ -160,8 +160,8 @@ We ship Friday.
 #[test]
 fn an_included_files_transforms_are_not_the_includers() {
     let dir = tempfile::tempdir().unwrap();
-    let chapter = dir.path().join("chapter.hick");
-    let book = dir.path().join("book.hick");
+    let chapter = dir.path().join("chapter.md");
+    let book = dir.path().join("book.md");
     std::fs::write(
         &chapter,
         r##"<hick:copy id="facts" class="facts">Three states.</hick:copy>
@@ -171,7 +171,7 @@ Old summary.
 "##,
     )
     .unwrap();
-    std::fs::write(&book, "<hick:include file=\"chapter.hick\" />\n").unwrap();
+    std::fs::write(&book, "<hick:include file=\"chapter.md\" />\n").unwrap();
     let source = std::fs::read_to_string(&book).unwrap();
     let failures = stale_transforms(&book, &source).unwrap();
     assert!(failures.is_empty(), "{failures:?}");
@@ -186,7 +186,7 @@ Old summary.
 #[test]
 fn a_check_is_a_transform_with_the_question_built_in() {
     let src = "<hick:copy id=\"m1\" class=\"message\">We ship Friday.</hick:copy>\n<hick:copy id=\"f\" class=\"finding\">Ship date: Friday.</hick:copy>\n<hick:check claim=\"#m1\" against=\".finding\" from=\"FP\">\nBACKED.\n</hick:check>\n";
-    let doc = hickory_cli::transform_document(std::path::Path::new("d.hick"), src).unwrap();
+    let doc = hickory_cli::transform_document(std::path::Path::new("d.md"), src).unwrap();
     let check = doc.tags().find(|t| t.name == "check").unwrap();
     let (select, instruct) = hickory_cli::transform_spec(check);
     assert_eq!(select, "#m1,.finding");
@@ -194,13 +194,13 @@ fn a_check_is_a_transform_with_the_question_built_in() {
     let fp = hick_lang::transform_fingerprint(&transform_input(&doc, &select), &instruct);
     let stamped = src.replace("FP", &fp);
     assert!(
-        stale_transforms(std::path::Path::new("d.hick"), &stamped)
+        stale_transforms(std::path::Path::new("d.md"), &stamped)
             .unwrap()
             .is_empty()
     );
     let drifted = stamped.replace("Ship date: Friday.", "Ship date: Monday.");
     assert_eq!(
-        stale_transforms(std::path::Path::new("d.hick"), &drifted)
+        stale_transforms(std::path::Path::new("d.md"), &drifted)
             .unwrap()
             .len(),
         1
@@ -214,7 +214,7 @@ fn a_check_is_a_transform_with_the_question_built_in() {
 #[test]
 fn the_transform_input_is_one_labelled_paragraph_per_fragment() {
     let src = "<hick:transcript id=\"t\" format=\"vtt\">\nWEBVTT\n\n00:00:01.000 --> 00:00:02.000\n<v Sam>Ship it.\n\n00:00:03.000 --> 00:00:04.000\n<v Ana>Not yet.\n</hick:transcript>\n<hick:copy id=\"m1\" class=\"message\">We ship.</hick:copy>\n";
-    let doc = hickory_cli::transform_document(std::path::Path::new("d.hick"), src).unwrap();
+    let doc = hickory_cli::transform_document(std::path::Path::new("d.md"), src).unwrap();
     assert_eq!(
         transform_input(&doc, "#m1,.said-ana"),
         "[#t-u2] Ana (00:00:03.000): Not yet.\n\n[#m1] We ship."

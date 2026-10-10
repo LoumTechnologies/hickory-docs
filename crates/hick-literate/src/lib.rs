@@ -1,6 +1,6 @@
 //! Hick pipeline library.
 //!
-//! Provides the core pipeline for processing `.hick` sources: parsing,
+//! Provides the core pipeline for processing `.md` sources: parsing,
 //! DAG validation, container capability extraction, copy/paste resolution,
 //! and file output collection — all without touching the filesystem.
 
@@ -184,7 +184,7 @@ pub struct PipelineResult {
     /// File path -> rendered content for each `<hick:file>` tag.
     pub files: HashMap<String, FileContent>,
     /// File path -> character-level provenance map for each `<hick:file>` output.
-    /// Maps output byte ranges back to their source `.hick` file positions.
+    /// Maps output byte ranges back to their source `.md` file positions.
     pub provenance_maps: HashMap<String, ProvenanceMap>,
     /// Container name -> parsed capabilities for each `<hick:container>` tag.
     pub containers: HashMap<String, ContainerCapabilities>,
@@ -330,7 +330,7 @@ fn declares_private(nodes: &[HickNode]) -> bool {
         .any(|node| matches!(node, HickNode::Tag(tag) if tag.name == "private"))
 }
 
-/// Append a `hick:upstream` edge for every other `.hick` beside this one.
+/// Append a `hick:upstream` edge for every other `.md` beside this one.
 ///
 /// Directory-scoped and not recursive: a folder is the unit a person can hold
 /// in their head, and walking a whole repository would let a fragment in some
@@ -683,7 +683,7 @@ async fn process_pipeline_outputs(
     // Process weave output if enabled
     weave::process_weave_output(documents, &handler_transcripts, state, &registry);
 
-    // --- Rounds 1..max_rounds: re-evaluate .hick files produced by containers ---
+    // --- Rounds 1..max_rounds: re-evaluate .md files produced by containers ---
     if max_rounds > 1 {
         let mut prev_hick_paths: std::collections::HashSet<String> =
             std::collections::HashSet::new();
@@ -691,13 +691,13 @@ async fn process_pipeline_outputs(
         for round in 1..max_rounds {
             let files = state.get_files().await;
 
-            // Find new .hick files in output — from `<hick:file>` blocks and
+            // Find new .md files in output — from `<hick:file>` blocks and
             // from output VOLUMES both, since a generator writes into a
             // volume and those bytes are merged into `files` only after this
             // whole function has returned.
             let mut hick_sources: Vec<(String, String)> = files
                 .iter()
-                .filter(|(path, _)| path.ends_with(".hick"))
+                .filter(|(path, _)| path.ends_with(".md"))
                 .filter_map(|(path, content)| {
                     if let FileContent::Text(s) = content {
                         Some((path.clone(), s.clone()))
@@ -710,11 +710,11 @@ async fn process_pipeline_outputs(
             hick_sources.sort();
             hick_sources.dedup();
 
-            // Check convergence: no new .hick files
+            // Check convergence: no new .md files
             let current_paths: std::collections::HashSet<String> =
                 hick_sources.iter().map(|(p, _)| p.clone()).collect();
             if current_paths.is_subset(&prev_hick_paths) {
-                info!("Pipeline converged after {round} rounds (no new .hick files)");
+                info!("Pipeline converged after {round} rounds (no new .md files)");
                 break;
             }
             prev_hick_paths = current_paths;
@@ -723,16 +723,16 @@ async fn process_pipeline_outputs(
                 break;
             }
 
-            // Parse new .hick sources and process them
+            // Parse new .md sources and process them
             let mut new_documents = Vec::new();
             for (path, source) in &hick_sources {
                 match hick_lang::parse(source) {
                     Ok(doc) => {
-                        info!("Round {round}: processing generated .hick file: {path}");
+                        info!("Round {round}: processing generated .md file: {path}");
                         new_documents.push((path.as_str(), doc));
                     }
                     Err(e) => {
-                        warn!("Round {round}: failed to parse generated .hick file {path}: {e}");
+                        warn!("Round {round}: failed to parse generated .md file {path}: {e}");
                     }
                 }
             }
@@ -1521,7 +1521,7 @@ fn mounted_inputs_digest(
                     // itself and not input to anything. Without this, keeping
                     // a recording in one document staled every cell in the
                     // folder that mounted it.
-                    let body = if path.ends_with(".hick") {
+                    let body = if path.ends_with(".md") {
                         strip_kept_recordings(&body)
                     } else {
                         body
@@ -1783,7 +1783,7 @@ pub struct PipelineConfig {
     pub working_dir: Option<PathBuf>,
     /// Maximum pipeline rounds. `1` (default) preserves single-pass behavior.
     /// Higher values enable reactive re-evaluation of paste selectors that
-    /// reference content from container-generated `.hick` files.
+    /// reference content from container-generated `.md` files.
     pub max_rounds: usize,
     /// Optional per-exec live event hook (server run streaming).
     pub on_exec: Option<ExecEventHook>,
@@ -3497,10 +3497,10 @@ pub struct MultiStagePipelineResult {
 
 /// Run a multi-stage pipeline.
 ///
-/// Detects `.hick` files in the output of each stage and feeds them as
+/// Detects `.md` files in the output of each stage and feeds them as
 /// sources to the next stage. Repeats up to `max_stages` times.
 ///
-/// Files with `.hick` extension are removed from the final output (they
+/// Files with `.md` extension are removed from the final output (they
 /// are intermediate).
 pub async fn run_pipeline_multi_stage(
     sources: &[(&str, &str)],
@@ -3527,17 +3527,17 @@ pub async fn run_pipeline_multi_stage(
 
         let result = run_pipeline(&source_refs, params).await?;
 
-        // Separate .hick outputs from regular outputs
+        // Separate .md outputs from regular outputs
         let mut hick_files: Vec<(String, String)> = Vec::new();
         let mut regular_files: HashMap<String, FileContent> = HashMap::new();
 
         for (path, content) in result.files {
-            if path.ends_with(".hick") {
-                // .hick files must be text to feed as sources to next stage
+            if path.ends_with(".md") {
+                // .md files must be text to feed as sources to next stage
                 let text = match content {
                     FileContent::Text(s) => s,
                     FileContent::Binary(_) => {
-                        warn!("Binary .hick file '{}' skipped", path);
+                        warn!("Binary .md file '{}' skipped", path);
                         continue;
                     }
                 };
@@ -3565,28 +3565,28 @@ pub async fn run_pipeline_multi_stage(
             all_files.insert(path, content);
         }
 
-        // If no .hick files produced, we're done
+        // If no .md files produced, we're done
         if hick_files.is_empty() {
-            info!("Stage {stage_num} produced no .hick files; pipeline complete");
+            info!("Stage {stage_num} produced no .md files; pipeline complete");
             return Ok(MultiStagePipelineResult {
                 files: all_files,
                 provenance,
             });
         }
 
-        // Feed .hick files as sources to next stage
+        // Feed .md files as sources to next stage
         info!(
-            "Stage {stage_num} produced {} .hick file(s); feeding to stage {}",
+            "Stage {stage_num} produced {} .md file(s); feeding to stage {}",
             hick_files.len(),
             stage_num + 1
         );
         current_sources = hick_files;
     }
 
-    // Reached max stages and still producing .hick files
+    // Reached max stages and still producing .md files
     let offending: Vec<String> = current_sources.iter().map(|(n, _)| n.clone()).collect();
     Err(anyhow::anyhow!(
-        "multi-stage pipeline reached limit ({max_stages} stages) but still producing .hick files: {}",
+        "multi-stage pipeline reached limit ({max_stages} stages) but still producing .md files: {}",
         offending.join(", ")
     ))
 }
@@ -3888,14 +3888,14 @@ fn extract_verify_from_nodes(
 ///
 /// - If `path` is a file, return it directly.
 /// - If `path` is a directory with `_hick.yml`, use that config to resolve files.
-/// - If `path` is a directory without config, expand `**/*.hick`.
+/// - If `path` is a directory without config, expand `**/*.md`.
 pub fn expand_path_arg(path: &Path) -> Result<(Vec<PathBuf>, Option<PathBuf>)> {
     use anyhow::{Context as _, bail};
     use config::HickConfig;
     if path.is_file() {
         if path.extension().and_then(|e| e.to_str()) == Some("hick") {
             bail!(
-                "{} is a legacy .hick document. Rename it to .md after removing its generated sibling; Hickory no longer writes a generated Markdown sibling.",
+                "{} is a legacy .md document. Rename it to .md after removing its generated sibling; Hickory no longer writes a generated Markdown sibling.",
                 path.display()
             );
         }
@@ -3918,7 +3918,7 @@ pub fn expand_path_arg(path: &Path) -> Result<(Vec<PathBuf>, Option<PathBuf>)> {
                 .find(|file| file.extension().and_then(|e| e.to_str()) == Some("hick"))
             {
                 bail!(
-                    "{} is a legacy .hick document. Rename it to .md after removing its generated sibling; Hickory no longer writes a generated Markdown sibling.",
+                    "{} is a legacy .md document. Rename it to .md after removing its generated sibling; Hickory no longer writes a generated Markdown sibling.",
                     legacy.display()
                 );
             }
@@ -4039,10 +4039,10 @@ pub async fn run_pipeline_cmd(opts: PipelineRunOpts) -> Result<()> {
 
     if files.is_empty() {
         bail!(
-            "No .hick files specified\n\n\
+            "No .md files specified\n\n\
              Usage:\n  \
-             hick run <file.hick>         Run a single file\n  \
-             hick run <directory>         Run all .hick files in directory\n  \
+             hick run <file.md>         Run a single file\n  \
+             hick run <directory>         Run all .md files in directory\n  \
              hick run                     Use _hick.yml config if present\n\n\
              Create a _hick.yml file to define default files and variables."
         );
@@ -4248,7 +4248,7 @@ pub async fn run_pipeline_cmd(opts: PipelineRunOpts) -> Result<()> {
     Ok(())
 }
 
-/// Replay a session .hick file without calling the LLM.
+/// Replay a session .md file without calling the LLM.
 ///
 /// Runs through the [`Executor`] boundary (a fresh [`LocalExecutor`]), so
 /// replayed commands execute on the host in a temp workdir — the wasm-era
@@ -4424,12 +4424,12 @@ mod tests {
             access_rules: Vec::new(),
         };
         let seeded = volume_state::pack_tar_files(&[
-            ("doc.hick".to_string(), b"<doc/>".to_vec()),
+            ("doc.md".to_string(), b"<doc/>".to_vec()),
             ("out/a.txt".to_string(), b"[never run]".to_vec()),
         ])
         .unwrap();
         let after = volume_state::pack_tar_files(&[
-            ("doc.hick".to_string(), b"<doc/>".to_vec()),
+            ("doc.md".to_string(), b"<doc/>".to_vec()),
             ("out/a.txt".to_string(), b"[never run]".to_vec()),
             ("out/b.txt".to_string(), b"made by a cell".to_vec()),
         ])
@@ -4628,12 +4628,12 @@ mod tests {
         let source = r#"<hick:doc xmlns:hick="http://www.hickorydocs.com/1.0">
 <hick:verify command="cargo check" />
 </hick:doc>"#;
-        let sources = vec![("test.hick", source)];
+        let sources = vec![("test.md", source)];
         let cmds = extract_verify_commands(&sources).unwrap();
         assert_eq!(cmds.len(), 1);
         assert_eq!(cmds[0].command, "cargo check");
         assert!(cmds[0].description.is_none());
-        assert_eq!(cmds[0].source_file, "test.hick");
+        assert_eq!(cmds[0].source_file, "test.md");
     }
 
     #[test]
@@ -4641,7 +4641,7 @@ mod tests {
         let source = r#"<hick:doc xmlns:hick="http://www.hickorydocs.com/1.0">
 <hick:verify command="[backend] cargo test" description="Run backend tests" />
 </hick:doc>"#;
-        let sources = vec![("test.hick", source)];
+        let sources = vec![("test.md", source)];
         let cmds = extract_verify_commands(&sources).unwrap();
         assert_eq!(cmds.len(), 1);
         assert_eq!(cmds[0].command, "[backend] cargo test");
@@ -4655,7 +4655,7 @@ mod tests {
 <hick:verify command="[spa] npm test" description="SPA tests" />
 <hick:verify command="[spa+backend] npm run e2e" description="E2E tests" />
 </hick:doc>"#;
-        let sources = vec![("test.hick", source)];
+        let sources = vec![("test.md", source)];
         let cmds = extract_verify_commands(&sources).unwrap();
         assert_eq!(cmds.len(), 3);
         assert_eq!(cmds[0].command, "cargo check");
@@ -4671,11 +4671,11 @@ mod tests {
         let source2 = r#"<hick:doc xmlns:hick="http://www.hickorydocs.com/1.0">
 <hick:verify command="npm test" />
 </hick:doc>"#;
-        let sources = vec![("a.hick", source1), ("b.hick", source2)];
+        let sources = vec![("a.md", source1), ("b.md", source2)];
         let cmds = extract_verify_commands(&sources).unwrap();
         assert_eq!(cmds.len(), 2);
-        assert_eq!(cmds[0].source_file, "a.hick");
-        assert_eq!(cmds[1].source_file, "b.hick");
+        assert_eq!(cmds[0].source_file, "a.md");
+        assert_eq!(cmds[1].source_file, "b.md");
     }
 
     #[test]
@@ -4685,7 +4685,7 @@ mod tests {
 <hick:verify command="  " />
 <hick:verify command="cargo check" />
 </hick:doc>"#;
-        let sources = vec![("test.hick", source)];
+        let sources = vec![("test.md", source)];
         let cmds = extract_verify_commands(&sources).unwrap();
         assert_eq!(cmds.len(), 1);
         assert_eq!(cmds[0].command, "cargo check");
@@ -4697,7 +4697,7 @@ mod tests {
 <hick:verify description="No command attribute" />
 <hick:verify command="cargo check" />
 </hick:doc>"#;
-        let sources = vec![("test.hick", source)];
+        let sources = vec![("test.md", source)];
         let cmds = extract_verify_commands(&sources).unwrap();
         assert_eq!(cmds.len(), 1);
     }
@@ -4709,7 +4709,7 @@ mod tests {
 <hick:verify command="cargo test" description="Nested verify" />
 </hick:when>
 </hick:doc>"#;
-        let sources = vec![("test.hick", source)];
+        let sources = vec![("test.md", source)];
         let cmds = extract_verify_commands(&sources).unwrap();
         assert_eq!(cmds.len(), 1);
         assert_eq!(cmds[0].command, "cargo test");
@@ -4724,7 +4724,7 @@ mod tests {
 
 <hick:verify command="cargo check" />
 </hick:doc>"#;
-        let sources = vec![("test.hick", source)];
+        let sources = vec![("test.md", source)];
         let cmds = extract_verify_commands(&sources).unwrap();
         assert_eq!(cmds.len(), 1);
         // The verify tag is on line 5

@@ -51,13 +51,13 @@ AI agent works fully offline.
 Install it in one line (see [Reference](#install)) and run:
 
 ```sh
-hick test examples/text-tools-tour.hick
+hick test examples/text-tools-tour.md
 ```
 
 From a checkout, without installing anything:
 
 ```sh
-cargo run -p hickory-cli -- test examples/text-tools-tour.hick
+cargo run -p hickory-cli -- test examples/text-tools-tour.md
 ```
 
 By default each cell runs **sandboxed** against your host toolchain: it may
@@ -74,7 +74,7 @@ With `docker`, each document's `image=` is the environment it runs in. With
 `image=` is ignored — see [examples/README.md](examples/README.md) for what
 each example needs.
 
-The second example, `examples/bootstrap-ci.hick`, is a small statistical
+The second example, `examples/bootstrap-ci.md`, is a small statistical
 paper: it generates its data from a fixed seed, computes a bootstrap
 confidence interval, renders its own SVG histogram, and verifies its own
 numbers. The figure cannot drift from the data because the figure is
@@ -176,7 +176,7 @@ archive carries the binary, the licence, and `examples/`, so this works
 straight out of it:
 
 ```sh
-hick test examples/text-tools-tour.hick
+hick test examples/text-tools-tour.md
 ```
 
 Windows is a `.zip` rather than part of the installer, and executing documents

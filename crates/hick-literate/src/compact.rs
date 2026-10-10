@@ -15,7 +15,7 @@
 //! # Example
 //!
 //! ```bash
-//! hick-compact input.hick -o output.hick --verify
+//! hick-compact input.md -o output.md --verify
 //! ```
 
 use std::collections::HashMap;
@@ -354,10 +354,10 @@ mod tests {
         let compacted = compact_document(&src).unwrap();
 
         // Both should produce the same output
-        let result1 = crate::run_pipeline(&[("orig.hick", &src)], &[])
+        let result1 = crate::run_pipeline(&[("orig.md", &src)], &[])
             .await
             .unwrap();
-        let result2 = crate::run_pipeline(&[("compact.hick", &compacted)], &[])
+        let result2 = crate::run_pipeline(&[("compact.md", &compacted)], &[])
             .await
             .unwrap();
 

@@ -48,7 +48,7 @@ fn doc_source(freeze: Option<bool>) -> String {
 }
 
 fn write_doc(dir: &Path, freeze: Option<bool>) -> PathBuf {
-    let path = dir.join("cached.hick");
+    let path = dir.join("cached.md");
     std::fs::write(&path, doc_source(freeze)).unwrap();
     path
 }
@@ -121,7 +121,7 @@ fn a_flagless_check_is_never_answered_from_a_recording() {
     const NONDETERMINISTIC: &str = "echo %TIME%";
 
     let dir = tempfile::tempdir().unwrap();
-    let path = dir.path().join("live.hick");
+    let path = dir.path().join("live.md");
     std::fs::write(
         &path,
         format!(
@@ -204,7 +204,7 @@ fn a_flagless_run_records_every_cell_it_ran() {
     // whether a cell that ran is remembered at all — and the second has no
     // useful "no".
     let dir = tempfile::tempdir().unwrap();
-    let path = dir.path().join("mixed.hick");
+    let path = dir.path().join("mixed.md");
     let command = command();
     let live = echo_lines(&["live"]);
     std::fs::write(

@@ -166,7 +166,7 @@ machinery.
 
 Today, saving a generated file diffs it against the bytes the loop wrote
 (`up::reverse::diff_to_edits`), maps each edit through `Provenance` onto a span
-in the `.hick` source, and either applies it or refuses with a reason
+in the `.md` source, and either applies it or refuses with a reason
 (`hickory_lineage::map_edits`). The refusal case is generated text with no
 editable origin.
 

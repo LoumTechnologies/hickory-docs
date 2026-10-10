@@ -35,7 +35,7 @@ So is a rename. So is an agent's edit.
 ## Two standalone tools, and why they are two
 
 Both must survive this product, so both are ordinary tools with ordinary
-users who have never heard of a `.hick` document. Working names, provisional:
+users who have never heard of a `.md` document. Working names, provisional:
 
 | | **`throughline`** | **`grain`** |
 |---|---|---|
@@ -90,7 +90,7 @@ byte precision anyway. Two consequences fall out for free:
 
 "Ignore whitespace" is false in Python, where indentation is a token; false in
 Markdown, where two spaces are a line break; false in a heredoc, a template
-literal, a docstring, and a Go struct tag; and false in every `.hick` document,
+literal, a docstring, and a Go struct tag; and false in every `.md` document,
 where **almost every byte is raw text the parser must not touch**.
 
 So the isomorphism check is **configured per grammar**, not assumed, and each
@@ -147,7 +147,7 @@ The check has three outcomes, and they are not two:
 3. **A tool rewriting this file changed the tree** — a different failure, and
    the interesting one.
 
-## Inside a `.hick` document, formatting is a reverse edit
+## Inside a `.md` document, formatting is a reverse edit
 
 A document's code is not in a file. It is in fragments, and the file appears
 when something weaves it. A fragment is frequently not parseable on its own —
@@ -175,7 +175,7 @@ Three sharp edges, and each has an answer that refuses rather than guesses:
 - **A generated file refuses an edit**, including this one. Format-on-save of
   a woven file is only ever the reverse edit above; a formatter writing
   directly into `.hick-cache/` is a write that regenerates over itself.
-- **A `.hick` document's own formatter may not touch a raw byte.** The
+- **A `.md` document's own formatter may not touch a raw byte.** The
   no-escaping invariant means the only formattable surface is the indentation
   of namespace-prefixed tags, which makes the hick formatter nearly a no-op
   and that is correct. Do not invent a prose reflow.

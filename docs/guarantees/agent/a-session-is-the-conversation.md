@@ -61,7 +61,7 @@ Last LLM verification:
 - Date: 2026-08-22
 - Reviewer: Claude Fable 5
 - Result: verified by driving the served UI: a dock turn through OpenRouter
-  wrote `sessions/<ts>-<slug>.hick` with `doc=`, `turn=`, `provider=`,
+  wrote `sessions/<ts>-<slug>.md` with `doc=`, `turn=`, `provider=`,
   `model=` on the user element; `/rewind` then a second turn started a
   second root; the Tree view showed both with the tip marked
   (`examples/receipts/chat-tree.png`); the turn's "session" button opened
@@ -101,7 +101,7 @@ Last LLM verification:
   is a bubble too). The earlier layout was a two-column grid with a role
   label in the first column, and the "show work" block auto-placed into that
   3.6rem column, wrapping every few characters — the session fixture
-  `sessions/20260820-090000-every-turn-chip.hick` showed it. Verified by
+  `sessions/20260820-090000-every-turn-chip.md` showed it. Verified by
   driving the served UI: the fixture's 11 steps open inside the agent's
   bubble at full width.
 

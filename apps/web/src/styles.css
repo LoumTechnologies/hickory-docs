@@ -781,7 +781,7 @@ textarea:focus {
   font-family: inherit;
 }
 
-/* --- document editor (Typora-style WYSIWYG over raw .hick source) ---
+/* --- document editor (Typora-style WYSIWYG over raw .md source) ---
  *
  * NO border and NO radius. It used to be a rounded card, and the tab above it
  * was a second surface, and the document's own toolbar between them was a

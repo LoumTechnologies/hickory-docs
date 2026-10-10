@@ -22,7 +22,7 @@ an act, and never guesses an inverse operation after a partial failure.
 
 Create/delete and rename/move are separate saves so line identity is never
 guessed. The root itself cannot be renamed, moved, or deleted from the app
-opened on it. A renamed open `.hick` room is not silently rebound and must be
+opened on it. A renamed open `.md` room is not silently rebound and must be
 reopened.
 
 ---

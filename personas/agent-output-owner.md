@@ -32,7 +32,7 @@ are unstable.*
 | r/ClaudeAI, r/LocalLLaMA, r/ChatGPTCoding | Workflow-sharing culture; a genuinely novel *workflow* post outperforms a product post by a wide margin |
 | Latent Space / AI Engineer community (Discord + newsletter) | Practitioner-dense, high signal, receptive to tooling — but treats hype allergically |
 | X/Twitter agent-tooling circle | Where this cohort's norms are actually set; demo-video driven |
-| GitHub — the repos themselves | The product's own artifact (`.hick` sessions committed to a public repo) is the distribution: a visible, browsable example repo is a better ad than a post |
+| GitHub — the repos themselves | The product's own artifact (`.md` sessions committed to a public repo) is the distribution: a visible, browsable example repo is a better ad than a post |
 
 ## Mistaken-identity set
 

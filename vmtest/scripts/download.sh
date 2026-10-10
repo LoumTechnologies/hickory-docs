@@ -100,7 +100,7 @@ assert lsp-loads sh -c "printf '' | '$PWD/$root/hick-lsp'"
 # first run of this test "found" exactly that and it was not a product bug.
 #
 # So: verify first, against the bytes as shipped.
-doc=examples/text-tools-tour.hick
+doc=examples/text-tools-tour.md
 woven=examples/text-tools-tour.md
 if ( cd "$root" && "./hick" test "$doc" ) > exec.log 2>&1; then
     echo "PHASE=execute-a-document ok=true"

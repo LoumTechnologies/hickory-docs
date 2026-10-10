@@ -287,7 +287,7 @@ mod tests {
     use hickory_lineage::{Origin, Provenance};
 
     fn generated() -> HashMap<String, String> {
-        HashMap::from([("out.ts".to_string(), "doc.hick".to_string())])
+        HashMap::from([("out.ts".to_string(), "doc.md".to_string())])
     }
 
     #[test]
@@ -316,7 +316,7 @@ mod tests {
             start: 0,
             end: output.len(),
             origin: Origin::Literal {
-                doc_path: "doc.hick".into(),
+                doc_path: "doc.md".into(),
                 span: (body_at, doc.len()),
             },
         }];
@@ -331,7 +331,7 @@ mod tests {
         });
         assert_eq!(found.unmapped, 0);
         assert_eq!(found.hits.len(), 1);
-        assert_eq!(found.hits[0].path, "doc.hick");
+        assert_eq!(found.hits[0].path, "doc.md");
         assert_eq!(found.hits[0].through.as_deref(), Some("out.ts"));
         assert!(found.hits[0].is_definition);
         // Line 3 of the document is where the block's body starts.

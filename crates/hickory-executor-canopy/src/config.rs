@@ -23,7 +23,7 @@ pub struct CanopyConfig {
     /// Node name, recorded for error messages only (a token is minted per
     /// node; the agent itself knows which node it is).
     pub node: Option<String>,
-    /// `.hick` image ref (`python:3.12`) → Nix store image path declared in
+    /// `.md` image ref (`python:3.12`) → Nix store image path declared in
     /// the tenant ledger.
     pub image_map: HashMap<String, String>,
     /// Sandbox shape requested on spawn.
@@ -109,7 +109,7 @@ impl CanopyConfig {
         })
     }
 
-    /// Map a `.hick` image ref to its Nix store path. Unknown refs fail with
+    /// Map a `.md` image ref to its Nix store path. Unknown refs fail with
     /// the configured set, so the fix (add a mapping, or use one that
     /// exists) is visible in the error itself.
     pub fn resolve_image(&self, image: &str) -> Result<String> {
@@ -135,7 +135,7 @@ impl CanopyConfig {
     }
 }
 
-/// Best-effort summary of the configured image map (`.hick` image ref →
+/// Best-effort summary of the configured image map (`.md` image ref →
 /// Nix store path) for display purposes (e.g. the server's `GET
 /// /api/executor`). Unlike [`CanopyConfig::from_env`] this never fails:
 /// unset or malformed configuration yields an empty map — resolution

@@ -13,7 +13,7 @@
 // understands. A `<hick:link>` would have to weave to `[…](…)` anyway, and
 // would be unreadable in the source in the meantime. So a cross-document link
 // is written the way a reader would write it, and the WEAVER is what makes it
-// land — see `crates/hick-literate/src/links.rs`, which rewrites a `.hick`
+// land — see `crates/hick-literate/src/links.rs`, which rewrites a `.md`
 // target to the `.md` that document weaves.
 
 /** A markdown inline link or image, located in some text. */
@@ -205,8 +205,8 @@ export function splitFragment(target: string): { path: string; fragment: string 
 export function wovenTarget(target: string): string {
   if (!isLocalTarget(target)) return target;
   const { path, fragment } = splitFragment(target);
-  if (!path.toLowerCase().endsWith(".hick")) return target;
-  return `${path.slice(0, -".hick".length)}.md${fragment}`;
+  if (!path.toLowerCase().endsWith(".md")) return target;
+  return `${path.slice(0, -".md".length)}.md${fragment}`;
 }
 
 /**

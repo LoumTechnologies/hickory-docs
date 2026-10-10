@@ -47,7 +47,7 @@ then how, then proof:
 
 1. **The claim** (`components/Convergence.tsx`) — three muted cards (the
    session, the reasoning, the edit) collapsing into one accented card (a
-   `.hick` document in your repository). The shape carries the argument on its
+   `.md` document in your repository). The shape carries the argument on its
    own, so a reader who only skims the headings still gets it.
 2. **The mechanism** (`components/AgentToolSurface.tsx`) — static, not
    interactive: `hick init`, `hick mcp`, the five `hick doc` tools, and the

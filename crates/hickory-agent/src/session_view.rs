@@ -397,7 +397,7 @@ Let me look first.
 <hick:tool name="read_doc"></hick:tool>
 </hick:assistant>
 <hick:tool-result id="in1" name="read_doc" ok="true">
-doc: plan.hick
+doc: plan.md
 aaaa|hello
 </hick:tool-result>
 <hick:read file="plan.md" sha256="ff" lines="1-1"/>

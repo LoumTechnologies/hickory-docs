@@ -84,7 +84,7 @@ Last LLM verification:
     `docs/guarantees/search/find-and-replace-is-exhaustive.md`, closed.
 - Verified by running: `hick run`, `hick history`, `hick history show`, and
   `hick history revert` against a scratch project.
-  **The bug that found:** `hick run note.hick` gives a document parent of `""`,
+  **The bug that found:** `hick run note.md` gives a document parent of `""`,
   which hashed to the project key for the empty string — so every act landed
   in a store nothing would ever look in, while `hick history` read the store
   for the working directory and reported an empty folder. Two stores, no

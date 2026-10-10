@@ -58,7 +58,7 @@ fn doc() -> String {
 #[tokio::test(flavor = "multi_thread")]
 async fn the_agent_and_the_document_cells_share_a_container() {
     let project = tempfile::tempdir().unwrap();
-    let doc_path = project.path().join("doc.hick");
+    let doc_path = project.path().join("doc.md");
     std::fs::write(&doc_path, doc()).unwrap();
 
     let llm = ScriptedLlmClient::new(vec![

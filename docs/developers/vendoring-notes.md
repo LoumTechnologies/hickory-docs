@@ -199,10 +199,10 @@ decision made during the port:
 - **`hick-literate/src/render.rs`** — the block model from
   `docs/specs/freeform/api.md` (prose HTML via pulldown-cmark, exec blocks
   with spans/transcripts/statuses, file blocks).
-- **`docs/hick-guide.hick`** — vendored from the monorepo `docs/` tree
+- **`docs/hick-guide.md`** — vendored from the monorepo `docs/` tree
   (commit `e384c5e`); `hick-literate`'s `test_guide_hick_file_processes`
   includes it at compile time.
-- **`examples/bootstrap-ci.hick`** — the file-embedded exec gained
+- **`examples/bootstrap-ci.md`** — the file-embedded exec gained
   `show="output"` so the generated SVG contains only the command's stdout
   (the default `show="all"` would have prefixed the SVG with `$ ...` command
   lines).

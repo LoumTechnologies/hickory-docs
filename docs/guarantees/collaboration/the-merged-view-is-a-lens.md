@@ -8,7 +8,7 @@ plainly that it is read-only and exists on disk nowhere.
 **It is a lens, not a document** — one of four, named and given one rule in
 `docs/specs/freeform/lenses.md` (2026-09-03): every block declares what it
 views, how an edit gets home, and whether an edit is allowed right now. No
-save path, no `.hick` extension, no place
+save path, no `.md` extension, no place
 in the folder tree — the same category as a diff view, and nobody mistakes
 `git diff` output for a source artifact. Getting this wrong reverses the
 product's central claim: a document is the source of its generated files, and a

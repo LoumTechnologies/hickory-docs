@@ -73,12 +73,12 @@ fn write_file(path: &std::path::Path, contents: &str) -> std::io::Result<()> {
 /// One commit in a fresh repository inside the container.
 fn build_commit(work: &std::path::Path, branch: &str) -> Result<git2::Oid, git2::Error> {
     let repo = git2::Repository::init(work)?;
-    let note = work.join("note.hick");
+    let note = work.join("note.md");
     write_file(&note, "a note written inside an iOS app container\n")
-        .map_err(|e| git2::Error::from_str(&format!("writing note.hick: {e}")))?;
+        .map_err(|e| git2::Error::from_str(&format!("writing note.md: {e}")))?;
 
     let mut index = repo.index()?;
-    index.add_path(std::path::Path::new("note.hick"))?;
+    index.add_path(std::path::Path::new("note.md"))?;
     index.write()?;
     let tree = repo.find_tree(index.write_tree()?)?;
 

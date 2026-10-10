@@ -650,7 +650,7 @@ impl LocalExecutor {
         // than rejected: a worse name is still better than the wrong one.
         //
         // The EMPTY path is the exception, and it was a real bug rather than a
-        // theoretical one. `Path::new("d.hick").parent()` is `Some("")`, not
+        // theoretical one. `Path::new("d.md").parent()` is `Some("")`, not
         // `None`, so a caller writing `parent().unwrap_or(".")` handed an
         // empty path straight through — and `short_key("")` mixes in no bytes
         // and returns the FNV basis, the same twelve characters every time. So
@@ -1956,7 +1956,7 @@ mod tests {
     ///
     /// The same class as the test above, through a different door and found
     /// the same way — a parallel run failing where a serial one passed.
-    /// `Path::new("d.hick").parent()` is `Some("")`, not `None`, so a caller
+    /// `Path::new("d.md").parent()` is `Some("")`, not `None`, so a caller
     /// writing `parent().unwrap_or(".")` handed an empty path through; and
     /// `short_key("")` mixes in no bytes, so it returns the FNV basis — the
     /// same twelve characters for every caller. Every `hick run
@@ -1988,8 +1988,8 @@ mod tests {
     ///
     /// The reproducibility this exists for is a property of the document: a
     /// cell that prints its own path must print the same one whether the
-    /// person typed `hick run doc.hick` from inside the project or
-    /// `hick run ../proj/doc.hick` from outside it.
+    /// person typed `hick run doc.md` from inside the project or
+    /// `hick run ../proj/doc.md` from outside it.
     #[test]
     fn one_project_keeps_its_name_from_anywhere() {
         let project = tempfile::tempdir().expect("project");

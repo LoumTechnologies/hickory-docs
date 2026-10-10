@@ -53,12 +53,12 @@ Last LLM verification:
   - `crates/hickory-cli/tests/index_reads_back_into_documents.rs` — the claim
     a unit test cannot make, with a real `scip-typescript` over a real weave:
     a definition living only in the generated `billing.ts` comes back as
-    `billing.hick` line 5, the hand-written file's own reference survives
+    `billing.md` line 5, the hand-written file's own reference survives
     beside it, and nothing goes unexplained. It borrows this repository's own
     installed indexer, so it runs on the machine most likely to be running
     it rather than skipping there.
 - Verified by running, in a scratch project: `hick index find invoiceRef
-  typescript` reported the definition at `billing.hick:6` (1-based) with
+  typescript` reported the definition at `billing.md:6` (1-based) with
   `(via billing.ts)`, the two references in the hand-written `use.ts`, and —
   after editing `use.ts` — `1 of 2 indexed file(s) have changed since`.
   **The bug that found:** `generated_outputs` maps an output path to the

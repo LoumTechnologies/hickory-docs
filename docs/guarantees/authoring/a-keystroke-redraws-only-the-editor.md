@@ -67,7 +67,7 @@ Last LLM verification:
   `apps/web/src/editor/embedded.test.ts` (cache identity),
   `apps/web/src/shell/StatusBar.test.tsx` (the caret is the bar's own).
 - Measured, in the Vite dev build under Playwright, typing 47 characters into
-  the seeded `weave-demo.hick` with the folder tree and a Welcome tab open:
+  the seeded `weave-demo.md` with the folder tree and a Welcome tab open:
   before, two long tasks of 220 ms and 242 ms and ~296 ms of React work;
   after, no long task at all and ~67 ms of React work, with the ribbon
   derivation and the embedded re-highlight gone from the profile entirely.

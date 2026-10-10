@@ -322,7 +322,6 @@ mod tests {
 
         let outcome = block_on(adopt_new(&file)).expect("adoption succeeds");
         assert!(outcome.created);
-        assert!(!dir.path().join("analysis.hick").exists());
         assert_eq!(outcome.doc_path, dir.path().join("analysis.md"));
         assert_eq!(
             std::fs::read_to_string(&file).unwrap(),

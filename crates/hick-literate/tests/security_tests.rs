@@ -175,7 +175,7 @@ async fn test_container_all_rule_types() {
 </hick:container>"#,
     );
 
-    let result = hick_literate::run_pipeline(&[("test.hick", &src)], &[])
+    let result = hick_literate::run_pipeline(&[("test.md", &src)], &[])
         .await
         .unwrap();
 
@@ -201,7 +201,7 @@ async fn test_container_all_rule_types() {
 async fn test_empty_container_allows_all() {
     let src = hick_doc(r#"<hick:container name="open" image="alpine" />"#);
 
-    let result = hick_literate::run_pipeline(&[("test.hick", &src)], &[])
+    let result = hick_literate::run_pipeline(&[("test.md", &src)], &[])
         .await
         .unwrap();
 

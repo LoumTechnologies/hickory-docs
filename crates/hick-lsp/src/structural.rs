@@ -62,7 +62,7 @@ pub fn byte_to_position(source: &str, offset: usize) -> (u32, u32) {
     (line, character)
 }
 
-/// A byte span in the .hick source.
+/// A byte span in the .md source.
 pub type Span = (usize, usize);
 
 #[derive(Debug, Clone)]

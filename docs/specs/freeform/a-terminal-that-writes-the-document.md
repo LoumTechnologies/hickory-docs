@@ -112,7 +112,7 @@ say the thing that makes it work.
 There was a serializer for this, and it is **deleted** (2026-08-26).
 `hick_literate::transcript::TranscriptBuilder` — "accumulates container
 declarations, capability rules, volumes, forks, and executed commands, then
-serializes them to valid `.hick` XML" — had no caller anywhere in the
+serializes them to valid `.md` XML" — had no caller anywhere in the
 workspace, and this document guessed that this design was what would revive
 it. Reading it says otherwise, on the one thing that matters: it emits **one
 `<hick:exec>` per command**, which is exactly the cell-per-line model the next
@@ -172,7 +172,7 @@ that continues would be claiming that state came from the lines above it.
 ### A secret stops the recording, and does not stop the shell
 
 `export ANTHROPIC_API_KEY=sk-…` typed into an anchored terminal would write
-that key into a `.hick` file in somebody's git repository. So input is scanned
+that key into a `.md` file in somebody's git repository. So input is scanned
 for known secret shapes, and a match suspends the anchor.
 
 Three rules make the mechanism honest rather than reassuring:

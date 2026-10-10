@@ -1,23 +1,23 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <hick:session xmlns:hick="http://www.hickorydocs.com/1.0" start="2026-08-22T13:09:11Z">
-<hick:user>This document drafts the message I (Nate) will post in #eng on 2026-08-24 about the checkout latency fix, with receipts. It binds the prefix slack: to the hickory namespace, so every element here is spelled slack: (slack:copy, slack:paste, slack:file, slack:transform, slack:claim). analysis.hick and fix.hick are upstream (and the meeting note through them), so their findings (.finding, ids p95-before-after, baseline, load-test-excluded, fix-summary, forty-is-safe) and the meeting turns (#transcript-u1 .. #transcript-u10, .said, .said-sam, .said-priya) are selectable here. Please build, under '## The message': (1) three or four sentences of the message, each as its own slack:copy fragment with class=message and ids m1, m2, m3 (m4 optional) — one about p95 being back under the 300 ms SLO with the before/after numbers from the findings, one about the root cause and what the fix does (sizes, timeout, flag), one saying the numbers exclude the load-test window; after each copy, paste it (slack:paste select=#mN) so the weave shows the sentence, and under it add a slack:transform with select="#mN,.finding,.said", from="" and an empty body, whose instruct asks a model to say whether that one message sentence (the fragment whose id starts with #m) is BACKED or UNSUPPORTED by the other fragments (meeting turns name their speaker; every fragment is prefixed with its id), naming the source ids and quoting the shortest backing passage; do NOT write the transform's passage yourself — I will run hick refresh. (2) One sentence that is my judgment, not a measurement, e.g. that we need not revisit the pool size before Q4 unless traffic doubles, as copy id m4 class=message, pasted inside a slack:claim by="nate" standing="judgment" scope="checkout capacity". (3) Under '## The file to paste into #eng', a slack:file path="messages/2026-08-24-eng.txt" whose content is a first line 'Checkout latency, 2026-08-24:' then each sentence pasted by reference (blank line between), with ' (my judgment, not a measurement)' after the m4 paste, and a closing line inviting people to ask about any line. (4) Under '## When someone asks', for the question 'Is 40 connections safe for the DB?', a copy id a1 class=message 'Sam's answer from Thursday's sync, verbatim:' and a slack:file path="messages/2026-08-24-eng-reply.txt" that pastes #a1, a blank line, then '> ' followed by a paste of Sam's meeting turn #transcript-u7 — the answer is a report of what Sam said, so also wrap a paste of #a1 and #transcript-u7 in a slack:claim by="nate" standing="report" scope="postgres capacity" in the prose. Keep prose short, run verify until it passes, then stop.</hick:user>
+<hick:user>This document drafts the message I (Nate) will post in #eng on 2026-08-24 about the checkout latency fix, with receipts. It binds the prefix slack: to the hickory namespace, so every element here is spelled slack: (slack:copy, slack:paste, slack:file, slack:transform, slack:claim). analysis.md and fix.md are upstream (and the meeting note through them), so their findings (.finding, ids p95-before-after, baseline, load-test-excluded, fix-summary, forty-is-safe) and the meeting turns (#transcript-u1 .. #transcript-u10, .said, .said-sam, .said-priya) are selectable here. Please build, under '## The message': (1) three or four sentences of the message, each as its own slack:copy fragment with class=message and ids m1, m2, m3 (m4 optional) — one about p95 being back under the 300 ms SLO with the before/after numbers from the findings, one about the root cause and what the fix does (sizes, timeout, flag), one saying the numbers exclude the load-test window; after each copy, paste it (slack:paste select=#mN) so the weave shows the sentence, and under it add a slack:transform with select="#mN,.finding,.said", from="" and an empty body, whose instruct asks a model to say whether that one message sentence (the fragment whose id starts with #m) is BACKED or UNSUPPORTED by the other fragments (meeting turns name their speaker; every fragment is prefixed with its id), naming the source ids and quoting the shortest backing passage; do NOT write the transform's passage yourself — I will run hick refresh. (2) One sentence that is my judgment, not a measurement, e.g. that we need not revisit the pool size before Q4 unless traffic doubles, as copy id m4 class=message, pasted inside a slack:claim by="nate" standing="judgment" scope="checkout capacity". (3) Under '## The file to paste into #eng', a slack:file path="messages/2026-08-24-eng.txt" whose content is a first line 'Checkout latency, 2026-08-24:' then each sentence pasted by reference (blank line between), with ' (my judgment, not a measurement)' after the m4 paste, and a closing line inviting people to ask about any line. (4) Under '## When someone asks', for the question 'Is 40 connections safe for the DB?', a copy id a1 class=message 'Sam's answer from Thursday's sync, verbatim:' and a slack:file path="messages/2026-08-24-eng-reply.txt" that pastes #a1, a blank line, then '> ' followed by a paste of Sam's meeting turn #transcript-u7 — the answer is a report of what Sam said, so also wrap a paste of #a1 and #transcript-u7 in a slack:claim by="nate" standing="report" scope="postgres capacity" in the prose. Keep prose short, run verify until it passes, then stop.</hick:user>
 <hick:usage turn="0" input="2778" cache-write="0" cache-read="0" output="55"/>
 <hick:assistant>
 <hick:tool name="read_doc">
-<hick:arg name="doc">message.hick</hick:arg>
+<hick:arg name="doc">message.md</hick:arg>
 </hick:tool>
 </hick:assistant>
 <hick:tool-result name="read_doc" ok="true">
-doc: message.hick
+doc: message.md
 83e1|<?xml version="1.0" encoding="UTF-8"?>
 be9c|<slack:doc xmlns:slack="http://www.hickorydocs.com/1.0" weave="message.md">
 3135|# What I am about to say in #eng, with receipts
 f011|
-97e1|<slack:upstream file="analysis.hick" />
-2d17|<slack:upstream file="fix.hick" />
+97e1|<slack:upstream file="analysis.md" />
+2d17|<slack:upstream file="fix.md" />
 a795|</slack:doc>
 
-upstream of this session (readable and editable by passing <hick:arg name="doc">NAME</hick:arg>): analysis.hick, fix.hick, meetings/2026-08-20-checkout-latency-sync.hick
+upstream of this session (readable and editable by passing <hick:arg name="doc">NAME</hick:arg>): analysis.md, fix.md, meetings/2026-08-20-checkout-latency-sync.md
 </hick:tool-result>
 <hick:usage turn="1" input="3046" cache-write="0" cache-read="0" output="849"/>
 <hick:assistant>
@@ -88,7 +88,7 @@ Questions? Ask about any line.
 </hick:tool>
 </hick:assistant>
 <hick:tool-result name="edit_doc" ok="true">
-edited message.hick and re-wove.
+edited message.md and re-wove.
 edited region (fresh hashes):
 3135|# What I am about to say in #eng, with receipts
 f011|
@@ -152,8 +152,8 @@ d126|<slack:paste select="#a1" />
 f011|
 549b|> <slack:paste select="#transcript-u7" />
 f0aa|</slack:file>
-97e1|<slack:upstream file="analysis.hick" />
-2d17|<slack:upstream file="fix.hick" />
+97e1|<slack:upstream file="analysis.md" />
+2d17|<slack:upstream file="fix.md" />
 </hick:tool-result>
 <hick:usage turn="2" input="5016" cache-write="0" cache-read="0" output="33"/>
 <hick:assistant>

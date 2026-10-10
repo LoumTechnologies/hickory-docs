@@ -14,7 +14,7 @@ check people learn to skip, and skipping it costs the drift guarantee on every
 reproducibility is opt-out per output; the behavioural claim (`hick:expect`)
 is not opt-out at all.
 
-This came out of dogfooding `docs/analysis/claude-code-corpus.hick`, which
+This came out of dogfooding `docs/analysis/claude-code-corpus.md`, which
 measures the Claude Code session logs on this machine. Its numbers change
 between the run that writes the report and the check that verifies it, because
 running the tool writes more logs. The report is volatile; `corpus_scan.py`,
@@ -43,7 +43,7 @@ Last LLM verification:
   with the tangled script and asserts exactly one drift naming that script;
   `the_root_volatile_attribute_is_actually_parsed` pins the parse path and
   asserts `find_tags("doc")` is empty so the silent-miss cannot return.
-  Driven for real against `docs/analysis/claude-code-corpus.hick`.
+  Driven for real against `docs/analysis/claude-code-corpus.md`.
   The cell whose output "changes every run" is written per shell
   (`tests/common/mod.rs::changes_every_run`): `date +%s%N` is coreutils, and
   cmd's `date` builtin fails with the *same* message every time, which would

@@ -117,5 +117,5 @@ tokens and the terminal success frame arrive, covering query forwarding and
 the preserved upgrade state.
 `just test-acp` now includes this regression; direct `serve::prepare` tests
 alone did not cover the shared engine dispatch boundary. `just test-engine`
-still has four failures in its legacy `.hick` document fixtures; the new
+still has four failures in its legacy `.md` document fixtures; the new
 regression uses the current `.md` document surface.

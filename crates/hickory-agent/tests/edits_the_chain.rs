@@ -15,11 +15,13 @@ use hickory_agent::{AgentConfig, AgentEvent, ScriptedLlmClient, run_agent};
 use hickory_executor::{Executor, LocalExecutor};
 
 /// Two hops: requirements -> domain -> decisions.
+// A document is authored as `.md`, the same extension it weaves, so a
+// generated output must have its own name or it would overwrite its source.
 const DECISIONS: &str = r##"<?xml version="1.0" encoding="UTF-8"?>
-<hick:doc xmlns:hick="http://www.hickorydocs.com/1.0" weave="decisions.md">
+<hick:doc xmlns:hick="http://www.hickorydocs.com/1.0" weave="none">
 # Decisions
 
-<hick:file path="decisions.md"><hick:paste select=".decision" /></hick:file>
+<hick:file path="decisions.out.md"><hick:paste select=".decision" /></hick:file>
 
 <hick:copy id="d-retention" class="decision">
 Records are retained for 30 days.
@@ -28,20 +30,20 @@ Records are retained for 30 days.
 "##;
 
 const DOMAIN: &str = r##"<?xml version="1.0" encoding="UTF-8"?>
-<hick:doc xmlns:hick="http://www.hickorydocs.com/1.0" weave="domain.md">
+<hick:doc xmlns:hick="http://www.hickorydocs.com/1.0" weave="none">
 # Domain
 
-<hick:upstream file="decisions.hick" />
+<hick:upstream file="decisions.md" />
 
-<hick:file path="domain.md"><hick:paste select=".decision" /></hick:file>
+<hick:file path="domain.out.md"><hick:paste select=".decision" /></hick:file>
 </hick:doc>
 "##;
 
 const REQUIREMENTS: &str = r##"<?xml version="1.0" encoding="UTF-8"?>
-<hick:doc xmlns:hick="http://www.hickorydocs.com/1.0" weave="requirements.md">
+<hick:doc xmlns:hick="http://www.hickorydocs.com/1.0" weave="none">
 # Requirements
 
-<hick:upstream file="domain.hick" />
+<hick:upstream file="domain.md" />
 
 <hick:paste select=".decision" />
 </hick:doc>
@@ -51,9 +53,9 @@ const REQUIREMENTS: &str = r##"<?xml version="1.0" encoding="UTF-8"?>
 async fn the_agent_edits_a_decision_two_hops_upstream() {
     let dir = tempfile::tempdir().unwrap();
     let path = |n: &str| dir.path().join(n);
-    std::fs::write(path("decisions.hick"), DECISIONS).unwrap();
-    std::fs::write(path("domain.hick"), DOMAIN).unwrap();
-    std::fs::write(path("requirements.hick"), REQUIREMENTS).unwrap();
+    std::fs::write(path("decisions.md"), DECISIONS).unwrap();
+    std::fs::write(path("domain.md"), DOMAIN).unwrap();
+    std::fs::write(path("requirements.md"), REQUIREMENTS).unwrap();
 
     let llm = ScriptedLlmClient::new(vec![
         // Read the primary: the result must name the reachable chain.
@@ -63,12 +65,12 @@ async fn the_agent_edits_a_decision_two_hops_upstream() {
         // Read two hops up by file name alone.
         "<hick:next>tool</hick:next>\nReading the decisions.\n\
          <hick:tool name=\"read_doc\">\n\
-         <hick:arg name=\"doc\">decisions.hick</hick:arg>\n</hick:tool>"
+         <hick:arg name=\"doc\">decisions.md</hick:arg>\n</hick:tool>"
             .to_string(),
         // Fix it AT THE SOURCE, addressed by line content hash.
         "<hick:next>tool</hick:next>\nChanging the decision itself.\n\
          <hick:tool name=\"edit_doc\">\n\
-         <hick:arg name=\"doc\">decisions.hick</hick:arg>\n\
+         <hick:arg name=\"doc\">decisions.md</hick:arg>\n\
          <hick:arg name=\"run\">RETENTION_HASH</hick:arg>\n\
          <hick:input>Records are retained for 90 days.</hick:input>\n</hick:tool>"
             .to_string(),
@@ -79,7 +81,7 @@ async fn the_agent_edits_a_decision_two_hops_upstream() {
     // which only the session can produce. Run once to read it, then script it.
     let executor: Arc<dyn Executor> = Arc::new(LocalExecutor::new().unwrap());
     let mut config = AgentConfig::new("Retention should be 90 days.", dir.path());
-    config.doc_path = Some(path("requirements.hick"));
+    config.doc_path = Some(path("requirements.md"));
     config.max_turns = 6;
 
     let mut events = Vec::new();
@@ -94,14 +96,14 @@ async fn the_agent_edits_a_decision_two_hops_upstream() {
     // 1. The primary's read must ADVERTISE the chain, or the agent has no way
     //    to discover that the decision lives elsewhere.
     assert!(
-        session.contains("decisions.hick") && session.contains("domain.hick"),
+        session.contains("decisions.md") && session.contains("domain.md"),
         "read_doc must name the upstream documents:\n{session}"
     );
 
     // 2. Reading two hops up by bare file name must work.
     assert!(
         session.contains("Records are retained for 30 days"),
-        "read_doc doc=decisions.hick did not return the decision:\n{session}"
+        "read_doc doc=decisions.md did not return the decision:\n{session}"
     );
 }
 
@@ -109,9 +111,9 @@ async fn the_agent_edits_a_decision_two_hops_upstream() {
 async fn an_upstream_edit_rewrites_the_source_and_reaches_the_primary() {
     let dir = tempfile::tempdir().unwrap();
     let path = |n: &str| dir.path().join(n);
-    std::fs::write(path("decisions.hick"), DECISIONS).unwrap();
-    std::fs::write(path("domain.hick"), DOMAIN).unwrap();
-    std::fs::write(path("requirements.hick"), REQUIREMENTS).unwrap();
+    std::fs::write(path("decisions.md"), DECISIONS).unwrap();
+    std::fs::write(path("domain.md"), DOMAIN).unwrap();
+    std::fs::write(path("requirements.md"), REQUIREMENTS).unwrap();
 
     // Address the line by its own content hash, computed the same way the
     // session renders it, so the test does not depend on line numbers.
@@ -127,7 +129,7 @@ async fn an_upstream_edit_rewrites_the_source_and_reaches_the_primary() {
         format!(
             "<hick:next>tool</hick:next>\nFixing the decision at its source.\n\
              <hick:tool name=\"edit_doc\">\n\
-             <hick:arg name=\"doc\">decisions.hick</hick:arg>\n\
+             <hick:arg name=\"doc\">decisions.md</hick:arg>\n\
              <hick:arg name=\"run\">{hash}</hick:arg>\n\
              <hick:input>Records are retained for 90 days.</hick:input>\n</hick:tool>"
         ),
@@ -136,7 +138,7 @@ async fn an_upstream_edit_rewrites_the_source_and_reaches_the_primary() {
 
     let executor: Arc<dyn Executor> = Arc::new(LocalExecutor::new().unwrap());
     let mut config = AgentConfig::new("Retention should be 90 days.", dir.path());
-    config.doc_path = Some(path("requirements.hick"));
+    config.doc_path = Some(path("requirements.md"));
     config.max_turns = 4;
 
     let mut on_event = |_: AgentEvent| {};
@@ -146,7 +148,7 @@ async fn an_upstream_edit_rewrites_the_source_and_reaches_the_primary() {
     executor.shutdown().await.ok();
 
     // The upstream SOURCE changed on disk — one place, not a local restatement.
-    let decisions = std::fs::read_to_string(path("decisions.hick")).unwrap();
+    let decisions = std::fs::read_to_string(path("decisions.md")).unwrap();
     assert!(
         decisions.contains("90 days"),
         "the decision document was not edited:\n{decisions}"
@@ -154,7 +156,7 @@ async fn an_upstream_edit_rewrites_the_source_and_reaches_the_primary() {
 
     // And nothing was restated downstream: the requirement still only
     // references the fragment.
-    let requirements = std::fs::read_to_string(path("requirements.hick")).unwrap();
+    let requirements = std::fs::read_to_string(path("requirements.md")).unwrap();
     assert!(
         !requirements.contains("90 days") && !requirements.contains("30 days"),
         "the fact was copied downstream instead of referenced:\n{requirements}"
@@ -174,9 +176,9 @@ async fn an_upstream_edit_rewrites_the_source_and_reaches_the_primary() {
 async fn verify_reweaves_upstream_outputs_too() {
     let dir = tempfile::tempdir().unwrap();
     let path = |n: &str| dir.path().join(n);
-    std::fs::write(path("decisions.hick"), DECISIONS).unwrap();
-    std::fs::write(path("domain.hick"), DOMAIN).unwrap();
-    std::fs::write(path("requirements.hick"), REQUIREMENTS).unwrap();
+    std::fs::write(path("decisions.md"), DECISIONS).unwrap();
+    std::fs::write(path("domain.md"), DOMAIN).unwrap();
+    std::fs::write(path("requirements.md"), REQUIREMENTS).unwrap();
 
     let hash = hickory_agent::hashline::LineIndex::new(DECISIONS)
         .render()
@@ -190,7 +192,7 @@ async fn verify_reweaves_upstream_outputs_too() {
         format!(
             "<hick:next>tool</hick:next>\nFixing it at the source.\n\
              <hick:tool name=\"edit_doc\">\n\
-             <hick:arg name=\"doc\">decisions.hick</hick:arg>\n\
+             <hick:arg name=\"doc\">decisions.md</hick:arg>\n\
              <hick:arg name=\"run\">{hash}</hick:arg>\n\
              <hick:input>Records are retained for 90 days.</hick:input>\n</hick:tool>"
         ),
@@ -202,7 +204,7 @@ async fn verify_reweaves_upstream_outputs_too() {
 
     let executor: Arc<dyn Executor> = Arc::new(LocalExecutor::new().unwrap());
     let mut config = AgentConfig::new("Retention should be 90 days.", dir.path());
-    config.doc_path = Some(path("requirements.hick"));
+    config.doc_path = Some(path("requirements.md"));
     config.max_turns = 6;
 
     let mut on_event = |_: AgentEvent| {};
@@ -217,9 +219,9 @@ async fn verify_reweaves_upstream_outputs_too() {
         "verify did not report re-weaving upstream:\n{session}"
     );
 
-    // The actual point: every upstream document's committed output is now
+    // The actual point: every upstream document's generated output is now
     // current, so a `hick test` over the tree would pass.
-    for name in ["decisions.md", "domain.md"] {
+    for name in ["decisions.out.md", "domain.out.md"] {
         let woven = std::fs::read_to_string(path(name))
             .unwrap_or_else(|e| panic!("{name} was never written: {e}"));
         assert!(

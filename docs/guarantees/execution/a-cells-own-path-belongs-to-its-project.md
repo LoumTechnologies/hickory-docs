@@ -24,7 +24,7 @@ for byte cannot have its own temp directory be the thing that breaks it.
 
 The name was derived from **`current_dir()`**, on the assumption that the
 working directory *is* the project for a CLI run. That is true only when the
-command is run from inside the project, and `hick run ../other/doc.hick` is an
+command is run from inside the project, and `hick run ../other/doc.md` is an
 ordinary thing to type. The assumption was wrong in both directions: two
 unrelated documents run from one shell shared a name and fought over it, and
 one document run from two different shells got two names, which defeats the
@@ -45,7 +45,7 @@ Deriving the name from the document's directory instead of `current_dir()`
 reintroduced the shared root it was meant to remove, in a way nothing about
 the change looked like:
 
-**`Path::new("d.hick").parent()` is `Some("")`, not `None`.** So
+**`Path::new("d.md").parent()` is `Some("")`, not `None`.** So
 `doc_path.parent().unwrap_or(Path::new("."))` — the exact call this guarantee's
 evidence names — never fired its fallback for a document named without a
 directory, and handed an empty path through. `short_key("")` mixes in no bytes
@@ -113,7 +113,7 @@ one binds nothing and puts a directory that resolves from `/` onto the cell's
 
 `current_dir()` was always absolute, so nothing about the change looked like it
 mattered. The failure it produced said the opposite of what was wrong:
-`hick run doc.hick` in a project holding a perfectly good
+`hick run doc.md` in a project holding a perfectly good
 `.hick-cache/models/hick-model-csharp` reported that the tool **is not
 installed here**, and the message went on to explain confinement — correctly,
 in general, and misleadingly here, because the directory was one hick had

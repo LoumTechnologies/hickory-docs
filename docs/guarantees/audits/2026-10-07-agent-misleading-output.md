@@ -312,7 +312,7 @@ actions, then separately evaluate live model behavior and human comprehension.
   collision cases.
 - A separate run of `transform_tests` passed eight tests and failed
   `weaving_emits_the_pinned_passage_and_calls_no_model` reading missing `out.md`.
-  The fixture uses legacy `d.hick`; this audit did not repair it or establish the
+  The fixture uses legacy `d.md`; this audit did not repair it or establish the
   intended output path for that fixture. The two session HTTP tests passed.
 - Reproduced branch contamination and false current-line attribution using
   synthetic session documents in disposable directories and the existing local

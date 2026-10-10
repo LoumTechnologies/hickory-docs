@@ -78,7 +78,7 @@ impl AgentRunner for StubRunner {
 }
 
 fn write_doc(dir: &Path, body: &str) -> PathBuf {
-    let path = dir.join("doc.hick");
+    let path = dir.join("doc.md");
     std::fs::write(&path, body).unwrap();
     path
 }

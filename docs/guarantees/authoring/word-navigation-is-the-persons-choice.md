@@ -1,6 +1,6 @@
 # Word Navigation Is The Person's Choice
 
-Given any editor in the app — a `.hick` document, a plain file, a woven
+Given any editor in the app — a `.md` document, a plain file, a woven
 output — when Ctrl+← or Ctrl+→ is pressed (Option+← / Option+→ on macOS), then
 the caret moves by whichever definition of "word" the person picked in
 Settings → Editing, and Shift extends the selection by the same unit:
@@ -14,7 +14,7 @@ Settings → Editing, and Shift extends the selection by the same unit:
 
 The choice cannot be inferred from the file, and that is the whole reason it
 is a setting. Subword motion is what you want in code and the wrong thing in
-prose, and a `.hick` document **is both** — a paragraph explaining a program,
+prose, and a `.md` document **is both** — a paragraph explaining a program,
 then the program. Deciding per block would mean the same key does two
 different things a few lines apart, which is worse than either.
 
@@ -74,7 +74,7 @@ Last LLM verification:
     "Editing" section rather than a row under Appearance — this changes what a
     key *does*, and someone hunting for it after Ctrl+→ overshot is not
     looking under "Appearance".
-  - Seen running, in the app on `.dev/project/scaffolding.hick`: from the
+  - Seen running, in the app on `.dev/project/scaffolding.md`: from the
     start of `Console.WriteLine("Hello, World!");`, three Ctrl+→ presses land
     at `Console.Write|Line` under Subwords and at `Console.WriteLine|` under
     Whole words — **same editor, not remounted between the two**, which is the

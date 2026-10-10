@@ -409,18 +409,18 @@ mod tests {
     #[test]
     fn images_land_beside_the_document_that_references_them() {
         assert_eq!(
-            asset_dir(Some("notes/weekly/mon.hick")).unwrap(),
+            asset_dir(Some("notes/weekly/mon.md")).unwrap(),
             "notes/weekly/assets"
         );
-        assert_eq!(asset_dir(Some("top.hick")).unwrap(), "assets");
+        assert_eq!(asset_dir(Some("top.md")).unwrap(), "assets");
         assert_eq!(asset_dir(None).unwrap(), "assets");
-        assert!(asset_dir(Some("../escape.hick")).is_err());
+        assert!(asset_dir(Some("../escape.md")).is_err());
     }
 
     #[test]
     fn the_markdown_destination_is_relative_to_the_note() {
         assert_eq!(
-            relative_to_doc(Some("notes/weekly/mon.hick"), "notes/weekly/assets/a.png"),
+            relative_to_doc(Some("notes/weekly/mon.md"), "notes/weekly/assets/a.png"),
             "assets/a.png"
         );
         assert_eq!(relative_to_doc(None, "assets/a.png"), "assets/a.png");

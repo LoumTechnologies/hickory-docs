@@ -6,7 +6,7 @@ use hick_lang::{HickDocument, HickNode};
 
 use crate::virtual_file::{self, VirtualFile};
 
-/// State for a single open .hick document.
+/// State for a single open .md document.
 #[derive(Debug, Clone)]
 pub struct HickDocumentState {
     /// The parsed document.

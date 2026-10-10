@@ -22,7 +22,7 @@ list where some selectors resolved and one did not produced a non-empty
 result, and the one that matched nothing disappeared with no warning
 anywhere.
 
-Found on 2026-09-04 by taking `examples/receipts/hick-agent/message.hick` —
+Found on 2026-09-04 by taking `examples/receipts/hick-agent/message.md` —
 the walkthrough for exactly this feature — and replacing `#fix-summary` with
 `#no-such-anchor` throughout. `hick cites` printed the four selectors that
 resolved and said nothing about the fifth. `hick test`, after a re-weave,
@@ -75,7 +75,7 @@ Last LLM verification:
   `a_citation_that_resolves_is_not_reported` (including two selectors
   resolving to one place), and the strengthened
   `cites_resolve_across_the_chain_and_report_dangling_ones`. Verified by hand
-  against `examples/receipts/hick-agent/message.hick`, which still passes
+  against `examples/receipts/hick-agent/message.md`, which still passes
   untouched and fails with exit 3 when a selector is broken.
 - Caveat requiring LLM review: only the selector's resolution is checked. A
   citation pointing at a real fragment that does not support the sentence is

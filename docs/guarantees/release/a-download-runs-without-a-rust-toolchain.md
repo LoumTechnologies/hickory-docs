@@ -142,10 +142,10 @@ Last LLM verification:
       untouched and identical on every platform.
     - `aarch64-apple-darwin` built and its binary **ran** — the log shows
       `hick 0.1.0-unstable.9d329eb0` — then exited 3 on
-      `examples/text-tools-tour.hick:69`: `expected "0", got "       0"`.
+      `examples/text-tools-tour.md:69`: `expected "0", got "       0"`.
       That was BSD `wc -l`'s eight-column padding, i.e. a portability bug in
       the shipped example rather than anything about the release path. Fixed
-      in `examples/text-tools-tour.hick` by piping through `tr -d ' '`, with
+      in `examples/text-tools-tour.md` by piping through `tr -d ' '`, with
       the reason written into the document's own prose;
       `examples/text-tools-tour.md` regenerated with `just run`.
   - `.github/workflows/release-build.yml`'s smoke step now derives skip/run
@@ -161,7 +161,7 @@ Last LLM verification:
   - **macOS: 18 of 18 phases pass** against a locally built
     `x86_64-apple-darwin` archive — the archive carries all five things this
     guarantee names, `hick --version` agrees with the version in the asset name,
-    `hick-lsp` loads on closed stdin, `hick test examples/text-tools-tour.hick`
+    `hick-lsp` loads on closed stdin, `hick test examples/text-tools-tour.md`
     re-derives and matches, and `hick weave` renders. First time a document has
     been executed from a download on a machine with no toolchain.
   - **Linux and Windows were run against the published `unstable` release**
@@ -216,12 +216,12 @@ Last LLM verification:
     Its row in the table above says so; if this matters, the fix is an
     Intel macOS runner, not a change to the gate.
   - The macOS `hick test examples/` path is now proven only for
-    `text-tools-tour.hick`, which is all the smoke test runs. The other two
+    `text-tools-tour.md`, which is all the smoke test runs. The other two
     example documents need `python3`/`polars`/`duckdb`, and their macOS
     behaviour is unobserved — the `clean-machine` job runs the full
     `examples/` tree on Linux only. A grep for the usual GNU-vs-BSD
     divergences (`sed -i`, `date -d`, `stat -c`, `readlink -f`, `grep -P`,
-    `sort -V`, `base64 -w`) across `examples/*.hick` found none, which is
+    `sort -V`, `base64 -w`) across `examples/*.md` found none, which is
     evidence and not proof.
   - The archive was unpacked and run on the machine that built it — which has
     a Rust toolchain, a C compiler, `duckdb`, and `uv` already. Nothing in the

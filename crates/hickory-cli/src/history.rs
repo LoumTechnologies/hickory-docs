@@ -261,11 +261,11 @@ mod tests {
 
     #[test]
     fn a_path_outside_the_root_keeps_its_own_name_rather_than_being_mangled() {
-        let rel = relative(Path::new("/a/b"), Path::new("/a/b/c/d.hick"));
-        assert_eq!(rel, "c/d.hick");
+        let rel = relative(Path::new("/a/b"), Path::new("/a/b/c/d.md"));
+        assert_eq!(rel, "c/d.md");
         // Not every writer's path is under the root (an out-dir run), and a
         // wrong relative path would revert to the wrong place.
-        let outside = relative(Path::new("/a/b"), Path::new("/elsewhere/d.hick"));
-        assert_eq!(outside, "/elsewhere/d.hick");
+        let outside = relative(Path::new("/a/b"), Path::new("/elsewhere/d.md"));
+        assert_eq!(outside, "/elsewhere/d.md");
     }
 }

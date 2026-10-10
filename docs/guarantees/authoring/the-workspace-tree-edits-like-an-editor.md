@@ -8,7 +8,7 @@ labels laid over buttons and there is no separate edit mode.
 
 Given that buffer, when a person clicks, moves with the arrow keys, selects
 text, uses multiple cursors or rectangular selection, types, or undoes, then
-the same editor mechanisms used in a `.hick` pane answer those gestures. A
+the same editor mechanisms used in a `.md` pane answer those gestures. A
 single click places the caret. Double-clicking a file selects exactly its whole
 line and opens it, replacing the editor's usual word selection with the Files
 buffer's activation gesture. The fold gutter may hide descendants without

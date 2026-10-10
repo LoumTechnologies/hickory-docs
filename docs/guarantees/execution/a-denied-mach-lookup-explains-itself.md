@@ -34,7 +34,7 @@ Last LLM verification:
 - Result: verified
 - Evidence: `crates/hickory-executor-sandbox/src/lib.rs`'s
   `looks_like_a_denied_mach_lookup` and the second branch of `explain`;
-  confirmed against a real `HICKORY_EXECUTOR=sandbox hick run` of a `.hick`
+  confirmed against a real `HICKORY_EXECUTOR=sandbox hick run` of a `.md`
   document with a `dotnet build` cell on macOS 15.7.7 — the sandboxed run
   fails with `CSSM_ModuleLoad(): One or more parameters passed to a function
   were not valid.` while the identical command outside the sandbox and under

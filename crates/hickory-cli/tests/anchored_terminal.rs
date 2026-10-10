@@ -52,7 +52,7 @@ async fn open_app(shell: &str) -> App {
     let dir = tempfile::tempdir().expect("a temp project");
     let root = dir.path().to_path_buf();
     std::fs::create_dir_all(root.join(".git")).unwrap();
-    std::fs::write(root.join("doc.hick"), DOC).unwrap();
+    std::fs::write(root.join("doc.md"), DOC).unwrap();
 
     let prepared = prepare(ServeOptions {
         target: root.clone(),
@@ -180,7 +180,7 @@ impl App {
     }
 
     fn document(&self) -> String {
-        std::fs::read_to_string(self.root.join("doc.hick")).expect("the document is readable")
+        std::fs::read_to_string(self.root.join("doc.md")).expect("the document is readable")
     }
 
     async fn anchors(&self) -> Value {

@@ -27,7 +27,7 @@ const DOC: &str = r##"<?xml version="1.0" encoding="UTF-8"?>
 "##;
 
 fn write_doc(dir: &Path) -> PathBuf {
-    let path = dir.join("demo.hick");
+    let path = dir.join("demo.md");
     std::fs::write(&path, DOC).unwrap();
     path
 }
@@ -139,7 +139,7 @@ fn work_done_across_separate_processes_lands_in_one_replayable_session() {
     let dir = tempfile::tempdir().unwrap();
     let doc = write_doc(dir.path());
     let doc = doc.to_str().unwrap();
-    let session = dir.path().join("sessions/byo.hick");
+    let session = dir.path().join("sessions/byo.md");
 
     let (_, out) = doc_cmd(&["read", doc], None, Some(&session));
     let anchor = hash_of(&out, "hick:copy");

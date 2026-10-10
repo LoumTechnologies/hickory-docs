@@ -51,7 +51,7 @@ async fn weave(doc_path: &Path) -> hickory_cli::WrittenOutputs {
 #[tokio::test(flavor = "multi_thread")]
 async fn a_weave_without_a_recording_keeps_the_artifact_and_still_writes_the_report() {
     let dir = tempfile::tempdir().unwrap();
-    let doc_path = dir.path().join("doc.hick");
+    let doc_path = dir.path().join("doc.md");
     std::fs::write(&doc_path, doc()).unwrap();
 
     // A real run commits the artifact, exactly as a first `hick run` would.
@@ -119,7 +119,7 @@ async fn a_weave_without_a_recording_keeps_the_artifact_and_still_writes_the_rep
 #[tokio::test(flavor = "multi_thread")]
 async fn a_weave_still_creates_an_artifact_that_is_not_there_yet() {
     let dir = tempfile::tempdir().unwrap();
-    let doc_path = dir.path().join("doc.hick");
+    let doc_path = dir.path().join("doc.md");
     std::fs::write(&doc_path, doc()).unwrap();
 
     // Nothing has ever run and nothing is on disk: there is no artifact to

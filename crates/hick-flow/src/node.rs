@@ -23,12 +23,12 @@ use crate::context::Context;
 /// Describes where a node's content originated.
 ///
 /// Used for character-level provenance tracking: mapping generated output
-/// back to source `.hick` file positions or other origins.
+/// back to source `.md` file positions or other origins.
 #[derive(Debug, Clone)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[cfg_attr(feature = "serde", serde(tag = "type"))]
 pub enum SourceOrigin {
-    /// Literal text from a `.hick` source file.
+    /// Literal text from a `.md` source file.
     Literal { file: Arc<str>, span: SourceSpan },
     /// Output from a container exec.
     Exec {
@@ -38,7 +38,7 @@ pub enum SourceOrigin {
     /// Content resolved via a paste selector.
     ///
     /// When the pasted bytes are byte-identical to a contiguous region of a
-    /// source `.hick` file (a plain-text copy block, no dedent applied),
+    /// source `.md` file (a plain-text copy block, no dedent applied),
     /// `file`/`span` carry that region so edits to the pasted output can be
     /// mapped back to the copy block's source text.
     Paste {

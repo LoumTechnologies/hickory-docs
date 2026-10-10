@@ -30,12 +30,12 @@ struct Session {
 /// same shape the desktop app passes (`<app config dir>/ui.json`).
 async fn start() -> Session {
     let dir = tempfile::tempdir().unwrap();
-    std::fs::write(dir.path().join("demo.hick"), DOC).unwrap();
+    std::fs::write(dir.path().join("demo.md"), DOC).unwrap();
     let root = dir.path().canonicalize().unwrap();
     let ui_path = root.join("config").join("ui.json");
 
     let prepared = prepare(ServeOptions {
-        target: root.join("demo.hick"),
+        target: root.join("demo.md"),
         port: 0,
         params: Vec::new(),
         executor: ExecutorChoice::Local,
@@ -121,7 +121,7 @@ async fn a_saved_window_title_is_live_and_survives_a_restart() {
 
     // A fresh session over the same file — the next launch — sees it too.
     let reloaded = prepare(ServeOptions {
-        target: session._dir.path().join("demo.hick"),
+        target: session._dir.path().join("demo.md"),
         port: 0,
         params: Vec::new(),
         executor: ExecutorChoice::Local,
@@ -235,11 +235,11 @@ async fn a_bad_put_changes_nothing() {
 #[tokio::test(flavor = "multi_thread")]
 async fn without_a_path_the_routes_answer_in_memory() {
     let dir = tempfile::tempdir().unwrap();
-    std::fs::write(dir.path().join("demo.hick"), DOC).unwrap();
+    std::fs::write(dir.path().join("demo.md"), DOC).unwrap();
     let root = dir.path().canonicalize().unwrap();
 
     let prepared = prepare(ServeOptions {
-        target: root.join("demo.hick"),
+        target: root.join("demo.md"),
         port: 0,
         params: Vec::new(),
         executor: ExecutorChoice::Local,

@@ -45,7 +45,7 @@ python3 proj/count.py
 fn run_cached(dir: &Path) -> usize {
     let out = hick()
         .arg("run")
-        .arg(dir.join("report.hick"))
+        .arg(dir.join("report.md"))
         .arg("--cache")
         // Deliberately NOT `.current_dir(dir)`. These two tests run in
         // parallel, in separate tempdirs, from the harness's own cwd — which
@@ -69,7 +69,7 @@ fn run_cached(dir: &Path) -> usize {
 }
 
 fn write_doc(dir: &Path, numbers: &str) {
-    std::fs::write(dir.join("report.hick"), doc_with(numbers)).expect("write doc");
+    std::fs::write(dir.join("report.md"), doc_with(numbers)).expect("write doc");
 }
 
 fn transcript_total(dir: &Path) -> String {

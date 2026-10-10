@@ -12,4 +12,4 @@ Also includes a mini selector engine supporting `#id`, `//tag`, and
 across multiple documents at once.
 
 This is the XML parsing foundation for the pipeline; all code that reads raw
-`.hick` or other XML files goes through these traits.
+`.md` or other XML files goes through these traits.

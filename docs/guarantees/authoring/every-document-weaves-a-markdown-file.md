@@ -1,7 +1,7 @@
 # Every Document Weaves A Markdown File Of Its Own Name
 
-Given a `.hick` document loaded from a path, when it is run or woven, then it
-writes a markdown file of its own name beside it — `notes/standup.hick` weaves
+Given a `.md` document loaded from a path, when it is run or woven, then it
+writes a markdown file of its own name beside it — `notes/standup.md` weaves
 `notes/standup.md` — unless it names a different one with `weave=`, or opts out
 entirely with `weave="none"`.
 
@@ -20,7 +20,7 @@ Three properties hold it up:
 2. **The default is a file name, not a path.** `weave`, like every
    `<hick:file path=…>`, resolves relative to the document's own output
    directory, and an absolute path is refused as an escaping output path. So
-   the default is `standup.md`, which lands beside `notes/standup.hick`.
+   the default is `standup.md`, which lands beside `notes/standup.md`.
 3. **Every producer of a document agrees on its outputs.** The pipeline
    prologue, the re-prepare after an agent cell edits a document, and the CLI's
    `run_doc` all resolve through the same function. A `DocRun` whose
@@ -65,7 +65,7 @@ Last LLM verification:
   `test_weave_no_attribute_no_output`, the test that asserted the old
   contract), `test_no_file_outputs`, `test_multi_file_output`,
   `test_multi_stage_no_hick_output_single_stage`.
-- Run end to end on this machine: `hick run notes/standup.hick` on a document
+- Run end to end on this machine: `hick run notes/standup.md` on a document
   declaring no `weave=` reported `wrote notes/standup.md`, and `hick test` then
   reported `ok`.
 - Caveats — what LLM review could NOT establish:
@@ -74,7 +74,7 @@ Last LLM verification:
     produce a new file on its next run. Nothing warns about this, and no
     migration path exists beyond running the tool.
   - **`hick equiv` now depends on both sides sharing a document name.**
-    `check_equivalence` runs both sources as `document.hick` so their default
+    `check_equivalence` runs both sources as `document.md` so their default
     weave paths coincide, which is semantically right — the refactor gate is
     about one file before and after — but it means the function is no longer
     meaningful for comparing documents that genuinely live at different paths.

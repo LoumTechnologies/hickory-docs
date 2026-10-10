@@ -47,7 +47,7 @@ The working directory is never consulted. An app launched from a dock, Finder,
 or a Start menu inherits `/`, and opening `/` because nobody said otherwise is
 not a sensible default.
 
-A folder with no `.hick` documents in it, or one another Hickory Docs process
+A folder with no `.md` documents in it, or one another Hickory Docs process
 already holds, is not fatal: the app says which and asks again. Cancelling the
 picker with nothing open exits quietly — that is a decision not to use the app
 right now, not an error.

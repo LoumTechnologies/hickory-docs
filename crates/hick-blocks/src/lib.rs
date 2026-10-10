@@ -1,6 +1,6 @@
 //! The element registry.
 //!
-//! A `.hick` document is text plus namespaced tags, and the vocabulary of
+//! A `.md` document is text plus namespaced tags, and the vocabulary of
 //! those tags used to be declared nowhere: about fifty names matched as
 //! string literals across the crates, four kinds in the block model the app
 //! draws, six on the editor's card rail, twenty in the editor's own parser,

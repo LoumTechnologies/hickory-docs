@@ -71,7 +71,7 @@ but the *key* stabilises one run later.
 > tail for a volume seeded from a subdirectory). A `hick:file` assembled from
 > literal text is still in the key, which is this guarantee's whole point;
 > `a_documents_own_unstable_products_are_not_in_the_key` covers both halves.
-> Proven on `examples/grand-tour.hick`: one `hick run`, then two weaves in a
+> Proven on `examples/grand-tour.md`: one `hick run`, then two weaves in a
 > row found the recording, and `git status` stayed clean.
 
 
@@ -87,7 +87,7 @@ but the *key* stabilises one run later.
 >    and withdrawn the same day: with `output="."` it removed every input, and
 >    a changed script no longer re-executed the cell that reads it. Rule 1
 >    already covers what it was for.
-> 3. **A sibling `.hick` minus its kept recordings.** A document's evidence
+> 3. **A sibling `.md` minus its kept recordings.** A document's evidence
 >    about itself is not an input to anything; with it in the key, keeping a
 >    recording in one document staled every cell in the folder.
 > 4. **`.hick-cache` at any depth, not only the first component.** A folder

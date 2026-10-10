@@ -14,7 +14,7 @@ language — `styles.css`'s `.cm-prov-ingested` (a dashed underline plus a
 faint accent wash) is real, shipped CSS — but only ONE of them actually
 applied it. The Output pane's per-character lineage highlighting
 (`OutputEditorPane.tsx`) uses it correctly. The Document view — the primary
-place a person actually reads a `.hick` document — never did: the exec
+place a person actually reads a `.md` document — never did: the exec
 card's own rendering stops exactly at the ingested block's boundary (by
 design, so the bytes stay editable), and nothing filled that gap with any
 marking at all. The plain text after the card was visually indistinguishable

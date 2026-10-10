@@ -58,7 +58,7 @@ pub use policy::Sandbox;
 /// Resolved against the project, the same way the scratch root is — and, like
 /// it, this used to be resolved against the process's working directory on the
 /// assumption that the two are the same. They are the same only when the
-/// command was run from inside the project, so `hick run ../proj/doc.hick`
+/// command was run from inside the project, so `hick run ../proj/doc.md`
 /// looked for the project's installed tools next to whatever shell the person
 /// happened to be in and quietly found none. `None` keeps the old behaviour
 /// for a caller that genuinely has no document in hand.
@@ -70,8 +70,8 @@ pub use policy::Sandbox;
 /// `bwrap --ro-bind-try <src> <dst>` and a `PATH` prefix inside the cell, both
 /// of which need a real location: a relative one binds nothing and puts a
 /// directory that does not exist from `/` onto the cell's `PATH`. The project
-/// arrives relative in the ordinary case — `hick run doc.hick` gives
-/// `Path::new("doc.hick").parent()`, which is `Some("")`, not `None` — so the
+/// arrives relative in the ordinary case — `hick run doc.md` gives
+/// `Path::new("doc.md").parent()`, which is `Some("")`, not `None` — so the
 /// empty path is resolved the same way [`LocalExecutor::new_stable_for`]
 /// resolves it, to the working directory.
 fn project_tools(project: Option<&std::path::Path>) -> Vec<std::path::PathBuf> {
@@ -529,7 +529,7 @@ mod project_tools_tests {
         let project = tempfile::tempdir().unwrap();
         with_models(project.path());
         // A relative parent is the ordinary case, not an odd one: `hick run
-        // doc.hick` and `hick run ../proj/doc.hick` both hand one over.
+        // doc.md` and `hick run ../proj/doc.md` both hand one over.
         // Binding it verbatim gave the cell a path that resolves from `/`.
         let _serial = CWD.lock().unwrap_or_else(|e| e.into_inner());
         let previous = std::env::current_dir().unwrap();
@@ -547,8 +547,8 @@ mod project_tools_tests {
 
     #[test]
     fn an_empty_project_means_the_working_directory() {
-        // `Path::new("doc.hick").parent()` is `Some("")`, not `None`, so this
-        // is the ordinary `hick run doc.hick` case rather than an odd one.
+        // `Path::new("doc.md").parent()` is `Some("")`, not `None`, so this
+        // is the ordinary `hick run doc.md` case rather than an odd one.
         let project = tempfile::tempdir().unwrap();
         with_models(project.path());
         let _serial = CWD.lock().unwrap_or_else(|e| e.into_inner());

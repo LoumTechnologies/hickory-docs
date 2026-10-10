@@ -672,7 +672,7 @@ command = "hick-lsp"
 
 [[language]]
 name = "hick"
-scope = "source.hick"
+scope = "source.md"
 file-types = ["md"]
 roots = [".git"]
 comment-token = "#"

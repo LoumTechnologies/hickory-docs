@@ -221,7 +221,7 @@ Steps 1 and 2 stand alone, which is the test.
   `allow` for one host or a LAN-only fetch from a peer, and which one is the
   default is not decided. It is also the widest exfiltration channel in the
   design: an agent that can push can push anything.
-- **The broker's log wants to be a note.** A `.hick` document ingesting the
+- **The broker's log wants to be a note.** A `.md` document ingesting the
   decision log would make claims about the agent's egress checkable by `hick
   test` — *no host outside this list was reached this week* as an expectation
   that fails the day it stops being true. That is the product's own idea

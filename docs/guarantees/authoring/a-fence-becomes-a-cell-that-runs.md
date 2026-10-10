@@ -1,6 +1,6 @@
 # A Fence Becomes A Cell That Runs
 
-Given a `.hick` document whose prose contains a closed fenced code block, when
+Given a `.md` document whose prose contains a closed fenced code block, when
 its rail icon is clicked, then a panel shows the exact `<hick:exec>` that
 would replace it — the container it will run in, and a body derived from the
 fence's language — and confirming replaces exactly the fence, leaving every

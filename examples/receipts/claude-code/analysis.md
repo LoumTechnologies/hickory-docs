@@ -4,7 +4,7 @@ date: 2026-08-24
 
 # Checkout latency: before and after the pool fix
 
-
+<hick:upstream file="meetings/2026-08-20-checkout-latency-sync.md" />
 
 Priya's export, `data/checkout-latency.csv`, holds one row per four-hour
 bucket from 2026-08-10 to 2026-08-23: the bucket's p95 checkout latency in
@@ -14,14 +14,42 @@ meeting asked for (the deploy on the 12th, the fix at noon on Friday the
 says how many rows it dropped so the exclusion is visible rather than
 silent.
 
-I have the hourly latency export for August 10th through the 21st in the analytics bucket. I can compute before and after for whatever window you pick. One warning: the 18th has the load test in it, ten to noon, so anything that averages over the 18th will be wrong unless you exclude that window.
+<hick:paste select="#transcript-u4" />
 
+<hick:container name="py" image="python:3.12" />
+<hick:volume name="src" input="." />
+
+<hick:exec id="windows" container="py" mount="src:project" show="output">
+python3 - <<'PY'
+import csv
+rows = list(csv.DictReader(open("project/data/checkout-latency.csv")))
+def mean(xs): xs = list(xs); return sum(xs) / len(xs)
+LOAD_TEST = {"2026-08-18T08:00"}          # the bucket covering 10:00-12:00 on the 18th
+def window(lo, hi):
+    sel = [r for r in rows if lo <= r["bucket_start"] < hi and r["bucket_start"] not in LOAD_TEST]
+    return mean(int(r["p95_ms"]) for r in sel), len(sel)
+base, nb = window("2026-08-10T00:00", "2026-08-12T00:00")
+before, n1 = window("2026-08-12T00:00", "2026-08-21T12:00")
+after, n2 = window("2026-08-21T12:00", "2026-08-24T00:00")
+dropped = sum(1 for r in rows if r["bucket_start"] in LOAD_TEST)
+print(f"baseline  (08-10 .. 08-12)        p95 {base:.0f} ms over {nb} buckets")
+print(f"broken    (08-12 .. 08-21 12:00)  p95 {before:.0f} ms over {n1} buckets")
+print(f"after fix (08-21 12:00 .. 08-24)  p95 {after:.0f} ms over {n2} buckets")
+print(f"excluded: {dropped} bucket(s) in the 2026-08-18 load-test window")
+PY
+<hick:expect match="exact">baseline  (08-10 .. 08-12)        p95 203 ms over 12 buckets
+broken    (08-12 .. 08-21 12:00)  p95 489 ms over 56 buckets
+after fix (08-21 12:00 .. 08-24)  p95 212 ms over 15 buckets
+excluded: 1 bucket(s) in the 2026-08-18 load-test window
+</hick:expect>
+
+<hick:ingested key="7102c3d6be9464b8e315a0fb0fa166d97256b7326176ece7a16e856211a1f8b9" sha256="1488ef204c3e853d4e958743835e79f59df4fb44970b0bcf5e283d6f8e9372fd" at="2026-09-03">
 baseline  (08-10 .. 08-12)        p95 203 ms over 12 buckets
 broken    (08-12 .. 08-21 12:00)  p95 489 ms over 56 buckets
 after fix (08-21 12:00 .. 08-24)  p95 212 ms over 15 buckets
 excluded: 1 bucket(s) in the 2026-08-18 load-test window
-
-
+</hick:ingested>
+</hick:exec>
 
 ## Findings
 
@@ -31,3 +59,8 @@ the rest of the pipeline can quote. They are typed, not pasted from the cell
 keeps them honest: change the data and the cell fails before anyone reads a
 stale finding.
 
+<hick:copy id="p95-before-after" class="finding">Checkout p95 was 489 ms between the 2026-08-12 deploy and the fix at noon on 2026-08-21, and 212 ms from the fix through 2026-08-23 (mean of four-hour p95 buckets, load-test window excluded).</hick:copy>
+
+<hick:copy id="load-test-excluded" class="finding">The 2026-08-18 10:00–12:00 load-test bucket is excluded from every number here, as Priya asked.</hick:copy>
+
+<hick:copy id="baseline" class="finding">Before the 2026-08-12 deploy the same measure was 203 ms, so the fix returned checkout to where it was, not somewhere new.</hick:copy>

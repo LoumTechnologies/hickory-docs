@@ -42,7 +42,7 @@ notes IDE needs are the pieces that already exist:
 | Knowing where a sentence came from | `hick lineage` — byte-precise provenance from output back to source span |
 | Knowing that a summary was written by a model, and from which bytes | `hick:transform` with `from=` — a fingerprint checked offline, plus `git blame` composed through lineage in `crates/hickory-cli/src/agent_lineage.rs` |
 | Material arriving without anyone running a command | The inbox `hick up` already watches, plus the app's scratchpad — see `ingest.md` |
-| A note that looks like a note when you open it | Bare documents — see `bare-documents.md`. A `.hick` file may begin with markdown or YAML frontmatter, and always weaves a `.md` of the same name |
+| A note that looks like a note when you open it | Bare documents — see `bare-documents.md`. A `.md` file may begin with markdown or YAML frontmatter, and always weaves a `.md` of the same name |
 | Reading a note on a device that cannot execute anything | `hick weave` — weaves from cached transcripts, marking never-run blocks as never-run |
 
 The last row is the one that makes mobile possible at all, and it was built for
@@ -123,7 +123,7 @@ here.**
 
 There is no server, so the phone and the desktop meet somewhere the user
 already owns: a git remote they control. The notes folder is a git repository —
-the user's own `.git`, not `hick-store`'s internal `.hick/git/` — and the phone
+the user's own `.git`, not `hick-store`'s internal `.md/git/` — and the phone
 commits and pushes to it.
 
 - **Auth is the user's.** A token or SSH key in the platform keychain, put there
@@ -133,7 +133,7 @@ commits and pushes to it.
   a port**: nothing in this codebase clones, fetches, or pushes today, on any
   platform. The library choice turns on whether it can push — see
   `shipping-mobile-and-desktop.md`.
-- **Conflicts are resolved by `hick-merge`.** Three-way merge over `.hick`
+- **Conflicts are resolved by `hick-merge`.** Three-way merge over `.md`
   documents already exists. On desktop it can be registered as a git merge
   driver; **on mobile it cannot**, because a merge driver is a config line that
   invokes a binary and a phone has neither the binary nor a `git` to read the

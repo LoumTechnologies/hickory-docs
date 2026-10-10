@@ -333,8 +333,8 @@ mod tests {
         // The same eight output bytes come from byte 100 of the baseline and
         // byte 500 of the restructured document. That is the correspondence,
         // and nothing but the outputs was needed to derive it.
-        let before = vec![lit(0, 8, "a.hick", 100, 108)];
-        let after = vec![lit(0, 8, "a.hick", 500, 508)];
+        let before = vec![lit(0, 8, "a.md", 100, 108)];
+        let after = vec![lit(0, 8, "a.md", 500, 508)];
         let joined = join_through_outputs(&before, &after);
         assert_eq!(joined.len(), 1);
         assert_eq!(joined[0].0.span, (100, 108));
@@ -344,8 +344,8 @@ mod tests {
     #[test]
     fn a_span_that_did_not_move_records_nothing() {
         // "This span is itself" is not a fact worth a line in a record.
-        let before = vec![lit(0, 8, "a.hick", 100, 108)];
-        let after = vec![lit(0, 8, "a.hick", 100, 108)];
+        let before = vec![lit(0, 8, "a.md", 100, 108)];
+        let after = vec![lit(0, 8, "a.md", 100, 108)];
         assert!(join_through_outputs(&before, &after).is_empty());
     }
 
@@ -354,8 +354,8 @@ mod tests {
         // One baseline block became two blocks. Each half corresponds to its
         // own half — not the whole to the whole, which would be a claim the
         // outputs do not support.
-        let before = vec![lit(0, 8, "a.hick", 100, 108)];
-        let after = vec![lit(0, 4, "a.hick", 500, 504), lit(4, 8, "a.hick", 700, 704)];
+        let before = vec![lit(0, 8, "a.md", 100, 108)];
+        let after = vec![lit(0, 4, "a.md", 500, 504), lit(4, 8, "a.md", 700, 704)];
         let mut joined = join_through_outputs(&before, &after);
         joined.sort_by_key(|(f, _)| f.span);
         assert_eq!(joined.len(), 2);
@@ -371,7 +371,7 @@ mod tests {
 
     #[test]
     fn a_synthetic_side_records_nothing_rather_than_a_forgeable_guess() {
-        let before = vec![lit(0, 8, "a.hick", 100, 108)];
+        let before = vec![lit(0, 8, "a.md", 100, 108)];
         let after = vec![Provenance {
             start: 0,
             end: 8,
@@ -396,12 +396,12 @@ mod tests {
         let one = Correspondence {
             from: Endpoint {
                 commit: None,
-                path: "a.hick".into(),
+                path: "a.md".into(),
                 span: (1, 2),
             },
             to: Endpoint {
                 commit: Some("abc".into()),
-                path: "a.hick".into(),
+                path: "a.md".into(),
                 span: (3, 4),
             },
             precision: Precision::Byte,
@@ -424,12 +424,12 @@ mod tests {
         let good = Correspondence {
             from: Endpoint {
                 commit: None,
-                path: "a.hick".into(),
+                path: "a.md".into(),
                 span: (1, 2),
             },
             to: Endpoint {
                 commit: None,
-                path: "a.hick".into(),
+                path: "a.md".into(),
                 span: (3, 4),
             },
             precision: Precision::Diff,
@@ -614,7 +614,7 @@ mod repair_tests {
         // should read as a block.
         let before = "a\nb\nc\nHEAD\n";
         let after = "HEAD\na\nb\nc\n";
-        let entries = repair(before, after, "doc.hick", Some("abc"), "2026-08-23");
+        let entries = repair(before, after, "doc.md", Some("abc"), "2026-08-23");
         assert_eq!(entries.len(), 1, "{entries:?}");
         let e = &entries[0];
         assert_eq!(e.precision, Precision::Line);
@@ -630,7 +630,7 @@ mod repair_tests {
     #[test]
     fn a_document_that_did_not_move_records_nothing() {
         let text = "a\nb\nc\n";
-        assert!(repair(text, text, "doc.hick", None, "2026-08-23").is_empty());
+        assert!(repair(text, text, "doc.md", None, "2026-08-23").is_empty());
     }
 
     #[test]
@@ -638,13 +638,13 @@ mod repair_tests {
         // Changing a line's CONTENT without moving anything leaves every
         // surviving line where it was, and `(commit, path, line)` already
         // says that.
-        let entries = repair("a\nb\nc\n", "a\nB\nc\n", "doc.hick", None, "2026-08-23");
+        let entries = repair("a\nb\nc\n", "a\nB\nc\n", "doc.md", None, "2026-08-23");
         assert!(entries.is_empty(), "{entries:?}");
     }
 
     #[test]
     fn an_insertion_moves_everything_after_it_and_records_that() {
-        let entries = repair("a\nb\n", "a\nNEW\nb\n", "doc.hick", None, "2026-08-23");
+        let entries = repair("a\nb\n", "a\nNEW\nb\n", "doc.md", None, "2026-08-23");
         assert_eq!(entries.len(), 1, "{entries:?}");
         assert_eq!(entries[0].from.span, (2, 4));
         assert_eq!(entries[0].to.span, (6, 8));

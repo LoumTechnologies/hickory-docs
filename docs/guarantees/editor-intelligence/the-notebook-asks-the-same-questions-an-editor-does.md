@@ -56,7 +56,7 @@ Last LLM verification:
     (never propagating) a start failure.
   - `crates/hickory-cli/tests/serve_local.rs::the_language_channel_answers_in_document_coordinates`
     drives it over a real WebSocket the way the notebook does: `didOpen` on
-    `hick:///demo.hick` produces a `publishDiagnostics` addressed in the same
+    `hick:///demo.md` produces a `publishDiagnostics` addressed in the same
     scheme, and a `textDocument/hover` gets a reply. Run on this machine with
     no `rust-analyzer` installed — the log shows the spawn failing and the
     channel answering anyway, which is the degradation guarantee holding in

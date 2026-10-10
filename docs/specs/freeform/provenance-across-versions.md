@@ -58,7 +58,7 @@ between commits.
 **One limit, stated rather than discovered:** replay weaves an old document with
 today's binary, so it asks for a grammar-compatibility promise the product has
 not made — `pre-launch.md` reserves the right to break the grammar, and says
-document formats deserve more care than code precisely because a `.hick` file
+document formats deserve more care than code precisely because a `.md` file
 outlives any version of the tool. The honest claim is *replay works back to the
 last grammar change*, and the slider says so at the boundary rather than failing
 obscurely.
@@ -207,7 +207,7 @@ resolution can be recorded as it is made.
 
 **Make it automatic rather than a team rule.** `hick-merge` registered as a git
 merge driver means `git merge` on the command line runs the same code as the tab
-— one path, no discipline required — with `hick init` writing `*.hick merge=hick`
+— one path, no discipline required — with `hick init` writing `*.md merge=hick`
 into `.gitattributes`.
 
 One sharp edge, of the kind this product refuses elsewhere: **the driver

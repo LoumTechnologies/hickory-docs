@@ -31,7 +31,7 @@ that you work through while the tree stays where it is.
    document, which is where the change survives *and* where it fixes every
    other copy at once. `generated_by` is on the find result too, so the UI can
    grey the row out before anyone presses the button.
-3. **A `.hick` document is not refused.** It is source. A rename inside one is
+3. **A `.md` document is not refused.** It is source. A rename inside one is
    exactly the edit somebody means, and it is the edit that propagates.
 4. **Limits are reported, never silent.** Files over 4MB are skipped, non-UTF-8
    files are skipped, and the match cap is 5,000 — past which `truncated` is

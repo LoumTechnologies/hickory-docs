@@ -32,7 +32,7 @@ Last LLM verification:
   into the per-run checkout; failures are logged at debug and never pre-empt
   the real run's error.
 - Test coverage: end-to-end against the running server —
-  `examples/grand-tour.hick` created as a brand new document and run once goes
+  `examples/grand-tour.md` created as a brand new document and run once goes
   from a failed run with zero output files to a successful run weaving
   `analysis.py`, `grand-tour.md`, and `regression-explorer.html`. The existing
   server integration tests cover the run/commit path around it.

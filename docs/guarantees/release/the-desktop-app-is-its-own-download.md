@@ -69,7 +69,7 @@ Last LLM verification:
     mounts, carries the `Applications` symlink and a volume icon, and the
     `Hickory Docs.app` inside it copies out and **runs**: the bundled executable
     starts the in-process engine on `127.0.0.1`, `GET /api/health` returns
-    `{"db":false,"executor":"sandbox","ok":true}`, a `.hick` document dropped in
+    `{"db":false,"executor":"sandbox","ok":true}`, a `.md` document dropped in
     `~/Documents/HickoryDocs` was picked up and woven automatically, and
     `POST /api/docs/<id>/run` executed its cell — `status: "ok"`, exit code 0,
     expectation matched. That is the "executes a real document" half of

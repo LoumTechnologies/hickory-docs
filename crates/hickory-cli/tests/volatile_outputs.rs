@@ -2,7 +2,7 @@
 //!
 //! Guarantee: docs/guarantees/verification/a-report-is-not-a-reproducible-artifact.md
 //!
-//! Found by dogfooding: `docs/analysis/claude-code-corpus.hick` measures a
+//! Found by dogfooding: `docs/analysis/claude-code-corpus.md` measures a
 //! corpus that grows every time the CLI runs, so its woven report differed
 //! from the committed copy on literally every check. A check that always
 //! fails is one people stop reading, which would have quietly cost us the
@@ -47,7 +47,7 @@ print("stable")
 }
 
 async fn run_and_check(dir: &Path) -> Vec<CheckFailure> {
-    let doc_path = dir.join("doc.hick");
+    let doc_path = dir.join("doc.md");
     let run = run_doc(&doc_path, &[], RunMode::Execute, ExecutorChoice::Local)
         .await
         .expect("run");
@@ -57,7 +57,7 @@ async fn run_and_check(dir: &Path) -> Vec<CheckFailure> {
 #[tokio::test(flavor = "multi_thread")]
 async fn a_volatile_report_does_not_drift_but_its_files_still_do() {
     let dir = tempfile::tempdir().unwrap();
-    let doc_path = dir.path().join("doc.hick");
+    let doc_path = dir.path().join("doc.md");
     std::fs::write(&doc_path, doc()).unwrap();
 
     // Commit the outputs, exactly as a first `hick run` would.

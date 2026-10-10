@@ -1,6 +1,6 @@
 # A Plain File Has The Same Debugger A Document Has
 
-Given a folder open in the app and a file in it that is not a `.hick`
+Given a folder open in the app and a file in it that is not a `.md`
 document — `src/main.rs`, `tools/app.py`, `index.ts`, `Program.cs` — in a
 language hick can debug, when it is opened in a pane, then the pane has the
 breakpoint gutter, the Debug button, and the debugger's strip a document's

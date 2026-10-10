@@ -22,7 +22,7 @@ fn hick() -> Command {
 }
 
 fn write_doc(dir: &Path, body: &str) -> PathBuf {
-    let path = dir.join("doc.hick");
+    let path = dir.join("doc.md");
     let source = format!(
         r#"<?xml version="1.0" encoding="UTF-8"?>
 <hick:doc xmlns:hick="http://www.hickorydocs.com/1.0" weave="doc.md">

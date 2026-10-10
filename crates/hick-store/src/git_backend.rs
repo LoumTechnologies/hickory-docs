@@ -1,6 +1,6 @@
 //! Git-backed VersionStore using git plumbing commands.
 //!
-//! Operates on a separate git object database at `.hick/git/` (not the
+//! Operates on a separate git object database at `.md/git/` (not the
 //! user's `.git/`). All commands run via `tokio::process::Command` with
 //! `GIT_DIR` pointing to the hick-specific repository.
 
@@ -165,14 +165,14 @@ impl GitVersionStore {
         self.put_blob(json.as_bytes()).await
     }
 
-    /// Read provenance from a tree's `.hick/provenance.json` blob.
+    /// Read provenance from a tree's `.md/provenance.json` blob.
     async fn read_provenance(
         &self,
         commit_sha: &str,
     ) -> Result<BTreeMap<String, FileProvenance>, StoreError> {
-        // Try to read .hick/provenance.json from the tree
+        // Try to read .md/provenance.json from the tree
         let result = self
-            .run_git(&["show", &format!("{commit_sha}:.hick/provenance.json")])
+            .run_git(&["show", &format!("{commit_sha}:.md/provenance.json")])
             .await;
 
         match result {
@@ -217,7 +217,7 @@ impl VersionStore for GitVersionStore {
         // Collect all files including provenance
         let prov_hash = self.store_provenance(&snapshot.provenance).await?;
         let mut all_files: BTreeMap<String, BlobHash> = snapshot.files.clone();
-        all_files.insert(".hick/provenance.json".to_string(), prov_hash);
+        all_files.insert(".md/provenance.json".to_string(), prov_hash);
 
         let tree_sha = self.build_tree(&all_files).await?;
 
@@ -270,7 +270,7 @@ impl VersionStore for GitVersionStore {
             if parts.len() >= 4 {
                 let blob_hash = parts[2].to_string();
                 let path = parts[3].to_string();
-                if !path.starts_with(".hick/") {
+                if !path.starts_with(".md/") {
                     files.insert(path, BlobHash(blob_hash));
                 }
             }
@@ -396,7 +396,7 @@ mod tests {
             provenance: BTreeMap::from([(
                 "test.txt".to_string(),
                 FileProvenance::HickFile {
-                    source: "main.hick".to_string(),
+                    source: "main.md".to_string(),
                 },
             )]),
             timestamp: 1000,

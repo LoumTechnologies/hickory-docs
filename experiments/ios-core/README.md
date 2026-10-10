@@ -14,7 +14,7 @@ Ten assertions, not ten print statements — a probe that "ran fine" must not be
 able to mean "printed something plausible":
 
 1. the app container is writable at all;
-2. a real `.hick` document parses (`hick-lang`);
+2. a real `.md` document parses (`hick-lang`);
 3. the block model builds with nothing ever having run
    (`hick-literate::render::build_block_model` — the shared path behind both
    the CLI's `--json` and the app's render endpoint);

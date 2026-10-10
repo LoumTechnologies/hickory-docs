@@ -54,7 +54,7 @@ async fn run(
 ) -> anyhow::Result<hick_literate::PipelineResult> {
     let executor = Arc::new(LocalExecutor::new().unwrap());
     hick_literate::run_pipeline_live(
-        &[("test.hick", src)],
+        &[("test.md", src)],
         &hick_literate::PipelineConfig::default(),
         &[],
         cache,

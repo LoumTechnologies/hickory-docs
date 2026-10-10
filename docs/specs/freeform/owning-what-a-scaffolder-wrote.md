@@ -9,7 +9,7 @@ document are retired there. This document remains the record of the two
 refusals it argues (CRDT edits, line-offset patches), of why a durable claim
 must not point into a cache, and of `hick ingest --from '#cell'`, which stays
 for bringing an exec's output into a document you are writing. **Sequence steps 1 and 2 are built** (2026-08-23):
-`hick ingest --from '#cell' <doc>.hick` writes `<hick:ingested>` with the
+`hick ingest --from '#cell' <doc>.md` writes `<hick:ingested>` with the
 gitignore filter and the non-UTF-8 refusal, and the ingested `SourceOrigin`
 keeps blame and the reverse edit honest — see
 `docs/guarantees/authoring/ingest-owns-what-a-scaffolder-wrote.md` and
@@ -141,7 +141,7 @@ arise, because there are no anchors.
 (`docs/guarantees/execution/output-lineage-round-trips-byte-for-byte.md`) —
 correctly, because there is nowhere in the document to put an edit to a
 command's output. Ingested bytes are byte-precise spans in the document, so
-editing `Program.cs` in the app lands in the `.hick` through the path that
+editing `Program.cs` in the app lands in the `.md` through the path that
 already exists.
 
 **The base survives a clone**, which is the whole point of the previous section.

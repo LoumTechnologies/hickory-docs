@@ -4,7 +4,7 @@ Given a `<hick:sample path="…" from="…" to="…">` inside the `hick:exec` th
 generates that file, when the document is woven, then those lines of the file
 appear in the markdown as a fenced block tagged with the file's language,
 captioned, and footed with the path and the exact line range shown — and the
-`.hick` document contains none of those bytes, only the one self-closing
+`.md` document contains none of those bytes, only the one self-closing
 element that names them.
 
 A sample never contributes to the cell it sits in. It is not part of the
@@ -31,7 +31,7 @@ the output back in would undo the thing it exists for, and one that showed
 nothing asks the reader to believe a generator on trust. A window is the third
 option: a few lines, once, to make the rule concrete.
 
-Keeping the bytes out of the `.hick` is what makes it free. The sample costs
+Keeping the bytes out of the `.md` is what makes it free. The sample costs
 the document one line, it cannot be edited into a lie because there is nothing
 there to edit, and it cannot go stale without the drift check saying so — the
 woven markdown is compared on every `hick test` exactly like a transcript.
@@ -69,13 +69,13 @@ Last LLM verification:
   - App: `apps/web/src/shell/SamplePicker.tsx` and its wiring in
     `apps/web/src/shell/views.tsx` — the strip appears only while lines are
     selected.
-  - Run end to end on this machine against `warehouse/30-api.hick`: a sample
+  - Run end to end on this machine against `warehouse/30-api.md`: a sample
     under the generator cell wove eight lines of
     `src/Warehouse.Web/Api/Generated/Endpoints.g.cs` into `30-api.md` with the
-    caption and the `lines 11–18` footer, and the `.hick` grew two lines.
+    caption and the `lines 11–18` footer, and the `.md` grew two lines.
 - Test coverage: `crates/hickory-cli/tests/samples.rs` (4 tests) drives the
   real binary against a document whose cell writes a volume: the lines reach
-  the weave and the `.hick` is byte-identical afterwards; the element is
+  the weave and the `.md` is byte-identical afterwards; the element is
   neither the command nor its stdin; a range past the end of the file says how
   long the file is; a file that was never generated says to run the document.
   `crates/hickory-cli/src/serve/sample.rs::tests` (a volume

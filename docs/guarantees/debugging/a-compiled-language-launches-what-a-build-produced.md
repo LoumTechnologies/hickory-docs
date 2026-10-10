@@ -79,7 +79,7 @@ Last LLM verification:
 - Evidence:
   - `apps/web/src/debug/languages.ts` — `DEBUGGABLE_LANGUAGES` gains
     `"csharp"` (2026-08-27). Confirmed in the running app against
-    `.dev/project/scaffolding.hick`: the breakpoint gutter went from **one**
+    `.dev/project/scaffolding.md`: the breakpoint gutter went from **one**
     element (CodeMirror's width spacer, and nothing else) to a ghost on each
     line of the `app/Program.cs` block, and a click set a real dot on
     `Console.WriteLine`. The `app/app.csproj` block beside it is XML and

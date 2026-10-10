@@ -1,6 +1,6 @@
 # A Literate File Opens Rendered, And Its Source Is One Click Away
 
-Given a `.hick` document, when it is opened in the app, then every exec cell
+Given a `.md` document, when it is opened in the app, then every exec cell
 and every diagram shows its RESULT — the diagram drawn, the cell's commands
 and last output — rather than its tags; and when the block's rail icon (or its
 `source` control) is clicked, then that block shows its raw source, editable

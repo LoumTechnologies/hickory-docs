@@ -137,7 +137,7 @@ async fn output_evidence(
         .flatten()
         .filter(|link| link["family"] == "declared")
         .filter_map(|link| link["to"]["path"].as_str())
-        .filter(|path| path.ends_with(".hick") || path.ends_with(".md"))
+        .filter(|path| path.ends_with(".md") || path.ends_with(".md"))
         .collect();
     for doc in docs {
         let cited: Vec<_> = links
@@ -159,7 +159,7 @@ async fn output_evidence(
         let run = if state.index.absolute(&id).is_some() {
             state.weave(&id).await.ok()
         } else {
-            // Older .hick files can be cited even when startup's .md scan
+            // Older .md files can be cited even when startup's .md scan
             // did not index them. This is the same non-executing weave.
             crate::run_doc(
                 &path,

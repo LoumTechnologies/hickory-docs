@@ -73,7 +73,7 @@ async fn start_with_shell() -> Session {
 
 async fn start_inner(with_shell: bool) -> Session {
     let dir = tempfile::tempdir().unwrap();
-    std::fs::write(dir.path().join("notes.hick"), "# Notes\n").unwrap();
+    std::fs::write(dir.path().join("notes.md"), "# Notes\n").unwrap();
     std::fs::write(dir.path().join(".gitignore"), "obj/\nbin/\n").unwrap();
     let root = dir.path().canonicalize().unwrap();
     for args in [
@@ -277,7 +277,7 @@ async fn a_new_project_is_a_commit_holding_exactly_what_dotnet_wrote() {
     }
     let session = start().await;
     // Work in flight, which the recipe commit must neither take nor lose.
-    std::fs::write(session.root.join("notes.hick"), "# Notes\nmine\n").unwrap();
+    std::fs::write(session.root.join("notes.md"), "# Notes\nmine\n").unwrap();
     let before = git_out(&session.root, &["rev-parse", "HEAD"]);
 
     let (status, started) = post(&session, "/api/scaffold", spec("Greeter", "greeter")).await;
@@ -309,7 +309,7 @@ async fn a_new_project_is_a_commit_holding_exactly_what_dotnet_wrote() {
     );
     // The person's edit is still theirs, uncommitted; the scaffold is clean.
     let status_lines = git_out(&session.root, &["status", "--porcelain"]);
-    assert_eq!(status_lines.trim(), "M notes.hick", "{status_lines}");
+    assert_eq!(status_lines.trim(), "M notes.md", "{status_lines}");
 
     // The verdict is in the terminal that earned it, not only in an API
     // answer nobody reads: the commit and the command are one thing to read.
@@ -423,7 +423,7 @@ async fn the_folders_a_scaffold_may_not_have_are_refused() {
 #[tokio::test]
 async fn a_folder_without_a_repository_is_told_so_by_a_field() {
     let dir = tempfile::tempdir().unwrap();
-    std::fs::write(dir.path().join("notes.hick"), "# Notes\n").unwrap();
+    std::fs::write(dir.path().join("notes.md"), "# Notes\n").unwrap();
     let root = dir.path().canonicalize().unwrap();
     let prepared = prepare(ServeOptions {
         target: root.clone(),
@@ -899,7 +899,7 @@ async fn a_uv_project_is_a_recipe_commit_like_any_other() {
         return;
     }
     let session = start().await;
-    std::fs::write(session.root.join("notes.hick"), "# Notes\nmine\n").unwrap();
+    std::fs::write(session.root.join("notes.md"), "# Notes\nmine\n").unwrap();
     let before = git_out(&session.root, &["rev-parse", "HEAD"]);
 
     let body = json!({
@@ -950,7 +950,7 @@ async fn a_uv_project_is_a_recipe_commit_like_any_other() {
     assert_eq!(git_out(&session.root, &["rev-parse", "HEAD^"]), before);
     assert_eq!(
         git_out(&session.root, &["status", "--porcelain"]).trim(),
-        "M notes.hick"
+        "M notes.md"
     );
 
     // The trailers a replay reads, naming the tool that actually ran.

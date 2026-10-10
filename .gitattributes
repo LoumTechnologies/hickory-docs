@@ -1,6 +1,6 @@
 apps/server/openapi.json          linguist-generated=true -diff
 apps/web/src/api/generated/**     linguist-generated=true -diff
-*.hick merge=hick
+*.md merge=hick
 # BEGIN HICKORY GENERATED OUTPUTS (managed by `hick init`)
 docs/.gitignore linguist-generated=true merge=hick-generated
 docs/Program.cs linguist-generated=true merge=hick-generated

@@ -105,7 +105,7 @@ Last LLM verification:
 - Caveat requiring LLM review: the "honest cost" above is a documentation
   guarantee, not a mechanical one — nothing in the code stops an author from
   freezing every cell in a document and reading the resulting green run as
-  verification. The docs (`docs/hick-guide.hick` §13,
+  verification. The docs (`docs/hick-guide.md` §13,
   `docs/docs/hick-guide.md`) must keep saying so. Nothing mechanical stops the
   warning for a frozen cell in a cacheless run from going unnoticed either: an
   embedded caller that shows no logs shows no warning.

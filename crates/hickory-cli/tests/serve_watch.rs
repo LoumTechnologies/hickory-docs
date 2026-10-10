@@ -27,7 +27,7 @@ const DOC: &str = r##"<?xml version="1.0" encoding="UTF-8"?>
 async fn start(with_doc: bool) -> (LocalState, watch::WatchGuard, PathBuf, tempfile::TempDir) {
     let dir = tempfile::tempdir().unwrap();
     if with_doc {
-        std::fs::write(dir.path().join("demo.hick"), DOC).unwrap();
+        std::fs::write(dir.path().join("demo.md"), DOC).unwrap();
     }
     let root = dir.path().canonicalize().unwrap();
 
@@ -66,7 +66,7 @@ async fn an_empty_folder_prepares_and_watches() {
 
     // A document that appears later — `touch`, git checkout, another program
     // — is picked up without a restart: indexed and woven.
-    std::fs::write(root.join("late.hick"), DOC).unwrap();
+    std::fs::write(root.join("late.md"), DOC).unwrap();
     eventually("the new document is indexed and woven", || {
         !state.index.entries().is_empty() && root.join("greet.rs").is_file()
     })
@@ -95,8 +95,8 @@ async fn a_generated_file_edit_lands_back_in_the_document() {
     std::fs::set_permissions(&output, writable).unwrap();
     std::fs::write(&output, &edited).unwrap();
 
-    eventually("the edit reaches demo.hick", || {
-        std::fs::read_to_string(root.join("demo.hick"))
+    eventually("the edit reaches demo.md", || {
+        std::fs::read_to_string(root.join("demo.md"))
             .unwrap_or_default()
             .contains("howdy")
     })
@@ -118,7 +118,7 @@ async fn an_external_doc_edit_reaches_the_live_room() {
     assert!(room.text().await.contains("hello"));
 
     let updated = DOC.replace("# Demo", "# Demo, renamed outside the app");
-    std::fs::write(root.join("demo.hick"), &updated).unwrap();
+    std::fs::write(root.join("demo.md"), &updated).unwrap();
 
     eventually("the room follows the file", || {
         // `text()` is async; sample through a blocking handle each poll.

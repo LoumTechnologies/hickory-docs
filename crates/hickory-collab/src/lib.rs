@@ -2,7 +2,7 @@
 //!
 //! A **room** is one live Yjs document plus the sockets attached to it. This
 //! crate owns the parts that are the same whether the room lives on a Fly
-//! machine backed by Postgres or on a contributor's laptop backed by a `.hick`
+//! machine backed by Postgres or on a contributor's laptop backed by a `.md`
 //! file: the sync protocol, the document-doubling defences, the debounced
 //! persist, and the broadcast.
 //!
@@ -741,9 +741,9 @@ mod tests {
 
     #[test]
     fn a_path_key_is_stable_and_javascript_safe() {
-        let a = stable_client_id("docs/tour.hick");
-        assert_eq!(a, stable_client_id("docs/tour.hick"));
-        assert_ne!(a, stable_client_id("docs/other.hick"));
+        let a = stable_client_id("docs/tour.md");
+        assert_eq!(a, stable_client_id("docs/tour.md"));
+        assert_ne!(a, stable_client_id("docs/other.md"));
         // Above 2^53 the browser drops the update and the client silently
         // never receives the document.
         assert!(a < (1u64 << 53));

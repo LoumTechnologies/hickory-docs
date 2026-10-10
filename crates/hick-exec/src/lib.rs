@@ -1,4 +1,4 @@
-//! Execution engine for `.hick` files.
+//! Execution engine for `.md` files.
 //!
 //! Ports `DynamicCombineLatest`, `Node`, `InsertionPoint`, and related types from
 //! HickoryDocs, and adds information-flow DAG construction and validation.

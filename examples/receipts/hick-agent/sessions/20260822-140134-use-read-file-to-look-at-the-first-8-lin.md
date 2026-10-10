@@ -27,12 +27,12 @@ d6bc|2026-08-10T20:00,200,4718
 </hick:tool>
 </hick:assistant>
 <hick:tool-result id="in2" name="read_doc" ok="true">
-doc: analysis.hick
+doc: analysis.md
 f636|---
 91c7|date: 2026-08-24
 f636|---
 f011|
-56d8|<hick:upstream file="meetings/2026-08-20-checkout-latency-sync.hick" />
+56d8|<hick:upstream file="meetings/2026-08-20-checkout-latency-sync.md" />
 f011|
 cf81|## Context
 f011|
@@ -108,9 +108,9 @@ bade|<hick:copy id="load-test-excluded" class="finding">Excluded 1 row covering 
 0266|# Checkout latency: before and after the pool fix
 f011|
 
-upstream of this session (readable and editable by passing <hick:arg name="doc">NAME</hick:arg>): meetings/2026-08-20-checkout-latency-sync.hick
+upstream of this session (readable and editable by passing <hick:arg name="doc">NAME</hick:arg>): meetings/2026-08-20-checkout-latency-sync.md
 </hick:tool-result>
-<hick:read file="analysis.hick" sha256="0d3e92af493ba2c73988b982e78fe1a120193e25590065f70e91e43e37bec1e0" lines="1-79"/>
+<hick:read file="analysis.md" sha256="0d3e92af493ba2c73988b982e78fe1a120193e25590065f70e91e43e37bec1e0" lines="1-79"/>
 <hick:usage turn="2" input="4034" cache-write="0" cache-read="0" output="114"/>
 <hick:assistant>
 <hick:tool name="edit_doc">
@@ -121,7 +121,7 @@ upstream of this session (readable and editable by passing <hick:arg name="doc">
 </hick:tool>
 </hick:assistant>
 <hick:tool-result id="in3" name="edit_doc" ok="true">
-edited analysis.hick and re-wove.
+edited analysis.md and re-wove.
 edited region (fresh hashes):
 f011|
 454d|## Findings
@@ -129,7 +129,7 @@ b249|<hick:copy id="export-shape" class="finding">The export has columns bucket_
 f011|
 3241|<hick:copy id="baseline" class="finding">Baseline p95 latency (2026-08-10 to 2026-08-12): 202.6 ms</hick:copy>
 </hick:tool-result>
-<hick:wrote file="analysis.hick" lines="72-72" hashes="b249"/>
+<hick:wrote file="analysis.md" lines="72-72" hashes="b249"/>
 <hick:usage turn="3" input="4315" cache-write="0" cache-read="0" output="33"/>
 <hick:assistant>
 <hick:tool name="verify">

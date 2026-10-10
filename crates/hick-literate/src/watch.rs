@@ -1,6 +1,6 @@
 //! Watch loop for `hick up` command.
 //!
-//! Monitors `.hick` source files for changes and re-runs the pipeline,
+//! Monitors `.md` source files for changes and re-runs the pipeline,
 //! merging results with the previous snapshot via the merge orchestrator.
 
 use std::collections::{HashMap, HashSet};
@@ -129,13 +129,13 @@ async fn create_store(config: &StoreConfig, project_dir: &Path) -> Result<Arc<dy
     let backend = config.resolve_store_backend(project_dir);
     match backend {
         StoreBackend::Git => {
-            let git_dir = project_dir.join(".hick/git");
+            let git_dir = project_dir.join(".md/git");
             std::fs::create_dir_all(&git_dir)?;
             info!("Using git store at {}", git_dir.display());
             Ok(Arc::new(GitVersionStore::new(&git_dir).await?))
         }
         StoreBackend::Builtin | StoreBackend::Auto => {
-            let store_dir = project_dir.join(".hick/store");
+            let store_dir = project_dir.join(".md/store");
             std::fs::create_dir_all(&store_dir)?;
             info!("Using builtin store at {}", store_dir.display());
             let obj_store = Arc::new(FsObjectStore::new(&store_dir));

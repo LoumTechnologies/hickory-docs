@@ -26,7 +26,7 @@ fn have(interpreters: &[&str]) -> bool {
 
 async fn start() -> Session {
     let dir = tempfile::tempdir().unwrap();
-    std::fs::write(dir.path().join("notes.hick"), "# Notes\n").unwrap();
+    std::fs::write(dir.path().join("notes.md"), "# Notes\n").unwrap();
     let root = dir.path().canonicalize().unwrap();
     let prepared = prepare(ServeOptions {
         target: root,

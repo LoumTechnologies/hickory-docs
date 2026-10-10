@@ -638,11 +638,11 @@ mod tests {
 
     #[test]
     fn a_document_uri_round_trips() {
-        let server = client_uri_to_server("hick:///docs/a.hick", &root()).unwrap();
-        assert_eq!(server, "file:///home/u/project/docs/a.hick");
+        let server = client_uri_to_server("hick:///docs/a.md", &root()).unwrap();
+        assert_eq!(server, "file:///home/u/project/docs/a.md");
         assert_eq!(
             server_uri_to_client(&server, &root()).unwrap(),
-            "hick:///docs/a.hick"
+            "hick:///docs/a.md"
         );
     }
 
@@ -656,8 +656,8 @@ mod tests {
 
     #[test]
     fn percent_escapes_survive_the_trip() {
-        let server = client_uri_to_server("hick:///docs/a%20b.hick", &root()).unwrap();
-        assert_eq!(server, "file:///home/u/project/docs/a b.hick");
+        let server = client_uri_to_server("hick:///docs/a%20b.md", &root()).unwrap();
+        assert_eq!(server, "file:///home/u/project/docs/a b.md");
     }
 
     #[test]
@@ -685,25 +685,25 @@ mod tests {
         let mut message = serde_json::json!({
             "method": "textDocument/publishDiagnostics",
             "params": {
-                "uri": "file:///home/u/project/a.hick",
+                "uri": "file:///home/u/project/a.md",
                 "diagnostics": [{
-                    "message": "see file:///home/u/project/a.hick for context",
-                    "relatedInformation": [{ "location": { "uri": "file:///home/u/project/b.hick" } }],
+                    "message": "see file:///home/u/project/a.md for context",
+                    "relatedInformation": [{ "location": { "uri": "file:///home/u/project/b.md" } }],
                 }],
             },
         });
         rewrite_uris(&mut message, &|uri| server_uri_to_client(uri, &root()));
-        assert_eq!(message["params"]["uri"], "hick:///a.hick");
+        assert_eq!(message["params"]["uri"], "hick:///a.md");
         assert_eq!(
             message["params"]["diagnostics"][0]["relatedInformation"][0]["location"]["uri"],
-            "hick:///b.hick"
+            "hick:///b.md"
         );
         // Prose that merely contains a URI is the user's text, not a field.
         assert!(
             message["params"]["diagnostics"][0]["message"]
                 .as_str()
                 .unwrap()
-                .contains("file:///home/u/project/a.hick")
+                .contains("file:///home/u/project/a.md")
         );
     }
 
@@ -714,7 +714,7 @@ mod tests {
                    <hick:doc xmlns:hick=\"http://www.hickorydocs.com/1.0\" weave=\"out.md\">\n\
                    # Title\n\
                    </hick:doc>\n";
-        std::fs::write(dir.path().join("a.hick"), doc).unwrap();
+        std::fs::write(dir.path().join("a.md"), doc).unwrap();
 
         let (to_client, mut from_server) = mpsc::unbounded_channel();
         let hub = LspHub::new(dir.path());
@@ -725,7 +725,7 @@ mod tests {
                 "jsonrpc": "2.0",
                 "method": "textDocument/didOpen",
                 "params": { "textDocument": {
-                    "uri": "hick:///a.hick", "languageId": "hick", "version": 1, "text": doc,
+                    "uri": "hick:///a.md", "languageId": "hick", "version": 1, "text": doc,
                 }},
             }),
         )
@@ -771,7 +771,7 @@ mod tests {
         // it answers a request the client never made.
         assert!(capabilities["__id"].is_null());
         // Named in the client's scheme, never in the user's filesystem.
-        assert_eq!(message["params"]["uri"], "hick:///a.hick");
+        assert_eq!(message["params"]["uri"], "hick:///a.md");
     }
 
     /// Protects docs/guarantees/editor-intelligence/one-language-server-per-workspace.md
@@ -782,7 +782,7 @@ mod tests {
                    <hick:doc xmlns:hick=\"http://www.hickorydocs.com/1.0\" weave=\"out.md\">\n\
                    # Title\n\
                    </hick:doc>\n";
-        std::fs::write(dir.path().join("a.hick"), doc).unwrap();
+        std::fs::write(dir.path().join("a.md"), doc).unwrap();
         let hub = LspHub::new(dir.path());
 
         let (to_one, mut one) = mpsc::unbounded_channel();
@@ -792,7 +792,7 @@ mod tests {
             "jsonrpc": "2.0",
             "method": "textDocument/didOpen",
             "params": { "textDocument": {
-                "uri": "hick:///a.hick", "languageId": "hick", "version": 1, "text": doc,
+                "uri": "hick:///a.md", "languageId": "hick", "version": 1, "text": doc,
             }},
         });
         hub.send(1, open.clone()).unwrap();
@@ -801,7 +801,7 @@ mod tests {
         let symbols = |id: i64| {
             serde_json::json!({
                 "jsonrpc": "2.0", "id": id, "method": "textDocument/documentSymbol",
-                "params": { "textDocument": { "uri": "hick:///a.hick" } },
+                "params": { "textDocument": { "uri": "hick:///a.md" } },
             })
         };
         async fn wait_reply(rx: &mut mpsc::UnboundedReceiver<Vec<u8>>) -> Value {
@@ -850,8 +850,8 @@ mod tests {
         hub.unsubscribe(1);
         {
             let state = hub.state.lock().unwrap();
-            assert!(state.open.contains_key("hick:///a.hick"));
-            assert_eq!(state.open["hick:///a.hick"].len(), 1);
+            assert!(state.open.contains_key("hick:///a.md"));
+            assert_eq!(state.open["hick:///a.md"].len(), 1);
         }
         hub.unsubscribe(2);
         assert!(hub.state.lock().unwrap().open.is_empty());

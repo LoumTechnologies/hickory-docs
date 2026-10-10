@@ -82,7 +82,7 @@ Last LLM verification:
   passed with actual Python and Node interpreters. The current `.md` CLI
   dataset-export test passed. Source file-length and changed-file whitespace
   checks passed. The historical CLI table suite failed because its seven
-  pre-existing cases create retired `.hick` documents; forwarding those tests
+  pre-existing cases create retired `.md` documents; forwarding those tests
   to the running engine also returned a permission error. The new CLI test
   invokes this binary directly using the existing engine-worker marker.
 - Caveats: arbitrary number patterns and locale selection are not implemented.
@@ -90,7 +90,7 @@ Last LLM verification:
   formulas use `<hick:table language="python|javascript">`. Clipboard copies
   contain raw values; number formats are not transported by ordinary copy/paste.
   Cross-browser UI behavior and live OS spreadsheet clipboard access require
-  additional verification. Older CLI table tests still use retired `.hick`
+  additional verification. Older CLI table tests still use retired `.md`
   documents and fail independently of this change.
 - Dependencies (SHA-256 at final review):
   `apps/web/src/lib/tableFormats.ts`:

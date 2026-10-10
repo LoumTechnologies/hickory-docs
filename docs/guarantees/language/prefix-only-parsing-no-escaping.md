@@ -1,6 +1,6 @@
 # Only Namespace-Prefixed Tags Are Structured; All Other Text Is Raw
 
-Given a `.hick` document whose root binds `xmlns:PREFIX` to the Hickory
+Given a `.md` document whose root binds `xmlns:PREFIX` to the Hickory
 namespace, when the document is parsed, then only tags carrying that prefix
 are interpreted as structure, and every other byte — including `<`, `>`, `&`,
 code in any language, and XML-looking text — is preserved verbatim with no

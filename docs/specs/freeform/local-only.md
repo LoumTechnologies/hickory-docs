@@ -11,7 +11,7 @@
 *Status: design of record for the product's shape. Adopted 2026-08-12.
 **Partly superseded** by `notes-ide.md` (2026-08-18) on exactly two points: the
 statement of purpose below ("literate programming where you can edit the
-generated files") is widened to a note-taking IDE whose notes are `.hick`
+generated files") is widened to a note-taking IDE whose notes are `.md`
 documents, and the iOS/Android row in the retirement table is reversed. This
 document remains the design of record for the product's **shape** — no server,
 no account, no relay, no money, no telemetry, one engine behind two front
@@ -28,7 +28,7 @@ no relay, no subscription, and nothing to buy.
 
 What it is for, stated as narrowly as it deserves — and **since widened by
 `notes-ide.md`, which makes this the mechanism rather than the pitch**:
-**literate programming where you can edit the generated files.** You write a `.hick` document that assembles
+**literate programming where you can edit the generated files.** You write a `.md` document that assembles
 `analysis.py` and runs it. You open `analysis.py` in whatever editor you
 already use, change it, and the change lands in the document byte-exactly. The
 document stays the source of truth; the generated file is a working surface
@@ -164,7 +164,7 @@ the mechanism the single-user case needs. What goes is the *sharing* around it:
 capability links, scopes, seats, awareness of other humans.
 
 Which resolves the open problem from the `hick up` work — reverse edits go
-straight to the `.hick` file, so a live editor buffer would silently diverge
+straight to the `.md` file, so a live editor buffer would silently diverge
 from disk — but only where the problem exists:
 
 * **`hick up` alone runs no rooms.** There is no editor buffer to reconcile

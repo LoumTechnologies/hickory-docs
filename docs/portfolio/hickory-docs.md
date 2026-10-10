@@ -8,13 +8,13 @@ trimmed, not published as-is.
 ## One-liner
 
 **Hickory Docs** — a document format and toolchain where the documentation is
-the test suite. Every command in a `.hick` file actually runs, every output
+the test suite. Every command in a `.md` file actually runs, every output
 shown is the output produced, and drift between the docs and reality fails the
 build.
 
 ## Short paragraph (portfolio card)
 
-Hickory Docs is an executable-document toolchain written in Rust. A `.hick`
+Hickory Docs is an executable-document toolchain written in Rust. A `.md`
 file is prose, a program, and a test suite in one artifact: commands run in
 declared containers, their real transcripts are woven into the published
 Markdown, and `hick test` fails with a line number and a diff the moment
@@ -118,13 +118,13 @@ Pick two or three; they are written to stand alone.
 `docs/todo-app/` is a complete lifecycle in five documents:
 
 ```
-meetings/2026-08-07-kickoff.hick   decisions, written down once
+meetings/2026-08-07-kickoff.md   decisions, written down once
         ↓ hick:upstream
-domain.hick                        glossary + the decisions, by reference
+domain.md                        glossary + the decisions, by reference
         ↓ hick:upstream
-requirements.hick                  requirements, tangled into work/*.task.md
+requirements.md                  requirements, tangled into work/*.task.md
         ↓ hick:upstream
-implementation.hick                the code, plus acceptance cells that run it
+implementation.md                the code, plus acceptance cells that run it
         ↓ hick:file
 todo.py                            the shipped program
 ```

@@ -59,7 +59,7 @@ fn an_unwatched_move_is_recorded_at_commit_time() {
     let dir = tempfile::tempdir().unwrap();
     let state = tempfile::tempdir().unwrap();
     repo(dir.path());
-    let doc = dir.path().join("note.hick");
+    let doc = dir.path().join("note.md");
     std::fs::write(&doc, BEFORE).unwrap();
     git(dir.path(), &["add", "-A"]);
     git(dir.path(), &["commit", "-q", "--no-verify", "-m", "base"]);
@@ -100,13 +100,13 @@ fn the_repair_never_blocks_a_commit() {
     let dir = tempfile::tempdir().unwrap();
     let state = tempfile::tempdir().unwrap();
     repo(dir.path());
-    std::fs::write(dir.path().join("note.hick"), BEFORE).unwrap();
+    std::fs::write(dir.path().join("note.md"), BEFORE).unwrap();
     git(dir.path(), &["add", "-A"]);
     git(dir.path(), &["commit", "-q", "--no-verify", "-m", "base"]);
 
     let store = hickory_workspace::WorkspaceStore::under(state.path(), dir.path()).unwrap();
     store.set_continuity(true).unwrap();
-    std::fs::write(dir.path().join("note.hick"), MOVED).unwrap();
+    std::fs::write(dir.path().join("note.md"), MOVED).unwrap();
     git(dir.path(), &["add", "-A"]);
 
     let out = hick(state.path())
@@ -135,10 +135,10 @@ fn with_continuity_off_the_repair_does_nothing_at_all() {
     let dir = tempfile::tempdir().unwrap();
     let state = tempfile::tempdir().unwrap();
     repo(dir.path());
-    std::fs::write(dir.path().join("note.hick"), BEFORE).unwrap();
+    std::fs::write(dir.path().join("note.md"), BEFORE).unwrap();
     git(dir.path(), &["add", "-A"]);
     git(dir.path(), &["commit", "-q", "--no-verify", "-m", "base"]);
-    std::fs::write(dir.path().join("note.hick"), MOVED).unwrap();
+    std::fs::write(dir.path().join("note.md"), MOVED).unwrap();
     git(dir.path(), &["add", "-A"]);
 
     let out = hick(state.path())

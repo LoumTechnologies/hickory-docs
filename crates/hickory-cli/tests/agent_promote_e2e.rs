@@ -83,7 +83,7 @@ async fn agent_session_promotes_to_checked_pipeline() {
     let promoted = promote(&PromoteOpts {
         session_source: &session_source,
         project_dir,
-        session_name: "e2e-session.hick",
+        session_name: "e2e-session.md",
     })
     .expect("promotion failed");
     assert_eq!(promoted.surviving_writes, 1);
@@ -92,7 +92,7 @@ async fn agent_session_promotes_to_checked_pipeline() {
 
     // 4. The promoted document is a valid hick:doc that `hick test`
     //    accepts once its outputs are committed.
-    let doc_path = project_dir.join("promoted.hick");
+    let doc_path = project_dir.join("promoted.md");
     std::fs::write(&doc_path, &promoted.promoted_source).unwrap();
 
     let run = run_doc(&doc_path, &[], RunMode::Execute, ExecutorChoice::Local)

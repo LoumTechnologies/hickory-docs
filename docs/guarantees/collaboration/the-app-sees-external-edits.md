@@ -1,11 +1,11 @@
 # The App Runs The Up-Loop: External Edits Are Seen, Never Clobbered
 
 Given the desktop app open on a folder, when any other program — vim, a
-formatter, a coding agent, `git checkout` — changes a `.hick` document on
+formatter, a coding agent, `git checkout` — changes a `.md` document on
 disk, then the live editor buffer follows the file (the change reconciles
 into the document's room); when such a program saves an edit in a generated
 output file, then the edit is carried back into the document it came from,
-exactly as headless `hick up` would carry it; and when a new `.hick` file
+exactly as headless `hick up` would carry it; and when a new `.md` file
 appears, then it is indexed, woven, and openable without restarting the app.
 
 This is `local-only.md`'s two-writer design made true: the CRDT exists

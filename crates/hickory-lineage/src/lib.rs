@@ -4,7 +4,7 @@
 //! output edits to source-document edits.
 //!
 //! The mapping is byte-precise: an output range is editable exactly when
-//! every byte of it maps 1:1 onto bytes of a source `.hick` document
+//! every byte of it maps 1:1 onto bytes of a source `.md` document
 //! (Literal text, or a paste whose bytes reproduce a copy block verbatim).
 //! Everything else — separators, exec output, variable values — is
 //! `synthetic` for editing purposes and rejected with the offending range.
@@ -118,7 +118,7 @@ impl Origin {
             Origin::Literal { doc_path, span }
             | Origin::Paste { doc_path, span }
             // Ingested bytes ARE bytes of the document, so an edit to them
-            // lands in the `.hick` through the path that already exists. This
+            // lands in the `.md` through the path that already exists. This
             // is the property `from=`-into-a-gitignored-transcript could not
             // have had, and the reason ingest is the mechanism.
             | Origin::Ingested { doc_path, span, .. } => Some((doc_path, span.0, span.1)),
@@ -591,7 +591,7 @@ mod tests {
             output_start: 0,
             output_end: 5,
             origin: SourceOrigin::Literal {
-                file: Arc::from("a.hick"),
+                file: Arc::from("a.md"),
                 span: SourceSpan::new(10, 15, 1, 0),
             },
         });
@@ -605,7 +605,7 @@ mod tests {
             output_end: 12,
             origin: SourceOrigin::Paste {
                 selector: Arc::from("#x"),
-                file: Some(Arc::from("a.hick")),
+                file: Some(Arc::from("a.md")),
                 span: Some(SourceSpan::new(30, 34, 3, 0)),
             },
         });
@@ -624,19 +624,19 @@ mod tests {
             output_start: 20,
             output_end: 22,
             origin: SourceOrigin::Literal {
-                file: Arc::from("a.hick"),
+                file: Arc::from("a.md"),
                 span: SourceSpan::new(50, 60, 5, 0),
             },
         });
 
         let p = from_provenance_map(&map);
         assert_eq!(p.len(), 5);
-        assert_eq!(p[0].origin, lit("a.hick", 10, 15));
+        assert_eq!(p[0].origin, lit("a.md", 10, 15));
         assert_eq!(p[1].origin, Origin::Synthetic);
         assert_eq!(
             p[2].origin,
             Origin::Paste {
-                doc_path: "a.hick".to_string(),
+                doc_path: "a.md".to_string(),
                 span: (30, 34)
             }
         );
@@ -649,7 +649,7 @@ mod tests {
             json,
             serde_json::json!({
                 "start": 0, "end": 5,
-                "origin": {"kind": "literal", "doc_path": "a.hick", "span": [10, 15]}
+                "origin": {"kind": "literal", "doc_path": "a.md", "span": [10, 15]}
             })
         );
         let json = serde_json::to_value(&p[1]).unwrap();
@@ -669,7 +669,7 @@ mod tests {
             origin: SourceOrigin::Agent {
                 session: Arc::from("abc123"),
                 turn: 7,
-                file: Some(Arc::from("a.hick")),
+                file: Some(Arc::from("a.md")),
                 span: Some(SourceSpan::new(10, 15, 1, 0)),
             },
         });
@@ -694,17 +694,17 @@ mod tests {
             origin: SourceOrigin::Agent {
                 session: Arc::from("ghi789"),
                 turn: 3,
-                file: Some(Arc::from("a.hick")),
+                file: Some(Arc::from("a.md")),
                 span: Some(SourceSpan::new(50, 60, 5, 0)),
             },
         });
 
         let p = from_provenance_map(&map);
         assert_eq!(p[0].origin.agent(), Some(("abc123", 7)));
-        assert_eq!(p[0].origin.location(), Some(("a.hick", 10, 15)));
+        assert_eq!(p[0].origin.location(), Some(("a.md", 10, 15)));
         // Agent bytes are written through the document, so they are editable
         // when byte-precise.
-        assert_eq!(p[0].origin.source(), Some(("a.hick", 10, 15)));
+        assert_eq!(p[0].origin.source(), Some(("a.md", 10, 15)));
 
         assert_eq!(p[1].origin.agent(), Some(("def456", 0)));
         assert_eq!(p[1].origin.location(), None);
@@ -734,7 +734,7 @@ mod tests {
             output_start: 0,
             output_end: 5,
             origin: SourceOrigin::Ingested {
-                file: Arc::from("app.hick"),
+                file: Arc::from("app.md"),
                 span: SourceSpan::new(100, 105, 9, 0),
                 run: Arc::from("9f2cdeadbeef"),
             },
@@ -746,7 +746,7 @@ mod tests {
             output_start: 5,
             output_end: 7,
             origin: SourceOrigin::Ingested {
-                file: Arc::from("app.hick"),
+                file: Arc::from("app.md"),
                 span: SourceSpan::new(200, 210, 12, 0),
                 run: Arc::from("9f2cdeadbeef"),
             },
@@ -756,16 +756,16 @@ mod tests {
         assert_eq!(
             p[0].origin,
             Origin::Ingested {
-                doc_path: "app.hick".into(),
+                doc_path: "app.md".into(),
                 span: (100, 105),
                 run: "9f2cdeadbeef".into(),
             }
         );
-        // Editable: an edit to a scaffolded file lands in the `.hick` through
+        // Editable: an edit to a scaffolded file lands in the `.md` through
         // the path that already exists. This is what a `from=` pointing at a
         // captured exec could never have.
-        assert_eq!(p[0].origin.source(), Some(("app.hick", 100, 105)));
-        assert_eq!(p[0].origin.location(), Some(("app.hick", 100, 105)));
+        assert_eq!(p[0].origin.source(), Some(("app.md", 100, 105)));
+        assert_eq!(p[0].origin.location(), Some(("app.md", 100, 105)));
         assert_eq!(p[1].origin, Origin::Synthetic);
 
         // The run survives serialization, and the kind is its own — never
@@ -776,7 +776,7 @@ mod tests {
                 "start": 0, "end": 5,
                 "origin": {
                     "kind": "ingested",
-                    "doc_path": "app.hick",
+                    "doc_path": "app.md",
                     "span": [100, 105],
                     "run": "9f2cdeadbeef"
                 }
@@ -792,7 +792,7 @@ mod tests {
             output_start: 0,
             output_end: 11,
             origin: SourceOrigin::Ingested {
-                file: Arc::from("app.hick"),
+                file: Arc::from("app.md"),
                 span: SourceSpan::new(300, 311, 20, 0),
                 run: Arc::from("9f2c"),
             },
@@ -809,14 +809,14 @@ mod tests {
         )
         .expect("ingested bytes are the document's own");
         assert_eq!(edits.len(), 1);
-        assert_eq!(edits[0].doc_path, "app.hick");
+        assert_eq!(edits[0].doc_path, "app.md");
         assert_eq!(edits[0].span, (306, 311));
         assert_eq!(edits[0].text, "there");
     }
 
     #[test]
     fn maps_edit_within_one_span() {
-        let p = prov(&[(0, 10, lit("d.hick", 100, 110))]);
+        let p = prov(&[(0, 10, lit("d.md", 100, 110))]);
         let edits = vec![OutputEdit {
             start: 3,
             end: 7,
@@ -826,7 +826,7 @@ mod tests {
         assert_eq!(
             out,
             vec![SourceEdit {
-                doc_path: "d.hick".to_string(),
+                doc_path: "d.md".to_string(),
                 span: (103, 107),
                 text: "XY".to_string()
             }]
@@ -837,8 +837,8 @@ mod tests {
     fn splits_edit_across_contiguous_spans() {
         // Two output spans whose source spans are adjacent.
         let p = prov(&[
-            (0, 5, lit("d.hick", 100, 105)),
-            (5, 10, lit("d.hick", 105, 110)),
+            (0, 5, lit("d.md", 100, 105)),
+            (5, 10, lit("d.md", 105, 110)),
         ]);
         let edits = vec![OutputEdit {
             start: 3,
@@ -853,8 +853,8 @@ mod tests {
     #[test]
     fn rejects_non_contiguous_source_spans() {
         let p = prov(&[
-            (0, 5, lit("d.hick", 100, 105)),
-            (5, 10, lit("d.hick", 200, 205)),
+            (0, 5, lit("d.md", 100, 105)),
+            (5, 10, lit("d.md", 200, 205)),
         ]);
         let edits = vec![OutputEdit {
             start: 3,
@@ -870,9 +870,9 @@ mod tests {
     #[test]
     fn rejects_synthetic_overlap_with_offending_range() {
         let p = prov(&[
-            (0, 5, lit("d.hick", 100, 105)),
+            (0, 5, lit("d.md", 100, 105)),
             (5, 8, Origin::Synthetic),
-            (8, 12, lit("d.hick", 105, 109)),
+            (8, 12, lit("d.md", 105, 109)),
         ]);
         let edits = vec![OutputEdit {
             start: 4,
@@ -887,7 +887,7 @@ mod tests {
 
     #[test]
     fn rejects_gap_in_provenance() {
-        let p = prov(&[(0, 4, lit("d.hick", 100, 104))]);
+        let p = prov(&[(0, 4, lit("d.md", 100, 104))]);
         let edits = vec![OutputEdit {
             start: 2,
             end: 6,
@@ -901,7 +901,7 @@ mod tests {
 
     #[test]
     fn insertion_at_span_boundary_attaches_to_preceding_span() {
-        let p = prov(&[(0, 5, lit("d.hick", 100, 105)), (5, 8, Origin::Synthetic)]);
+        let p = prov(&[(0, 5, lit("d.md", 100, 105)), (5, 8, Origin::Synthetic)]);
         let edits = vec![OutputEdit {
             start: 5,
             end: 5,
@@ -915,7 +915,7 @@ mod tests {
         assert_eq!(out[0].text, "ins");
 
         // At the very end of the output, the trailing editable span takes it.
-        let p2 = prov(&[(0, 5, lit("d.hick", 100, 105))]);
+        let p2 = prov(&[(0, 5, lit("d.md", 100, 105))]);
         let edits2 = vec![OutputEdit {
             start: 5,
             end: 5,
@@ -928,7 +928,7 @@ mod tests {
 
     #[test]
     fn rejects_overlapping_output_edits() {
-        let p = prov(&[(0, 10, lit("d.hick", 0, 10))]);
+        let p = prov(&[(0, 10, lit("d.md", 0, 10))]);
         let edits = vec![
             OutputEdit {
                 start: 0,
@@ -951,8 +951,8 @@ mod tests {
     fn rejects_edits_mapping_to_same_source_bytes() {
         // One copy block pasted twice: editing both occurrences conflicts.
         let p = prov(&[
-            (0, 5, lit("d.hick", 100, 105)),
-            (5, 10, lit("d.hick", 100, 105)),
+            (0, 5, lit("d.md", 100, 105)),
+            (5, 10, lit("d.md", 100, 105)),
         ]);
         let edits = vec![
             OutputEdit {
@@ -975,21 +975,21 @@ mod tests {
     #[test]
     fn applies_source_edits_back_to_front() {
         let mut sources = HashMap::new();
-        sources.insert("d.hick".to_string(), "hello world".to_string());
+        sources.insert("d.md".to_string(), "hello world".to_string());
         let edits = vec![
             SourceEdit {
-                doc_path: "d.hick".to_string(),
+                doc_path: "d.md".to_string(),
                 span: (6, 11),
                 text: "there".to_string(),
             },
             SourceEdit {
-                doc_path: "d.hick".to_string(),
+                doc_path: "d.md".to_string(),
                 span: (0, 5),
                 text: "hi".to_string(),
             },
         ];
         let out = apply_source_edits(&sources, &edits).unwrap();
-        assert_eq!(out["d.hick"], "hi there");
+        assert_eq!(out["d.md"], "hi there");
     }
 
     #[test]

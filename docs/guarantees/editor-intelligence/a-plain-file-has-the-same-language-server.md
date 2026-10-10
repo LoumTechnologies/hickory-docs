@@ -1,6 +1,6 @@
 # A Plain File Has The Same Language Server A Document Has
 
-Given a folder open in the app and a text file in it that is not a `.hick`
+Given a folder open in the app and a text file in it that is not a `.md`
 document — `src/main.rs`, `app.py`, `index.ts` — when it is opened in a
 pane, then every language question the document editor can ask is asked
 about this file too: diagnostics, hover, completion, go to definition, type

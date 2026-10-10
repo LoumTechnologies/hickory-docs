@@ -66,7 +66,7 @@ Last LLM verification:
   - The control: `apps/web/src/debug/DebugStrip.tsx::MissingTool`, wired in
     `apps/web/src/views/workspaceTabs.tsx` to install and then re-start the
     same program.
-  - Run end to end on this machine against `warehouse/50-review-surface.hick`:
+  - Run end to end on this machine against `warehouse/50-review-surface.md`:
     the strip showed "No Python debugger on this machine. [Install it]",
     the click produced `.hick-cache/adapters/python/` and the session then ran
     to `finished — exit code 0`.

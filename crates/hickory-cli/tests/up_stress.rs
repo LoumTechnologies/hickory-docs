@@ -197,9 +197,9 @@ fn assert_parses(doc: &Path) {
 /// batch let through, and not a mixture.
 #[test]
 fn rapid_output_edits_converge_on_the_last_one() {
-    let up = Loop::start("notes.hick", DOC, false);
+    let up = Loop::start("notes.md", DOC, false);
     let output = up.path("notes.py");
-    let doc = up.path("notes.hick");
+    let doc = up.path("notes.md");
     settle(&output, |c| c.contains("start")).expect("initial weave");
 
     for i in 0..20 {
@@ -223,9 +223,9 @@ fn rapid_output_edits_converge_on_the_last_one() {
 /// debounce window, so the loop sees a single batch covering many writes.
 #[test]
 fn a_burst_with_no_pause_still_lands() {
-    let up = Loop::start("notes.hick", DOC, false);
+    let up = Loop::start("notes.md", DOC, false);
     let output = up.path("notes.py");
-    let doc = up.path("notes.hick");
+    let doc = up.path("notes.md");
     settle(&output, |c| c.contains("start")).expect("initial weave");
 
     for i in 0..30 {
@@ -244,8 +244,8 @@ fn a_burst_with_no_pause_still_lands() {
 /// Editing the source quickly must leave the generated file agreeing with it.
 #[test]
 fn rapid_document_edits_converge_into_the_output() {
-    let up = Loop::start("notes.hick", DOC, false);
-    let doc = up.path("notes.hick");
+    let up = Loop::start("notes.md", DOC, false);
+    let doc = up.path("notes.md");
     let output = up.path("notes.py");
     settle(&output, |c| c.contains("start")).expect("initial weave");
 
@@ -275,8 +275,8 @@ fn rapid_document_edits_converge_into_the_output() {
 /// (docs/guarantees/authoring/an-output-that-cannot-be-carried-back-is-held.md).
 #[test]
 fn interleaved_document_and_output_edits_never_corrupt() {
-    let up = Loop::start("notes.hick", DOC, false);
-    let doc = up.path("notes.hick");
+    let up = Loop::start("notes.md", DOC, false);
+    let doc = up.path("notes.md");
     let output = up.path("notes.py");
     settle(&output, |c| c.contains("start")).expect("initial weave");
 
@@ -341,9 +341,9 @@ fn marker_of(text: &str) -> Option<String> {
 /// error, which is the worst way to lose work.
 #[test]
 fn an_edit_during_a_run_is_not_lost() {
-    let up = Loop::start("slow.hick", &slow_doc(), true);
+    let up = Loop::start("slow.md", &slow_doc(), true);
     let output = up.path("slow.py");
-    let doc = up.path("slow.hick");
+    let doc = up.path("slow.md");
     settle(&output, |c| c.contains("start")).expect("initial weave");
 
     // The first edit starts a re-run, because carrying it into the document
@@ -381,8 +381,8 @@ fn an_edit_during_a_run_is_not_lost() {
 /// docs/guarantees/authoring/an-output-that-cannot-be-carried-back-is-held.md
 #[test]
 fn a_refused_edit_holds_the_file_with_the_edit_in_it() {
-    let up = Loop::start("notes.hick", DOC, false);
-    let doc = up.path("notes.hick");
+    let up = Loop::start("notes.md", DOC, false);
+    let doc = up.path("notes.md");
     let output = up.path("notes.py");
     settle(&output, |c| c.contains("start")).expect("initial weave");
 
@@ -430,9 +430,9 @@ fn a_refused_edit_holds_the_file_with_the_edit_in_it() {
 fn a_non_atomic_save_does_not_push_a_partial_file_into_the_document() {
     use std::io::Write as _;
 
-    let up = Loop::start("notes.hick", DOC, false);
+    let up = Loop::start("notes.md", DOC, false);
     let output = up.path("notes.py");
-    let doc = up.path("notes.hick");
+    let doc = up.path("notes.md");
     settle(&output, |c| c.contains("start")).expect("initial weave");
 
     let target = std::fs::read_to_string(&output)
@@ -527,7 +527,7 @@ fn edits_across_many_documents_all_land() {
         let doc = DOC
             .replace("weave=\"notes.md\"", &format!("weave=\"notes{i}.md\""))
             .replace("path=\"notes.py\"", &format!("path=\"notes{i}.py\""));
-        std::fs::write(dir.path().join(format!("notes{i}.hick")), doc).expect("write doc");
+        std::fs::write(dir.path().join(format!("notes{i}.md")), doc).expect("write doc");
     }
     let child = hick()
         .arg("up")
@@ -550,7 +550,7 @@ fn edits_across_many_documents_all_land() {
     }
 
     for i in 0..10 {
-        let doc = dir.path().join(format!("notes{i}.hick"));
+        let doc = dir.path().join(format!("notes{i}.md"));
         let settled = settle(&doc, |c| c.contains(&format!("doc{i}")))
             .unwrap_or_else(|| panic!("edit for document {i} never landed"));
         // Each document got ITS marker, not a neighbour's.

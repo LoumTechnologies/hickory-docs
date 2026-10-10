@@ -23,7 +23,7 @@ async fn a_rust_test_runs_in_a_terminal_named_after_it() {
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path().canonicalize().unwrap();
     std::fs::write(
-        root.join("notes.hick"),
+        root.join("notes.md"),
         "<hick:doc xmlns:hick=\"http://www.hickorydocs.com/1.0\" weave=\"notes.md\">\n# Notes\n</hick:doc>\n",
     )
     .unwrap();
@@ -40,7 +40,7 @@ async fn a_rust_test_runs_in_a_terminal_named_after_it() {
     .unwrap();
 
     let prepared = prepare(ServeOptions {
-        target: root.join("notes.hick"),
+        target: root.join("notes.md"),
         port: 0,
         params: Vec::new(),
         executor: ExecutorChoice::Local,

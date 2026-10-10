@@ -398,7 +398,7 @@ fn process_weave_tag(
         // the rules — so this shows a few lines and says where they came from.
         //
         // **The bytes live only in the weave.** Nothing is written into the
-        // `.hick`, which is why a sample cannot go stale and why it costs the
+        // `.md`, which is why a sample cannot go stale and why it costs the
         // document nothing to keep: the woven markdown is drift-checked, so a
         // sample that stopped matching its file fails `hick test` the same way
         // a changed transcript does.
@@ -467,7 +467,7 @@ fn process_weave_tag(
             }
         }
         // A transcript weaves as the meeting it is: its derived turns, in
-        // order. The raw block stays in the `.hick` file and never reaches the
+        // order. The raw block stays in the `.md` file and never reaches the
         // markdown, because what a reader wants is the conversation, not the
         // cue timings a recorder emitted.
         //

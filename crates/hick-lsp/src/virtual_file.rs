@@ -6,15 +6,15 @@ use hick_lang::{HickDocument, HickNode, HickTag, SourceSpan};
 
 use crate::lang_detect;
 
-/// A segment of a virtual file, tracking its origin in the .hick source.
+/// A segment of a virtual file, tracking its origin in the .md source.
 #[derive(Debug, Clone)]
 pub struct VirtualSegment {
     /// The text content of this segment.
     pub text: String,
-    /// Source span in the .hick file where this text originated.
+    /// Source span in the .md file where this text originated.
     /// None for synthesized content (e.g., newlines between segments).
     pub source_span: Option<SourceSpan>,
-    /// 1-based line in the .hick file where this segment's tag starts.
+    /// 1-based line in the .md file where this segment's tag starts.
     pub source_line: usize,
     /// 0-based column for dedenting.
     pub source_column: usize,

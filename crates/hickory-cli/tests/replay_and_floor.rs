@@ -331,7 +331,7 @@ fn hick_test_reports_a_missing_driver_without_changing_its_exit_code() {
 #[test]
 fn a_clean_line_merge_that_does_not_parse_is_reported_as_a_conflict() {
     // The one thing this driver does that git's fallback cannot: two sides
-    // can each be correct and still not compose, and handing back a `.hick`
+    // can each be correct and still not compose, and handing back a `.md`
     // file nothing can read as CLEAN is worse than saying so.
     let dir = tempfile::tempdir().unwrap();
     let base = dir.path().join("base");

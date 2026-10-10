@@ -36,11 +36,11 @@ exit 1
 #[test]
 fn an_earlier_cells_real_output_is_mirrored_even_though_the_run_fails() {
     let dir = tempfile::tempdir().expect("tempdir");
-    std::fs::write(dir.path().join("report.hick"), doc()).expect("write doc");
+    std::fs::write(dir.path().join("report.md"), doc()).expect("write doc");
 
     let out = hick()
         .arg("run")
-        .arg(dir.path().join("report.hick"))
+        .arg(dir.path().join("report.md"))
         .env("HICKORY_EXECUTOR", "local")
         .output()
         .expect("run hick");
@@ -84,11 +84,11 @@ mkdir -p proj && printf 'real output\n' > proj/file.txt
 </hick:exec>
 </hick:doc>
 "##;
-    std::fs::write(dir.path().join("report.hick"), ok_doc).expect("write doc");
+    std::fs::write(dir.path().join("report.md"), ok_doc).expect("write doc");
 
     let out = hick()
         .arg("run")
-        .arg(dir.path().join("report.hick"))
+        .arg(dir.path().join("report.md"))
         .env("HICKORY_EXECUTOR", "local")
         .output()
         .expect("run hick");

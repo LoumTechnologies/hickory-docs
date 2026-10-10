@@ -20,7 +20,7 @@ break: `"prose A.\n\n<hick:copy…/>\n\nprose B"` concatenates, with the tag
 contributing nothing, to `"prose A.\n\n\n\nprose B"` — three blank lines
 where a human who left the declaration out entirely would have written one.
 
-Found comparing a real `.hick` tutorial against a plain-Markdown control
+Found comparing a real `.md` tutorial against a plain-Markdown control
 written for the same content: multiple runs of 3–5 blank lines throughout
 the woven output, every one traced to a silent declaration tag sitting on
 its own line. Confirmed at scale by re-weaving five of this repository's own
@@ -59,7 +59,7 @@ Last LLM verification:
 - Evidence: `crates/hick-literate/src/weave.rs`'s `SILENT_DECLARATION_TAGS`,
   the `pending_blank_strip` tracking in `process_weave_content`, and
   `strip_up_to_one_blank_line`. Verified end to end against a real
-  ingest-based tutorial (`.../scratchpad/tutorial-hick/tutorial.hick`) and
+  ingest-based tutorial (`.../scratchpad/tutorial-hick/tutorial.md`) and
   against five of this repository's own committed examples
   (`ai-transform`, `architecture-that-draws-itself`, `bootstrap-ci`,
   `planned-messages`, `text-tools-tour`) — every re-weave's diff against the
@@ -77,13 +77,13 @@ Last LLM verification:
   to one, not two; a tag that DOES render — `hick:file` — is confirmed
   untouched). Confirmed load-bearing by temporarily disabling the strip and
   observing both the unit and integration tests fail.
-- Caveat requiring LLM review: `examples/scaffolded-service.hick` and
-  `examples/grand-tour.hick` also drift under this fix (both declare
+- Caveat requiring LLM review: `examples/scaffolded-service.md` and
+  `examples/grand-tour.md` also drift under this fix (both declare
   `hick:container`/`hick:volume`), but their committed `.md` files were
-  deliberately NOT regenerated in this pass — `scaffolded-service.hick`'s
+  deliberately NOT regenerated in this pass — `scaffolded-service.md`'s
   `ls` output order differs on macOS/LocalExecutor from whatever produced
   its current recording (an unrelated, pre-existing environment mismatch),
-  and `grand-tour.hick` needs `duckdb`, not installed on this machine.
+  and `grand-tour.md` needs `duckdb`, not installed on this machine.
   Regenerating either from an environment with the mismatch present would
   bake in wrong, machine-specific content. Both need a proper re-run (Linux,
   with `duckdb`) before `hick test examples/` is fully clean again.

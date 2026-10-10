@@ -1,6 +1,6 @@
 # Call Hierarchy Answers In Documents
 
-Given a symbol in a `.hick` document or a plain file, when a client asks
+Given a symbol in a `.md` document or a plain file, when a client asks
 `textDocument/prepareCallHierarchy` and then `callHierarchy/incomingCalls` or
 `outgoingCalls`, then `hick-lsp` forwards both to the child language server
 and answers in **document coordinates** — `uri`, `range`, and
@@ -50,7 +50,7 @@ dependency.
 
 ## Where this is reachable
 
-Any editor pointed at `hick-lsp` — which `hick init` registers for `*.hick`.
+Any editor pointed at `hick-lsp` — which `hick init` registers for `*.md`.
 **The app's own editor does not draw a hierarchy tree yet**, and that is
 stated rather than implied: this is the server half. A panel in the app is
 the remaining half, and until it exists a person using the desktop app

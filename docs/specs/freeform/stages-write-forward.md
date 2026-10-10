@@ -58,7 +58,7 @@ different in kind from the ones before it: everything upstream *describes*,
 while the last stage *is the thing described*. That is the boundary, not
 "where the executable cells are" — cells are everywhere.
 
-It is also the only stage whose coverage is partial. Every byte of a `.hick`
+It is also the only stage whose coverage is partial. Every byte of a `.md`
 document belongs to the chain; a real source tree contains files hick
 generated and files nobody generated, and the ones with no upstream are
 exactly the parts of the system this pipeline cannot account for. A view of

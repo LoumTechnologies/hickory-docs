@@ -246,7 +246,7 @@ if [ -f "$lsp" ]; then
   echo "Installed: $INSTALL_DIR/hick-lsp (editor language server)"
 else
   echo "note: this release carries no hick-lsp; editor diagnostics inside" >&2
-  echo "      .hick files need a newer one (HICKORY_CHANNEL=unstable)." >&2
+  echo "      .md files need a newer one (HICKORY_CHANNEL=unstable)." >&2
 fi
 
 # User PATH setup. Existing profiles retain their bytes; only append our block.
@@ -300,7 +300,7 @@ mkdir -p "$(dirname "$EXAMPLES_DIR")" 2>/dev/null || true
 rm -rf "$EXAMPLES_DIR"
 if cp -R "$tmp/$(basename "$file" .tar.gz)/examples" "$EXAMPLES_DIR" 2>/dev/null; then
   echo ""
-  echo "Try it:  hick test $EXAMPLES_DIR/text-tools-tour.hick"
+  echo "Try it:  hick test $EXAMPLES_DIR/text-tools-tour.md"
   echo "(the whole set — $EXAMPLES_DIR — also needs python3, polars, and the"
   echo " duckdb CLI; text-tools-tour needs only a POSIX shell.)"
 fi

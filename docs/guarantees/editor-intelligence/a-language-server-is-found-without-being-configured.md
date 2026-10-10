@@ -78,7 +78,7 @@ Last LLM verification:
     nothing, the candidate order is preference order, and
     `a_rustup_toolchain_outranks_the_shim_on_path` pins both the ordering and
     its determinism across runs.
-  - Observed end to end on this machine: opening a `.hick` document with a
+  - Observed end to end on this machine: opening a `.md` document with a
     `src/main.rs` block, in a directory pinning toolchain 1.96.1 (which has
     no `rust-analyzer` component), spawned
     `~/.rustup/toolchains/stable-…/bin/rust-analyzer` rather than the shim,

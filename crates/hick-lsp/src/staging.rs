@@ -3,7 +3,7 @@
 //! A child language server is a real program reading real files: pyright and
 //! rust-analyzer both open the path in the URI they are handed, and a project
 //! -aware one walks upwards from it looking for a manifest. So the code inside
-//! a `.hick` document has to exist somewhere on disk before any of them can
+//! a `.md` document has to exist somewhere on disk before any of them can
 //! answer a question about it. That somewhere is a **staging directory**, one
 //! per running server, with one subdirectory per open document.
 //!
@@ -175,7 +175,7 @@ impl StagingArea {
     ///
     /// The document's own staging directory rather than the project it lives
     /// in, so a project-aware child answers about the document's code and does
-    /// not go discovering unrelated crates and packages beside the `.hick`
+    /// not go discovering unrelated crates and packages beside the `.md`
     /// file. A directory URL, so it ends in a slash the way a root URI does.
     pub fn document_root_uri(&self, hick_uri: &Url) -> Result<String, StagingError> {
         let dir = self.document_dir(hick_uri)?;
@@ -353,7 +353,7 @@ mod tests {
     use super::*;
 
     fn doc_uri() -> Url {
-        Url::parse("file:///home/u/project/notes.hick").unwrap()
+        Url::parse("file:///home/u/project/notes.md").unwrap()
     }
 
     #[test]

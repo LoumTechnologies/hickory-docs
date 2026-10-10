@@ -13,13 +13,13 @@ import {
 
 describe("findLinks", () => {
   it("finds a link and its parts", () => {
-    const text = "see [the notes](notes/plan.hick) for more";
+    const text = "see [the notes](notes/plan.md) for more";
     const [link] = findLinks(text);
     expect(link.image).toBe(false);
-    expect(text.slice(link.from, link.to)).toBe("[the notes](notes/plan.hick)");
+    expect(text.slice(link.from, link.to)).toBe("[the notes](notes/plan.md)");
     expect(link.text).toBe("the notes");
-    expect(link.target).toBe("notes/plan.hick");
-    expect(text.slice(link.targetFrom, link.targetTo)).toBe("notes/plan.hick");
+    expect(link.target).toBe("notes/plan.md");
+    expect(text.slice(link.targetFrom, link.targetTo)).toBe("notes/plan.md");
   });
 
   it("marks an image as one, bang included in its range", () => {
@@ -35,8 +35,8 @@ describe("findLinks", () => {
   });
 
   it("leaves a title out of the destination", () => {
-    const [link] = findLinks('[x](a.hick "why")');
-    expect(link.target).toBe("a.hick");
+    const [link] = findLinks('[x](a.md "why")');
+    expect(link.target).toBe("a.md");
   });
 
   it("is not fooled by an escaped bracket or an unclosed one", () => {
@@ -46,9 +46,9 @@ describe("findLinks", () => {
   });
 
   it("finds several on one line", () => {
-    expect(findLinks("[a](1.hick) and [b](2.hick)").map((l) => l.target)).toEqual([
-      "1.hick",
-      "2.hick",
+    expect(findLinks("[a](1.md) and [b](2.md)").map((l) => l.target)).toEqual([
+      "1.md",
+      "2.md",
     ]);
   });
 });
@@ -64,7 +64,7 @@ describe("isUrl", () => {
   it("refuses prose that merely contains one", () => {
     expect(isUrl("see https://example.com for more")).toBe(false);
     expect(isUrl("")).toBe(false);
-    expect(isUrl("notes.hick")).toBe(false);
+    expect(isUrl("notes.md")).toBe(false);
   });
 });
 
@@ -107,12 +107,12 @@ describe("normalizeUrl and imageMarkdown", () => {
 
 describe("wovenTarget", () => {
   it("points a document link at the markdown that document weaves", () => {
-    expect(wovenTarget("notes/plan.hick")).toBe("notes/plan.md");
-    expect(wovenTarget("plan.hick#risks")).toBe("plan.md#risks");
+    expect(wovenTarget("notes/plan.md")).toBe("notes/plan.md");
+    expect(wovenTarget("plan.md#risks")).toBe("plan.md#risks");
   });
 
   it("leaves everything else exactly as written", () => {
-    expect(wovenTarget("https://example.com/a.hick")).toBe("https://example.com/a.hick");
+    expect(wovenTarget("https://example.com/a.md")).toBe("https://example.com/a.md");
     expect(wovenTarget("assets/chart.png")).toBe("assets/chart.png");
     expect(wovenTarget("#section")).toBe("#section");
   });
@@ -120,7 +120,7 @@ describe("wovenTarget", () => {
 
 describe("isLocalTarget and splitFragment", () => {
   it("separates the folder from the web and from a bare fragment", () => {
-    expect(isLocalTarget("notes/a.hick")).toBe(true);
+    expect(isLocalTarget("notes/a.md")).toBe(true);
     expect(isLocalTarget("https://example.com")).toBe(false);
     expect(isLocalTarget("mailto:a@b.c")).toBe(false);
     expect(isLocalTarget("#here")).toBe(false);
@@ -128,25 +128,25 @@ describe("isLocalTarget and splitFragment", () => {
   });
 
   it("splits the fragment off", () => {
-    expect(splitFragment("a.hick#b")).toEqual({ path: "a.hick", fragment: "#b" });
-    expect(splitFragment("a.hick")).toEqual({ path: "a.hick", fragment: "" });
+    expect(splitFragment("a.md#b")).toEqual({ path: "a.md", fragment: "#b" });
+    expect(splitFragment("a.md")).toEqual({ path: "a.md", fragment: "" });
   });
 });
 
 describe("resolveTarget", () => {
   it("resolves against the linking document's own directory", () => {
-    expect(resolveTarget("notes/weekly/mon.hick", "tue.hick")).toBe("notes/weekly/tue.hick");
-    expect(resolveTarget("notes/weekly/mon.hick", "../plan.hick")).toBe("notes/plan.hick");
-    expect(resolveTarget("notes/weekly/mon.hick", "/top.hick")).toBe("top.hick");
-    expect(resolveTarget(null, "top.hick")).toBe("top.hick");
+    expect(resolveTarget("notes/weekly/mon.md", "tue.md")).toBe("notes/weekly/tue.md");
+    expect(resolveTarget("notes/weekly/mon.md", "../plan.md")).toBe("notes/plan.md");
+    expect(resolveTarget("notes/weekly/mon.md", "/top.md")).toBe("top.md");
+    expect(resolveTarget(null, "top.md")).toBe("top.md");
   });
 
   it("decodes what a destination had to encode", () => {
-    expect(resolveTarget("a.hick", "my%20shot.png")).toBe("my shot.png");
+    expect(resolveTarget("a.md", "my%20shot.png")).toBe("my shot.png");
   });
 
   it("has nowhere to go for a URL or a bare fragment", () => {
-    expect(resolveTarget("a.hick", "https://example.com")).toBeNull();
-    expect(resolveTarget("a.hick", "#top")).toBeNull();
+    expect(resolveTarget("a.md", "https://example.com")).toBeNull();
+    expect(resolveTarget("a.md", "#top")).toBeNull();
   });
 });

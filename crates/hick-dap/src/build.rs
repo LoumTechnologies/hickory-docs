@@ -247,7 +247,7 @@ pub fn is_compiled(language: &str) -> bool {
 /// what has a language. What that source *produces* is what gets launched,
 /// and for Python, Node and Go the two are the same path.
 ///
-/// `cache_root` is the real project directory — the one holding the `.hick`
+/// `cache_root` is the real project directory — the one holding the `.md`
 /// document — not the scratch copy. Package caches have to survive a session,
 /// and the scratch tree is deleted with it.
 pub async fn build(
@@ -887,7 +887,7 @@ mod csharp {
         }
         let scratch = tempfile::tempdir().unwrap();
         let cache = tempfile::tempdir().unwrap();
-        // The shape `scaffolding.hick` generates: the project is NOT at the
+        // The shape `scaffolding.md` generates: the project is NOT at the
         // root of the scratch tree, which is the case `dotnet build` at the
         // root fails on with MSB1003.
         let app = scratch.path().join("app");

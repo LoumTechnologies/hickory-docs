@@ -1,7 +1,7 @@
 # An Outside Coding Agent Gets The Same Document Tools As The Built-In One
 
 Given a coding agent that is not hick's own — Claude Code, Codex, Grok CLI,
-or anything else that can run a process — when it works on a `.hick` document,
+or anything else that can run a process — when it works on a `.md` document,
 then it can reach the same five tools the built-in agent uses (`read_doc`,
 `read_output`, `edit_output`, `edit_doc`, `verify`) through two surfaces, and
 gets the same guarantees from both:

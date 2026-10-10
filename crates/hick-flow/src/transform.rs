@@ -285,7 +285,7 @@ mod narrowing_tests {
 
     fn literal(start: usize, end: usize) -> SourceOrigin {
         SourceOrigin::Literal {
-            file: Arc::from("notes.hick"),
+            file: Arc::from("notes.md"),
             span: span(start, end),
         }
     }

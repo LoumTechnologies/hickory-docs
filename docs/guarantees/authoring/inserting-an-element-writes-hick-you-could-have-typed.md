@@ -3,11 +3,11 @@
 Given a document open in the app, when a person chooses an element from the
 Insert menu and fills in its attributes, then the exact bytes the insert will
 write are shown before it happens, and what lands in the buffer is ordinary
-`.hick` source — correctly quoted, placed where that element belongs, with the
+`.md` source — correctly quoted, placed where that element belongs, with the
 body left selected so the next keystroke replaces it — indistinguishable from
 the same element typed by hand, and undoable with one Ctrl+Z.
 
-The vocabulary of this language is its main barrier: a `.hick` file is XML a
+The vocabulary of this language is its main barrier: a `.md` file is XML a
 person owns and edits by hand, and until this menu existed the only way to
 learn what `<hick:attenuate>` takes was to read the guide in another window.
 A menu that wrote XML nobody saw would replace that barrier with a worse one —

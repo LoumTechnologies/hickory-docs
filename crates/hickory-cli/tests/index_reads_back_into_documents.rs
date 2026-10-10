@@ -48,7 +48,7 @@ fn indexer() -> Option<PathBuf> {
 fn project() -> Option<(tempfile::TempDir, PathBuf)> {
     let dir = tempfile::tempdir().ok()?;
     let root = dir.path().canonicalize().ok()?;
-    std::fs::write(root.join("billing.hick"), DOC).ok()?;
+    std::fs::write(root.join("billing.md"), DOC).ok()?;
     std::fs::write(
         root.join("use.ts"),
         "import { invoiceRef } from \"./billing\";\nexport const first = invoiceRef(\"1\");\n",
@@ -93,7 +93,7 @@ async fn a_reference_in_a_generated_file_comes_back_as_a_line_in_its_document() 
 
     // Weave, so the generated file the indexer will read exists.
     let run = hickory_cli::run_doc(
-        &root.join("billing.hick"),
+        &root.join("billing.md"),
         &[],
         hickory_cli::RunMode::Weave,
         hickory_cli::ExecutorChoice::Local,
@@ -151,7 +151,7 @@ async fn a_reference_in_a_generated_file_comes_back_as_a_line_in_its_document() 
         .find(|h| h.through.as_deref() == Some("billing.ts"))
         .expect("no hit was mapped back into the document");
     assert!(
-        through_document.path.ends_with("billing.hick"),
+        through_document.path.ends_with("billing.md"),
         "{through_document:?}"
     );
     assert_eq!(

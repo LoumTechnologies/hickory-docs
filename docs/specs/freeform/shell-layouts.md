@@ -36,11 +36,11 @@ also why nothing here adds a "columns mode".
 
 | Layer | Holds | Lives | Changes when |
 |---|---|---|---|
-| **Declaration** | Regions, their membership globs, how they relate | A `.hick` document, in git | The architecture changes |
+| **Declaration** | Regions, their membership globs, how they relate | A `.md` document, in git | The architecture changes |
 | **Derivation** | Region graph + viewport → an arrangement of tiles | Code. Deterministic; nothing stored | Never: it is a function |
 | **Session** | What is open, focused, split, resized, which tab is in front | Untracked, per machine, beside scroll position | Constantly, and nobody reviews it |
 
-A document declares **structure**, never geometry. The moment a `.hick` file
+A document declares **structure**, never geometry. The moment a `.md` file
 carries pane widths and the front tab it becomes a config file with a weave
 step, and it changes every time somebody drags a splitter: layout is
 high-frequency, low-value churn, and architecture is low-frequency,
@@ -134,7 +134,7 @@ last.
 
 ## Open questions
 
-* **Where do layout documents live?** A convention (`*.layout.hick`, or any
+* **Where do layout documents live?** A convention (`*.layout.md`, or any
   document declaring regions) decides whether "open a folder" has to weave
   everything to find them, which decides how fast the picker is.
 * **Ribbons or links.** Both draw provenance. Keeping both is defensible;

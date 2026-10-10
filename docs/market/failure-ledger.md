@@ -43,7 +43,7 @@ most expensive lesson available to this product.
 risk is not competition — it is cause #2. If a user cannot edit the woven output
 or the tangled code and have the change round-trip into the source, this product
 inherits the exact friction that killed forty years of predecessors. Hickory's
-`promote` (session → pipeline) and CRDT ⇄ `.hick` round-trip are the mechanisms
+`promote` (session → pipeline) and CRDT ⇄ `.md` round-trip are the mechanisms
 that would answer it. **This should be a persona probe before it is a
 feature claim.** Corollary from Jupyter's success: the winning framing may be
 one that never says "literate programming" out loud.
@@ -204,7 +204,7 @@ same "derived, not asserted" wedge one level up.
   someone else published the vocabulary and users only referenced it — and
   schema.org types were never part of HTML. That is exactly the namespace model:
   **the mechanism belongs in core, the vocabulary never does.** So the wedge
-  ships as a forkable `.hick` document defining `requirement` / `decision` /
+  ships as a forkable `.md` document defining `requirement` / `decision` /
   `source` under its own prefix, with zero entity types reserved in `hick:`.
   Solving the blank-page problem and reserving core types are different
   decisions; conflating them is what the first draft of this note did.

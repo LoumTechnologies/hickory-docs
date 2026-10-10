@@ -1,6 +1,6 @@
 # An Unwatched Edit Leaves Its Correspondence Behind Before It Is Committed
 
-Given continuity is on for a project, when a `.hick` document is staged whose
+Given continuity is on for a project, when a `.md` document is staged whose
 edit no recording site saw, then the pre-commit hook reconstructs what moved
 and records it at **line** precision — and the commit is never blocked.
 

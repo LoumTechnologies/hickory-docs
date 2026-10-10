@@ -24,7 +24,7 @@ async fn start() -> Session {
     let dir = tempfile::tempdir().unwrap();
     let state_dir = tempfile::tempdir().unwrap();
     let root = dir.path().canonicalize().unwrap();
-    std::fs::write(root.join("note.hick"), "# note\n").unwrap();
+    std::fs::write(root.join("note.md"), "# note\n").unwrap();
     std::fs::create_dir_all(root.join("src")).unwrap();
     std::fs::write(root.join("src/a.txt"), "a\n").unwrap();
     std::fs::write(root.join("src/b.txt"), "b\n").unwrap();
@@ -138,11 +138,7 @@ async fn the_refusals_are_said_plainly() {
             400,
             "into itself",
         ),
-        (
-            json!({"op": "create", "path": "x.hick"}),
-            400,
-            "New Document",
-        ),
+        (json!({"op": "create", "path": "x.md"}), 400, "New Document"),
         (
             json!({"op": "delete", "path": "gone.txt"}),
             404,

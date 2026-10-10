@@ -907,7 +907,7 @@ mod tests {
         let inv = Server::invocation(
             "edit_output",
             &json!({
-                "doc": "a.hick",
+                "doc": "a.md",
                 "path": "gen.rs",
                 "run": "a1b2..c3d4",
                 "occurrence": 2,
@@ -929,10 +929,10 @@ mod tests {
     fn upstream_becomes_the_tools_doc_argument() {
         let inv = Server::invocation(
             "edit_doc",
-            &json!({ "doc": "primary.hick", "upstream": "requirements.hick", "run": "aaaa" }),
+            &json!({ "doc": "primary.md", "upstream": "requirements.md", "run": "aaaa" }),
         )
         .unwrap();
-        assert_eq!(inv.arg("doc"), Some("requirements.hick"));
+        assert_eq!(inv.arg("doc"), Some("requirements.md"));
     }
 
     #[test]

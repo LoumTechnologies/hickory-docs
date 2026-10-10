@@ -1,7 +1,7 @@
 # A Plain File Opens, Edits, And Never Silently Loses A Byte
 
 Given a folder open in the desktop app, when the tree shows a text file that
-is neither a `.hick` document nor a woven output of an open document — a
+is neither a `.md` document nor a woven output of an open document — a
 README, a workflow, a justfile — then clicking it opens an editable pane, and
 edits save back to the same path on disk; and when the file was rewritten on
 disk between the load and the save, then the save is refused and the person
@@ -20,7 +20,7 @@ Three properties hold it up:
    Saves are strictly serialized client-side, each riding the hash the
    previous exchange established, and a 409 parks the saver until a person
    resolves it — no retry loop, no last-write-wins.
-2. **The surface refuses what it cannot honestly edit.** A `.hick` document
+2. **The surface refuses what it cannot honestly edit.** A `.md` document
    (whose CRDT room owns the file), a path escaping the served root (`..`,
    unselected absolute paths, or a symlink that resolves outside), non-UTF-8 bytes, and files
    past the size cap are all refused with a message naming the reason and the
@@ -52,7 +52,7 @@ Last LLM verification:
 - Reviewer: Claude (Fable 5)
 - Result: verified (implemented and reviewed in the same change)
 - Evidence: `crates/hickory-cli/src/serve/plain_file.rs` — `resolve` refuses
-  empty/escaping/`.hick` paths, `resolve_existing` canonicalizes against the
+  empty/escaping/`.md` paths, `resolve_existing` canonicalizes against the
   root (symlinks), `read_plain` enforces the 10 MB cap and UTF-8, and
   `write_plain` implements the read-only refusal, the binary refusal, and
   the `base_hash`/`force` contract; routes registered in

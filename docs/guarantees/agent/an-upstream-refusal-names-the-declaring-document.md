@@ -41,11 +41,11 @@ Last LLM verification:
     top-level only, and neither tag this needs is top-level: a
     `<hick:paste>` lives inside the `<hick:file>` it fills. The first version
     of this fix silently found nothing for exactly that reason.
-  - Reproduced by hand before and after. Before: *"use edit_doc on down.hick
+  - Reproduced by hand before and after. Before: *"use edit_doc on down.md
     lines 3-5"* followed by the `hick:upstream`, `hick:file`, and
     `hick:paste` tags. After: *"Those bytes are pasted in from another
     document. Edit the fragment where it is DECLARED: use edit_doc on
-    up.hick, from line 3"* followed by the `hick:copy id="greet"` block.
+    up.md, from line 3"* followed by the `hick:copy id="greet"` block.
     Both documents were byte-identical afterwards in both runs.
 - Caveats — what LLM review could NOT establish:
   - **Only the `Conflict` refusal routes this way.** A single-line edit inside
@@ -62,4 +62,4 @@ Last LLM verification:
 - Test coverage:
   `crates/hickory-agent/tests/tools_edit_session.rs::a_refusal_across_an_upstream_edge_names_the_upstream_document`
   drives the real tool over a two-document chain and asserts the refusal names
-  `up.hick` and shows the fragment.
+  `up.md` and shows the fragment.

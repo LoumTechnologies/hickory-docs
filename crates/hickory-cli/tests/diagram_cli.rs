@@ -57,7 +57,7 @@ fn mermaid_output_is_the_same_downgrade_the_weave_uses() {
 fn refresh_rewrites_the_fragment_and_leaves_the_layout_alone() {
     let dir = tempfile::tempdir().unwrap();
     fixture(dir.path());
-    let doc = dir.path().join("arch.hick");
+    let doc = dir.path().join("arch.md");
     std::fs::write(
         &doc,
         "<hick:doc xmlns:hick=\"http://www.hickorydocs.com/1.0\" weave=\"arch.md\">\n\

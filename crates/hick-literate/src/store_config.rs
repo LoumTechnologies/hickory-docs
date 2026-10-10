@@ -19,7 +19,7 @@ pub enum StoreBackend {
 
 /// Watch-mode / store configuration.
 ///
-/// Loaded from `.hick/config.json` if present, otherwise uses defaults.
+/// Loaded from `.md/config.json` if present, otherwise uses defaults.
 /// CLI flags in `hick up` can override any field.
 #[derive(Debug, Deserialize)]
 pub struct StoreConfig {
@@ -59,10 +59,10 @@ impl Default for StoreConfig {
 }
 
 impl StoreConfig {
-    /// Load store configuration from `.hick/config.json` in the project directory.
+    /// Load store configuration from `.md/config.json` in the project directory.
     /// Falls back to defaults if the file doesn't exist.
     pub fn load(project_dir: &Path) -> Self {
-        let path = project_dir.join(".hick/config.json");
+        let path = project_dir.join(".md/config.json");
         if path.is_file()
             && let Ok(content) = std::fs::read_to_string(&path)
             && let Ok(config) = serde_json::from_str(&content)

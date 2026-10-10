@@ -712,7 +712,7 @@ mod tests {
     fn literal_assistant_speech_stays_visible_and_keeps_its_citation() {
         let source = r#"<hick:session><hick:user>Which file?</hick:user>
 <hick:assistant><hick:input>
-[test2.hick](/work/test2.hick:8) produces `test2.py` through `<hick:file path="test2.py">`.
+[test2.md](/work/test2.md:8) produces `test2.py` through `<hick:file path="test2.py">`.
 </hick:input></hick:assistant></hick:session>"#;
         let blocks = session_blocks(source, Some(Path::new("/work")));
         assert_eq!(blocks.len(), 2);
@@ -724,7 +724,7 @@ mod tests {
         );
         let links = session_links(source, Some(Path::new("/work")));
         assert_eq!(links.len(), 1);
-        assert_eq!(links[0].link.to.path, "test2.hick");
+        assert_eq!(links[0].link.to.path, "test2.md");
         assert_eq!(links[0].link.to.lines, Some((8, 8)));
     }
 
@@ -752,7 +752,7 @@ mod tests {
         let source = r#"<hick:session>
 <hick:context kind="acp-activity">{"kind":"read","locations":[{"path":"/work/input.py","line":0}]}</hick:context>
 <hick:context kind="acp-activity">{"kind":"edit","content":[{"type":"diff","path":"/work/output.py"}]}</hick:context>
-<hick:context kind="acp-activity">{"kind":"execute","title":"cat output.py","rawOutput":"input.hick produces output.py"}</hick:context>
+<hick:context kind="acp-activity">{"kind":"execute","title":"cat output.py","rawOutput":"input.md produces output.py"}</hick:context>
 </hick:session>"#;
         let links = session_links(source, Some(Path::new("/work")));
         assert_eq!(links.len(), 2);
@@ -770,7 +770,7 @@ mod tests {
 <hick:user turn="t1">Why is checkout slow?</hick:user>
 <hick:assistant>
 <hick:tool name="read_doc">
-<hick:arg name="doc">meetings/sync.hick</hick:arg>
+<hick:arg name="doc">meetings/sync.md</hick:arg>
 </hick:tool>
 </hick:assistant>
 <hick:tool-result name="read_doc" ok="true">
@@ -778,9 +778,9 @@ lines…
 </hick:tool-result>
 <hick:read file="/home/me/notes/data/latency.csv" sha256="ff" lines="1-8"/>
 <hick:assistant>
-Checkout slowed after the pool change; see [the sync](meetings/sync.hick#L12-L20) and data/latency.csv:3.
+Checkout slowed after the pool change; see [the sync](meetings/sync.md#L12-L20) and data/latency.csv:3.
 </hick:assistant>
-<hick:wrote file="notes/today.hick" lines="72-75" hashes="a b c d"/>
+<hick:wrote file="notes/today.md" lines="72-75" hashes="a b c d"/>
 </hick:session>
 "#;
 
@@ -827,7 +827,7 @@ Checkout slowed after the pool change; see [the sync](meetings/sync.hick#L12-L20
         assert_eq!(
             summary,
             vec![
-                ("context".into(), "meetings/sync.hick".into(), None, 4),
+                ("context".into(), "meetings/sync.md".into(), None, 4),
                 (
                     "context".into(),
                     "data/latency.csv".into(),
@@ -836,7 +836,7 @@ Checkout slowed after the pool change; see [the sync](meetings/sync.hick#L12-L20
                 ),
                 (
                     "declared".into(),
-                    "meetings/sync.hick".into(),
+                    "meetings/sync.md".into(),
                     Some((12, 20)),
                     13
                 ),
@@ -848,7 +848,7 @@ Checkout slowed after the pool change; see [the sync](meetings/sync.hick#L12-L20
                 ),
                 (
                     "lineage".into(),
-                    "notes/today.hick".into(),
+                    "notes/today.md".into(),
                     Some((72, 75)),
                     15
                 ),

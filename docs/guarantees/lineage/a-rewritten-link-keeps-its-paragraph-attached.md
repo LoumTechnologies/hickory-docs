@@ -1,12 +1,12 @@
 # A Rewritten Link Keeps Its Paragraph Attached
 
-Given a paragraph of prose in a `.hick` document that a transform cuts into
-pieces — a `hick:val` substitution, a rewritten cross-document link — when the
-document is woven, then every piece that came through UNCHANGED still carries
-the source bytes it came from, narrowed to exactly its own extent; only the
-bytes a transform actually replaced are reported as synthetic. A ribbon is
-drawn from the sentence in the source to the sentence in the weave, and an
-edit made on the woven side still maps back.
+Given a paragraph of prose in a `.md` document that a transform cuts into
+pieces — a `hick:val` substitution, a derived passage — when the document is
+woven, then every piece that came through UNCHANGED still carries the source
+bytes it came from, narrowed to exactly its own extent; only the bytes a
+transform actually replaced are reported as synthetic. A ribbon is drawn from
+the sentence in the source to the sentence in the weave, and an edit made on
+the woven side still maps back.
 
 ## What this replaces
 
@@ -16,8 +16,7 @@ the bytes it produced — correctly, because a 12-byte segment claiming a
 200-byte region would send a reverse edit to the wrong place — so every piece
 of a split paragraph degraded to `synthetic`. The effect was that **one
 substitution anywhere in a paragraph erased the ribbons for the whole
-paragraph**, and the cross-document link rewrite would have done the same to
-every paragraph containing a link.
+paragraph**.
 
 ## The rules
 
@@ -65,14 +64,10 @@ Last LLM verification:
   three consecutive segments getting three disjoint spans, a text whose length
   disagrees with its span being left alone, an over-running segment being left
   alone, and span-less origins passing through.
-  `crates/hick-literate/tests/document_links.rs` — the end-to-end pair:
-  `the_prose_around_a_rewritten_link_keeps_its_ribbon` (the words before the
-  link, the label, and the words after are all `Literal`; only the rewritten
-  destination is `Synthetic`) and
-  `a_span_after_a_rewritten_link_still_points_at_the_right_source_bytes`
-  (rule 2, asserted by slicing the source with the span the map returns).
+  `crates/hick-literate/src/links.rs` unit tests — a document link is left
+  byte for byte, so every byte keeps its origin and rule 2 never has a
+  rewrite to align.
 - Caveat requiring review: the substitution path — the original reason this
-  node exists — gains the same fix and is covered only indirectly, through the
-  link tests that share the mechanism. A `hick:val` inside a paragraph now
-  keeps its ribbons too; that was checked by reading `apply_substitutions_
-  segmented`, not by a test of its own.
+  node exists — is covered only indirectly, through the link tests that share
+  the mechanism. A `hick:val` inside a paragraph keeps its ribbons; that was
+  checked by reading `apply_substitutions_segmented`, not by a test of its own.

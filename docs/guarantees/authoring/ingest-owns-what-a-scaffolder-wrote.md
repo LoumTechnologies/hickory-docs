@@ -2,7 +2,7 @@
 
 Given an `<hick:exec>` cell whose command is wrapped in a `<hick:copy id=…>`
 child and which mounts a volume declared with `output=`, when `hick ingest
---from '#id' <doc>.hick` runs, then the cell's output volume is written into
+--from '#id' <doc>.md` runs, then the cell's output volume is written into
 the document as ordinary `<hick:file>` blocks inside an `<hick:ingested>`
 element recording the run — and the document is verified to weave those exact
 bytes before the ingest is accepted.
@@ -100,7 +100,7 @@ Last LLM verification:
     refusal, the non-UTF-8 refusal, an unknown id, and the app's block model.
 - Caveat requiring LLM review: `skipped=` records a COUNT and not the reasons.
   The names are printed by the command and are not durable in the document. A
-  reader of the `.hick` six months later sees "2 skipped" and must consult
+  reader of the `.md` six months later sees "2 skipped" and must consult
   `.gitignore` to know which two. This is a deliberate consequence of pinning
   the element shape; if it proves insufficient it wants a new attribute rather
   than an overloaded one.

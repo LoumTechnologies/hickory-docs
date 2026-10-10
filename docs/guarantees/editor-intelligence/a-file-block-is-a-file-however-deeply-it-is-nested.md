@@ -86,7 +86,7 @@ Last LLM verification:
   place) and `live_capture.rs`.
 - Caveats: the live suites skip without an adapter installed. The C# session
   that produced the report was verified by hand against
-  `.dev/project/scaffolding.hick` — breakpoint set on the document's line,
+  `.dev/project/scaffolding.md` — breakpoint set on the document's line,
   bound, hit, and the frame reported back on that same line — but no checked-in
   test drives a C# session end to end from a document; `live_session.rs` is
   Python.

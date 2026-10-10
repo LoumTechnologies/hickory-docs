@@ -59,7 +59,7 @@ errors, never panic.
    node-local unix socket (same machine) or the mesh `host:port`, which
    requires the app to be a WireGuard peer and to hold a capability token.
    Endpoint + token are env config (`CANOPY_AGENT`, `CANOPY_TOKEN`).
-2. **Image mapping**: `.hick` `image="python:3.12"` attributes map through a
+2. **Image mapping**: `.md` `image="python:3.12"` attributes map through a
    deployment-config table (`CANOPY_IMAGE_MAP`, JSON) to Nix store paths
    declared in the tenant ledger. Unknown image → clear error listing
    configured images.

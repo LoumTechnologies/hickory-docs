@@ -32,7 +32,7 @@ echo hi
 "##;
 
 fn write_doc(dir: &Path, source: &str) -> PathBuf {
-    let path = dir.join("doc.hick");
+    let path = dir.join("doc.md");
     std::fs::write(&path, source).unwrap();
     path
 }
@@ -170,7 +170,7 @@ async fn duplicated_paste_refusal_routes_to_edit_doc() {
     );
     assert!(refused.text.contains("edit_doc"), "{}", refused.text);
     assert!(
-        refused.text.contains("doc.hick"),
+        refused.text.contains("doc.md"),
         "refusal must name the source document: {}",
         refused.text
     );
@@ -215,7 +215,7 @@ async fn duplicated_paste_refusal_routes_to_edit_doc() {
 async fn a_refusal_across_an_upstream_edge_names_the_upstream_document() {
     let dir = tempfile::tempdir().unwrap();
     std::fs::write(
-        dir.path().join("up.hick"),
+        dir.path().join("up.md"),
         r##"<?xml version="1.0" encoding="UTF-8"?>
 <hick:doc xmlns:hick="http://www.hickorydocs.com/1.0" weave="up.md">
 <hick:copy id="greet">def greet(name):
@@ -229,7 +229,7 @@ async fn a_refusal_across_an_upstream_edge_names_the_upstream_document() {
         dir.path(),
         r##"<?xml version="1.0" encoding="UTF-8"?>
 <hick:doc xmlns:hick="http://www.hickorydocs.com/1.0" weave="down.md">
-<hick:upstream file="up.hick" />
+<hick:upstream file="up.md" />
 <hick:file path="gen.rs">
 <hick:paste select="#greet" />
 </hick:file>
@@ -264,7 +264,7 @@ async fn a_refusal_across_an_upstream_edge_names_the_upstream_document() {
 
     assert!(!refused.ok, "{}", refused.text);
     assert!(
-        refused.text.contains("up.hick"),
+        refused.text.contains("up.md"),
         "the refusal must name the document that DECLARES the fragment, not the \
          paste site — an agent that obeys the old message edited the <hick:paste> \
          tag in the wrong file: {}",
@@ -507,7 +507,7 @@ async fn read_file_shows_a_project_file_and_records_the_read() {
     assert!(out.ok);
     assert_eq!(out.reads.len(), 1);
     assert!(
-        out.reads[0].path.ends_with("doc.hick"),
+        out.reads[0].path.ends_with("doc.md"),
         "{}",
         out.reads[0].path
     );
@@ -533,7 +533,7 @@ async fn read_file_shows_a_project_file_and_records_the_read() {
     .await;
     assert!(out.ok, "{}", out.text);
     let wrote = out.wrote.expect("an edit records what it wrote");
-    assert!(wrote.file.ends_with("doc.hick"));
+    assert!(wrote.file.ends_with("doc.md"));
     assert!(wrote.first_line <= wrote.last_line, "{wrote:?}");
     assert!(
         wrote
@@ -552,7 +552,7 @@ async fn the_session_records_reads_and_writes_as_elements() {
     let doc_path = write_doc(dir.path(), DOC);
     std::fs::write(dir.path().join("notes.txt"), "one\ntwo\n").unwrap();
     let mut session = EditSession::open(&doc_path, &[]).await.unwrap();
-    let log = HickSessionLog::create(dir.path().join("s.hick")).unwrap();
+    let log = HickSessionLog::create(dir.path().join("s.md")).unwrap();
     log.record(SessionEvent::User {
         text: "look and write",
     });
@@ -585,7 +585,7 @@ async fn the_session_records_reads_and_writes_as_elements() {
     record_outcome(&log, &out);
     log.record(SessionEvent::End);
 
-    let source = std::fs::read_to_string(dir.path().join("s.hick")).unwrap();
+    let source = std::fs::read_to_string(dir.path().join("s.md")).unwrap();
     assert!(source.contains(r#"<hick:user id="in0">"#), "{source}");
     assert!(
         source.contains(r#"<hick:read file="notes.txt""#),

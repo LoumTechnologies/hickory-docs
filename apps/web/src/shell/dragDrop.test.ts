@@ -183,7 +183,7 @@ describe("moveTabToIndex: dropping on a tab bar", () => {
   it("reorders within a pane, counting the caret with the tab still in place", () => {
     let layout = openAll(freeform(), "a.md", "b.md", "c.md");
     const pane = panes(layout.root)[0];
-    // Drag a.md past b.hick: caret index 2 with a still present lands after b.
+    // Drag a.md past b.md: caret index 2 with a still present lands after b.
     layout = moveTabToIndex(layout, pane.id, pane.tabs[0].id, pane.id, 2);
     const after = panes(layout.root)[0];
     expect(targets(after)).toEqual(["b.md", "a.md", "c.md"]);

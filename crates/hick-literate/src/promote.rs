@@ -583,7 +583,7 @@ mod tests {
         promote(&PromoteOpts {
             session_source: session_src,
             project_dir: dir.path(),
-            session_name: "test.hick",
+            session_name: "test.md",
         })
         .unwrap()
     }

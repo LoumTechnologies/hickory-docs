@@ -10,18 +10,18 @@ Slack, can I show the exact reasoning and tool output behind it, with my own
 eyes, by following a ribbon?** The chain is
 
 ```
-inbox/*.vtt  ─ingest→  meetings/<date>-sync.hick        the meeting, turns derived
+inbox/*.vtt  ─ingest→  meetings/<date>-sync.md        the meeting, turns derived
                          ↓ hick:upstream
-                       analysis.hick                     a cell computes the numbers, pinned
-                       fix.hick                          the code the meeting asked for, tested
+                       analysis.md                     a cell computes the numbers, pinned
+                       fix.md                          the code the meeting asked for, tested
                          ↓ hick:upstream (both)
-                       message.hick                      each sentence a fragment; a check under each
+                       message.md                      each sentence a fragment; a check under each
                          ↓ slack:file
                        messages/2026-08-24-eng.txt       what gets pasted into Slack
                        messages/2026-08-24-eng-reply.txt the answer to a question, quoting Sam
 ```
 
-and `hick lineage message.hick --output messages/2026-08-24-eng-reply.txt`
+and `hick lineage message.md --output messages/2026-08-24-eng-reply.txt`
 points the quoted line at the **meeting file's bytes** — as do the app's
 ribbons (`docs/guarantees/lineage/a-ribbon-crosses-documents.md`).
 
@@ -50,7 +50,7 @@ asked to draft the message from the findings upstream, wrote plausible numbers
 of its own (287 ms, a pool of 20, a 500 ms timeout, a flag nobody named). The
 checks under those sentences came back **UNSUPPORTED**, naming the parts with
 no source. That document is committed as it happened
-(`examples/receipts/hick-agent/message.hick`) because it is the point.
+(`examples/receipts/hick-agent/message.md`) because it is the point.
 
 ## What the test fixed on the way
 

@@ -261,7 +261,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let sessions = dir.path().join("sessions");
         std::fs::create_dir_all(&sessions).unwrap();
-        let session = sessions.join("s.hick");
+        let session = sessions.join("s.md");
         std::fs::write(&session, SESSION).unwrap();
 
         let out = carry_from_session(&session, None, "2026-08-23").unwrap();
@@ -292,7 +292,7 @@ mod tests {
     #[test]
     fn a_document_that_is_not_a_session_is_refused_by_name() {
         let dir = tempfile::tempdir().unwrap();
-        let doc = dir.path().join("notes.hick");
+        let doc = dir.path().join("notes.md");
         std::fs::write(
             &doc,
             "<hick:doc xmlns:hick=\"http://www.hickorydocs.com/1.0\">hi</hick:doc>",
@@ -308,7 +308,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let sessions = dir.path().join("sessions");
         std::fs::create_dir_all(&sessions).unwrap();
-        let session = sessions.join("s.hick");
+        let session = sessions.join("s.md");
         std::fs::write(&session, SESSION).unwrap();
         let first = carry_from_session(&session, None, "2026-08-23").unwrap();
         std::fs::write(&first.path, "mine, edited").unwrap();

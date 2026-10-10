@@ -7,7 +7,7 @@ use crate::virtual_file::VirtualSegment;
 pub struct LineMapping {
     /// 0-based line in the virtual file.
     pub virtual_line: u32,
-    /// 0-based line in the .hick source file.
+    /// 0-based line in the .md source file.
     pub source_line: u32,
     /// Column offset to add when translating virtual -> source.
     pub column_offset: i32,
@@ -120,7 +120,7 @@ impl PositionMap {
         self.identity_lines.unwrap_or(self.mappings.len() as u32)
     }
 
-    /// Map a virtual file position to a .hick source position.
+    /// Map a virtual file position to a .md source position.
     /// Returns (source_line_0based, source_col_0based).
     pub fn to_source(&self, virtual_line: u32, virtual_col: u32) -> Option<(u32, u32)> {
         if self.identity_lines.is_some() {
@@ -138,7 +138,7 @@ impl PositionMap {
         Some((mapping.source_line, source_col))
     }
 
-    /// Map a .hick source position to a virtual file position.
+    /// Map a .md source position to a virtual file position.
     /// Returns (virtual_line_0based, virtual_col_0based).
     pub fn to_virtual(&self, source_line: u32, source_col: u32) -> Option<(u32, u32)> {
         if self.identity_lines.is_some() {

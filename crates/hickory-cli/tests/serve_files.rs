@@ -193,7 +193,6 @@ async fn make_literate_creates_an_openable_markdown_document() {
     assert_eq!(adopted["output_path"], "analysis.py");
     assert_eq!(adopted["created"], true);
     assert!(session.root.join("analysis.md").exists());
-    assert!(!session.root.join("analysis.hick").exists());
     assert_eq!(
         std::fs::read_to_string(session.root.join("analysis.py")).unwrap(),
         original

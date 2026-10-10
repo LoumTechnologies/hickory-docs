@@ -1,6 +1,6 @@
 # An Output Is Named From The Open Folder
 
-Given a document anywhere under the open folder — `tools/app.hick` writing
+Given a document anywhere under the open folder — `tools/app.md` writing
 `<hick:file path="app.py">` — when the app lists its outputs, opens one in a
 generated-file tab, carries an edit back through it, or reads it at a
 commit, then the file is named the way the tree names it, relative to the

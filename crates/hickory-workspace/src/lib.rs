@@ -380,10 +380,9 @@ mod tests {
         // tool cannot keep on somebody else's machine.
         let (base, project) = fixture();
         let s = store(base.path(), project.path());
-        s.save_ui(&serde_json::json!({ "tabs": ["a.hick"] }))
-            .unwrap();
+        s.save_ui(&serde_json::json!({ "tabs": ["a.md"] })).unwrap();
         s.save_draft(&Draft {
-            path: "notes.hick".into(),
+            path: "notes.md".into(),
             contents: "unsaved".into(),
             base: "".into(),
             saved_at: 1,
@@ -449,20 +448,20 @@ mod tests {
         let (base, project) = fixture();
         let s = store(base.path(), project.path());
         let draft = Draft {
-            path: "notes/today.hick".into(),
+            path: "notes/today.md".into(),
             contents: "half a sentence".into(),
             base: "what was on disk".into(),
             saved_at: 42,
         };
         s.save_draft(&draft).unwrap();
-        assert_eq!(s.load_draft("notes/today.hick"), Some(draft));
+        assert_eq!(s.load_draft("notes/today.md"), Some(draft));
     }
 
     #[test]
     fn drafts_list_oldest_first_and_a_damaged_one_hides_nothing() {
         let (base, project) = fixture();
         let s = store(base.path(), project.path());
-        for (path, at) in [("c.hick", 3u64), ("a.hick", 1), ("b.hick", 2)] {
+        for (path, at) in [("c.md", 3u64), ("a.md", 1), ("b.md", 2)] {
             s.save_draft(&Draft {
                 path: path.into(),
                 contents: path.into(),
@@ -473,7 +472,7 @@ mod tests {
         }
         fs::write(s.dir().join("drafts").join("garbage.json"), "{{{").unwrap();
         let paths: Vec<_> = s.list_drafts().into_iter().map(|d| d.path).collect();
-        assert_eq!(paths, vec!["a.hick", "b.hick", "c.hick"]);
+        assert_eq!(paths, vec!["a.md", "b.md", "c.md"]);
     }
 
     #[test]
@@ -482,14 +481,14 @@ mod tests {
         // discard.
         let (base, project) = fixture();
         let s = store(base.path(), project.path());
-        s.discard_draft("never-existed.hick").unwrap();
+        s.discard_draft("never-existed.md").unwrap();
     }
 
     #[test]
     fn a_path_with_separators_does_not_collide_or_escape() {
         let (base, project) = fixture();
         let s = store(base.path(), project.path());
-        for path in ["a/b.hick", "a-b.hick", "../outside.hick"] {
+        for path in ["a/b.md", "a-b.md", "../outside.md"] {
             s.save_draft(&Draft {
                 path: path.into(),
                 contents: path.into(),
@@ -499,9 +498,9 @@ mod tests {
             .unwrap();
         }
         assert_eq!(s.list_drafts().len(), 3);
-        assert_eq!(s.load_draft("a/b.hick").unwrap().contents, "a/b.hick");
+        assert_eq!(s.load_draft("a/b.md").unwrap().contents, "a/b.md");
         // `..` in a document path must not write outside the draft folder.
-        let stray = base.path().join("outside.hick.json");
+        let stray = base.path().join("outside.md.json");
         assert!(!stray.exists(), "a draft escaped its folder");
     }
 
@@ -534,7 +533,7 @@ mod tests {
         let (base, project) = fixture();
         let s = store(base.path(), project.path());
         let good = Draft {
-            path: "a.hick".into(),
+            path: "a.md".into(),
             contents: "the good one".into(),
             base: String::new(),
             saved_at: 1,
@@ -542,7 +541,7 @@ mod tests {
         s.save_draft(&good).unwrap();
         // A leftover temp file from a crashed write is ignored entirely.
         fs::write(s.dir().join("drafts").join("stale.partial"), "half").unwrap();
-        assert_eq!(s.load_draft("a.hick"), Some(good));
+        assert_eq!(s.load_draft("a.md"), Some(good));
         assert_eq!(s.list_drafts().len(), 1);
     }
 }

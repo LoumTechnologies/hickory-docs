@@ -1,4 +1,5 @@
-
+<?xml version="1.0" encoding="UTF-8"?>
+<hick:doc xmlns:hick="http://www.hickorydocs.com/1.0" weave="claude-code-corpus.md" volatile="true">
 # What the agent harness is actually up against
 
 Every number below is measured from the Claude Code session logs on this
@@ -10,42 +11,13 @@ day, and a stale claim about it should be loud rather than quiet.
 Only aggregates are read. No prompt text, file content, or transcript leaves
 the analysis.
 
+<hick:container name="corpus" image="host" />
 
-
-
-
-## The sample
-
-The corpus is every session log the CLI has written on this machine, across
-every project directory.
-
-
-
-## The three findings that bound the harness
-
-**Turn budget.** A hick turn is one LLM call, so the comparable measure is
-LLM rounds that issued tools — not raw tool calls. The median session needs
-several times the default budget of 20.
-
-**Multi-file reach.** The agent edits every file its primary document tangles.
-The question is how often real work stays inside one document's outputs, and
-the file counts below are the answer.
-
-**Git.** The agent's workspace is a copy with `.git` skipped, so anything the
-git count covers is out of reach today.
-
-
-
-
-### `corpus_scan.py`
-
-```python
-
-
+<hick:copy id="scan" class="corpus-py">
 """Aggregate the Claude Code session logs.
 
 Reads ~/.claude/projects/**/*.jsonl and emits counts only.
-Assembled by `hick run` from docs/analysis/claude-code-corpus.hick.
+Assembled by `hick run` from docs/analysis/claude-code-corpus.md.
 """
 import glob
 import json
@@ -54,7 +26,14 @@ from collections import Counter
 
 ROOT = os.path.expanduser("~/.claude/projects")
 FILES = sorted(glob.glob(ROOT + "/**/*.jsonl", recursive=True))
+</hick:copy>
 
+## The sample
+
+The corpus is every session log the CLI has written on this machine, across
+every project directory.
+
+<hick:copy id="sample" class="corpus-py">
 
 tools = Counter()
 rounds = []          # LLM turns that issued at least one tool call
@@ -93,7 +72,22 @@ for path in FILES:
         files_per_session.append(len(touched))
     if used_git:
         git_sessions += 1
+</hick:copy>
 
+## The three findings that bound the harness
+
+**Turn budget.** A hick turn is one LLM call, so the comparable measure is
+LLM rounds that issued tools — not raw tool calls. The median session needs
+several times the default budget of 20.
+
+**Multi-file reach.** The agent edits every file its primary document tangles.
+The question is how often real work stays inside one document's outputs, and
+the file counts below are the answer.
+
+**Git.** The agent's workspace is a copy with `.git` skipped, so anything the
+git count covers is out of reach today.
+
+<hick:copy id="report" class="corpus-py">
 
 def pct(values, q):
     ordered = sorted(values)
@@ -110,30 +104,19 @@ print(f"multi file sessions: {sum(1 for n in files_per_session if n > 1)}")
 print(f"git sessions: {git_sessions}")
 for name, n in tools.most_common(4):
     print(f"tool {name}: {n}")
+</hick:copy>
 
-```
-
+<hick:file path="corpus_scan.py">
+<hick:paste select=".corpus-py" />
+</hick:file>
 
 ## Measured
 
+<hick:volume name="src" input="." />
 
-
-$ python3 project/corpus_scan.py
-sessions: 510
-sessions using tools: 411
-tool calls: 38534
-median rounds: 53
-p90 rounds: 180
-over budget: 296
-median files: 11
-multi file sessions: 325
-git sessions: 322
-tool Bash: 20751
-tool Edit: 6895
-tool Read: 4675
-tool Write: 1850
-
-
+<hick:exec container="corpus" mount="src:/project">
+python3 project/corpus_scan.py
+</hick:exec>
 
 The numbers above are the live corpus, and they move every time the CLI runs —
 including the run that produced this page. The document root is therefore
@@ -150,24 +133,26 @@ What remains verified is the shape of the conclusion. The assertions below are
 the claims the harness design rests on, and each fails loudly if it stops being
 true — which is the check that actually matters here.
 
-$ python3 - <<'PY'
-  import subprocess
-  out = subprocess.run(
-      ["python3", "project/corpus_scan.py"], capture_output=True, text=True
-  ).stdout
-  m = dict(
-      line.rsplit(": ", 1) for line in out.strip().splitlines() if ": " in line
-  )
-  median = int(m["median rounds"])
-  over = int(m["over budget"])
-  sessions = int(m["sessions using tools"])
-  multi = int(m["multi file sessions"])
-  print("median rounds exceed the default budget:", median > 20)
-  print("majority of sessions exceed it:", over > sessions / 2)
-  print("most sessions touch several files:", multi > sessions / 2)
-  PY
-median rounds exceed the default budget: True
+<hick:exec container="corpus" mount="src:/project">
+python3 - <<'PY'
+import subprocess
+out = subprocess.run(
+    ["python3", "project/corpus_scan.py"], capture_output=True, text=True
+).stdout
+m = dict(
+    line.rsplit(": ", 1) for line in out.strip().splitlines() if ": " in line
+)
+median = int(m["median rounds"])
+over = int(m["over budget"])
+sessions = int(m["sessions using tools"])
+multi = int(m["multi file sessions"])
+print("median rounds exceed the default budget:", median > 20)
+print("majority of sessions exceed it:", over > sessions / 2)
+print("most sessions touch several files:", multi > sessions / 2)
+PY
+<hick:expect match="exact">median rounds exceed the default budget: True
 majority of sessions exceed it: True
 most sessions touch several files: True
-
-
+</hick:expect>
+</hick:exec>
+</hick:doc>

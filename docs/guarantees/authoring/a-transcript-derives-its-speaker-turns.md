@@ -64,7 +64,7 @@ turns pasteable and upstream-selectable — `TranscriptHandler` in
 `declare_nodes` in `crates/hick-literate/src/lib.rs`; the `"upstream"` weave arm
 in `crates/hick-literate/src/weave.rs`. Tests:
 `crates/hick-transcript/tests/upstream.rs`,
-`examples/receipts/*/message.hick` (a reply file quoting `#transcript-u7` two
+`examples/receipts/*/message.md` (a reply file quoting `#transcript-u7` two
 hops upstream; `hick lineage` names the meeting file for those bytes).
 
 Previous LLM verification:

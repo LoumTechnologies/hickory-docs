@@ -1,10 +1,10 @@
 # The Meta-LSP Forwards Whatever The Child Supports
 
-Given an editor pointed at `hick-lsp` for `*.hick`, when it makes any request
+Given an editor pointed at `hick-lsp` for `*.md`, when it makes any request
 a mainstream language server answers, then `hick-lsp` forwards it to the
 server that owns that block and translates the answer back into document
 coordinates. The document is the buffer being edited, so every position in
-every reply is a position in the `.hick` file — never in the virtual file the
+every reply is a position in the `.md` file — never in the virtual file the
 child actually saw.
 
 The surface is the whole of what popular servers implement:
@@ -60,7 +60,7 @@ Last LLM verification:
     (locations elsewhere, through `translate_locations`),
     `child_document_request` (whole-document), and `fan_out_array` (ask every
     block's server and merge). `translate_edit_uris` maps a rename's
-    workspace edit back to the `.hick` document; `map_for_completion_data`
+    workspace edit back to the `.md` document; `map_for_completion_data`
     finds the virtual file named inside an opaque completion `data`.
   - `crates/hick-lsp/src/semantic.rs` — `decode`, `to_source`, `encode`, and
     the advertised legend. Tests: delta decoding, encode/decode round trip,
@@ -75,11 +75,11 @@ Last LLM verification:
     signature help, and workspace symbols. A child that gates a feature on
     the client asking for it will not gate it here.
   - Observed end to end on this machine, over stdio, against a real
-    `.hick` document:
+    `.md` document:
     - **pyright**: hover, definition, references, document highlight,
       document symbol, signature help, completion, `completionItem/resolve`
       (documentation appears only after resolve), prepare rename and rename
-      all returned answers in `.hick` coordinates.
+      all returned answers in `.md` coordinates.
     - **rust-analyzer**: `semanticTokens/full` returned tokens landing on the
       block's real document lines, and `foldingRange` returned the two
       function bodies at document lines 6–8 and 10–13.

@@ -32,7 +32,7 @@ const DOC: &str = r##"<?xml version="1.0" encoding="UTF-8"?>
 "##;
 
 async fn weave(dir: &Path, source: &str) -> DocRun {
-    let doc_path = dir.join("sweep.hick");
+    let doc_path = dir.join("sweep.md");
     std::fs::write(&doc_path, source).unwrap();
     run_doc(&doc_path, &[], RunMode::Weave, ExecutorChoice::Local)
         .await

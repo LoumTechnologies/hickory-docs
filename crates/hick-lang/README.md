@@ -1,6 +1,6 @@
 # hick-lang
 
-Parser and AST for `.hick` source files.
+Parser and AST for `.md` source files.
 
 A hand-written recursive-descent parser that detects the `xmlns:PREFIX` binding
 to `http://www.hickorydocs.com/1.0` and recognises only `<PREFIX:*>` tags,

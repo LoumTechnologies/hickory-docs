@@ -12,7 +12,7 @@ use serde::Deserialize;
 /// Top-level project configuration loaded from `_hick.yml`.
 #[derive(Debug, Deserialize, Default)]
 pub struct HickConfig {
-    /// Ordered list of `.hick` files to process. Supports globs.
+    /// Ordered list of `.md` files to process. Supports globs.
     #[serde(default)]
     pub files: Vec<String>,
 
@@ -114,9 +114,9 @@ mod tests {
 
     #[test]
     fn parse_minimal_config() {
-        let yaml = "files:\n  - guide.hick\n";
+        let yaml = "files:\n  - guide.md\n";
         let config: HickConfig = serde_yaml::from_str(yaml).unwrap();
-        assert_eq!(config.files, vec!["guide.hick"]);
+        assert_eq!(config.files, vec!["guide.md"]);
         assert!(config.vars.is_empty());
         assert!(config.defaults.image.is_none());
         assert!(config.output_dir.is_none());
@@ -126,8 +126,8 @@ mod tests {
     fn parse_full_config() {
         let yaml = r#"
 files:
-  - docs/*.hick
-  - reference.hick
+  - docs/*.md
+  - reference.md
 
 vars:
   version: "2.0.0"
@@ -231,19 +231,19 @@ secrets:
         let dir = std::env::temp_dir().join("hick-config-test-glob");
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
-        std::fs::write(dir.join("a.hick"), "").unwrap();
-        std::fs::write(dir.join("b.hick"), "").unwrap();
+        std::fs::write(dir.join("a.md"), "").unwrap();
+        std::fs::write(dir.join("b.md"), "").unwrap();
         std::fs::write(dir.join("c.txt"), "").unwrap();
 
         let config = HickConfig {
-            files: vec!["*.hick".to_string()],
+            files: vec!["*.md".to_string()],
             ..Default::default()
         };
         let files = config.resolve_files(&dir).unwrap();
         assert_eq!(files.len(), 2);
         // Should be sorted alphabetically
-        assert!(files[0].ends_with("a.hick"));
-        assert!(files[1].ends_with("b.hick"));
+        assert!(files[0].ends_with("a.md"));
+        assert!(files[1].ends_with("b.md"));
 
         let _ = std::fs::remove_dir_all(&dir);
     }
@@ -253,17 +253,17 @@ secrets:
         let dir = std::env::temp_dir().join("hick-config-test-order");
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
-        std::fs::write(dir.join("first.hick"), "").unwrap();
-        std::fs::write(dir.join("second.hick"), "").unwrap();
+        std::fs::write(dir.join("first.md"), "").unwrap();
+        std::fs::write(dir.join("second.md"), "").unwrap();
 
         let config = HickConfig {
-            files: vec!["second.hick".to_string(), "first.hick".to_string()],
+            files: vec!["second.md".to_string(), "first.md".to_string()],
             ..Default::default()
         };
         let files = config.resolve_files(&dir).unwrap();
         assert_eq!(files.len(), 2);
-        assert!(files[0].ends_with("second.hick"));
-        assert!(files[1].ends_with("first.hick"));
+        assert!(files[0].ends_with("second.md"));
+        assert!(files[1].ends_with("first.md"));
 
         let _ = std::fs::remove_dir_all(&dir);
     }

@@ -663,7 +663,7 @@ pub(crate) async fn handle_batch_with(
             }
             continue;
         }
-        if path.extension().is_some_and(|e| e == "md" || e == "hick") {
+        if path.extension().is_some_and(|e| e == "md") {
             let changed = match std::fs::read_to_string(&path) {
                 Ok(current) => state.doc_source(&path) != Some(&current),
                 // A document that vanished, or is mid-save and unreadable,

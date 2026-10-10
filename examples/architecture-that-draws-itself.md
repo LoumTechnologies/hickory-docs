@@ -1,4 +1,8 @@
-
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- This file uses the short prefix "h:" so that "hick:" appears as literal
+     text in the SCIP snippet near the end. Both prefixes bind to the same
+     namespace; the parser detects the prefix from the xmlns declaration. -->
+<h:doc xmlns:h="http://www.hickorydocs.com/1.0" weave="architecture-that-draws-itself.md">
 # Architecture That Draws Itself
 
 An architecture diagram is the one claim in a repository nothing re-reads: it
@@ -13,22 +17,14 @@ fails; nobody has to remember the diagram exists.
 
 Two modules and one rule: `app` may call `lib`, never the reverse.
 
-
-### `demo/lib/orders.py`
-
-```python
+<h:file path="demo/lib/orders.py" language="python">
 def load_orders():
     return []
-```
+</h:file>
 
-
-
-### `demo/app/main.py`
-
-```python
+<h:file path="demo/app/main.py" language="python">
 load_orders()
-```
-
+</h:file>
 
 ## The scan, and the pin
 
@@ -43,7 +39,30 @@ The expect below pins the whole topology. The day someone adds an import that
 changes the shape, this cell — and therefore `hick test`, and therefore the
 pre-commit hook — fails.
 
-$ hick diagram demo --group dir --format scene
+<h:container name="tools" image="hickory/hick:local" />
+<h:volume name="demo" input="demo" />
+
+<h:exec id="arch-scan" container="tools" mount="demo:demo">
+hick diagram demo --group dir --format scene
+<h:expect match="exact">{
+  "nodes": [
+    {
+      "id": "app"
+    },
+    {
+      "id": "lib"
+    }
+  ],
+  "edges": [
+    {
+      "from": "app",
+      "to": "lib"
+    }
+  ]
+}
+</h:expect>
+
+<h:ingested key="d55c409bfdf8356fc7625c2c77bd57297ed9653eb56a61704e70b4fc811608d2" sha256="78960896db0869a02a5ff35fb767ecf67868a75d401e1eabbb58b44998b270b9" at="2026-09-03">
 {
   "nodes": [
     {
@@ -60,8 +79,8 @@ $ hick diagram demo --group dir --format scene
     }
   ]
 }
-
-
+</h:ingested>
+</h:exec>
 
 The fragment below is the same topology, stated where a diagram can paste it.
 An exec's output is deliberately not paste-able — the fragment plus the
@@ -69,8 +88,10 @@ expect above is the mechanism that keeps a stated copy honest. When the code
 changes shape, refresh it deterministically with:
 
 ```
-hick diagram demo --refresh architecture-that-draws-itself.hick --fragment arch-topology
+hick diagram demo --refresh architecture-that-draws-itself.md --fragment arch-topology
 ```
+
+<h:copy id="arch-topology">{"nodes":[{"id":"lib"},{"id":"app"}],"edges":[{"from":"app","to":"lib"}]}</h:copy>
 
 ## The picture
 
@@ -80,9 +101,15 @@ and the editor will rewrite only the `layout` below, because the nodes and
 edges belong to the scan. The weave you are reading renders it as an SVG the
 weave itself drew — the same boxes, in the same places.
 
-
-![diagram](diagram-f16290a0.svg)
-
+<h:diagram renderer="graph" asserts="#arch-scan">
+{
+  "topology": <h:paste select="#arch-topology" />,
+  "layout": {
+    "app": {"x": 60, "y": 40, "w": 160, "h": 56},
+    "lib": {"x": 60, "y": 200, "w": 160, "h": 56}
+  }
+}
+</h:diagram>
 
 ## The precise version, when you have a toolchain
 
@@ -108,3 +135,4 @@ scip print --json index.scip | jq -c '{
 Both emit the same shape, so the same fragment — and therefore the same
 derived diagram — consumes either. Swapping the approximate scanner for the
 precise one changes one cell, not the picture.
+</h:doc>

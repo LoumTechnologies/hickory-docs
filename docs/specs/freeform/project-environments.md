@@ -200,7 +200,7 @@ After synchronization, LSP, DAP and test launchers should consume the selected
 environment where supported. Installing into `.venv` while continuing to run
 tests with system Python leaves the original user problem unresolved. Preserve
 existing explicit launch choices; restart or refresh affected language services
-only when needed. Dependency installation records no `.hick` execution evidence
+only when needed. Dependency installation records no `.md` execution evidence
 and grants no additional cell permissions. Mobile only displays applicable
 information; it offers no execution action.
 

@@ -4,12 +4,12 @@
 <hick:usage turn="0" input="2290" cache-write="0" cache-read="0" output="75"/>
 <hick:assistant>
 <hick:tool name="read_output">
-<hick:arg name="path">analysis.hick</hick:arg>
+<hick:arg name="path">analysis.md</hick:arg>
 <hick:arg name="with_lineage">true</hick:arg>
 </hick:tool>
 </hick:assistant>
 <hick:tool-result name="read_output" ok="false">
-no output named 'analysis.hick' — available outputs: analysis.md
+no output named 'analysis.md' — available outputs: analysis.md
 </hick:tool-result>
 <hick:usage turn="1" input="2412" cache-write="0" cache-read="0" output="74"/>
 <hick:assistant>
@@ -51,17 +51,17 @@ f011|
 f011|
 
 lineage:
-  lines 1-4: literal — editable via edit_output (from analysis.hick lines 1-4)
-  lines 5-10: literal — editable via edit_output (from analysis.hick lines 5-10)
-  line 11: paste — editable via edit_output (from /home/loumtech/Documents/src/hickory-docs/examples/receipts/hick-agent/meetings/2026-08-20-checkout-latency-sync.hick lines 36-45)
-  lines 11-12: literal — editable via edit_output (from analysis.hick lines 11-12)
-  line 13: literal — editable via edit_output (from analysis.hick lines 13-13)
-  lines 14-17: literal — editable via edit_output (from analysis.hick lines 14-17)
+  lines 1-4: literal — editable via edit_output (from analysis.md lines 1-4)
+  lines 5-10: literal — editable via edit_output (from analysis.md lines 5-10)
+  line 11: paste — editable via edit_output (from /home/loumtech/Documents/src/hickory-docs/examples/receipts/hick-agent/meetings/2026-08-20-checkout-latency-sync.md lines 36-45)
+  lines 11-12: literal — editable via edit_output (from analysis.md lines 11-12)
+  line 13: literal — editable via edit_output (from analysis.md lines 13-13)
+  lines 14-17: literal — editable via edit_output (from analysis.md lines 14-17)
   line 18: synthetic — NOT editable via edit_output; use edit_doc
-  lines 19-22: literal — editable via edit_output (from analysis.hick lines 69-72)
-  lines 23-24: literal — editable via edit_output (from analysis.hick lines 73-74)
-  lines 25-26: literal — editable via edit_output (from analysis.hick lines 75-76)
-  lines 27-29: literal — editable via edit_output (from analysis.hick lines 77-79)
+  lines 19-22: literal — editable via edit_output (from analysis.md lines 69-72)
+  lines 23-24: literal — editable via edit_output (from analysis.md lines 73-74)
+  lines 25-26: literal — editable via edit_output (from analysis.md lines 75-76)
+  lines 27-29: literal — editable via edit_output (from analysis.md lines 77-79)
 </hick:tool-result>
 <hick:usage turn="2" input="3098" cache-write="0" cache-read="0" output="33"/>
 <hick:assistant>
@@ -70,7 +70,7 @@ lineage:
 </hick:assistant>
 <hick:tool-result name="verify" ok="false">
 FAIL — 1 problem(s):
-expectation at analysis.hick:18 (container py) failed: the expectation begins with an empty line, but the output begins with "Baseline (2026-08-10 to 2026-08-12): 202.6 ms": expected text starts right after the opening tag — write `<hick:expect …>Baseline (2026-08-10 to 2026-08-12): 202.6 ms` with no line break after `>`, so the first expected line is the first output line
+expectation at analysis.md:18 (container py) failed: the expectation begins with an empty line, but the output begins with "Baseline (2026-08-10 to 2026-08-12): 202.6 ms": expected text starts right after the opening tag — write `<hick:expect …>Baseline (2026-08-10 to 2026-08-12): 202.6 ms` with no line break after `>`, so the first expected line is the first output line
 </hick:tool-result>
 <hick:usage turn="3" input="3289" cache-write="0" cache-read="0" output="35"/>
 <hick:assistant>
@@ -78,12 +78,12 @@ expectation at analysis.hick:18 (container py) failed: the expectation begins wi
 </hick:tool>
 </hick:assistant>
 <hick:tool-result name="read_doc" ok="true">
-doc: analysis.hick
+doc: analysis.md
 f636|---
 91c7|date: 2026-08-24
 f636|---
 f011|
-56d8|<hick:upstream file="meetings/2026-08-20-checkout-latency-sync.hick" />
+56d8|<hick:upstream file="meetings/2026-08-20-checkout-latency-sync.md" />
 f011|
 cf81|## Context
 f011|
@@ -159,7 +159,7 @@ f011|
 0266|# Checkout latency: before and after the pool fix
 f011|
 
-upstream of this session (readable and editable by passing <hick:arg name="doc">NAME</hick:arg>): meetings/2026-08-20-checkout-latency-sync.hick
+upstream of this session (readable and editable by passing <hick:arg name="doc">NAME</hick:arg>): meetings/2026-08-20-checkout-latency-sync.md
 </hick:tool-result>
 <hick:usage turn="4" input="4662" cache-write="0" cache-read="0" output="202"/>
 <hick:assistant>
@@ -175,7 +175,7 @@ Excluded 0 rows (load-test window 2026-08-18 10:00-12:00)
 </hick:tool>
 </hick:assistant>
 <hick:tool-result name="edit_doc" ok="true">
-edited analysis.hick and re-wove.
+edited analysis.md and re-wove.
 edited region (fresh hashes):
 6b0a|print(f"Excluded {excluded} rows (load-test window 2026-08-18 10:00-12:00)")
 103a|EOF
@@ -245,12 +245,12 @@ cat ../hickory-docs/examples/receipts/hick-agent/data/checkout-latency.csv | hea
 </hick:tool>
 </hick:assistant>
 <hick:tool-result name="read_doc" ok="true">
-doc: analysis.hick
+doc: analysis.md
 f636|---
 91c7|date: 2026-08-24
 f636|---
 f011|
-56d8|<hick:upstream file="meetings/2026-08-20-checkout-latency-sync.hick" />
+56d8|<hick:upstream file="meetings/2026-08-20-checkout-latency-sync.md" />
 f011|
 cf81|## Context
 f011|
@@ -325,7 +325,7 @@ f011|
 0266|# Checkout latency: before and after the pool fix
 f011|
 
-upstream of this session (readable and editable by passing <hick:arg name="doc">NAME</hick:arg>): meetings/2026-08-20-checkout-latency-sync.hick
+upstream of this session (readable and editable by passing <hick:arg name="doc">NAME</hick:arg>): meetings/2026-08-20-checkout-latency-sync.md
 </hick:tool-result>
 <hick:usage turn="10" input="7066" cache-write="0" cache-read="0" output="320"/>
 <hick:usage turn="11" input="7542" cache-write="0" cache-read="0" output="171"/>
@@ -389,17 +389,17 @@ f011|
 f011|
 
 lineage:
-  lines 1-4: literal — editable via edit_output (from analysis.hick lines 1-4)
-  lines 5-10: literal — editable via edit_output (from analysis.hick lines 5-10)
-  line 11: paste — editable via edit_output (from /home/loumtech/Documents/src/hickory-docs/examples/receipts/hick-agent/meetings/2026-08-20-checkout-latency-sync.hick lines 36-45)
-  lines 11-12: literal — editable via edit_output (from analysis.hick lines 11-12)
-  line 13: literal — editable via edit_output (from analysis.hick lines 13-13)
-  lines 14-17: literal — editable via edit_output (from analysis.hick lines 14-17)
+  lines 1-4: literal — editable via edit_output (from analysis.md lines 1-4)
+  lines 5-10: literal — editable via edit_output (from analysis.md lines 5-10)
+  line 11: paste — editable via edit_output (from /home/loumtech/Documents/src/hickory-docs/examples/receipts/hick-agent/meetings/2026-08-20-checkout-latency-sync.md lines 36-45)
+  lines 11-12: literal — editable via edit_output (from analysis.md lines 11-12)
+  line 13: literal — editable via edit_output (from analysis.md lines 13-13)
+  lines 14-17: literal — editable via edit_output (from analysis.md lines 14-17)
   lines 18-22: synthetic — NOT editable via edit_output; use edit_doc
-  lines 23-26: literal — editable via edit_output (from analysis.hick lines 68-71)
-  lines 27-28: literal — editable via edit_output (from analysis.hick lines 72-73)
-  lines 29-30: literal — editable via edit_output (from analysis.hick lines 74-75)
-  lines 31-33: literal — editable via edit_output (from analysis.hick lines 76-78)
+  lines 23-26: literal — editable via edit_output (from analysis.md lines 68-71)
+  lines 27-28: literal — editable via edit_output (from analysis.md lines 72-73)
+  lines 29-30: literal — editable via edit_output (from analysis.md lines 74-75)
+  lines 31-33: literal — editable via edit_output (from analysis.md lines 76-78)
 </hick:tool-result>
 <hick:usage turn="13" input="8591" cache-write="0" cache-read="0" output="35"/>
 <hick:assistant>
@@ -407,12 +407,12 @@ lineage:
 </hick:tool>
 </hick:assistant>
 <hick:tool-result name="read_doc" ok="true">
-doc: analysis.hick
+doc: analysis.md
 f636|---
 91c7|date: 2026-08-24
 f636|---
 f011|
-56d8|<hick:upstream file="meetings/2026-08-20-checkout-latency-sync.hick" />
+56d8|<hick:upstream file="meetings/2026-08-20-checkout-latency-sync.md" />
 f011|
 cf81|## Context
 f011|
@@ -487,7 +487,7 @@ f011|
 0266|# Checkout latency: before and after the pool fix
 f011|
 
-upstream of this session (readable and editable by passing <hick:arg name="doc">NAME</hick:arg>): meetings/2026-08-20-checkout-latency-sync.hick
+upstream of this session (readable and editable by passing <hick:arg name="doc">NAME</hick:arg>): meetings/2026-08-20-checkout-latency-sync.md
 </hick:tool-result>
 <hick:usage turn="14" input="9960" cache-write="0" cache-read="0" output="152"/>
 <hick:assistant>
@@ -503,7 +503,7 @@ upstream of this session (readable and editable by passing <hick:arg name="doc">
 </hick:tool>
 </hick:assistant>
 <hick:tool-result name="edit_doc" ok="true">
-edited analysis.hick and re-wove.
+edited analysis.md and re-wove.
 edited region (fresh hashes):
 4579|        p95 = float(row['p95_ms'])
 9081|        
@@ -522,7 +522,7 @@ ab53|            excluded += 1
 </hick:assistant>
 <hick:tool-result name="verify" ok="false">
 FAIL — 1 problem(s):
-expectation at analysis.hick:18 (container py) failed: first mismatch at output line 2: expected "Broken window (2026-08-12 to 2026-08-21 12:00): 505.6 ms", got "Broken window (2026-08-12 to 2026-08-21 12:00): 488.7 ms"
+expectation at analysis.md:18 (container py) failed: first mismatch at output line 2: expected "Broken window (2026-08-12 to 2026-08-21 12:00): 505.6 ms", got "Broken window (2026-08-12 to 2026-08-21 12:00): 488.7 ms"
 </hick:tool-result>
 <hick:usage turn="16" input="10470" cache-write="0" cache-read="0" output="35"/>
 <hick:assistant>
@@ -530,12 +530,12 @@ expectation at analysis.hick:18 (container py) failed: first mismatch at output 
 </hick:tool>
 </hick:assistant>
 <hick:tool-result name="read_doc" ok="true">
-doc: analysis.hick
+doc: analysis.md
 f636|---
 91c7|date: 2026-08-24
 f636|---
 f011|
-56d8|<hick:upstream file="meetings/2026-08-20-checkout-latency-sync.hick" />
+56d8|<hick:upstream file="meetings/2026-08-20-checkout-latency-sync.md" />
 f011|
 cf81|## Context
 f011|
@@ -611,7 +611,7 @@ f011|
 0266|# Checkout latency: before and after the pool fix
 f011|
 
-upstream of this session (readable and editable by passing <hick:arg name="doc">NAME</hick:arg>): meetings/2026-08-20-checkout-latency-sync.hick
+upstream of this session (readable and editable by passing <hick:arg name="doc">NAME</hick:arg>): meetings/2026-08-20-checkout-latency-sync.md
 </hick:tool-result>
 <hick:usage turn="17" input="11894" cache-write="0" cache-read="0" output="195"/>
 <hick:usage turn="18" input="12240" cache-write="0" cache-read="0" output="198"/>
@@ -626,7 +626,7 @@ Excluded 1 rows (load-test window 2026-08-18 10:00-12:00)
 </hick:tool>
 </hick:assistant>
 <hick:tool-result name="edit_doc" ok="true">
-edited analysis.hick and re-wove.
+edited analysis.md and re-wove.
 edited region (fresh hashes):
 6b0a|print(f"Excluded {excluded} rows (load-test window 2026-08-18 10:00-12:00)")
 103a|EOF
@@ -654,7 +654,7 @@ PASS — executed the document: 1 expectation(s) met; wrote 1 output file(s): an
 </hick:tool>
 </hick:assistant>
 <hick:tool-result name="edit_doc" ok="true">
-edited analysis.hick and re-wove.
+edited analysis.md and re-wove.
 edited region (fresh hashes):
 454d|## Findings
 f011|
@@ -670,7 +670,7 @@ f011|
 </hick:tool>
 </hick:assistant>
 <hick:tool-result name="edit_doc" ok="true">
-edited analysis.hick and re-wove.
+edited analysis.md and re-wove.
 edited region (fresh hashes):
 3241|<hick:copy id="baseline" class="finding">Baseline p95 latency (2026-08-10 to 2026-08-12): 202.6 ms</hick:copy>
 f011|
@@ -686,7 +686,7 @@ f011|
 </hick:tool>
 </hick:assistant>
 <hick:tool-result name="edit_doc" ok="true">
-edited analysis.hick and re-wove.
+edited analysis.md and re-wove.
 edited region (fresh hashes):
 57fc|<hick:copy id="p95-before-after" class="finding">The pool fix reduced p95 latency from 488.7 ms (broken window) to 212.5 ms (after fix)</hick:copy>
 f011|

@@ -1,4 +1,4 @@
-"""Checkout DB pool settings. Tangled from fix.hick — edit the document."""
+"""Checkout DB pool settings. Tangled from fix.md — edit the document."""
 import os
 
 DEFAULT_POOL_SIZE = 10

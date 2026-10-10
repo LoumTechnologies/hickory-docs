@@ -30,15 +30,15 @@ fn resolve(dir: &Path, body: &str) -> Result<hick_lang::HickDocument, hick_lang:
 fn chain(dir: &Path) {
     write(
         dir,
-        "notes.hick",
+        "notes.md",
         r#"Long meeting preamble nobody downstream should read.
 <hick:copy id="metering-basis" class="decision">Meter execution minutes.</hick:copy>
 <hick:copy id="hard-stop" class="decision">Refuse, do not queue.</hick:copy>"#,
     );
     write(
         dir,
-        "domain.hick",
-        r#"<hick:upstream file="notes.hick" />
+        "domain.md",
+        r#"<hick:upstream file="notes.md" />
 <hick:copy id="term-allowance" class="glossary">Minutes per month.</hick:copy>"#,
     );
 }
@@ -47,10 +47,10 @@ fn chain(dir: &Path) {
 fn selectors_reach_through_the_whole_chain_not_just_one_hop() {
     let dir = tempfile::tempdir().unwrap();
     chain(dir.path());
-    let doc = resolve(dir.path(), r#"<hick:upstream file="domain.hick" />"#).unwrap();
+    let doc = resolve(dir.path(), r#"<hick:upstream file="domain.md" />"#).unwrap();
     // The edge stays in the tree holding what it brought, so selectors — not
     // a top-level scan — are how anything reaches it.
-    // `notes.hick` is two hops away and never named by this document.
+    // `notes.md` is two hops away and never named by this document.
     assert_eq!(
         hick_lang::fragments_matching(&doc, "#metering-basis").len(),
         1
@@ -70,7 +70,7 @@ fn selectors_reach_through_the_whole_chain_not_just_one_hop() {
 fn an_upstream_edge_carries_no_prose() {
     let dir = tempfile::tempdir().unwrap();
     chain(dir.path());
-    let doc = resolve(dir.path(), r#"<hick:upstream file="domain.hick" />"#).unwrap();
+    let doc = resolve(dir.path(), r#"<hick:upstream file="domain.md" />"#).unwrap();
     assert!(
         !format!("{doc:?}").contains("Long meeting preamble"),
         "an upstream edge dragged the source document's prose along"
@@ -85,7 +85,7 @@ fn a_class_still_matches_across_documents() {
     chain(dir.path());
     let doc = resolve(
         dir.path(),
-        r#"<hick:upstream file="domain.hick" />
+        r#"<hick:upstream file="domain.md" />
 <hick:copy id="local" class="decision">And one decided here.</hick:copy>"#,
     )
     .unwrap();
@@ -98,7 +98,7 @@ fn a_duplicate_id_across_the_pipeline_is_an_error() {
     chain(dir.path());
     let err = resolve(
         dir.path(),
-        r#"<hick:upstream file="domain.hick" />
+        r#"<hick:upstream file="domain.md" />
 <hick:copy id="hard-stop" class="decision">A rival definition.</hick:copy>"#,
     )
     .unwrap_err();
@@ -119,8 +119,8 @@ fn a_diamond_is_normal_and_merges_each_document_once() {
     chain(dir.path());
     let doc = resolve(
         dir.path(),
-        r#"<hick:upstream file="domain.hick" />
-<hick:upstream file="notes.hick" />"#,
+        r#"<hick:upstream file="domain.md" />
+<hick:upstream file="notes.md" />"#,
     )
     .unwrap();
     assert_eq!(hick_lang::fragments_matching(&doc, "#hard-stop").len(), 1);
@@ -129,17 +129,17 @@ fn a_diamond_is_normal_and_merges_each_document_once() {
 #[test]
 fn a_cycle_is_refused_rather_than_followed() {
     let dir = tempfile::tempdir().unwrap();
-    write(dir.path(), "a.hick", r#"<hick:upstream file="b.hick" />"#);
-    write(dir.path(), "b.hick", r#"<hick:upstream file="a.hick" />"#);
-    let err = resolve(dir.path(), r#"<hick:upstream file="a.hick" />"#).unwrap_err();
+    write(dir.path(), "a.md", r#"<hick:upstream file="b.md" />"#);
+    write(dir.path(), "b.md", r#"<hick:upstream file="a.md" />"#);
+    let err = resolve(dir.path(), r#"<hick:upstream file="a.md" />"#).unwrap_err();
     assert!(format!("{err}").contains("circular"), "{err}");
 }
 
 #[test]
 fn a_missing_upstream_names_the_file_it_could_not_read() {
     let dir = tempfile::tempdir().unwrap();
-    let err = resolve(dir.path(), r#"<hick:upstream file="nope.hick" />"#).unwrap_err();
-    assert!(format!("{err}").contains("nope.hick"), "{err}");
+    let err = resolve(dir.path(), r#"<hick:upstream file="nope.md" />"#).unwrap_err();
+    assert!(format!("{err}").contains("nope.md"), "{err}");
 }
 
 // Protects docs/guarantees/lineage/included-spans-name-their-own-file.md
@@ -176,13 +176,13 @@ mod span_file_attribution {
         let dir = tempfile::tempdir().unwrap();
         write(
             dir.path(),
-            "chapter.hick",
-            "Chapter prose that lives in chapter.hick.",
+            "chapter.md",
+            "Chapter prose that lives in chapter.md.",
         );
-        let doc = resolve(dir.path(), r#"<hick:include file="chapter.hick" />"#).unwrap();
+        let doc = resolve(dir.path(), r#"<hick:include file="chapter.md" />"#).unwrap();
 
         assert_eq!(doc.span_files.len(), 1);
-        assert!(doc.span_files[0].ends_with("chapter.hick"));
+        assert!(doc.span_files[0].ends_with("chapter.md"));
 
         let spans = spans_with_files(&doc);
         let foreign: Vec<_> = spans.iter().filter(|(f, _, _)| f.is_some()).collect();
@@ -192,7 +192,7 @@ mod span_file_attribution {
         );
         for (file, start, end) in &foreign {
             let file = file.as_ref().unwrap();
-            assert!(file.ends_with("chapter.hick"), "{file}");
+            assert!(file.ends_with("chapter.md"), "{file}");
             // The offsets must be valid in the file they claim.
             let source = std::fs::read_to_string(file).unwrap();
             assert!(
@@ -208,11 +208,11 @@ mod span_file_attribution {
     fn upstream_fragment_spans_name_the_upstream_file() {
         let dir = tempfile::tempdir().unwrap();
         chain(dir.path());
-        let doc = resolve(dir.path(), r#"<hick:upstream file="domain.hick" />"#).unwrap();
-        // notes.hick arrives transitively through domain.hick; both are in
-        // the table, and the #hard-stop fragment's span names notes.hick.
-        assert!(doc.span_files.iter().any(|f| f.ends_with("domain.hick")));
-        assert!(doc.span_files.iter().any(|f| f.ends_with("notes.hick")));
+        let doc = resolve(dir.path(), r#"<hick:upstream file="domain.md" />"#).unwrap();
+        // notes.md arrives transitively through domain.md; both are in
+        // the table, and the #hard-stop fragment's span names notes.md.
+        assert!(doc.span_files.iter().any(|f| f.ends_with("domain.md")));
+        assert!(doc.span_files.iter().any(|f| f.ends_with("notes.md")));
 
         let spans = spans_with_files(&doc);
         let hard_stop_text = "Refuse, do not queue.";
@@ -225,7 +225,7 @@ mod span_file_attribution {
             })
         });
         let (file, _, _) = owning.expect("the fragment's span must map byte-exactly to its file");
-        assert!(file.as_ref().unwrap().ends_with("notes.hick"));
+        assert!(file.as_ref().unwrap().ends_with("notes.md"));
     }
 
     #[test]

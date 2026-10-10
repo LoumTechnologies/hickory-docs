@@ -33,7 +33,7 @@ and Java, Kotlin, Scala, C, C++, Ruby, Dart and PHP.
 
 ## Why this product wants an index more than most editors do
 
-A `.hick` project's code does not live in files a language server can open. It
+A `.md` project's code does not live in files a language server can open. It
 lives in **documents**, and the files appear when something weaves them. That
 has two consequences an index answers and a language server cannot:
 

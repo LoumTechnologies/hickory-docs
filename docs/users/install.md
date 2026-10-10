@@ -57,7 +57,7 @@ Unpack it and you get both binaries, `LICENSE`, `README.md`, and `examples/`:
 ```sh
 tar -xzf hick-<version>-<target>.tar.gz
 cd hick-<version>-<target>
-./hick test examples/text-tools-tour.hick
+./hick test examples/text-tools-tour.md
 ```
 
 ## Two channels
@@ -91,10 +91,10 @@ the README).
 - **`sh`.** Every cell is executed through a POSIX shell. macOS and Linux have
   one. On Windows, use Git Bash or WSL; `hick --version`, `--help`, and the
   parser work without one, but executing a document does not.
-- **Whatever the document invokes.** `examples/text-tools-tour.hick` needs
+- **Whatever the document invokes.** `examples/text-tools-tour.md` needs
   `sort`, `awk`, `wc`, and `tr` — all POSIX, all present on macOS and Linux.
-  `examples/bootstrap-ci.hick` needs `python3`.
-  `examples/grand-tour.hick` needs `python3` with `polars` and the `duckdb`
+  `examples/bootstrap-ci.md` needs `python3`.
+  `examples/grand-tour.md` needs `python3` with `polars` and the `duckdb`
   CLI, and its R chapter — off unless you pass `--features with-r` — needs
   `Rscript` with `ggplot2`. See [examples/README.md](../../examples/README.md).
 

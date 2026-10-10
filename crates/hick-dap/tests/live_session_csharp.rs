@@ -93,10 +93,9 @@ async fn a_breakpoint_on_a_csharp_document_line_stops_inside_the_assembly() {
     }
     let dir = tempfile::tempdir().expect("scratch");
     let root = dir.path();
-    std::fs::write(root.join("doc.hick"), DOC).expect("write the document");
+    std::fs::write(root.join("doc.md"), DOC).expect("write the document");
 
-    let mapping =
-        Arc::new(Mapping::for_document(Path::new("doc.hick"), DOC, root).expect("mapping"));
+    let mapping = Arc::new(Mapping::for_document(Path::new("doc.md"), DOC, root).expect("mapping"));
     let files = hick_dap::weave_into(DOC, root).expect("the document weaves");
     let entry = hick_dap::entry_point(&files).expect("Program.cs is debuggable");
 

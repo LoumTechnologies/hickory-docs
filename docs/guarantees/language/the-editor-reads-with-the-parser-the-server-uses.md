@@ -1,6 +1,6 @@
 # The Editor Reads A Document With The Parser The Server Uses
 
-Given any `.hick` source — well formed or half typed — when the Document
+Given any `.md` source — well formed or half typed — when the Document
 view draws its structure (which spans are tags, which are blocks, where a
 block's content starts and ends, and which prefix the document binds),
 then that structure is what `hick-lang` reads: the same parser, the same

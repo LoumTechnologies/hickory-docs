@@ -237,7 +237,7 @@ mod tests {
         let root = dir.path().canonicalize().unwrap();
         std::fs::create_dir(root.join("sub")).unwrap();
         std::fs::write(root.join("sub/note.txt"), "hi").unwrap();
-        std::fs::write(root.join("doc.hick"), "<doc/>").unwrap();
+        std::fs::write(root.join("doc.md"), "<doc/>").unwrap();
 
         // A file, a directory, a document, and the root itself.
         assert_eq!(
@@ -247,8 +247,8 @@ mod tests {
         assert_eq!(resolve_in_root(&root, "sub").unwrap(), root.join("sub"));
         assert_eq!(resolve_in_root(&root, "sub/").unwrap(), root.join("sub"));
         assert_eq!(
-            resolve_in_root(&root, "doc.hick").unwrap(),
-            root.join("doc.hick")
+            resolve_in_root(&root, "doc.md").unwrap(),
+            root.join("doc.md")
         );
         assert_eq!(resolve_in_root(&root, "").unwrap(), root);
 

@@ -38,7 +38,7 @@ Last LLM verification:
   back — so the topology differed between machines and filesystems. The
   guarantee's own worked example pinned `lib` before `app`, which is what the
   author's machine produced and not what anything else did, so
-  `examples/architecture-that-draws-itself.hick` failed its own
+  `examples/architecture-that-draws-itself.md` failed its own
   `<hick:expect>` with a diff that was correct about the shape and wrong only
   about the order. A generator a document is invited to freeze cannot be one
   entry ahead of readdir. `generate_topology` now sorts by path before
@@ -70,7 +70,7 @@ Previous verification:
     `<hick:expect>` pinning its output, a fragment stating it, and a
     derived diagram pasting the fragment — the exec block IS the source,
     and a second, unpinned path would be a way to draw that nothing checks.
-  - Worked example: `examples/architecture-that-draws-itself.hick` — the
+  - Worked example: `examples/architecture-that-draws-itself.md` — the
     code, the expect-pinned scan, the fragment, the derived graph diagram,
     and the SCIP-in-a-user-container variant as literal text (the document
     uses the `h:` prefix so the `hick:` snippet stays prose). Ran end to end

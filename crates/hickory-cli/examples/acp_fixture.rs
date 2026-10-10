@@ -121,7 +121,7 @@ async fn main() {
                 if prompt == "permission" {
                     prompt_waiting = Some(id);
                     send(
-                        json!({"jsonrpc":"2.0","id":"permission-1","method":"session/request_permission","params":{"sessionId":"fixture-session","toolCall":{"toolCallId":"tool-1","title":"Edit the document","rawInput":{"path":"demo.hick"}},"options":[{"optionId":"allow","name":"Allow once","kind":"allow_once"},{"optionId":"deny","name":"Reject","kind":"reject_once"}]}}),
+                        json!({"jsonrpc":"2.0","id":"permission-1","method":"session/request_permission","params":{"sessionId":"fixture-session","toolCall":{"toolCallId":"tool-1","title":"Edit the document","rawInput":{"path":"demo.md"}},"options":[{"optionId":"allow","name":"Allow once","kind":"allow_once"},{"optionId":"deny","name":"Reject","kind":"reject_once"}]}}),
                     );
                     continue;
                 }

@@ -8,25 +8,25 @@
 </hick:tool>
 </hick:assistant>
 <hick:tool-result name="read_doc" ok="true">
-doc: analysis.hick
+doc: analysis.md
 f636|---
 91c7|date: 2026-08-24
 f636|---
 f011|
 0266|# Checkout latency: before and after the pool fix
 f011|
-56d8|<hick:upstream file="meetings/2026-08-20-checkout-latency-sync.hick" />
+56d8|<hick:upstream file="meetings/2026-08-20-checkout-latency-sync.md" />
 
-upstream of this session (readable and editable by passing <hick:arg name="doc">NAME</hick:arg>): meetings/2026-08-20-checkout-latency-sync.hick
+upstream of this session (readable and editable by passing <hick:arg name="doc">NAME</hick:arg>): meetings/2026-08-20-checkout-latency-sync.md
 </hick:tool-result>
 <hick:usage turn="2" input="2131" cache-write="0" cache-read="0" output="69"/>
 <hick:assistant>
 <hick:tool name="read_doc">
-<hick:arg name="doc">meetings/2026-08-20-checkout-latency-sync.hick</hick:arg>
+<hick:arg name="doc">meetings/2026-08-20-checkout-latency-sync.md</hick:arg>
 </hick:tool>
 </hick:assistant>
 <hick:tool-result name="read_doc" ok="true">
-doc: meetings/2026-08-20-checkout-latency-sync.hick
+doc: meetings/2026-08-20-checkout-latency-sync.md
 f636|---
 f49b|date: 2026-08-20
 4ea9|attendees: [Sam, Nate, Priya]
@@ -85,17 +85,17 @@ de6d|- Priya: Run the latency numbers comparing before and after the fix goes li
 4b85|- Nate: Post a summary in #eng with the before and after latency results
 6eda|</hick:transform>
 
-upstream of this session (readable and editable by passing <hick:arg name="doc">NAME</hick:arg>): meetings/2026-08-20-checkout-latency-sync.hick
+upstream of this session (readable and editable by passing <hick:arg name="doc">NAME</hick:arg>): meetings/2026-08-20-checkout-latency-sync.md
 </hick:tool-result>
 <hick:usage turn="3" input="3623" cache-write="0" cache-read="0" output="75"/>
 <hick:assistant>
 <hick:tool name="read_output">
-<hick:arg name="path">analysis.hick</hick:arg>
+<hick:arg name="path">analysis.md</hick:arg>
 <hick:arg name="with_lineage">true</hick:arg>
 </hick:tool>
 </hick:assistant>
 <hick:tool-result name="read_output" ok="false">
-no output named 'analysis.hick' — available outputs: analysis.md
+no output named 'analysis.md' — available outputs: analysis.md
 </hick:tool-result>
 <hick:usage turn="4" input="3745" cache-write="0" cache-read="0" output="74"/>
 <hick:assistant>
@@ -115,8 +115,8 @@ f011|
 f011|
 
 lineage:
-  lines 1-6: literal — editable via edit_output (from analysis.hick lines 1-6)
-  line 7: literal — editable via edit_output (from analysis.hick lines 7-7)
+  lines 1-6: literal — editable via edit_output (from analysis.md lines 1-6)
+  line 7: literal — editable via edit_output (from analysis.md lines 7-7)
 </hick:tool-result>
 <hick:usage turn="5" input="3964" cache-write="0" cache-read="0" output="1243"/>
 <hick:assistant>
@@ -125,7 +125,7 @@ lineage:
 <hick:arg name="after">f011</hick:arg>
 <hick:arg name="occurrence">2</hick:arg>
 <hick:input>
-<hick:paste from="meetings/2026-08-20-checkout-latency-sync.hick#transcript" from-line="00:00:27.000" to-line="<v Priya>I have the hourly latency export for August 10th through the 21st in the analytics bucket. I can compute before and after for whatever window you pick. One warning: the 18th has the load test in it, ten to noon, so anything that averages over the 18th will be wrong unless you exclude that window." />
+<hick:paste from="meetings/2026-08-20-checkout-latency-sync.md#transcript" from-line="00:00:27.000" to-line="<v Priya>I have the hourly latency export for August 10th through the 21st in the analytics bucket. I can compute before and after for whatever window you pick. One warning: the 18th has the load test in it, ten to noon, so anything that averages over the 18th will be wrong unless you exclude that window." />
 
 ## Analysis
 
@@ -204,7 +204,7 @@ re-weave did not reproduce the edit byte-for-byte; nothing was changed (this is 
 <hick:arg name="after">f011</hick:arg>
 <hick:arg name="occurrence">2</hick:arg>
 <hick:input>
-<hick:paste from="meetings/2026-08-20-checkout-latency-sync.hick#transcript" from-line="00:00:27.000" to-line="<v Priya>I have the hourly latency export for August 10th through the 21st in the analytics bucket. I can compute before and after for whatever window you pick. One warning: the 18th has the load test in it, ten to noon, so anything that averages over the 18th will be wrong unless you exclude that window." />
+<hick:paste from="meetings/2026-08-20-checkout-latency-sync.md#transcript" from-line="00:00:27.000" to-line="<v Priya>I have the hourly latency export for August 10th through the 21st in the analytics bucket. I can compute before and after for whatever window you pick. One warning: the 18th has the load test in it, ten to noon, so anything that averages over the 18th will be wrong unless you exclude that window." />
 
 ## Analysis
 
@@ -275,11 +275,11 @@ Analysis excluded 2 buckets overlapping the August 18th load test window (10:00-
 </hick:tool>
 </hick:assistant>
 <hick:tool-result name="edit_doc" ok="true">
-edited analysis.hick and re-wove.
+edited analysis.md and re-wove.
 edited region (fresh hashes):
 0266|# Checkout latency: before and after the pool fix
 f011|
-d279|<hick:paste from="meetings/2026-08-20-checkout-latency-sync.hick#transcript" from-line="00:00:27.000" to-line="<v Priya>I have the hourly latency export for August 10th through the 21st in the analytics bucket. I can compute before and after for whatever window you pick. One warning: the 18th has the load test in it, ten to noon, so anything that averages over the 18th will be wrong unless you exclude that window." />
+d279|<hick:paste from="meetings/2026-08-20-checkout-latency-sync.md#transcript" from-line="00:00:27.000" to-line="<v Priya>I have the hourly latency export for August 10th through the 21st in the analytics bucket. I can compute before and after for whatever window you pick. One warning: the 18th has the load test in it, ten to noon, so anything that averages over the 18th will be wrong unless you exclude that window." />
 f011|
 72a0|## Analysis
 f011|
@@ -346,7 +346,7 @@ f011|
 fc03|<hick:copy id="load-test-excluded" class="finding">
 c81d|Analysis excluded 2 buckets overlapping the August 18th load test window (10:00-12:00) per meeting guidance.
 ae0e|</hick:copy>
-56d8|<hick:upstream file="meetings/2026-08-20-checkout-latency-sync.hick" />
+56d8|<hick:upstream file="meetings/2026-08-20-checkout-latency-sync.md" />
 </hick:tool-result>
 <hick:usage turn="7" input="7980" cache-write="0" cache-read="0" output="33"/>
 <hick:assistant>
@@ -495,14 +495,14 @@ echo "Created CSV with $(wc -l < data/checkout-latency.csv) lines"
 </hick:tool>
 </hick:assistant>
 <hick:tool-result name="read_doc" ok="true">
-doc: analysis.hick
+doc: analysis.md
 f636|---
 91c7|date: 2026-08-24
 f636|---
 f011|
 0266|# Checkout latency: before and after the pool fix
 f011|
-d279|<hick:paste from="meetings/2026-08-20-checkout-latency-sync.hick#transcript" from-line="00:00:27.000" to-line="<v Priya>I have the hourly latency export for August 10th through the 21st in the analytics bucket. I can compute before and after for whatever window you pick. One warning: the 18th has the load test in it, ten to noon, so anything that averages over the 18th will be wrong unless you exclude that window." />
+d279|<hick:paste from="meetings/2026-08-20-checkout-latency-sync.md#transcript" from-line="00:00:27.000" to-line="<v Priya>I have the hourly latency export for August 10th through the 21st in the analytics bucket. I can compute before and after for whatever window you pick. One warning: the 18th has the load test in it, ten to noon, so anything that averages over the 18th will be wrong unless you exclude that window." />
 f011|
 72a0|## Analysis
 f011|
@@ -569,9 +569,9 @@ f011|
 fc03|<hick:copy id="load-test-excluded" class="finding">
 c81d|Analysis excluded 2 buckets overlapping the August 18th load test window (10:00-12:00) per meeting guidance.
 ae0e|</hick:copy>
-56d8|<hick:upstream file="meetings/2026-08-20-checkout-latency-sync.hick" />
+56d8|<hick:upstream file="meetings/2026-08-20-checkout-latency-sync.md" />
 
-upstream of this session (readable and editable by passing <hick:arg name="doc">NAME</hick:arg>): meetings/2026-08-20-checkout-latency-sync.hick
+upstream of this session (readable and editable by passing <hick:arg name="doc">NAME</hick:arg>): meetings/2026-08-20-checkout-latency-sync.md
 </hick:tool-result>
 <hick:usage turn="16" input="13961" cache-write="0" cache-read="0" output="33"/>
 <hick:assistant>
@@ -686,7 +686,7 @@ print(f"Excluded {excluded} buckets overlapping the 2026-08-18 10:00-12:00 load 
 </hick:tool>
 </hick:assistant>
 <hick:tool-result name="edit_doc" ok="true">
-edited analysis.hick and re-wove.
+edited analysis.md and re-wove.
 edited region (fresh hashes):
 72a0|## Analysis
 f011|
@@ -750,7 +750,7 @@ Excluded 1 buckets overlapping the 2026-08-18 10:00-12:00 load test
 </hick:tool>
 </hick:assistant>
 <hick:tool-result name="edit_doc" ok="true">
-edited analysis.hick and re-wove.
+edited analysis.md and re-wove.
 edited region (fresh hashes):
 32f2|</hick:exec>
 f011|
@@ -776,7 +776,7 @@ The connection pool fix reduced p95 checkout latency from 787.6 ms (broken perio
 </hick:tool>
 </hick:assistant>
 <hick:tool-result name="edit_doc" ok="true">
-edited analysis.hick and re-wove.
+edited analysis.md and re-wove.
 edited region (fresh hashes):
 454d|## Findings
 f011|
@@ -799,7 +799,7 @@ Baseline p95 latency before the deploy was 245.0 ms, confirming the post-fix per
 </hick:tool>
 </hick:assistant>
 <hick:tool-result name="edit_doc" ok="true">
-edited analysis.hick and re-wove.
+edited analysis.md and re-wove.
 edited region (fresh hashes):
 ae0e|</hick:copy>
 f011|
@@ -822,14 +822,14 @@ Analysis excluded 1 bucket overlapping the August 18th load test window (10:00-1
 </hick:tool>
 </hick:assistant>
 <hick:tool-result name="edit_doc" ok="true">
-edited analysis.hick and re-wove.
+edited analysis.md and re-wove.
 edited region (fresh hashes):
 ae0e|</hick:copy>
 f011|
 fc03|<hick:copy id="load-test-excluded" class="finding">
 5770|Analysis excluded 1 bucket overlapping the August 18th load test window (10:00-12:00) per meeting guidance.
 ae0e|</hick:copy>
-56d8|<hick:upstream file="meetings/2026-08-20-checkout-latency-sync.hick" />
+56d8|<hick:upstream file="meetings/2026-08-20-checkout-latency-sync.md" />
 </hick:tool-result>
 <hick:usage turn="25" input="19753" cache-write="0" cache-read="0" output="33"/>
 <hick:assistant>
@@ -849,14 +849,14 @@ sh: 6: Syntax error: "(" unexpected
 </hick:tool>
 </hick:assistant>
 <hick:tool-result name="read_doc" ok="true">
-doc: analysis.hick
+doc: analysis.md
 f636|---
 91c7|date: 2026-08-24
 f636|---
 f011|
 0266|# Checkout latency: before and after the pool fix
 f011|
-d279|<hick:paste from="meetings/2026-08-20-checkout-latency-sync.hick#transcript" from-line="00:00:27.000" to-line="<v Priya>I have the hourly latency export for August 10th through the 21st in the analytics bucket. I can compute before and after for whatever window you pick. One warning: the 18th has the load test in it, ten to noon, so anything that averages over the 18th will be wrong unless you exclude that window." />
+d279|<hick:paste from="meetings/2026-08-20-checkout-latency-sync.md#transcript" from-line="00:00:27.000" to-line="<v Priya>I have the hourly latency export for August 10th through the 21st in the analytics bucket. I can compute before and after for whatever window you pick. One warning: the 18th has the load test in it, ten to noon, so anything that averages over the 18th will be wrong unless you exclude that window." />
 f011|
 72a0|## Analysis
 f011|
@@ -923,9 +923,9 @@ f011|
 fc03|<hick:copy id="load-test-excluded" class="finding">
 5770|Analysis excluded 1 bucket overlapping the August 18th load test window (10:00-12:00) per meeting guidance.
 ae0e|</hick:copy>
-56d8|<hick:upstream file="meetings/2026-08-20-checkout-latency-sync.hick" />
+56d8|<hick:upstream file="meetings/2026-08-20-checkout-latency-sync.md" />
 
-upstream of this session (readable and editable by passing <hick:arg name="doc">NAME</hick:arg>): meetings/2026-08-20-checkout-latency-sync.hick
+upstream of this session (readable and editable by passing <hick:arg name="doc">NAME</hick:arg>): meetings/2026-08-20-checkout-latency-sync.md
 </hick:tool-result>
 <hick:usage turn="28" input="21706" cache-write="0" cache-read="0" output="117"/>
 <hick:usage turn="29" input="21979" cache-write="0" cache-read="0" output="93"/>
@@ -938,7 +938,7 @@ upstream of this session (readable and editable by passing <hick:arg name="doc">
 </hick:tool>
 </hick:assistant>
 <hick:tool-result name="edit_doc" ok="true">
-edited analysis.hick and re-wove.
+edited analysis.md and re-wove.
 edited region (fresh hashes):
 72a0|## Analysis
 f011|

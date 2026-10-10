@@ -30,7 +30,7 @@ Three rules bound it:
   see [lsp-channel-degrades-never-errors](lsp-channel-degrades-never-errors.md).
 
 The second half of the same step is registration: `hick init` writes the
-project-local configuration that points an editor at `hick-lsp` for `*.hick`
+project-local configuration that points an editor at `hick-lsp` for `*.md`
 **only where such a file can actually do the job** — `.helix/languages.toml`
 (complete on its own) and `.vscode/settings.json` (which still needs a generic
 LSP-client extension, and says so). Zed can only gain a language server through

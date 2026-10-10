@@ -30,10 +30,10 @@ fn a_transcript_upstream_is_selectable_turn_by_turn() {
     let dir = tempfile::tempdir().unwrap();
     write(
         dir.path(),
-        "meeting.hick",
+        "meeting.md",
         "<hick:transcript id=\"t\" format=\"vtt\">\nWEBVTT\n\n00:00:01.000 --> 00:00:02.000\n<v Sam>Ship it.\n\n00:00:03.000 --> 00:00:04.000\n<v Ana>Not yet.\n</hick:transcript>",
     );
-    let mut doc = resolve(dir.path(), r#"<hick:upstream file="meeting.hick" />"#);
+    let mut doc = resolve(dir.path(), r#"<hick:upstream file="meeting.md" />"#);
     hick_transcript::expand(&mut doc);
     let turn = hick_lang::fragments_matching(&doc, "#t-u2");
     assert_eq!(turn.len(), 1);
@@ -44,5 +44,5 @@ fn a_transcript_upstream_is_selectable_turn_by_turn() {
         other => panic!("{other:?}"),
     };
     let file = &doc.span_files[usize::from(span.file_id.expect("stamped"))];
-    assert!(file.ends_with("meeting.hick"), "{file}");
+    assert!(file.ends_with("meeting.md"), "{file}");
 }

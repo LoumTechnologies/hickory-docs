@@ -172,7 +172,7 @@ impl<'a> MergeOrchestrator<'a> {
         disk_version: Option<&Vec<u8>>,
         base_snapshot: &Option<Snapshot>,
     ) -> Result<MergeFileOutcome, MergeError> {
-        // HickFile provenance → always use generated (user edits .hick source, not output)
+        // HickFile provenance → always use generated (user edits .md source, not output)
         if matches!(provenance, Some(FileProvenance::HickFile { .. })) {
             return Ok(MergeFileOutcome {
                 content: generated.to_vec(),
@@ -264,7 +264,7 @@ mod tests {
         let provenance = HashMap::from([(
             "a.txt".to_string(),
             FileProvenance::HickFile {
-                source: "main.hick".to_string(),
+                source: "main.md".to_string(),
             },
         )]);
 
@@ -373,7 +373,7 @@ mod tests {
         let prov = HashMap::from([(
             "output.html".to_string(),
             FileProvenance::HickFile {
-                source: "main.hick".to_string(),
+                source: "main.md".to_string(),
             },
         )]);
         orch.commit("main", &initial, &prov, Some("initial"))

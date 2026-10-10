@@ -53,7 +53,7 @@ esac
 
 echo "==> building hick $VERSION for $TARGET"
 # Both binaries, one build: `hick` is the tool, `hick-lsp` is what an editor
-# runs to get real diagnostics inside a .hick document. Shipping only the
+# runs to get real diagnostics inside a .md document. Shipping only the
 # first would mean docs/users/editor-setup.md asking a downloader for a Rust
 # toolchain, which is the one thing this artifact exists to avoid.
 cargo build --release --locked -p hickory-cli -p hick-lsp --target "$TARGET"

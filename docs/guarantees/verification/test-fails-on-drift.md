@@ -33,7 +33,7 @@ Last LLM verification:
   between produced outputs and committed files — into a non-zero exit,
   reporting doc path, block source line, byte span, and expected vs actual.
   Verified live: `just verify examples/` exits 0 on both shipped examples;
-  `hick test crates/hickory-cli/tests/fixtures/drifted-tour.hick`
+  `hick test crates/hickory-cli/tests/fixtures/drifted-tour.md`
   (deliberately drifted copy: `apple 12` → `apple 13`) exits non-zero listing
   the failing block at line 45 with both outputs — exit `3` since issue #8
   gave a failed expectation its own code. Re-verified after issue #9 renamed

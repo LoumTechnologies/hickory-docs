@@ -13,7 +13,7 @@ the past), and takes its shape from the store that already exists for drafts
 
 Git's resolution is a commit. Everything between two commits is one
 undifferentiated jump, and this product spends most of its time in there,
-because in a `.hick` folder **you are not the only writer**. Between your last
+because in a `.md` folder **you are not the only writer**. Between your last
 commit and now, the following may all have written to your files:
 
 | Writer | What it wrote | How you would get back today |
@@ -52,9 +52,9 @@ So the record is a list of **acts**, each holding one or more file versions:
 
 ```
 act  a7f3   14:02:11  replace   "invoice_id" → "invoice_ref"   41 files
-act  a7f2   14:01:55  typed     notes/billing.hick             1 file
-act  a7f1   13:58:02  run       notes/billing.hick             9 outputs
-act  a7f0   13:57:40  agent     notes/billing.hick             1 file   session 20260826-135102
+act  a7f2   14:01:55  typed     notes/billing.md             1 file
+act  a7f1   13:58:02  run       notes/billing.md             9 outputs
+act  a7f0   13:57:40  agent     notes/billing.md             1 file   session 20260826-135102
 ```
 
 An act is the unit of display, the unit of revert, and the unit of eviction.

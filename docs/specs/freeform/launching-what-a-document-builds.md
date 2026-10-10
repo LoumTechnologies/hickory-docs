@@ -150,7 +150,7 @@ fn build_for(language: &str) -> Build {
 
 Java, Kotlin, Rust and C++ are then four more rows, not four more designs.
 
-### On `scaffolding.hick`, concretely
+### On `scaffolding.md`, concretely
 
 The document generates `app/Program.cs` and `app/app.csproj` into the scratch
 directory. `entry_point` picks `Program.cs` → language `csharp` →

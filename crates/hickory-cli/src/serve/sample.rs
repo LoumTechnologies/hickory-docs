@@ -276,7 +276,7 @@ python3 gen.py
         // The declaration sits at document level, OUTSIDE the cell — which is
         // the ordinary shape and the one that made the first version of this
         // report "outside any cell" for every generated file in the demo.
-        let claim = declaring_claim("30-api.hick", DOC, "src/Api/Generated/Endpoints.g.cs")
+        let claim = declaring_claim("30-api.md", DOC, "src/Api/Generated/Endpoints.g.cs")
             .expect("the volume claims it");
         assert_eq!(claim, Claim::Volume("apiout".into()));
         let anchor = mounting_cell(DOC, "apiout").expect("a cell mounts it");
@@ -296,7 +296,7 @@ python3 gen.py
     #[test]
     fn a_file_written_outside_a_cell_has_nowhere_to_hang_a_sample() {
         let doc = "<hick:file path=\"a.rs\">\nfn main() {}\n</hick:file>\n";
-        let claim = declaring_claim("d.hick", doc, "a.rs").expect("the file claims it");
+        let claim = declaring_claim("d.md", doc, "a.rs").expect("the file claims it");
         let Claim::File(offset) = claim else {
             panic!("a hick:file is claimed as a file");
         };
@@ -306,9 +306,9 @@ python3 gen.py
     #[test]
     fn the_path_is_written_the_way_the_document_would_name_it() {
         assert_eq!(
-            relative_to_doc("docs/30-api.hick", "docs/src/x.cs"),
+            relative_to_doc("docs/30-api.md", "docs/src/x.cs"),
             "src/x.cs"
         );
-        assert_eq!(relative_to_doc("30-api.hick", "src/x.cs"), "src/x.cs");
+        assert_eq!(relative_to_doc("30-api.md", "src/x.cs"), "src/x.cs");
     }
 }

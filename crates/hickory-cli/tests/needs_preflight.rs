@@ -55,10 +55,10 @@ fn run(needs: &str, body: impl Fn(&Path) -> String) -> Option<Run> {
     // never appear whether or not the cell ran, and every "nothing ran"
     // assertion below held for a document that had run perfectly well.
     let marker = dir.path().join("ran.txt");
-    std::fs::write(dir.path().join("d.hick"), document(needs, &body(&marker))).unwrap();
+    std::fs::write(dir.path().join("d.md"), document(needs, &body(&marker))).unwrap();
     let out = Command::new(hick)
         .arg("run")
-        .arg("d.hick")
+        .arg("d.md")
         .current_dir(dir.path())
         // Unconfined on purpose: a confined cell may write only its own
         // workdir, whose path this test does not know, so it could not see

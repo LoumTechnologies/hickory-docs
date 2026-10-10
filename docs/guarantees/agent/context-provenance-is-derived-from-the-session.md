@@ -46,7 +46,7 @@ Last LLM verification:
 - Reviewer: Claude Fable 5
 - Result: verified (implemented and reviewed in the same change; driven
   end-to-end: a real `hick agent` session on
-  `examples/receipts/hick-agent/analysis.hick` used `read_file` on the CSV and
+  `examples/receipts/hick-agent/analysis.md` used `read_file` on the CSV and
   `hick context` reports the CSV at commit `ab7a2d9`, lines 1–8, by hash, in
   the context of the line it then wrote; the app drew it —
   `examples/receipts/context-ribbon.png`)

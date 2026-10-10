@@ -43,4 +43,4 @@ Last LLM verification:
   `a_leading_newline_in_the_expectation_is_named`.
 - Sessions: `examples/receipts/hick-agent/sessions/` — the first two without
   the crib (30 turns, failed), the third with it (25 turns, verify passed),
-  `fix.hick` in 16 turns, `message.hick` in 4.
+  `fix.md` in 16 turns, `message.md` in 4.

@@ -6,7 +6,7 @@
 (`an-action-is-asked-of-the-element.md`), and step 4's registry
 (`an-element-is-drawn-by-its-view.md`); the rest is in progress; each is shippable on its own and each deletes more than it
 adds. Nothing here changes what a document is, what it means, or what any
-`.hick` file on disk does.*
+`.md` file on disk does.*
 
 > "I want the core to be minimal — mostly about a way of defining
 > line-numbered documents with react components and rust backends for those
@@ -96,7 +96,7 @@ the record beneath it is kept, because each paragraph is a decision).
 
 A document is lines plus elements. An element is a Rust backend (render,
 act, links) plus a React view. A lens is that machinery over something
-that is not a `.hick` file, and the agent pane is the first: a read-only
+that is not a `.md` file, and the agent pane is the first: a read-only
 view of the session document with the same cards, line numbers and ribbons
 every other view gets. Anything that wants provenance drawn declares it
 per block; the overlay draws lines and knows nothing else.

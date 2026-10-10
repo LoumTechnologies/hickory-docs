@@ -1,6 +1,6 @@
 # Markdown Quotes And Task Lists Are Read As Prose
 
-Given any buffer this app styles as markdown — a `.hick` document's prose, a
+Given any buffer this app styles as markdown — a `.md` document's prose, a
 woven `.md` output pane, a plain markdown file — when a line opens with one or
 more `>` markers, then that line is drawn as a quote at its nesting depth; and
 when a list item's marker is followed by `[ ]` or `[x]`, then its box is drawn
@@ -70,7 +70,7 @@ Last LLM verification:
 - Evidence: `apps/web/src/editor/hickDoc.ts` — `QUOTE_RE`/`TASK_RE` and the
   rewritten `scanMarkdownProse`, which strips the quote prefix into `base`
   before the heading, task, and inline scans run; `QuoteLine`/`TaskItem` are
-  carried on `HickDocStructure` so the `.hick` editor and the plain-markdown
+  carried on `HickDocStructure` so the `.md` editor and the plain-markdown
   panes share one definition of where prose is.
   `apps/web/src/editor/markdownStyling.ts` — `mdQuoteLines`, `mdTaskLine`,
   `mdTaskDoneLine`, and the two loops added to `proseDecorationRanges`;

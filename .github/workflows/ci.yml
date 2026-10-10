@@ -156,7 +156,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends r-base r-cran-ggplot2
-      # `architecture-that-draws-itself.hick` runs `hick diagram` from inside a
+      # `architecture-that-draws-itself.md` runs `hick diagram` from inside a
       # cell — the tool describing its own repository. Cells run CONFINED, and
       # the sandbox replaces $HOME with a tmpfs and binds back only a short
       # list of tool directories (`HOME_TOOL_DIRS`), so a binary sitting in
@@ -178,8 +178,8 @@ jobs:
         run: cargo run -p hickory-cli -- test docs/
       - name: Grand tour with the R section enabled (run, then verify reproducibility)
         run: |
-          cargo run -p hickory-cli -- run examples/grand-tour.hick --features with-r --out /tmp/grand-tour-with-r
-          cargo run -p hickory-cli -- test examples/grand-tour.hick --features with-r --out /tmp/grand-tour-with-r
+          cargo run -p hickory-cli -- run examples/grand-tour.md --features with-r --out /tmp/grand-tour-with-r
+          cargo run -p hickory-cli -- test examples/grand-tour.md --features with-r --out /tmp/grand-tour-with-r
 
   # The debuggers, in a job of their own.
   #
@@ -490,7 +490,7 @@ jobs:
         run: |
           TMPDIR="$(getconf DARWIN_USER_TEMP_DIR)"
           export TMPDIR
-          cargo run -p hickory-cli -- test examples/text-tools-tour.hick
+          cargo run -p hickory-cli -- test examples/text-tools-tour.md
 
   web:
     needs: [changes]

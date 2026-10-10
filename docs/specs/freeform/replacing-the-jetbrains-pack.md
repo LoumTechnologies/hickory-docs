@@ -84,7 +84,7 @@ was wrong — the wrong configuration had been measured. Corrected 2026-09-05
 by driving `hick-lsp` by hand and watching csharp-ls's own log.
 
 A document's code is staged into a temp directory, and the child server is
-rooted **there**, not at the folder holding the `.hick` file. So a `.csproj`
+rooted **there**, not at the folder holding the `.md` file. So a `.csproj`
 written beside the document is a project the server never sees, and one the
 document *generates* is staged next to the code it describes and loads
 normally. With that, hover answers `int Lib.Summarise(string path)` on the

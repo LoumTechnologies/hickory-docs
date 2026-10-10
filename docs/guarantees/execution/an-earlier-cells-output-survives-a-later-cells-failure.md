@@ -21,7 +21,7 @@ This mattered in practice: an author iterating on a multi-cell document —
 build the scaffold, then extend it, then run a self-test — could not inspect
 what the scaffold step had actually produced while the self-test step was
 still broken, because nothing reached disk until every cell passed. Found
-writing a tutorial as a `.hick` document, where this was the single largest
+writing a tutorial as a `.md` document, where this was the single largest
 source of "why can't I see what my own cell just did" friction.
 
 ## What the fix is, and what it deliberately is not
