@@ -67,28 +67,8 @@ pub struct HickBackend {
     ///
     /// Call and type hierarchy are three-step protocols: `prepare…` answers
     /// with items, and the client hands one back to ask for its callers or
-    /// its supertypes. The item it hands back is the one it was shown —
-    /// document coordinates — and the child needs the one it produced.
-    ///
-    /// Rather than translate an item BACKWARDS, which means guessing which
-    /// virtual file a document range belongs to and getting `selectionRange`
-    /// right as well, the item the child produced is simply kept. Every item
-    /// a client can hold came from a `prepare`, so there is always one to
-    /// find. This is the same reasoning as `last_completion_language`: some
-    /// requests carry no position, only a thing we handed out.
     prepared_hierarchy: Arc<RwLock<HashMap<String, PreparedHierarchyItem>>>,
-    /// The folder the editor opened, from `initialize`.
-    ///
-    /// A `.md` document's code is staged and its children rooted there; a
-    /// plain file is handed to its language server AS ITSELF, rooted at the
-    /// project it belongs to — which is this folder when the file is under
-    /// it, and the nearest enclosing repository otherwise.
     workspace_root: Arc<RwLock<Option<Url>>>,
-    /// Where this run stages the code a child language server reads.
-    ///
-    /// Owned here, and deleted when this backend drops — see
-    /// [`crate::staging`] for why it is a per-run directory under the user's
-    /// own temp directory rather than a shared path under `/tmp`.
     staging: StagingArea,
     /// Whether the user has already been shown a staging failure.
     ///
@@ -184,7 +164,7 @@ impl HickBackend {
         }
 
         // 1. Try to parse the hick document.
-        let state = match HickDocumentState::from_source(source) {
+        let state = match crate::project::state_for_uri(hick_uri, source) {
             Ok(s) => {
                 tracing::debug!(
                     vfile_count = s.virtual_files.len(),
@@ -228,9 +208,6 @@ impl HickBackend {
             }
         };
 
-        // 2. Compute the new set of virtual file URIs so we can prune stale
-        //    accumulator entries without clearing diagnostics that will be
-        //    refreshed momentarily.
         let new_vfile_uris: Vec<Url> = state
             .virtual_files
             .iter()
@@ -240,11 +217,6 @@ impl HickBackend {
         // 3. Close old virtual files, pruning diagnostics for removed files.
         self.close_vfiles_for(hick_uri, &new_vfile_uris).await;
 
-        // 3b. The document's OWN diagnostics — today, the problems a
-        //     hick:session record can have (see session_lint.rs). Kept in the
-        //     same store as the children's, under the document's own URI, so
-        //     one merge and one publish serve both; `close_vfiles_for`
-        //     retains that key.
         {
             let mut own = crate::element_lint::element_diagnostics(source, &state.doc);
             own.extend(crate::session_lint::session_diagnostics(source, &state.doc));
@@ -285,19 +257,31 @@ impl HickBackend {
             }
         };
 
-        // 5. Stage every virtual file so that tools like rust-analyzer can
-        //    discover project structure (e.g., Cargo.toml).
-        //
-        //    Writing the files is not enough on its own: a project-aware
-        //    server decides what it can answer by finding a MANIFEST, and
-        //    the virtual root has none. rust-analyzer given a bare
-        //    `src/main.rs` reports the file as not owned by any workspace
-        //    and answers nothing but the syntax-only requests — hover comes
-        //    back null while semantic tokens work, which reads like a
-        //    forwarding bug and is not one. So the project's own manifests
-        //    are copied in beside the virtual files.
-        copy_manifests(&self.staging, hick_uri);
+        // 5. Stage the complete selected project before opening any child.
+        if let Some(project) = &state.evaluated_project {
+            // The private staged scope must not retain removed sources or build artifacts.
+            self.staging.forget(hick_uri);
+            // Complete evaluated New: no borrowed working-tree manifests.
+            match self.staging.document_dir(hick_uri) {
+                Ok(root) => {
+                    if let Err(message) = crate::write_tree(&root, &project.new) {
+                        self.client.log_message(MessageType::ERROR, message).await;
+                        self.close_vfiles_for(hick_uri, &[]).await;
+                        return;
+                    }
+                }
+                Err(error) => {
+                    self.report_staging_failure(hick_uri, &error).await;
+                    return;
+                }
+            }
+        } else {
+            copy_manifests(&self.staging, hick_uri);
+        }
         for vf in &state.virtual_files {
+            if state.evaluated_project.is_some() {
+                continue;
+            }
             if let Err(error) = self.staging.write_vfile(hick_uri, &vf.path, &vf.content()) {
                 self.report_staging_failure(hick_uri, &error).await;
             }
@@ -321,9 +305,17 @@ impl HickBackend {
             }
 
             let vf_uri = self.vfile_uri(hick_uri, &vf.path);
-            let content = vf.content();
+            let content = if state.evaluated_project.is_some() {
+                vf.written_content()
+            } else {
+                vf.content()
+            };
             tracing::debug!(%vf_uri, content_len = content.len(), "forwarding to child LSP");
-            let position_map = PositionMap::build(&vf.segments);
+            let position_map = if state.evaluated_project.is_some() {
+                PositionMap::build(&vf.segments).without_first_line()
+            } else {
+                PositionMap::build(&vf.segments)
+            };
 
             // Store the mapping.
             {

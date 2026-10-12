@@ -6,6 +6,19 @@ transcripts and their AI summaries ingested as ordinary notes, and an AI agent
 whose output is literate-programming files in git. Notes can run, and an AI
 summary in one can be proven to still describe what it summarized.
 
+**Literate changesets plan (2026-10-12).**
+`docs/specs/freeform/literate-changesets.md` distinguishes agent final responses
+(verified A-to-B explanations) from maintained literate source (the complete
+current program, generated from an empty tree without VCS history or sidecars).
+Incorporation rewrites the latter while proving its outputs equal the agent's
+final state. Verification constructs and compares virtual file trees in memory;
+native tools materialize only when needed. Project LSP/DAP default to atomic
+scope endpoints, never a half-applied patch sequence. Declared portable projects,
+exact patch replay, complete inventory comparison, candidate Git/index checks,
+shared patch rendering and default native project staging are implemented; the
+plan records the remaining comparison-editor, harness/incorporation and
+multi-target integration. Work items and structural merging are out of scope.
+
 **Browser embedding (2026-10-04).** `browser-embedding.md` widens the
 frontend decision: a host-controlled React editor, browser-local storage and a
 cross-origin iframe can use static assets without a native engine. Browser

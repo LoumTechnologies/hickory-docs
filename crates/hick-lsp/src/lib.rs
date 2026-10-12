@@ -13,6 +13,7 @@ pub mod document;
 pub mod element_lint;
 pub mod lang_detect;
 pub mod position_map;
+pub mod project;
 pub mod project_environment;
 pub mod semantic;
 pub mod server_config;
@@ -26,3 +27,8 @@ pub use backend::HickBackend;
 /// Where a document's code is staged for the child language servers, and how
 /// a path under there is named back to the output path the document gave it.
 pub use staging::{STAGING_PREFIX, StagingArea, StagingError, staged_output_path};
+
+pub use project::{
+    MaterializedProject, ProjectEndpoint, endpoint, materialize, to_endpoint, to_source,
+    utf16_position, write_tree,
+};

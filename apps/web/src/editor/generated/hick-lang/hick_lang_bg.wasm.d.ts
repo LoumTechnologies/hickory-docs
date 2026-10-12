@@ -1,6 +1,7 @@
 /* tslint:disable */
 /* eslint-disable */
 export const memory: WebAssembly.Memory;
+export const evaluate_project: (a: number, b: number, c: number, d: number, e: number, f: number, g: number) => void;
 export const literal_files: (a: number, b: number, c: number) => void;
 export const structure: (a: number, b: number, c: number) => void;
 export const __wbindgen_add_to_stack_pointer: (a: number) => number;

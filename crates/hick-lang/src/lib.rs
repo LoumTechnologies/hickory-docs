@@ -10,6 +10,14 @@
 
 use std::fmt;
 
+mod project;
+pub use project::{
+    AgentProjectCapture, ByteOrigin, ComparisonSource, DifferenceKind, EditPolicy, EntryKind,
+    EvaluatedProject, IncorporationCandidate, IncorporationError, PatchResult, ProjectComparison,
+    ProjectDifference, ProjectEntry, ProjectInventory, ProjectTree, RevisionIdentity,
+    apply_project_patch, evaluate_project, load_project_sources, regenerate_patch,
+    transition_response, unified_transition, validate_project_path,
+};
 mod fence;
 mod literal_files;
 pub use literal_files::{LiteralFile, LiteralSegment, literal_files, strip_opening_break};
@@ -68,9 +76,7 @@ impl SourceSpan {
     }
 }
 
-// ---------------------------------------------------------------------------
 // AST
-// ---------------------------------------------------------------------------
 
 /// A node in the hick document tree.
 #[derive(Debug, Clone, PartialEq)]
@@ -177,9 +183,7 @@ pub struct HickDocument {
     pub root_tag: Option<HickTag>,
 }
 
-// ---------------------------------------------------------------------------
 // Session AST types
-// ---------------------------------------------------------------------------
 
 /// An embedded script block inside a `hick:assistant` node.
 ///
@@ -277,9 +281,7 @@ impl HickDocument {
     }
 }
 
-// ---------------------------------------------------------------------------
 // Errors
-// ---------------------------------------------------------------------------
 
 #[derive(Debug, thiserror::Error)]
 pub enum ParseError {
@@ -307,9 +309,7 @@ pub enum ParseError {
     UnclosedComment { line: usize },
 }
 
-// ---------------------------------------------------------------------------
 // Namespace prefix detection
-// ---------------------------------------------------------------------------
 
 /// Scan the source for `xmlns:PREFIX="http://www.hickorydocs.com/1.0"` and
 /// return the prefix. Falls back to `"hick"` if no declaration is found.
@@ -384,9 +384,7 @@ fn detect_prefix(input: &str) -> String {
     "hick".to_string()
 }
 
-// ---------------------------------------------------------------------------
 // Bare documents: frontmatter, prefix resolution, wrapped/bare detection
-// ---------------------------------------------------------------------------
 
 /// YAML frontmatter at the head of a bare document.
 ///
@@ -680,9 +678,7 @@ pub fn default_weave_path(doc_path: &std::path::Path) -> String {
 /// The value of `weave` that means "write no markdown".
 pub const WEAVE_NONE: &str = "none";
 
-// ---------------------------------------------------------------------------
 // Parser
-// ---------------------------------------------------------------------------
 
 /// Parse a `.md` file from source text.
 ///
@@ -757,9 +753,7 @@ pub fn is_session_source(source: &str) -> bool {
     source.contains(&marker)
 }
 
-// ---------------------------------------------------------------------------
 // Include resolution
-// ---------------------------------------------------------------------------
 
 /// Resolve all `<hick:include>` tags in a parsed document, recursively.
 ///

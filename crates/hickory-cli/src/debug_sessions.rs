@@ -100,11 +100,8 @@ impl Registry {
         let project = document.parent().unwrap_or(Path::new("."));
 
         let scratch = tempfile::tempdir().context("making a scratch directory for the session")?;
-        let mapping = Mapping::for_document(document, &source, scratch.path())?;
-
-        // Weave the document's files into the scratch directory. This is the
-        // program the debugger will run, and it is a copy on purpose.
-        let files = hick_dap::weave_into(&source, scratch.path())?;
+        let (mapping, files) =
+            crate::project_documents::debug_state(document, &source, scratch.path())?;
         // Which file to run, when the document generates more than one.
         //
         // Guessing was the old behaviour and it is only right by accident: a

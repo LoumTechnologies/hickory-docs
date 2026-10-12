@@ -14,6 +14,7 @@ pub mod capture;
 pub mod discovery;
 pub mod java;
 pub mod program;
+pub mod project;
 pub mod protocol;
 pub mod session;
 
@@ -26,3 +27,5 @@ pub use session::{
     BindState, Breakpoint, BreakpointStatus, Capabilities, Exit, Frame, Launch, Mapping, Session,
     Step, Stopped, Variable,
 };
+
+pub use project::{ProjectLaunch, prepare as prepare_project, prepare_closure};

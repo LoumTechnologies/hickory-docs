@@ -2,6 +2,12 @@
 /* eslint-disable */
 
 /**
+ * Pure complete-project evaluation. Input/output entries are byte arrays,
+ * preserving binary assets and metadata; no browser filesystem is consulted.
+ */
+export function evaluate_project(entry: string, sources_json: string, input_json: string): string;
+
+/**
  * Versioned non-executing materialization of literal files, including lineage.
  * Missing semantics are a diagnostic, never a successful partial program.
  */
@@ -19,6 +25,7 @@ export type InitInput = RequestInfo | URL | Response | BufferSource | WebAssembl
 
 export interface InitOutput {
     readonly memory: WebAssembly.Memory;
+    readonly evaluate_project: (a: number, b: number, c: number, d: number, e: number, f: number, g: number) => void;
     readonly literal_files: (a: number, b: number, c: number) => void;
     readonly structure: (a: number, b: number, c: number) => void;
     readonly __wbindgen_add_to_stack_pointer: (a: number) => number;

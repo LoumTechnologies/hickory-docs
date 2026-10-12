@@ -278,7 +278,9 @@ pub fn compare_outputs(
         let s1 = content1.to_string();
         let s2 = content2.to_string();
 
-        if s1 != s2 {
+        if !matches!((crate::project::file_content_entry(content1), crate::project::file_content_entry(content2)),
+            (Ok(first), Ok(second)) if first.same_output(&second))
+        {
             diffs.push(OutputDiff {
                 path: (*path).clone(),
                 kind: DiffKind::ContentDiffers {

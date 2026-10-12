@@ -23,6 +23,9 @@ use anyhow::{Context, Result};
 pub fn weave_into(source: &str, dir: &Path) -> Result<Vec<PathBuf>> {
     let state = hick_lsp::document::HickDocumentState::from_source(source)
         .map_err(|e| anyhow::anyhow!("{e}"))?;
+    if let Some(project) = &state.evaluated_project {
+        return hick_lsp::write_tree(dir, &project.new).map_err(anyhow::Error::msg);
+    }
     let mut written = Vec::new();
     for file in &state.virtual_files {
         let path = dir.join(&file.path);

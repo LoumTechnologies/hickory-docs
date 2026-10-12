@@ -1,6 +1,6 @@
 //! Document state management for hick files open in the editor.
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 
 use hick_lang::{HickDocument, HickNode};
 
@@ -15,18 +15,67 @@ pub struct HickDocumentState {
     pub copy_registry: HashMap<String, String>,
     /// Generated virtual files.
     pub virtual_files: Vec<VirtualFile>,
+    pub evaluated_project: Option<hick_lang::EvaluatedProject>,
 }
 
 impl HickDocumentState {
+    /// Resolve a declared closure from a read-only revision reader.
+    pub fn from_project(
+        entry: &str,
+        sources: &BTreeMap<String, String>,
+    ) -> Result<Self, hick_lang::ParseError> {
+        let source = sources
+            .get(entry)
+            .ok_or_else(|| hick_lang::ParseError::Syntax {
+                line: 1,
+                message: format!("missing source {entry}"),
+            })?;
+        let doc = hick_lang::parse(source)?;
+        let project =
+            hick_lang::evaluate_project(entry, sources, &hick_lang::ProjectTree::default())
+                .map_err(|message| hick_lang::ParseError::Syntax { line: 1, message })?;
+        let virtual_files = crate::project::virtual_files(&project.new, sources, entry)
+            .map_err(|message| hick_lang::ParseError::Syntax { line: 1, message })?;
+        Ok(Self {
+            doc,
+            copy_registry: HashMap::new(),
+            virtual_files,
+            evaluated_project: Some(project),
+        })
+    }
+
     /// Parse source text and build all derived state.
     pub fn from_source(source: &str) -> Result<Self, hick_lang::ParseError> {
         let doc = hick_lang::parse(source)?;
         let copy_registry = build_copy_registry(&doc);
-        let virtual_files = virtual_file::build_virtual_files(&doc, &copy_registry);
+        let (virtual_files, evaluated_project) = if !doc.find_tags("project").is_empty() {
+            let sources = BTreeMap::from([("project.md".into(), source.into())]);
+            let project = hick_lang::evaluate_project(
+                "project.md",
+                &sources,
+                &hick_lang::ProjectTree::default(),
+            )
+            .map_err(|message| hick_lang::ParseError::Syntax { line: 1, message })?;
+            let files = crate::project::virtual_files(&project.new, &sources, "project.md")
+                .map_err(|message| hick_lang::ParseError::Syntax { line: 1, message })?;
+            (files, Some(project))
+        } else {
+            if !doc.find_tags("patch").is_empty() {
+                return Err(hick_lang::ParseError::Syntax {
+                    line: 1,
+                    message: "patch requires a declared project closure".into(),
+                });
+            }
+            (
+                virtual_file::build_virtual_files(&doc, &copy_registry),
+                None,
+            )
+        };
         Ok(Self {
             doc,
             copy_registry,
             virtual_files,
+            evaluated_project,
         })
     }
 }

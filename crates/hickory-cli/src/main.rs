@@ -1,5 +1,3 @@
-//! `hick` — run, verify, weave, and promote executable documents.
-
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
@@ -30,8 +28,9 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Command {
-    /// Execute a document (or every document in a directory) and write its
-    /// outputs, including woven markdown.
+    /// Generate or verify a complete literate project in memory.
+    Project(hickory_cli::project_command::ProjectArgs),
+    /// Execute documents and write their outputs.
     Run(RunArgs),
     /// Check hick element spelling and structure without executing anything.
     Lint(LintArgs),
@@ -974,6 +973,7 @@ fn run() -> ExitCode {
             return Ok(ExitCode::from(code.clamp(0, 255) as u8));
         }
         match cli.command {
+            Command::Project(args) => hickory_cli::project_command::run(args),
             Command::Run(args) => cmd_run(args).await,
             Command::Lint(args) => cmd_lint(args),
             Command::Test(args) => cmd_test(args).await,

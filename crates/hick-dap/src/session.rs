@@ -362,16 +362,16 @@ impl Mapping {
     pub fn for_document(document: &Path, source: &str, workdir: &Path) -> Result<Self> {
         let state = hick_lsp::document::HickDocumentState::from_source(source)
             .map_err(|e| anyhow::anyhow!("{e}"))?;
-        let mut files = HashMap::new();
-        for file in &state.virtual_files {
-            // `without_first_line`, because `weave_into` wrote the file
-            // without it: the two are one decision and must not drift.
-            let map =
-                hick_lsp::position_map::PositionMap::build(&file.segments).without_first_line();
-            // The adapter sees the file where the cell ran, not where the
-            // document lives.
-            files.insert(workdir.join(&file.path), map);
-        }
+        Self::for_state(document, &state, workdir)
+    }
+
+    /// Map only surviving bytes from the selected complete project state.
+    pub fn for_state(
+        document: &Path,
+        state: &hick_lsp::document::HickDocumentState,
+        workdir: &Path,
+    ) -> Result<Self> {
+        let files = crate::project::document_maps(state, workdir);
         Ok(Self {
             files,
             document: document.to_path_buf(),
@@ -384,12 +384,7 @@ impl Mapping {
         if self.plain {
             return Some((self.document.clone(), line));
         }
-        for (path, map) in &self.files {
-            if let Some((vline, _)) = map.to_virtual(line, 0) {
-                return Some((path.clone(), vline));
-            }
-        }
-        None
+        crate::project::generated_line(&self.files, line)
     }
 
     /// (generated file, line) -> document line for showing a frame.
@@ -764,8 +759,9 @@ impl Session {
                     moved_to: None,
                     state: BindState::Refused,
                     message: Some(
-                        "this line is prose, not code the document generates — there is nothing \
-                         there to stop on"
+                        "this line has no unique location in the selected complete project — it \
+                         may be prose, removed code, or an ambiguous contribution. Inspect an \
+                         explicit local state to debug intermediate code"
                             .into(),
                     ),
                 }),

@@ -14,7 +14,7 @@
 // points await `loadHickLang()` once before the first render, and the tests
 // load the bytes from disk in `test-setup.ts`.
 
-import init, { initSync, structure as wasmStructure, literal_files } from "./generated/hick-lang/hick_lang.js";
+import init, { initSync, structure as wasmStructure, literal_files, evaluate_project } from "./generated/hick-lang/hick_lang.js";
 import wasmUrl from "./generated/hick-lang/hick_lang_bg.wasm?url";
 
 /** `hick_lang::StructureTag` — byte offsets into the UTF-8 source. */
@@ -95,4 +95,27 @@ export function materializeLiteralFiles(source: string): LiteralFile[] {
   if (result.version !== 1) throw new Error("Unsupported portable document interface version");
   if (result.error) throw new Error(result.error);
   return result.files;
+}
+
+
+export interface ProjectEntry {
+  path: string;
+  bytes: number[];
+  kind: "file" | "symlink";
+  executable: boolean;
+  origins?: { output: [number, number]; document: string; source: [number, number] }[];
+}
+export interface EvaluatedProject {
+  old: ProjectEntry[];
+  new: ProjectEntry[];
+  inventory: { documents: string[]; exclude: string[] };
+  local_states: Record<string, { old: ProjectEntry[]; new: ProjectEntry[] }>;
+}
+/** Pure source equivalence substrate; this never invokes native tools or cells. */
+export function materializeProject(entry: string, sources: Record<string, string>, input: ProjectEntry[] = []): EvaluatedProject {
+  if (!ready) throw new Error("Load hick-lang before evaluating a project");
+  const result = JSON.parse(evaluate_project(entry, JSON.stringify(sources), JSON.stringify(input))) as { version: number; project: EvaluatedProject | null; error: string | null };
+  if (result.version !== 1) throw new Error("Unsupported portable project interface version");
+  if (result.error || !result.project) throw new Error(result.error ?? "Project evaluation failed");
+  return result.project;
 }

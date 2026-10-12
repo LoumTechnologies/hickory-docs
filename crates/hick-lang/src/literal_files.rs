@@ -44,6 +44,13 @@ pub struct LiteralFile {
 /// This uses the native file path's opening-break and dedent operations.
 pub fn literal_files(source: &str) -> Result<Vec<LiteralFile>, String> {
     let doc = parse(source).map_err(|e| e.to_string())?;
+    if doc
+        .all_tags()
+        .iter()
+        .any(|tag| matches!(tag.name.as_str(), "project" | "patch" | "entry"))
+    {
+        return Err("declared projects and patch/entry construction require complete project evaluation with the full Markdown closure".into());
+    }
     let shift = usize::from(source.starts_with('\u{feff}')) * 3;
     let mut files = Vec::new();
     for node in &doc.nodes {

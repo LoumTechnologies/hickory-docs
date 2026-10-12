@@ -83,6 +83,7 @@ pub fn registry<'a>() -> Registry<BlockModelInput<'a>> {
         .register(FileElement)
         .register(DiagramElement)
         .register(WhenElement)
+        .register(crate::patch_element::PatchElement)
         .text(Box::new(|text, span, _| {
             (!text.trim().is_empty())
                 .then(|| Block::new("prose", span).with("html", markdown_to_html(text)))

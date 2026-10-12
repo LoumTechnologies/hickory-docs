@@ -785,6 +785,6 @@ fn is_raw_content_tag(name: &str) -> bool {
     // Bytes another tool produced, like a tool result; see `hick ingest --from claude-code`.
     matches!(
         name,
-        "input" | "tool-result" | "transcript" | "reasoning" | "context"
+        "input" | "tool-result" | "transcript" | "reasoning" | "context" | "patch" | "entry"
     )
 }

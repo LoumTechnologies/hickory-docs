@@ -34,6 +34,9 @@ mod mcp_catalogue;
 pub mod merge_driver;
 pub mod open_app;
 pub mod output;
+pub mod project_command;
+mod project_documents;
+pub mod project_revision;
 pub mod python_agent;
 pub mod recipe;
 pub mod replay;
@@ -1009,6 +1012,9 @@ pub async fn run_doc_subset(
     {
         anyhow::bail!("{}:{}: {error}", doc_path.display(), error.span.0);
     }
+    if !doc.find_tags("project").is_empty() {
+        return project_documents::run(doc_path, source, doc);
+    }
     doc.weave_path = None;
     // The same projection the pipeline builds, so this `DocRun`'s document and
     // the run's own agree about what a transcript contains.
@@ -1265,19 +1271,6 @@ pub struct WrittenOutputs {
 /// The friction this answers: without it, a cell's real, already-succeeded
 /// output volume is invisible on disk if a LATER cell in the same run then
 /// fails — `write_outputs_detailed` never runs, because `run_pipeline_live`
-/// never returns `Ok`. Writing straight to the real output tree here instead
-/// was considered and rejected: `write_outputs_detailed` owns real
-/// correctness properties an incremental, best-effort hook has no business
-/// reimplementing in parallel — the local-history "before" snapshot
-/// (`record_generated_writes`, which must run before ANY write reaches the
-/// real tree, or its own before/after diff is corrupted by our own earlier
-/// write), the missing-recording preservation check, and read-only clearing.
-/// A scratch mirror under `.hick-cache/` — already gitignored by `hick
-/// init`, already this tool's own bookkeeping location — sidesteps all of
-/// that by never touching the real tree at all.
-///
-/// Best-effort: an I/O failure here is logged and otherwise ignored. It must
-/// never abort a run over a debugging convenience.
 fn volume_flush_mirror(project_dir: PathBuf) -> hick_literate::VolumeFlushHook {
     let base = project_dir.join(".hick-cache").join("last-run");
     Arc::new(move |vol_name, files| {
@@ -1318,8 +1311,6 @@ fn volume_flush_mirror(project_dir: PathBuf) -> hick_literate::VolumeFlushHook {
     })
 }
 
-/// Write a run's output files under `out_dir` (default: the document's
-/// directory). Returns the paths written.
 pub fn write_outputs(run: &DocRun, out_dir: Option<&Path>) -> Result<Vec<PathBuf>> {
     Ok(write_outputs_detailed(run, out_dir)?.written)
 }
@@ -1346,6 +1337,9 @@ pub fn write_outputs(run: &DocRun, out_dir: Option<&Path>) -> Result<Vec<PathBuf
 /// destroy, and the marker is then the honest content of a document that has
 /// never been run.
 pub fn write_outputs_detailed(run: &DocRun, out_dir: Option<&Path>) -> Result<WrittenOutputs> {
+    if run.result.evaluated_project.is_some() {
+        return project_documents::write(run, out_dir);
+    }
     let base = match out_dir {
         Some(dir) => dir.to_path_buf(),
         None => run
@@ -1552,6 +1546,9 @@ fn write_files_if_absent(
 /// Expectations are unaffected: an unverifiable cell never evaluates one, so
 /// the expectations that remain are all about cells that really ran.
 pub fn check_failures(run: &DocRun, out_dir: Option<&Path>) -> Result<Vec<CheckFailure>> {
+    if run.result.evaluated_project.is_some() {
+        return project_documents::check(run, out_dir);
+    }
     let mut failures = Vec::new();
     for (cell, reason) in &run.result.never_run {
         failures.push(CheckFailure::Unverifiable {

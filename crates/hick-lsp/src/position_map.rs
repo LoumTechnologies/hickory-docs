@@ -25,6 +25,7 @@ pub struct PositionMap {
     /// scan, and a semantic-token pass over a long file asks thousands of
     /// times.
     identity_lines: Option<u32>,
+    line_count: u32,
 }
 
 impl PositionMap {
@@ -34,6 +35,7 @@ impl PositionMap {
         Self {
             mappings: Vec::new(),
             identity_lines: Some(lines),
+            line_count: lines,
         }
     }
 
@@ -67,11 +69,13 @@ impl PositionMap {
             };
 
             for i in 0..line_count {
-                mappings.push(LineMapping {
-                    virtual_line,
-                    source_line: base_source_line + i as u32,
-                    column_offset,
-                });
+                if segment.source_line != 0 || segment.source_span.is_some() {
+                    mappings.push(LineMapping {
+                        virtual_line,
+                        source_line: base_source_line + i as u32,
+                        column_offset,
+                    });
+                }
                 virtual_line += 1;
             }
         }
@@ -79,6 +83,7 @@ impl PositionMap {
         Self {
             mappings,
             identity_lines: None,
+            line_count: virtual_line,
         }
     }
 
@@ -99,10 +104,8 @@ impl PositionMap {
             self.identity_lines = Some(lines.saturating_sub(1));
             return self;
         }
-        if self.mappings.is_empty() {
-            return self;
-        }
-        self.mappings.remove(0);
+        self.line_count = self.line_count.saturating_sub(1);
+        self.mappings.retain(|mapping| mapping.virtual_line != 0);
         for mapping in &mut self.mappings {
             mapping.virtual_line = mapping.virtual_line.saturating_sub(1);
         }
@@ -117,7 +120,7 @@ impl PositionMap {
     /// its file is a few lines long and the document is not — so each is
     /// asked for the extent of its own file.
     pub fn virtual_lines(&self) -> u32 {
-        self.identity_lines.unwrap_or(self.mappings.len() as u32)
+        self.identity_lines.unwrap_or(self.line_count)
     }
 
     /// Map a virtual file position to a .md source position.

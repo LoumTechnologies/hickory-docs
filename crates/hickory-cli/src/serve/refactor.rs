@@ -32,9 +32,8 @@ use serde_json::{Value, json};
 use super::LocalState;
 use super::api::{ApiError, ApiResult};
 
-/// One pinned baseline: each output path to its content's string form —
-/// exactly what `compare_outputs` compares by — plus the LINEAGE of those
-/// outputs at the moment they were pinned.
+/// A pinned baseline holds exact output bytes and, for declared projects, the
+/// complete evaluated source inventory and metadata. Lineage is retained too.
 ///
 /// The provenance is what turns refactor mode from an equivalence check into
 /// the recording site the continuity design needs. Refactor mode is a machine
@@ -50,13 +49,15 @@ use super::api::{ApiError, ApiResult};
 /// (pastes, upstream edges) as they were then, which the working tree no
 /// longer has.
 pub struct RefactorBaseline {
-    pub outputs: HashMap<String, String>,
+    pub outputs: HashMap<String, FileContent>,
+    pub project: Option<hick_lang::ProjectTree>,
     /// Output path → the lineage of those bytes in the baseline document.
     pub provenance: HashMap<String, Vec<hickory_lineage::Provenance>>,
     pub started_at: String,
 }
 
 /// The stored strings, rebuilt as the map the shared checker takes.
+#[cfg(test)]
 fn as_file_contents(outputs: &HashMap<String, String>) -> HashMap<String, FileContent> {
     outputs
         .iter()
@@ -145,12 +146,9 @@ pub async fn begin(
     Path(id): Path<String>,
 ) -> ApiResult<Json<Value>> {
     let run = state.weave(&id).await?;
-    let outputs: HashMap<String, String> = run
-        .result
-        .files
-        .iter()
-        .map(|(path, content)| (path.clone(), content.to_string()))
-        .collect();
+    let outputs = hick_literate::project::freeze_outputs(&run.result.files)
+        .map_err(|e| ApiError::unprocessable(format!("cannot pin output bytes: {e:#}")))?;
+    let project = run.result.evaluated_project.as_ref().map(|p| p.new.clone());
     // The lineage of every output, as it stands. A document that will not
     // report lineage for one output still pins the rest: the equivalence
     // check is the primary job here and must not be lost to the recording.
@@ -175,6 +173,7 @@ pub async fn begin(
         id,
         RefactorBaseline {
             outputs,
+            project,
             provenance,
             started_at,
         },
@@ -191,14 +190,24 @@ pub async fn status(
     State(state): State<LocalState>,
     Path(id): Path<String>,
 ) -> ApiResult<Json<Value>> {
-    let (baseline, started_at) = {
+    let (baseline, project, started_at) = {
         let map = state.refactors.lock().unwrap();
         match map.get(&id) {
             None => return Ok(Json(json!({ "active": false }))),
-            Some(b) => (as_file_contents(&b.outputs), b.started_at.clone()),
+            Some(b) => (b.outputs.clone(), b.project.clone(), b.started_at.clone()),
         }
     };
     let run = state.weave(&id).await?;
+    if let Some(baseline) = project {
+        let current = run.result.evaluated_project.as_ref().ok_or_else(|| {
+            ApiError::unprocessable("the candidate no longer declares a complete project")
+        })?;
+        let diffs = baseline.compare(&current.new);
+        let entries: Vec<_> = diffs.iter().map(|diff|json!({"path":diff.path,"kind":match diff.kind { hick_lang::DifferenceKind::Extra => "removed",hick_lang::DifferenceKind::Missing => "added",hick_lang::DifferenceKind::Different => "changed" }})).collect();
+        return Ok(Json(
+            json!({"active":true,"started_at":started_at,"clean":entries.is_empty(),"diffs":entries,"scope":"complete project"}),
+        ));
+    }
     let diffs = compare_outputs(&baseline, &run.result.files);
     let entries: Vec<Value> = diffs
         .iter()
@@ -264,7 +273,12 @@ async fn record_refactor(
     let run = state.weave(id).await.ok()?;
     // Equivalence first. `compare_outputs` is the same checker `hick equiv`
     // and the badge use, so "proven identical" means one thing everywhere.
-    if !compare_outputs(&as_file_contents(&baseline.outputs), &run.result.files).is_empty() {
+    if let Some(project) = &baseline.project {
+        let current = run.result.evaluated_project.as_ref()?;
+        if !project.compare(&current.new).is_empty() {
+            return Some(0);
+        }
+    } else if !compare_outputs(&baseline.outputs, &run.result.files).is_empty() {
         return Some(0);
     }
 

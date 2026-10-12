@@ -531,3 +531,63 @@ test-file-menu:
 test-first-folder:
     cd apps/desktop/src-tauri && cargo test --test first_folder --test serves_one_origin -- --test-threads=1
     cd apps/web && npm test -- src/views/folderPane.test.tsx
+
+# Portable changeset replay, exact inventory, revision inputs and tool isolation.
+test-literate-projects:
+    cargo test -p hick-lang --test project
+    cargo test -p hick-lsp --test project
+    cargo test -p hick-dap --test project
+    cargo test -p hick-literate --test project
+    cargo test -p hickory-cli --test project_revision
+
+check-literate-projects:
+    cargo check -p hickory-cli -p hick-lang-wasm
+
+# Shared patch view and the real WASM project evaluator.
+test-literate-projects-web:
+    cd apps/web && npm run typecheck
+    cd apps/web && npm test -- src/elements/patch/view.test.tsx --maxWorkers=2
+
+# Existing parser, coordinate-map, element and debugger contracts near this change.
+test-literate-projects-regressions:
+    cargo test -p hick-lang --lib
+    cargo test -p hick-lsp --lib
+    cargo test -p hick-dap --lib
+    cargo test -p hickory-cli --lib serve::refactor
+    cd apps/web && npm test -- --maxWorkers=2
+
+lint-literate-projects:
+    cargo clippy -p hick-lang -p hick-lang-wasm -p hick-lsp -p hick-dap -p hick-literate -p hickory-cli --all-targets -- -D warnings
+
+# Explicit native acceptance. Downloads the pinned adapter into the local cache.
+install-literate-project-debugger:
+    cargo run -p hickory-cli -- dap install csharp
+
+# This is separate from pure source-equivalence checks and requires .NET/NuGet.
+test-literate-projects-csharp:
+    cargo test -p hickory-cli --test literate_project_csharp -- --ignored --nocapture
+
+# A real read-only Mercurial provider check; this CLI is a test tool, not linked.
+test-literate-projects-hg:
+    python3 -m venv .hick-cache/test-hg
+    .hick-cache/test-hg/bin/python -m pip install --disable-pip-version-check mercurial==7.0
+    PATH="$PWD/.hick-cache/test-hg/bin:$PATH" cargo test -p hickory-cli --test project_revision mercurial_revision -- --ignored --nocapture
+
+# Regenerate the executable fixtures' expected source trees without running cells.
+regenerate-literate-project-fixtures:
+    cargo run -p hickory-cli -- weave crates/hick-lang/tests/fixtures/literate-project/project.md
+    cargo run -p hickory-cli -- weave crates/hick-lang/tests/fixtures/efcore-project/project.md
+
+# Exact staged verification for a maintained project selected by its entry/root.
+verify-literate-project-index ENTRY ROOT=".":
+    cargo run -p hickory-cli -- project verify {{ENTRY}} --root {{ROOT}} --revision :index
+
+# Run all browser unit tests after element/parser changes.
+test-literate-projects-web-regressions:
+    cd apps/web && npm run typecheck
+    cd apps/web && npm test -- --maxWorkers=2
+
+# Verify declared entry routes and expected fixture outputs without execution.
+verify-literate-project-fixtures:
+    cargo run -p hickory-cli -- lint crates/hick-lang/tests/fixtures/literate-project/project.md crates/hick-lang/tests/fixtures/literate-project/library.md crates/hick-lang/tests/fixtures/efcore-project/project.md crates/hick-lang/tests/fixtures/efcore-project/persistence.md
+    cargo run -p hickory-cli -- test crates/hick-lang/tests/fixtures/literate-project/project.md crates/hick-lang/tests/fixtures/literate-project/library.md crates/hick-lang/tests/fixtures/efcore-project/project.md crates/hick-lang/tests/fixtures/efcore-project/persistence.md

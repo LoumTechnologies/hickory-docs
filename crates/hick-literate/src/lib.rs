@@ -16,7 +16,10 @@ pub mod expect;
 mod links;
 pub mod needs;
 pub mod output_cleanup;
+mod patch_element;
 pub mod pipeline;
+pub mod project;
+pub use project::{file_content_entry, freeze_outputs, pipeline as generate_project_pipeline};
 pub mod promote;
 pub mod render;
 pub mod scene;
@@ -58,9 +61,7 @@ pub use hickory_executor::{
 use crate::expect::ExpectationOutcome;
 use hick_condition::Condition;
 
-// ---------------------------------------------------------------------------
 // Cell identity and missing baselines
-// ---------------------------------------------------------------------------
 
 /// Identity of one cell in a document.
 ///
@@ -175,12 +176,12 @@ fn first_command_line(command: &str) -> String {
         .to_string()
 }
 
-// ---------------------------------------------------------------------------
 // Pipeline result
-// ---------------------------------------------------------------------------
 
 /// The output of a hick pipeline run.
 pub struct PipelineResult {
+    /// Complete atomic project, including entry metadata, when declared.
+    pub evaluated_project: Option<hick_lang::EvaluatedProject>,
     /// File path -> rendered content for each `<hick:file>` tag.
     pub files: HashMap<String, FileContent>,
     /// File path -> character-level provenance map for each `<hick:file>` output.
@@ -292,9 +293,7 @@ impl PipelineResult {
     }
 }
 
-// ---------------------------------------------------------------------------
 // Pipeline setup (shared between dry-run and live)
-// ---------------------------------------------------------------------------
 
 /// Intermediate state after parsing, filtering, and collecting definitions.
 struct PreparedPipeline<'a> {
@@ -1057,9 +1056,7 @@ fn add_file_output_for(
     state.add_file_output(path, file_ip);
 }
 
-// ---------------------------------------------------------------------------
 // Pipeline entry point
-// ---------------------------------------------------------------------------
 
 /// Seed input volumes from host directories.
 ///
@@ -1695,6 +1692,9 @@ pub async fn run_pipeline_with_authority(
     authority: &Arc<TokenAuthority>,
     params: &[(String, String)],
 ) -> Result<PipelineResult> {
+    if let Some(result) = project::supplied(sources)? {
+        return Ok(result);
+    }
     let prepared = prepare_pipeline(sources, authority, params)?;
     let PreparedPipeline {
         documents,
@@ -1731,6 +1731,7 @@ pub async fn run_pipeline_with_authority(
         process_pipeline_outputs(&documents_ref, &state, &transcripts, 1).await;
 
     Ok(PipelineResult {
+        evaluated_project: None,
         files,
         // A dry run executes nothing, so no volume produced anything.
         volume_outputs: HashMap::new(),
@@ -1749,9 +1750,7 @@ pub async fn run_pipeline_with_authority(
     })
 }
 
-// ---------------------------------------------------------------------------
 // Live pipeline (real container execution)
-// ---------------------------------------------------------------------------
 
 /// Callback fired after each exec block completes (success, cache hit, or
 /// failure): `(container, exec source line, transcript entry)`. The block id
@@ -1862,6 +1861,9 @@ pub async fn run_pipeline_live(
     cache_config: Option<&cache::CacheConfig>,
     executor: Arc<dyn Executor>,
 ) -> Result<PipelineResult> {
+    if let Some(result) = project::supplied(sources)? {
+        return Ok(result);
+    }
     let mut root_key = [0u8; 32];
     rand::thread_rng().fill_bytes(&mut root_key);
     let authority = Arc::new(TokenAuthority::new(&root_key));
@@ -2828,6 +2830,7 @@ pub async fn run_pipeline_live(
     files.extend(volume_files);
 
     Ok(PipelineResult {
+        evaluated_project: None,
         files,
         volume_outputs,
         provenance_maps,
@@ -2869,6 +2872,9 @@ pub async fn run_pipeline_weave(
     params: &[(String, String)],
     cache_config: Option<&cache::CacheConfig>,
 ) -> Result<PipelineResult> {
+    if let Some(result) = project::supplied(sources)? {
+        return Ok(result);
+    }
     let mut root_key = [0u8; 32];
     rand::thread_rng().fill_bytes(&mut root_key);
     let authority = Arc::new(TokenAuthority::new(&root_key));
@@ -3063,6 +3069,7 @@ pub async fn run_pipeline_weave(
         process_pipeline_outputs(&documents_ref, &state, &transcripts, 1).await;
 
     Ok(PipelineResult {
+        evaluated_project: None,
         files,
         // Weave-only: nothing executed, so no volume produced anything.
         volume_outputs: HashMap::new(),
@@ -3081,9 +3088,7 @@ pub async fn run_pipeline_weave(
     })
 }
 
-// ---------------------------------------------------------------------------
 // Variable scanning
-// ---------------------------------------------------------------------------
 
 /// Recursively scan nodes for `<hick:var>` declarations and register them.
 /// This runs before conditional filtering so that vars inside `<hick:when>`
@@ -3146,9 +3151,7 @@ fn scan_and_register_vars(nodes: &[HickNode], state: &MultiDocumentState) {
     }
 }
 
-// ---------------------------------------------------------------------------
 // Feature processing
-// ---------------------------------------------------------------------------
 
 /// Process feature definitions from all documents.
 ///
@@ -3262,9 +3265,7 @@ fn collect_feature_defs(
     }
 }
 
-// ---------------------------------------------------------------------------
 // Conditional filtering
-// ---------------------------------------------------------------------------
 
 /// Remove nodes whose `when` condition evaluates to false.
 /// `<hick:when test="...">` tags are unwrapped (children promoted) when true,
@@ -3301,9 +3302,7 @@ fn filter_conditionals(nodes: &mut Vec<HickNode>, state: &MultiDocumentState) {
     *nodes = new_nodes;
 }
 
-// ---------------------------------------------------------------------------
 // File output helpers
-// ---------------------------------------------------------------------------
 
 use text::{apply_exclusions, apply_substitutions_segmented, interpolate_path};
 
@@ -3482,9 +3481,7 @@ pub(crate) fn paste_indent_before(
     (!line.is_empty() && line.chars().all(char::is_whitespace)).then(|| line.to_string())
 }
 
-// ---------------------------------------------------------------------------
 // Multi-stage pipeline
-// ---------------------------------------------------------------------------
 
 /// Result of a multi-stage pipeline run.
 #[derive(Debug)]
