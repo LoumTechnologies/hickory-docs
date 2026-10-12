@@ -1,7 +1,12 @@
 # Spatial Views Preserve The Editor
 
-Given an open folder, the workspace places two independent Files buffers at
-its outer left and right edges. Each remains the ordinary CodeMirror tree
+Given an open folder, the workspace retains two independent Files buffers at
+its outer left and right edges, showing the left side by default. Appearance
+settings independently control each side's Files buffer, context panes and
+vertical tabs; left defaults on and right defaults off. Disabling a side gives
+its space to the center without closing or unmounting its buffers. Its open
+views remain available in the center tabs, and revealing a hidden-side view
+centers it. Each Files buffer remains the ordinary CodeMirror tree
 buffer, including its caret, selections, folding, keyboard editing, Dry Run,
 Apply and filesystem operations. Header extensions reserve space through
 native block decorations; they never rewrite the filesystem projection to
@@ -23,7 +28,7 @@ Dragging or resizing an unpinned view pins it. Both resize edges are available;
 growth uses free space, then shifts the adjacent pin into available space,
 then reduces that neighbor only when the next pin or viewport blocks a shift.
 
-Given related content in the center, side views follow its real provenance
+Given related content in the center, enabled side views follow its real provenance
 anchors with parallax. In the central alignment band they use the source's
 vertical coordinate without a speed offset. A default side view is collapsed
 to its filename; explicit opening/reveal requests can expand it. Optional
@@ -53,6 +58,17 @@ extended headers use paths relative to the open folder; unnamed and tool views
 use their ordinary titles.
 
 ---
+
+Appearance continuation (2026-10-12): `lib/spatialSides.ts` stores independent
+left/right preferences with left-on/right-off defaults. The shell retains hidden
+editors and the controller removes hidden sides from placement and geometry.
+Center tabs still reach those views; hidden-side reveal requests center them.
+`just test-spatial` passed type checking and 33 tests, including settings
+persistence, corrupt storage, desktop/narrow geometry, editor preservation while
+toggling sides, and hidden-side reveal. Five link-shape regression tests also
+passed. The optional bilateral browser geometry suite now explicitly enables
+both sides; it was not rerun for this continuation. Native visual judgment is
+not recorded.
 
 Last LLM verification:
 

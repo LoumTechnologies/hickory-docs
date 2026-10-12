@@ -180,8 +180,12 @@ fn forward_debug(
     data: &[u8],
     key: &str,
 ) {
-    let registry = debuggers
-        .get_or_insert_with(|| std::sync::Arc::new(crate::debug_sessions::Registry::new()));
+    let registry = debuggers.get_or_insert_with(|| {
+        std::sync::Arc::new(crate::debug_sessions::Registry::with_projects(
+            state.lsp.projects(),
+            state.index.root().to_path_buf(),
+        ))
+    });
     match super::debug_bridge::request_of(data) {
         Ok(request) => {
             // Spawned rather than awaited: a `continue` can take as long as

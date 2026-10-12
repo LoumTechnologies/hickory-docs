@@ -43,6 +43,7 @@ export type SlotKind =
 
 /** What the document around a rendered block knows, handed to every view. */
 export interface SlotContext {
+  docId?: string;
   /** The live editor, when mounted. */
   view: EditorView | null;
   /** This document's path (for assets and per-table state), or null. */

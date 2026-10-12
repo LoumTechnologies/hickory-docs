@@ -37,7 +37,9 @@ fn load(
                 .unwrap_or("")
                 .split_whitespace()
                 .collect(),
-            "include" => vec![tag.get_attribute("file").ok_or("include requires file")?],
+            "include" | "upstream" => {
+                vec![tag.get_attribute("file").ok_or("include requires file")?]
+            }
             _ => vec![],
         };
         for name in names {

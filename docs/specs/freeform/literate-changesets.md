@@ -18,12 +18,16 @@ reconstruction and separately verified incorporation candidates. See
 `docs/guarantees/literate-projects/implementation-evidence.md` for grammar, tests
 and limitations.
 
-The full plan remains incomplete: editable common comparison UI, explicit nested
-scopes, ambient/upstream/recorded-cell composition, full cross-document native
-mapping, automatic built-in/Python/ACP capture
-and AI incorporation/review wiring, automatic commit-hook entry selection, and
-merged-view multi-target routing/undo still require implementation. A service
-contract or discoverable adapter does not claim those workflows are shipped.
+**Continuation (2026-10-12).** The working implementation now wires editable
+comparisons, explicit scopes, declared fragment/upstream/kept-recording composition,
+cross-document native coordinates, built-in/Python/ACP capture and incorporation
+review, automatic frozen-index project selection, and merged-view target routing
+and guarded undo. Current executed evidence and remaining limits are recorded in
+`docs/guarantees/literate-projects/comparison-integration-evidence.md`.
+Changed binary/metadata transition reconstruction, runtime-dependent source
+construction without a kept recording, live model explanation quality, and
+additional native-platform acceptance remain outside the verified subset. This
+does not declare every original acceptance flow complete.
 
 An agent can implement EFCore persistence, discard unsuccessful approaches, and
 finish with a literate explanation of the successful changes. Applying that

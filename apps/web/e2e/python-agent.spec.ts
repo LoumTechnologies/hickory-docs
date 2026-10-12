@@ -14,7 +14,7 @@ test("configure the Python agent, review its edit, recover the conversation and 
   const files = await (await page.request.get("/api/projects/local/docs")).json();
   const note = files.find((doc: { path: string }) => doc.path === "note.md");
   await page.goto(`/#/docs/${note.id}`);
-  await expect(page.locator(".cm-content").filter({ hasText: "Original human input" })).toBeVisible();
+  await expect(page.locator('[data-spatial-key="document:note.md"] .cm-content').filter({ hasText: "Original human input" })).toBeVisible();
   await page.evaluate(() => window.dispatchEvent(new CustomEvent("hickory-menu", { detail: "show-agent" })));
   const agent = page.getByRole("region", { name: "Agent chat" });
   await agent.getByRole("button", { name: "Agent settings" }).click();
@@ -39,16 +39,20 @@ test("configure the Python agent, review its edit, recover the conversation and 
   expect(history.turns[0].backend).toBe("python");
   expect(history.turns[0].answer).toContain("Checks unrun.");
   await page.reload();
+  // Center tabs expose the restored source independently of the review panes.
+  await page.getByRole("tablist", { name: "Center views" }).getByRole("tab", { name: "note.md", exact: true }).click();
   // The menu listener belongs to the asynchronously loaded workspace, not the shell.
-  await expect(page.locator(".cm-content").filter({ hasText: "Original human input" })).toBeVisible();
+  await expect(page.locator('[data-spatial-key="document:note.md"] .cm-content').filter({ hasText: "Original human input" })).toBeVisible();
   await page.evaluate(() => window.dispatchEvent(new CustomEvent("hickory-menu", { detail: "show-agent" })));
+  await page.getByRole("tablist", { name: "Center views" }).getByRole("tab", { name: "Agent", exact: true }).click();
   await agent.getByRole("button", { name: "Agent settings" }).click();
   await expect(page.getByRole("combobox", { name: "Agent", exact: true })).toHaveValue("python");
   await response.click(); await response.press("ControlOrMeta+End"); await response.pressSequentially("/new");
   await agent.getByRole("button", { name: "Send", exact: true }).click();
   await response.click(); await response.press("ControlOrMeta+End"); await response.pressSequentially("Cancel this Python proposal");
   await agent.getByRole("button", { name: "Send", exact: true }).click();
-  await expect(review.locator(".comparison-added")).toContainText("This needs approval");
+  await expect(review.locator(".comparison-added").filter({ hasText: "This needs approval" })).toBeVisible();
+  await page.getByRole("tablist", { name: "Center views" }).getByRole("tab", { name: "Agent", exact: true }).click();
   await agent.getByRole("button", { name: "Stop the agent" }).click();
   await expect.poll(async () => {
     const turns = await (await page.request.get(turnsPath)).json();

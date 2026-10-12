@@ -69,6 +69,7 @@ const OUTPUT_SCHEME: &str = "hick-output:///";
 pub struct LspHub {
     root: PathBuf,
     state: Arc<Mutex<HubState>>,
+    projects: Arc<hick_lsp::ProjectContexts>,
 }
 
 struct HubState {
@@ -100,6 +101,9 @@ impl Drop for Session {
 
 impl LspHub {
     /// A dependency action changed host environments; refresh existing children.
+    pub fn projects(&self) -> Arc<hick_lsp::ProjectContexts> {
+        self.projects.clone()
+    }
     pub fn refresh_environments(&self) {
         if let Some(session) = &self.state.lock().expect("hub state").session {
             let _ = session.to_server.send(serde_json::json!({"jsonrpc":"2.0", "method":"workspace/didChangeConfiguration", "params":{"settings":{}}}));
@@ -113,6 +117,7 @@ impl LspHub {
         let root = root.canonicalize().unwrap_or_else(|_| root.to_path_buf());
         Self {
             root,
+            projects: Arc::new(hick_lsp::ProjectContexts::default()),
             state: Arc::new(Mutex::new(HubState {
                 session: None,
                 subscribers: HashMap::new(),
@@ -129,7 +134,11 @@ impl LspHub {
     pub fn subscribe(&self, conn: u64, to_client: mpsc::UnboundedSender<Vec<u8>>) -> Result<()> {
         let mut state = self.state.lock().expect("hub state");
         if state.session.is_none() {
-            state.session = Some(Session::start(&self.root, Arc::clone(&self.state))?);
+            state.session = Some(Session::start(
+                &self.root,
+                Arc::clone(&self.state),
+                self.projects.clone(),
+            )?);
         }
         if let Some(capabilities) = &state.capabilities {
             let _ = to_client.send(frame(&capabilities_announcement(capabilities)));
@@ -296,7 +305,11 @@ impl HubState {
 impl Session {
     /// Start the in-process server rooted at `root`, delivering what it says
     /// through `hub`.
-    fn start(root: &Path, hub: Arc<Mutex<HubState>>) -> Result<Self> {
+    fn start(
+        root: &Path,
+        hub: Arc<Mutex<HubState>>,
+        projects: Arc<hick_lsp::ProjectContexts>,
+    ) -> Result<Self> {
         let root = root.to_path_buf();
         let root_uri = path_to_file_uri(&root);
 
@@ -307,7 +320,9 @@ impl Session {
         let (server_read, server_write) = tokio::io::split(server_end);
         let (mut bridge_read, mut bridge_write) = tokio::io::split(bridge_end);
 
-        let (service, socket) = tower_lsp::LspService::new(hick_lsp::HickBackend::new);
+        let (service, socket) = tower_lsp::LspService::new(move |client| {
+            hick_lsp::HickBackend::with_projects(client, projects)
+        });
         let server = tokio::spawn(async move {
             tower_lsp::Server::new(server_read, server_write, socket)
                 .serve(service)
@@ -552,14 +567,22 @@ fn rewrite_uris(message: &mut Value, f: &dyn Fn(&str) -> Option<String>) {
 /// would otherwise be a way to ask the language server about any file on the
 /// machine.
 fn client_uri_to_server(uri: &str, root: &Path) -> Option<String> {
-    let rel = uri
+    if uri.starts_with("hick-project:///") {
+        return Some(uri.to_owned());
+    }
+    let raw = uri
         .strip_prefix(DOC_SCHEME)
         .or_else(|| uri.strip_prefix(OUTPUT_SCHEME))?;
+    let (rel, query) = raw
+        .split_once('?')
+        .map_or((raw, None), |(path, query)| (path, Some(query)));
     let rel = percent_decode(rel);
     if Path::new(&rel).is_absolute() || rel.split('/').any(|part| part == "..") {
         return None;
     }
-    Some(path_to_file_uri(&root.join(rel)))
+    let mut file = tower_lsp::lsp_types::Url::parse(&path_to_file_uri(&root.join(rel))).ok()?;
+    file.set_query(query);
+    Some(file.to_string())
 }
 
 /// `file:///…/docs/a.md` → `hick:///docs/a.md`, and a virtual output file
@@ -568,8 +591,12 @@ fn server_uri_to_client(uri: &str, root: &Path) -> Option<String> {
     let path = file_uri_to_path(uri)?;
     if let Ok(rel) = path.strip_prefix(root) {
         return Some(format!(
-            "{DOC_SCHEME}{}",
-            rel.to_string_lossy().replace('\\', "/")
+            "{DOC_SCHEME}{}{}",
+            rel.to_string_lossy().replace('\\', "/"),
+            tower_lsp::lsp_types::Url::parse(uri)
+                .ok()
+                .and_then(|u| u.query().map(|q| format!("?{q}")))
+                .unwrap_or_default()
         ));
     }
     // hick-lsp stages the files a document *would* write under a temp
@@ -593,18 +620,10 @@ fn path_to_file_uri(path: &Path) -> String {
 }
 
 fn file_uri_to_path(uri: &str) -> Option<PathBuf> {
-    let rest = uri.strip_prefix("file://")?;
-    let rest = rest
-        .strip_prefix('/')
-        .map(|r| r.to_string())
-        .unwrap_or_else(|| rest.to_string());
-    let decoded = percent_decode(&rest);
-    // A Windows path came back as `C:/x`; a unix one lost its leading slash.
-    if decoded.chars().nth(1) == Some(':') {
-        Some(PathBuf::from(decoded))
-    } else {
-        Some(PathBuf::from(format!("/{decoded}")))
-    }
+    tower_lsp::lsp_types::Url::parse(uri)
+        .ok()?
+        .to_file_path()
+        .ok()
 }
 
 /// Decode the escapes a URI can carry. Only `%XX` matters here — these are

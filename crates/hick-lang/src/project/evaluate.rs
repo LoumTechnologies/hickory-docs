@@ -10,6 +10,9 @@ use std::collections::{BTreeMap, BTreeSet};
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct ProjectInventory {
     pub documents: BTreeSet<String>,
+    /// Inputs supplying fragments through upstream edges remain immutable.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub read_only: BTreeSet<String>,
     pub exclude: BTreeSet<String>,
 }
 impl Default for ProjectInventory {
@@ -18,10 +21,17 @@ impl Default for ProjectInventory {
         // still have to be declared by the Markdown project.
         Self {
             documents: BTreeSet::new(),
-            exclude: [".git/", ".hg/", ".hick-cache/", ".hick-journal/"]
-                .into_iter()
-                .map(str::to_owned)
-                .collect(),
+            read_only: BTreeSet::new(),
+            exclude: [
+                ".git/",
+                ".hg/",
+                ".hick-cache/",
+                ".hick-journal/",
+                "sessions/",
+            ]
+            .into_iter()
+            .map(str::to_owned)
+            .collect(),
         }
     }
 }
@@ -56,6 +66,9 @@ pub struct EvaluatedProject {
     pub inventory: ProjectInventory,
     /// Explicit advanced inspection only; default services use old/new above.
     pub local_states: BTreeMap<String, (ProjectTree, ProjectTree)>,
+    /// Explicit atomic scopes; their New endpoint includes every nested act.
+    pub scopes: BTreeMap<String, (ProjectTree, ProjectTree)>,
+    pub recordings: Vec<super::recorded::RecordedCell>,
 }
 #[derive(Clone)]
 struct Operation {
@@ -64,6 +77,7 @@ struct Operation {
     document: String,
     tag: HickTag,
     bom: usize,
+    members: BTreeSet<String>,
 }
 
 /// Evaluate a Markdown closure from captured input in memory. All source bytes
@@ -122,6 +136,7 @@ pub fn evaluate_project(
             ));
         }
     }
+    let recordings = super::recorded::load(sources, &inventory.documents)?;
     let mut result = input.clone();
     let mut completed: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
     let mut writers: BTreeMap<String, String> = BTreeMap::new();
@@ -157,8 +172,10 @@ pub fn evaluate_project(
             }
         }
         let mut local = before.clone();
-        let paths = if op.tag.name == "patch" {
-            let (diff, origins) = text_body(&op.tag, &op.document, op.bom, &copies)?;
+        let paths = if matches!(op.tag.name.as_str(), "scope" | "retained-generator") {
+            BTreeSet::new()
+        } else if op.tag.name == "patch" {
+            let (diff, origins) = text_body(&op.tag, &op.document, op.bom, &copies, &recordings)?;
             // A patch is a verbatim body: no dedenting or copy substitution.
             let offset = origins.first().map_or(0, |o| o.source.0);
             let patch = apply_project_patch(&local, &diff, &op.document, offset).map_err(|error|format!("invalid or unordered input for patch {}: {error}; declare its generated-file predecessors with after",op.id))?;
@@ -173,7 +190,8 @@ pub fn evaluate_project(
                     op.id
                 ));
             }
-            let (text, mut origins) = text_body(&op.tag, &op.document, op.bom, &copies)?;
+            let (text, mut origins) =
+                text_body(&op.tag, &op.document, op.bom, &copies, &recordings)?;
             let kind = match op.tag.get_attribute("kind").unwrap_or("file") {
                 "file" => EntryKind::File,
                 "symlink" => EntryKind::Symlink,
@@ -234,7 +252,19 @@ pub fn evaluate_project(
         deltas.push((op.id.clone(), delta));
         completed.insert(op.id, ancestors);
     }
+    let mut scopes = BTreeMap::new();
+    for op in operations.values().filter(|op| op.tag.name == "scope") {
+        let mut old = input.clone();
+        for (id, delta) in &deltas {
+            if completed[&op.id].contains(id) && !op.members.contains(id) {
+                apply_delta(&mut old, delta)?;
+            }
+        }
+        scopes.insert(op.id.clone(), (old, local_states[&op.id].1.clone()));
+    }
     Ok(EvaluatedProject {
+        scopes,
+        recordings: recordings.into_values().collect(),
         old: input.clone(),
         new: result,
         inventory,
@@ -256,7 +286,10 @@ fn visit(
         return Err(format!("Markdown source cycle at {path}"));
     }
     if inventory.documents.contains(path) {
-        return Ok(());
+        if !inventory.read_only.remove(path) {
+            return Ok(());
+        }
+        copies.retain(|_, (_, document, _)| document != path);
     }
     let source = sources
         .get(path)
@@ -326,7 +359,12 @@ fn visit(
         let HickNode::Tag(tag) = node else { continue };
         check_attributes(tag)?;
         match tag.name.as_str() {
-            "project" => (),
+            "project" | "container" | "volume" | "allow" | "private" => (),
+            "agent" => (),
+            "upstream" => {
+                let name = relative_document(path, required(tag, "file")?)?;
+                upstream_fragments(&name, sources, inventory, copies, &mut BTreeSet::new())?;
+            }
             "include" => {
                 let document = relative_document(path, required(tag, "file")?)?;
                 visit(
@@ -340,40 +378,36 @@ fn visit(
                 )?;
             }
             "copy" => {
-                let id = required(tag, "id")?.to_owned();
-                if copies
-                    .insert(id.clone(), (tag.clone(), path.into(), bom))
-                    .is_some()
-                {
-                    return Err(format!("duplicate copy id: {id}"));
+                if tag.get_attribute("id").is_none() && tag.get_attribute("class").is_none() {
+                    return Err("Copy requires id or class".into());
                 }
-            }
-            "file" | "entry" | "patch" => {
                 let id = tag
                     .get_attribute("id")
                     .map(str::to_owned)
                     .unwrap_or_else(|| {
                         format!(
-                            "{path}:{}",
+                            "{path}:copy:{}",
                             tag.source_span.map_or(tag.source_line, |s| s.start)
                         )
                     });
-                let after = tag
-                    .get_attribute("after")
-                    .unwrap_or("")
-                    .split_whitespace()
-                    .map(|s| s.trim_start_matches('#').to_owned())
-                    .collect();
-                let op = Operation {
-                    id: id.clone(),
-                    after,
-                    document: path.into(),
-                    tag: tag.clone(),
-                    bom,
-                };
-                if operations.insert(id.clone(), op).is_some() {
-                    return Err(format!("duplicate construction id: {id}"));
+                let mut copy = tag.clone();
+                if doc
+                    .nodes
+                    .iter()
+                    .any(|n| matches!(n,HickNode::Tag(t) if t.name == "private"))
+                {
+                    copy.attributes
+                        .push(("__project-private".into(), "true".into()));
                 }
+                if copies
+                    .insert(id.clone(), (copy, path.into(), bom))
+                    .is_some()
+                {
+                    return Err(format!("duplicate copy id: {id}"));
+                }
+            }
+            "file" | "entry" | "patch" | "scope" | "exec" => {
+                collect_operation(tag, path, bom, &BTreeSet::new(), operations)?;
             }
             // Never report an incomplete project as generated successfully.
             other => {
@@ -407,14 +441,16 @@ fn text_body(
     document: &str,
     bom: usize,
     copies: &BTreeMap<String, (HickTag, String, usize)>,
+    recordings: &super::recorded::Recordings,
 ) -> Result<(String, Vec<ByteOrigin>), String> {
-    body_inner(tag, document, bom, copies, &mut BTreeSet::new())
+    body_inner(tag, document, bom, copies, recordings, &mut BTreeSet::new())
 }
 fn body_inner(
     tag: &HickTag,
     document: &str,
     bom: usize,
     copies: &BTreeMap<String, (HickTag, String, usize)>,
+    recordings: &super::recorded::Recordings,
     visiting: &mut BTreeSet<String>,
 ) -> Result<(String, Vec<ByteOrigin>), String> {
     let mut output = String::new();
@@ -455,16 +491,61 @@ fn body_inner(
             }
             HickNode::Tag(paste) if paste.name == "paste" => {
                 check_attributes(paste)?;
-                let id = required(paste, "select")?
-                    .strip_prefix('#')
-                    .ok_or("paste requires #copy selector")?;
-                if !visiting.insert(id.to_owned()) {
-                    return Err(format!("copy cycle at {id}"));
+                let selector = required(paste, "select")?;
+                let selected: Vec<_> = if let Some(id) = selector.strip_prefix('#') {
+                    vec![(
+                        id.to_owned(),
+                        copies
+                            .get(id)
+                            .ok_or_else(|| format!("Missing copy: {id}"))?,
+                    )]
+                } else if let Some(class) = selector.strip_prefix('.') {
+                    let current_document = document;
+                    let mut matches: Vec<_> = copies
+                        .iter()
+                        .filter(|(_, (tag, source_document, _))| {
+                            (source_document == document
+                                || tag.get_attribute("__project-private").is_none())
+                                && tag
+                                    .get_attribute("class")
+                                    .unwrap_or("")
+                                    .split_whitespace()
+                                    .any(|name| name == class)
+                        })
+                        .map(|(id, value)| (id.clone(), value))
+                        .collect();
+                    matches.sort_by_key(|(_, (tag, document, _))| {
+                        (
+                            document != current_document,
+                            document.clone(),
+                            tag.source_span.map_or(tag.source_line, |s| s.start),
+                        )
+                    });
+                    if matches.is_empty() {
+                        return Err(format!("Missing contributed class: {selector}"));
+                    }
+                    matches
+                } else {
+                    return Err("Paste requires #id or .class selector".into());
+                };
+                for (id, (copy, document, bom)) in selected {
+                    if !visiting.insert(id.clone()) {
+                        return Err(format!("Copy cycle at {id}"));
+                    }
+                    let (text, mappings) =
+                        body_inner(copy, document, *bom, copies, recordings, visiting)?;
+                    let offset = output.len();
+                    output.push_str(&text);
+                    origins.extend(mappings.into_iter().map(|mut origin| {
+                        origin.output.0 += offset;
+                        origin.output.1 += offset;
+                        origin
+                    }));
+                    visiting.remove(&id);
                 }
-                let (copy, document, bom) = copies
-                    .get(id)
-                    .ok_or_else(|| format!("missing copy: {id}"))?;
-                let (text, mappings) = body_inner(copy, document, *bom, copies, visiting)?;
+            }
+            HickNode::Tag(cell) if matches!(cell.name.as_str(), "exec" | "agent") => {
+                let (text, mappings) = super::recorded::render(cell, document, recordings)?;
                 let offset = output.len();
                 output.push_str(&text);
                 origins.extend(mappings.into_iter().map(|mut origin| {
@@ -472,7 +553,6 @@ fn body_inner(
                     origin.output.1 += offset;
                     origin
                 }));
-                visiting.remove(id);
             }
             HickNode::Tag(other) => {
                 return Err(format!(
@@ -500,10 +580,10 @@ fn check_attributes(tag: &HickTag) -> Result<(), String> {
         "project" => &["sources", "exclude", "entry"],
         "file" => &["path", "id", "after", "language", "executable"],
         "entry" => &["path", "id", "after", "kind", "encoding", "executable"],
-        "patch" => &["id", "after"],
-        "copy" => &["id"],
+        "patch" | "scope" => &["id", "after"],
+        "copy" => &["id", "class"],
         "paste" => &["select"],
-        "include" => &["file"],
+        "include" | "upstream" => &["file"],
         _ => return Ok(()),
     };
     for (name, _) in &tag.attributes {
@@ -531,5 +611,184 @@ fn apply_delta(tree: &mut ProjectTree, delta: &EntryDelta) -> Result<(), String>
             tree.insert(path, entry.as_ref().clone())?;
         }
     }
+    Ok(())
+}
+
+fn collect_operation(
+    tag: &HickTag,
+    document: &str,
+    bom: usize,
+    inherited: &BTreeSet<String>,
+    operations: &mut BTreeMap<String, Operation>,
+) -> Result<BTreeSet<String>, String> {
+    check_attributes(tag)?;
+    let mut owned;
+    let tag = if tag.name == "exec" {
+        owned = tag.clone();
+        owned.name = "retained-generator".into();
+        if let Some(ingested) = tag
+            .child_tags()
+            .find(|t| t.name == "ingested" && t.get_attribute("key").is_none())
+        {
+            let fingerprint = ingested
+                .get_attribute("sha256")
+                .ok_or("Owned ingested files require their run fingerprint")?;
+            if fingerprint.len() != 64 || !fingerprint.bytes().all(|b| b.is_ascii_hexdigit()) {
+                return Err("Owned ingest fingerprint must be SHA-256 hex".into());
+            }
+            owned.children = ingested.children.clone();
+        } else if tag
+            .child_tags()
+            .any(|t| t.name == "ingested" && t.get_attribute("key").is_some())
+        {
+            owned.children.clear();
+        } else {
+            return Err(format!(
+                "Standalone cell at line {} requires execution and explicit retained outputs",
+                tag.source_line
+            ));
+        }
+
+        &owned
+    } else {
+        tag
+    };
+    let id = tag
+        .get_attribute("id")
+        .map(str::to_owned)
+        .unwrap_or_else(|| {
+            format!(
+                "{document}:{}",
+                tag.source_span.map_or(tag.source_line, |s| s.start)
+            )
+        });
+    if tag.name == "scope" && tag.get_attribute("id").is_none() {
+        return Err("An explicit atomic scope requires id".into());
+    }
+    let mut after = inherited.clone();
+    after.extend(
+        tag.get_attribute("after")
+            .unwrap_or("")
+            .split_whitespace()
+            .map(|s| s.trim_start_matches('#').to_owned()),
+    );
+    let mut members = BTreeSet::new();
+    if matches!(tag.name.as_str(), "scope" | "retained-generator") {
+        for node in &tag.children {
+            let HickNode::Tag(child) = node else {
+                continue;
+            };
+            if !matches!(child.name.as_str(), "scope" | "patch" | "file" | "entry") {
+                return Err(format!(
+                    "Atomic scope {id} cannot contain {}; declare contributors in the closure and reference their constructions with after",
+                    child.name
+                ));
+            }
+            members.extend(collect_operation(child, document, bom, &after, operations)?);
+        }
+        after.extend(members.iter().cloned());
+    }
+    let mut identities = members.clone();
+    identities.insert(id.clone());
+    if operations
+        .insert(
+            id.clone(),
+            Operation {
+                id: id.clone(),
+                after,
+                document: document.into(),
+                tag: tag.clone(),
+                bom,
+                members,
+            },
+        )
+        .is_some()
+    {
+        return Err(format!("Duplicate construction id: {id}"));
+    }
+    Ok(identities)
+}
+
+/// Read only fragment closure: no file or patch acts from upstream are imported.
+fn upstream_fragments(
+    path: &str,
+    sources: &BTreeMap<String, String>,
+    inventory: &mut ProjectInventory,
+    copies: &mut BTreeMap<String, (HickTag, String, usize)>,
+    visiting: &mut BTreeSet<String>,
+) -> Result<(), String> {
+    if !visiting.insert(path.into()) {
+        return Err(format!("Upstream fragment cycle at {path}"));
+    }
+    if inventory.documents.contains(path) {
+        visiting.remove(path);
+        return Ok(());
+    }
+    let source = sources
+        .get(path)
+        .ok_or_else(|| format!("Markdown closure missing {path}"))?;
+    let doc = parse(source).map_err(|e| e.to_string())?;
+    for existing in &inventory.documents {
+        super::tree::validate_path_collision(existing, path)?;
+    }
+    inventory.documents.insert(path.into());
+    inventory.read_only.insert(path.into());
+    if let Some(woven) = &doc.weave_path {
+        let woven = relative_document(path, woven)?;
+        if woven != path {
+            inventory.exclude.insert(woven);
+        }
+    }
+    let bom = usize::from(source.starts_with('\u{feff}')) * 3;
+    let private = doc
+        .nodes
+        .iter()
+        .any(|n| matches!(n,HickNode::Tag(t) if t.name=="private"));
+    for tag in doc.all_tags() {
+        if tag.name == "copy" {
+            check_attributes(tag)?;
+            let id = tag
+                .get_attribute("id")
+                .map(str::to_owned)
+                .unwrap_or_else(|| {
+                    format!(
+                        "{path}:copy:{}",
+                        tag.source_span.map_or(tag.source_line, |s| s.start)
+                    )
+                });
+            let mut copy = tag.clone();
+            if private {
+                copy.attributes
+                    .push(("__project-private".into(), "true".into()));
+            }
+            if copies
+                .insert(id.clone(), (copy, path.into(), bom))
+                .is_some()
+            {
+                return Err(format!("Duplicate upstream copy: {id}"));
+            }
+        }
+    }
+    for tag in doc.tags() {
+        let names: Vec<_> = match tag.name.as_str() {
+            "upstream" | "include" => vec![required(tag, "file")?],
+            "project" => tag
+                .get_attribute("sources")
+                .unwrap_or("")
+                .split_whitespace()
+                .collect(),
+            _ => vec![],
+        };
+        for name in names {
+            upstream_fragments(
+                &relative_document(path, name)?,
+                sources,
+                inventory,
+                copies,
+                visiting,
+            )?;
+        }
+    }
+    visiting.remove(path);
     Ok(())
 }

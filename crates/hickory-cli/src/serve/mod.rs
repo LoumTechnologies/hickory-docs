@@ -30,6 +30,7 @@
 pub mod acp;
 pub mod agent;
 mod agent_context;
+mod agent_projects;
 mod agent_review;
 pub mod anchored;
 pub mod api;
@@ -49,9 +50,15 @@ pub mod history;
 pub mod install;
 pub mod lsp_bridge;
 pub mod merged;
+mod merged_write;
+mod native_projects;
 pub mod outputs;
 pub mod plain_file;
+mod project_comparison;
+mod project_incorporation;
+mod project_publish;
 mod python_agent;
+mod revision_projects;
 
 /// A Python runtime shipped inside this app, found from the executable's path.
 pub use python_agent::bundled_runtime;
@@ -555,15 +562,31 @@ pub(crate) fn router(state: LocalState) -> Router {
         )
         .route("/docs/{id}", get(api::get_doc).put(api::put_doc))
         .route("/docs/{id}/render", get(api::render_doc))
+        .route("/docs/{id}/project", post(project_comparison::capture))
+        .route("/docs/{id}/project/apply", post(project_comparison::apply))
+        .route("/docs/{id}/project/undo", post(project_comparison::undo))
+        .route(
+            "/docs/{id}/agent/projects/{turn}",
+            get(agent_projects::snapshot).post(agent_projects::finalize),
+        )
+        .route(
+            "/docs/{id}/agent/projects/{turn}/incorporate",
+            get(project_incorporation::status).post(project_incorporation::propose),
+        )
         .route("/elements", get(api::elements))
+        .route("/revision-projects", post(revision_projects::capture))
+        .route("/project-contexts", post(native_projects::register))
+        .route("/project-contexts/file", get(native_projects::file))
+        .route(
+            "/project-contexts/{id}",
+            axum::routing::delete(native_projects::remove),
+        )
         .route("/docs/{id}/blocks/{at}/{action}", post(api::block_action))
         .route("/docs/{id}/outputs", get(outputs::list_outputs))
         .route("/docs/{id}/outputs/file", get(outputs::get_output_file))
         .route("/docs/{id}/outputs/edit", post(outputs::edit_outputs))
         .route("/docs/{id}/context", get(api::get_context))
         .route("/docs/{id}/cites", get(api::get_cites))
-        // Replay: exact lineage at any commit, recomputed by weaving that
-        // commit's document. See docs/specs/freeform/provenance-across-versions.md.
         .route("/docs/{id}/history", get(history::history))
         .route("/docs/{id}/replay", get(history::replay))
         .route("/sessions/view", get(api::session_view))

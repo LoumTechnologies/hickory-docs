@@ -120,6 +120,7 @@ fn accepted_attributes(element: &str) -> Option<&'static [&'static str]> {
             "id",
             "output",
             "cmd",
+            "after",
         ],
         "agent" => &["model", "timeout", "freeze", "id", "output", "max-turns"],
         "script" => &[
@@ -144,6 +145,7 @@ fn accepted_attributes(element: &str) -> Option<&'static [&'static str]> {
         ],
         "patch" => &["id", "after"],
         "project" => &["sources", "exclude", "entry"],
+        "scope" => &["id", "after"],
         "entry" => &["id", "after", "path", "kind", "encoding", "executable"],
         "copy" | "cut" => &["id", "class", "select", "distinct", "separator"],
         "paste" => &["select", "separator", "min", "max", "distinct"],

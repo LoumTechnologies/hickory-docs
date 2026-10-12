@@ -624,6 +624,17 @@ impl RoomRegistry {
             Some(writes) => Some(writes.lock().await),
             None => None,
         };
+        // A source removed by a reviewed act must not be recreated by an old
+        // debounced save, even if a new room later reuses the same path.
+        if !self
+            .rooms
+            .lock()
+            .await
+            .get(&room.key)
+            .is_some_and(|current| Arc::ptr_eq(current, room))
+        {
+            return;
+        }
         let generation = room.generation.load(Ordering::SeqCst);
         if room.persisted.swap(generation, Ordering::SeqCst) == generation {
             return; // nothing new since the last persist
@@ -648,6 +659,29 @@ impl RoomRegistry {
             room.persisted
                 .store(generation.saturating_sub(1), Ordering::SeqCst);
         }
+    }
+
+    /// Delete a reviewed source while checking its live bytes. The caller holds
+    /// the engine write guard, as for a validated batch publication.
+    pub async fn retire_source_if_current<F>(
+        &self,
+        key: &DocKey,
+        expected: &str,
+        persist: F,
+    ) -> Result<bool>
+    where
+        F: FnOnce() -> Result<()> + Send,
+    {
+        let room = self.get_or_create(key).await?;
+        let awareness = room.awareness.lock().await;
+        let doc = awareness.doc();
+        let text = doc.get_or_insert_text("source");
+        if text.get_string(&doc.transact()) != expected {
+            return Ok(false);
+        }
+        persist()?;
+        self.rooms.lock().await.remove(key);
+        Ok(true)
     }
 }
 

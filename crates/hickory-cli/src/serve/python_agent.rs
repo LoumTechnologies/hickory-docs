@@ -146,6 +146,12 @@ pub async fn decide(
     }
     super::agent_context::subject(&state, &doc)?;
     if let Some(id) = body.id {
+        if let Some(text) = body.new_text {
+            queue(&state, &doc)
+                .edits
+                .revise(&id, text)
+                .map_err(|e| ApiError::unprocessable(e.to_string()))?;
+        }
         queue(&state, &doc)
             .edits
             .resolve(
@@ -188,6 +194,11 @@ struct Review {
 }
 #[async_trait::async_trait]
 impl crate::python_agent::Review for Review {
+    fn replacement(&self) -> Option<String> {
+        self.accepted
+            .as_deref()
+            .and_then(|id| self.queue.edits.replacement(id))
+    }
     async fn approve(&mut self, proposal: &crate::python_agent::Proposal) -> anyhow::Result<bool> {
         let surface = std::path::Path::new(&proposal.surface);
         let display = surface

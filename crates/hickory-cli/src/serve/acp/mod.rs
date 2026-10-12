@@ -443,6 +443,7 @@ pub async fn start_turn(
         "{}\n{context}\nFor changes to the current open editor, call read_buffer then edit_buffer using its hashes. Do not return a replacement document as your answer. The client handles approval. For generated code use read_output and edit_output so lineage carries the edit into its source.",
         hickory_agent::audit::INSTRUCTIONS
     );
+    let project_capture = super::agent_projects::begin(&state, &doc_id, record_path.clone()).await;
     let run_id = turn_id.clone();
     tokio::spawn(async move {
         let _annotation_gate = state.agent.annotations_gate.read().await;
@@ -455,6 +456,24 @@ pub async fn start_turn(
                 cancel,
             )
             .await;
+        match project_capture {
+            Ok(Some(capture)) => {
+                super::agent_projects::finish(
+                    &state,
+                    &run_id,
+                    capture,
+                    outcome.as_ref().ok().map(String::as_str),
+                )
+                .await
+            }
+            Ok(None) => (),
+            Err(e) => {
+                let _ = client.record.lock().await.context(
+                    "literate-project-capture-error",
+                    &json!({"turn":run_id,"error":format!("{e:#}")}),
+                );
+            }
+        }
         state.agent.cancels.lock().unwrap().remove(&run_id);
         let status = {
             let mut map = state.agent.turns.lock().unwrap();
@@ -502,6 +521,7 @@ pub struct EditDecision {
     pub accepted: Option<bool>,
     pub error: Option<String>,
     pub current_text: Option<String>,
+    pub new_text: Option<String>,
 }
 pub async fn edit_decision(
     State(state): State<LocalState>,
@@ -535,6 +555,9 @@ pub async fn edit_decision(
         *client.host.edits.mode.lock().unwrap() = mode;
     }
     if let Some(id) = body.id {
+        if let Some(text) = body.new_text {
+            client.host.edits.revise(&id, text).map_err(error)?;
+        }
         if body.accepted != Some(true)
             && let Some(content) = body.current_text
         {
@@ -557,4 +580,8 @@ pub async fn edit_decision(
         client.host.edits.resolve(&id, result).map_err(error)?;
     }
     Ok(Json(client.snapshot()))
+}
+
+pub(super) async fn project_review(state: &LocalState, doc: &str) -> ApiResult<Arc<edits::Edits>> {
+    Ok(connection(state, doc).await?.host.edits.clone())
 }

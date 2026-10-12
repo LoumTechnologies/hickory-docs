@@ -21,4 +21,13 @@ pub use reconstruct::{
 
 pub use discovery::load_project_sources;
 
-pub use edit::regenerate_patch;
+pub use edit::{regenerate_patch, reverse_project_edit};
+
+mod snapshot;
+pub use snapshot::ProjectSnapshot;
+
+mod recorded;
+pub use recorded::RecordedCell;
+
+mod coordinates;
+pub use coordinates::project_byte_location;

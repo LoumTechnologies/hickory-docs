@@ -14,7 +14,7 @@
 // points await `loadHickLang()` once before the first render, and the tests
 // load the bytes from disk in `test-setup.ts`.
 
-import init, { initSync, structure as wasmStructure, literal_files, evaluate_project } from "./generated/hick-lang/hick_lang.js";
+import init, { initSync, structure as wasmStructure, literal_files, evaluate_project, project_position, project_transition, regenerate_project_patch, reverse_project_edit } from "./generated/hick-lang/hick_lang.js";
 import wasmUrl from "./generated/hick-lang/hick_lang_bg.wasm?url";
 
 /** `hick_lang::StructureTag` — byte offsets into the UTF-8 source. */
@@ -110,6 +110,7 @@ export interface EvaluatedProject {
   new: ProjectEntry[];
   inventory: { documents: string[]; exclude: string[] };
   local_states: Record<string, { old: ProjectEntry[]; new: ProjectEntry[] }>;
+  scopes: Record<string, { old: ProjectEntry[]; new: ProjectEntry[] }>;
 }
 /** Pure source equivalence substrate; this never invokes native tools or cells. */
 export function materializeProject(entry: string, sources: Record<string, string>, input: ProjectEntry[] = []): EvaluatedProject {
@@ -118,4 +119,27 @@ export function materializeProject(entry: string, sources: Record<string, string
   if (result.version !== 1) throw new Error("Unsupported portable project interface version");
   if (result.error || !result.project) throw new Error(result.error ?? "Project evaluation failed");
   return result.project;
+}
+
+export function projectTransition(old: ProjectEntry[], next: ProjectEntry[]): string {
+  const result = JSON.parse(project_transition(JSON.stringify(old), JSON.stringify(next)));
+  if (result.version !== 1 || result.error) throw new Error(result.error ?? "Unsupported project interface");
+  return result.diff;
+}
+export function regenerateProjectPatch(entry: string, sources: Record<string, string>, input: ProjectEntry[], id: string, next: ProjectEntry[]): Record<string, string> {
+  const result = JSON.parse(regenerate_project_patch(entry, JSON.stringify(sources), JSON.stringify(input), id, JSON.stringify(next)));
+  if (result.version !== 1 || result.error) throw new Error(result.error ?? "Unsupported project interface");
+  return result.sources;
+}
+
+export function reverseProjectEdit(entry: string, sources: Record<string, string>, input: ProjectEntry[], endpoint: ProjectEntry[], edit: { path: string; range: [number, number]; replacement: string }): Record<string, string> {
+  const result = JSON.parse(reverse_project_edit(entry, JSON.stringify(sources), JSON.stringify(input), JSON.stringify(endpoint), JSON.stringify(edit)));
+  if (result.version !== 1 || result.error) throw new Error(result.error ?? "Unsupported project interface");
+  return result.sources;
+}
+
+export function projectPosition(local: ProjectEntry[], endpoint: ProjectEntry[], path: string, byte: number): [string,number] | null {
+  const result = JSON.parse(project_position(JSON.stringify(local),JSON.stringify(endpoint),path,byte));
+  if (result.version !== 1 || result.error) throw new Error(result.error ?? "Unsupported project interface");
+  return result.location;
 }

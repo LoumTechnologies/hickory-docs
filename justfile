@@ -318,7 +318,7 @@ test-files-browser url:
 
 # Spatial layout geometry and native editor behavior.
 test-spatial:
-    cd apps/web && npm run typecheck && npm test -- src/shell/spatialLayout.test.ts src/shell/SpatialShellView.test.tsx src/editor/spatialExcerpt.test.ts
+    cd apps/web && npm run typecheck && npm test -- src/shell/spatialLayout.test.ts src/shell/SpatialShellView.test.tsx src/editor/spatialExcerpt.test.ts src/views/SettingsView.test.tsx
 
 # Regenerate the standalone contextual-tiling prototype from its source.
 build-navigation-prototype:
@@ -550,11 +550,14 @@ test-literate-projects-web:
 
 # Existing parser, coordinate-map, element and debugger contracts near this change.
 test-literate-projects-regressions:
+    just test-literate-projects-native-regressions
+    cd apps/web && npm test -- --maxWorkers=2
+
+test-literate-projects-native-regressions:
     cargo test -p hick-lang --lib
     cargo test -p hick-lsp --lib
     cargo test -p hick-dap --lib
     cargo test -p hickory-cli --lib serve::refactor
-    cd apps/web && npm test -- --maxWorkers=2
 
 lint-literate-projects:
     cargo clippy -p hick-lang -p hick-lang-wasm -p hick-lsp -p hick-dap -p hick-literate -p hickory-cli --all-targets -- -D warnings
@@ -591,3 +594,24 @@ test-literate-projects-web-regressions:
 verify-literate-project-fixtures:
     cargo run -p hickory-cli -- lint crates/hick-lang/tests/fixtures/literate-project/project.md crates/hick-lang/tests/fixtures/literate-project/library.md crates/hick-lang/tests/fixtures/efcore-project/project.md crates/hick-lang/tests/fixtures/efcore-project/persistence.md
     cargo run -p hickory-cli -- test crates/hick-lang/tests/fixtures/literate-project/project.md crates/hick-lang/tests/fixtures/literate-project/library.md crates/hick-lang/tests/fixtures/efcore-project/project.md crates/hick-lang/tests/fixtures/efcore-project/persistence.md
+
+# Common editor contracts and portable browser patch regeneration.
+test-literate-comparison-editor:
+    cd apps/web && npm run typecheck
+    cd apps/web && npm test -- src/lib/projectComparison.test.ts src/components/ComparisonEditor.test.tsx src/components/ComparisonTools.test.tsx src/components/ProjectContextSelector.test.tsx src/elements/patch/Editor.test.tsx src/views/workspaceTabs.test.tsx --maxWorkers=2
+
+# All portable projects declared in the exact candidate index; no working reads.
+verify-literate-projects-index:
+    cargo run -p hickory-cli -- project verify-index
+
+# Real HTTP capture/finalization and existing-queue source incorporation.
+test-literate-agent-projects:
+    cargo build -p hickory-cli --example acp_fixture
+    cargo test -p hickory-cli --test literate_agent_projects -- --nocapture
+    cargo test -p hickory-agent --test tools_edit_session
+    cargo test -p hickory-collab
+
+# Real worktree routing, snapshot guards and per-target undo.
+test-literate-worktrees:
+    cargo test -p hickory-cli --test merged_view
+    cd apps/web && npm test -- src/views/MergedView.test.tsx --maxWorkers=2

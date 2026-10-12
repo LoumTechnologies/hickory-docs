@@ -59,11 +59,50 @@ impl Live {
 pub struct Registry {
     sessions: Mutex<HashMap<String, Arc<Live>>>,
     next_id: AtomicU64,
+    projects: Arc<hick_lsp::ProjectContexts>,
+    host_root: Option<PathBuf>,
 }
 
 impl Registry {
     pub fn new() -> Self {
         Self::default()
+    }
+    pub fn with_projects(projects: Arc<hick_lsp::ProjectContexts>, host_root: PathBuf) -> Self {
+        Self {
+            projects,
+            host_root: Some(host_root),
+            ..Self::default()
+        }
+    }
+    pub async fn start_captured(
+        &self,
+        uri: &tower_lsp::lsp_types::Url,
+        breakpoints: &[Breakpoint],
+        on_build: &mut (dyn FnMut(BuildOutput) + Send),
+    ) -> Result<(String, Arc<Live>, Vec<BreakpointStatus>)> {
+        let (id, path, context) = self.projects.get(uri).map_err(anyhow::Error::msg)?;
+        let scratch = tempfile::tempdir()?;
+        hick_lsp::write_tree(scratch.path(), &context.tree).map_err(anyhow::Error::msg)?;
+        let entry = scratch.path().join(&path);
+        let adapter =
+            hick_dap::adapter_for(&entry, self.host_root.as_deref().unwrap_or(scratch.path()))?;
+        let program = hick_dap::build(&entry, scratch.path(), scratch.path(), on_build).await?;
+        let mapping = Mapping::captured(&context.tree, scratch.path(), &id, &path)?;
+        let (session, statuses) = Session::start(
+            Launch {
+                transport: adapter.transport,
+                multi_session: adapter.multi_session,
+                adapter_extra: adapter.launch_extra.clone(),
+                adapter: adapter.command,
+                program,
+                cwd: scratch.path().into(),
+                extra: serde_json::json!({}),
+            },
+            Arc::new(mapping),
+            breakpoints,
+        )
+        .await?;
+        Ok(self.register(session, Some(scratch), statuses).await)
     }
 
     /// Start a session over one document, in a scratch clone of its project
@@ -86,6 +125,23 @@ impl Registry {
         program: Option<&str>,
         on_build: &mut (dyn FnMut(BuildOutput) + Send),
     ) -> Result<(String, Arc<Live>, Vec<BreakpointStatus>)> {
+        self.start_at(
+            document,
+            breakpoints,
+            program,
+            &hick_lsp::ProjectEndpoint::New,
+            on_build,
+        )
+        .await
+    }
+    pub async fn start_at(
+        &self,
+        document: &Path,
+        breakpoints: &[Breakpoint],
+        program: Option<&str>,
+        endpoint: &hick_lsp::ProjectEndpoint,
+        on_build: &mut (dyn FnMut(BuildOutput) + Send),
+    ) -> Result<(String, Arc<Live>, Vec<BreakpointStatus>)> {
         if !is_document(document) {
             // No folder was named, so the repository the file is in stands
             // in for it — the same bound a plain file's language server
@@ -101,7 +157,7 @@ impl Registry {
 
         let scratch = tempfile::tempdir().context("making a scratch directory for the session")?;
         let (mapping, files) =
-            crate::project_documents::debug_state(document, &source, scratch.path())?;
+            crate::project_documents::debug_state_at(document, &source, scratch.path(), endpoint)?;
         // Which file to run, when the document generates more than one.
         //
         // Guessing was the old behaviour and it is only right by accident: a

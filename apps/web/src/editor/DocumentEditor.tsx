@@ -857,6 +857,7 @@ export function DocumentEditor({
   // What every rendered element is handed, beside its own slot. One object
   // so a view's signature never grows a parameter per element.
   const slotContext: SlotContext = {
+    docId,
     view: railView,
     path: path ?? null,
     execBlocks,

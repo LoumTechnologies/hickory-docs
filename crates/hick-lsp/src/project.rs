@@ -10,8 +10,39 @@ use std::{
 pub enum ProjectEndpoint {
     Old,
     New,
+    ScopeOld(String),
+    ScopeNew(String),
     LocalBefore(String),
     LocalAfter(String),
+}
+impl ProjectEndpoint {
+    pub fn parse(value: &str) -> Result<Self, String> {
+        match value {
+            "new" => Ok(Self::New),
+            "old" => Ok(Self::Old),
+            _ => {
+                for (prefix, kind) in [
+                    ("scope-old:", 0),
+                    ("scope-new:", 1),
+                    ("local-before:", 2),
+                    ("local-after:", 3),
+                ] {
+                    if let Some(id) = value.strip_prefix(prefix) {
+                        if id.is_empty() {
+                            return Err("Project scope/state needs an identity".into());
+                        }
+                        return Ok(match kind {
+                            0 => Self::ScopeOld(id.into()),
+                            1 => Self::ScopeNew(id.into()),
+                            2 => Self::LocalBefore(id.into()),
+                            _ => Self::LocalAfter(id.into()),
+                        });
+                    }
+                }
+                Err(format!("Unknown project endpoint: {value}"))
+            }
+        }
+    }
 }
 pub fn endpoint<'a>(
     project: &'a EvaluatedProject,
@@ -20,6 +51,16 @@ pub fn endpoint<'a>(
     match side {
         ProjectEndpoint::Old => Ok(&project.old),
         ProjectEndpoint::New => Ok(&project.new),
+        ProjectEndpoint::ScopeOld(id) => project
+            .scopes
+            .get(id)
+            .map(|s| &s.0)
+            .ok_or_else(|| format!("Unknown atomic scope: {id}")),
+        ProjectEndpoint::ScopeNew(id) => project
+            .scopes
+            .get(id)
+            .map(|s| &s.1)
+            .ok_or_else(|| format!("Unknown atomic scope: {id}")),
         ProjectEndpoint::LocalBefore(id) => project
             .local_states
             .get(id)
@@ -65,82 +106,7 @@ pub fn materialize(
         files,
     })
 }
-/// Write an evaluated tree. Validate every destination and supported metadata
-/// before any write; never follow a pre-existing symlink in the destination.
-pub fn write_tree(root: &Path, tree: &ProjectTree) -> Result<Vec<PathBuf>, String> {
-    for (path, entry) in tree.entries() {
-        hick_lang::validate_project_path(path)?;
-        let mut parent = root.to_path_buf();
-        for part in path.split('/') {
-            parent.push(part);
-            if let Ok(metadata) = std::fs::symlink_metadata(&parent) {
-                let destination = parent == root.join(path);
-                let replace_link = destination
-                    && metadata.file_type().is_symlink()
-                    && entry.kind == EntryKind::Symlink;
-                if (metadata.file_type().is_symlink() && !replace_link)
-                    || (!metadata.is_dir() && !destination)
-                {
-                    return Err(format!(
-                        "refusing materialization through existing non-directory or symlink: {}",
-                        parent.display()
-                    ));
-                }
-                if destination && !metadata.is_file() && !replace_link {
-                    return Err(format!("occupied project output: {path}"));
-                }
-            }
-        }
-        if entry.kind == EntryKind::Symlink {
-            let target = std::str::from_utf8(&entry.bytes)
-                .map_err(|_| "unsupported non-UTF-8 symlink target")?;
-            hick_lang::validate_project_path(target).map_err(|_|format!("native materialization does not support escaping or ambiguous symlink target: {path}"))?;
-            #[cfg(not(unix))]
-            return Err(format!(
-                "symlink materialization is unsupported on this platform: {path}"
-            ));
-        }
-        #[cfg(not(unix))]
-        if entry.executable {
-            return Err(format!(
-                "executable mode materialization is unsupported on this platform: {path}"
-            ));
-        }
-    }
-    let mut written = vec![];
-    for (path, entry) in tree.entries() {
-        let full = root.join(path);
-        if let Some(parent) = full.parent() {
-            std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
-        }
-        if entry.kind == EntryKind::File {
-            std::fs::write(&full, &entry.bytes).map_err(|e| e.to_string())?;
-            #[cfg(unix)]
-            {
-                use std::os::unix::fs::PermissionsExt;
-                std::fs::set_permissions(
-                    &full,
-                    std::fs::Permissions::from_mode(if entry.executable { 0o755 } else { 0o644 }),
-                )
-                .map_err(|e| e.to_string())?;
-            }
-        } else {
-            #[cfg(unix)]
-            {
-                if std::fs::symlink_metadata(&full).is_ok() {
-                    std::fs::remove_file(&full).map_err(|e| e.to_string())?;
-                }
-                std::os::unix::fs::symlink(
-                    std::str::from_utf8(&entry.bytes).map_err(|e| e.to_string())?,
-                    &full,
-                )
-                .map_err(|e| e.to_string())?;
-            }
-        }
-        written.push(full);
-    }
-    Ok(written)
-}
+pub use hick_project_env::write_tree;
 
 /// Exact byte mapping. A deleted local line has no endpoint mapping, and
 /// repeated contributors are ambiguous rather than guessed at.
@@ -334,5 +300,16 @@ pub(crate) fn state_for_uri(
         std::fs::read_to_string(path).map_err(|e| e.to_string())
     })
     .map_err(failure)?;
-    crate::document::HickDocumentState::from_project(entry, &sources)
+    let selection = uri
+        .query_pairs()
+        .find(|(name, _)| name == "hick-project")
+        .map(|(_, value)| value.into_owned())
+        .unwrap_or_else(|| "new".into());
+    let endpoint = ProjectEndpoint::parse(&selection).map_err(failure)?;
+    crate::document::HickDocumentState::from_project_at(
+        entry,
+        &sources,
+        &ProjectTree::default(),
+        &endpoint,
+    )
 }

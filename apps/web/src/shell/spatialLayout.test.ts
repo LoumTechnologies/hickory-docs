@@ -1,9 +1,26 @@
 import { describe, expect, it } from "vitest";
 import { emptyPane, panes, tab, type Layout } from "./layout";
-import { clearSpatialSlot, emptySpatialState, intersects, parallaxAnchor, readSpatialState, resizeSpatialPin, spatialize, spatialKey, type Rect } from "./spatialLayout";
+import { clearSpatialSlot, emptySpatialState, intersects, parallaxAnchor, readSpatialState, resizeSpatialPin, spatialize, spatialKey, spatialRegions, type Rect } from "./spatialLayout";
+import { loadSpatialSides } from "../lib/spatialSides";
 
 // Guarantee: docs/guarantees/shell/spatial-views-preserve-the-editor.md
 describe("spatial rectangles", () => {
+  it("gives disabled side space to the center at desktop and narrow widths", () => {
+    for (const width of [500, 1200]) {
+      const both = spatialRegions(width, 800, [.23, .23], { left: true, right: true });
+      for (const sides of [{ left: true, right: false }, { left: false, right: true }, { left: false, right: false }]) {
+        const regions = spatialRegions(width, 800, [.23, .23], sides);
+        expect(regions.center.w).toBeGreaterThan(both.center.w);
+        for (const side of ["left", "right"] as const) if (!sides[side]) { expect(regions[side].w).toBe(0); expect(regions[`${side}Rail`].w).toBe(0); }
+        expect(regions.center.x).toBeGreaterThanOrEqual(0); expect(regions.center.x + regions.center.w).toBeLessThanOrEqual(width);
+        if (!sides.left && !sides.right) expect(regions.center.h).toBe(800);
+      }
+    }
+  });
+  it("uses left-on/right-off defaults for absent, corrupt or unavailable preferences", () => {
+    for (const raw of [null, "bad", '{"left":"false","right":1}']) expect(loadSpatialSides({ getItem: () => raw })).toEqual({ left: true, right: false });
+    expect(loadSpatialSides({ getItem: () => { throw new Error("unavailable"); } })).toEqual({ left: true, right: false });
+  });
   const rect = (y: number, h = 100): Rect => ({ x: 0, y, w: 300, h });
   it("keeps ordinary and resized slots clear of every pinned rectangle", () => {
     const pins = [rect(100, 200), rect(430, 120)];

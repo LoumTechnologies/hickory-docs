@@ -50,6 +50,9 @@ function makeSession(overrides: Partial<DocSession> = {}): DocSession {
   return {
     docId: "d1",
     doc,
+    liveSource: doc.source,
+    projectContext: "new",
+    setProjectContext: vi.fn(),
     blocks: [],
     fatalError: null,
     renderError: null,

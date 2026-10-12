@@ -26,7 +26,7 @@ export interface LspSession {
 /** Milliseconds of typing quiet before the server is told the text changed. */
 const SYNC_DEBOUNCE_MS = 300;
 
-export function useLsp(realtime: Realtime, docPath: string, text: string): LspSession {
+export function useLsp(realtime: Realtime, docPath: string, text: string, projectContext = "new"): LspSession {
   const client = useMemo(() => {
     const channel = realtime.lsp();
     return channel ? new LspClient(channel) : null;
@@ -34,7 +34,7 @@ export function useLsp(realtime: Realtime, docPath: string, text: string): LspSe
   // This session owns its client: the document's socket goes with the
   // document, and so does everything asked over it.
   useEffect(() => () => client?.dispose(), [client]);
-  return useLspOver(client, docPath, text);
+  return useLspOver(client, docPath, text, projectContext);
 }
 
 // The workspace's one client, shared by every plain file.
@@ -70,8 +70,8 @@ export function useWorkspaceLsp(path: string, text: string): LspSession {
   return useLspOver(client, path, text);
 }
 
-function useLspOver(client: LspClient | null, docPath: string, text: string): LspSession {
-  const uri = useMemo(() => `hick:///${docPath.replace(/^\/+/, "")}`, [docPath]);
+function useLspOver(client: LspClient | null, docPath: string, text: string, projectContext = "new"): LspSession {
+  const uri = useMemo(() => docPath.startsWith("hick-project:///") ? docPath : `hick:///${docPath.replace(/^\/+/, "")}${projectContext === "new" ? "" : `?hick-project=${encodeURIComponent(projectContext)}`}`, [docPath,projectContext]);
   const [diagnostics, setDiagnostics] = useState<LspDiagnostic[]>([]);
   const [ready, setReady] = useState(false);
   const versionRef = useRef(1);

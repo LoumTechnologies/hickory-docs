@@ -150,3 +150,70 @@ fn candidate_git_scope_is_the_chosen_project_directory() {
     assert!(checked(&project_revision::git(&root.join("scope"), "HEAD").unwrap()).is_empty());
     assert!(checked(&project_revision::git(&root.join("scope"), ":index").unwrap()).is_empty());
 }
+// Guarantee: docs/guarantees/literate-projects/candidate-revisions-never-borrow-working-bytes.md
+#[test]
+fn automatic_candidate_selection_checks_scoped_projects_and_unexplained_outputs() {
+    use hick_lang::{ProjectEntry, ProjectTree};
+    let mut snapshot = ProjectTree::default();
+    snapshot
+        .insert("unrelated.txt", ProjectEntry::file(b"outside".to_vec()))
+        .unwrap();
+    snapshot
+        .insert(
+            "app/project.md",
+            ProjectEntry::file(
+                b"<hick:project sources=\"part.md\"/><hick:file path=\"app.ts\">ok\n</hick:file>"
+                    .to_vec(),
+            ),
+        )
+        .unwrap();
+    snapshot
+        .insert(
+            "app/part.md",
+            ProjectEntry::file(b"<hick:project entry=\"project.md\"/>".to_vec()),
+        )
+        .unwrap();
+    snapshot
+        .insert("app/app.ts", ProjectEntry::file(b"ok\n".to_vec()))
+        .unwrap();
+    hickory_cli::project_index::verify_snapshot(&snapshot).unwrap();
+    snapshot
+        .insert("app/omitted.asset", ProjectEntry::file(vec![0, 255]))
+        .unwrap();
+    assert!(
+        hickory_cli::project_index::verify_snapshot(&snapshot)
+            .unwrap_err()
+            .to_string()
+            .contains("omitted.asset")
+    );
+}
+
+// Guarantee: docs/guarantees/literate-projects/candidate-revisions-never-borrow-working-bytes.md
+#[test]
+fn automatic_index_check_and_hook_list_ignore_dirty_project_working_bytes() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    git(root, &["init", "-q"]);
+    std::fs::write(
+        root.join("project.md"),
+        "<hick:project sources=\"part.md\" exclude=\"ordinary.md\"/><hick:file path=\"app\">staged\n</hick:file>",
+    )
+    .unwrap();
+    std::fs::write(root.join("part.md"), "<hick:project entry=\"project.md\"/>").unwrap();
+    std::fs::write(root.join("ordinary.md"), "Ordinary note").unwrap();
+    std::fs::write(root.join("app"), "staged\n").unwrap();
+    git(root, &["add", "."]);
+    std::fs::write(root.join("project.md"), "unparseable unstaged <hick:file>").unwrap();
+    std::fs::write(root.join("part.md"), "unrelated dirty source").unwrap();
+    std::fs::write(root.join("app"), "dirty output").unwrap();
+    let list = dir.path().join(".git/ordinary-list");
+    hickory_cli::project_index::verify(root, Some(&list)).unwrap();
+    assert_eq!(std::fs::read(&list).unwrap(), b"ordinary.md\0");
+    git(root, &["add", "app"]);
+    assert!(
+        hickory_cli::project_index::verify(root, None)
+            .unwrap_err()
+            .to_string()
+            .contains("app")
+    );
+}

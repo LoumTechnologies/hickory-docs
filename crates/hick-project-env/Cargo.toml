@@ -6,6 +6,7 @@ publish.workspace = true
 license.workspace = true
 
 [dependencies]
+hick-lang.workspace = true
 async-trait = "0.1"
 globset = "0.4"
 hickory-workspace = { path = "../hickory-workspace" }

@@ -32,8 +32,24 @@ pub struct Edits {
     pub buffers: Mutex<Vec<EditorBuffer>>,
     changes: Mutex<Vec<Change>>,
     replies: Mutex<HashMap<String, oneshot::Sender<Result<(), String>>>>,
+    revised: Mutex<HashMap<String, String>>,
 }
 impl Edits {
+    pub fn revise(&self, id: &str, replacement: String) -> Result<()> {
+        let mut changes = self.changes.lock().unwrap();
+        let change = changes
+            .iter_mut()
+            .find(|c| c.id == id && c.status == "pending")
+            .context("This proposal is no longer editable.")?;
+        if change.new_text != replacement {
+            change.new_text = replacement.clone();
+            self.revised.lock().unwrap().insert(id.into(), replacement);
+        }
+        Ok(())
+    }
+    pub fn replacement(&self, id: &str) -> Option<String> {
+        self.revised.lock().unwrap().get(id).cloned()
+    }
     pub fn snapshot(&self) -> Value {
         json!({"mode":*self.mode.lock().unwrap(),"changes":*self.changes.lock().unwrap()})
     }

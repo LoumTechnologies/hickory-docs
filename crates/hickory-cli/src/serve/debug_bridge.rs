@@ -48,6 +48,8 @@ pub enum Request {
         /// generates two.
         #[serde(default)]
         program: Option<String>,
+        #[serde(default)]
+        project: Option<String>,
     },
     /// Replace the breakpoint set while a session is running.
     Breakpoints {
@@ -344,17 +346,31 @@ async fn handle_inner(
             doc,
             breakpoints,
             program,
+            project,
         } => {
             let path = resolve(root, &doc);
+            let endpoint = hick_lsp::ProjectEndpoint::parse(project.as_deref().unwrap_or("new"))
+                .map_err(|e| (None, anyhow::Error::msg(e)))?;
             let since = std::time::Instant::now();
             let mut on_build = |line| built.push(build_event(line, since));
             // A document is woven into a scratch copy and debugged there; a
             // file that is not one is debugged as itself, in its own project,
             // with the folder the app opened as the root that bounds the
             // search for that project.
-            let started = if crate::debug_sessions::is_document(&path) {
+            let started = if doc.starts_with("hick-project:///") {
+                let uri = tower_lsp::lsp_types::Url::parse(&doc).map_err(|e| (None, e.into()))?;
                 registry
-                    .start(&path, &breakpoints, program.as_deref(), &mut on_build)
+                    .start_captured(&uri, &breakpoints, &mut on_build)
+                    .await
+            } else if crate::debug_sessions::is_document(&path) {
+                registry
+                    .start_at(
+                        &path,
+                        &breakpoints,
+                        program.as_deref(),
+                        &endpoint,
+                        &mut on_build,
+                    )
                     .await
             } else {
                 registry
@@ -768,6 +784,7 @@ mod tests {
                 doc: "hick:///a.md".into(),
                 breakpoints: vec![],
                 program: None,
+                project: None,
             },
         )
         .await;
@@ -854,7 +871,9 @@ mod tests {
                 doc,
                 breakpoints,
                 program,
+                project,
             } => {
+                assert!(project.is_none());
                 assert_eq!(doc, "hick:///a.md");
                 assert_eq!(breakpoints[0].line, 7);
                 // Optional fields are absent, not zero.

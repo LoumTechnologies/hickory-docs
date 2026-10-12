@@ -113,7 +113,7 @@ pub fn git(root: &Path, revision: &str) -> Result<ProjectTree> {
             &["ls-tree", "-r", "-z", "--full-tree", &revision],
         )?
     };
-    let mut tree = ProjectTree::default();
+    let mut selected = vec![];
     for record in listing.split(|b| *b == 0).filter(|r| !r.is_empty()) {
         let (info, path) = record.split_at(
             record
@@ -144,9 +144,59 @@ pub fn git(root: &Path, revision: &str) -> Result<ProjectTree> {
             "120000" => (EntryKind::Symlink, false),
             _ => bail!("unsupported Git mode {mode} for {path}"),
         };
-        let bytes = command(root, "git", &["cat-file", "blob", oid])?;
+        selected.push((path.to_owned(), kind, executable, oid.to_owned()));
+    }
+    git_blobs(root, selected)
+}
+
+fn git_blobs(root: &Path, selected: Vec<(String, EntryKind, bool, String)>) -> Result<ProjectTree> {
+    use std::{io::Write, process::Stdio};
+    let mut child = Command::new("git")
+        .current_dir(root)
+        .args(["cat-file", "--batch"])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()?;
+    let mut stdin = child.stdin.take().context("Git batch input missing")?;
+    let names = selected
+        .iter()
+        .map(|(_, _, _, oid)| format!("{oid}\n"))
+        .collect::<String>();
+    let writer = std::thread::spawn(move || stdin.write_all(names.as_bytes()));
+    let output = child.wait_with_output()?;
+    writer
+        .join()
+        .map_err(|_| anyhow::anyhow!("Git batch input failed"))??;
+    if !output.status.success() {
+        bail!(
+            "Git blob read failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+    let mut remaining = output.stdout.as_slice();
+    let mut tree = ProjectTree::default();
+    for (path, kind, executable, oid) in selected {
+        let end = remaining
+            .iter()
+            .position(|b| *b == b'\n')
+            .context("Git batch header missing")?;
+        let header = std::str::from_utf8(&remaining[..end])?;
+        let parts: Vec<_> = header.split_whitespace().collect();
+        anyhow::ensure!(
+            parts.len() == 3 && parts[0] == oid && parts[1] == "blob",
+            "Unexpected Git batch object: {header}"
+        );
+        let size: usize = parts[2].parse()?;
+        remaining = &remaining[end + 1..];
+        anyhow::ensure!(
+            remaining.len() > size && remaining[size] == b'\n',
+            "Truncated Git blob: {path}"
+        );
+        let bytes = remaining[..size].to_vec();
+        remaining = &remaining[size + 1..];
         tree.insert(
-            path,
+            &path,
             ProjectEntry {
                 bytes: bytes.into(),
                 kind,

@@ -193,7 +193,30 @@ async fn a_path_that_escapes_the_repository_is_refused() {
 // Writing through the view
 // ---------------------------------------------------------------------------
 
-async fn post(session: &Session, path: &str, body: Value) -> (u16, Value) {
+async fn post(session: &Session, path: &str, mut body: Value) -> (u16, Value) {
+    if path == "/api/merged/write" {
+        if body.get("writable").is_none() {
+            body["writable"] = body["targets"].clone();
+        }
+        if body.get("expected").is_none() {
+            let names = body["targets"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .filter_map(Value::as_str)
+                .collect::<Vec<_>>()
+                .join(",");
+            let view = get(
+                session,
+                &format!(
+                    "/api/merged?path={}&targets={names}",
+                    body["path"].as_str().unwrap()
+                ),
+            )
+            .await;
+            body["expected"] = view["snapshot"].clone();
+        }
+    }
     let resp = reqwest::Client::new()
         .post(format!("{}{path}", session.base))
         .json(&body)
@@ -354,6 +377,44 @@ async fn undo_puts_every_target_back_including_ones_the_write_did_not_reach() {
     assert_eq!(
         std::fs::read_to_string(side_path(&session).join("shared.txt")).unwrap(),
         before_side
+    );
+}
+
+// Guarantee: docs/guarantees/literate-projects/comparison-permissions-and-evidence-are-independent.md
+#[tokio::test]
+async fn displayed_snapshots_permissions_and_undo_never_overwrite_newer_target_edits() {
+    let session = start().await;
+    let (shared, _) = region_indices(&session).await;
+    let view = get(&session, "/api/merged?path=shared.txt").await;
+    let (_,written)=post(&session,"/api/merged/write",serde_json::json!({
+        "path":"shared.txt","targets":["repo","side-tree"],"writable":["repo"],"expected":view["snapshot"],"region":shared,"text":"edited\n","route":"shared"
+    })).await;
+    assert_eq!(written["landed"], 1);
+    assert_eq!(written["partial"], true);
+    assert_eq!(written["undo"].as_array().unwrap().len(), 2);
+    std::fs::write(session.root.join("shared.txt"), "later user edit\n").unwrap();
+    let (_, undo) = post(
+        &session,
+        "/api/merged/undo",
+        serde_json::json!({"path":"shared.txt","undo":written["undo"]}),
+    )
+    .await;
+    // The unreached side is already restored without a write. The newer main
+    // edit still refuses undo, so this is an explicitly partial result.
+    assert_eq!(undo["restored"], 1);
+    assert_eq!(undo["partial"], true);
+    assert_eq!(
+        std::fs::read_to_string(session.root.join("shared.txt")).unwrap(),
+        "later user edit\n"
+    );
+    let (status,_)=post(&session,"/api/merged/write",serde_json::json!({
+        "path":"shared.txt","targets":["repo","side-tree"],"writable":["repo","side-tree"],"expected":view["snapshot"],"region":shared,"text":"stale\n","route":"shared"
+    })).await;
+    assert_eq!(status, 409);
+    assert!(
+        std::fs::read_to_string(side_path(&session).join("shared.txt"))
+            .unwrap()
+            .starts_with("head\n")
     );
 }
 

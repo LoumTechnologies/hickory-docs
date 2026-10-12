@@ -36,6 +36,7 @@ pub mod open_app;
 pub mod output;
 pub mod project_command;
 mod project_documents;
+pub mod project_index;
 pub mod project_revision;
 pub mod python_agent;
 pub mod recipe;
@@ -49,7 +50,6 @@ pub mod tool_install;
 pub mod toolchain;
 pub mod typed_client;
 pub mod up;
-
 /// `hick init` entry points: idempotent local git-repo setup.
 pub use editor_lsp::{AdoptedServer, EditorOutcome, EditorSetup};
 pub use init::{InitReport, print_init_report, run_init};

@@ -74,6 +74,9 @@ pub struct Proposal {
 #[async_trait::async_trait]
 pub trait Review: Send {
     async fn approve(&mut self, proposal: &Proposal) -> Result<bool>;
+    fn replacement(&self) -> Option<String> {
+        None
+    }
     async fn completed(&mut self, _ok: bool) -> Result<()> {
         Ok(())
     }
@@ -265,7 +268,7 @@ impl Host<'_> {
             allowed(name),
             "Tool {name} is not exposed by the Python agent"
         );
-        let args = params.get("arguments").cloned().unwrap_or(json!({}));
+        let mut args = params.get("arguments").cloned().unwrap_or(json!({}));
         ensure!(args.is_object(), "Tool arguments must be an object");
         let doc = args
             .get("doc")
@@ -314,9 +317,28 @@ impl Host<'_> {
                 proposal == self.proposal(name, &args).await?,
                 "Proposal changed during approval; no edit ran"
             );
+            if let Some(replacement) = self.review.replacement() {
+                if name == "create_doc" {
+                    args["input"] = json!(replacement);
+                } else {
+                    args["input"] = json!(replacement);
+                    args["whole"] = json!("true");
+                    args["snapshot"] =
+                        json!(hickory_agent::hashline::LineIndex::new(&proposal.before).snapshot);
+                }
+                self.proposal(name, &args).await?;
+                metadata(
+                    &self.session,
+                    "python-reviewed-replacement",
+                    &json!({"actor":"user-declared","arguments":args}),
+                )?;
+            }
             self.unchecked_edits = true;
             if name == "create_doc" {
-                created = Some((proposal.surface, proposal.after));
+                created = Some((
+                    proposal.surface,
+                    args["input"].as_str().unwrap_or(&proposal.after).to_owned(),
+                ));
             }
         }
         let result = self

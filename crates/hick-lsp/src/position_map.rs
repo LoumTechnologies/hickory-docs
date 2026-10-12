@@ -26,9 +26,65 @@ pub struct PositionMap {
     /// times.
     identity_lines: Option<u32>,
     line_count: u32,
+    project: Option<crate::project_positions::ProjectProjection>,
 }
 
 impl PositionMap {
+    pub fn for_project(
+        entry: &hick_lang::ProjectEntry,
+        sources: std::sync::Arc<std::collections::BTreeMap<String, String>>,
+        primary: &str,
+    ) -> Result<Self, String> {
+        let projection = crate::project_positions::ProjectProjection::new(entry, sources, primary)?;
+        let line_count = projection.output.split_inclusive('\n').count() as u32;
+        let mut mappings = vec![];
+        for origin in &projection.origins {
+            if origin.document != primary {
+                continue;
+            }
+            let source = &projection.sources[primary];
+            let mut offset = 0;
+            for line in projection.output[origin.output.0..origin.output.1].split_inclusive('\n') {
+                let (virtual_line, virtual_column) = crate::project_positions::position(
+                    &projection.output,
+                    origin.output.0 + offset,
+                )
+                .ok_or("Invalid output provenance")?;
+                let (source_line, source_column) =
+                    crate::project_positions::position(source, origin.source.0 + offset)
+                        .ok_or("Invalid source provenance")?;
+                mappings.push(LineMapping {
+                    virtual_line,
+                    source_line,
+                    column_offset: source_column as i32 - virtual_column as i32,
+                });
+                offset += line.len();
+            }
+        }
+        Ok(Self {
+            mappings,
+            identity_lines: None,
+            line_count,
+            project: Some(projection),
+        })
+    }
+    /// Source identity accompanies coordinates; foreign contributors never
+    /// masquerade as positions in the primary document.
+    pub fn is_project(&self) -> bool {
+        self.project.is_some()
+    }
+    pub fn source_document(&self, line: u32, column: u32) -> Option<(Option<String>, u32, u32)> {
+        if let Some(project) = &self.project {
+            return project
+                .source(line, column)
+                .map(|(doc, l, c)| (Some(doc), l, c));
+        }
+        self.to_source(line, column).map(|(l, c)| (None, l, c))
+    }
+    pub fn generated_line_in(&self, document: &str, line: u32) -> Option<u32> {
+        self.project.as_ref()?.generated_line(document, line)
+    }
+
     /// The map for a file that is its own virtual file: `lines` long, every
     /// line and column unchanged in both directions.
     pub fn identity(lines: u32) -> Self {
@@ -36,6 +92,7 @@ impl PositionMap {
             mappings: Vec::new(),
             identity_lines: Some(lines),
             line_count: lines,
+            project: None,
         }
     }
 
@@ -84,6 +141,7 @@ impl PositionMap {
             mappings,
             identity_lines: None,
             line_count: virtual_line,
+            project: None,
         }
     }
 
@@ -126,6 +184,10 @@ impl PositionMap {
     /// Map a virtual file position to a .md source position.
     /// Returns (source_line_0based, source_col_0based).
     pub fn to_source(&self, virtual_line: u32, virtual_col: u32) -> Option<(u32, u32)> {
+        if let Some(project) = &self.project {
+            let (document, line, column) = project.source(virtual_line, virtual_col)?;
+            return (document == project.primary).then_some((line, column));
+        }
         if self.identity_lines.is_some() {
             return Some((virtual_line, virtual_col));
         }
@@ -144,6 +206,9 @@ impl PositionMap {
     /// Map a .md source position to a virtual file position.
     /// Returns (virtual_line_0based, virtual_col_0based).
     pub fn to_virtual(&self, source_line: u32, source_col: u32) -> Option<(u32, u32)> {
+        if let Some(project) = &self.project {
+            return project.generated(&project.primary, source_line, source_col);
+        }
         if self.identity_lines.is_some() {
             return Some((source_line, source_col));
         }

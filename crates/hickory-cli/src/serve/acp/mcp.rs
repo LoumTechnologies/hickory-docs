@@ -167,9 +167,20 @@ async fn exchange(State(bridge): State<Bridge>, Json(message): Json<Value>) -> i
     } else {
         Ok(Default::default())
     };
+    let mut effective_params = params.clone();
     if let Some((preview, change_id)) = reviewed {
         match server.preview_edit(name, args).await {
-            Ok(current) if current == preview => {}
+            Ok(current) if current == preview => {
+                if let Some(text) = bridge.edits.replacement(&change_id) {
+                    effective_params["arguments"]["input"] = json!(text);
+                    if name != "create_doc" {
+                        effective_params["arguments"]["whole"] = json!("true");
+                        effective_params["arguments"]["snapshot"] =
+                            json!(hickory_agent::hashline::LineIndex::new(&preview.1).snapshot);
+                    }
+                    if let Err(e) = _record.context("reviewed-replacement",&json!({"actor":"user-declared","path":preview.0,"input":effective_params["arguments"]})) { return tool_error(id,&format!("Could not record reviewed replacement: {e:#}")); }
+                }
+            }
             _ => {
                 bridge.edits.finished(&change_id, false);
                 return tool_error(
@@ -207,7 +218,7 @@ async fn exchange(State(bridge): State<Bridge>, Json(message): Json<Value>) -> i
         .await
         .map_err(|e| (-32603, e.message().to_string()))
     } else {
-        server.handle(method, &params).await
+        server.handle(method, &effective_params).await
     };
     if representation_call
         && let Err(error) = _record.context(
@@ -359,7 +370,8 @@ async fn buffer_call(
         )
         .await;
     bridge.record.lock().await.context("edit-decision", &json!({"path":buffer.path,"accepted":decision.is_ok(),"error":decision.as_ref().err().map(|e| e.to_string()),"actor":"client-review-policy"}))?;
-    decision?;
+    let id = decision?;
+    let next = bridge.edits.replacement(&id).unwrap_or(next);
     bridge.edits.updated(&buffer, next.clone());
     Ok(format!(
         "Edited the live buffer. Fresh hashes:\n{}",

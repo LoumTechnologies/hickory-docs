@@ -1,5 +1,5 @@
 use crate::render::BlockModelInput;
-use hick_blocks::{AttrSpec, Block, Element, span_of};
+use hick_blocks::{AttrSpec, Block, Descend, Element, span_of};
 use hick_lang::HickTag;
 
 pub(crate) struct PatchElement;
@@ -21,5 +21,25 @@ impl<'a> Element<BlockModelInput<'a>> for PatchElement {
                 .with("project_context", "New · completed project")
                 .with("old_context", "Old · scope input"),
         )
+    }
+}
+
+pub(crate) struct ScopeElement;
+impl<'a> Element<BlockModelInput<'a>> for ScopeElement {
+    fn name(&self) -> &'static str {
+        "scope"
+    }
+    fn attributes(&self) -> &'static [AttrSpec] {
+        const ATTRS: &[AttrSpec] = &[
+            AttrSpec::required("id", "explicit atomic project boundary"),
+            AttrSpec::optional("after", "scope input constructions"),
+        ];
+        ATTRS
+    }
+    fn render(&self, _tag: &HickTag, _cx: &BlockModelInput<'a>) -> Option<Block> {
+        None
+    }
+    fn descend(&self) -> Descend {
+        Descend::All
     }
 }

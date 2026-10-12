@@ -80,6 +80,20 @@ async fn main() {
                 if prompt == "hang" {
                     continue;
                 }
+                if prompt == "literate-native" {
+                    let root = std::path::Path::new(&cwd);
+                    std::fs::write(root.join("app.ts"), "abandoned draft\n").unwrap();
+                    update(
+                        json!({"sessionUpdate":"tool_call","toolCallId":"native-draft","title":"Native draft","status":"completed","rawOutput":"abandoned draft"}),
+                    );
+                    std::fs::write(root.join("app.ts"), "native completed\n").unwrap();
+                    std::thread::sleep(std::time::Duration::from_millis(300));
+                    update(
+                        json!({"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"Kept the completed native change."}}),
+                    );
+                    result(id, json!({"stopReason":"end_turn"}));
+                    continue;
+                }
                 if prompt == "untitled-paragraph" {
                     // Deliberately omit a citation: context must still accompany final speech.
                     update(

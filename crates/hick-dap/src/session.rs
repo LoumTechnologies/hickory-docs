@@ -20,7 +20,9 @@
 //! writes a document is a run or a person.
 
 use std::collections::HashMap;
-use std::path::{Path, PathBuf};
+#[cfg(test)]
+use std::path::Path;
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -325,105 +327,7 @@ pub struct Session {
     exit: Arc<std::sync::Mutex<Option<Exit>>>,
 }
 
-/// Document <-> generated-file coordinates for the files a cell can stop in.
-pub struct Mapping {
-    /// Generated file path (as the adapter sees it) -> the document's mapping.
-    files: HashMap<PathBuf, hick_lsp::position_map::PositionMap>,
-    /// The document's own path, for naming.
-    document: PathBuf,
-    /// True when `document` is a plain file being debugged as itself: every
-    /// line maps to the same line, and the "generated file" is the file.
-    plain: bool,
-}
-
-impl Mapping {
-    /// The mapping for a file that is not a document — `src/main.rs`,
-    /// `app.py` — debugged as itself, at its own path.
-    ///
-    /// The same move `hick-lsp` makes for a plain file's language server:
-    /// skip the weave and hand the file over as it is, so every caller that
-    /// translates through a `Mapping` works unchanged. A line is its own
-    /// line in both directions, and no line is outside the file.
-    pub fn identity(file: &Path) -> Self {
-        Self {
-            files: HashMap::new(),
-            document: file.to_path_buf(),
-            plain: true,
-        }
-    }
-
-    /// Whether this maps a plain file to itself.
-    pub fn is_identity(&self) -> bool {
-        self.plain
-    }
-
-    /// Build the mapping for a document by weaving it the way the language
-    /// server does.
-    pub fn for_document(document: &Path, source: &str, workdir: &Path) -> Result<Self> {
-        let state = hick_lsp::document::HickDocumentState::from_source(source)
-            .map_err(|e| anyhow::anyhow!("{e}"))?;
-        Self::for_state(document, &state, workdir)
-    }
-
-    /// Map only surviving bytes from the selected complete project state.
-    pub fn for_state(
-        document: &Path,
-        state: &hick_lsp::document::HickDocumentState,
-        workdir: &Path,
-    ) -> Result<Self> {
-        let files = crate::project::document_maps(state, workdir);
-        Ok(Self {
-            files,
-            document: document.to_path_buf(),
-            plain: false,
-        })
-    }
-
-    /// Document line -> (generated file, line) for setting a breakpoint.
-    pub fn to_generated(&self, line: u32) -> Option<(PathBuf, u32)> {
-        if self.plain {
-            return Some((self.document.clone(), line));
-        }
-        crate::project::generated_line(&self.files, line)
-    }
-
-    /// (generated file, line) -> document line for showing a frame.
-    pub fn to_document(&self, path: &Path, line: u32) -> Option<u32> {
-        if self.plain {
-            return same_file(path, &self.document).then_some(line);
-        }
-        let map = self.files.get(path)?;
-        map.to_source(line, 0).map(|(l, _)| l)
-    }
-
-    pub fn document(&self) -> &Path {
-        &self.document
-    }
-
-    /// Every generated file this document produces, for the launch config.
-    pub fn generated_files(&self) -> Vec<PathBuf> {
-        if self.plain {
-            return vec![self.document.clone()];
-        }
-        self.files.keys().cloned().collect()
-    }
-}
-
-/// Whether two paths name one file.
-///
-/// Adapters report a frame's source in their own spelling — codelldb gives
-/// the path cargo compiled with, debugpy the path it was launched with — so
-/// the comparison is made on the canonical path when both resolve, and on
-/// the bytes when either does not.
-fn same_file(a: &Path, b: &Path) -> bool {
-    if a == b {
-        return true;
-    }
-    match (a.canonicalize(), b.canonicalize()) {
-        (Ok(a), Ok(b)) => a == b,
-        _ => false,
-    }
-}
+use crate::mapping::{Mapping, same_file};
 
 /// How the program under test is started.
 pub struct Launch {
@@ -924,9 +828,13 @@ impl Session {
                     .unwrap_or(1)
                     .max(1) as u32
                     - 1;
-                let document_line = path
+                let source_location = path
                     .as_deref()
-                    .and_then(|p| self.mapping.to_document(p, raw_line));
+                    .and_then(|p| self.mapping.source_location(p, raw_line));
+                let document_line = source_location
+                    .as_ref()
+                    .filter(|(p, _)| same_file(p, self.mapping.document()))
+                    .map(|(_, line)| *line);
                 Frame {
                     id: frame.get("id").and_then(Value::as_i64).unwrap_or(0),
                     name: frame
@@ -935,8 +843,14 @@ impl Session {
                         .unwrap_or("?")
                         .to_string(),
                     line: document_line,
-                    source_line: path.as_ref().map(|_| raw_line),
-                    source: path.map(|p| p.to_string_lossy().to_string()),
+                    source_line: source_location
+                        .as_ref()
+                        .map(|(_, line)| *line)
+                        .or_else(|| path.as_ref().map(|_| raw_line)),
+                    source: source_location
+                        .map(|(p, _)| p)
+                        .or(path)
+                        .map(|p| p.to_string_lossy().to_string()),
                     in_document: document_line.is_some(),
                 }
             })

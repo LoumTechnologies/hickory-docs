@@ -58,12 +58,14 @@ export const OPEN_LOCATION_EVENT = "hickory:open-location";
 export interface OpenLocation {
   path: string;
   line: number;
+  projectContext?: string;
 }
 
 /** Ask the workspace to open `path` and put the caret on `line`. */
-export function openLocation(path: string, line: number): void {
+export function openLocation(path: string, line: number, projectContext?: string): void {
+  if (projectContext) rememberProjectContext(path,projectContext);
   window.dispatchEvent(
-    new CustomEvent<OpenLocation>(OPEN_LOCATION_EVENT, { detail: { path, line } }),
+    new CustomEvent<OpenLocation>(OPEN_LOCATION_EVENT, { detail: { path, line, ...(projectContext ? {projectContext} : {}) } }),
   );
 }
 
@@ -79,7 +81,8 @@ export function onOpenLocation(handler: (location: OpenLocation) => void): () =>
 
 /** A `hick:///<path>` URI's path, or null for any other scheme. */
 export function pathOfDocUri(uri: string): string | null {
-  return uri.startsWith("hick:///") ? uri.slice("hick:///".length) : null;
+  if (!uri.startsWith("hick:///")) return null;
+  try { return decodeURIComponent(new URL(uri).pathname.replace(/^\//,"")); } catch { return null; }
 }
 
 // "Show that terminal" — from a pane that started a session and cannot open
@@ -104,3 +107,9 @@ export function onShowTerminal(handler: (session: { id: string; title: string })
 export function resetReveals(): void {
   pending.clear();
 }
+
+const projectContexts = new Map<string,string>();
+const contextListeners = new Set<(path: string,context: string) => void>();
+export function projectContextFor(path: string): string { return projectContexts.get(path) ?? "new"; }
+export function rememberProjectContext(path: string,context: string) { projectContexts.set(path,context); contextListeners.forEach(listener => listener(path,context)); }
+export function onProjectContext(listener: (path: string,context: string) => void) { contextListeners.add(listener); return () => {contextListeners.delete(listener);}; }

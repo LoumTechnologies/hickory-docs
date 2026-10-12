@@ -11,7 +11,8 @@ export function AgentChanges({ doc, state, running, apply, update }: {
 }) {
   const [error, setError] = useState<string | null>(null);
   const inflight = useRef(new Set<string>());
-  const decide = async (change: AgentChange, accepted: boolean) => {
+  const decide = async (change: AgentChange, accepted: boolean, replacement?: string) => {
+    const revised = replacement === undefined ? change : { ...change, newText: replacement };
     if (inflight.current.has(change.id)) return;
     inflight.current.add(change.id); setError(null);
     let failure: string | undefined;
@@ -19,10 +20,10 @@ export function AgentChanges({ doc, state, running, apply, update }: {
     try {
       if (accepted && change.editor) {
         if (!apply) throw new Error("Open this document's workspace editor before accepting its change.");
-        await apply(change);
+        await apply(revised);
       }
     } catch (e) { failure = e instanceof Error ? e.message : String(e); currentText = e instanceof AgentEditConflict ? e.currentText : undefined; setError(failure); }
-    try { update(await acpApi.edits(doc, { id: change.id, accepted: accepted && !failure, error: failure, ...(currentText !== undefined ? { current_text: currentText } : {}) }, state?.backend)); }
+    try { update(await acpApi.edits(doc, { id: change.id, accepted: accepted && !failure, error: failure, ...(replacement !== undefined ? { new_text: replacement } : {}), ...(currentText !== undefined ? { current_text: currentText } : {}) }, state?.backend)); }
     catch (e) { setError(e instanceof Error ? e.message : String(e)); }
     finally { inflight.current.delete(change.id); }
   };
@@ -33,7 +34,7 @@ export function AgentChanges({ doc, state, running, apply, update }: {
       const id = `proposal:${doc}:${change.id}`;
       publishReading(id, { title: "Proposed change", path: change.path ?? change.name,
         before: change.oldText, after: change.newText, status: change.status,
-        decide: accepted => latest.current(change, accepted) });
+        editable: change.status === "pending", decide: (accepted, text) => latest.current(change, accepted, text) });
       if (change.status === "pending" && !opened.current.has(id)) {
         opened.current.add(id); openReading(id, `${change.path ?? change.name} · review`);
       }

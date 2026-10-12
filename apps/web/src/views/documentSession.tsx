@@ -40,7 +40,7 @@ import { positionToUtf16 } from "../lsp/positions";
 import { sourcePositionAt, type OutputProvenance } from "../lsp/outputMapping";
 import type { LspLocation } from "../lsp/client";
 import { FILES_CHANGED_EVENT } from "../shell/FolderTreePane";
-import { openLocation, pathOfDocUri } from "../lib/revealLine";
+import { openLocation, pathOfDocUri, projectContextFor, onProjectContext, rememberProjectContext } from "../lib/revealLine";
 import { publishPausedElsewhere } from "../lib/pausedElsewhere";
 import { navigate } from "../router";
 
@@ -87,6 +87,8 @@ export interface DocSession {
   /** Live text differs from the last confirmed disk bytes. */
   dirty: boolean;
   liveSource: string;
+  projectContext: string;
+  setProjectContext: (selection: string) => void;
   savedSource: string | null;
   runningCells: Set<string>;
   execBlocks: ExecBlock[];
@@ -298,7 +300,14 @@ function useDocumentSession(
   // The debugger. It is a READER: nothing it does can change the document,
   // its generated files, or a recorded transcript — the channel carries no
   // edit operation and the debuggee runs in a scratch copy.
-  const debug = useDebugger(realtime, doc?.path ?? "");
+  const [projectContext,setProjectSelection] = useState("new");
+  const setProjectContext = useCallback((selection: string) => { setProjectSelection(selection); if (doc?.path) rememberProjectContext(doc.path,selection); },[doc?.path]);
+  useEffect(() => {
+    if (!doc?.path) return;
+    setProjectSelection(projectContextFor(doc.path));
+    return onProjectContext((path,selection) => { if (path === doc.path) setProjectSelection(selection); });
+  },[doc?.path]);
+  const debug = useDebugger(realtime, doc?.path ?? "", projectContext);
   const debugRef = useRef(debug);
   debugRef.current = debug;
   const editorRef = useRef<EditorView | null>(null);
@@ -709,7 +718,7 @@ function useDocumentSession(
   // One LSP session per document, shared by both editors. It is fed the LIVE
   // text (unsaved edits included) so positions always match the screen.
   const liveSource = dirtySource ?? doc?.source ?? "";
-  const lsp = useLsp(realtime, doc?.path ?? "", liveSource);
+  const lsp = useLsp(realtime, doc?.path ?? "", liveSource,projectContext);
   // The callbacks below read the live text at the moment they are CALLED,
   // through a ref, rather than closing over it: closing over it would give
   // them a new identity on every keystroke, and the session they belong to
@@ -733,7 +742,7 @@ function useDocumentSession(
       const targetPath = pathOfDocUri(target.uri);
       const ownPath = (docPathRef.current ?? "").replace(/^\/+/, "");
       if (targetPath !== null && targetPath.replace(/^\/+/, "") !== ownPath) {
-        openLocation(targetPath, target.range.start.line + 1);
+        openLocation(targetPath, target.range.start.line + 1, new URL(target.uri).searchParams.get("hick-project") ?? undefined);
         return;
       }
       const text = liveSourceRef.current;
@@ -865,6 +874,8 @@ function useDocumentSession(
     outputs,
     openOutputs,
     docEditor,
+    projectContext,
+    setProjectContext,
     realtime,
     debug,
     selectSpan,

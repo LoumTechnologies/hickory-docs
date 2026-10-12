@@ -431,7 +431,7 @@ impl Server {
         if let Some(u) = args.get("upstream").and_then(Value::as_str) {
             tool_args.push(("doc".into(), u.to_string()));
         }
-        for key in ["path", "run", "after", "snapshot"] {
+        for key in ["path", "run", "after", "snapshot", "whole"] {
             if let Some(v) = args.get(key).and_then(Value::as_str) {
                 tool_args.push((key.to_string(), v.to_string()));
             }

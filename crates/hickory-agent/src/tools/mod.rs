@@ -1,5 +1,3 @@
-//! The agent's first-class document edit tool set.
-//!
 //! Doctrine (see [`crate::protocol::TOOLS_SYSTEM_PROMPT`]): read both
 //! surfaces; write CODE through the OUTPUT (byte-exact via lineage);
 //! escalate to the DOCUMENT for structural/prose work and whenever lineage
@@ -15,6 +13,9 @@
 //! error, never a silently misapplied edit.
 pub mod hashline;
 mod preview;
+mod verify;
+mod weave;
+use weave::weave_source;
 mod receipts;
 use anyhow::{Context as _, Result};
 use hick_exec::node::FileContent;
@@ -29,7 +30,9 @@ use std::sync::Arc;
 
 use crate::protocol::ToolInvocation;
 mod read_file;
-use hashline::{Anchor, LineIndex, ResolvedAnchor, parse_anchor, resolve_anchor};
+use hashline::LineIndex;
+mod edit_resolve;
+use edit_resolve::resolve_edit;
 pub(crate) use read_file::read_file;
 
 /// The result of one tool invocation, returned to the model as a
@@ -762,214 +765,6 @@ impl EditSession {
         )
         .with_wrote(wrote)
     }
-
-    // -- verify ------------------------------------------------------------
-
-    /// Execute the document for real through the session's executor,
-    /// evaluate every expectation, and write the produced output files next
-    /// to the document (so a following `hick test` sees no drift).
-    async fn verify(&mut self, executor: Arc<dyn Executor>) -> ToolOutcome {
-        const NAME: &str = "verify";
-        if let Err(e) = self.sync_with_disk().await {
-            return ToolOutcome::err(NAME, e);
-        }
-        // Verify the WHOLE editable set, not just the primary.
-        //
-        // The agent can edit any document in the closure, so a verify scoped
-        // to the primary is a feedback loop that lies: edit a decision two
-        // hops up, run verify, get PASS — while that document's own outputs
-        // were never re-woven and `hick test` fails on every one of them.
-        // Observed exactly once in a live run, where the agent then reported
-        // success in good faith. Verification scope must equal edit scope.
-        let upstream_report = self.verify_upstream(executor.clone()).await;
-        let project_dir = self
-            .doc_path
-            .parent()
-            .unwrap_or(Path::new("."))
-            .to_path_buf();
-        let sources = vec![(self.doc_name.as_str(), self.source.as_str())];
-        let config = hick_literate::PipelineConfig {
-            working_dir: Some(project_dir.clone()),
-            max_rounds: 1,
-            on_exec: None,
-            ..Default::default()
-        };
-        let result =
-            match hick_literate::run_pipeline_live(&sources, &config, &self.params, None, executor)
-                .await
-            {
-                Ok(r) => r,
-                Err(e) => return ToolOutcome::err(NAME, format!("execution failed: {e}")),
-            };
-
-        let mut failures = Vec::new();
-        for outcome in &result.expectations {
-            if !outcome.passed {
-                failures.push(format!(
-                    "expectation at {}:{} (container {}) failed: {}",
-                    outcome.doc,
-                    outcome.line,
-                    outcome.container.as_deref().unwrap_or("agent cell"),
-                    outcome.detail
-                ));
-            }
-        }
-
-        // Write outputs to disk (like `hick run`), so document and
-        // committed outputs stay in sync.
-        let mut written = Vec::new();
-        for (rel_path, content) in &result.files {
-            let full = project_dir.join(rel_path);
-            if let Some(parent) = full.parent()
-                && !parent.as_os_str().is_empty()
-                && let Err(e) = std::fs::create_dir_all(parent)
-            {
-                failures.push(format!("could not create {}: {e}", parent.display()));
-                continue;
-            }
-            let write_result = match content {
-                FileContent::Text(s) => std::fs::write(&full, s),
-                FileContent::Binary(data) => match data.to_bytes() {
-                    Ok(bytes) => std::fs::write(&full, bytes),
-                    Err(e) => {
-                        failures.push(format!("could not encode {rel_path}: {e}"));
-                        continue;
-                    }
-                },
-            };
-            match write_result {
-                Ok(()) => written.push(rel_path.clone()),
-                Err(e) => failures.push(format!("could not write {}: {e}", full.display())),
-            }
-        }
-        written.sort();
-
-        // Refresh the session's weave state from the executed result: real
-        // transcripts give the freshest provenance.
-        let mut files = HashMap::new();
-        for (path, content) in &result.files {
-            if let FileContent::Text(s) = content {
-                files.insert(path.clone(), s.clone());
-            }
-        }
-        let provenance = result
-            .provenance_maps
-            .iter()
-            .map(|(p, m)| (p.clone(), hickory_lineage::from_provenance_map(m)))
-            .collect();
-        self.weave = WeaveState { files, provenance };
-
-        let checked = result.expectations.len();
-        failures.extend(upstream_report.failures);
-        if failures.is_empty() {
-            ToolOutcome::ok(
-                NAME,
-                format!(
-                    "PASS — executed the document: {checked} expectation(s) met; wrote {} output \
-                     file(s): {}{}",
-                    written.len(),
-                    if written.is_empty() {
-                        "(none)".to_string()
-                    } else {
-                        written.join(", ")
-                    },
-                    upstream_report.note
-                ),
-            )
-        } else {
-            ToolOutcome::err(
-                NAME,
-                format!(
-                    "FAIL — {} problem(s):\n{}",
-                    failures.len(),
-                    failures.join("\n")
-                ),
-            )
-        }
-    }
-
-    /// Re-run every upstream document and write its outputs.
-    ///
-    /// Each is executed on its own, in its own directory, because that is
-    /// where its outputs are committed — an upstream document woven into the
-    /// primary's directory would create files nobody checks and leave the
-    /// real ones stale.
-    async fn verify_upstream(&self, executor: Arc<dyn Executor>) -> UpstreamReport {
-        let mut failures = Vec::new();
-        let mut verified = 0usize;
-        for (path, _) in self.upstream.iter() {
-            let Ok(source) = std::fs::read_to_string(path) else {
-                failures.push(format!("upstream {}: could not be read", path.display()));
-                continue;
-            };
-            let name = path.display().to_string();
-            let dir = path.parent().unwrap_or(Path::new(".")).to_path_buf();
-            let config = hick_literate::PipelineConfig {
-                working_dir: Some(dir.clone()),
-                max_rounds: 1,
-                on_exec: None,
-                ..Default::default()
-            };
-            let sources = vec![(name.as_str(), source.as_str())];
-            let result = match hick_literate::run_pipeline_live(
-                &sources,
-                &config,
-                &self.params,
-                None,
-                executor.clone(),
-            )
-            .await
-            {
-                Ok(r) => r,
-                Err(e) => {
-                    failures.push(format!("upstream {name}: execution failed: {e}"));
-                    continue;
-                }
-            };
-            for outcome in &result.expectations {
-                if !outcome.passed {
-                    failures.push(format!(
-                        "upstream {name}: expectation at line {} failed: {}",
-                        outcome.line, outcome.detail
-                    ));
-                }
-            }
-            for (rel_path, content) in &result.files {
-                let full = dir.join(rel_path);
-                if let Some(parent) = full.parent()
-                    && !parent.as_os_str().is_empty()
-                    && let Err(e) = std::fs::create_dir_all(parent)
-                {
-                    failures.push(format!("upstream {name}: could not create {parent:?}: {e}"));
-                    continue;
-                }
-                let write = match content {
-                    FileContent::Text(t) => std::fs::write(&full, t),
-                    FileContent::Binary(d) => match d.to_bytes() {
-                        Ok(b) => std::fs::write(&full, b),
-                        Err(e) => {
-                            failures
-                                .push(format!("upstream {name}: could not encode {rel_path}: {e}"));
-                            continue;
-                        }
-                    },
-                };
-                if let Err(e) = write {
-                    failures.push(format!(
-                        "upstream {name}: could not write {}: {e}",
-                        full.display()
-                    ));
-                }
-            }
-            verified += 1;
-        }
-        let note = if verified == 0 {
-            String::new()
-        } else {
-            format!("; also re-wove {verified} upstream document(s)")
-        };
-        UpstreamReport { failures, note }
-    }
 }
 
 /// Result of re-running the upstream documents during `verify`.
@@ -1022,99 +817,6 @@ pub async fn execute_tool(
 // ---------------------------------------------------------------------------
 // Shared helpers
 // ---------------------------------------------------------------------------
-
-/// A resolved hashline edit: byte range, replacement text, and the line the
-/// edited region starts on (for rendering the result).
-struct ResolvedEdit {
-    start: usize,
-    end: usize,
-    text: String,
-    first_line: usize,
-}
-
-/// Resolve run/after/occurrence + `<hick:input>` into a byte edit.
-fn resolve_edit(
-    index: &LineIndex,
-    inv: &ToolInvocation,
-    resynced: bool,
-) -> Result<ResolvedEdit, String> {
-    if resynced {
-        return Err("The document or an upstream changed since the previous surface. Read it again before editing; nothing was changed.".into());
-    }
-    if let Some(snapshot) = inv.arg("snapshot")
-        && snapshot != index.snapshot
-    {
-        return Err("The supplied snapshot no longer matches the whole surface, including the range interior. Read it again; nothing was changed.".into());
-    }
-    let anchor: Anchor = parse_anchor(inv.arg("run"), inv.arg("after")).map_err(|e| e.0)?;
-    let occurrence = match inv.arg("occurrence") {
-        Some(v) => Some(
-            v.parse::<usize>()
-                .map_err(|_| format!("occurrence '{v}' is not a positive integer"))?,
-        ),
-        None => None,
-    };
-    let resolved = resolve_anchor(index, &anchor, occurrence).map_err(|e| {
-        if resynced {
-            format!(
-                "the document changed on disk since you last read it; it was re-woven \
-                 automatically, but this edit's anchors no longer resolve: {}",
-                e.0
-            )
-        } else {
-            e.0
-        }
-    })?;
-
-    let payload = inv.input.clone();
-    match resolved {
-        ResolvedAnchor::Run { first, last } => match payload {
-            Some(text) => Ok(ResolvedEdit {
-                start: index.starts[first],
-                end: index.content_end(last),
-                text,
-                first_line: first,
-            }),
-            // No payload: delete the whole run including its newlines.
-            None => Ok(ResolvedEdit {
-                start: index.starts[first],
-                end: index.line_end(last),
-                text: String::new(),
-                first_line: first,
-            }),
-        },
-        ResolvedAnchor::After(at) => {
-            let text = payload
-                .ok_or_else(|| "insertion (after=...) needs an <hick:input> payload".to_string())?;
-            match at {
-                None => Ok(ResolvedEdit {
-                    start: 0,
-                    end: 0,
-                    text: format!("{text}\n"),
-                    first_line: 0,
-                }),
-                Some(i) => {
-                    let last_line = i + 1 == index.lines.len();
-                    if last_line && !index.trailing_newline {
-                        Ok(ResolvedEdit {
-                            start: index.content_end(i),
-                            end: index.content_end(i),
-                            text: format!("\n{text}"),
-                            first_line: i + 1,
-                        })
-                    } else {
-                        Ok(ResolvedEdit {
-                            start: index.line_end(i),
-                            end: index.line_end(i),
-                            text: format!("{text}\n"),
-                            first_line: i + 1,
-                        })
-                    }
-                }
-            }
-        }
-    }
-}
 
 /// Every tag in a document, nested ones included.
 ///
@@ -1308,39 +1010,6 @@ fn parse_conflict_location(detail: &str) -> Option<(String, usize, usize)> {
     Some((doc, s.parse().ok()?, e.parse().ok()?))
 }
 
-/// Weave (no execution) one document source, mirroring `hick weave`:
-/// cached transcripts are used when the project has a transcript cache.
-async fn weave_source(
-    doc_path: &Path,
-    doc_name: &str,
-    source: &str,
-    params: &[(String, String)],
-) -> Result<WeaveState> {
-    // Fail early with the parse error rather than a pipeline error.
-    hick_lang::parse(source).map_err(|e| anyhow::anyhow!("parse error in {doc_name}: {e}"))?;
-
-    let project_dir = doc_path.parent().unwrap_or(Path::new("."));
-    let cc =
-        hick_literate::cache::CacheConfig::new(project_dir, hick_literate::cache::CacheMode::Reuse);
-    let cache_config = cc.cache_dir.is_dir().then_some(&cc);
-
-    let sources = vec![(doc_name, source)];
-    let result = hick_literate::run_pipeline_weave(&sources, params, cache_config).await?;
-
-    let mut files = HashMap::new();
-    for (path, content) in &result.files {
-        if let FileContent::Text(s) = content {
-            files.insert(path.clone(), s.clone());
-        }
-    }
-    let provenance = result
-        .provenance_maps
-        .iter()
-        .map(|(p, m)| (p.clone(), hickory_lineage::from_provenance_map(m)))
-        .collect();
-    Ok(WeaveState { files, provenance })
-}
-
 /// Every document reachable from `doc_path` through `hick:upstream`, nearest
 /// first, mapped to its current source.
 ///
@@ -1368,7 +1037,8 @@ fn project_root(doc_path: &Path) -> PathBuf {
 }
 
 fn upstream_closure(doc_path: &Path) -> std::collections::BTreeMap<PathBuf, String> {
-    let mut out = std::collections::BTreeMap::new();
+    let mut out = weave::declared_sources(doc_path, None).unwrap_or_default();
+    out.remove(doc_path);
     let mut seen: std::collections::HashSet<PathBuf> = std::collections::HashSet::new();
     let mut queue = vec![doc_path.to_path_buf()];
     seen.insert(normalize(doc_path));

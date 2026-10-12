@@ -26,3 +26,11 @@
 
 /* A shell pane shares the workspace's ribbon layer; only a floating dock is raised. */
 .chat-dock.chat-dock--pane { z-index: auto; }
+
+.comparison-panes { display: grid; min-width: 0; }
+.comparison-panes--side-by-side { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+.comparison-side { min-width: 0; border: 1px solid var(--border); }
+.comparison-side h3 { font-size: 0.8rem; padding: 0.5rem; margin: 0; }
+.comparison-side .cm-editor { min-height: 4rem; height: auto; }
+.comparison-side .cm-scroller { overflow: auto; }
+@media (max-width: 600px) { .comparison-panes--side-by-side { grid-template-columns: 1fr; } }

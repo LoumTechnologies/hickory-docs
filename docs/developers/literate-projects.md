@@ -3,8 +3,9 @@
 Use a declared project when Markdown must construct the complete program without
 Git history, generated source, caches or configuration sidecars. This is the
 portable construction subset of `docs/specs/freeform/literate-changesets.md`.
-Cell execution remains a separate operation; unsupported cells and workspace
-contributions produce a named error during pure project generation.
+Cell execution remains a separate operation. Declared fragment contributions,
+upstream fragment inputs, and kept cell recordings can participate in pure
+generation; unresolved runtime inputs produce a named error.
 
 The entry Markdown declares discovery and inventory:
 
@@ -30,7 +31,8 @@ inventory or source settings of its own.
 
 Inventory is every expected file except the source Markdown closure, declared
 woven reading targets, the language-defined root metadata directories `.git/`,
-`.hg/`, `.hick-cache/`, `.hick-journal/`, and explicit excluded paths. Exclusions ending in `/` select directory prefixes; other
+`.hg/`, `.hick-cache/`, `.hick-journal/`, `sessions/`, and explicit excluded paths.
+Exclusions ending in `/` select directory prefixes; other
 exclusions select exact paths. There is no extension filter, glob, filename-order
 rule or Git-ignore fallback. Include manifests, lockfiles, migrations and assets
 in the construction. An unexplained file causes complete-tree verification to
@@ -114,22 +116,56 @@ correctness or explanatory truth.
 `New` is the completed project closure for native LSP and document debug staging.
 It includes later changes to every file, even if the displayed patch describes
 an incomplete local state. `Old` is the scope input; it is empty for maintained
-source and cannot be launched as a program. Explicit Old/local state selection
-is available through `hick_lsp::ProjectEndpoint`, not yet through a toolbar
-selector. Materializations get independent temporary identities. Endpoint maps
-refuse removed or ambiguous bytes; the older single-document protocol omits
-foreign-document origins rather than returning an unrelated line.
+source and cannot be launched as a program. The document's **Project tools**
+selector defaults to New and offers Old, explicit scopes, and advanced intermediate
+states. A `<h:scope id="feature" after="base">` groups its construction acts into
+one completed endpoint. Grouping does not order conflicting siblings: their
+`after` dependencies must still establish one input.
+
+Patch blocks show an editable New code pane directly. Edits automatically
+regenerate the patch after a short typing pause and check the complete closure
+before updating the owning document. An early edit that invalidates a later
+patch stays visible as an unsaved draft with an error; correct it to resume saving.
+Old code is read-only by default. **Patch options** contains the file picker and
+the choice to edit authored Old code instead; the picker starts with a file this
+patch changes. Local patch text and atomic project contexts remain separate.
+**Enable language tools** explicitly registers a captured complete project;
+rendering the comparison launches no tools. Materialization occurs when a native
+tool needs it and uses an independent temporary identity. Endpoint maps refuse
+removed or ambiguous bytes. Native mappings carry contributing document identity
+and convert UTF-8 bytes to UTF-16 positions at the protocol boundary.
 
 The portable APIs also provide `ProjectComparison` with N sources and four edit
 policies, exact patch regeneration with downstream validation,
 `AgentProjectCapture` for verified textual A-to-B reconstruction, and
 `IncorporationCandidate` for the separate empty-tree-to-B check and destination
-recheck. These are service contracts. Automatic harness capture, AI incorporation,
-editable comparison UI and multi-worktree undo are still pending integration.
+recheck. Comparisons share inline, side-by-side and patch layouts. Immutable
+readings can fork into editable drafts; typing invalidates equality evidence.
+A rename retains each revision's own filename for project tools. Merged-view
+targets require an explicit writable selection and display per-target write/undo
+results; shared writes are not a filesystem transaction.
+
+For a completed built-in, Python or ACP turn in a declared project, select
+**Review completed project changes**. Starting capture includes dirty source
+outputs. Native writes without an exclusive writer identity require attribution
+resolution; that resolution is a user declaration, not authenticated authorship.
+**Verify A-to-B explanation** constructs and checks the successful transition.
+**Apply to literate source** asks AI for a complete maintained-source candidate,
+verifies it from an empty tree, and presents source changes through the existing
+document review queue. Reviewed edits are checked again before publication.
+Destination changes or source inequality fail explicitly; already-completed code
+is not written a second time. The actual session keeps the abandoned work.
+
+Textual transition reconstruction currently refuses changed binary entries and
+metadata; maintained-source construction still supports them. Live model quality,
+explanatory truth, and additional native platforms need separate evidence.
 The Mercurial adapter has a real provider test in `just test-literate-projects-hg`.
-Automatic commit-hook selection of project entry checks remains pending; the
-root recipe `just verify-literate-project-index project.md <project-directory>`
-performs exact staged verification explicitly.
+`hick project verify-index` discovers declared projects in the frozen index and
+checks their complete inventories. The hook installed by `hick init` uses that
+command. An ordinary note inside a declared project's root must be an input,
+constructed output, or explicitly excluded; no Markdown extension filter hides
+unexplained source files. The root recipe `just verify-literate-project-index
+project.md <project-directory>` checks a selected project explicitly.
 
 The runnable two-file fixture is
 `crates/hick-lang/tests/fixtures/literate-project/`. Its caller patch introduces

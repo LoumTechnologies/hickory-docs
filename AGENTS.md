@@ -16,8 +16,11 @@ native tools materialize only when needed. Project LSP/DAP default to atomic
 scope endpoints, never a half-applied patch sequence. Declared portable projects,
 exact patch replay, complete inventory comparison, candidate Git/index checks,
 shared patch rendering and default native project staging are implemented; the
-plan records the remaining comparison-editor, harness/incorporation and
-multi-target integration. Work items and structural merging are out of scope.
+working continuation adds comparison editing, captured project tools, harness
+incorporation, frozen-index discovery, and guarded multi-target writes. The plan
+and `docs/guarantees/literate-projects/comparison-integration-evidence.md` record
+executed evidence and remaining limits. Work items and structural merging are
+out of scope.
 
 **Browser embedding (2026-10-04).** `browser-embedding.md` widens the
 frontend decision: a host-controlled React editor, browser-local storage and a

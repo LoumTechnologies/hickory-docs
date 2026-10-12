@@ -15,6 +15,14 @@ pub enum ProjectCommand {
     Generate(ProjectInput),
     /// Compare complete source inventory without executing or writing files.
     Verify(ProjectInput),
+    /// Discover and verify every declared project from the exact staged index.
+    VerifyIndex {
+        #[arg(long, default_value = ".")]
+        root: PathBuf,
+        /// Write NUL-separated ordinary Markdown paths not covered by project verification.
+        #[arg(long)]
+        standalone_list: Option<PathBuf>,
+    },
 }
 #[derive(Args)]
 pub struct ProjectInput {
@@ -31,6 +39,13 @@ pub struct ProjectInput {
 }
 pub fn run(args: ProjectArgs) -> Result<ExitCode> {
     let (input, verify) = match args.command {
+        ProjectCommand::VerifyIndex {
+            root,
+            standalone_list,
+        } => {
+            crate::project_index::verify(&root, standalone_list.as_deref())?;
+            return Ok(ExitCode::SUCCESS);
+        }
         ProjectCommand::Generate(a) => (a, false),
         ProjectCommand::Verify(a) => (a, true),
     };

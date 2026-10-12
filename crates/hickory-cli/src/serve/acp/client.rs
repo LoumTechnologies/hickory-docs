@@ -620,7 +620,8 @@ impl Client {
             );
             let content = params["content"].as_str().context("file content missing")?;
             hick_lang::parse(content)?;
-            self.host
+            let change_id = self
+                .host
                 .edits
                 .submit(
                     buffer.id.clone().unwrap_or_else(|| buffer.name.clone()),
@@ -630,10 +631,15 @@ impl Client {
                     true,
                 )
                 .await?;
-            self.host.edits.updated(&buffer, content.into());
+            let revised = self
+                .host
+                .edits
+                .replacement(&change_id)
+                .unwrap_or_else(|| content.into());
+            self.host.edits.updated(&buffer, revised.clone());
             self.record.lock().await.context(
                 "acp-buffer-write",
-                &json!({"buffer":buffer,"content":content}),
+                &json!({"buffer":buffer,"content":revised}),
             )?;
             return Ok(json!({}));
         }
@@ -723,6 +729,8 @@ impl Client {
                 false,
             )
             .await?;
+        let revised = self.host.edits.replacement(&change_id);
+        let content = revised.as_deref().unwrap_or(content);
         let _workspace = self.workspace_gate.lock().await;
         let current = if let Some(room) = self.context.rooms.get(&id).await {
             room.text().await

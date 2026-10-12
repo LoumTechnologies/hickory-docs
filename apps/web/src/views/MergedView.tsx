@@ -24,13 +24,21 @@ import { SurfaceInfo } from "../components/SurfaceInfo";
 
 import { useEffect, useMemo, useState } from "react";
 
-import { api } from "../api/client";
+import { WorktreeRegionEditor } from "../components/WorktreeRegionEditor";
+import { ComparisonEditor } from "../components/ComparisonEditor";
+import type { ComparisonModel } from "../lib/projectComparison";
+import type { ProjectEntry } from "../editor/hickLang";
+import { api, request } from "../api/client";
 import type { MergedViewResponse, WorktreeInfo } from "../api/types";
 
 export function MergedView({ path }: { path: string }) {
   const [worktrees, setWorktrees] = useState<WorktreeInfo[] | null>(null);
   const [chosen, setChosen] = useState<ReadonlySet<string> | null>(null);
   const [view, setView] = useState<MergedViewResponse | null>(null);
+  const [writable,setWritable]=useState<ReadonlySet<string>>(new Set());
+  const [editing,setEditing]=useState<number|null>(null);
+  const [comparison,setComparison]=useState<ComparisonModel|null>(null);
+  const [result,setResult]=useState<{targets:{source:string;ok:boolean;error?:string}[];undo?:{source:string;text:string;expected:string}[]}|null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -61,7 +69,7 @@ export function MergedView({ path }: { path: string }) {
     };
   }, [path, targets]);
 
-  if (error) return <p className="error">{error}</p>;
+
   if (!worktrees || !view) return <p className="muted">Reading the worktrees…</p>;
 
   if (!view.repository || worktrees.length === 0) {
@@ -97,18 +105,39 @@ export function MergedView({ path }: { path: string }) {
   }
 
   const shown = view.sources.map((s) => s.name);
+  const refresh=()=>api.merged(path,targets).then(setView);
+  const apply=async(region:number,text:string,target:string,route:"shared"|"just-here")=> {
+    setResult(await request("POST","/api/merged/write",{path,targets:shown,writable:[...writable],expected:view.snapshot,region,text,route,source:target}));
+    setEditing(null);setComparison(null);await refresh();
+  };
+  const inspect=async()=> {
+    const sources=await Promise.all(shown.map(async name=> {
+      const revision=await request<{files:ProjectEntry[]}>("POST","/api/revision-projects",{kind:"directory",worktree:name});
+      const file=revision.files.find(e=>e.path===path);
+      if(!file || file.kind!=="file")throw new Error(`${name} has no regular file ${path}`);
+      return {id:name,label:name,kind:"directory" as const,text:new TextDecoder("utf-8",{fatal:true}).decode(new Uint8Array(file.bytes)),project:revision.files};
+    }));
+    if(sources.length<2)throw new Error("Select two worktrees for a comparison.");
+    setComparison({sources,old:sources[0].id,new:sources[1].id,policy:"neither",evidence:"unverified"});
+  };
 
   return (
     <div className="merged-view">
-      <SurfaceInfo name={`Worktree comparison · ${path}`} editable={false} destination="Combines current files for reading; this view writes nothing. Edit in the source worktree." />
+      <SurfaceInfo name={`Worktree comparison · ${path}`} editable={writable.size>0} destination="A lens with no save path. Region edits write only targets explicitly opened for writing, against the captured bytes." />
       <header className="merged-view__head">
         <span className="merged-view__path mono">{path}</span>
         {/* Said at the top rather than left to be discovered. */}
         <span className="merged-view__lens" data-tip="A lens, not a document: this text exists on disk nowhere, there is nothing to save, and nothing to commit. Editing through it is the next step, once the alignment is proved.">
-          lens · read-only
+          {writable.size ? "lens · selected targets editable" : "lens · read-only"}
         </span>
       </header>
 
+      {error && <p role="alert">{error}</p>}
+      <button className="btn" onClick={()=>void inspect().catch(e=>setError(String(e)))}>Compare complete worktree projects</button>
+      {comparison && <ComparisonEditor path={path} model={comparison} onChange={setComparison} />}
+      {result && <div aria-label="Per-target write status">{result.targets.map(t=><p key={t.source} role={t.ok?"status":"alert"}>{t.source} · {t.ok?"applied":t.error}</p>)}
+        {result.undo?.map(item=><button key={item.source} className="btn" onClick={()=>void request<typeof result>("POST","/api/merged/undo",{path,undo:[item]}).then(async answer=>{setResult(answer);await refresh();},e=>setError(String(e)))}>Undo {item.source}</button>)}
+      </div>}
       <div className="merged-view__sources">
         {worktrees.map((tree) => {
           const on = chosen ? chosen.has(tree.name) : true;
@@ -126,6 +155,7 @@ export function MergedView({ path }: { path: string }) {
               <span className="mono">{tree.name}</span>
               {tree.branch && <span className="muted"> · {tree.branch}</span>}
               {tree.current && <span className="muted"> · here</span>}
+              <input type="checkbox" aria-label={`Open ${tree.name} for writing`} checked={writable.has(tree.name)} onChange={()=>{const next=new Set(writable);if(!next.delete(tree.name))next.add(tree.name);setWritable(next);setEditing(null);}} />write
             </label>
           );
         })}
@@ -151,11 +181,14 @@ export function MergedView({ path }: { path: string }) {
       <div className="merged-view__body">
         {view.regions.map((region, i) =>
           region.kind === "shared" ? (
-            <pre key={i} className="merged-region merged-region--shared">
-              {region.text}
-            </pre>
+            <section key={i} className="merged-region merged-region--shared"><pre>{region.text}</pre>
+              <button className="btn" onClick={()=>setEditing(editing===i?null:i)}>Edit shared region</button>
+              {editing===i && <WorktreeRegionEditor path={path} values={Object.fromEntries(shown.map(name=>[name,region.text]))} shared writable={writable} onApply={(text,target,route)=>apply(i,text,target,route)} />}
+            </section>
           ) : (
             <div key={i} className="merged-region merged-region--variant">
+              <button className="btn" onClick={()=>setEditing(editing===i?null:i)}>Edit variant region</button>
+              {editing===i && <WorktreeRegionEditor path={path} values={region.by_source} shared={false} writable={writable} onApply={(text,target,route)=>apply(i,text,target,route)} />}
               {Object.entries(region.by_source).map(([name, text]) => (
                 <div key={name} className="merged-variant">
                   <span className="merged-variant__label mono">{name}</span>

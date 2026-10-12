@@ -72,7 +72,7 @@ export class SpatialController {
     // flowing through can sit far off the lane while its source is scrolled
     // out, and freezing it there would pin the document out of sight.
     const root = this.adapter.root(); if (!root) return;
-    const lane = spatialRegions(root.clientWidth, root.clientHeight, state.columns)[side];
+    const lane = spatialRegions(root.clientWidth, root.clientHeight, state.columns, state.sides)[side];
     const occupied = Object.entries(state.views).filter(([id, view]) => id !== key && view.side === side && view.pin).map(([, view]) => view.pin!);
     const pinned = clearSpatialSlot(r, occupied, lane.y, lane.y + lane.h)
       ?? { ...r, y: Math.max(lane.y, Math.min(lane.y + lane.h - Math.min(r.h, lane.h), r.y)), h: Math.min(r.h, lane.h) };
@@ -89,7 +89,7 @@ export class SpatialController {
     this.stopRoutes(); this.hold = null;
     const current = this.adapter.state(), side = current.views[key]?.side ?? this.adapter.items().find(item => item.key === key)?.side ?? "left", r = this.frames.get(key);
     if (!r) return;
-    const regions = spatialRegions(root.clientWidth, root.clientHeight, current.columns);
+    const regions = spatialRegions(root.clientWidth, root.clientHeight, current.columns, current.sides);
     this.adapter.update(state => ({ ...state, views: resizeSpatialPin({ ...state.views, [key]: { ...state.views[key], side, pin: state.views[key]?.pin ?? r } }, key, delta, edge, regions[side]) }));
   }
   begin(key: string, event: React.PointerEvent, kind: Gesture["kind"] = "drag") {
@@ -104,8 +104,9 @@ export class SpatialController {
     if (!g.moved && g.neighbor && dy < 0) { g.key = g.neighbor; g.kind = "top"; }
     g.moved = true;
     if (g.kind !== "drag") { this.resize(g.key, event.clientY - g.lastY, g.kind); g.lastY = event.clientY; return; }
-    const regions = spatialRegions(root.clientWidth, root.clientHeight, this.adapter.state().columns), base = root.getBoundingClientRect();
+    const regions = spatialRegions(root.clientWidth, root.clientHeight, this.adapter.state().columns, this.adapter.state().sides), base = root.getBoundingClientRect();
     g.side = event.clientX - base.left < regions.center.x + regions.center.w / 2 ? "left" : "right";
+    if (this.adapter.state().sides?.[g.side] === false) g.side = g.side === "left" ? "right" : "left";
     const lane = regions[g.side], occupied = Object.entries(this.adapter.state().views).filter(([key, view]) => key !== g.key && view.pin).map(([, view]) => view.pin!);
     g.preview = clearSpatialSlot({ x: lane.x, y: g.start.y + dy, w: lane.w, h: Math.min(g.start.h, lane.h) }, occupied, lane.y, lane.y + lane.h)
       ?? clearSpatialSlot({ x: lane.x, y: lane.y + lane.h, w: lane.w, h: 36 }, occupied, lane.y + lane.h, 5000) ?? undefined;
@@ -145,10 +146,12 @@ export class SpatialController {
   }
   paint() {
     const root = this.adapter.root(); if (!root || !root.clientWidth || !root.clientHeight) return;
-    const state = this.adapter.state(), items = this.adapter.items(), elements = this.elements(), regions = spatialRegions(root.clientWidth, root.clientHeight, state.columns), base = root.getBoundingClientRect(), center = elements.get(state.center ?? "");
-    for (const [key, route] of this.routes) if (!elements.has(key)) { route.animation.cancel(); this.routes.delete(key); }
+    const state = this.adapter.state(), items = this.adapter.items().filter(item => item.key === state.center || state.sides?.[state.views[item.key]?.side ?? item.side] !== false), elements = this.elements(), regions = spatialRegions(root.clientWidth, root.clientHeight, state.columns, state.sides), base = root.getBoundingClientRect(), center = elements.get(state.center ?? "");
+    const visible = new Set(items.map(item => item.key));
+    for (const [key, element] of elements) if (!visible.has(key)) element.hidden = true;
+    for (const [key, route] of this.routes) if (!elements.has(key) || !visible.has(key)) { route.animation.cancel(); this.routes.delete(key); const el = elements.get(key); if (el) { el.classList.remove("spatial-view--crossing"); el.style.visibility = ""; } }
     if (this.centerKey !== state.center) { this.centerKey = state.center; this.hold = null; this.released.clear(); this.gates.clear(); this.stopRoutes(); }
-    const size = `${root.clientWidth}:${root.clientHeight}:${state.columns}`;
+    const size = `${root.clientWidth}:${root.clientHeight}:${state.columns}:${state.sides?.left}:${state.sides?.right}`;
     if (this.size !== size) {
       this.size = size; this.hold = null; this.released.clear(); this.stopRoutes();
       const occupied: Rect[] = [], views = { ...state.views }; let changed = false;
@@ -160,9 +163,9 @@ export class SpatialController {
       if (changed) { this.adapter.update(current => ({ ...current, views })); this.schedule(); return; }
     }
     if (center) { center.hidden = false; center.dataset.spatialCenter = "true"; center.dataset.expanded = "true"; setRect(center, regions.center); const view = editorOf(center); if (view) showSpatialExcerpt(view, null); }
-    for (const side of ["left", "right"] as const) { const rail = root.querySelector<HTMLElement>(`[data-spatial-files=${side}]`); if (rail) setRect(rail, regions[`${side}Rail`]); }
+    for (const side of ["left", "right"] as const) { const rail = root.querySelector<HTMLElement>(`[data-spatial-files=${side}]`); if (rail) { rail.hidden = state.sides?.[side] === false; setRect(rail, regions[`${side}Rail`]); } }
     const minimap = root.querySelector<HTMLElement>(".spatial-minimap"); if (minimap) minimap.style.left = `${regions.center.x + regions.center.w - 7}px`;
-    for (const side of ["left", "right"] as const) { const rule = root.querySelector<HTMLElement>(`[data-spatial-column=${side}]`); if (rule) { rule.hidden = regions.small; setRect(rule, { x: side === "left" ? regions.center.x - regions.gap / 2 - 4 : regions.center.x + regions.center.w + regions.gap / 2 - 4, y: regions.center.y, w: 8, h: regions.center.h }); rule.style.width = "8px"; } }
+    for (const side of ["left", "right"] as const) { const rule = root.querySelector<HTMLElement>(`[data-spatial-column=${side}]`); if (rule) { rule.hidden = regions.small || state.sides?.[side] === false; setRect(rule, { x: side === "left" ? regions.center.x - regions.gap / 2 - 4 : regions.center.x + regions.center.w + regions.gap / 2 - 4, y: regions.center.y, w: 8, h: regions.center.h }); rule.style.width = "8px"; } }
     const editor = this.centerEditor(), sourceBox = editor?.scrollDOM.getBoundingClientRect(), pivot = sourceBox ? (sourceBox.top + sourceBox.bottom) / 2 : base.top + regions.center.h / 2, scroll = this.scroll(), planned = new Map<string, { r: Rect; side: Side; from?: Rect }>(), occupied: Rect[] = [];
     if (this.hold?.scroll !== scroll) this.hold = null;
     for (const item of items) { const p = state.views[item.key]; if (item.key === state.center || !p?.pin || this.gesture?.key === item.key && this.gesture.moved) continue; planned.set(item.key, { r: p.pin, side: p.side }); occupied.push(p.pin); }

@@ -12,6 +12,7 @@ import { TAB_STYLE_KEY, loadTabStyle } from "../lib/tabStyle";
 import { CHANNEL_WIDTH_KEY, loadChannelWidth } from "../lib/channelWidth";
 import { THEME_KEY, loadTheme } from "../lib/theme";
 import { WORD_MOTION_KEY, loadWordMotion } from "../lib/wordMotion";
+import { SPATIAL_SIDES_KEY, loadSpatialSides } from "../lib/spatialSides";
 import { SettingsView } from "./SettingsView";
 import { UNWRAP_PARAGRAPHS_KEY, loadUnwrapParagraphs } from "../lib/unwrapParagraphs";
 
@@ -32,6 +33,7 @@ beforeEach(() => {
     { id: "xai", label: "xAI", configured: false, masked: null },
   ];
   puts = [];
+  localStorage.removeItem(SPATIAL_SIDES_KEY);
   localStorage.removeItem(UNWRAP_PARAGRAPHS_KEY);
   uiSettings = { window_title: null, format_on_save: false };
   uiPuts = [];
@@ -73,6 +75,16 @@ afterEach(() => {
 });
 
 describe("the settings view", () => {
+  it("defaults left context on and right context off, and remembers independent changes", () => {
+    const ui = render(<SettingsView />);
+    const left = () => screen.getByRole("checkbox", { name: "Left context panes and vertical tabs" }) as HTMLInputElement;
+    const right = () => screen.getByRole("checkbox", { name: "Right context panes and vertical tabs" }) as HTMLInputElement;
+    expect(left().checked).toBe(true); expect(right().checked).toBe(false);
+    fireEvent.click(right()); expect(loadSpatialSides()).toEqual({ left: true, right: true });
+    fireEvent.click(left()); expect(loadSpatialSides()).toEqual({ left: false, right: true });
+    ui.unmount(); render(<SettingsView />);
+    expect(left().checked).toBe(false); expect(right().checked).toBe(true);
+  });
   // Guarantee: docs/guarantees/authoring/paragraphs-unwrap-by-default.md
   it("defaults paragraph unwrapping on and remembers switching it off", () => {
     const { unmount } = render(<SettingsView />);

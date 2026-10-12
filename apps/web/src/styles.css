@@ -8927,8 +8927,6 @@ button.status-bar__item:hover { background: var(--bg-sunken); color: var(--fg); 
 }
 
 /* Every view identifies its write destination; action feedback stays local. */
-.surface-info { display: flex; flex-wrap: wrap; gap: .35rem .75rem; padding: .35rem .65rem; font-size: .78rem; color: var(--fg-muted); border-bottom: 1px solid var(--border); }
-.surface-info strong { color: var(--fg); font-weight: 500; }
 .action-notice { display: flex; align-items: center; flex-wrap: wrap; gap: .5rem; }
 .action-notice > span { flex: 1; }
 .diverged__effects { flex-basis: 100%; margin: .25rem 0; }

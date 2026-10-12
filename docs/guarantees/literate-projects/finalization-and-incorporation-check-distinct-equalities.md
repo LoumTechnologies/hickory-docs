@@ -30,3 +30,22 @@ Last LLM verification:
 - Executed checks: recorded in `implementation-evidence.md`.
 - Dependencies: paths above; lifecycle/evaluator edits invalidate this review.
 - Human judgment: not recorded.
+
+## Continuation review (2026-10-12)
+
+The built-in, Python and ACP turn paths now call `serve/agent_projects.rs` for
+actual A/B capture. `project_incorporation.rs` requests maintained source from
+the selected model and uses the existing review queue. Both proposed and
+reviewed candidates must produce B; destination documents and completed code are
+rechecked before `project_publish.rs` writes source. Deletions retire live rooms
+so delayed persistence cannot recreate removed source files. This supersedes the
+pending harness/review integration exclusions above.
+
+`just test-literate-agent-projects` passed four real HTTP flows, ten existing
+agent-edit-session tests and seven collaboration tests. The HTTP flows exercise
+a real ACP subprocess with abandoned and final native writes. One prior ACP
+initialization timeout and the subsequent successful rerun are both recorded in
+`comparison-integration-evidence.md`. Models are scripted witnesses; paid-model
+explanation quality and authenticated authorship are not established. Changed
+binary/metadata transition responses still refuse by name. Current hashes and
+remaining limits are in that evidence file; human judgment is not recorded.

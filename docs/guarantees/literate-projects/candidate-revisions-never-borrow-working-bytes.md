@@ -31,3 +31,18 @@ Last LLM verification:
 - Executed checks: recorded in `implementation-evidence.md`.
 - Dependencies: paths above; revision-adapter edits invalidate this review.
 - Human judgment: not recorded.
+
+## Continuation review (2026-10-12)
+
+`project_index.rs::verify_with_coverage` discovers entry declarations and their
+closures in the same frozen index as expected outputs. The hook from
+`init_hook.sh` invokes this path even when only an output changed. It does not
+borrow malformed or missing unstaged sources. Ordinary notes outside a closure
+are not silently excluded from source inventory; a declared exclusion makes
+the standalone-note fixture explicit.
+
+The current six revision tests and the separate real Mercurial provider test
+passed. Exact frozen-index and git-free-folder witnesses remain separate from
+the native tool materialization path. Executed commands, assumptions and
+dependency hashes are in `comparison-integration-evidence.md`. Human judgment
+is not recorded.

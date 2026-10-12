@@ -98,3 +98,83 @@ fn native_writer_does_not_follow_existing_symlinks() {
         assert!(!outside.path().join("write").exists());
     }
 }
+// Guarantee: docs/guarantees/literate-projects/tools-select-complete-isolated-endpoints.md
+#[test]
+fn complete_project_positions_keep_foreign_documents_and_utf16_boundaries() {
+    let sources = std::collections::BTreeMap::from([
+        ("project.md".into(),"<hick:project sources=\"member.md\"/><hick:file id=\"a\" path=\"a.ts\">🦀x\n</hick:file>".into()),
+        ("member.md".into(),"<hick:project entry=\"project.md\"/><hick:file id=\"b\" path=\"b.ts\">éy\n</hick:file>".into()),
+    ]);
+    let state =
+        hick_lsp::document::HickDocumentState::from_project("project.md", &sources).unwrap();
+    let foreign = &state.project_maps["b.ts"];
+    let (document, line, column) = foreign.source_document(0, 1).unwrap();
+    assert_eq!(document.as_deref(), Some("member.md"));
+    assert_eq!(line, 0);
+    assert!(column > 1);
+    assert_eq!(foreign.to_source(0, 1), None);
+    let local = &state.project_maps["a.ts"];
+    assert!(
+        local.to_source(0, 1).is_none(),
+        "half a surrogate pair has no byte coordinate"
+    );
+    assert!(local.to_source(0, 2).is_some());
+    let old = hick_lsp::document::HickDocumentState::from_project_at(
+        "project.md",
+        &sources,
+        &hick_lang::ProjectTree::default(),
+        &hick_lsp::ProjectEndpoint::Old,
+    )
+    .unwrap();
+    assert!(
+        old.virtual_files.is_empty(),
+        "Old is genuinely empty, never borrowed working code"
+    );
+}
+
+// Guarantee: docs/guarantees/literate-projects/tools-select-complete-isolated-endpoints.md
+#[test]
+fn captured_native_contexts_are_lazy_isolated_and_never_borrow_working_files() {
+    let contexts = hick_lsp::ProjectContexts::default();
+    let mut old = ProjectTree::default();
+    old.insert("app.ts", ProjectEntry::file(b"old".to_vec()))
+        .unwrap();
+    let mut new = old.clone();
+    new.insert("app.ts", ProjectEntry::file(b"new".to_vec()))
+        .unwrap();
+    contexts.register("1111111111111111", old).unwrap();
+    contexts.register("2222222222222222", new).unwrap();
+    let (_, _, a) = contexts
+        .get(&"hick-project:///1111111111111111/app.ts".parse().unwrap())
+        .unwrap();
+    let (_, _, b) = contexts
+        .get(&"hick-project:///2222222222222222/app.ts".parse().unwrap())
+        .unwrap();
+    assert!(!a.is_materialized());
+    assert!(!b.is_materialized());
+    let first = a.materialize().unwrap();
+    let second = b.materialize().unwrap();
+    assert_ne!(first, second);
+    assert_eq!(std::fs::read(first.join("app.ts")).unwrap(), b"old");
+    assert_eq!(std::fs::read(second.join("app.ts")).unwrap(), b"new");
+    assert!(
+        contexts
+            .get(
+                &"hick-project:///1111111111111111/missing.ts"
+                    .parse()
+                    .unwrap()
+            )
+            .is_err()
+    );
+    contexts.remove("1111111111111111");
+    assert!(
+        contexts
+            .get(&"hick-project:///1111111111111111/app.ts".parse().unwrap())
+            .is_err()
+    );
+    assert!(
+        contexts
+            .register("3333333333333333", ProjectTree::default())
+            .is_err()
+    );
+}

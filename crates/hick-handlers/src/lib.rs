@@ -182,18 +182,7 @@ pub struct TranscriptEntry {
 // Exec output control
 // ---------------------------------------------------------------------------
 
-/// Controls which parts of an exec transcript are rendered in file output.
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub enum ExecShow {
-    /// Show commands and output (default).
-    All,
-    /// Show commands only.
-    Command,
-    /// Show output only.
-    Output,
-    /// Show nothing (side-effect only).
-    None,
-}
+pub use hick_lang::ExecShow;
 
 /// Parse the `show` attribute of an `<exec>` tag into an `ExecShow`.
 pub fn parse_exec_show(tag: &HickTag) -> ExecShow {
@@ -207,27 +196,11 @@ pub fn parse_exec_show(tag: &HickTag) -> ExecShow {
 
 /// Render transcript entries according to the `show` mode.
 pub fn render_transcript(entries: &[TranscriptEntry], show: ExecShow) -> String {
-    let mut out = String::new();
-    for entry in entries {
-        if matches!(show, ExecShow::All | ExecShow::Command) {
-            for cmd in &entry.commands {
-                for (i, line) in cmd.lines().enumerate() {
-                    if i == 0 {
-                        out.push_str(&format!("$ {line}\n"));
-                    } else {
-                        out.push_str(&format!("  {line}\n"));
-                    }
-                }
-            }
-        }
-        if matches!(show, ExecShow::All | ExecShow::Output) && !entry.output.is_empty() {
-            out.push_str(&entry.output);
-            out.push('\n');
-        }
-    }
-    out
+    entries
+        .iter()
+        .map(|entry| hick_lang::render_transcript_entry(&entry.commands, &entry.output, show))
+        .collect()
 }
-
 // ---------------------------------------------------------------------------
 // Tag Registry
 // ---------------------------------------------------------------------------

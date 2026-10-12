@@ -229,7 +229,7 @@ export const IDLE_SESSION: DebugSession = {
 };
 
 /** A debugger for one document, over the document's own socket. */
-export function useDebugger(realtime: Realtime, docPath: string): DebugSession {
+export function useDebugger(realtime: Realtime, docPath: string, projectContext = "new"): DebugSession {
   const client = useMemo(() => {
     const channel = realtime.debug?.();
     return channel ? new DebugClient(channel) : null;
@@ -244,7 +244,7 @@ export function useDebugger(realtime: Realtime, docPath: string): DebugSession {
     return () => realtime.onDebugFrame?.(() => false);
   }, [client, realtime]);
 
-  return useDebuggerOver(client, docPath);
+  return useDebuggerOver(client, docPath, [], projectContext);
 }
 
 // The workspace's one debug client, shared by every plain file.
@@ -280,7 +280,7 @@ export function useWorkspaceDebugger(path: string): DebugSession {
   return useDebuggerOver(client, path);
 }
 
-export function useDebuggerOver(client: DebugClient | null, docPath: string, initialBreakpoints: readonly number[] = []): DebugSession {
+export function useDebuggerOver(client: DebugClient | null, docPath: string, initialBreakpoints: readonly number[] = [], projectContext = "new"): DebugSession {
   const [status, setStatus] = useState<DebugStatus>("idle");
   const [message, setMessage] = useState<string | null>(null);
   // A missing tool this machine can fetch, carried out of the failure so the
@@ -331,7 +331,7 @@ export function useDebuggerOver(client: DebugClient | null, docPath: string, ini
 
   statusRef.current = status;
 
-  const uri = useMemo(() => `hick:///${docPath.replace(/^\/+/, "")}`, [docPath]);
+  const uri = useMemo(() => docPath.startsWith("hick-project:///") ? docPath : `hick:///${docPath.replace(/^\/+/, "")}`, [docPath]);
 
   useEffect(() => {
     if (!client) return;
@@ -566,9 +566,9 @@ export function useDebuggerOver(client: DebugClient | null, docPath: string, ini
       setStatus("starting");
       clearFailure();
       setProgram(program ?? null);
-      client.start(uri, onTheWire(breakpoints), program);
+      client.start(uri, onTheWire(breakpoints), program, projectContext);
     },
-    [client, uri, breakpoints, clearFailure],
+    [client, uri, breakpoints, clearFailure, projectContext],
   );
 
   const stop = useCallback(() => {

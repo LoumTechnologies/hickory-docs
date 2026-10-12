@@ -89,10 +89,11 @@ pub(crate) fn write(run: &DocRun, out_dir: Option<&Path>) -> Result<WrittenOutpu
     })
 }
 
-pub(crate) fn debug_state(
+pub(crate) fn debug_state_at(
     document: &Path,
     source: &str,
     scratch: &Path,
+    endpoint: &hick_lsp::ProjectEndpoint,
 ) -> Result<(hick_dap::Mapping, Vec<std::path::PathBuf>)> {
     let doc = hick_lang::parse(source)?;
     if doc.find_tags("project").is_empty() {
@@ -125,12 +126,20 @@ pub(crate) fn debug_state(
         }
     })
     .map_err(anyhow::Error::msg)?;
-    let state = hick_lsp::document::HickDocumentState::from_project(entry, &sources)?;
-    let tree = &state
-        .evaluated_project
+    let state = hick_lsp::document::HickDocumentState::from_project_at(
+        entry,
+        &sources,
+        &hick_lang::ProjectTree::default(),
+        endpoint,
+    )?;
+    let tree = state
+        .selected_project
         .as_ref()
-        .context("missing complete project")?
-        .new;
+        .context("Missing selected project")?;
+    anyhow::ensure!(
+        !tree.entries().is_empty(),
+        "Selected Old project is empty; no executable input exists."
+    );
     let files = hick_lsp::write_tree(scratch, tree).map_err(anyhow::Error::msg)?;
     let mapping = hick_dap::Mapping::for_state(document, &state, scratch)?;
     Ok((mapping, files))

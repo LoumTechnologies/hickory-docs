@@ -6,7 +6,9 @@ export interface ReadingView {
   before: string;
   after: string;
   status: string;
-  decide?: (accepted: boolean) => Promise<void>;
+  editable?: boolean;
+  project?: import("../editor/hickLang").ProjectEntry[];
+  decide?: (accepted: boolean, newText?: string) => Promise<void>;
 }
 export const OPEN_READING = "hickory.open-reading";
 const readings = new Map<string, ReadingView>();

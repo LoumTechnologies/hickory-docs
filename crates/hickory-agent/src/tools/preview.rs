@@ -1,6 +1,23 @@
 use super::*;
 
 impl EditSession {
+    /// Build a complete replacement pinned to the reviewed surface, preserving
+    /// the existing tool's source/output routing and validation.
+    pub fn reviewed_invocation(
+        invocation: &ToolInvocation,
+        before: &str,
+        after: String,
+    ) -> Result<ToolInvocation, String> {
+        let mut args: Vec<_> = invocation
+            .args
+            .iter()
+            .filter(|(name, _)| matches!(name.as_str(), "doc" | "path"))
+            .cloned()
+            .collect();
+        args.push(("snapshot".into(), LineIndex::new(before).snapshot));
+        args.push(("whole".into(), "true".into()));
+        ToolInvocation::synthetic(invocation.name.clone(), args, Some(after))
+    }
     /// Revision of the source closure, independent of the agent's account of it.
     pub fn revision(&self) -> String {
         sha256_hex(

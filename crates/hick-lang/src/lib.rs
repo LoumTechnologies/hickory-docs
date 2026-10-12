@@ -7,16 +7,19 @@
 //! The namespace prefix is detected from the `xmlns:` declaration on the root
 //! element. For example, `<h:doc xmlns:h="http://www.hickorydocs.com/1.0">`
 //! uses prefix `h`, while `<hick:doc xmlns:hick="...">` uses prefix `hick`.
-
 use std::fmt;
-
+mod recording;
+pub use recording::{
+    ExecShow, agent_cache_key, exec_cache_key, inputs_digest, render_transcript_entry,
+};
 mod project;
 pub use project::{
     AgentProjectCapture, ByteOrigin, ComparisonSource, DifferenceKind, EditPolicy, EntryKind,
     EvaluatedProject, IncorporationCandidate, IncorporationError, PatchResult, ProjectComparison,
-    ProjectDifference, ProjectEntry, ProjectInventory, ProjectTree, RevisionIdentity,
-    apply_project_patch, evaluate_project, load_project_sources, regenerate_patch,
-    transition_response, unified_transition, validate_project_path,
+    ProjectDifference, ProjectEntry, ProjectInventory, ProjectSnapshot, ProjectTree, RecordedCell,
+    RevisionIdentity, apply_project_patch, evaluate_project, load_project_sources,
+    project_byte_location, regenerate_patch, reverse_project_edit, transition_response,
+    unified_transition, validate_project_path,
 };
 mod fence;
 mod literal_files;
@@ -25,11 +28,8 @@ mod parser;
 use parser::Parser;
 pub mod structure;
 pub use structure::{Structure, StructureBlock, StructureTag, structure};
-
 /// The XML namespace URI that identifies hick elements.
 pub const HICK_NAMESPACE: &str = "http://www.hickorydocs.com/1.0";
-
-// Source spans
 
 /// Byte-level source location for provenance tracking.
 ///
@@ -75,8 +75,6 @@ impl SourceSpan {
         self.start == self.end
     }
 }
-
-// AST
 
 /// A node in the hick document tree.
 #[derive(Debug, Clone, PartialEq)]

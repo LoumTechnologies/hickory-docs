@@ -16,66 +16,90 @@ pub struct HickDocumentState {
     /// Generated virtual files.
     pub virtual_files: Vec<VirtualFile>,
     pub evaluated_project: Option<hick_lang::EvaluatedProject>,
+    pub project_sources: BTreeMap<String, String>,
+    pub project_entry: Option<String>,
+    pub project_maps: BTreeMap<String, crate::position_map::PositionMap>,
+    pub selected_project: Option<hick_lang::ProjectTree>,
 }
 
 impl HickDocumentState {
-    /// Resolve a declared closure from a read-only revision reader.
     pub fn from_project(
         entry: &str,
         sources: &BTreeMap<String, String>,
     ) -> Result<Self, hick_lang::ParseError> {
+        Self::from_project_at(
+            entry,
+            sources,
+            &hick_lang::ProjectTree::default(),
+            &crate::project::ProjectEndpoint::New,
+        )
+    }
+    pub fn from_project_at(
+        entry: &str,
+        sources: &BTreeMap<String, String>,
+        input: &hick_lang::ProjectTree,
+        endpoint: &crate::project::ProjectEndpoint,
+    ) -> Result<Self, hick_lang::ParseError> {
+        let error = |message| hick_lang::ParseError::Syntax { line: 1, message };
         let source = sources
             .get(entry)
-            .ok_or_else(|| hick_lang::ParseError::Syntax {
-                line: 1,
-                message: format!("missing source {entry}"),
-            })?;
+            .ok_or_else(|| error(format!("Missing source {entry}")))?;
         let doc = hick_lang::parse(source)?;
-        let project =
-            hick_lang::evaluate_project(entry, sources, &hick_lang::ProjectTree::default())
-                .map_err(|message| hick_lang::ParseError::Syntax { line: 1, message })?;
-        let virtual_files = crate::project::virtual_files(&project.new, sources, entry)
-            .map_err(|message| hick_lang::ParseError::Syntax { line: 1, message })?;
+        let project = hick_lang::evaluate_project(entry, sources, input).map_err(error)?;
+        let tree = crate::project::endpoint(&project, endpoint)
+            .map_err(error)?
+            .clone();
+        let virtual_files = crate::project::virtual_files(&tree, sources, entry).map_err(error)?;
+        let source_map = std::sync::Arc::new(sources.clone());
+        let mut project_maps = BTreeMap::new();
+        for file in &virtual_files {
+            project_maps.insert(
+                file.path.clone(),
+                crate::position_map::PositionMap::for_project(
+                    tree.get(&file.path).unwrap(),
+                    source_map.clone(),
+                    entry,
+                )
+                .map_err(error)?,
+            );
+        }
         Ok(Self {
             doc,
             copy_registry: HashMap::new(),
             virtual_files,
             evaluated_project: Some(project),
+            project_sources: sources.clone(),
+            project_entry: Some(entry.into()),
+            project_maps,
+            selected_project: Some(tree),
         })
     }
-
-    /// Parse source text and build all derived state.
+    /// Ordinary documents retain their established literal virtual-file path.
     pub fn from_source(source: &str) -> Result<Self, hick_lang::ParseError> {
         let doc = hick_lang::parse(source)?;
-        let copy_registry = build_copy_registry(&doc);
-        let (virtual_files, evaluated_project) = if !doc.find_tags("project").is_empty() {
-            let sources = BTreeMap::from([("project.md".into(), source.into())]);
-            let project = hick_lang::evaluate_project(
+        if !doc.find_tags("project").is_empty() {
+            return Self::from_project(
                 "project.md",
-                &sources,
-                &hick_lang::ProjectTree::default(),
-            )
-            .map_err(|message| hick_lang::ParseError::Syntax { line: 1, message })?;
-            let files = crate::project::virtual_files(&project.new, &sources, "project.md")
-                .map_err(|message| hick_lang::ParseError::Syntax { line: 1, message })?;
-            (files, Some(project))
-        } else {
-            if !doc.find_tags("patch").is_empty() {
-                return Err(hick_lang::ParseError::Syntax {
-                    line: 1,
-                    message: "patch requires a declared project closure".into(),
-                });
-            }
-            (
-                virtual_file::build_virtual_files(&doc, &copy_registry),
-                None,
-            )
-        };
+                &BTreeMap::from([("project.md".into(), source.into())]),
+            );
+        }
+        if !doc.find_tags("patch").is_empty() {
+            return Err(hick_lang::ParseError::Syntax {
+                line: 1,
+                message: "Patch requires a declared project closure".into(),
+            });
+        }
+        let copy_registry = build_copy_registry(&doc);
+        let virtual_files = virtual_file::build_virtual_files(&doc, &copy_registry);
         Ok(Self {
             doc,
             copy_registry,
             virtual_files,
-            evaluated_project,
+            evaluated_project: None,
+            project_sources: BTreeMap::new(),
+            project_entry: None,
+            project_maps: BTreeMap::new(),
+            selected_project: None,
         })
     }
 }

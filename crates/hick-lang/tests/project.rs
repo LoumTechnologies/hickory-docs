@@ -131,15 +131,18 @@ fn refuses_unordered_transforms_hidden_inputs_and_processes() {
     let source = "<hick:project/><hick:file id=\"base\" path=\"x\">one\n</hick:file><hick:patch id=\"p\">\n--- a/x\n+++ b/x\n@@ -1 +1 @@\n-one\n+two\n</hick:patch>";
     assert!(generate(source).unwrap_err().contains("unordered"));
     assert!(generate(&source.replace("id=\"p\"", "id=\"p\" after=\"base\"")).is_ok());
-    for extra in [
-        "<hick:exec container=\"c\">echo x</hick:exec>",
-        "<hick:upstream src=\"secret.md\"/>",
-        "<hick:when test=\"unknown\"/>",
+    for (extra, diagnostic) in [
+        (
+            "<hick:exec container=\"c\">echo x</hick:exec>",
+            "requires execution",
+        ),
+        ("<hick:upstream src=\"secret.md\"/>", "unsupported"),
+        ("<hick:when test=\"unknown\"/>", "required"),
     ] {
         assert!(
             generate(&format!("<hick:project/>{extra}"))
                 .unwrap_err()
-                .contains("required")
+                .contains(diagnostic)
         );
     }
     assert!(generate("<hick:project/><hick:file id=\"a\" after=\"b\" path=\"x\">x</hick:file><hick:file id=\"b\" after=\"a\" path=\"y\">y</hick:file>").is_err());
@@ -486,4 +489,134 @@ fn local_predecessor_state_does_not_depend_on_independent_act_names() {
         assert_eq!(project.new.entries().len(), 2);
         assert_eq!(project.new.get("x").unwrap().bytes.as_ref(), b"b\n");
     }
+}
+// Guarantees: docs/guarantees/literate-projects/tools-select-complete-isolated-endpoints.md
+#[test]
+fn explicit_nested_scopes_finish_all_their_acts_without_ordering_independent_writes() {
+    let source = "<hick:project/><hick:file id=\"base\" path=\"app\">a\n</hick:file>
+<hick:scope id=\"feature\" after=\"base\">
+<hick:patch id=\"first\">\n--- a/app\n+++ b/app\n@@ -1 +1 @@\n-a\n+b\n</hick:patch>
+<hick:scope id=\"nested\" after=\"first\">
+<hick:patch id=\"last\">\n--- a/app\n+++ b/app\n@@ -1 +1 @@\n-b\n+c\n</hick:patch>
+</hick:scope></hick:scope>
+<hick:patch after=\"feature\">\n--- a/app\n+++ b/app\n@@ -1 +1 @@\n-c\n+d\n</hick:patch>";
+    let project = generate(source).unwrap();
+    assert_eq!(
+        &*project.scopes["feature"].0.get("app").unwrap().bytes,
+        b"a\n"
+    );
+    assert_eq!(
+        &*project.scopes["feature"].1.get("app").unwrap().bytes,
+        b"c\n"
+    );
+    assert_eq!(
+        &*project.scopes["nested"].0.get("app").unwrap().bytes,
+        b"b\n"
+    );
+    assert_eq!(
+        &*project.scopes["nested"].1.get("app").unwrap().bytes,
+        b"c\n"
+    );
+    assert_eq!(&*project.new.get("app").unwrap().bytes, b"d\n");
+    assert!(
+        generate(&source.replace("id=\"nested\" after=\"first\"", "id=\"nested\""))
+            .unwrap_err()
+            .contains("context")
+    );
+}
+
+// Guarantee: docs/guarantees/literate-projects/patch-edits-revalidate-downstream-construction.md
+#[test]
+fn reverse_inserted_code_regenerates_its_patch_and_old_literal_edits_check_downstream() {
+    let source = "<hick:project/><hick:file id=\"base\" path=\"app\">prefix\nold\n</hick:file><hick:scope id=\"s\" after=\"base\"><hick:patch id=\"p\">\n--- a/app\n+++ b/app\n@@ -2 +2 @@\n-old\n+new\n</hick:patch></hick:scope>";
+    let sources = BTreeMap::from([("project.md".into(), source.into())]);
+    let project = evaluate_project("project.md", &sources, &ProjectTree::default()).unwrap();
+    let updated = reverse_project_edit(
+        "project.md",
+        &sources,
+        &ProjectTree::default(),
+        &project.new,
+        "app",
+        (7, 10),
+        "é\nextra",
+    )
+    .unwrap();
+    let result = evaluate_project("project.md", &updated, &ProjectTree::default()).unwrap();
+    assert_eq!(
+        &*result.new.get("app").unwrap().bytes,
+        "prefix\né\nextra\n".as_bytes()
+    );
+    assert!(
+        reverse_project_edit(
+            "project.md",
+            &sources,
+            &ProjectTree::default(),
+            &project.local_states["p"].0,
+            "app",
+            (7, 10),
+            "changed"
+        )
+        .unwrap_err()
+        .contains("downstream")
+    );
+}
+
+// Guarantee: docs/guarantees/literate-projects/markdown-constructs-the-complete-project.md
+#[test]
+fn explicit_fragment_closure_is_ordered_private_and_upstream_is_read_only() {
+    let sources=BTreeMap::from([
+        ("project.md".into(),"<hick:project sources=\"member.md private.md\"/><hick:upstream file=\"up.md\"/><hick:copy id=\"first\" class=\"parts\">a\n</hick:copy><hick:file id=\"out\" path=\"app.ts\"><hick:paste select=\".parts\"/></hick:file>".into()),
+        ("member.md".into(),"<hick:copy id=\"second\" class=\"parts\">b\n</hick:copy>".into()),
+        ("private.md".into(),"<hick:private/><hick:copy id=\"secret\" class=\"parts\">hidden\n</hick:copy>".into()),
+        ("up.md".into(),"<hick:upstream file=\"base.md\"/><hick:copy id=\"third\" class=\"parts\">d\n</hick:copy><hick:file path=\"not-imported\">no</hick:file>".into()),
+        ("base.md".into(),"<hick:copy id=\"base\" class=\"parts\">c\n</hick:copy>".into()),
+    ]);
+    let p = evaluate_project("project.md", &sources, &ProjectTree::default()).unwrap();
+    assert_eq!(p.new.get("app.ts").unwrap().bytes.as_ref(), b"a\nc\nb\nd\n");
+    assert!(p.new.get("not-imported").is_none());
+    assert!(p.inventory.read_only.contains("base.md"));
+    let origin = p
+        .new
+        .get("app.ts")
+        .unwrap()
+        .origins
+        .iter()
+        .find(|o| o.document == "base.md")
+        .unwrap();
+    assert!(
+        hick_lang::reverse_project_edit(
+            "project.md",
+            &sources,
+            &ProjectTree::default(),
+            &p.new,
+            "app.ts",
+            origin.output,
+            "x\n"
+        )
+        .unwrap_err()
+        .contains("base.md is read-only")
+    );
+    let mut cycle = sources.clone();
+    cycle.insert("base.md".into(), "<hick:upstream file=\"up.md\"/>".into());
+    assert!(
+        evaluate_project("project.md", &cycle, &ProjectTree::default())
+            .unwrap_err()
+            .contains("cycle")
+    );
+}
+
+// Guarantee: docs/guarantees/literate-projects/tools-select-complete-isolated-endpoints.md
+#[test]
+fn local_bytes_map_to_renamed_endpoint_by_origin_and_removed_bytes_have_no_endpoint() {
+    let source = "<hick:project/><hick:file id=\"a\" path=\"a.ts\">🦀a\nb\n</hick:file><hick:patch id=\"rename\" after=\"a\">\n--- a/a.ts\n+++ b/b.ts\n@@ -1,2 +1 @@\n 🦀a\n-b\n</hick:patch>";
+    let p = generate(source).unwrap();
+    let local = &p.local_states["a"].1;
+    assert_eq!(
+        hick_lang::project_byte_location(local, &p.new, "a.ts", 4).unwrap(),
+        Some(("b.ts".into(), 4))
+    );
+    assert_eq!(
+        hick_lang::project_byte_location(local, &p.new, "a.ts", 6).unwrap(),
+        None
+    );
 }

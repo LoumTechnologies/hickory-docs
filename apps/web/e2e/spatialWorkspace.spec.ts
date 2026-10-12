@@ -5,6 +5,10 @@ import { expect, test, type Locator, type Page } from "@playwright/test";
 test.use({ viewport: { width: 1800, height: 1100 } });
 test.beforeEach(async ({ page }) => {
   test.skip(!process.env.HICKORY_SPATIAL_URL, "Use just test-spatial-browser with a scratch workspace URL.");
+  // These geometry witnesses exercise both optional context sides.
+  await page.addInitScript(() => {
+    if (!localStorage.getItem("hickory.spatialSides")) localStorage.setItem("hickory.spatialSides", JSON.stringify({ left: true, right: true }));
+  });
   await page.goto(process.env.HICKORY_SPATIAL_URL!);
   await expect(page.locator("[data-spatial-files]")).toHaveCount(2);
 });

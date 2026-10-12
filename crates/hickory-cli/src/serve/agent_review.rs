@@ -24,6 +24,13 @@ pub struct NativeReview {
 
 #[async_trait::async_trait]
 impl hickory_agent::ToolReview for NativeReview {
+    fn replacement(&self) -> Option<String> {
+        self.accepted
+            .lock()
+            .unwrap()
+            .as_deref()
+            .and_then(|id| self.edits.replacement(id))
+    }
     fn mode(&self) -> &'static str {
         if *self.edits.mode.lock().unwrap() == super::acp::edits::Mode::AutoAccept {
             "auto-accept"
@@ -125,6 +132,12 @@ pub async fn decide(
         *review.edits.mode.lock().unwrap() = mode;
     }
     if let Some(id) = body.id {
+        if let Some(text) = body.new_text {
+            review
+                .edits
+                .revise(&id, text)
+                .map_err(|e| ApiError::unprocessable(e.to_string()))?;
+        }
         review
             .edits
             .resolve(

@@ -85,6 +85,8 @@ pub struct AgentHub {
     /// The model choice each document's dock last posted, applied to
     /// subsequent turns until changed (see [`AgentRequest`]).
     selection: Mutex<HashMap<String, DocSelection>>,
+    pub(super) projects: Mutex<HashMap<String, super::agent_projects::CapturedTurn>>,
+    pub(super) incorporations: Mutex<HashMap<String, serde_json::Value>>,
     /// Test seam: a canned client instead of a provider from the
     /// environment. Set through [`AgentHub::set_llm_override`] by the serve
     /// integration tests so a full turn runs without any API key.
@@ -96,6 +98,20 @@ pub struct AgentHub {
 }
 
 impl AgentHub {
+    pub(super) fn incorporation_client(
+        &self,
+        state: &LocalState,
+        doc: &str,
+    ) -> anyhow::Result<Arc<dyn LlmClient>> {
+        if let Some(llm) = self.llm_override.lock().unwrap().clone() {
+            return Ok(llm);
+        }
+        let choice = self.selection_of(doc);
+        let keys = state.keys.store.read().unwrap().clone();
+        let provider = resolve_selector_with_store(choice.provider.as_deref(), &keys)?;
+        client_for_with_store(&provider, choice.model.as_deref(), &keys)
+    }
+
     /// Replace provider resolution with a fixed client (tests, offline dev).
     pub fn set_llm_override(&self, llm: Arc<dyn LlmClient>) {
         *self.llm_override.lock().unwrap() = Some(llm);
@@ -511,6 +527,12 @@ pub async fn start_turn(
     let run_key = turn_id.clone();
     tokio::spawn(async move {
         let _annotation_gate = task_state.agent.annotations_gate.read().await;
+        let project_capture = super::agent_projects::begin(
+            &task_state,
+            &doc_id,
+            task_state.index.root().join(&session_rel),
+        )
+        .await;
         let mut outcome = run_turn(
             &task_state,
             &doc_id,
@@ -529,6 +551,27 @@ pub async fn start_turn(
             },
         )
         .await;
+        match project_capture {
+            Ok(Some(capture)) => {
+                super::agent_projects::finish(
+                    &task_state,
+                    &run_key,
+                    capture,
+                    outcome.as_ref().ok().map(|(answer, _)| answer.as_str()),
+                )
+                .await
+            }
+            Ok(None) => (),
+            Err(e) => {
+                let _ = super::acp::record::Record::existing(
+                    task_state.index.root().join(&session_rel),
+                )
+                .context(
+                    "literate-project-capture-error",
+                    &json!({"turn":run_key,"error":format!("{e:#}")}),
+                );
+            }
+        }
         let status = match &outcome {
             Ok(_) => "ok",
             Err(m) if m == hickory_agent::STOPPED_BY_USER => "stopped",

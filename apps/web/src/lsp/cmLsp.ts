@@ -36,6 +36,8 @@ export interface CmLspOptions {
    * synthetic byte the weaver produced).
    */
   positionAt: (offset: number, view: EditorView) => LspPosition | null;
+  /** Resolve a local construction byte into its selected complete endpoint. */
+  targetAt?: (offset: number, view: EditorView) => { uri: string; position: LspPosition } | null;
   /** Open a definition/reference target. */
   onNavigate: (target: LspNavigationTarget) => void;
   /** Show a reference list (empty array means "none found"). */
@@ -182,7 +184,8 @@ export function identifierAt(text: string, offset: number): string | null {
 }
 
 export function lspSupport(opts: CmLspOptions): Extension[] {
-  const { client, uri, positionAt, onNavigate, onReferences, runtimeValue } = opts;
+  const { client, uri, positionAt, targetAt, onNavigate, onReferences, runtimeValue } = opts;
+  const target = (offset: number, view: EditorView) => targetAt ? targetAt(offset, view) : (() => { const position = positionAt(offset, view); return position ? {uri,position} : null; })();
   if (!client) return [lspDiagnosticField];
 
   const requestAt = async (
@@ -190,8 +193,9 @@ export function lspSupport(opts: CmLspOptions): Extension[] {
     view: EditorView,
     what: "definition" | "references",
   ): Promise<void> => {
-    const position = positionAt(offset, view);
-    if (!position) return;
+    const location = target(offset, view);
+    if (!location) return;
+    const {uri,position} = location;
     const from: LspNavigationTarget = { uri, range: { start: position, end: position } };
     if (what === "definition") {
       const locations = await client.definition(uri, position).catch(() => []);
@@ -211,12 +215,12 @@ export function lspSupport(opts: CmLspOptions): Extension[] {
       // is what is wrong with it, and an underline that cannot tell you which
       // is only half a report.
       const problems = diagnosticsAt(view.state, pos);
-      const position = positionAt(pos, view);
+      const location = target(pos, view);
       // Asked in parallel: a hover that waits for the language server and
       // then the debugger takes twice as long to say one thing.
       const identifier = identifierAt(view.state.doc.toString(), pos);
       const [result, value] = await Promise.all([
-        position ? client.hover(uri, position).catch(() => null) : Promise.resolve(null),
+        location ? client.hover(location.uri, location.position).catch(() => null) : Promise.resolve(null),
         identifier && runtimeValue ? runtimeValue(identifier).catch(() => null) : Promise.resolve(null),
       ]);
       const text = hoverText(result?.contents);

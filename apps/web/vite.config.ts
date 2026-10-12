@@ -36,6 +36,9 @@ export default defineConfig({
     },
   },
   test: {
+    // Keep interpreter and editor timing checks stable on development machines
+    // while native build checks are running alongside the frontend suite.
+    maxWorkers: 2,
     environment: "jsdom",
     include: ["src/**/*.test.{ts,tsx}"],
     // Shims for the DOM measurements jsdom does not implement — without them

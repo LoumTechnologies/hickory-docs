@@ -128,6 +128,13 @@ impl IncorporationCandidate {
                 "candidate contains documents outside its declared Markdown closure".into(),
             ));
         }
+        for path in &evaluated.inventory.read_only {
+            if baseline_documents.get(path) != documents.get(path) {
+                return Err(IncorporationError::Construction(format!(
+                    "Upstream source is read-only: {path}"
+                )));
+            }
+        }
         let generated = evaluated.new;
         let differences = generated.compare(&completed);
         if !differences.is_empty() {

@@ -940,42 +940,7 @@ export interface SessionView {
 
 export type { SessionViewResponse } from "./sessionTypes";
 
-// ---- the merged view -----------------------------------------------------
-
-/** One worktree a merged view can be opened over.
- *
- * "Across branches" means across WORKTREES: a branch that is not checked out
- * cannot be written to without going behind the working tree into the object
- * database, which bypasses hooks and produces commits nobody watched.
- * docs/specs/freeform/the-merged-view.md */
-export interface WorktreeInfo {
-  path: string;
-  name: string;
-  branch?: string;
-  current: boolean;
-}
-
-/** A run of lines every source agrees on, or a place where they differ.
- *
- * The sources are PEERS: shared means agreed by ALL of them, and there is no
- * order, because the view removes the question. */
-export type MergedRegion =
-  | { kind: "shared"; text: string }
-  | { kind: "variant"; by_source: Record<string, string> };
-
-export interface MergedViewResponse {
-  repository: boolean;
-  path?: string;
-  sources: WorktreeInfo[];
-  regions: MergedRegion[];
-  /** Worktrees that do not have this file at all — named, not dropped. */
-  missing: string[];
-  shared_lines?: number;
-  variants?: number;
-  /** Always true in this step: the alignment is proved before anything is
-   * written through it. */
-  read_only?: boolean;
-}
+export type { WorktreeInfo, MergedRegion, MergedViewResponse } from "./mergedTypes";
 
 /** Continuity — the fourth provenance family, off by default. The whole of it
  * rides this one switch: no ribbon, no journal, no pre-commit repair. */

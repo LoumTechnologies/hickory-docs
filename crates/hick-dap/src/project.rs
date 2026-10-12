@@ -48,7 +48,14 @@ pub(crate) fn document_maps(
         .map(|file| {
             (
                 workdir.join(&file.path),
-                hick_lsp::position_map::PositionMap::build(&file.segments).without_first_line(),
+                state
+                    .project_maps
+                    .get(&file.path)
+                    .cloned()
+                    .unwrap_or_else(|| {
+                        hick_lsp::position_map::PositionMap::build(&file.segments)
+                            .without_first_line()
+                    }),
             )
         })
         .collect()

@@ -12,10 +12,10 @@ says `partial` explicitly rather than leaving it to be inferred from counting.
 
 Corollaries that are part of the guarantee:
 
-- **Read-only is the default.** A target is written only if the client named it
-  in `targets`, which is what it sends for a target the person opened for
-  writing. A long-lived release branch sitting in the view must not silently
-  receive shared edits.
+- **Read-only is the default.** `targets` names comparison membership; a target
+  is written only if the client also named it in `writable`, after the person
+  opened it for writing. A long-lived release branch sitting in the view must
+  not silently receive shared edits.
 - **The view is rebuilt from disk at write time**, never from the client's
   copy: between opening the tab and typing, a source may have moved, and
   writing a stale rebuild would silently revert somebody.
@@ -56,3 +56,20 @@ Last LLM verification:
   drifted in are indistinguishable tomorrow. That is the next step of the
   design and is deliberately after writing exists, because a view that
   remembers nothing is correct — just forgetful.
+
+## Continuation review (2026-10-12)
+
+The old verification above is historical. Publication and undo now live in
+`serve/merged_write.rs`. Both compare displayed/returned expected bytes before
+writing; a subsequent user edit refuses undo. Undo records cover every attempted
+target, including targets not reached. An unchanged target is already restored
+and requires no write. Writes prepare bytes and permissions in a sibling temporary
+file before atomic replacement. Live Markdown uses its room guard; plain files
+do not create Markdown rooms.
+
+`just test-literate-worktrees` passed twelve real HTTP/worktree tests and six
+browser tests. A partial-write witness proves that the unreached side reports
+restored without writing while a newer edit on the written side remains intact.
+Per-target guards do not make a multi-target filesystem transaction. Current
+dependency hashes and failure/correction evidence are in
+`../literate-projects/comparison-integration-evidence.md`. Human judgment is not recorded.

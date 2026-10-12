@@ -3147,6 +3147,7 @@ name = "hick-lang"
 version = "0.1.0"
 dependencies = [
  "serde",
+ "sha2 0.10.9",
  "tempfile",
  "thiserror 2.0.19",
 ]
@@ -3246,6 +3247,7 @@ version = "0.1.0"
 dependencies = [
  "async-trait",
  "globset",
+ "hick-lang",
  "hickory-workspace",
  "ignore",
  "serde",
@@ -3376,6 +3378,7 @@ dependencies = [
  "hick-exec",
  "hick-lang",
  "hick-literate",
+ "hick-project-env",
  "hickory-executor",
  "hickory-lineage",
  "log",

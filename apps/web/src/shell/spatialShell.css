@@ -5,6 +5,11 @@
 .spatial-shell .spatial-view { z-index: 2; }
 .spatial-view-header { height: 35px; min-height: 35px; display: flex; align-items: center; background: var(--bg); border-bottom: 1px solid var(--border); cursor: grab; overflow: hidden; }
 .spatial-filename { flex: 1; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; text-align: left; background: none; border: 0; color: var(--fg); font: inherit; font-size: 12px; padding: 6px 8px; cursor: pointer; }
+.spatial-center-tabs { position: relative; display: flex; flex: 1; min-width: 0; height: 100%; overflow-x: auto; scrollbar-width: thin; }
+.spatial-center-tab { flex: 0 0 auto; max-width: 12rem; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; padding: 5px 10px; background: transparent; border: 0; border-right: 1px solid var(--border); border-bottom: 2px solid transparent; color: var(--fg-muted); font: inherit; font-size: 12px; cursor: pointer; }
+.spatial-center-tab[aria-selected=true] { color: var(--fg); border-bottom-color: var(--accent); background: var(--bg-raised); }
+.spatial-center-tab:hover { color: var(--fg); background: var(--border); }
+.spatial-center-tab:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
 .spatial-window-controls { display: flex; flex: none; padding-right: 3px; }
 .spatial-window-controls button { border: 0; background: transparent; color: var(--accent); padding: 4px; font-size: 14px; min-width: 22px; cursor: pointer; }
 .spatial-window-controls button[aria-pressed=true] { color: #e7b75e; }

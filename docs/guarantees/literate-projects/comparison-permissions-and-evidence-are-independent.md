@@ -27,3 +27,18 @@ Last LLM verification:
 - Executed checks: recorded in `implementation-evidence.md`.
 - Dependencies: comparison and tests above; edits invalidate this review.
 - Human judgment: not recorded.
+
+## Continuation review (2026-10-12)
+
+The common `ComparisonEditor` now presents inline/side-by-side/patch readings,
+forks immutable readings, and invalidates evidence on typing through
+`projectComparison.ts`. The model keeps all four policies; native immutable
+identities do not become writable by receiving a label or target path.
+`just test-literate-comparison-editor` passed all policy and integration witnesses.
+
+Merged-view comparison membership and writable targets are separate. The current
+`merged_write.rs` checks exact displayed bytes and reports each target. The
+real-worktree tests passed shared/single-target writes and guarded undo. Neither
+per-target success nor a rendered provider diff establishes replay equality.
+Current evidence and hashes are in `comparison-integration-evidence.md`;
+human judgment is not recorded.

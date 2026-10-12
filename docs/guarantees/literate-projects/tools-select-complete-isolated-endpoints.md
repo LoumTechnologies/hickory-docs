@@ -41,3 +41,22 @@ Last LLM verification:
 - Executed checks: recorded in `implementation-evidence.md`.
 - Dependencies: paths above; native entry/mapping changes invalidate this review.
 - Human judgment: not recorded; discovering an adapter is not successful debugging.
+
+## Continuation review (2026-10-12)
+
+This supersedes the pending selector/foreign-document exclusions above for the
+working continuation. `project_contexts.rs`, `project_positions.rs` and
+`location_map.rs` carry captured project and source identities. The document
+selector exposes explicit scopes and advanced local states. Comparison tool
+registration is lazy and memory-only; native tools materialize on demand.
+Revision-local paths keep Old tools usable across a rename.
+
+Executed witnesses: `just test-literate-comparison-editor` checks complete later
+file state, explicit enabling, empty Old, scopes and renamed paths through the
+actual WASM evaluator; its native transport is mocked. The real HTTP
+`native_context_registration_freezes_memory_without_borrowing_working_code` test
+checks registration, retrieval and removal despite changed working bytes.
+`just test-literate-projects-csharp` passed the real migration/runtime/debugger
+flow on macOS arm64. Whole native toolbar automation and other platforms remain
+unverified. Dependency hashes and executed status are retained in
+`comparison-integration-evidence.md`; human judgment is not recorded.

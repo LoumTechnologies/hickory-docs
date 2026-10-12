@@ -1,0 +1,8 @@
+.surface-info { flex-shrink: 0; min-width: 0; padding: .35rem .65rem; font-size: .78rem; color: var(--fg-muted); border-bottom: 1px solid var(--border); }
+.surface-info > summary { display: flex; align-items: center; gap: .5rem; cursor: pointer; list-style: none; white-space: nowrap; }
+.surface-info > summary::-webkit-details-marker { display: none; }
+.surface-info > summary::before { content: "›"; flex-shrink: 0; }
+.surface-info[open] > summary::before { transform: rotate(90deg); }
+.surface-info strong { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; color: var(--fg); font-weight: 500; }
+.surface-info > summary > span { flex-shrink: 0; }
+.surface-info > p { margin: .5rem 0 0; overflow-wrap: anywhere; }

@@ -1,3 +1,4 @@
+mod captured;
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -13,6 +14,7 @@ use tower_lsp::{Client, LanguageServer};
 use crate::child_lsp::{ChildNotification, lsp_command};
 use crate::dispatcher::Dispatcher;
 use crate::document::HickDocumentState;
+use crate::location_map::translate_locations;
 use crate::position_map::PositionMap;
 use crate::staging::{StagingArea, StagingError};
 
@@ -70,6 +72,7 @@ pub struct HickBackend {
     prepared_hierarchy: Arc<RwLock<HashMap<String, PreparedHierarchyItem>>>,
     workspace_root: Arc<RwLock<Option<Url>>>,
     staging: StagingArea,
+    projects: Arc<crate::ProjectContexts>,
     /// Whether the user has already been shown a staging failure.
     ///
     /// A failure repeats on every keystroke, and one popup per keystroke is
@@ -113,9 +116,16 @@ impl HickBackend {
             last_completion_language: Arc::new(RwLock::new(None)),
             prepared_hierarchy: Arc::new(RwLock::new(HashMap::new())),
             staging: StagingArea::new(),
+            projects: Arc::new(crate::ProjectContexts::default()),
             staging_failure_shown: Arc::new(RwLock::new(false)),
             workspace_root: Arc::new(RwLock::new(None)),
         }
+    }
+
+    pub fn with_projects(client: Client, projects: Arc<crate::ProjectContexts>) -> Self {
+        let mut backend = Self::new(client);
+        backend.projects = projects;
+        backend
     }
 
     /// The URI a child language server knows one `hick:file` block's code by.
@@ -156,6 +166,10 @@ impl HickBackend {
     async fn process_document(&self, hick_uri: &Url, source: &str) {
         tracing::debug!(%hick_uri, source_len = source.len(), "process_document called");
 
+        if hick_uri.scheme() == "hick-project" {
+            self.process_captured_file(hick_uri, source).await;
+            return;
+        }
         // A file that is not a document is not woven: it is its own virtual
         // file, and its language server is asked about it by its real name.
         if !is_hick_document(hick_uri, source) {
@@ -264,7 +278,10 @@ impl HickBackend {
             // Complete evaluated New: no borrowed working-tree manifests.
             match self.staging.document_dir(hick_uri) {
                 Ok(root) => {
-                    if let Err(message) = crate::write_tree(&root, &project.new) {
+                    if let Err(message) = crate::write_tree(
+                        &root,
+                        state.selected_project.as_ref().unwrap_or(&project.new),
+                    ) {
                         self.client.log_message(MessageType::ERROR, message).await;
                         self.close_vfiles_for(hick_uri, &[]).await;
                         return;
@@ -311,8 +328,8 @@ impl HickBackend {
                 vf.content()
             };
             tracing::debug!(%vf_uri, content_len = content.len(), "forwarding to child LSP");
-            let position_map = if state.evaluated_project.is_some() {
-                PositionMap::build(&vf.segments).without_first_line()
+            let position_map = if let Some(map) = state.project_maps.get(&vf.path) {
+                map.clone()
             } else {
                 PositionMap::build(&vf.segments)
             };
@@ -401,6 +418,17 @@ impl HickBackend {
             return;
         }
         let root_uri = self.plain_root_uri(uri).await;
+        self.process_file_at(uri, uri, source, language_id, root_uri)
+            .await;
+    }
+    async fn process_file_at(
+        &self,
+        uri: &Url,
+        child_uri: &Url,
+        source: &str,
+        language_id: &str,
+        root_uri: String,
+    ) {
         let lines = source.split('\n').count() as u32;
 
         // Already open with this child: a change, not a reopen. Sending
@@ -409,14 +437,17 @@ impl HickBackend {
         let (version, already_open) = {
             let docs = self.documents.read().await;
             match docs.get(uri) {
-                Some(entry) => (entry.vfile_version + 1, entry.open_vfiles.contains(uri)),
+                Some(entry) => (
+                    entry.vfile_version + 1,
+                    entry.open_vfiles.contains(child_uri),
+                ),
                 None => (1, false),
             }
         };
         {
             let mut index = self.vfile_index.write().await;
             index.insert(
-                uri.clone(),
+                child_uri.clone(),
                 VFileMapping {
                     hick_uri: uri.clone(),
                     language_id: language_id.to_string(),
@@ -439,7 +470,7 @@ impl HickBackend {
                 .notify(
                     "textDocument/didChange",
                     serde_json::json!({
-                        "textDocument": { "uri": uri.as_str(), "version": version },
+                        "textDocument": { "uri": child_uri.as_str(), "version": version },
                         "contentChanges": [{ "text": source }],
                     }),
                 )
@@ -450,7 +481,7 @@ impl HickBackend {
                     "textDocument/didOpen",
                     serde_json::json!({
                         "textDocument": {
-                            "uri": uri.as_str(),
+                            "uri": child_uri.as_str(),
                             "languageId": language_id,
                             "version": version,
                             "text": source,
@@ -471,7 +502,7 @@ impl HickBackend {
             vfile_version: 0,
         });
         entry.state = None;
-        entry.open_vfiles = vec![uri.clone()];
+        entry.open_vfiles = vec![child_uri.clone()];
         entry.vfile_version = version;
     }
 
@@ -586,18 +617,26 @@ impl HickBackend {
         pos: Position,
     ) -> Option<(Url, String, Position)> {
         let index = self.vfile_index.read().await;
+        let mut target = None;
         for (vf_uri, mapping) in index.iter() {
             if &mapping.hick_uri == hick_uri
                 && let Some((vl, vc)) = mapping.position_map.to_virtual(pos.line, pos.character)
             {
-                return Some((
+                if mapping.position_map.is_project() && target.is_some() {
+                    return None;
+                }
+                let candidate = (
                     vf_uri.clone(),
                     mapping.language_id.clone(),
                     Position::new(vl, vc),
-                ));
+                );
+                if !mapping.position_map.is_project() {
+                    return Some(candidate);
+                }
+                target = Some(candidate);
             }
         }
-        None
+        target
     }
 
     /// Every virtual file of `hick_uri`, with its language and position map.
@@ -1047,80 +1086,6 @@ pub(crate) fn uri_key(uri: &str) -> String {
     }
 }
 
-pub(crate) fn translate_locations(
-    value: serde_json::Value,
-    index: &HashMap<String, (Url, PositionMap)>,
-) -> serde_json::Value {
-    use serde_json::Value;
-
-    fn translate_range(range: &Value, map: &PositionMap) -> Option<Value> {
-        let sl = range.pointer("/start/line")?.as_u64()? as u32;
-        let sc = range.pointer("/start/character")?.as_u64()? as u32;
-        let el = range.pointer("/end/line")?.as_u64()? as u32;
-        let ec = range.pointer("/end/character")?.as_u64()? as u32;
-        let (sl, sc) = map.to_source(sl, sc)?;
-        let (el, ec) = map.to_source(el, ec)?;
-        Some(serde_json::json!({
-            "start": { "line": sl, "character": sc },
-            "end": { "line": el, "character": ec },
-        }))
-    }
-
-    fn walk(value: &mut Value, index: &HashMap<String, (Url, PositionMap)>) {
-        match value {
-            Value::Array(items) => {
-                for item in items {
-                    walk(item, index);
-                }
-            }
-            Value::Object(obj) => {
-                // Location: { uri, range }
-                let plain = obj
-                    .get("uri")
-                    .and_then(|u| u.as_str())
-                    .and_then(|u| index.get(&uri_key(u)))
-                    .and_then(|(hick, map)| {
-                        let range = translate_range(obj.get("range")?, map)?;
-                        Some((hick.as_str().to_string(), range))
-                    });
-                if let Some((uri, range)) = plain {
-                    obj.insert("uri".into(), Value::String(uri));
-                    obj.insert("range".into(), range);
-                    return;
-                }
-                // LocationLink: { targetUri, targetRange, targetSelectionRange }
-                let link = obj
-                    .get("targetUri")
-                    .and_then(|u| u.as_str())
-                    .and_then(|u| index.get(&uri_key(u)))
-                    .and_then(|(hick, map)| {
-                        let range = translate_range(obj.get("targetRange")?, map)?;
-                        let sel = obj
-                            .get("targetSelectionRange")
-                            .and_then(|r| translate_range(r, map));
-                        Some((hick.as_str().to_string(), range, sel))
-                    });
-                if let Some((uri, range, sel)) = link {
-                    obj.insert("targetUri".into(), Value::String(uri));
-                    obj.insert("targetRange".into(), range);
-                    if let Some(sel) = sel {
-                        obj.insert("targetSelectionRange".into(), sel);
-                    }
-                    return;
-                }
-                for (_, v) in obj.iter_mut() {
-                    walk(v, index);
-                }
-            }
-            _ => {}
-        }
-    }
-
-    let mut value = value;
-    walk(&mut value, index);
-    value
-}
-
 /// Translate every `{start: {line, character}, end: …}` range in a child
 /// result (hover ranges, completion text edits) with one position map — used
 /// for results that carry ranges without URIs, all belonging to the request's
@@ -1399,7 +1364,7 @@ async fn handle_child_diagnostics(
         .cloned()
         .unwrap_or_default();
 
-    let mut translated = Vec::new();
+    let mut translated: HashMap<Url, Vec<Diagnostic>> = HashMap::new();
     for diag_val in &child_diagnostics {
         let range = match diag_val.get("range") {
             Some(r) => r,
@@ -1423,13 +1388,22 @@ async fn handle_child_diagnostics(
             .and_then(|v| v.as_u64())
             .unwrap_or(0) as u32;
 
-        // Translate from virtual file coordinates to .md source coordinates.
-        let (src_start_line, src_start_char) = position_map
-            .to_source(start_line, start_char)
-            .unwrap_or((start_line, start_char));
-        let (src_end_line, src_end_char) = position_map
-            .to_source(end_line, end_char)
-            .unwrap_or((end_line, end_char));
+        let Some((document, src_start_line, src_start_char)) =
+            position_map.source_document(start_line, start_char)
+        else {
+            continue;
+        };
+        let Some((end_document, src_end_line, src_end_char)) =
+            position_map.source_document(end_line, end_char)
+        else {
+            continue;
+        };
+        if document != end_document {
+            continue;
+        }
+        let target = document
+            .and_then(|d| hick_uri.join(&d).ok())
+            .unwrap_or_else(|| hick_uri.clone());
 
         let severity = diag_val
             .get("severity")
@@ -1453,7 +1427,7 @@ async fn handle_child_diagnostics(
             .and_then(|s| s.as_str())
             .map(|s| s.to_string());
 
-        translated.push(Diagnostic {
+        translated.entry(target).or_default().push(Diagnostic {
             range: Range {
                 start: Position {
                     line: src_start_line,
@@ -1473,15 +1447,33 @@ async fn handle_child_diagnostics(
 
     drop(index);
 
-    // Update this virtual file's diagnostics and publish the merged set.
-    let merged = {
+    // Replace this virtual file's contribution on every affected source,
+    // including sources whose old diagnostics disappeared after an edit.
+    let updates = {
         let mut store = accumulated.write().await;
-        let per_hick = store.entry(hick_uri.clone()).or_default();
-        per_hick.insert(vf_uri, translated);
-        per_hick.values().flatten().cloned().collect::<Vec<_>>()
+        let mut affected: std::collections::HashSet<Url> = translated.keys().cloned().collect();
+        for (uri, per_file) in store.iter_mut() {
+            if per_file.remove(&vf_uri).is_some() {
+                affected.insert(uri.clone());
+            }
+        }
+        for (uri, diagnostics) in translated {
+            store
+                .entry(uri)
+                .or_default()
+                .insert(vf_uri.clone(), diagnostics);
+        }
+        affected
+            .into_iter()
+            .map(|uri| {
+                let diagnostics = store[&uri].values().flatten().cloned().collect::<Vec<_>>();
+                (uri, diagnostics)
+            })
+            .collect::<Vec<_>>()
     };
-
-    client.publish_diagnostics(hick_uri, merged, None).await;
+    for (uri, diagnostics) in updates {
+        client.publish_diagnostics(uri, diagnostics, None).await;
+    }
 
     Ok(())
 }

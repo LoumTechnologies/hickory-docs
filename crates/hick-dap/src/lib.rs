@@ -13,10 +13,12 @@ pub mod build;
 pub mod capture;
 pub mod discovery;
 pub mod java;
+mod mapping;
 pub mod program;
 pub mod project;
 pub mod protocol;
 pub mod session;
+pub use mapping::Mapping;
 
 pub use adapter::{Adapter, Transport};
 pub use build::{BuildOutput, build, build_plain, is_compiled};
@@ -24,8 +26,8 @@ pub use capture::{CaptureSpec, Captured, Hit};
 pub use discovery::{Discovered, discover, how_to_get, known_languages, suggests_hick_install};
 pub use program::{MissingAdapter, adapter_for, entry_point, language_of, weave_into};
 pub use session::{
-    BindState, Breakpoint, BreakpointStatus, Capabilities, Exit, Frame, Launch, Mapping, Session,
-    Step, Stopped, Variable,
+    BindState, Breakpoint, BreakpointStatus, Capabilities, Exit, Frame, Launch, Session, Step,
+    Stopped, Variable,
 };
 
 pub use project::{ProjectLaunch, prepare as prepare_project, prepare_closure};

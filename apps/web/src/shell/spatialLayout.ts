@@ -1,9 +1,12 @@
 import { emptyPane, panes, tab, withRail, type Layout, type Node, type Pane } from "./layout";
+import type { SpatialSides } from "../lib/spatialSides";
 
 export type Side = "left" | "right";
 export interface Rect { x: number; y: number; w: number; h: number }
 export interface ViewPlacement { side: Side; pin?: Rect; expanded?: boolean; height?: number }
 export interface SpatialState {
+  /** Global appearance preferences; supplied by the shell, not folder storage. */
+  sides?: SpatialSides;
   center: string | null;
   stack: string[];
   views: Record<string, ViewPlacement>;
@@ -54,14 +57,14 @@ export function clearSpatialSlot(r: Rect, occupied: readonly Rect[], low = -5000
   return choices[0] ?? null;
 }
 
-export function spatialRegions(width: number, height: number, columns: [number, number]) {
-  const rail = width < 650 ? 38 : Math.max(96, Math.min(210, width * .13)), W = width - rail * 2, gap = width < 650 ? 12 : 30;
+export function spatialRegions(width: number, height: number, columns: [number, number], sides: SpatialSides = { left: true, right: true }) {
+  const rail = width < 650 ? 38 : Math.max(96, Math.min(210, width * .13)), leftRail = sides.left ? rail : 0, rightRail = sides.right ? rail : 0, W = width - leftRail - rightRail, gap = width < 650 ? 12 : 30;
   if (width < 650) {
-    const top = height * .54, half = (W - 12) / 2;
-    return { small: true, leftRail: { x: 0, y: 0, w: rail, h: height }, rightRail: { x: width - rail, y: 0, w: rail, h: height }, center: { x: rail + 4, y: 0, w: W - 8, h: top - 12 }, left: { x: rail + 4, y: top, w: half - 4, h: height - top }, right: { x: rail + half + 8, y: top, w: half - 4, h: height - top }, gap };
+    const any = sides.left || sides.right, both = sides.left && sides.right, top = any ? height * .54 : height, half = both ? (W - 12) / 2 : W - 4;
+    return { small: true, leftRail: { x: 0, y: 0, w: leftRail, h: height }, rightRail: { x: width - rightRail, y: 0, w: rightRail, h: height }, center: { x: leftRail + 4, y: 0, w: W - 8, h: any ? top - 12 : height }, left: { x: leftRail + 4, y: top, w: sides.left ? half - 4 : 0, h: height - top }, right: { x: both ? leftRail + half + 8 : leftRail + 4, y: top, w: sides.right ? half - 4 : 0, h: height - top }, gap };
   }
-  const left = W * columns[0], right = W * columns[1];
-  return { small: false, leftRail: { x: 0, y: 0, w: rail, h: height }, rightRail: { x: width - rail, y: 0, w: rail, h: height }, center: { x: rail + left + gap, y: 0, w: W - left - right - gap * 2, h: height }, left: { x: rail + gap, y: 0, w: left - gap, h: height }, right: { x: width - rail - right, y: 0, w: right - gap, h: height }, gap };
+  const left = sides.left ? W * columns[0] : 0, right = sides.right ? W * columns[1] : 0, leftGap = sides.left ? gap : 0, rightGap = sides.right ? gap : 0;
+  return { small: false, leftRail: { x: 0, y: 0, w: leftRail, h: height }, rightRail: { x: width - rightRail, y: 0, w: rightRail, h: height }, center: { x: leftRail + left + leftGap, y: 0, w: W - left - right - leftGap - rightGap, h: height }, left: { x: leftRail + leftGap, y: 0, w: sides.left ? left - leftGap : 0, h: height }, right: { x: width - rightRail - right, y: 0, w: sides.right ? right - rightGap : 0, h: height }, gap };
 }
 
 /** Central content aligns; parallax displacement grows toward either edge. */

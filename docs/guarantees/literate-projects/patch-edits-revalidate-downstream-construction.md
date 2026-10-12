@@ -28,3 +28,32 @@ Last LLM verification:
 - Executed checks: recorded in `implementation-evidence.md`.
 - Dependencies: paths above; regeneration/evaluator edits invalidate this review.
 - Human judgment: not recorded.
+
+## Continuation review (2026-10-12)
+
+`apps/web/src/elements/patch/Editor.tsx` now calls WASM regeneration and reverse
+editing for authored patch comparisons. Its source snapshot guard rejects a
+stale editor before publication. Cross-document candidate edits use the native
+source-publication guard. This supersedes the pending editor wiring statement
+above; executable patch IDs remain required for this editing surface.
+
+The focused comparison/WASM recipe and the portable early-edit/downstream-refusal
+tests passed. Synthetic or ambiguous origins remain explicit refusals. Complete
+visual automation of all patch publication gestures is not claimed. Current
+executed evidence and dependency hashes are in `comparison-integration-evidence.md`;
+human judgment is not recorded.
+
+## Direct editing review (2026-10-12)
+
+Patch code opens directly in the New editor; after a typing pause, regeneration
+checks the entire closure before changing the source. Old remains read-only by
+default and immutable owning documents disable code edits. A rejected edit stays
+in the mounted editor as an explicitly unsaved draft; correcting it retries the
+check. Drafts are not a durable record and this review does not establish their
+recovery after closing the document or restarting the app.
+
+`apps/web/src/elements/patch/Editor.test.tsx` exercises direct editing, Unicode
+publication, selection/editor preservation, downstream refusal and correction,
+and read-only Old and owning-document policies. The comparison recipe passed
+26 tests with type checking. Native visual behavior is not claimed by these
+tests.

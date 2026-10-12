@@ -41,6 +41,7 @@ import {
 } from "../lib/channelWidth";
 import { applyTheme, loadTheme, saveTheme, type Theme } from "../lib/theme";
 import { loadWordMotion, saveWordMotion, type WordMotion } from "../lib/wordMotion";
+import { saveSpatialSides, useSpatialSides } from "../lib/spatialSides";
 
 function KeyRow({
   provider,
@@ -147,6 +148,7 @@ function ChoiceRow<T extends string | number>({
  * launch for the native title bar.
  */
 function AppearanceSection() {
+  const spatialSides = useSpatialSides();
   const [theme, setTheme] = useState<Theme>(() => loadTheme());
   const [ribbonStyle, setRibbonStyle] = useState<RibbonStyle>(() => loadRibbonStyle());
   const [ribbonVisibility, setRibbonVisibility] = useState<RibbonVisibility>(
@@ -275,6 +277,10 @@ function AppearanceSection() {
             title: `${preset.label} channel between panes (${preset.px}px)`,
           }))}
         />
+        {(["left", "right"] as const).map(side => <div key={side} className="settings-row settings-row--appearance">
+          <div className="settings-row__who"><label className="settings-row__label" htmlFor={`spatial-${side}`}>{side === "left" ? "Left" : "Right"} context panes and vertical tabs</label></div>
+          <div className="settings-row__actions"><input id={`spatial-${side}`} type="checkbox" checked={spatialSides[side]} onChange={event => saveSpatialSides({ ...spatialSides, [side]: event.target.checked })} /></div>
+        </div>)}
         <form
           className="settings-row"
           onSubmit={(event) => {

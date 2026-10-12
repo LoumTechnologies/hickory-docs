@@ -1,8 +1,7 @@
+import { AgentProject } from "./AgentProject";
 import { AgentChanges } from "./AgentChanges";
 import type { AgentChange } from "../api/acp";
 import type { AgentEditorContext } from "../api/agentTypes";
-// The agent chat dock along the bottom of a document.
-//
 // The conversation is a TREE, not a transcript. Every message records the turn
 // it continued from, so selecting an earlier turn and sending again forks a
 // branch rather than destroying what came after it — you can try a different
@@ -620,6 +619,7 @@ export function ChatDock({
             />
           ) : (
             <>
+              {!running && branch.at(-1)?.status === "ok" && <AgentProject doc={docId} turn={branch.at(-1)!.id} />}
               <ConversationEditor branch={branch} path={sessionPath} stamp={lensStamp} running={running}
                 showCollapsedLineage={showCollapsedLineage} stream={stream} reasoning={reasoning} draft={prompt} onDraft={setPrompt}
                 onSend={() => void send()} sending={sending} canSend={!running && !sending && (backend === "builtin" || (!!acp.state?.ready && !acp.busy))} />

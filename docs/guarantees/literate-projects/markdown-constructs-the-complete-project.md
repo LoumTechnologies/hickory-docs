@@ -36,3 +36,19 @@ Last LLM verification:
 - Executed checks: recorded in `implementation-evidence.md`.
 - Dependencies: paths above; changed grammar/evaluator invalidates this review.
 - Human judgment: not recorded.
+
+## Continuation review (2026-10-12)
+
+The portable evaluator now supports explicit declared fragment contributions,
+read-only upstream fragments and kept cell recordings. This supersedes those
+specific exclusions above. `project/recorded.rs` shares fingerprint and transcript
+formatting with native callers through `recording.rs`; unknown cell inputs,
+mounts/capabilities and unresolved nested operations still refuse pure replay.
+Literal command wrappers and bare command text share the same kept-run meaning.
+
+`just test-literate-projects` passed the current construction, lineage, stale
+recording, expectations, native endpoint and candidate-revision witnesses.
+The full fixture closures also passed `just verify-literate-project-fixtures`.
+Construction/verification remain virtual; the command that materializes output
+is explicit. Current dependency hashes, partial grammar limits, and executed
+evidence are in `comparison-integration-evidence.md`. Human judgment is not recorded.

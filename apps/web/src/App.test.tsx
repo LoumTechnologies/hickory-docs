@@ -1,4 +1,4 @@
-import { act, cleanup, fireEvent, render, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { EditorView } from "@codemirror/view";
 import { App } from "./App";
@@ -100,7 +100,7 @@ describe("the startup workspace", () => {
       expect(editor(container).hasFocus).toBe(true);
     });
     await waitFor(() => expect(editor(container).hasFocus).toBe(true));
-    expect(getAllByRole("tab")).toHaveLength(3);
+    expect(getAllByRole("tab")).toHaveLength(2);
     expect(getByRole("tab", { name: /Files/ })).toBeTruthy();
     expect(getByRole("tab", { name: /Untitled/ }).textContent).toContain("Untitled");
     expect(getByRole("tab", { name: /Untitled/ }).textContent).not.toContain("*");
@@ -127,21 +127,21 @@ describe("the startup workspace", () => {
     await waitFor(() => expect(editor(first.container).hasFocus).toBe(true));
     act(() => editor(first.container).dispatch({ changes: { from: 0, to: editor(first.container).state.doc.length, insert: "First note" } }));
     fireEvent(window, new CustomEvent("hickory-menu", { detail: "new" }));
-    await waitFor(() => expect(first.getAllByRole("tab", { name: /Untitled/ })).toHaveLength(2));
+    await waitFor(() => expect(within(first.getByRole("tablist", { name: "Center views" })).getAllByRole("tab", { name: /Untitled/ })).toHaveLength(2));
     await waitFor(() => expect(editor(first.container).state.doc.toString()).toBe(""));
     act(() => editor(first.container).dispatch({ changes: { from: 0, insert: "Second note" } }));
     act(() => newDocument());
-    await waitFor(() => expect(first.getAllByRole("tab", { name: /Untitled/ })).toHaveLength(3));
+    await waitFor(() => expect(within(first.getByRole("tablist", { name: "Center views" })).getAllByRole("tab", { name: /Untitled/ })).toHaveLength(3));
     fireEvent(window, new Event("pagehide"));
     await waitFor(() => expect([...drafts.values()].map(draft => draft.contents).sort()).toEqual(["First note", "Second note"]));
     first.unmount();
     window.history.replaceState(null, "", "/");
     const second = render(<App />);
-    await waitFor(() => expect(second.getAllByRole("tab", { name: /Untitled/ })).toHaveLength(2));
+    await waitFor(() => expect(within(second.getByRole("tablist", { name: "Center views" })).getAllByRole("tab", { name: /Untitled/ })).toHaveLength(2));
     await waitFor(() => expect(second.getByRole("tab", { name: /Files/ })).toBeTruthy());
     const restored = new Set<string>();
-    for (const tab of second.getAllByRole("tab", { name: /Untitled/ })) {
-      fireEvent.click(tab);
+    for (const id of within(second.getByRole("tablist", { name: "Center views" })).getAllByRole("tab", { name: /Untitled/ }).map(tab => tab.id)) {
+      fireEvent.click(second.container.querySelector(`#${id}`)!);
       await waitFor(() => expect(editor(second.container)).toBeTruthy());
       restored.add(editor(second.container).state.doc.toString());
     }
@@ -162,10 +162,10 @@ describe("the startup workspace", () => {
     for (let launch = 0; launch < 3; launch++) {
       window.history.replaceState(null, "", "/");
       const app = render(<App />);
-      await waitFor(() => expect(app.getAllByRole("tab", { name: /Untitled/ })).toHaveLength(2));
+      await waitFor(() => expect(within(app.getByRole("tablist", { name: "Center views" })).getAllByRole("tab", { name: /Untitled/ })).toHaveLength(2));
       const restored = new Set<string>();
-      for (const tab of app.getAllByRole("tab", { name: /Untitled/ })) {
-        fireEvent.click(tab);
+      for (const id of within(app.getByRole("tablist", { name: "Center views" })).getAllByRole("tab", { name: /Untitled/ }).map(tab => tab.id)) {
+        fireEvent.click(app.container.querySelector(`#${id}`)!);
         await waitFor(() => expect(editor(app.container).state.doc.toString()).not.toBe(""));
         restored.add(editor(app.container).state.doc.toString());
       }
@@ -297,14 +297,14 @@ describe("windows without an open folder", () => {
     act(() => newDocument());
     await waitFor(() => expect(editor(app.container).state.doc.toString()).toBe(""));
     act(() => editor(app.container).dispatch({ changes: { from: 0, insert: "Second unsaved note" } }));
-    const ids = app.getAllByRole("tab", { name: /Untitled/ }).map(tab => tab.id);
+    const ids = within(app.getByRole("tablist", { name: "Center views" })).getAllByRole("tab", { name: /Untitled/ }).map(tab => tab.id);
     files.mockResolvedValue({ folder_open: true, root: "selected", tree: [] });
     fireEvent(window, new Event("hickory:files-changed"));
     await waitFor(() => expect(app.getByRole("tab", { name: /Files/ })).toBeTruthy());
-    expect(app.getAllByRole("tab", { name: /Untitled/ }).map(tab => tab.id)).toEqual(ids);
+    expect(within(app.getByRole("tablist", { name: "Center views" })).getAllByRole("tab", { name: /Untitled/ }).map(tab => tab.id)).toEqual(ids);
     const contents = new Set<string>();
-    for (const tab of app.getAllByRole("tab", { name: /Untitled/ })) {
-      fireEvent.click(tab);
+    for (const id of within(app.getByRole("tablist", { name: "Center views" })).getAllByRole("tab", { name: /Untitled/ }).map(tab => tab.id)) {
+      fireEvent.click(app.container.querySelector(`#${id}`)!);
       await waitFor(() => expect(editor(app.container).state.doc.toString()).not.toBe(""));
       contents.add(editor(app.container).state.doc.toString());
     }

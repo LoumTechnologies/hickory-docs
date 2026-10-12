@@ -13,6 +13,20 @@ export function evaluate_project(entry: string, sources_json: string, input_json
  */
 export function literal_files(source: string): string;
 
+export function project_position(local_json: string, endpoint_json: string, path: string, byte: number): string;
+
+/**
+ * One deterministic transition renderer for all comparison surfaces.
+ */
+export function project_transition(old_json: string, new_json: string): string;
+
+/**
+ * Exact shared patch regeneration; every downstream act is checked before returning source.
+ */
+export function regenerate_project_patch(entry: string, sources_json: string, input_json: string, id: string, new_json: string): string;
+
+export function reverse_project_edit(entry: string, sources_json: string, input_json: string, endpoint_json: string, edit_json: string): string;
+
 /**
  * The structure of a document — `hick_lang::Structure` as JSON.
  *
@@ -27,6 +41,10 @@ export interface InitOutput {
     readonly memory: WebAssembly.Memory;
     readonly evaluate_project: (a: number, b: number, c: number, d: number, e: number, f: number, g: number) => void;
     readonly literal_files: (a: number, b: number, c: number) => void;
+    readonly project_position: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number) => void;
+    readonly project_transition: (a: number, b: number, c: number, d: number, e: number) => void;
+    readonly regenerate_project_patch: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number, j: number, k: number) => void;
+    readonly reverse_project_edit: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number, j: number, k: number) => void;
     readonly structure: (a: number, b: number, c: number) => void;
     readonly __wbindgen_add_to_stack_pointer: (a: number) => number;
     readonly __wbindgen_export: (a: number, b: number) => number;

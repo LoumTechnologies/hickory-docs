@@ -33,45 +33,7 @@ pub const AGENTS_BLOCK_END: &str = "<!-- END HICKORY -->";
 ///
 /// Exit codes are ranked by number, which is the same order the CLI ranks
 /// outcomes in: verified(0) < drifted(1) < unverifiable(2) < expectation(3).
-const HOOK_BODY: &str = r#"# Managed by `hick init` — do not edit inside this block.
-# Re-run `hick init` to refresh it.
-if [ -n "$(git ls-files -- '*.md')" ]; then
-    if command -v hick >/dev/null 2>&1; then
-        # Continuity repair: an unwatched edit leaves its correspondence
-        # behind before it is committed. Does nothing unless continuity is on
-        # for this project, and NEVER blocks a commit — the check is the
-        # repair, and a rule with no escape hatch gets this hook disabled
-        # entirely, taking the drift gate below down with it.
-        hick repair || true
-        git ls-files -z -- '*.md' | xargs -0 sh -c '
-        if ! hick lint "$@"; then
-            echo "pre-commit: \`hick lint\` found invalid hick element attributes. Fix the marked spelling before committing. Commit blocked." >&2
-            exit 1
-        fi
-        hick_worst=0
-        for hick_doc do
-            hick_code=0
-            hick test "$hick_doc" || hick_code=$?
-            if [ "$hick_code" -gt "$hick_worst" ]; then
-                hick_worst=$hick_code
-            fi
-        done
-        case "$hick_worst" in
-            0) ;;
-            1) echo "pre-commit: \`hick test\` found DRIFT (exit 1) — a committed output is out of date with what the document produces. Re-run \`hick run <doc>\` (or \`hick refresh <doc>\` for a stale hick:transform) and commit the result. Commit blocked." >&2
-               exit 1 ;;
-            2) echo "pre-commit: \`hick test\` could NOT VERIFY (exit 2) — a cell has no baseline, so nothing was actually checked. Record one by running \`hick run <doc>\` — a cell declaring freeze=true runs once and records itself — or stop freezing that cell. Commit blocked." >&2
-               exit 1 ;;
-            3) echo "pre-commit: \`hick test\` found a FAILED EXPECTATION (exit 3) — a hick:expect did not hold, so the document claims something untrue of its own output. Do not regenerate this away: decide whether the claim or the code is wrong. Commit blocked." >&2
-               exit 1 ;;
-            *) echo "pre-commit: \`hick test\` exited $hick_worst — see the output above. Commit blocked." >&2
-               exit 1 ;;
-        esac
-        ' hick-pre-commit || exit 1
-    else
-        echo "pre-commit: hick not found on PATH; skipping .md verification" >&2
-    fi
-fi"#;
+const HOOK_BODY: &str = include_str!("init_hook.sh");
 
 /// The managed body installed inside the AGENTS.md sentinels.
 const AGENTS_BODY: &str = r#"## Hickory executable documents

@@ -441,6 +441,7 @@ pub async fn run_agent(
                 thought,
                 invocation,
             } => {
+                let mut invocation = invocation;
                 consecutive_invalid = 0;
                 session.record(SessionEvent::ToolCall {
                     prose: thought.as_deref().unwrap_or(""),
@@ -470,7 +471,12 @@ pub async fn run_agent(
                             match decision {
                                 Err(error) => Err(error.to_string()),
                                 Ok(()) => match es.preview_edit(&invocation).await {
-                                    Ok(current) if current == preview => Ok(()),
+                                    Ok(current) if current == preview => {
+                                        if let Some(replacement) = reviewer.replacement() {
+                                            session.record(SessionEvent::Context { kind: "reviewed-replacement", data: &serde_json::json!({"actor":"user-declared","path":preview.0,"replacement":replacement}) });
+                                            match EditSession::reviewed_invocation(&invocation,&preview.1,replacement) { Ok(revised) => { invocation = revised; Ok(()) }, Err(e) => Err(e) }
+                                        } else { Ok(()) }
+                                    },
                                     _ => Err("The surface changed during review. Read it again; nothing was changed.".into())
                                 }
                             }
