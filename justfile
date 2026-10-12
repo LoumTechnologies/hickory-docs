@@ -320,6 +320,14 @@ test-files-browser url:
 test-spatial:
     cd apps/web && npm run typecheck && npm test -- src/shell/spatialLayout.test.ts src/shell/SpatialShellView.test.tsx src/editor/spatialExcerpt.test.ts
 
+# Regenerate the standalone contextual-tiling prototype from its source.
+build-navigation-prototype:
+    node work/navigation-prototype/build.cjs
+
+# Check the standalone contextual-tiling prototype in Chromium.
+check-navigation-prototype:
+    node work/navigation-prototype/check.cjs
+
 # Browser embedding and static JS/TS debugging, without a native engine.
 install-browser-runtime:
     cd apps/web && npm install --save-exact js-interpreter@6.0.2 @jridgewell/trace-mapping@0.3.31
