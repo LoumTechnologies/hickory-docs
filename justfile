@@ -318,7 +318,7 @@ test-files-browser url:
 
 # Spatial layout geometry and native editor behavior.
 test-spatial:
-    cd apps/web && npm run typecheck && npm test -- src/shell/spatialTiles.test.ts src/shell/ribbonNavigation.test.ts src/shell/spatialLayout.test.ts src/shell/spatialDrawers.test.ts src/shell/SpatialShellView.test.tsx src/editor/spatialExcerpt.test.ts src/views/SettingsView.test.tsx
+    cd apps/web && npm run typecheck && npm test -- src/shell/spatialTiles.test.ts src/shell/ribbonNavigation.test.ts src/shell/spatialLayout.test.ts src/shell/spatialDrawers.test.ts src/shell/SpatialShellView.test.tsx src/shell/SpatialController.test.ts src/editor/spatialExcerpt.test.ts src/views/SettingsView.test.tsx
 
 # Drawer geometry and real editor state against a disposable native engine.
 test-spatial-ui:
@@ -636,3 +636,15 @@ test-editor-density:
 
 test-editor-density-ui:
     bash scripts/test-spatial-ui.sh editor-density.spec.ts
+
+# Files text rows, floating preview surfaces and themed hints.
+test-files-previews:
+    cd apps/web && npm run typecheck && npm test -- src/shell/SpatialController.test.ts src/shell/spatialDrawers.test.ts src/shell/FilesystemTreeEditor.test.tsx src/lib/tooltip.test.ts --maxWorkers=2
+
+# Reproduce bypasses against a disposable copy of an existing walkthrough.
+test-spatial-walkthrough project:
+    HICKORY_SPATIAL_PROJECT={{quote(project)}} bash scripts/test-spatial-ui.sh spatialWalkthrough.spec.ts
+
+# Resize the actual Files pane across its preview-layout breakpoint.
+test-responsive-files-ui:
+    bash scripts/test-spatial-ui.sh spatialWorkspace.spec.ts --grep 'resizing Files'

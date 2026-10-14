@@ -68,3 +68,23 @@
 .spatial-drop-preview { position: absolute; z-index: 30; pointer-events: none; box-sizing: border-box; border: 2px solid var(--accent); background: color-mix(in srgb, var(--accent) 18%, transparent); display: grid; place-items: center; color: var(--accent); }
 .spatial-view-header { touch-action: none; }
 .spatial-drawer-toolbar button[aria-pressed=true] { color: #e7b75e; }
+/* The filename is the Files editor's text, with syntax-like context coloring. */
+.spatial-file-row { color: var(--accent); text-decoration: underline; text-decoration-style: dotted; text-underline-offset: 3px; }
+.spatial-file-row--pinned { color: #e7b75e; text-decoration-style: solid; }
+.spatial-shell .spatial-view[data-spatial-text-header=true] .spatial-filename { visibility: hidden; pointer-events: none; }
+.spatial-shell .spatial-view[data-spatial-text-header=true] .spatial-view-header { background: var(--bg); border-bottom: 0; }
+.spatial-drawer-toolbar { cursor: grab; touch-action: none; user-select: none; }
+.spatial-drawer-toolbar:active { cursor: grabbing; }
+.spatial-preview-gutter { width: 14px; color: var(--accent); }
+.spatial-file-grip { display: inline-block; cursor: grab; touch-action: none; font-size: 10px; }
+.spatial-file-grip[data-preview-pinned=true] { color: #e7b75e; }
+/* Narrow Files panes share one column: text name, controls, then content. */
+.spatial-shell .spatial-view[data-files-below=true][data-spatial-text-header=true] { background: transparent; pointer-events: none; }
+.spatial-shell .spatial-view[data-files-below=true][data-spatial-text-header=true] .spatial-view-header { background: transparent; pointer-events: none; }
+.spatial-shell .spatial-view[data-files-below=true][data-spatial-text-header=true][data-expanded=true] .spatial-view-header { height: 64px; min-height: 64px; align-items: flex-end; }
+.spatial-shell .spatial-view[data-files-below=true] .spatial-window-controls,
+.spatial-shell .spatial-view[data-files-below=true] .pane-header-slots { background: var(--bg); pointer-events: auto; }
+.spatial-shell .spatial-view[data-files-below=true] .spatial-view-body { background: var(--bg); }
+.spatial-header-extension[data-files-first=true] { background: linear-gradient(to right, var(--bg) var(--spatial-rail-width), transparent var(--spatial-rail-width)); }
+.spatial-header-extension[data-files-first=true] .spatial-file-tab { left: 0; right: auto; }
+.spatial-column-rule[data-drawer-side] { z-index: 12; }

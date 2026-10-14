@@ -2,7 +2,7 @@ import { PRIMARY, dockHit, tileRects, type DockEdge } from "./spatialTiles";
 import { EditorView } from "@codemirror/view";
 import type { EditorSelection } from "@codemirror/state";
 import { showSpatialExcerpt } from "../editor/spatialExcerpt";
-import { reserveSpatialFileRows } from "../editor/spatialFiles";
+import { alignSpatialFileRows, snapSpatialFileRow } from "../editor/spatialFiles";
 import { samePath } from "../lib/paths";
 import { workspaceRegions } from "./spatialDrawers";
 import { bandBetween } from "./Ribbons";
@@ -39,6 +39,24 @@ export class SpatialController {
   private disposed = false;
   private size = "";
   private centerKey: string | null = null;
+  private newPins = new Set<string>();
+  /** Only the explicit pin action may settle a new pin onto its filename. */
+  alignNewPin(key: string) { this.newPins.add(key); }
+  private filesGesture: { side: Side; pointer: number; x: number; y: number; initial: { x: number; y: number }; offsets: SpatialState["drawerOffsets"]; views: SpatialState["views"]; moved: boolean } | null = null;
+  beginFiles(side: Side, event: React.PointerEvent) {
+    if (event.button !== 0 || (event.target as HTMLElement).closest("button")) return;
+    event.preventDefault(); event.currentTarget.setPointerCapture?.(event.pointerId);
+    const state = this.adapter.state(), root = this.adapter.root();
+    let initial = state.drawerOffsets?.[side] ?? { x: 0, y: 0 };
+    if (root) {
+      const current = workspaceRegions(root.clientWidth, root.clientHeight, state);
+      const home = workspaceRegions(root.clientWidth, root.clientHeight, { ...state, drawerOffsets: { ...state.drawerOffsets, [side]: { x: 0, y: 0 } } });
+      initial = { x: current[side].x - home[side].x, y: current[side].y - home[side].y };
+    }
+    this.filesGesture = { side, pointer: event.pointerId, x: event.clientX, y: event.clientY,
+      initial, offsets: state.drawerOffsets, views: state.views, moved: false };
+    this.hold = null; this.stopRoutes();
+  }
   constructor(readonly adapter: SpatialAdapter) {}
   start() {
     const root = this.adapter.root(); if (!root) return () => {};
@@ -70,7 +88,7 @@ export class SpatialController {
       this.adapter.update(current => ({ ...current, views: { ...current.views, [key]: { ...current.views[key], side, pin: undefined } } }));
       return;
     }
-    this.released.delete(key);
+    this.released.delete(key); this.alignNewPin(key);
     // A pin must land where it can be seen: the frame a parallax view was
     // flowing through can sit far off the lane while its source is scrolled
     // out, and freezing it there would pin the document out of sight.
@@ -102,6 +120,23 @@ export class SpatialController {
     this.gesture = { key, pointer: event.pointerId, startX: event.clientX, startY: event.clientY, lastY: event.clientY, start: r, side, kind, moved: false, neighbor: kind === "bottom" ? (event.currentTarget as HTMLElement).dataset.resizeNeighbor : undefined, initialViews: this.adapter.state().views, selections: this.selections() };
   }
   move(event: Pick<PointerEvent, "pointerId" | "clientX" | "clientY">) {
+    const files = this.filesGesture;
+    if (files && event.pointerId === files.pointer) {
+      const dx = event.clientX - files.x, dy = event.clientY - files.y;
+      if (!files.moved && Math.hypot(dx, dy) < 4) return;
+      files.moved = true;
+      const root = this.adapter.root(); if (!root) return;
+      const state = this.adapter.state(), before = workspaceRegions(root.clientWidth, root.clientHeight, state);
+      const offset = { x: files.initial.x + dx, y: files.initial.y + dy };
+      const after = workspaceRegions(root.clientWidth, root.clientHeight, { ...state, drawerOffsets: { ...state.drawerOffsets, [files.side]: offset } });
+      const shiftX = after[files.side].x - before[files.side].x, shiftY = after[files.side].y - before[files.side].y;
+      const home = workspaceRegions(root.clientWidth, root.clientHeight, { ...state, drawerOffsets: { ...state.drawerOffsets, [files.side]: { x: 0, y: 0 } } });
+      const clamped = { x: after[files.side].x - home[files.side].x, y: after[files.side].y - home[files.side].y };
+      this.adapter.update(current => ({ ...current, drawerOffsets: { ...current.drawerOffsets, [files.side]: clamped },
+        views: Object.fromEntries(Object.entries(current.views).map(([key, view]) => [key, view.side === files.side && view.pin
+          ? { ...view, pin: { ...view.pin, x: view.pin.x + shiftX, y: view.pin.y + shiftY } } : view])) }));
+      this.schedule(); return;
+    }
     const g = this.gesture, root = this.adapter.root(); if (!g || event.pointerId !== g.pointer || !root) return;
     const dy = event.clientY - g.startY; if (!g.moved && Math.hypot(event.clientX - g.startX, dy) < 4) return;
     if (!g.moved && g.neighbor && dy < 0) { g.key = g.neighbor; g.kind = "top"; }
@@ -125,11 +160,18 @@ export class SpatialController {
     g.side = event.clientX - base.left < regions.center.x + regions.center.w / 2 ? "left" : "right";
     if (this.adapter.state().sides?.[g.side] === false) g.side = g.side === "left" ? "right" : "left";
     const lane = regions[g.side], occupied = Object.entries(this.adapter.state().views).filter(([key, view]) => key !== g.key && view.pin).map(([, view]) => view.pin!);
-    g.preview = clearSpatialSlot({ x: lane.x, y: g.start.y + dy, w: lane.w, h: Math.min(g.start.h, lane.h) }, occupied, lane.y, lane.y + lane.h)
+    const fileView = editorOf(root.querySelector<HTMLElement>(`[data-spatial-files=${g.side}]`));
+    const snapped = fileView && snapSpatialFileRow(fileView, base.top + g.start.y + dy);
+    g.preview = clearSpatialSlot({ x: lane.x, y: snapped === undefined ? g.start.y + dy : snapped - base.top, w: lane.w, h: Math.min(g.start.h, lane.h) }, occupied, lane.y, lane.y + lane.h)
       ?? clearSpatialSlot({ x: lane.x, y: lane.y + lane.h, w: lane.w, h: 36 }, occupied, lane.y + lane.h, 5000) ?? undefined;
     this.hold = null; this.paint();
   }
   finish(cancel = false) {
+    const files = this.filesGesture; this.filesGesture = null;
+    if (files) {
+      if (cancel) this.adapter.update(state => ({ ...state, drawerOffsets: files.offsets, views: files.views }));
+      this.schedule(); return;
+    }
     const g = this.gesture; if (!g) return; this.gesture = null;
     if (cancel && g.kind !== "drag" && g.moved) this.adapter.update(state => ({ ...state, views: g.initialViews }));
     if (g.kind === "drag" && g.moved && g.preview && !cancel) {
@@ -144,12 +186,16 @@ export class SpatialController {
     if (g.moved) { this.restoreSelections(g.selections); requestAnimationFrame(() => this.restoreSelections(g.selections)); }
     this.schedule();
   }
-  private related(item: SpatialItem, center: HTMLElement | undefined, pivot: number) {
+  private related(item: SpatialItem, pivot: number) {
+    const sources = [...this.elements().values()].filter(el => !el.hidden && (el.dataset.spatialCenter === "true" || el.dataset.spatialTiled === "true"));
     const candidates = this.adapter.relations().flatMap(relation => {
-      if (center && ((relation.from && center.contains(relation.from.dom)) || (relation.anchor && center.contains(relation.anchor))) && samePath(relation.toPath, item.path)) {
-        const band = relationBand(relation); return band ? [{ y: (band[0] + band[1]) / 2, range: relation.toRange }] : [];
+      const source = sources.find(el => (relation.from && el.contains(relation.from.dom)) || (relation.anchor && el.contains(relation.anchor)));
+      const target = sources.find(el => relation.to && el.contains(relation.to.dom));
+      const geometry = (el: HTMLElement) => { const box = editorOf(el)?.scrollDOM.getBoundingClientRect() ?? el.getBoundingClientRect(); return { pivot: (box.top + box.bottom) / 2, height: box.height }; };
+      if (source && samePath(relation.toPath, item.path)) {
+        const band = relationBand(relation); return band ? [{ y: (band[0] + band[1]) / 2, range: relation.toRange, ...geometry(source) }] : [];
       }
-      if (center && relation.to && center.contains(relation.to.dom) && samePath(relation.fromPath, item.path)) { const band = relationBand(relation, true); return band ? [{ y: (band[0] + band[1]) / 2, range: relation.fromRange }] : []; }
+      if (target && samePath(relation.fromPath, item.path)) { const band = relationBand(relation, true); return band ? [{ y: (band[0] + band[1]) / 2, range: relation.fromRange, ...geometry(target) }] : []; }
       return [];
     }).sort((a, b) => Math.abs(a.y - pivot) - Math.abs(b.y - pivot));
     return candidates[0];
@@ -167,12 +213,12 @@ export class SpatialController {
   }
   paint() {
     const root = this.adapter.root(); if (!root || !root.clientWidth || !root.clientHeight) return;
-    const state = this.adapter.state(), central = tileRects(state.tiles ?? PRIMARY, workspaceRegions(root.clientWidth, root.clientHeight, state).center), tiled = new Set([...central.keys()].map(key => key === PRIMARY ? state.center : key)), items = this.adapter.items().filter(item => tiled.has(item.key) || (state.sides?.[state.views[item.key]?.side ?? item.side] !== false && (!state.drawers || state.drawers.keys.includes(item.key)))), elements = this.elements(), regions = workspaceRegions(root.clientWidth, root.clientHeight, state), base = root.getBoundingClientRect(), center = elements.get(state.center ?? "");
+    const state = this.adapter.state(), central = tileRects(state.tiles ?? PRIMARY, workspaceRegions(root.clientWidth, root.clientHeight, state).center), tiled = new Set([...central.keys()].map(key => key === PRIMARY ? state.center : key)), items = this.adapter.items().filter(item => tiled.has(item.key) || (state.sides?.[state.views[item.key]?.side ?? item.side] !== false && (!state.drawers || state.drawers.keys.includes(item.key)))), elements = this.elements(), regions = workspaceRegions(root.clientWidth, root.clientHeight, state), base = root.getBoundingClientRect();
     const visible = new Set(items.map(item => item.key));
     for (const [key, element] of elements) if (!visible.has(key)) element.hidden = true;
     for (const [key, route] of this.routes) if (!elements.has(key) || !visible.has(key)) { route.animation.cancel(); this.routes.delete(key); const el = elements.get(key); if (el) { el.classList.remove("spatial-view--crossing"); el.style.visibility = ""; } }
     if (this.centerKey !== state.center) { this.centerKey = state.center; this.hold = null; this.released.clear(); this.gates.clear(); this.stopRoutes(); }
-    const size = `${root.clientWidth}:${root.clientHeight}:${state.columns}:${state.sides?.left}:${state.sides?.right}:${JSON.stringify(state.drawers)}`;
+    const size = JSON.stringify([root.clientWidth, root.clientHeight, regions.left, regions.right]);
     if (this.size !== size) {
       this.size = size; this.hold = null; this.released.clear(); this.stopRoutes();
       const occupied: Rect[] = [], views = { ...state.views }; let changed = false;
@@ -186,15 +232,15 @@ export class SpatialController {
     for (const [slot, rect] of central) {
       const key = slot === PRIMARY ? state.center : slot, element = key && elements.get(key);
       if (!element) continue;
-      element.hidden = false; element.dataset.expanded = "true"; setRect(element, rect);
+      element.hidden = false; element.dataset.expanded = "true"; delete element.dataset.filesBelow; setRect(element, rect);
       element.classList.remove("spatial-view--tentative", "spatial-view--pinned");
       this.frames.set(key!, rect);
       const view = editorOf(element); if (view) showSpatialExcerpt(view, null);
     }
     const preview = root.querySelector<HTMLElement>("[data-spatial-drop-preview]");
     if (preview) { preview.hidden = !this.gesture?.dock; if (this.gesture?.dock && this.gesture.preview) { setRect(preview, this.gesture.preview); preview.textContent = this.gesture.dock.edge === "center" ? "Move here" : "Split " + this.gesture.dock.edge; } }
-    for (const side of ["left", "right"] as const) { const rail = root.querySelector<HTMLElement>(`[data-spatial-files=${side}]`); if (rail) { rail.hidden = state.sides?.[side] === false || state.drawers?.files[side] === false; setRect(rail, regions[`${side}Rail`]); } }
-    if ("drawers" in regions) for (const side of ["left", "right"] as const) {
+    for (const side of ["left", "right"] as const) { const rail = root.querySelector<HTMLElement>(`[data-spatial-files=${side}]`); if (rail) { rail.hidden = state.sides?.[side] === false || state.drawers?.files[side] === false; rail.dataset.filesBelow = String(regions.filesBelow[side]); setRect(rail, regions[`${side}Rail`]); } }
+    if (regions.drawers) for (const side of ["left", "right"] as const) {
       const box = regions.drawers[side];
       const background = root.querySelector<HTMLElement>(`[data-drawer-backdrop=${side}]`), toolbar = root.querySelector<HTMLElement>(`[data-drawer-toolbar=${side}]`);
       if (background) setRect(background, box);
@@ -207,19 +253,23 @@ export class SpatialController {
     for (const item of items) { const p = state.views[item.key]; if (tiled.has(item.key) || !p?.pin || this.gesture?.key === item.key && this.gesture.moved) continue; planned.set(item.key, { r: p.pin, side: p.side }); occupied.push(p.pin); }
     for (const [key, run] of this.routes) { occupied.push(run.from, run.target); planned.set(key, { r: run.target, side: run.side }); }
     if (this.gesture?.preview && !this.gesture.dock) { planned.set(this.gesture.key, { r: this.gesture.preview, side: this.gesture.side }); occupied.push(this.gesture.preview); }
-    const flows = items.filter(item => !tiled.has(item.key) && !planned.has(item.key)).map((item, index) => ({ item, index, relation: this.related(item, center, pivot) })).sort((a, b) => Math.abs((a.relation?.y ?? pivot + a.index * 60) - pivot) - Math.abs((b.relation?.y ?? pivot + b.index * 60) - pivot));
+    const flows = items.filter(item => !tiled.has(item.key) && !planned.has(item.key)).map((item, index) => ({ item, index, relation: this.related(item, pivot) })).sort((a, b) => Math.abs((a.relation?.y ?? pivot + a.index * 60) - pivot) - Math.abs((b.relation?.y ?? pivot + b.index * 60) - pivot));
     for (const { item, index, relation } of flows) {
       const el = elements.get(item.key); if (!el) continue;
       const rail = root.querySelector<HTMLElement>(`[data-spatial-files=${state.views[item.key]?.side ?? item.side}]`);
       if (rail && treeEndpoint(rail, item.path)?.folder) { el.hidden = true; continue; }
-      const side = state.views[item.key]?.side ?? item.side, lane = regions[side], release = this.released.get(item.key), held = this.hold?.frames.get(item.key), natural = parallaxAnchor((relation?.y ?? pivot + index * 70 - scroll) - base.top, pivot - base.top, sourceBox?.height ?? lane.h), c = release ? release.r.y + release.r.h / 2 - (scroll - release.scroll) * .75 : natural;
+      const side = state.views[item.key]?.side ?? item.side, region = regions[side], filesView = rail && !rail.hidden ? editorOf(rail) : undefined;
+      const fileTop = filesView?.scrollDOM.getBoundingClientRect().top;
+      const laneTop = fileTop === undefined ? region.y : Math.max(region.y, fileTop - base.top);
+      const lane = { ...region, y: laneTop, h: Math.max(0, region.y + region.h - laneTop) };
+      const release = this.released.get(item.key), held = this.hold?.frames.get(item.key), natural = parallaxAnchor((relation?.y ?? pivot + index * 70 - scroll) - base.top, (relation?.pivot ?? pivot) - base.top, relation?.height ?? sourceBox?.height ?? lane.h), c = release ? release.r.y + release.r.h / 2 - (scroll - release.scroll) * .75 : natural;
       const distance = Math.min(c - lane.y, lane.y + lane.h - c), expanded = state.views[item.key]?.expanded ?? (state.auto && distance > 100), h = held?.h ?? release?.r.h ?? (expanded && !item.port ? Math.min(253, lane.h) : 36);
       el.hidden = false; el.dataset.spatialCenter = "false"; el.dataset.expanded = String(h > 36); el.style.width = `${lane.w}px`; el.style.height = `${h}px`;
       const offset = release || held ? h / 2 : this.endpoint(el, relation?.range, h > 36), requested = held ?? { x: lane.x, y: c - offset, w: lane.w, h }, pins = Object.entries(state.views).filter(([key, p]) => key !== item.key && p.side === side && p.pin), map = this.gates.get(item.key) ?? new Map<string, boolean>(); this.gates.set(item.key, map);
       // Expanded views are a reading/editing surface: they stay inside the
       // lane so a reveal or pin always lands where it can be seen. Collapsed
       // filename views may still flow off the lane as surplus passages do.
-      let low = regions.small || h > 36 ? lane.y : -5000, high = regions.small || h > 36 ? lane.y + lane.h : 5000, crossed = false;
+      let low = filesView || regions.small || h > 36 ? lane.y : -5000, high = filesView || regions.small || h > 36 ? lane.y + lane.h : 5000, crossed = false;
       for (const [key, p] of pins) { const above = c < p.pin!.y, old = map.get(key); if (old !== undefined && old !== above) crossed = true; map.set(key, above); if (above) high = Math.min(high, p.pin!.y - 12); else low = Math.max(low, p.pin!.y + p.pin!.h + 12); }
       const r = held ?? clearSpatialSlot(requested, occupied, low, high);
       if (!r) { el.hidden = true; continue; }
@@ -228,7 +278,7 @@ export class SpatialController {
     }
     for (const [key, { r, side, from }] of planned) {
       const el = elements.get(key); if (!el) continue;
-      el.hidden = false; el.dataset.spatialCenter = "false"; el.dataset.spatialSide = side; el.dataset.expanded = String(r.h > 36); el.classList.toggle("spatial-view--pinned", !!state.views[key]?.pin); el.classList.toggle("spatial-view--tentative", this.gesture?.key === key && this.gesture.moved); el.style.visibility = "";
+      el.hidden = false; el.dataset.spatialCenter = "false"; el.dataset.spatialSide = side; el.dataset.filesBelow = String(regions.filesBelow[side]); el.dataset.expanded = String(r.h > (regions.filesBelow[side] ? 96 : 36)); el.classList.toggle("spatial-view--pinned", !!state.views[key]?.pin); el.classList.toggle("spatial-view--tentative", this.gesture?.key === key && this.gesture.moved); el.style.visibility = "";
       // A pinned view is the full editable buffer, never a provenance excerpt:
       // the excerpt hides lines behind reveal controls, which is right for a
       // flowing context preview and wrong for a document a person pinned to
@@ -236,7 +286,10 @@ export class SpatialController {
       if (state.views[key]?.pin) { const view = editorOf(el); if (view) showSpatialExcerpt(view, null); }
       if (!this.routes.has(key)) {
         setRect(el, r);
-        const lane = regions[side], x = side === "left" ? lane.x - 26 : lane.x + lane.w + 2, corridor = from && { x, y: Math.min(from.y, r.y), w: 24, h: Math.max(from.y + from.h, r.y + r.h) - Math.min(from.y, r.y) };
+        const lane = regions[side], fileRail = root.querySelector<HTMLElement>(`[data-spatial-files=${side}]`);
+        const x = regions.filesBelow[side] ? side === "left" ? lane.x + lane.w + 2 : lane.x - 26
+          : fileRail && !fileRail.hidden && regions.drawers ? lane.x - 26 : side === "left" ? lane.x - 26 : lane.x + lane.w + 2;
+        const corridor = from && { x, y: Math.min(from.y, r.y), w: 24, h: Math.max(from.y + from.h, r.y + r.h) - Math.min(from.y, r.y) };
         if (from && corridor && !occupied.some(rect => rect !== from && rect !== r && intersects(corridor, rect)) && !matchMedia("(prefers-reduced-motion: reduce)").matches && typeof el.animate === "function") {
           const animation = el.animate([{ left: `${from.x}px`, top: `${from.y}px`, width: `${from.w}px`, height: `${from.h}px` }, { left: `${x}px`, top: `${from.y}px`, width: "24px", height: "36px", offset: .25 }, { left: `${x}px`, top: `${r.y}px`, width: "24px", height: "36px", offset: .75 }, { left: `${r.x}px`, top: `${r.y}px`, width: `${r.w}px`, height: `${r.h}px` }], { duration: 480, easing: "ease-in-out" });
           this.routes.set(key, { animation, from, target: r, side }); el.classList.add("spatial-view--crossing"); animation.onfinish = () => { this.routes.delete(key); el.classList.remove("spatial-view--crossing"); this.schedule(); };
@@ -248,20 +301,54 @@ export class SpatialController {
     root.dispatchEvent(new CustomEvent("hickory-spatial-frame", { bubbles: true }));
   }
   private paintHeaders(root: HTMLElement, planned: Map<string, { r: Rect; side: Side }>, regions: ReturnType<typeof workspaceRegions>, base: DOMRect) {
-    const elements = this.elements(), headers: { key: string; r: Rect; el: HTMLElement; strip: HTMLElement }[] = [];
+    const elements = this.elements();
+    for (const side of ["left", "right"] as const) {
+      const rail = root.querySelector<HTMLElement>(`[data-spatial-files=${side}]`), view = editorOf(rail);
+      if (!view || rail?.hidden) continue;
+      // Settle a newly requested pin once, before transforming any filename.
+      // Subsequent paints always use its stored rectangle as an obstacle.
+      for (const [key, item] of planned) {
+        if (item.side !== side || !this.newPins.has(key)) continue;
+        const entry = this.adapter.items().find(entry => entry.key === key);
+        const endpoint = entry && treeEndpoint(rail!, entry.path);
+        const placement = this.adapter.state().views[key];
+        if (!endpoint || endpoint.folder || !placement?.pin) continue;
+        // Leave a collapsed filename slot above a new pin when the lane has
+        // room, so a preview can visibly finish its first upward bypass.
+        const fileTop = view.scrollDOM.getBoundingClientRect().top - base.top;
+        const requested = { ...item.r, y: Math.max(item.r.y, endpoint.rect.top - base.top, fileTop + 48) };
+        const occupied = [...planned].filter(([id]) => id !== key).map(([, other]) => other.r);
+        const lane = regions[side], r = clearSpatialSlot(requested, occupied, lane.y, lane.y + lane.h);
+        if (!r) continue;
+        item.r = r; const el = elements.get(key); if (el) setRect(el, r);
+        this.frames.set(key, r);
+        if (Math.abs(placement.pin.y - r.y) > .5) this.adapter.update(state => ({ ...state, views: { ...state.views, [key]: { ...state.views[key], pin: r } } }));
+      }
+      const rows = [...planned].filter(([, item]) => item.side === side).flatMap(([key, item]) => {
+        const entry = this.adapter.items().find(entry => entry.key === key), el = elements.get(key);
+        const row = entry && [...view.dom.querySelectorAll<HTMLElement>("[data-tree-path]")].find(row => samePath(row.dataset.treePath ?? "", entry.path));
+        // During a bypass, read the browser's animated rectangle so text follows
+        // every frame of the same route, including its final destination.
+        const r = el && this.routes.has(key) ? rectOf(el, root) : item.r;
+        return row ? [{ key, path: row.dataset.treePath!, top: r.y + base.top, height: r.h, below: regions.filesBelow[side], pinned: !!this.adapter.state().views[key]?.pin }] : [];
+      });
+      if (alignSpatialFileRows(view, rows)) this.schedule();
+    }
+    this.newPins.clear();
+    const headers: { key: string; r: Rect; el: HTMLElement; strip: HTMLElement }[] = [];
     for (const strip of root.querySelectorAll<HTMLElement>("[data-spatial-strip]")) {
-      const key = strip.dataset.spatialStrip!, item = planned.get(key), el = elements.get(key); strip.hidden = !item || !el || el.hidden;
+      const key = strip.dataset.spatialStrip!, item = planned.get(key), el = elements.get(key);
+      const entry = this.adapter.items().find(entry => entry.key === key);
+      const fileRail = item && root.querySelector<HTMLElement>(`[data-spatial-files=${item.side}]`);
+      const hasRow = !!(entry && fileRail && !fileRail.hidden && [...fileRail.querySelectorAll<HTMLElement>("[data-tree-path]")].some(row => samePath(row.dataset.treePath ?? "", entry.path) && row.dataset.treeKind !== "directory"));
+      if (el) el.dataset.spatialTextHeader = String(hasRow);
+      strip.hidden = hasRow || !item || !el || el.hidden;
       if (strip.hidden || !item || !el) continue;
-      const r = rectOf(el, root), rail = regions[`${item.side}Rail`], x = item.side === "left" ? rail.x : r.x, right = item.side === "left" ? r.x + r.w : rail.x + rail.w;
-      setRect(strip, { x, y: r.y, w: right - x, h: 36 }); strip.dataset.spatialSide = item.side; strip.classList.toggle("spatial-header--pinned", !!this.adapter.state().views[key]?.pin); strip.classList.toggle("spatial-header--tentative", this.gesture?.key === key && this.gesture.moved);
+      const r = rectOf(el, root), rail = regions[`${item.side}Rail`], x = Math.min(rail.x, r.x), right = Math.max(r.x + r.w, rail.x + rail.w);
+      setRect(strip, { x, y: r.y, w: right - x, h: 36 }); strip.dataset.spatialSide = item.side; strip.dataset.filesBelow = String(regions.filesBelow[item.side]); strip.dataset.filesFirst = String(!!regions.drawers); strip.classList.toggle("spatial-header--pinned", !!this.adapter.state().views[key]?.pin); strip.classList.toggle("spatial-header--tentative", this.gesture?.key === key && this.gesture.moved);
       strip.style.setProperty("--spatial-rail-width", `${rail.w}px`); strip.style.visibility = ""; headers.push({ key, r, el, strip });
     }
     for (const header of headers) if (this.routes.has(header.key) && headers.some(other => other.key !== header.key && other.strip.dataset.spatialSide === header.strip.dataset.spatialSide && header.r.y < other.r.y + 36 && header.r.y + header.r.h > other.r.y)) { header.el.style.visibility = "hidden"; header.strip.style.visibility = "hidden"; }
-    for (const side of ["left", "right"] as const) {
-      const rail = root.querySelector<HTMLElement>(`[data-spatial-files=${side}]`), view = editorOf(rail); if (!view) continue;
-      const reserved = headers.filter(header => header.strip.dataset.spatialSide === side && header.strip.style.visibility !== "hidden").map(header => ({ top: header.r.y + base.top, bottom: header.r.y + base.top + 36 })).sort((a, b) => a.top - b.top);
-      reserveSpatialFileRows(view, reserved);
-    }
     for (const handle of root.querySelectorAll<HTMLElement>("[data-spatial-resize]")) {
       delete handle.dataset.resizeNeighbor;
       const key = handle.dataset.spatialResize!, item = planned.get(key), r = item && this.frames.get(key); handle.hidden = !r || this.routes.has(key);

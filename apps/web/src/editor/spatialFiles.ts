@@ -1,8 +1,7 @@
-import { StateEffect, StateField } from "@codemirror/state";
-import { Decoration, EditorView, WidgetType } from "@codemirror/view";
-import { bandBetween } from "../shell/Ribbons";
+import { EditorSelection, RangeSet, StateEffect, StateField } from "@codemirror/state";
+import { Decoration, EditorView, GutterMarker, gutter, WidgetType } from "@codemirror/view";
 
-interface Gap { pos: number; height: number }
+interface Gap { pos: number; height: number; side?: number }
 const spacesEffect = StateEffect.define<Gap[]>();
 class FileSpace extends WidgetType {
   constructor(readonly height: number) { super(); }
@@ -11,27 +10,128 @@ class FileSpace extends WidgetType {
 }
 const spacesField = StateField.define<ReturnType<typeof Decoration.set>>({
   create: () => Decoration.none,
-  update(value, tr) { let next = value.map(tr.changes); for (const effect of tr.effects) if (effect.is(spacesEffect)) next = Decoration.set(effect.value.map(gap => Decoration.widget({ block: true, side: -1, widget: new FileSpace(gap.height) }).range(gap.pos)), true); return next; },
+  update(value, tr) { let next = value.map(tr.changes); for (const effect of tr.effects) if (effect.is(spacesEffect)) next = Decoration.set(effect.value.map(gap => Decoration.widget({ block: true, side: gap.side ?? -1, widget: new FileSpace(gap.height) }).range(gap.pos)), true); return next; },
   provide: field => EditorView.decorations.from(field),
 });
 
-/** Native block widgets reserve complete filename rows without touching tree bytes. */
-export function reserveSpatialFileRows(view: EditorView, headers: readonly { top: number; bottom: number }[]) {
-  if (!view.state.field(spacesField, false)) view.dispatch({ effects: StateEffect.appendConfig.of(spacesField) });
-  const old: Gap[] = [], next: Gap[] = [], visible = view.scrollDOM.getBoundingClientRect();
-  for (const cursor = view.state.field(spacesField).iter(); cursor.value; cursor.next()) { const widget = cursor.value.spec.widget; if (widget instanceof FileSpace) old.push({ pos: cursor.from, height: widget.height }); }
-  let oldAdded = 0, added = 0, gapIndex = 0;
-  for (let n = 1; n <= view.state.doc.lines; n++) {
-    const line = view.state.doc.line(n), band = bandBetween(view, line.from, line.to);
-    if (!band) continue;
-    while (gapIndex < old.length && old[gapIndex].pos <= line.from) oldAdded += old[gapIndex++].height;
-    if (view.lineBlockAt(line.from).from !== line.from) continue;
-    const base = band[0] - oldAdded, h = Math.max(36, band[1] - band[0]); let top = base + added;
-    for (const header of headers) if (top < header.bottom && top + h > header.top && header.bottom > visible.top && header.top < visible.bottom) top = header.bottom;
-    const height = Math.round(top - base - added);
-    if (height > 0) { next.push({ pos: line.from, height }); added += height; }
+export interface FilePreviewRow { path: string; key: string; top: number; pinned: boolean; height?: number; below?: boolean }
+const previewEffect = StateEffect.define<ReturnType<typeof Decoration.set>>();
+const previewField = StateField.define<ReturnType<typeof Decoration.set>>({
+  create: () => Decoration.none,
+  update(value, tr) { for (const effect of tr.effects) if (effect.is(previewEffect)) return effect.value; return value.map(tr.changes); },
+  provide: field => EditorView.decorations.from(field),
+});
+
+class PreviewGrip extends GutterMarker {
+  constructor(readonly key: string, readonly pinned: boolean, readonly offset: number) { super(); }
+  eq(other: PreviewGrip) { return this.key === other.key && this.pinned === other.pinned && Math.abs(this.offset - other.offset) < .1; }
+  toDOM() {
+    const el = document.createElement("span"); el.textContent = this.pinned ? "◆" : "◇";
+    el.dataset.spatialDrag = this.key; el.dataset.previewPinned = String(this.pinned); el.className = "spatial-file-grip";
+    el.style.transform = `translateY(${this.offset}px)`;
+    el.dataset.tip = "Drag preview; click to pin or unpin"; return el;
   }
-  const signature = (gaps: Gap[]) => gaps.map(gap => `${gap.pos}:${gap.height}`).join(",");
-  if (signature(old) === signature(next)) return;
-  view.dispatch({ effects: spacesEffect.of(next) });
+}
+const previewGutter = gutter({ class: "spatial-preview-gutter", markers: view => {
+  const marks = [];
+  for (const cursor = view.state.field(previewField).iter(); cursor.value; cursor.next()) {
+    const attrs = cursor.value.spec.attributes;
+    if (attrs?.["data-spatial-row"]) marks.push(new PreviewGrip(attrs["data-spatial-row"], attrs["data-preview-pinned"] === "true", Number(attrs["data-spatial-offset"] ?? 0)).range(cursor.from));
+  }
+  return RangeSet.of(marks, true);
+} });
+
+/** CodeMirror's height map describes tree order. The browser's caret hit-test
+ * describes the displayed text after a row passes another row. */
+const previewMouseSelection = EditorView.mouseSelectionStyle.of((view, startEvent) => {
+  if (startEvent.button !== 0 || startEvent.altKey || !view.state.field(previewField).size || !view.contentDOM.contains(startEvent.target as Node)) return null;
+  const at = (event: MouseEvent) => {
+    const doc = view.contentDOM.ownerDocument;
+    const caret = doc.caretPositionFromPoint?.(event.clientX, event.clientY);
+    if (caret && view.contentDOM.contains(caret.offsetNode)) return view.posAtDOM(caret.offsetNode, caret.offset);
+    const range = doc.caretRangeFromPoint?.(event.clientX, event.clientY);
+    if (range && view.contentDOM.contains(range.startContainer)) return view.posAtDOM(range.startContainer, range.startOffset);
+    const row = doc.elementFromPoint(event.clientX, event.clientY)?.closest(".cm-line");
+    if (row && view.contentDOM.contains(row)) return view.posAtDOM(row);
+    return view.posAtCoords({ x: event.clientX, y: event.clientY }, false);
+  };
+  let start = at(startEvent), initial = view.state.selection;
+  return {
+    update(update) {
+      if (update.docChanged) { start = update.changes.mapPos(start); initial = initial.map(update.changes); }
+    },
+    get(event, extend, multiple) {
+      const current = at(event), line = view.state.doc.lineAt(current);
+      const range = startEvent.detail >= 2 ? EditorSelection.range(line.from, line.to)
+        : EditorSelection.range(extend ? initial.main.anchor : start, current);
+      if (extend) return initial.replaceRange(range);
+      if (multiple) return initial.addRange(range);
+      return EditorSelection.create([range]);
+    },
+  };
+});
+
+/** The actual editable filename lines follow screen placements independently of
+ * tree order. Reserve normal rows around them; no row feeds placement back into
+ * the window, and a flowing filename can pass either side of a pinned one. */
+export function alignSpatialFileRows(view: EditorView, previews: readonly FilePreviewRow[]) {
+  if (!view.state.field(spacesField, false)) view.dispatch({ effects: StateEffect.appendConfig.of([spacesField, previewField, previewGutter, previewMouseSelection]) });
+  const old: Gap[] = [], next: Gap[] = [], ranges = [];
+  for (const cursor = view.state.field(spacesField).iter(); cursor.value; cursor.next()) {
+    const widget = cursor.value.spec.widget;
+    if (widget instanceof FileSpace) old.push({ pos: cursor.from, height: widget.height, side: cursor.value.spec.side });
+  }
+  let oldAdded = 0, gapIndex = 0;
+  const rows = [...view.contentDOM.querySelectorAll<HTMLElement>(".cm-line")].flatMap(row => {
+    let pos: number;
+    try { pos = view.state.doc.lineAt(view.posAtDOM(row)).from; } catch { return []; }
+    while (gapIndex < old.length && old[gapIndex].pos <= pos) {
+      if ((old[gapIndex].side ?? -1) < 0) oldAdded += old[gapIndex].height;
+      gapIndex++;
+    }
+    const rect = row.getBoundingClientRect(), offset = Number(row.dataset.spatialOffset ?? 0);
+    return [{ pos, base: rect.top - offset - oldAdded, height: rect.height,
+      preview: previews.find(item => item.path === row.dataset.treePath) }];
+  });
+  const headers = previews.map(preview => ({ top: preview.top, bottom: preview.top + (preview.below ? Math.max(36, preview.height ?? 36) : 36) })).sort((a, b) => a.top - b.top);
+  let added = 0, bottom = view.contentDOM.getBoundingClientRect().top;
+  for (const { pos, base, height, preview } of rows) {
+    let top = base + added;
+    if (!preview) {
+      for (const header of headers) if (top < header.bottom && top + height > header.top) top = header.bottom;
+      const gap = Math.max(0, Math.ceil(top - base - added));
+      if (gap) { next.push({ pos, height: gap }); added += gap; }
+    } else {
+      const offset = Math.round((preview.top - top) * 10) / 10;
+      ranges.push(Decoration.line({ class: `spatial-file-row${preview.pinned ? " spatial-file-row--pinned" : ""}${preview.below ? " spatial-file-row--below" : ""}`,
+        attributes: { "data-spatial-row": preview.key, "data-preview-pinned": String(preview.pinned),
+          "data-spatial-offset": String(offset), style: `transform: translateY(${offset}px); position: relative; z-index: 1` } }).range(pos));
+    }
+    bottom = Math.max(bottom, top + height);
+  }
+  // A translated final filename still belongs inside the editor's scrollport.
+  // Keep room for it in the document layout rather than clipping it at EOF.
+  const end = Math.max(bottom, ...headers.map(header => header.bottom));
+  if (end > bottom) next.push({ pos: view.state.doc.length, height: Math.ceil(end - bottom), side: 1 });
+  const signature = (gaps: Gap[]) => gaps.map(gap => `${gap.pos}:${gap.height}:${gap.side ?? -1}`).join(",");
+  const decorations = Decoration.set(ranges, true);
+  if (signature(old) !== signature(next) || !RangeSet.eq([view.state.field(previewField)], [decorations])) {
+    view.dispatch({ effects: [spacesEffect.of(next), previewEffect.of(decorations)] });
+    return true;
+  }
+  return false;
+}
+
+/** Snap to measured text rows, including folding, zoom and Files scrolling. */
+export function snapSpatialFileRow(view: EditorView, y: number): number | undefined {
+  const clip = view.scrollDOM.getBoundingClientRect();
+  const rows = [...view.dom.querySelectorAll<HTMLElement>("[data-tree-path]")]
+    .map(row => row.getBoundingClientRect().top).filter(top => top >= clip.top && top < clip.bottom);
+  const nearest = rows.sort((a, b) => Math.abs(a - y) - Math.abs(b - y))[0];
+  if (nearest === undefined) return;
+  // The filename row itself can occupy a new slot below the last entry. Use
+  // the editor's measured line rhythm there; alignment moves that real row
+  // into the slot without inventing another filename or editing tree bytes.
+  const height = view.defaultLineHeight;
+  return nearest + Math.round((y - nearest) / height) * height;
 }

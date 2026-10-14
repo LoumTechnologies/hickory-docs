@@ -164,3 +164,128 @@ test("dragging a tab to a center edge creates a tile and closing reclaims space"
   await page.getByRole("button", { name: "Close left drawer" }).click();
   await expect.poll(async () => (await rect(other)).width).toBeCloseTo(target.width, 0);
 });
+
+test("Files text rows own preview names and dragging the Files surface carries its pinned previews", async ({ page }) => {
+  const errors: string[] = []; page.on("pageerror", error => errors.push(error.message));
+  const note = await open(page, "note.md");
+  await open(page, "notes/other.md");
+  await page.getByRole("tablist", { name: "Center views" }).getByRole("tab", { name: "note.md", exact: true }).click();
+  await remember(page, '[data-spatial-key="document:note.md"]');
+  await center(page).getByRole("button", { name: "Pin view in drawer" }).click();
+  const files = page.locator('[data-spatial-files=left]');
+  const row = files.locator('[data-tree-path="note.md"]');
+  await expect(row).toHaveAttribute("data-preview-pinned", "true");
+  await expect(row).toHaveClass(/spatial-file-row--pinned/);
+  await expect(page.locator('[data-spatial-strip="document:note.md"]')).toBeHidden();
+  await expect.poll(async () => Math.abs((await rect(note)).y - (await rect(row)).y)).toBeLessThan(1);
+  const textBefore = await files.locator(".cm-content").textContent();
+  const toolbar = page.locator('[data-drawer-toolbar=left]'), before = await rect(toolbar), previewBefore = await rect(note);
+  await page.mouse.move(before.x + 50, before.y + 18); await page.mouse.down();
+  await page.mouse.move(before.x + 120, before.y + 63, { steps: 10 }); await page.mouse.up();
+  await expect.poll(async () => (await rect(toolbar)).x).toBeCloseTo(before.x + 70, 0);
+  await expect.poll(async () => (await rect(toolbar)).y).toBeCloseTo(before.y + 45, 0);
+  await expect.poll(async () => (await rect(note)).x).toBeCloseTo(previewBefore.x + 70, 0);
+  await expect.poll(async () => Math.abs((await rect(note)).y - (await rect(row)).y)).toBeLessThan(1);
+  expect(await files.locator(".cm-content").textContent()).toBe(textBefore);
+  const grip = files.locator('[data-spatial-drag="document:note.md"]');
+  const start = await rect(grip), target = await rect(row);
+  await page.mouse.move(start.x + start.width / 2, start.y + start.height / 2); await page.mouse.down();
+  await page.mouse.move(start.x + start.width / 2, target.y + 45, { steps: 8 });
+  await expect(note).toHaveClass(/spatial-view--tentative/);
+  await page.mouse.up();
+  await expect.poll(async () => (await rect(note)).y).toBeGreaterThan(target.y + 25);
+  await expect.poll(async () => Math.abs((await rect(note)).y - (await rect(row)).y)).toBeLessThan(1);
+  expect(await preserved(page, '[data-spatial-key="document:note.md"]')).toBe(true);
+  expect(await files.locator(".cm-content").textContent()).toBe(textBefore);
+  await row.click();
+  const content = files.locator(".cm-content");
+  await content.press("End"); await content.pressSequentially("-draft");
+  await expect(row).toHaveText("note.md-draft");
+  await expect(page.getByRole("toolbar", { name: "Unsaved Files changes" })).toBeVisible();
+  await content.press("ControlOrMeta+z");
+  await expect(page.getByRole("toolbar", { name: "Unsaved Files changes" })).toBeHidden();
+  expect(await content.textContent()).toBe(textBefore);
+  await page.screenshot({ path: "/tmp/hickory-files-preview-rows.png", fullPage: true });
+  await page.reload();
+  await expect.poll(async () => (await rect(toolbar)).x).toBeCloseTo(before.x + 70, 0);
+  expect(errors).toEqual([]);
+});
+
+// Guarantee: docs/guarantees/shell/spatial-views-preserve-the-editor.md
+test("scrolling an earlier Files preview around a pin never moves the pin", async ({ page }) => {
+  const note = await open(page, "note.md");
+  const other = await open(page, "notes/other.md");
+  await page.getByRole("tablist", { name: "Center views" }).getByRole("tab", { name: "note.md", exact: true }).click();
+  await center(page).getByRole("button", { name: "Pin view in drawer" }).click();
+  const row = page.locator('[data-spatial-files=left] [data-tree-path="note.md"]');
+  await expect.poll(async () => Math.abs((await rect(note)).y - (await rect(row)).y)).toBeLessThan(1);
+  const pinned = await rect(note);
+  await page.getByRole("tablist", { name: "Center views" }).getByRole("tab", { name: "Untitled", exact: true }).click();
+  await page.evaluate(async () => {
+    const module = "/node_modules/.vite/deps/@codemirror_view.js", { EditorView } = await import(/* @vite-ignore */ module);
+    const view = EditorView.findFromDOM(document.querySelector('[data-spatial-center=true] .cm-editor'));
+    view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: Array.from({ length: 180 }, (_, n) => `Scroll passage ${n + 1}`).join("\n") } });
+    document.querySelector(".spatial-shell")!.dispatchEvent(new CustomEvent("hickory:spatial-ribbon-open", { detail: { path: "notes/other.md", side: "left", central: false } }));
+  });
+  await expect(other).toBeVisible();
+  const positions: number[] = [];
+  for (const scroll of [0, 450, 80, 600, 0]) {
+    await page.evaluate(async scroll => {
+      const dom = document.querySelector<HTMLElement>('[data-spatial-center=true] .cm-scroller')!;
+      dom.scrollTop = scroll;
+      await new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
+    }, scroll);
+    await expect(other).not.toHaveClass(/spatial-view--crossing/);
+    expect(await rect(note)).toEqual(pinned);
+    const flowRow = page.locator('[data-spatial-files=left] [data-tree-path="notes/other.md"]');
+    await expect.poll(async () => Math.abs((await rect(other)).y - (await rect(flowRow)).y)).toBeLessThan(1);
+    await expect.poll(async () => Math.abs(pinned.y - (await rect(row)).y)).toBeLessThan(1);
+    const flowing = await rect(other); positions.push(flowing.y);
+    expect(flowing.y + flowing.height <= pinned.y || flowing.y >= pinned.y + pinned.height).toBe(true);
+  }
+  expect(Math.max(...positions) - Math.min(...positions)).toBeGreaterThan(100);
+});
+
+// Guarantee: docs/guarantees/shell/spatial-views-preserve-the-editor.md
+test("resizing Files puts the same preview beneath its filename or to its right", async ({ page }) => {
+  await open(page, "note.md");
+  const preview = await open(page, "notes/other.md");
+  await remember(page, '[data-spatial-key="document:notes/other.md"]');
+  await center(page).getByRole("button", { name: "Pin view in drawer" }).click();
+  const files = page.locator('[data-spatial-files=left]');
+  const row = files.locator('[data-tree-path="notes/other.md"]');
+  const neighbor = files.locator('[data-tree-path="note.md"]');
+  await expect(preview).toHaveAttribute("data-files-below", "false");
+  const original = await rect(preview);
+  const rule = page.locator('[data-spatial-column=left]');
+  let boundary = await rect(rule);
+  await page.mouse.move(boundary.x + boundary.width / 2, boundary.y + 100); await page.mouse.down();
+  await page.mouse.move(boundary.x - 85, boundary.y + 100, { steps: 10 }); await page.mouse.up();
+  await expect(preview).toHaveAttribute("data-files-below", "true");
+  await expect(files).toHaveAttribute("data-files-below", "true");
+  const narrow = await rect(preview), list = await rect(files), label = await rect(row), content = await rect(preview.locator(".spatial-view-body"));
+  expect(narrow.x).toBeGreaterThanOrEqual(list.x);
+  expect(narrow.x + narrow.width).toBeLessThanOrEqual(list.x + list.width);
+  expect(content.y).toBeGreaterThan(label.y + label.height);
+  expect(narrow.y).toBe(original.y);
+  expect(narrow.height).toBe(original.height);
+  expect((await rect(neighbor)).y).toBeGreaterThanOrEqual(narrow.y + narrow.height);
+  expect(await preserved(page, '[data-spatial-key="document:notes/other.md"]')).toBe(true);
+  await row.click();
+  const text = files.locator(".cm-content");
+  await text.press("End"); await text.pressSequentially("-responsive");
+  await expect(row).toHaveText("  other.md-responsive");
+  await text.press("ControlOrMeta+z");
+  await expect(row).toHaveText("  other.md");
+  await expect(preview.getByRole("button", { name: "Unpin view", exact: true })).toBeVisible();
+  await page.screenshot({ path: "/tmp/hickory-files-responsive-below.png", fullPage: true });
+  boundary = await rect(rule);
+  await page.mouse.move(boundary.x + boundary.width / 2, boundary.y + 100); await page.mouse.down();
+  await page.mouse.move(boundary.x + 90, boundary.y + 100, { steps: 10 }); await page.mouse.up();
+  await expect(preview).toHaveAttribute("data-files-below", "false");
+  const wide = await rect(preview), wideFiles = await rect(files);
+  expect(wide.x).toBeGreaterThanOrEqual(wideFiles.x + wideFiles.width);
+  expect(wide.y).toBe(original.y);
+  expect(await preserved(page, '[data-spatial-key="document:notes/other.md"]')).toBe(true);
+  await page.screenshot({ path: "/tmp/hickory-files-responsive-beside.png", fullPage: true });
+});

@@ -16,9 +16,21 @@ folder's browser. Opening a file from Files centers it and dismisses an unpinned
 drawer. Center tabs keep ordinary files, documents and conversations available
 independently of the drawers. Each Files buffer remains the ordinary CodeMirror tree
 buffer, including its caret, selections, folding, keyboard editing, Dry Run,
-Apply and filesystem operations. Header extensions reserve space through
-native block decorations; they never rewrite the filesystem projection to
-record a pin or move.
+Apply and filesystem operations. A preview of a listed file uses the filename
+line in that buffer as its vertical tab, with contextual color for flowing and
+pinned views. Its name is selectable and editable text. A small editor gutter
+grip carries drag and pin actions, leaving text selection alone. Line decorations place the actual filename text beside its preview independently
+of its logical tree order. Native block decorations reserve neighboring ordinary
+rows and enough editor height for the moved text. They never rewrite tree bytes
+to record a pin or move. Views without a visible filename
+row retain a title header.
+
+Dragging the Files toolbar moves the Files list and its preview lane as one
+surface, clamped within the workspace. Pins travel with that surface. Position
+persists per folder. Canceling the gesture restores position and view pins.
+Dragging a preview snaps to measured Files rows and the editor's line spacing;
+alignment places its real filename row beside the window. Pinned obstacles constrain placement, and a drag does not rename or move a
+filesystem entry.
 
 Given an open document, agent conversation, generated file, or other tool
 view, Center makes that view the central reading surface. Restore returns to
@@ -45,13 +57,23 @@ that drawer. The center's **Pin view in drawer** action moves the view beside a
 different open tab without cloning its editor. A pin freezes presentation until the
 person drags, resizes, minimizes or centers that view, or changes the available
 viewport, drawer geometry or column widths. Pin state does not grant permission to edit bytes.
+Scrolling a source, changing contextual content, and aligning Files rows never
+change an existing pin's rectangle. Filename alignment follows the window's
+screen rectangle and never pulls a flowing window back to its original text row.
+A flowing filename can visually pass a pinned filename without changing their
+logical tree order. Initial pin placement belongs
+to the explicit pin action; later paints cannot write a Files row's displacement
+back into an existing pin.
 Dragging previews a tentative rectangle and dropping commits that rectangle.
 Dragging or resizing an unpinned view pins it. Both resize edges are available;
 growth uses free space, then shifts the adjacent pin into available space,
 then reduces that neighbor only when the next pin or viewport blocks a shift.
 
-Given related content in the center, visible drawer views follow its real provenance
-anchors with parallax. In the central alignment band they use the source's
+Given related content in a center tile, visible drawer views follow its real
+provenance anchors with parallax. The alignment band and speed use that source
+tile's screen position and viewport height, including a second center tile.
+Moving Files sideways does not replace the source coordinate with a drawer
+coordinate. In the central alignment band they use the source's
 vertical coordinate without a speed offset. A default side view is collapsed
 to its filename; explicit opening/reveal requests can expand it. Optional
 automatic accordion behavior expands views away from the viewport edges.
@@ -213,3 +235,175 @@ Tab and docking continuation (2026-10-14):
   `spatialNavigation.ts` = `aad7a5ae9fff5d4fee3a43a1c1006e80bba208026d56798ade5afa77ff043b0e`;
   `layout.ts` = `d0a254f01ee8228955f5734e2e409abd204ad5fd2e7c979daf0d319510e23039`.
   These implementation files are under `apps/web/src/shell/`.
+
+
+## Files text-row continuation (2026-10-14)
+
+Originating requirement: the user's request for a draggable Files surface that
+combines the editable dired list, ribbon previews and vertical tabs; filename
+headers should be ordinary contextual text, and pinned previews should snap to
+text lines. Interpretation: use the existing filename bytes as the tab, decorate
+them and place them with CodeMirror block spacing, rather than making another
+filename button. The gutter grip separates dragging from normal selection.
+
+LLM implementation review: `editor/spatialFiles.ts` adds line decorations,
+gutter grips and measured snapping; `SpatialController.paintHeaders` aligns the
+actual text row in the same paint before exposing the final rectangle.
+`beginFiles`/`move`/`finish` translate the list, preview lane and pins together
+and restore them on pointer cancellation. `spatialDrawers.workspaceRegions`
+clamps the whole surface; `spatialLayout.readSpatialState` validates persisted
+coordinates. `SpatialShellView` leaves text pointer events to CodeMirror and
+routes grip gestures to the placement controller. Context discovery includes
+all center tiles and `related` reads the actual source tile's geometry.
+
+Executed checks: `just test-spatial` passed type checking and 61 tests;
+`just test-spatial-ui` passed all seven native-engine browser flows, including
+filename editing/undo. `just test-files-previews` passed the final focused checks
+(23 tests) for the Files editor, placement, screen-edge cancellation and themed
+tooltip convention. `just check-file-length` and `git diff --check` passed.
+The broader `just test-web` run passed 2,109 tests and failed the themed-tooltip
+source scan because the new grip initially used `title`. That was replaced with
+`dataset.tip`; the exact failed test then passed in `test-files-previews`. The
+whole broader suite was not repeated after that correction. The first native
+browser runs exposed a paint-timing race: a pin could be visible before its
+filename row settled, so a drag could start at the old position. Alignment now
+measures the updated row in the same paint and records that pin position.
+Earlier passing browser evidence alone did not rule out this race.
+
+Witnesses: `e2e/spatialWorkspace.spec.ts` checks a real native engine, decorated
+filename bytes, hidden duplicate strip, movement of the whole Files surface,
+actual filename/preview alignment after a grip drag, filename editing and undo,
+editor instance/selection preservation and restored position after reload.
+`SpatialController.test.ts` checks a receipt originating in a lower center tile,
+then moves Files and the source anchor independently; `spatialDrawers.test.ts`
+checks offscreen clamping, stored offsets and second-tile context discovery.
+
+Assumptions and coverage gaps: Files row order remains the person's filesystem
+reading; this change does not reorder directories or invent path identities.
+Where no filename row is visible (unnamed/tool views, unlisted paths and folded
+ancestors), the existing title/ancestor endpoint remains. The browser witness
+covers one pinned file; many simultaneous previews, very large virtualized Files
+buffers, touch gestures and visual taste still need broader evidence. Floating
+a pinned drawer keeps its reserved center width until it is unpinned.
+
+Human judgment: no review of the final visual treatment recorded. Implementation
+and executed checks do not establish that its feel matches the user's prototype.
+
+Evidence dependencies (SHA-256 of the inspected working-tree bytes; edits to
+these files make this review stale):
+
+- `apps/web/src/editor/spatialFiles.ts`: `266e213e1337152f853df9b3526951e4cafb879fe8fc6ccbc7a7b4efaf703fd6`.
+- `apps/web/src/shell/SpatialController.ts`: `bc3ca6157b1b58553589c530fbad31233dbdec9f4b15f7c7dc92b2d3ba084c31`.
+- `apps/web/src/shell/SpatialShellView.tsx`: `aa1be7bc5d1586caa8a25a811969b4c0050c4499b7cd3b8f149a59cd8d29dc71`.
+- `apps/web/src/shell/spatialDrawers.ts`: `e015e08abddcb86e24c71fb2e8c96239613c90bfe20c94f0909ca942bf6eea79`.
+- `apps/web/src/shell/spatialLayout.ts`: `ed9b6af4ff975a29d331981f67faf12ec11e787850c03fa666c368c9b358d7cd`.
+- `apps/web/src/shell/spatialShell.css`: `90883a47ef4c8a63523ca4ffb91750b44c1df36fe430ca6ae7053f789dba7310`.
+- `apps/web/src/shell/SpatialController.test.ts`: `17dd75ff7642959a390a397c8d702c081169d3b8d09d925ab2faeeeba7e389c6`.
+- `apps/web/src/shell/spatialDrawers.test.ts`: `17fabcc1860785c7cf23dcfc08accfd76bdcff4eb9c0c6ad6c76f1e3f95d530b`.
+- `apps/web/e2e/spatialWorkspace.spec.ts`: `3c8ca7a72fb6deace52927c6ff9b0aa2152a15514c752af7a585e10ec4bc8255`.
+
+
+## Pin stability correction (2026-10-14)
+
+Originating requirement: the user observed that scrolling an unpinned preview
+around a pinned window pushed the pin down. Existing pin placement must be an
+obstacle to the flowing preview, not an output of its filename spacing.
+
+Correction to the preceding implementation review: it covered a single pin but
+missed feedback from a preceding flowing filename. `paintHeaders` had written
+the displaced pinned filename's coordinate into the saved pin. Even when the
+window placements cleared each other, the Files block gaps could grow before
+that filename. Earlier passing single-pin browser checks did not exercise this.
+
+LLM implementation review: `alignSpatialFileRows` now computes undecorated row
+coordinates before choosing gaps and caps a flowing gap by the available space
+before the next pinned filename. `SpatialController.paintHeaders` preserves
+existing pin rectangles; only a one-paint `alignNewPin` request from an explicit
+pin action can settle a newly pinned view. The geometry-change signature uses
+actual lane rectangles, not the changing contextual-item inventory.
+
+Executed checks: `just test-spatial` passed type checking and 62 tests;
+`just test-spatial-ui` passed all eight native-engine browser flows. The new
+“scrolling an earlier Files preview around a pin never moves the pin” witness
+opens two real files, pins the later Files entry, reveals the earlier one and
+scrolls a third editor repeatedly. It asserts the pin's full rectangle stays
+identical, the flowing window changes vertical position and its rectangle stays
+clear of the pin. The existing drag, snap, resize, floating Files, edit/undo and
+reload checks also passed. `git diff --check` and `just check-file-length` passed.
+
+Coverage limits: the new browser witness drives an explicitly revealed preview
+using source-scroll placement; source-ribbon geometry is independently covered
+by `SpatialController.test.ts`. It does not establish every arrangement of many
+pins or large virtualized trees. Human judgment: no subsequent visual review
+recorded. The previous hashes remain historical; the changed dependencies for
+this correction are:
+
+- `apps/web/src/editor/spatialFiles.ts`: `43908ae7d05f3dfc02523b41d6c22b911e48dcc6e3154a6f104afd5365592159`.
+- `apps/web/src/shell/SpatialController.ts`: `630c47ec4cd6b1ef382a5284309596808a92d2493e7e17d49601c716eb7ccfce`.
+- `apps/web/src/shell/SpatialShellView.tsx`: `2717df7f064ff3517ba25373af8d9e837c5d84d475c2d12a0aa094a0e02b0cc7`.
+- `apps/web/e2e/spatialWorkspace.spec.ts`: `2954f93ad00d63aab367dfce48d62539e18bdbe2c8eb4207f7a0cc63daecd779`.
+
+
+## Bypass text/window correction (2026-10-14)
+
+Originating requirement: the user reported that a bypass began but the filename
+line stayed still and the window failed to reach its destination, specifically
+in `/Users/loumtech/Documents/Hickory walkthrough wbt9rl_0`.
+
+Retrospective correction: the preceding pin-stability fix capped positive gaps
+before a pin, which cannot place an earlier filename after a later filename.
+It also left flowing windows subject to their constrained row coordinate during
+header painting. The earlier regression checked pin stability and changing
+window coordinates, but did not check the filename or animation completion.
+The historical gap-only evidence above is superseded on this mechanism.
+
+LLM implementation review: `alignSpatialFileRows` now gives the actual filename
+line a visual translation independent of tree order. It subtracts the previous
+translation and block spacing before computing new placements, reserves normal
+rows around preview names, and reserves editor height for translated final
+rows. Gutter grips follow the same translation. `previewMouseSelection` uses
+browser caret hit-testing so a click/edit targets the displayed filename rather
+than the old height-map coordinate. The existing Alt/column-selection provider
+continues to own its gesture.
+
+`SpatialController.paintHeaders` no longer derives a flowing window rectangle
+from Files text. During a bypass it samples the browser's animated window each
+frame and passes that coordinate to the filename decoration. When the route
+finishes, both retain its target. Flowing windows with visible Files rows stay
+within the editor's readable vertical area. A new pin leaves room for a collapsed
+preview above it when available; existing pins are unchanged. Listed filenames
+never regain an overlapping duplicate header just because their row is clipped.
+
+Executed checks: `just test-spatial` passed type checking and 62 tests;
+`just test-files-previews` passed 23 focused tests; `just test-spatial-ui` passed
+all eight native-browser flows after strengthening the scrolling case to check
+both filename and window positions and the editing case to check the exact
+filename edited. `just test-spatial-walkthrough` runs the native engine against
+a disposable copy of the user's walkthrough. Its test explicitly observes a
+bypass, samples matching text/window coordinates during that animation, checks
+movement over 100 pixels, checks the destination after scrolling stops, keeps
+the pin's complete rectangle fixed, and edits/undoes the moved `app.py` filename.
+Final walkthrough result: one browser flow passed, including animation-frame
+alignment and exact moved-filename editing. `just check-file-length` and
+`git diff --check` also passed. The original walkthrough is read
+as a fixture; modifications and generated evidence are confined to its copy.
+
+The added editing witness initially failed because CodeMirror's default pointer
+hit-test used logical row height. The browser caret mapping fixed that failure;
+window/filename animation checks alone had not established click correctness.
+A smaller fixture also exposed insufficient room above a new pin, covered by
+the initial-placement adjustment and the strengthened ordinary scrolling test.
+
+Coverage gaps: one pinned window with repeated bypasses in a native walkthrough
+and one smaller fixture are exercised. Large virtualized trees, many simultaneous
+routes, touch selection, and rectangular selection across visually reordered
+rows remain unverified. Human judgment: no additional review recorded.
+
+Current dependencies for this correction (SHA-256; earlier hashes above remain
+historical):
+
+- `apps/web/src/editor/spatialFiles.ts`: `8c21184b4d3a83b72827f6afe02fa0b3206c82ad566b97c2bb7499973ede2939`.
+- `apps/web/src/shell/SpatialController.ts`: `0949900fba11075339e497c751e380fa0820a9621032e5a985d4cf139206faa5`.
+- `apps/web/e2e/spatialWorkspace.spec.ts`: `b8c3bf22c8849478fddde369962752230e22f449ce319f035a068661edf1e54f`.
+- `apps/web/e2e/spatialWalkthrough.spec.ts`: `0dbdad775fca3107c343a205bb8b005202bbd42b97a6ae4c4b2f7239dce31132`.
+- `scripts/test-spatial-ui.sh`: `349c0895b8720dfe1aaed087db5d67a15e6cc9f8518d7b15b8c94bac5bd1eb91`.

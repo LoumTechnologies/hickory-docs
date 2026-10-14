@@ -61,7 +61,7 @@ export function SpatialShellView(props: Props) {
   useEffect(() => { if (JSON.stringify(scene.tiles ?? PRIMARY) !== JSON.stringify(tiles)) setScene(current => ({ ...current, tiles })); }, [scene.tiles, tiles]);
   const relations = spatialRelations(props.sources, props.files, props.links);
   const pending = new Set(entries.filter(entry => entry.tab?.kind === "tool" && entry.tab.target.startsWith("reading:") && readingStatus(entry.tab.target.slice(8)) === "pending").map(entry => entry.key));
-  const contextual = drawerContent(entries, center, relations, scene.views, pending).filter(entry => !tiledKeys.has(entry.key));
+  const contextual = drawerContent(entries, center, relations, scene.views, pending, entries.filter(entry => entry.key === center?.key || tiledKeys.has(entry.key))).filter(entry => !tiledKeys.has(entry.key));
   const files = { left: !!trees[0] && (!!(props.hasFiles ?? trees.length) || requestedFiles.left), right: !!trees[1] && (!!(props.hasFiles ?? trees.length) || requestedFiles.right) };
   const contexts = { left: contextual.some(entry => entry.side === "left"), right: contextual.some(entry => entry.side === "right") };
   const available = { left: sides.left && (files.left || contexts.left), right: sides.right && (files.right || contexts.right) };
@@ -217,6 +217,7 @@ export function SpatialShellView(props: Props) {
     const next = [...scene.stack].reverse().map(key => entries.find(item => item.key === key && item.tab && key !== entry.key)).find(Boolean) ?? entries.find(item => item.tab && item.key !== entry.key);
     if (!next) return;
     const side = sides[entry.side] ? entry.side : sides.left ? "left" : "right";
+    controller.alignNewPin(entry.key);
     controller.preserveSelections();
     setScene(current => ({ ...current, center: next.key, stack: [...current.stack, entry.key].slice(-24), drawerPins: { ...(current.drawerPins ?? { left: false, right: false }), [side]: true },
       views: { ...current.views, [entry.key]: { ...current.views[entry.key], side, expanded: true, pin: { x: 0, y: 72, w: 320, h: 253 } } } }));
@@ -249,14 +250,23 @@ export function SpatialShellView(props: Props) {
         aria-controls={[...(files[side] ? [`spatial-files-${trees[side === "left" ? 0 : 1]?.tabs.find(tab => tab.kind === "tree")?.id}`] : []), ...contextual.filter(entry => entry.side === side).map(paneId)].join(" ")}
         onClick={() => showDrawer(side)}>{files[side] ? "Files" : "Related"}{contextual.filter(entry => entry.side === side).length ? ` · ${contextual.filter(entry => entry.side === side).length}` : ""}</button>}
       <div hidden={!visible[side]} id={`spatial-${side}-drawer`} className="spatial-drawer-backdrop" data-drawer-backdrop={side} />
-      <div hidden={!visible[side]} className="spatial-drawer-toolbar" data-drawer-toolbar={side}>
-        <strong>{side === "left" ? "Left" : "Right"} drawer</strong>
+      <div hidden={!visible[side]} className="spatial-drawer-toolbar" data-drawer-toolbar={side} onPointerDown={event => controller.beginFiles(side, event)}>
+        <strong>{files[side] ? "Files" : "Related"}</strong>
         <button data-tip={`${pinned[side] ? "Unpin" : "Pin"} ${side} drawer`} aria-label={`${pinned[side] ? "Unpin" : "Pin"} ${side} drawer`} aria-pressed={pinned[side]} onClick={() => { setDrawerOpen(current => ({ ...current, [side]: true })); setScene(current => ({ ...current, drawerPins: { ...(current.drawerPins ?? { left: false, right: false }), [side]: !pinned[side] } })); }}><PinIcon /></button>
         <button aria-label={`Close ${side} drawer`} disabled={pinned[side]} onClick={() => closeDrawer(side)}>×</button>
       </div>
     </div>)}
     {trees.slice(0, 2).map((pane, index) => { const side: Side = index ? "right" : "left", tab = pane.tabs.find(tab => tab.kind === "tree")!;
       return <section key={tab.id} id={`spatial-files-${tab.id}`} hidden={!visible[side] || !files[side]} data-drawer-side={side} data-drawer-pinned={pinned[side]} className="shell-pane spatial-files" data-spatial-files={side} data-shell-pane-id={pane.id}
+        onPointerDownCapture={event => {
+          const row = (event.target as HTMLElement).closest<HTMLElement>("[data-spatial-drag]");
+          if (row?.dataset.spatialDrag) controller.begin(row.dataset.spatialDrag, event);
+        }}
+        onClickCapture={event => {
+          const grip = (event.target as HTMLElement).closest<HTMLElement>("[data-spatial-drag]");
+          const entry = grip && entries.find(entry => entry.key === grip.dataset.spatialDrag);
+          if (entry && !controller.suppressClick) pinView(entry);
+        }}
         onDoubleClickCapture={event => { if ((event.target as HTMLElement).closest("[data-tree-path]")) { pendingSide.current = side; props.onLayout(split(layout, pane.id, "row", side === "right")); } }}>
         <button role="tab" aria-label={side === "left" ? "Files" : "Right file buffer"} aria-selected={layout.focus === pane.id} className="spatial-files-title" onClick={() => props.onLayout(focus(layout, pane.id))}>Files</button><SpatialFileEdges /><div className="shell-pane__body">{props.render(tab, pane)}</div>
       </section>;

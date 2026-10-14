@@ -11,10 +11,14 @@ cleanup() {
   rm -rf "$run_dir"
 }
 trap cleanup EXIT
+if [ -n "${HICKORY_SPATIAL_PROJECT:-}" ]; then
+  cp -R "$HICKORY_SPATIAL_PROJECT" "$run_dir/project"
+else
 mkdir "$run_dir/project"
 mkdir "$run_dir/project/notes"
 printf '# First note\n\nA document with a real editor.\n\nMore lines to keep the selection visible.\n' > "$run_dir/project/note.md"
 printf '# Related note\n\nAnother editable document.\n' > "$run_dir/project/notes/other.md"
+fi
 cargo build -p hickory-cli --example python_agent_ui_fixture
 ./target/debug/examples/python_agent_ui_fixture "$run_dir/project" > "$run_dir/api.log" 2> "$run_dir/api-error.log" &
 api_pid=$!

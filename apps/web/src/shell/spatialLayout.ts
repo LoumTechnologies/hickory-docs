@@ -10,6 +10,8 @@ export interface SpatialState {
   /** Runtime content and visibility; never stored in the folder layout. */
   drawers?: DrawerPresentation;
   drawerPins?: SpatialSides;
+  /** Floating Files surfaces carry their list and previews together. */
+  drawerOffsets?: Partial<Record<Side, { x: number; y: number }>>;
   /** Global appearance preferences; supplied by the shell, not folder storage. */
   sides?: SpatialSides;
   center: string | null;
@@ -105,6 +107,11 @@ export function readSpatialState(raw: string | null): SpatialState {
     if (Array.isArray(value.stack)) state.stack = value.stack.filter((key: unknown): key is string => typeof key === "string").slice(-24);
     state.auto = value.auto === true;
     state.tiles = readTiles(value.tiles);
+    for (const side of ["left", "right"] as const) {
+      const offset = value.drawerOffsets?.[side];
+      if (offset && [offset.x, offset.y].every(n => typeof n === "number" && Number.isFinite(n)))
+        state.drawerOffsets = { ...state.drawerOffsets, [side]: { x: offset.x, y: offset.y } };
+    }
     if (value.drawerPins) state.drawerPins = { left: value.drawerPins.left === true, right: value.drawerPins.right === true };
     if (Array.isArray(value.columns) && value.columns.length === 2 && value.columns.every((n: unknown) => typeof n === "number" && Number.isFinite(n) && n >= .16 && n <= .36)) state.columns = value.columns;
     for (const [key, rawView] of Object.entries(value.views ?? {})) {
