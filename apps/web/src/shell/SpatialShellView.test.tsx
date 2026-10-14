@@ -153,3 +153,53 @@ it("centers an explicitly requested review while background proposals remain col
   act(() => openReading("proposal", "Review"));
   expect(ui.container.querySelector('[data-spatial-key="tool:reading:proposal"]')?.getAttribute("data-spatial-center")).toBe("true");
 });
+
+it("closes an inactive center tab directly from its X without changing the active editor", async () => {
+  const ui = render(<Harness />);
+  const original = live.get("main.md")!;
+  const tabs = within(ui.getByRole("tablist", { name: "Center views" }));
+  fireEvent.click(tabs.getByRole("button", { name: "Close related.md" }));
+  await waitFor(() => expect(live.has("related.md")).toBe(false));
+  expect(live.get("main.md")).toBe(original);
+  expect(tabs.getByRole("tab", { name: "main.md" }).getAttribute("aria-selected")).toBe("true");
+});
+
+it("opens a ribbon destination in its drawer and uses icons for drawer pins", async () => {
+  const { requestSpatialRibbonOpen } = await import("./spatialNavigation");
+  const ui = render(<Harness />);
+  const original = live.get("related.md")!;
+  act(() => { requestSpatialRibbonOpen(ui.container, { kind: "path", path: "related.md", family: "declared" }); revealLine("related.md", 2); });
+  const related = ui.container.querySelector<HTMLElement>('[data-spatial-key="document:related.md"]')!;
+  await waitFor(() => expect(related.hidden).toBe(false));
+  expect(related.dataset.spatialCenter).toBe("false");
+  expect(related.dataset.expanded).toBe("true");
+  const pin = ui.getByRole("button", { name: "Pin left drawer" });
+  expect(pin.textContent).toBe(""); expect(pin.querySelector("svg")).toBeTruthy();
+  expect(live.get("related.md")).toBe(original);
+});
+
+it("keeps a newly opened ribbon target beside the existing center", async () => {
+  const { requestSpatialRibbonOpen } = await import("./spatialNavigation");
+  function RibbonHarness() {
+    const [layout, setLayout] = useState<Layout>(() => { const pane = emptyPane(); return { root: { ...pane, tabs: [tab("document", "main.md")], active: 0 }, focus: pane.id }; });
+    return <div><button onClick={event => {
+      requestSpatialRibbonOpen(event.currentTarget.parentElement, { kind: "path", path: "new.md", family: "declared" });
+      setLayout(current => open(current, tab("document", "new.md")));
+      revealLine("new.md", 2);
+    }}>Follow ribbon</button><SpatialShellView layout={layout} onLayout={setLayout} sources={[]} files={[]} links={[]} render={entry => <Buffer entry={entry} />} /></div>;
+  }
+  const ui = render(<RibbonHarness />);
+  fireEvent.click(ui.getByText("Follow ribbon"));
+  const destination = ui.container.querySelector<HTMLElement>('[data-spatial-key="document:new.md"]')!;
+  await waitFor(() => expect(destination.hidden).toBe(false));
+  expect(destination.dataset.spatialCenter).toBe("false");
+  expect(ui.container.querySelector('[data-spatial-center=true]')?.getAttribute("data-shell-target")).toBe("main.md");
+});
+
+it("centers a ribbon destination when both side areas are disabled", async () => {
+  const { requestSpatialRibbonOpen } = await import("./spatialNavigation");
+  saveSpatialSides({ left: false, right: false });
+  const ui = render(<Harness />);
+  act(() => { requestSpatialRibbonOpen(ui.container, { kind: "path", path: "related.md", family: "declared" }); revealLine("related.md", 1); });
+  await waitFor(() => expect(ui.container.querySelector('[data-spatial-key="document:related.md"]')?.getAttribute("data-spatial-center")).toBe("true"));
+});

@@ -118,3 +118,49 @@ test("overlays leave center tabs usable and reclaim their space at narrow widths
   await expect.poll(async () => (await rect(center(page))).width).toBe((await rect(shell)).width);
   expect(await page.evaluate(() => document.documentElement.scrollHeight > window.innerHeight + 1)).toBe(false);
 });
+
+test("tab X closes an inactive tab and dragging between drawers and center preserves the editor", async ({ page }) => {
+  const note = await open(page, "note.md");
+  await open(page, "notes/other.md");
+  const tabs = page.getByRole("tablist", { name: "Center views" });
+  await tabs.getByRole("button", { name: "Close note.md", exact: true }).click();
+  await expect(note).toHaveCount(0);
+  await open(page, "note.md");
+  await remember(page, '[data-spatial-key="document:note.md"]');
+  await center(page).getByRole("button", { name: "Pin view in drawer" }).click();
+  await expect(note).toBeVisible();
+  const before = await rect(note), destination = await rect(center(page));
+  await page.mouse.move(before.x + 30, before.y + 18); await page.mouse.down();
+  await page.mouse.move(destination.x + destination.width / 2, destination.y + destination.height / 2, { steps: 10 });
+  await expect(page.locator('[data-spatial-drop-preview]')).toBeVisible();
+  await page.mouse.up();
+  await expect(note).toHaveAttribute("data-spatial-center", "true");
+  expect(await preserved(page, '[data-spatial-key="document:note.md"]')).toBe(true);
+});
+
+test("dragging a tab to a center edge creates a tile and closing reclaims space", async ({ page }) => {
+  const note = await open(page, "note.md");
+  const other = await open(page, "notes/other.md");
+  await remember(page, '[data-spatial-key="document:note.md"]');
+  const tabs = page.getByRole("tablist", { name: "Center views" });
+  const label = tabs.getByRole("tab", { name: "note.md", exact: true });
+  const from = await rect(label), target = await rect(other);
+  await page.mouse.move(from.x + from.width / 2, from.y + from.height / 2); await page.mouse.down();
+  await page.mouse.move(target.x + target.width - 12, target.y + target.height / 2, { steps: 10 });
+  await expect(page.locator('[data-spatial-drop-preview]')).toHaveText("Split right");
+  await page.mouse.up();
+  await expect(note).toHaveAttribute("data-spatial-tiled", "true");
+  await expect.poll(async () => (await rect(note)).x).toBeGreaterThan((await rect(other)).x);
+  expect(await preserved(page, '[data-spatial-key="document:note.md"]')).toBe(true);
+  const noteBox = await rect(note), otherBox = await rect(other);
+  expect(noteBox.width + otherBox.width + 6).toBeCloseTo(target.width, 0);
+  await page.screenshot({ path: "/tmp/hickory-center-tiles.png", fullPage: true });
+  await note.getByRole("button", { name: "Pin view", exact: true }).click();
+  await expect(note).toHaveAttribute("data-spatial-tiled", "false");
+  await expect(note).toBeVisible();
+  expect(await preserved(page, '[data-spatial-key="document:note.md"]')).toBe(true);
+  await tabs.getByRole("button", { name: "Close note.md", exact: true }).click();
+  await page.getByRole("button", { name: "Unpin left drawer" }).click();
+  await page.getByRole("button", { name: "Close left drawer" }).click();
+  await expect.poll(async () => (await rect(other)).width).toBeCloseTo(target.width, 0);
+});

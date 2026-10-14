@@ -61,3 +61,10 @@
 .spatial-file-edges { display: flex; flex: none; font-size: 10px; justify-content: space-between; }
 .spatial-file-edges button { background: transparent; border: 0; color: var(--fg-muted); padding: 2px 4px; cursor: pointer; }
 .spatial-file-edges button:disabled { opacity: .4; cursor: default; }
+.spatial-tab-item { display: flex; flex: 0 0 auto; min-width: 0; max-width: 14rem; border-right: 1px solid var(--border); }
+.spatial-tab-item .spatial-center-tab { flex: 1; min-width: 0; border-right: 0; cursor: grab; touch-action: none; }
+.spatial-tab-close { flex: none; border: 0; background: transparent; color: var(--fg-muted); padding: 0 6px; cursor: pointer; }
+.spatial-tab-close:hover { color: var(--fg); background: var(--border); }
+.spatial-drop-preview { position: absolute; z-index: 30; pointer-events: none; box-sizing: border-box; border: 2px solid var(--accent); background: color-mix(in srgb, var(--accent) 18%, transparent); display: grid; place-items: center; color: var(--accent); }
+.spatial-view-header { touch-action: none; }
+.spatial-drawer-toolbar button[aria-pressed=true] { color: #e7b75e; }

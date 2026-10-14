@@ -27,6 +27,19 @@ with its buffer, selection, editor tools, native gutters and line addresses.
 The Agent pane uses the same placement mechanism as other views; its own
 session and permission controls remain its document's responsibility.
 
+Each center tab has its own close icon and uses the existing unsaved-change
+choice. Closing an inactive tab leaves focus on the current pane. Pin actions
+use pushpin icons with accessible names and pressed state, including drawer
+pins. Following a ribbon expands its destination in the side it points toward;
+an existing center tile stays central, and a disabled side falls back to the
+available side or the center when both sides are disabled.
+
+Dragging a window header or center tab previews its destination. Dropping in
+the middle of the center selects that view; dropping at a tile's left, right,
+top or bottom edge splits that tile, allowing nested arrangements. Closing or
+moving a tile reclaims its old space. The arrangement persists per folder.
+Moving between drawers and center tiles keeps the same mounted editor.
+
 Given a side view, a view pin freezes its placement within the drawer and pins
 that drawer. The center's **Pin view in drawer** action moves the view beside a
 different open tab without cloning its editor. A pin freezes presentation until the
@@ -151,3 +164,52 @@ flow in `e2e/workflow-polish.spec.ts` reproduces search → centered note → Re
 → Agent and verifies that document Test is unavailable while Agent is focused.
 The existing spatial suite passed after the change (5 files / 42 tests including
 the Settings preferences). Editor mounts and source bytes remain unchanged.
+
+
+Tab and docking continuation (2026-10-14):
+
+- Originating requirement: the user requested working tab close icons, ribbon
+  destinations opening where their connections point (usually the parallax
+  area), pushpin icons instead of Pin/Unpin text, and dragging windows/tabs
+  between side areas and central IDE-style tiles.
+- Interpretation and assumptions: placement is presentation state, independent
+  of editor ownership. A center drop selects the view; an edge drop splits the
+  destination into equal tiles. Nested splits are supported. The primary tab
+  occupies a stable slot while neighboring tiles retain their own editors.
+  Disabled side settings remain authoritative. No new file writes are needed.
+- LLM implementation review: inspected `SpatialShellView` close, ribbon request,
+  fresh-tab, focus and dock paths; `SpatialController.begin/move/finish/paint`;
+  `spatialTiles` pruning, splitting and rectangle calculations;
+  `requestSpatialRibbonOpen`; and `layout.closeTab`. Implementation supports
+  the stated behaviors. Broader native-WebView acceptance remains unverified.
+- Independent witnesses: `SpatialShellView.test.tsx` checks inactive-tab closing,
+  existing and newly opened ribbon targets, icons, and disabled-side fallback.
+  `spatialTiles.test.ts` checks explicit nested rectangles and moving/removing
+  tiles; `layout.test.ts` checks focus after another pane closes. The native
+  engine browser flow in `e2e/spatialWorkspace.spec.ts` closes an inactive tab,
+  drags a side window into the center, splits by dragging a tab, pins a tile
+  back into a drawer, and checks editor instance, text and selection identity.
+- Challenges: the first browser close witness exposed `closeTab` selecting
+  Files after removing an inactive pane; focus now stays on the surviving
+  focused pane. Full-suite startup checks exposed duplicate center close
+  controls; only the tab's X remains for the center. Final review found that
+  tile pins needed to remove the tile from the center before placing it in a
+  drawer; the final browser round trip exercises that correction.
+- Executed checks: `just test-web` passed 222 files / 2,106 tests after the
+  close-control correction. After the final side-fallback and tile-pin changes,
+  `just test-spatial` passed type checking and 58 tests and
+  `just test-spatial-ui` passed all six real-engine browser flows.
+  `just check-file-length` and `git diff --check` passed. The center-tile
+  screenshot was inspected. Actual SVG-ribbon clicks across every provenance
+  family are not covered by the new browser flows; ribbon placement is covered
+  through the request/reveal integration tests. Arbitrary deep/narrow tiling,
+  cross-window dragging and native macOS WebView were not exercised.
+- Human judgment: no new user acceptance is recorded. Tests and screenshot
+  inspection are implementation evidence, not user approval.
+- Evidence dependencies (SHA-256; changing these invalidates this review):
+  `SpatialShellView.tsx` = `8f7b95a286d5a579500a050453a7bdf6b4f81921f8288d5e67cde19c84ac87bf`;
+  `SpatialController.ts` = `1d2909bad8ae3c80a39707b17e81fd4a9315bf20a85814b68529a1e3086627fd`;
+  `spatialTiles.ts` = `b3606e6d07b6323f5fc727dc52fa1e4090d1059e83f5c08ce4967e8f6b37042e`;
+  `spatialNavigation.ts` = `aad7a5ae9fff5d4fee3a43a1c1006e80bba208026d56798ade5afa77ff043b0e`;
+  `layout.ts` = `d0a254f01ee8228955f5734e2e409abd204ad5fd2e7c979daf0d319510e23039`.
+  These implementation files are under `apps/web/src/shell/`.

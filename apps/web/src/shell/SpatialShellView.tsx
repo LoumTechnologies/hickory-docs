@@ -1,3 +1,5 @@
+import { PRIMARY, dockTile, pruneTiles, tileRects, type DockEdge } from "./spatialTiles";
+import { SPATIAL_RIBBON_OPEN, type SpatialRibbonOpen } from "./spatialNavigation";
 import { PaneHeaderProvider, PaneHeaderSlots } from "./PaneHeader";
 import { openCommandBar } from "./CommandBar";
 import { useEffect, useMemo, useRef, useState, type PointerEvent } from "react";
@@ -25,6 +27,7 @@ interface Props extends ShellViewProps {
   hasFiles?: boolean;
 }
 interface Entry extends SpatialItem { tab?: Tab; pane?: Pane }
+function PinIcon() { return <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" aria-hidden="true"><path d="M5 2h6l-1 5 3 3H3l3-3-1-5ZM8 10v5" /></svg>; }
 const storageKey = (folder?: string) => `hickory:spatial-layout:v1:${folder ?? "scratch"}`;
 const load = (folder?: string) => { try { return readSpatialState(localStorage.getItem(storageKey(folder))); } catch { return readSpatialState(null); } };
 const relative = (path: string, root?: string) => root && path.startsWith(`${root}/`) ? path.slice(root.length + 1) : path;
@@ -42,6 +45,8 @@ export function SpatialShellView(props: Props) {
   const previousFolder = useRef(props.folderRoot), lastChat = useRef<string | null>(null), pendingSide = useRef<Side | null>(null);
   const columnGesture = useRef<{ side: Side; x: number; start: number } | null>(null);
   const previousTabs = useRef(new Set<string>());
+  const ribbonRequest = useRef<SpatialRibbonOpen | null>(null);
+  const dockHandler = useRef<(key: string, target: string, edge: DockEdge) => void>(() => {});
   const pendingReading = useRef<string | null>(null);
   const layout = useMemo(() => spatialize(props.layout), [props.layout]);
   const all = panes(layout.root), trees = all.filter(pane => pane.tabs.some(tab => tab.kind === "tree"));
@@ -51,17 +56,21 @@ export function SpatialShellView(props: Props) {
   for (const entry of entries) if (!scene.views[entry.key]?.side && !sides[entry.side]) { const other = entry.side === "left" ? "right" : "left"; if (sides[other]) entry.side = other; }
   const fallback = entries.find(entry => entry.tab?.kind === "chat") ?? entries.find(entry => entry.tab?.kind === "document") ?? entries.find(entry => entry.tab);
   const center = entries.find(entry => entry.tab && entry.key === scene.center) ?? fallback;
+  const tiles = pruneTiles(scene.tiles ?? PRIMARY, key => key === PRIMARY || key !== center?.key && entries.some(entry => entry.tab && entry.key === key)) ?? PRIMARY;
+  const tiledKeys = new Set(tileRects(tiles, { x: 0, y: 0, w: 1, h: 1 }).keys());
+  useEffect(() => { if (JSON.stringify(scene.tiles ?? PRIMARY) !== JSON.stringify(tiles)) setScene(current => ({ ...current, tiles })); }, [scene.tiles, tiles]);
   const relations = spatialRelations(props.sources, props.files, props.links);
   const pending = new Set(entries.filter(entry => entry.tab?.kind === "tool" && entry.tab.target.startsWith("reading:") && readingStatus(entry.tab.target.slice(8)) === "pending").map(entry => entry.key));
-  const contextual = drawerContent(entries, center, relations, scene.views, pending);
+  const contextual = drawerContent(entries, center, relations, scene.views, pending).filter(entry => !tiledKeys.has(entry.key));
   const files = { left: !!trees[0] && (!!(props.hasFiles ?? trees.length) || requestedFiles.left), right: !!trees[1] && (!!(props.hasFiles ?? trees.length) || requestedFiles.right) };
   const contexts = { left: contextual.some(entry => entry.side === "left"), right: contextual.some(entry => entry.side === "right") };
   const available = { left: sides.left && (files.left || contexts.left), right: sides.right && (files.right || contexts.right) };
   const pinned = scene.drawerPins ?? { left: false, right: false };
   const visible = { left: available.left && (drawerOpen.left || pinned.left), right: available.right && (drawerOpen.right || pinned.right) };
-  const effective = { ...scene, center: center?.key ?? null, sides: visible, drawers: { available, visible, files, contexts, pinned, keys: contextual.map(entry => entry.key) } };
+  const effective = { ...scene, tiles, center: center?.key ?? null, sides: visible, drawers: { available, visible, files, contexts, pinned, keys: contextual.map(entry => entry.key) } };
   const latest = useRef({ state: effective, entries, relations, enabled: sides }); latest.current = { state: effective, entries, relations, enabled: sides };
   const controller = useMemo(() => new SpatialController({ root: () => root.current, state: () => latest.current.state, items: () => latest.current.entries, relations: () => latest.current.relations,
+    dock: (key, target, edge) => dockHandler.current(key, target, edge),
     update: make => setScene(current => make({ ...current, center: latest.current.state.center })) }), []);
   useShellKeys(layout, props.onLayout, props.onSearch, props.onRequestCloseTab);
   useEffect(() => { if (layout !== props.layout) props.onLayout(layout); }, [layout, props.layout, props.onLayout]);
@@ -85,8 +94,25 @@ export function SpatialShellView(props: Props) {
     window.addEventListener(OPEN_READING, openReading);
     return () => window.removeEventListener(OPEN_READING, openReading);
   }, [controller]);
+  useEffect(() => {
+    const el = root.current;
+    const request = (event: Event) => {
+      const detail = (event as CustomEvent<SpatialRibbonOpen>).detail;
+      ribbonRequest.current = detail;
+      const entry = latest.current.entries.find(item => samePath(item.path, detail.path));
+      const side = detail.side && latest.current.enabled[detail.side] ? detail.side : latest.current.enabled.left ? "left" : "right";
+      if (entry) requestAnimationFrame(() => { if (ribbonRequest.current === detail) ribbonRequest.current = null; });
+      if (!detail.central && (latest.current.enabled.left || latest.current.enabled.right)) {
+        setDrawerOpen(current => ({ ...current, [side]: true }));
+        if (entry) setScene(current => ({ ...current, views: { ...current.views, [entry.key]: { ...current.views[entry.key], side, revealed: true, expanded: true } } }));
+      } else if (!detail.central && entry) setScene(current => ({ ...current, center: entry.key, stack: current.center ? [...current.stack, current.center].slice(-24) : current.stack }));
+    };
+    el?.addEventListener(SPATIAL_RIBBON_OPEN, request);
+    return () => el?.removeEventListener(SPATIAL_RIBBON_OPEN, request);
+  }, []);
   useEffect(() => onRevealLine(path => {
     const entry = latest.current.entries.find(entry => samePath(entry.path, path)); if (!entry) return;
+    if (ribbonRequest.current && samePath(ribbonRequest.current.path, path)) return;
     const inDrawer = latest.current.enabled[entry.side] && latest.current.state.drawers.keys.includes(entry.key);
     if (inDrawer) setDrawerOpen(current => ({ ...current, [entry.side]: true }));
     setScene(current => ({ ...current, ...(!inDrawer ? { center: entry.key, stack: current.center && current.center !== entry.key ? [...current.stack, current.center].slice(-24) : current.stack } : {}), views: { ...current.views, [entry.key]: { ...current.views[entry.key], side: entry.side, expanded: true } } }));
@@ -100,7 +126,7 @@ export function SpatialShellView(props: Props) {
     const tree = trees.findIndex(pane => pane.id === layout.focus);
     if (tree < 0) {
       const entry = entries.find(item => item.pane?.id === layout.focus);
-      if (entry?.tab && entry.key !== center?.key && !(entry.tab.kind === "tool" && entry.tab.target.startsWith("reading:")) && (!visible[entry.side] || !effective.drawers.keys.includes(entry.key))) {
+      if (!ribbonRequest.current && entry?.tab && !tiledKeys.has(entry.key) && entry.key !== center?.key && !(entry.tab.kind === "tool" && entry.tab.target.startsWith("reading:")) && (!visible[entry.side] || !effective.drawers.keys.includes(entry.key))) {
         setScene(current => ({ ...current, center: entry.key, stack: current.center && current.center !== entry.key ? [...current.stack, current.center].slice(-24) : current.stack }));
       }
       return;
@@ -116,6 +142,16 @@ export function SpatialShellView(props: Props) {
     else if (selected.offsetLeft + selected.offsetWidth > strip.scrollLeft + strip.clientWidth) strip.scrollLeft = selected.offsetLeft + selected.offsetWidth - strip.clientWidth;
   }, [center?.key, entries.length]);
   useEffect(() => {
+    const requested = ribbonRequest.current;
+    const destination = requested && entries.find(entry => samePath(entry.path, requested.path));
+    if (requested && destination) {
+      const side = requested.side && sides[requested.side] ? requested.side : sides.left ? "left" : "right";
+      if (!requested.central && (sides.left || sides.right)) {
+        setDrawerOpen(current => ({ ...current, [side]: true }));
+        setScene(current => ({ ...current, views: { ...current.views, [destination.key]: { ...current.views[destination.key], side, revealed: true, expanded: true } } }));
+      } else if (!requested.central) setScene(current => ({ ...current, center: destination.key, stack: current.center ? [...current.stack, current.center].slice(-24) : current.stack }));
+      requestAnimationFrame(() => { if (ribbonRequest.current === requested) ribbonRequest.current = null; });
+    }
     const hadTabs = previousTabs.current.size > 0;
     const freshTabs = entries.filter(entry => entry.tab && !previousTabs.current.has(entry.key));
     previousTabs.current = new Set(entries.filter(entry => entry.tab).map(entry => entry.key));
@@ -129,7 +165,7 @@ export function SpatialShellView(props: Props) {
       const key = pendingReading.current; pendingReading.current = null;
       setScene(current => ({ ...current, center: key, stack: current.center && current.center !== key ? [...current.stack, current.center].slice(-24) : current.stack }));
     }
-    if (hadTabs && fresh && (!sides[pendingSide.current ?? fresh.side] || pendingSide.current && ["file", "document", "generated"].includes(fresh.tab!.kind))) setScene(current => ({ ...current, center: fresh.key, stack: current.center && current.center !== fresh.key ? [...current.stack, current.center].slice(-24) : current.stack }));
+    if (!requested && hadTabs && fresh && (!sides[pendingSide.current ?? fresh.side] || pendingSide.current && ["file", "document", "generated"].includes(fresh.tab!.kind))) setScene(current => ({ ...current, center: fresh.key, stack: current.center && current.center !== fresh.key ? [...current.stack, current.center].slice(-24) : current.stack }));
     if (fresh?.tab?.kind === "tool" && fresh.tab.target.startsWith("reading:")) setScene(current => ({ ...current, views: { ...current.views, [fresh.key]: { ...current.views[fresh.key], side: current.views[fresh.key]?.side ?? fresh.side, expanded: true } } }));
     if (fresh && pendingSide.current) { const side = pendingSide.current; pendingSide.current = null; setScene(current => ({ ...current, views: { ...current.views, [fresh.key]: { side, expanded: true } } })); }
   }, [layout]); // Only newly opened tabs affect the center; changing presentation does not.
@@ -140,6 +176,8 @@ export function SpatialShellView(props: Props) {
     return () => { el?.removeEventListener("scroll", update, true); clearInterval(timer); };
   }, []);
   const centerOn = (entry: Entry) => {
+    if (controller.suppressClick) return;
+    ribbonRequest.current = null;
     controller.preserveSelections();
     if (!entry.tab || !entry.pane) { openPort(entry); return; }
     setScene(current => ({ ...current, center: entry.key, stack: center && center.key !== entry.key ? [...current.stack, center.key].slice(-24) : current.stack }));
@@ -164,7 +202,7 @@ export function SpatialShellView(props: Props) {
     props.ports?.find(port => port.id === entry.key)?.onOpen();
   };
   const click = (action: () => void) => { if (!controller.suppressClick) action(); };
-  const begin = (entry: Entry, event: PointerEvent, kind: "drag" | "top" | "bottom" = "drag") => { if (entry.key !== center?.key && !(event.target as HTMLElement).closest(".spatial-window-controls")) controller.begin(entry.key, event, kind); };
+  const begin = (entry: Entry, event: PointerEvent, kind: "drag" | "top" | "bottom" = "drag") => { if (!(event.target as HTMLElement).closest(".spatial-window-controls, .spatial-tab-close")) controller.begin(entry.key, event, kind); };
   const close = (entry: Entry) => { if (!entry.tab || !entry.pane) return; if (props.onRequestCloseTab) props.onRequestCloseTab(entry.pane.id, entry.tab.id); else props.onLayout(closeTab(layout, entry.pane.id, entry.tab.id)); };
   const showDrawer = (side: Side) => {
     controller.preserveSelections(); setDrawerOpen({ left: side === "left", right: side === "right" });
@@ -184,6 +222,23 @@ export function SpatialShellView(props: Props) {
       views: { ...current.views, [entry.key]: { ...current.views[entry.key], side, expanded: true, pin: { x: 0, y: 72, w: 320, h: 253 } } } }));
     props.onLayout(focus(layout, next.pane!.id));
   };
+  dockHandler.current = (key, target, edge) => {
+    const entry = entries.find(item => item.key === key && item.tab);
+    if (!entry) return;
+    if (target === "left" || target === "right") {
+      const next = key === center?.key ? entries.find(item => item.tab && item.key !== key) : center;
+      if (!sides[target] || !next || next.key === key) return;
+      setScene(current => ({ ...current, center: next.key, tiles: pruneTiles(tiles, slot => slot !== key) ?? PRIMARY,
+        drawerPins: { ...(current.drawerPins ?? { left: false, right: false }), [target]: true },
+        views: { ...current.views, [key]: { ...current.views[key], side: target, expanded: true, revealed: true } } }));
+      if (key === center?.key) props.onLayout(focus(layout, next.pane!.id));
+      return;
+    }
+    if (edge === "center") { centerOn(entry); return; }
+    const slot = key === center?.key ? PRIMARY : key;
+    if (slot === target) return;
+    setScene(current => ({ ...current, tiles: dockTile(tiles, slot, target, edge), views: { ...current.views, [key]: { ...current.views[key], pin: undefined } } }));
+  };
   return <div ref={root} className="spatial-shell" data-spatial-shell="true"
     onPointerDownCapture={event => { if (!(event.target as HTMLElement).closest("[data-drawer-side]")) setDrawerOpen(current => current.left || current.right ? { left: false, right: false } : current); }}
     onPointerMove={event => { const gesture = columnGesture.current; if (gesture && root.current) { const inner = root.current.clientWidth, delta = (event.clientX - gesture.x) / inner * (gesture.side === "left" ? 1 : -1); setScene(current => ({ ...current, columns: current.columns.map((value, index) => index === (gesture.side === "left" ? 0 : 1) ? Math.max(.16, Math.min(.36, gesture.start + delta)) : value) as [number, number] })); } }}
@@ -196,7 +251,7 @@ export function SpatialShellView(props: Props) {
       <div hidden={!visible[side]} id={`spatial-${side}-drawer`} className="spatial-drawer-backdrop" data-drawer-backdrop={side} />
       <div hidden={!visible[side]} className="spatial-drawer-toolbar" data-drawer-toolbar={side}>
         <strong>{side === "left" ? "Left" : "Right"} drawer</strong>
-        <button aria-label={`${pinned[side] ? "Unpin" : "Pin"} ${side} drawer`} aria-pressed={pinned[side]} onClick={() => { setDrawerOpen(current => ({ ...current, [side]: true })); setScene(current => ({ ...current, drawerPins: { ...(current.drawerPins ?? { left: false, right: false }), [side]: !pinned[side] } })); }}>{pinned[side] ? "Unpin" : "Pin"}</button>
+        <button data-tip={`${pinned[side] ? "Unpin" : "Pin"} ${side} drawer`} aria-label={`${pinned[side] ? "Unpin" : "Pin"} ${side} drawer`} aria-pressed={pinned[side]} onClick={() => { setDrawerOpen(current => ({ ...current, [side]: true })); setScene(current => ({ ...current, drawerPins: { ...(current.drawerPins ?? { left: false, right: false }), [side]: !pinned[side] } })); }}><PinIcon /></button>
         <button aria-label={`Close ${side} drawer`} disabled={pinned[side]} onClick={() => closeDrawer(side)}>×</button>
       </div>
     </div>)}
@@ -206,34 +261,34 @@ export function SpatialShellView(props: Props) {
         <button role="tab" aria-label={side === "left" ? "Files" : "Right file buffer"} aria-selected={layout.focus === pane.id} className="spatial-files-title" onClick={() => props.onLayout(focus(layout, pane.id))}>Files</button><SpatialFileEdges /><div className="shell-pane__body">{props.render(tab, pane)}</div>
       </section>;
     })}
-    {entries.map(entry => { const tab = entry.tab, centered = entry.key === center?.key, name = relative(entry.path, props.folderRoot), title = tab?.title ?? props.ports?.find(port => port.id === entry.key)?.label ?? name;
-      return <PaneHeaderProvider key={tab?.id ?? entry.key}><section hidden={!centered && (!visible[entry.side] || !effective.drawers.keys.includes(entry.key))} data-drawer-side={!centered ? entry.side : undefined} data-drawer-pinned={!centered ? pinned[entry.side] : undefined} id={centered ? "spatial-center" : paneId(entry)} className="shell-pane spatial-view" data-spatial-key={entry.key} data-spatial-side={entry.side} data-spatial-center={centered} data-expanded={centered || scene.views[entry.key]?.expanded || false}
+    {entries.map(entry => { const tab = entry.tab, centered = entry.key === center?.key, tiled = tiledKeys.has(entry.key), central = centered || tiled, name = relative(entry.path, props.folderRoot), title = tab?.title ?? props.ports?.find(port => port.id === entry.key)?.label ?? name;
+      return <PaneHeaderProvider key={tab?.id ?? entry.key}><section hidden={!central && (!visible[entry.side] || !effective.drawers.keys.includes(entry.key))} data-drawer-side={!central ? entry.side : undefined} data-drawer-pinned={!central ? pinned[entry.side] : undefined} id={centered ? "spatial-center" : paneId(entry)} className="shell-pane spatial-view" data-spatial-key={entry.key} data-spatial-side={entry.side} data-spatial-center={centered} data-spatial-tiled={tiled} data-expanded={central || scene.views[entry.key]?.expanded || false}
         data-shell-pane-id={entry.pane?.id} data-shell-target={entry.path} onFocusCapture={() => { if (entry.pane && props.layout.focus !== entry.pane.id) props.onLayout(focus(layout, entry.pane.id)); }}>
         <header className="spatial-view-header" onPointerDown={event => begin(entry, event)}>
           {centered ? <div className="spatial-center-tabs" role="tablist" aria-label="Center views">
             {entries.filter(candidate => candidate.tab).map(candidate => {
               const candidateTab = candidate.tab!, selected = candidate.key === entry.key;
               const label = candidateTab.title ?? relative(candidate.path, props.folderRoot);
-              return <button key={candidateTab.id} id={`spatial-tab-${candidateTab.id}`} type="button" role="tab" aria-label={label} aria-selected={selected} aria-controls={`spatial-content-${candidateTab.id}`} tabIndex={selected ? 0 : -1}
+              return <div key={candidateTab.id} className="spatial-tab-item"><button id={`spatial-tab-${candidateTab.id}`} type="button" role="tab" aria-label={label} aria-selected={selected} aria-controls={`spatial-content-${candidateTab.id}`} tabIndex={selected ? 0 : -1}
                 className="spatial-center-tab" data-tip={relative(candidate.path, props.folderRoot)}
                 data-shell-tab-kind={candidateTab.kind} data-shell-tab-target={candidate.path} data-shell-tab-source={selected ? candidate.path : undefined} data-shell-tab-buffer={selected ? bufferTarget(candidateTab.id) : undefined}
-                onClick={() => centerOn(candidate)} onKeyDown={event => {
+                onPointerDown={event => { event.stopPropagation(); begin(candidate, event); }} onClick={() => centerOn(candidate)} onKeyDown={event => {
                   if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
                   event.preventDefault(); event.stopPropagation();
                   const tabs = entries.filter(item => item.tab), index = tabs.findIndex(item => item.key === candidate.key);
                   const next = event.key === "Home" ? 0 : event.key === "End" ? tabs.length - 1 : (index + (event.key === "ArrowRight" ? 1 : -1) + tabs.length) % tabs.length;
                   centerOn(tabs[next]);
                   requestAnimationFrame(() => root.current?.querySelector<HTMLButtonElement>('.spatial-center-tabs [aria-selected="true"]')?.focus());
-                }}>{label}{props.dirtyTabIds?.has(candidateTab.id) ? " *" : ""}</button>;
+                }}>{label}{props.dirtyTabIds?.has(candidateTab.id) ? " *" : ""}</button><button type="button" className="spatial-tab-close" aria-label={`Close ${label}`} data-tip={`Close ${label}`} onPointerDown={event => event.stopPropagation()} onClick={event => { event.stopPropagation(); close(candidate); }}>×</button></div>;
             })}
           </div> : <button type="button" role={tab ? "tab" : undefined} aria-label={title} aria-selected={tab ? layout.focus === entry.pane?.id : undefined} className="spatial-filename" data-tip={name} data-shell-tab-kind={tab?.kind} data-shell-tab-target={entry.path} data-shell-tab-source={entry.path} data-shell-tab-vertical={true} data-shell-tab-buffer={tab ? bufferTarget(tab.id) : undefined}
             data-ribbon-port={entry.port ? entry.key : undefined} onClick={() => click(() => { if (entry.port) openPort(entry); else if (!centered) { if (tab?.kind === "untitled") centerOn(entry); else controller.toggle(entry.key); } })}>{tab && !["document", "generated", "file"].includes(tab.kind) ? title : name || title}{tab && props.dirtyTabIds?.has(tab.id) ? " *" : ""}</button>}
           <PaneHeaderSlots />
           <div className="spatial-window-controls">
-            {centered ? <><button data-tip="Search (Ctrl/Cmd+P)" aria-label="Open search" onClick={() => openCommandBar()}>⌕</button><button data-tip="Restore previous center" aria-label="Restore previous center" onClick={restore}>▣</button>{(sides.left || sides.right) && entries.some(item => item.tab && item.key !== entry.key) && <button data-tip="Pin view in drawer" aria-label="Pin view in drawer" onClick={() => pinCentered(entry)}>⌖</button>}<button data-tip="Automatic accordion" aria-label="Automatic accordion" aria-pressed={scene.auto} onClick={() => setScene(current => ({ ...current, auto: !current.auto }))}>↕</button></>
-              : <><button data-tip={scene.views[entry.key]?.pin ? "Unpin view" : "Pin view"} aria-label={scene.views[entry.key]?.pin ? "Unpin view" : "Pin view"} aria-pressed={!!scene.views[entry.key]?.pin} onClick={() => click(() => pinView(entry))}><svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" aria-hidden="true"><path d="M5 2h6l-1 5 3 3H3l3-3-1-5ZM8 10v5" /></svg></button>
-                <button data-tip="Center" aria-label="Center" onClick={() => centerOn(entry)}>□</button><button data-tip="Minimize" aria-label="Minimize" onClick={() => { if (controller.frames.get(entry.key)?.h !== 36) controller.toggle(entry.key); }}>—</button></>}
-            {tab && <button data-tip={`Close ${title}`} aria-label={`Close ${title}`} onClick={() => close(entry)}>×</button>}
+            {centered ? <><button data-tip="Search (Ctrl/Cmd+P)" aria-label="Open search" onClick={() => openCommandBar()}>⌕</button><button data-tip="Restore previous center" aria-label="Restore previous center" onClick={restore}>▣</button>{(sides.left || sides.right) && entries.some(item => item.tab && item.key !== entry.key) && <button data-tip="Pin view in drawer" aria-label="Pin view in drawer" onClick={() => pinCentered(entry)}><PinIcon /></button>}<button data-tip="Automatic accordion" aria-label="Automatic accordion" aria-pressed={scene.auto} onClick={() => setScene(current => ({ ...current, auto: !current.auto }))}>↕</button></>
+              : <><button data-tip={scene.views[entry.key]?.pin ? "Unpin view" : "Pin view"} aria-label={scene.views[entry.key]?.pin ? "Unpin view" : "Pin view"} aria-pressed={!!scene.views[entry.key]?.pin} onClick={() => click(() => { if (tiled) { controller.pin(entry.key); dockHandler.current(entry.key, sides[entry.side] ? entry.side : sides.left ? "left" : "right", "center"); } else pinView(entry); })}><PinIcon /></button>
+                <button data-tip="Center" aria-label="Center" onClick={() => click(() => centerOn(entry))}>□</button>{!tiled && <button data-tip="Minimize" aria-label="Minimize" onClick={() => { if (controller.frames.get(entry.key)?.h !== 36) controller.toggle(entry.key); }}>—</button>}</>}
+            {tab && !centered && <button data-tip={`Close ${title}`} aria-label={`Close ${title}`} onClick={() => close(entry)}>×</button>}
           </div>
         </header>
         <div id={tab ? `spatial-content-${tab.id}` : undefined} className="shell-pane__body spatial-view-body">{tab && entry.pane ? props.render(tab, entry.pane) : <button className="spatial-open" onClick={() => openPort(entry)}>Open {title}</button>}</div>
@@ -245,6 +300,7 @@ export function SpatialShellView(props: Props) {
     {entries.flatMap(entry => (["top", "bottom"] as const).map(edge => <div key={`${entry.key}-${edge}`} role="separator" aria-label={`Resize ${relative(entry.path, props.folderRoot)} ${edge}`} aria-orientation="horizontal" tabIndex={0}
       hidden={!visible[entry.side] || !effective.drawers.keys.includes(entry.key)} data-drawer-side={entry.side} className="spatial-resize-rule" data-spatial-resize={entry.key} data-resize-edge={edge} onPointerDown={event => { event.preventDefault(); controller.begin(entry.key, event, edge); }}
       onKeyDown={event => { if (event.key === "ArrowUp" || event.key === "ArrowDown") { event.preventDefault(); controller.resize(entry.key, event.key === "ArrowUp" ? -10 : 10, edge); } }} />))}
+    <div className="spatial-drop-preview" data-spatial-drop-preview hidden />
     {!center && <div className="spatial-empty">{props.empty}</div>}
     {(["left", "right"] as const).map(side => <div key={`column-${side}`} hidden={!visible[side] || !pinned[side]} data-drawer-side={side} className="spatial-column-rule" data-spatial-column={side} role="separator" aria-label={`Resize ${side} column`} aria-orientation="vertical" tabIndex={0}
       onPointerDown={event => { event.preventDefault(); event.currentTarget.setPointerCapture(event.pointerId); columnGesture.current = { side, x: event.clientX, start: scene.columns[side === "left" ? 0 : 1] }; }}

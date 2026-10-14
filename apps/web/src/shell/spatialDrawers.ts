@@ -16,7 +16,7 @@ export interface DrawerPresentation {
 /** Open tabs alone are navigation, not contextual content. */
 export function drawerContent<Item extends SpatialItem>(items: readonly Item[], center: SpatialItem | undefined,
   relations: readonly SpatialRelation[], views: SpatialState["views"], pending: ReadonlySet<string>) {
-  return items.filter(item => item.key !== center?.key && (views[item.key]?.pin || pending.has(item.key)
+  return items.filter(item => item.key !== center?.key && (views[item.key]?.pin || views[item.key]?.revealed || pending.has(item.key)
     || relations.some(relation => center && (samePath(relation.fromPath, center.path) && samePath(relation.toPath, item.path)
       || samePath(relation.toPath, center.path) && samePath(relation.fromPath, item.path)))));
 }

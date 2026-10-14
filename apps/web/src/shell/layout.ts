@@ -288,7 +288,7 @@ export function closeTab(layout: Layout, paneId: string, tabId: string): Layout 
     const root = replace(layout.root, paneId, () => null);
     if (root === null) return layout;
     const remaining = panes(root);
-    return { root, focus: remaining[0]?.id ?? layout.focus };
+    return { root, focus: layout.focus !== paneId ? layout.focus : remaining[Math.min(panes(layout.root).findIndex(item => item.id === paneId), remaining.length - 1)]?.id ?? layout.focus };
   }
 
   const removed = pane.tabs.findIndex((candidate) => candidate.id === tabId);
@@ -299,7 +299,7 @@ export function closeTab(layout: Layout, paneId: string, tabId: string): Layout 
     // not scroll the selection along with it.
     active: Math.max(0, Math.min(removed <= current.active ? current.active - 1 : current.active, tabs.length - 1)),
   }));
-  return { root: root ?? layout.root, focus: paneId };
+  return { root: root ?? layout.root, focus: layout.focus };
 }
 
 /**

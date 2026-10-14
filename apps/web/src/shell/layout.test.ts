@@ -88,6 +88,16 @@ describe("freeform: one pane, tabs, splits", () => {
 });
 
 describe("closing", () => {
+  it("keeps focus when another pane loses its last tab", () => {
+    let layout = openAll(freeform(), "a.md");
+    const first = focused(layout)!;
+    layout = split(layout, first.id, "row");
+    layout = open(layout, doc("b.md"));
+    const current = layout.focus;
+    layout = closeTab(layout, first.id, first.tabs[0].id);
+    expect(layout.focus).toBe(current);
+    expect(focused(layout)?.tabs[0].target).toBe("b.md");
+  });
   it("keeps the selection where you were looking", () => {
     // Closing a tab BEFORE the active one must not drag the selection along.
     let layout = openAll(freeform(), "a.md", "b.md", "c.md");

@@ -55,7 +55,7 @@ import { windowTitle } from "../lib/windowTitle";
 import { deriveRibbons } from "../lib/ribbons";
 import { flashTab } from "../lib/flashTab";
 import { SpatialShellView as ShellView } from "../shell/SpatialShellView";
-import { revealSpatialSource } from "../shell/spatialNavigation";
+import { requestSpatialRibbonOpen, revealSpatialSource } from "../shell/spatialNavigation";
 import type { ShellPort } from "../shell/ShellView";
 import {
   RibbonOverlay,
@@ -1739,19 +1739,18 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
             sources={ribbonSources}
             files={ribbonFiles}
             links={ribbonLinks}
-            // Only the DRAWN families reach the overlay. Continuity is a
-            // fourth family with no overlay yet — the ribbon is the last step
-            // of that design, after the journal has something in it worth
-            // drawing — so it is filtered here rather than widening
+            // Only drawn families reach the overlay. Continuity is filtered
+            // until its overlay exists, rather than widening
             // `RibbonFamily` to a kind nothing emits.
             layers={drawnLayers}
             ribbonStyle={ribbonStyle}
             visibility={ribbonVisibility}
             onNavigate={(target, intent) => {
-              const routed = prepareRibbonOpen(layoutRef.current, paneBoxes(shellBox), intent);
+              const spatial = requestSpatialRibbonOpen(shellBox, target, intent);
+              const routed = spatial ? layoutRef.current : prepareRibbonOpen(layoutRef.current, paneBoxes(shellBox), intent);
               layoutRef.current = routed;
               setLayout(routed);
-              const into = intent ? routed.focus : undefined;
+              const into = !spatial && intent ? routed.focus : undefined;
               const session = registry.get(focusedIdRef.current);
               if (target.kind === "path") {
                 if (revealSpatialSource(shellBox, ribbonSources, ribbonFiles, target)) return;

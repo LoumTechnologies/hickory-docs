@@ -18,7 +18,8 @@ export function ribbonOpenIntent(container: HTMLElement | null, source: HTMLElem
   const tab = [...container.querySelectorAll<HTMLElement>("[data-shell-tab-target]")].find(el =>
     samePath(el.dataset.shellTabSource ?? "", target.path) || ["document", "generated", "file", "untitled"].includes(el.dataset.shellTabKind ?? "") &&
     (samePath(el.dataset.shellTabTarget ?? "", target.path) || el.dataset.shellTabBuffer === target.path));
-  const destination = tab?.closest<HTMLElement>("[data-shell-pane-id]");
+  const spatial = [...container.querySelectorAll<HTMLElement>("[data-spatial-key]")].find(el => samePath(el.dataset.shellTarget ?? "", target.path));
+  const destination = spatial ?? tab?.closest<HTMLElement>("[data-shell-pane-id]");
   const tree = [...container.querySelectorAll<HTMLElement>("[data-tree-path]")].find(el => samePath(el.dataset.treePath ?? "", target.path));
   const port = [...container.querySelectorAll<HTMLElement>("[data-ribbon-port]")].find(el => el.dataset.ribbonPort?.endsWith(`:${target.path}`));
   const rect = destination?.getBoundingClientRect() ?? (tree ? visibleElementRect(tree) : null) ?? port?.getBoundingClientRect();

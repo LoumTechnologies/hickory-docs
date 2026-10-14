@@ -318,7 +318,7 @@ test-files-browser url:
 
 # Spatial layout geometry and native editor behavior.
 test-spatial:
-    cd apps/web && npm run typecheck && npm test -- src/shell/spatialLayout.test.ts src/shell/spatialDrawers.test.ts src/shell/SpatialShellView.test.tsx src/editor/spatialExcerpt.test.ts src/views/SettingsView.test.tsx
+    cd apps/web && npm run typecheck && npm test -- src/shell/spatialTiles.test.ts src/shell/ribbonNavigation.test.ts src/shell/spatialLayout.test.ts src/shell/spatialDrawers.test.ts src/shell/SpatialShellView.test.tsx src/editor/spatialExcerpt.test.ts src/views/SettingsView.test.tsx
 
 # Drawer geometry and real editor state against a disposable native engine.
 test-spatial-ui:

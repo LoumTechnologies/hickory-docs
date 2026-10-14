@@ -1,3 +1,4 @@
+import { PRIMARY, dockHit, tileRects, type DockEdge } from "./spatialTiles";
 import { EditorView } from "@codemirror/view";
 import type { EditorSelection } from "@codemirror/state";
 import { showSpatialExcerpt } from "../editor/spatialExcerpt";
@@ -11,12 +12,13 @@ import { clearSpatialSlot, intersects, parallaxAnchor, resizeSpatialPin, type Re
 
 export interface SpatialItem { key: string; path: string; side: Side; port?: boolean }
 interface Route { animation: Animation; from: Rect; target: Rect; side: Side }
-interface Gesture { key: string; pointer: number; startX: number; startY: number; start: Rect; side: Side; kind: "drag" | "top" | "bottom"; lastY: number; moved: boolean; preview?: Rect; neighbor?: string; initialViews: SpatialState["views"]; selections: [EditorView, EditorSelection][] }
+interface Gesture { key: string; pointer: number; startX: number; startY: number; start: Rect; side: Side; kind: "drag" | "top" | "bottom"; lastY: number; moved: boolean; preview?: Rect; dock?: { target: string; edge: DockEdge }; neighbor?: string; initialViews: SpatialState["views"]; selections: [EditorView, EditorSelection][] }
 export interface SpatialAdapter {
   root: () => HTMLElement | null;
   state: () => SpatialState;
   items: () => readonly SpatialItem[];
   relations: () => readonly SpatialRelation[];
+  dock?: (key: string, target: string, edge: DockEdge) => void;
   update: (make: (state: SpatialState) => SpatialState) => void;
 }
 const setRect = (el: HTMLElement, r: Rect) => Object.assign(el.style, { left: `${r.x}px`, top: `${r.y}px`, width: `${Math.max(20, r.w)}px`, height: `${Math.max(20, r.h)}px` });
@@ -95,8 +97,8 @@ export class SpatialController {
   }
   begin(key: string, event: React.PointerEvent, kind: Gesture["kind"] = "drag") {
     const root = this.adapter.root(), el = this.elements().get(key); if (!root || !el || event.button !== 0) return;
-    event.preventDefault(); (event.target as HTMLElement).setPointerCapture(event.pointerId);
-    this.snapshot(); const r = rectOf(el, root), side = this.adapter.state().views[key]?.side ?? el.dataset.spatialSide as Side;
+    event.preventDefault(); (event.target as HTMLElement).setPointerCapture?.(event.pointerId);
+    this.snapshot(); const r = rectOf(el.hidden ? this.elements().get(this.adapter.state().center ?? "") ?? el : el, root), side = this.adapter.state().views[key]?.side ?? el.dataset.spatialSide as Side;
     this.gesture = { key, pointer: event.pointerId, startX: event.clientX, startY: event.clientY, lastY: event.clientY, start: r, side, kind, moved: false, neighbor: kind === "bottom" ? (event.currentTarget as HTMLElement).dataset.resizeNeighbor : undefined, initialViews: this.adapter.state().views, selections: this.selections() };
   }
   move(event: Pick<PointerEvent, "pointerId" | "clientX" | "clientY">) {
@@ -106,6 +108,20 @@ export class SpatialController {
     g.moved = true;
     if (g.kind !== "drag") { this.resize(g.key, event.clientY - g.lastY, g.kind); g.lastY = event.clientY; return; }
     const regions = workspaceRegions(root.clientWidth, root.clientHeight, this.adapter.state()), base = root.getBoundingClientRect();
+    const x = event.clientX - base.left, y = event.clientY - base.top;
+    const tiles = tileRects(this.adapter.state().tiles ?? PRIMARY, regions.center);
+    const hit = [...tiles].find(([, r]) => x >= r.x && x <= r.x + r.w && y >= r.y && y <= r.y + r.h);
+    // Visible overlay drawers remain side drop targets even over center geometry.
+    const overDrawer = this.adapter.state().drawers && (["left", "right"] as const).some(side => {
+      const r = regions[side]; return this.adapter.state().drawers!.visible[side] && x >= r.x && x <= r.x + r.w && y >= r.y && y <= r.y + r.h;
+    });
+    g.dock = undefined;
+    if (hit && !overDrawer) {
+      const [target, r] = hit, edge = dockHit(r, x, y);
+      g.dock = { target, edge };
+      g.preview = edge === "center" ? r : tileRects({ axis: edge === "left" || edge === "right" ? "row" : "column", first: "first", second: "second" }, r).get(edge === "left" || edge === "top" ? "first" : "second");
+      this.hold = null; this.paint(); return;
+    }
     g.side = event.clientX - base.left < regions.center.x + regions.center.w / 2 ? "left" : "right";
     if (this.adapter.state().sides?.[g.side] === false) g.side = g.side === "left" ? "right" : "left";
     const lane = regions[g.side], occupied = Object.entries(this.adapter.state().views).filter(([key, view]) => key !== g.key && view.pin).map(([, view]) => view.pin!);
@@ -117,8 +133,12 @@ export class SpatialController {
     const g = this.gesture; if (!g) return; this.gesture = null;
     if (cancel && g.kind !== "drag" && g.moved) this.adapter.update(state => ({ ...state, views: g.initialViews }));
     if (g.kind === "drag" && g.moved && g.preview && !cancel) {
-      this.snapshot(); const r = g.preview;
-      this.adapter.update(state => ({ ...state, views: { ...state.views, [g.key]: { ...state.views[g.key], side: g.side, pin: r } } }));
+      if (g.dock && this.adapter.dock) this.adapter.dock(g.key, g.dock.target, g.dock.edge);
+      else {
+        this.snapshot(); const r = g.preview;
+        this.adapter.update(state => ({ ...state, views: { ...state.views, [g.key]: { ...state.views[g.key], side: g.side, pin: r } } }));
+        this.adapter.dock?.(g.key, g.side, "center");
+      }
     }
     if (g.moved) { this.suppressClick = true; window.setTimeout(() => { this.suppressClick = false; }, 0); }
     if (g.moved) { this.restoreSelections(g.selections); requestAnimationFrame(() => this.restoreSelections(g.selections)); }
@@ -147,7 +167,7 @@ export class SpatialController {
   }
   paint() {
     const root = this.adapter.root(); if (!root || !root.clientWidth || !root.clientHeight) return;
-    const state = this.adapter.state(), items = this.adapter.items().filter(item => item.key === state.center || (state.sides?.[state.views[item.key]?.side ?? item.side] !== false && (!state.drawers || state.drawers.keys.includes(item.key)))), elements = this.elements(), regions = workspaceRegions(root.clientWidth, root.clientHeight, state), base = root.getBoundingClientRect(), center = elements.get(state.center ?? "");
+    const state = this.adapter.state(), central = tileRects(state.tiles ?? PRIMARY, workspaceRegions(root.clientWidth, root.clientHeight, state).center), tiled = new Set([...central.keys()].map(key => key === PRIMARY ? state.center : key)), items = this.adapter.items().filter(item => tiled.has(item.key) || (state.sides?.[state.views[item.key]?.side ?? item.side] !== false && (!state.drawers || state.drawers.keys.includes(item.key)))), elements = this.elements(), regions = workspaceRegions(root.clientWidth, root.clientHeight, state), base = root.getBoundingClientRect(), center = elements.get(state.center ?? "");
     const visible = new Set(items.map(item => item.key));
     for (const [key, element] of elements) if (!visible.has(key)) element.hidden = true;
     for (const [key, route] of this.routes) if (!elements.has(key) || !visible.has(key)) { route.animation.cancel(); this.routes.delete(key); const el = elements.get(key); if (el) { el.classList.remove("spatial-view--crossing"); el.style.visibility = ""; } }
@@ -156,14 +176,23 @@ export class SpatialController {
     if (this.size !== size) {
       this.size = size; this.hold = null; this.released.clear(); this.stopRoutes();
       const occupied: Rect[] = [], views = { ...state.views }; let changed = false;
-      for (const item of items) { const view = views[item.key]; if (!view?.pin || item.key === state.center) continue; const lane = regions[view.side], p = view.pin;
+      for (const item of items) { const view = views[item.key]; if (!view?.pin || tiled.has(item.key)) continue; const lane = regions[view.side], p = view.pin;
         const r = clearSpatialSlot({ x: lane.x, y: Math.max(lane.y, Math.min(lane.y + lane.h - p.h, p.y)), w: lane.w, h: Math.min(p.h, lane.h) }, occupied, lane.y, lane.y + lane.h)
           ?? clearSpatialSlot({ x: lane.x, y: lane.y + lane.h, w: lane.w, h: 36 }, occupied, lane.y + lane.h, 5000);
         if (r) { occupied.push(r); if (r.x !== p.x || r.y !== p.y || r.w !== p.w || r.h !== p.h) { views[item.key] = { ...view, pin: r }; changed = true; } }
       }
       if (changed) { this.adapter.update(current => ({ ...current, views })); this.schedule(); return; }
     }
-    if (center) { center.hidden = false; center.dataset.spatialCenter = "true"; center.dataset.expanded = "true"; setRect(center, regions.center); const view = editorOf(center); if (view) showSpatialExcerpt(view, null); }
+    for (const [slot, rect] of central) {
+      const key = slot === PRIMARY ? state.center : slot, element = key && elements.get(key);
+      if (!element) continue;
+      element.hidden = false; element.dataset.expanded = "true"; setRect(element, rect);
+      element.classList.remove("spatial-view--tentative", "spatial-view--pinned");
+      this.frames.set(key!, rect);
+      const view = editorOf(element); if (view) showSpatialExcerpt(view, null);
+    }
+    const preview = root.querySelector<HTMLElement>("[data-spatial-drop-preview]");
+    if (preview) { preview.hidden = !this.gesture?.dock; if (this.gesture?.dock && this.gesture.preview) { setRect(preview, this.gesture.preview); preview.textContent = this.gesture.dock.edge === "center" ? "Move here" : "Split " + this.gesture.dock.edge; } }
     for (const side of ["left", "right"] as const) { const rail = root.querySelector<HTMLElement>(`[data-spatial-files=${side}]`); if (rail) { rail.hidden = state.sides?.[side] === false || state.drawers?.files[side] === false; setRect(rail, regions[`${side}Rail`]); } }
     if ("drawers" in regions) for (const side of ["left", "right"] as const) {
       const box = regions.drawers[side];
@@ -175,10 +204,10 @@ export class SpatialController {
     for (const side of ["left", "right"] as const) { const rule = root.querySelector<HTMLElement>(`[data-spatial-column=${side}]`); if (rule) { rule.hidden = state.sides?.[side] === false || (state.drawers ? !state.drawers.pinned[side] : regions.small); setRect(rule, { x: side === "left" ? regions.center.x - regions.gap / 2 - 4 : regions.center.x + regions.center.w + regions.gap / 2 - 4, y: regions.center.y, w: 8, h: regions.center.h }); rule.style.width = "8px"; } }
     const editor = this.centerEditor(), sourceBox = editor?.scrollDOM.getBoundingClientRect(), pivot = sourceBox ? (sourceBox.top + sourceBox.bottom) / 2 : base.top + regions.center.h / 2, scroll = this.scroll(), planned = new Map<string, { r: Rect; side: Side; from?: Rect }>(), occupied: Rect[] = [];
     if (this.hold?.scroll !== scroll) this.hold = null;
-    for (const item of items) { const p = state.views[item.key]; if (item.key === state.center || !p?.pin || this.gesture?.key === item.key && this.gesture.moved) continue; planned.set(item.key, { r: p.pin, side: p.side }); occupied.push(p.pin); }
+    for (const item of items) { const p = state.views[item.key]; if (tiled.has(item.key) || !p?.pin || this.gesture?.key === item.key && this.gesture.moved) continue; planned.set(item.key, { r: p.pin, side: p.side }); occupied.push(p.pin); }
     for (const [key, run] of this.routes) { occupied.push(run.from, run.target); planned.set(key, { r: run.target, side: run.side }); }
-    if (this.gesture?.preview) { planned.set(this.gesture.key, { r: this.gesture.preview, side: this.gesture.side }); occupied.push(this.gesture.preview); }
-    const flows = items.filter(item => item.key !== state.center && !planned.has(item.key)).map((item, index) => ({ item, index, relation: this.related(item, center, pivot) })).sort((a, b) => Math.abs((a.relation?.y ?? pivot + a.index * 60) - pivot) - Math.abs((b.relation?.y ?? pivot + b.index * 60) - pivot));
+    if (this.gesture?.preview && !this.gesture.dock) { planned.set(this.gesture.key, { r: this.gesture.preview, side: this.gesture.side }); occupied.push(this.gesture.preview); }
+    const flows = items.filter(item => !tiled.has(item.key) && !planned.has(item.key)).map((item, index) => ({ item, index, relation: this.related(item, center, pivot) })).sort((a, b) => Math.abs((a.relation?.y ?? pivot + a.index * 60) - pivot) - Math.abs((b.relation?.y ?? pivot + b.index * 60) - pivot));
     for (const { item, index, relation } of flows) {
       const el = elements.get(item.key); if (!el) continue;
       const rail = root.querySelector<HTMLElement>(`[data-spatial-files=${state.views[item.key]?.side ?? item.side}]`);

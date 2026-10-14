@@ -1,10 +1,11 @@
 import { emptyPane, panes, tab, withRail, type Layout, type Node, type Pane } from "./layout";
+import { readTiles, type Tile } from "./spatialTiles";
 import type { SpatialSides } from "../lib/spatialSides";
 import type { DrawerPresentation } from "./spatialDrawers";
 
 export type Side = "left" | "right";
 export interface Rect { x: number; y: number; w: number; h: number }
-export interface ViewPlacement { side: Side; pin?: Rect; expanded?: boolean; height?: number }
+export interface ViewPlacement { side: Side; pin?: Rect; expanded?: boolean; revealed?: boolean; height?: number }
 export interface SpatialState {
   /** Runtime content and visibility; never stored in the folder layout. */
   drawers?: DrawerPresentation;
@@ -12,6 +13,7 @@ export interface SpatialState {
   /** Global appearance preferences; supplied by the shell, not folder storage. */
   sides?: SpatialSides;
   center: string | null;
+  tiles?: Tile;
   stack: string[];
   views: Record<string, ViewPlacement>;
   auto: boolean;
@@ -102,12 +104,13 @@ export function readSpatialState(raw: string | null): SpatialState {
     if (typeof value.center === "string") state.center = value.center;
     if (Array.isArray(value.stack)) state.stack = value.stack.filter((key: unknown): key is string => typeof key === "string").slice(-24);
     state.auto = value.auto === true;
+    state.tiles = readTiles(value.tiles);
     if (value.drawerPins) state.drawerPins = { left: value.drawerPins.left === true, right: value.drawerPins.right === true };
     if (Array.isArray(value.columns) && value.columns.length === 2 && value.columns.every((n: unknown) => typeof n === "number" && Number.isFinite(n) && n >= .16 && n <= .36)) state.columns = value.columns;
     for (const [key, rawView] of Object.entries(value.views ?? {})) {
       const view = rawView as ViewPlacement;
       if (view.side !== "left" && view.side !== "right") continue;
-      state.views[key] = { side: view.side, expanded: view.expanded === true };
+      state.views[key] = { side: view.side, expanded: view.expanded === true, revealed: view.revealed === true };
       if (typeof view.height === "number" && Number.isFinite(view.height)) state.views[key].height = Math.max(HEADER_HEIGHT, Math.min(4000, view.height));
       if (view.pin && [view.pin.x, view.pin.y, view.pin.w, view.pin.h].every(n => typeof n === "number" && Number.isFinite(n)) && view.pin.w > 0 && view.pin.h >= HEADER_HEIGHT) state.views[key].pin = view.pin;
     }
