@@ -26,6 +26,24 @@ afterEach(cleanup);
 const execBlocks = CLI_BLOCKS.filter((b): b is ExecBlock => b.kind === "exec");
 
 describe("DocumentEditor (WYSIWYG over raw source)", () => {
+  // Guarantee: docs/guarantees/authoring/the-editor-keeps-its-space.md
+  it("offers Save on an unnamed cell's Run rail without changing source bytes", async () => {
+    const source = '<hick:container name="shell" image="alpine:3.20" />\n<hick:exec container="shell">echo hello</hick:exec>\n';
+    const onRun = vi.fn(), save = vi.fn();
+    const listener = (event: Event) => save((event as CustomEvent).detail);
+    window.addEventListener("hickory-menu", listener);
+    const realtime = new LocalRealtime();
+    try {
+      const rendered = render(<DocumentEditor docId="untitled" initialSource={source} realtime={realtime} execBlocks={[]} runningCells={new Set()} onRunCell={onRun} />);
+      const button = await screen.findByRole("button", { name: /save this document to enable running/ });
+      act(() => button.click());
+      expect(save).toHaveBeenCalledWith("save");
+      expect(onRun).not.toHaveBeenCalled();
+      const view = (window as unknown as { __hickoryView: EditorViewType }).__hickoryView;
+      expect(view.state.doc.toString()).toBe(source);
+      rendered.unmount();
+    } finally { realtime.close(); window.removeEventListener("hickory-menu", listener); }
+  });
   // Guarantee: docs/guarantees/authoring/paragraphs-unwrap-by-default.md
   it("reflows synced prose through the live room and reports the source edit, with Undo and opt-out", async () => {
     const source = "A wrapped paragraph\ncontinues here.\n";

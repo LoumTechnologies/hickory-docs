@@ -1,5 +1,24 @@
 use hick_lang::ProjectTree;
 use std::{collections::BTreeMap, path::Path};
+// Guarantee: docs/guarantees/debugging/a-frame-stays-in-document-coordinates.md
+#[cfg(unix)]
+#[test]
+fn adapter_paths_through_a_symlink_keep_the_document_coordinates() {
+    let dir = tempfile::tempdir().unwrap();
+    let actual = dir.path().join("actual");
+    std::fs::create_dir(&actual).unwrap();
+    let alias = dir.path().join("alias");
+    std::os::unix::fs::symlink(&actual, &alias).unwrap();
+    let source = "# Explanation\n\n<hick:file path=\"program.py\">\nprint('hello')\n</hick:file>\n";
+    let mapping = hick_dap::Mapping::for_document(Path::new("note.md"), source, &actual).unwrap();
+    hick_dap::weave_into(source, &actual).unwrap();
+    let path = alias.join("program.py");
+    assert_eq!(mapping.to_document(&path, 0), Some(3));
+    assert_eq!(
+        mapping.source_location(&path, 0),
+        Some((Path::new("note.md").to_path_buf(), 3))
+    );
+}
 // Guarantee: docs/guarantees/literate-projects/tools-select-complete-isolated-endpoints.md
 #[test]
 fn dap_line_breakpoints_ignore_diff_prefix_columns_and_refuse_deleted_lines() {

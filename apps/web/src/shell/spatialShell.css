@@ -3,6 +3,15 @@
 .spatial-shell .spatial-files { border: 0; z-index: 1; }
 .spatial-files-title { height: 36px; min-height: 36px; padding: 8px; color: var(--fg-muted); font-size: 12px; border: 0; background: var(--bg); text-align: left; }
 .spatial-shell .spatial-view { z-index: 2; }
+.spatial-drawer-handle { position: absolute; top: 42px; z-index: 13; writing-mode: vertical-rl; border: 1px solid var(--border); border-radius: 0 5px 5px 0; padding: 8px 5px; background: var(--bg-raised); color: var(--fg-muted); cursor: pointer; }
+.spatial-drawer-handle[data-drawer-handle=left] { left: 0; }
+.spatial-drawer-handle[data-drawer-handle=right] { right: 0; border-radius: 5px 0 0 5px; }
+.spatial-drawer-backdrop { position: absolute; z-index: 7; background: var(--bg); border: 1px solid var(--border); box-shadow: var(--shadow); pointer-events: none; }
+.spatial-drawer-toolbar { position: absolute; z-index: 12; display: flex; align-items: center; gap: 6px; padding: 0 8px; box-sizing: border-box; background: var(--bg-raised); border-bottom: 1px solid var(--border); font-size: 12px; }
+.spatial-drawer-toolbar strong { flex: 1; }
+.spatial-drawer-toolbar button { border: 0; background: transparent; color: var(--fg-muted); cursor: pointer; }
+.spatial-shell .spatial-view[data-drawer-side], .spatial-shell .spatial-files[data-drawer-side] { z-index: 9; }
+.spatial-shell .spatial-header-extension[data-drawer-side], .spatial-shell .spatial-resize-rule[data-drawer-side] { z-index: 11; }
 .spatial-view-header { height: 35px; min-height: 35px; display: flex; align-items: center; background: var(--bg); border-bottom: 1px solid var(--border); cursor: grab; overflow: hidden; }
 .spatial-filename { flex: 1; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; text-align: left; background: none; border: 0; color: var(--fg); font: inherit; font-size: 12px; padding: 6px 8px; cursor: pointer; }
 .spatial-center-tabs { position: relative; display: flex; flex: 1; min-width: 0; height: 100%; overflow-x: auto; scrollbar-width: thin; }

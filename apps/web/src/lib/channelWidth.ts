@@ -6,6 +6,7 @@
 // Mirrors lib/ribbonStyle.ts.
 
 export const CHANNEL_WIDTH_KEY = "hickory.channelWidth";
+export const CHANNEL_WIDTH_CHANGED = "hickory-channel-width-changed";
 
 /** Default channel width, px. Wide enough for braces AND their links. */
 export const CHANNEL_WIDTH_DEFAULT = 48;
@@ -45,4 +46,5 @@ export function saveChannelWidth(
   storage: Pick<Storage, "setItem"> | null = typeof localStorage === "undefined" ? null : localStorage,
 ): void {
   storage?.setItem(CHANNEL_WIDTH_KEY, String(clampChannelWidth(width)));
+  if (typeof window !== "undefined") window.dispatchEvent(new Event(CHANNEL_WIDTH_CHANGED));
 }

@@ -12,8 +12,7 @@ import { CommandPathSettings } from "./CommandPathSettings";
 // toolbar: lineage style and visibility, tab placement, channel width (localStorage, per
 // browser — lib/ribbonStyle.ts and friends) and the custom window title
 // (persisted server-side as ui.json so the desktop shell can read it at
-// launch). The workspace re-reads all of them when it remounts, which
-// navigating back from this page always causes.
+// launch). Settings leaves open editor buffers mounted while it is shown.
 
 import { useEffect, useState } from "react";
 
@@ -306,9 +305,10 @@ function AppearanceSection() {
           }))}
         />
         {(["left", "right"] as const).map(side => <div key={side} className="settings-row settings-row--appearance">
-          <div className="settings-row__who"><label className="settings-row__label" htmlFor={`spatial-${side}`}>{side === "left" ? "Left" : "Right"} context panes and vertical tabs</label></div>
+          <div className="settings-row__who"><label className="settings-row__label" htmlFor={`spatial-${side}`}>{side === "left" ? "Left" : "Right"} drawer</label></div>
           <div className="settings-row__actions"><input id={`spatial-${side}`} type="checkbox" checked={spatialSides[side]} onChange={event => saveSpatialSides({ ...spatialSides, [side]: event.target.checked })} /></div>
         </div>)}
+        <p className="muted">Drawers appear only when they have content and start collapsed. Opening overlays the editor; pinning makes space beside it.</p>
         <form
           className="settings-row"
           onSubmit={(event) => {
@@ -529,14 +529,16 @@ function EditingSection() {
   );
 }
 
-export function SettingsView() {
+export function SettingsView({ onBack = () => navigate("/") }: { onBack?: () => void } = {}) {
   const [providers, setProviders] = useState<ProviderKey[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [saved, setSaved] = useState<string | null>(null);
 
   useEffect(() => {
+    const previousTitle = document.title;
     document.title = "Settings — Hickory Docs";
+    return () => { document.title = previousTitle; };
   }, []);
 
   const reload = () =>
@@ -572,12 +574,12 @@ export function SettingsView() {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape" && !e.defaultPrevented) {
         e.preventDefault();
-        navigate("/");
+        onBack();
       }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, []);
+  }, [onBack]);
 
   const configured = (providers ?? []).filter((p) => p.configured);
 
@@ -588,7 +590,7 @@ export function SettingsView() {
           <h1 className="start__title">Settings</h1>
           <button
             className="btn"
-            onClick={() => navigate("/")}
+            onClick={onBack}
             data-tip="Back to the document (Escape)"
           >
             ← Back

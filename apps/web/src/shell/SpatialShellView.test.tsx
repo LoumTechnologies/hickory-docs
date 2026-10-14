@@ -8,18 +8,19 @@ import { emptyPane, open, tab, type Layout, type Tab } from "./layout";
 import { SpatialShellView } from "./SpatialShellView";
 import { saveSpatialSides } from "../lib/spatialSides";
 import { revealLine } from "../lib/revealLine";
+import { publishReading, forgetReading, openReading } from "../lib/readingViews";
 
 // Guarantee: docs/guarantees/shell/spatial-views-preserve-the-editor.md
-afterEach(() => { cleanup(); localStorage.clear(); });
+afterEach(() => { cleanup(); localStorage.clear(); forgetReading("proposal"); });
 const live = new Map<string, EditorView>();
 function Buffer({ entry }: { entry: Tab }) {
   const parent = useRef<HTMLDivElement>(null);
   useEffect(() => { const view = new EditorView({ parent: parent.current!, state: EditorState.create({ doc: `${entry.target}\nsecond line`, extensions: [lineNumbers(), history()] }) }); live.set(entry.target, view); return () => { view.destroy(); live.delete(entry.target); }; }, [entry.id]);
   return <div ref={parent} />;
 }
-function Harness({ mixed = false }: { mixed?: boolean }) {
+function Harness({ mixed = false, related = false, files = false }: { mixed?: boolean; related?: boolean; files?: boolean }) {
   const [layout, setLayout] = useState<Layout>(() => { const pane = emptyPane(); return { root: { ...pane, tabs: [tab("document", "main.md"), tab("document", "related.md"), ...(mixed ? [tab("file", "app.py"), tab("chat", "conversation", "Agent")] : []), tab("tree", "folder")], active: 0 }, focus: pane.id }; });
-  return <><button onClick={() => setLayout(current => open(current, tab("tool", "reading:proposal", "Review")))}>Open review</button><SpatialShellView layout={layout} onLayout={setLayout} sources={[]} files={[]} links={[]} render={entry => <Buffer entry={entry} />} /></>;
+  return <><button onClick={() => { publishReading("proposal", { title: "Review", path: "note.md", before: "old", after: "new", status: "pending" }); setLayout(current => open(current, tab("tool", "reading:proposal", "Review"))); }}>Open review</button><SpatialShellView layout={layout} onLayout={setLayout} sources={[]} files={[]} hasFiles={files} links={related ? [{ key: "related", title: "Related file", family: "declared", from: { path: "main.md", lines: [1, 1] }, to: { path: "related.md" } }] : []} render={entry => <Buffer entry={entry} />} /></>;
 }
 it("centers and restores the same editor instance with selection and undo state intact", async () => {
   const ui = render(<Harness />);
@@ -54,7 +55,7 @@ it("switches documents, files and agents through center tabs without remounting 
   expect(document.state.doc.toString()).toBe("main.md\nsecond line");
   fireEvent.click(ui.container.querySelector('[data-spatial-center=true] [aria-label="Close main.md"]')!);
   await waitFor(() => expect(tabs().queryByRole("tab", { name: "main.md" })).toBeNull());
-  expect(tabs().getByRole("tab", { name: "Agent" }).getAttribute("aria-selected")).toBe("true");
+  expect(tabs().getByRole("tab", { name: "related.md" }).getAttribute("aria-selected")).toBe("true");
 });
 
 it("supports arrow keys, Home and End in the center tab strip", async () => {
@@ -71,29 +72,58 @@ it("supports arrow keys, Home and End in the center tab strip", async () => {
   expect(tabs().getByRole("tab", { name: "main.md" }).getAttribute("aria-selected")).toBe("true");
 });
 
-it("hides right context by default, returns its space to the center and keeps toggled editors mounted", async () => {
+it("uses the full width and shows no drawer handles when only unrelated tabs are open", async () => {
   const ui = render(<Harness />);
   const shell = ui.container.querySelector<HTMLElement>(".spatial-shell")!;
   Object.defineProperties(shell, { clientWidth: { value: 1200 }, clientHeight: { value: 800 } });
-  const related = ui.container.querySelector<HTMLElement>('[data-spatial-key="document:related.md"]')!;
+  await waitFor(() => expect(ui.container.querySelector<HTMLElement>('[data-spatial-center=true]')!.style.width).toBe("1200px"));
+  expect(ui.queryByRole("button", { name: /Show .* drawer/ })).toBeNull();
+  expect(ui.container.querySelector<HTMLElement>('[data-spatial-files=left]')!.hidden).toBe(true);
+  expect(ui.container.querySelector<HTMLElement>('[data-spatial-key="document:related.md"]')!.hidden).toBe(true);
+});
+
+it("opens related content as an overlay, reserves space only when pinned, and keeps drafts and selection", async () => {
+  const ui = render(<Harness related />);
+  const shell = ui.container.querySelector<HTMLElement>(".spatial-shell")!;
+  Object.defineProperties(shell, { clientWidth: { value: 1200 }, clientHeight: { value: 800 } });
   const center = ui.container.querySelector<HTMLElement>('[data-spatial-center=true]')!;
+  const related = ui.container.querySelector<HTMLElement>('[data-spatial-key="document:related.md"]')!;
+  const original = live.get("related.md")!;
   expect(related.hidden).toBe(true);
-  expect(ui.container.querySelector<HTMLElement>('[data-spatial-files=right]')!.hidden).toBe(true);
-  expect(ui.container.querySelector<HTMLElement>('[data-spatial-files=left]')!.hidden).toBe(false);
-  const editor = live.get("related.md")!;
-  act(() => editor.dispatch({ changes: { from: 0, insert: "keep me " } }));
-  await waitFor(() => expect(parseFloat(center.style.width)).toBeGreaterThan(0));
-  const defaultWidth = parseFloat(center.style.width);
-  act(() => saveSpatialSides({ left: true, right: true }));
+  fireEvent.click(ui.getByRole("button", { name: "Show left drawer" }));
   await waitFor(() => expect(related.hidden).toBe(false));
-  await waitFor(() => expect(parseFloat(center.style.width)).toBeLessThan(defaultWidth));
-  act(() => saveSpatialSides({ left: false, right: false }));
+  await waitFor(() => expect(center.style.width).toBe("1200px"));
+  act(() => original.dispatch({ changes: { from: 0, insert: "draft " }, selection: { anchor: 3 } }));
+  fireEvent.click(ui.getByRole("button", { name: "Pin left drawer" }));
+  await waitFor(() => expect(parseFloat(center.style.width)).toBeLessThan(1200));
+  fireEvent.click(ui.getByRole("button", { name: "Unpin left drawer" }));
+  await waitFor(() => expect(center.style.width).toBe("1200px"));
+  fireEvent.keyDown(shell, { key: "Escape" });
   await waitFor(() => expect(related.hidden).toBe(true));
-  await waitFor(() => expect(parseFloat(center.style.width)).toBe(1200));
-  expect(center.hidden).toBe(false); expect(live.get("related.md")).toBe(editor);
-  fireEvent.click(within(ui.getByRole("tablist", { name: "Center views" })).getByRole("tab", { name: "related.md" }));
-  expect(related.hidden).toBe(false); expect(related.dataset.spatialCenter).toBe("true");
-  expect(editor.state.doc.toString()).toContain("keep me ");
+  expect(live.get("related.md")).toBe(original); expect(original.state.doc.toString()).toContain("draft "); expect(original.state.selection.main.anchor).toBe(3);
+  fireEvent.click(ui.getByRole("button", { name: "Show left drawer" }));
+  fireEvent.pointerDown(center);
+  await waitFor(() => expect(related.hidden).toBe(true));
+  ui.rerender(<Harness />);
+  expect(ui.queryByRole("button", { name: /Show .* drawer/ })).toBeNull();
+});
+
+it("keeps Files collapsed, restores drawer pins, and respects the independent side settings", async () => {
+  const ui = render(<Harness files />);
+  expect(ui.container.querySelector<HTMLElement>('[data-spatial-files=left]')!.hidden).toBe(true);
+  expect(ui.queryByRole("button", { name: "Show right drawer" })).toBeNull();
+  fireEvent.click(ui.getByRole("button", { name: "Show left drawer" }));
+  fireEvent.click(ui.getByRole("button", { name: "Pin left drawer" }));
+  expect(ui.container.querySelector<HTMLElement>('[data-spatial-files=left]')!.hidden).toBe(false);
+  const editor = live.get("folder")!;
+  act(() => saveSpatialSides({ left: false, right: true }));
+  expect(ui.container.querySelector<HTMLElement>('[data-spatial-files=left]')!.hidden).toBe(true);
+  expect(ui.getByRole("button", { name: "Show right drawer" })).toBeTruthy();
+  act(() => saveSpatialSides({ left: true, right: false }));
+  expect(live.get("folder")).toBe(editor);
+  ui.unmount();
+  const restored = render(<Harness files />);
+  expect(restored.getByRole("button", { name: "Unpin left drawer" })).toBeTruthy();
 });
 
 it("centers a revealed file when its context side is hidden", async () => {
@@ -102,9 +132,24 @@ it("centers a revealed file when its context side is hidden", async () => {
   await waitFor(() => expect(ui.container.querySelector('[data-spatial-key="document:related.md"]')?.getAttribute("data-spatial-center")).toBe("true"));
 });
 
-it("expands a newly opened change review instead of leaving its approval controls collapsed", async () => {
+it("announces a pending review in a collapsed drawer without moving the editor", async () => {
   saveSpatialSides({ left: true, right: true });
   const ui = render(<Harness />);
   fireEvent.click(ui.getByRole("button", { name: "Open review" }));
-  await waitFor(() => expect(ui.container.querySelector('[data-spatial-key="tool:reading:proposal"]')?.getAttribute("data-expanded")).toBe("true"));
+  const show = ui.getByRole("button", { name: /Show .* drawer/ });
+  const review = ui.container.querySelector<HTMLElement>('[data-spatial-key="tool:reading:proposal"]')!;
+  expect(review.hidden).toBe(true);
+  fireEvent.click(show);
+  expect(review.hidden).toBe(false);
+  act(() => publishReading("proposal", { title: "Review", path: "note.md", before: "old", after: "new", status: "applied" }));
+  expect(review.hidden).toBe(true);
+  expect(ui.queryByRole("button", { name: /Show .* drawer/ })).toBeNull();
+});
+
+it("centers an explicitly requested review while background proposals remain collapsed", async () => {
+  const ui = render(<Harness />);
+  fireEvent.click(ui.getByRole("button", { name: "Open review" }));
+  expect(ui.container.querySelector('[data-spatial-key="tool:reading:proposal"]')?.getAttribute("data-spatial-center")).toBe("false");
+  act(() => openReading("proposal", "Review"));
+  expect(ui.container.querySelector('[data-spatial-key="tool:reading:proposal"]')?.getAttribute("data-spatial-center")).toBe("true");
 });

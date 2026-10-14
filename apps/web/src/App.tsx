@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { navigate, useRoute, newDocument } from "./router";
 import { LineageView } from "./views/LineageView";
 import { SettingsView } from "./views/SettingsView";
-import { WorkspaceView } from "./views/WorkspaceView";
+import { WorkspaceView, type WorkspaceRoute } from "./views/WorkspaceView";
 import { api } from "./api/client";
 import { insertTarget, onMenuAction } from "./lib/menuBridge";
 import { TooltipLayer } from "./components/TooltipLayer";
@@ -11,6 +11,7 @@ import { showTerminalRequest } from "./lib/revealLine";
 import type { ScaffoldStarted } from "./api/types";
 import { FILES_CHANGED_EVENT } from "./shell/FolderTreePane";
 import { BlankWelcome } from "./views/BlankWelcome";
+import { SETTINGS_CLOSED } from "./lib/workspaceVisibility";
 
 /** How often the app asks whether a scaffold has landed, and for how long.
  * The person is watching the terminal; this is only so the tree and the
@@ -30,6 +31,16 @@ export function App() {
   const route = requestedRoute.name === "landing"
     ? { name: "new" as const, introduction: true }
     : requestedRoute;
+  const inWorkspace = route.name === "doc" || route.name === "new" || route.name === "scratchpad";
+  const workspace = useRef<{ route: WorkspaceRoute; hash: string } | null>(null);
+  const pendingWorkspaceClose = useRef(false);
+  if (inWorkspace) workspace.current = { route: route as WorkspaceRoute, hash: location.hash || "#/" };
+  if (route.name === "blank") workspace.current = null;
+  useEffect(() => {
+    if (!inWorkspace || !pendingWorkspaceClose.current) return;
+    pendingWorkspaceClose.current = false;
+    window.dispatchEvent(new Event("hickory-workspace-close-request"));
+  }, [inWorkspace]);
 
   // The desktop shell's native menu, arriving as DOM events (menuBridge).
   // Navigation is answered here; Save / Save As need the focused document,
@@ -179,6 +190,11 @@ export function App() {
   useEffect(() => {
     const onClose = () => {
       const current = routeRef.current;
+      if (workspace.current && current.name !== "doc" && current.name !== "new" && current.name !== "scratchpad") {
+        pendingWorkspaceClose.current = true;
+        navigate(workspace.current.hash.replace(/^#/, ""));
+        return;
+      }
       if (current.name === "doc" || current.name === "new" || current.name === "scratchpad") {
         window.dispatchEvent(new Event("hickory-workspace-close-request"));
       } else {
@@ -197,18 +213,13 @@ export function App() {
   return (
     <div className="app">
       <main className="content">
-        {route.name === "doc" ||
-        route.name === "new" ||
-        route.name === "scratchpad" ? (
-          // ONE workspace for every document-shaped route. It owns the tile
-          // layout and stays mounted as `#/docs/<id>` changes, which is what
-          // lets several documents be open at once: navigation asks it to
-          // ensure a tab, never to rebuild the world.
-          <WorkspaceView route={route} />
-        ) : route.name === "lineage" ? (
+        {workspace.current && <div data-workspace hidden={!inWorkspace} style={{ display: inWorkspace ? "contents" : "none" }}>
+          <WorkspaceView route={workspace.current.route} />
+        </div>}
+        {inWorkspace ? null : route.name === "lineage" ? (
           <LineageView projectId={route.id} />
         ) : route.name === "settings" ? (
-          <SettingsView />
+          <SettingsView onBack={() => { navigate(workspace.current?.hash.replace(/^#/, "") ?? "/"); window.dispatchEvent(new Event(SETTINGS_CLOSED)); }} />
         ) : route.name === "blank" ? (
           <BlankWelcome />
         ) : (

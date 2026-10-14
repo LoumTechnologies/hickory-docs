@@ -91,11 +91,10 @@ describe("the settings view", () => {
     expect(screen.getByRole("button", { name: "Comfortable" }).getAttribute("aria-pressed")).toBe("true");
     expect((screen.getByRole("checkbox", { name: "Right-hand line numbers" }) as HTMLInputElement).checked).toBe(false);
   });
-
   it("defaults left context on and right context off, and remembers independent changes", () => {
     const ui = render(<SettingsView />);
-    const left = () => screen.getByRole("checkbox", { name: "Left context panes and vertical tabs" }) as HTMLInputElement;
-    const right = () => screen.getByRole("checkbox", { name: "Right context panes and vertical tabs" }) as HTMLInputElement;
+    const left = () => screen.getByRole("checkbox", { name: "Left drawer" }) as HTMLInputElement;
+    const right = () => screen.getByRole("checkbox", { name: "Right drawer" }) as HTMLInputElement;
     expect(left().checked).toBe(true); expect(right().checked).toBe(false);
     fireEvent.click(right()); expect(loadSpatialSides()).toEqual({ left: true, right: true });
     fireEvent.click(left()); expect(loadSpatialSides()).toEqual({ left: false, right: true });

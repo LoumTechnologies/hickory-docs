@@ -22,6 +22,11 @@ Retrying reuses the Python environment left by a previous failed install.
 If installation fails, the app receives the installer's stdout and stderr
 along with the exit status and a suggestion to retry.
 
+The shared install prefix is shell-quoted. Spaces, quotes and shell punctuation
+in a project's path remain path bytes, including when an installer appends a
+subdirectory such as `python/bin/python`. This applies equally to language-server
+and archive installers.
+
 The offer is cleared the moment a session starts. It belongs to the failure it
 came from, and an install that worked must not leave "No Python debugger on
 this machine" standing beside "finished — exit code 0".
@@ -87,3 +92,10 @@ Last LLM verification:
   protocol for that wait would cost more than it returns — but a very slow
   connection gets "Installing…" and nothing else. There is also no offer for
   a missing **language server**, which is the same gesture and is not wired.
+
+Verification update (2026-10-13): an installed-app drive reproduced `uv` rejecting
+the second word of a project folder containing spaces. `tool_install.rs` now
+substitutes a shell-quoted prefix. The offline confined regression
+`an_install_prefix_is_one_shell_word_even_with_spaces_and_punctuation` writes and
+reads a receipt through a prefix containing spaces, an apostrophe, `$()` and a
+semicolon. All seven installer tests and the confined-home test passed.

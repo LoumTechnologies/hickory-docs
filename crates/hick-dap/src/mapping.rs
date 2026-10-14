@@ -115,7 +115,7 @@ impl Mapping {
                 .filter(|(p, _)| p == &self.document)
                 .map(|(_, line)| line);
         }
-        let map = self.files.get(path)?;
+        let map = self.file_map(path)?;
         map.to_source(line, 0).map(|(l, _)| l)
     }
 
@@ -130,7 +130,7 @@ impl Mapping {
             self.files.get(&full)?.to_source(line, 0)?;
             return Some((PathBuf::from(format!("hick-project:///{id}/{name}")), line));
         }
-        let map = self.files.get(path)?;
+        let map = self.file_map(path)?;
         let (document, line, _) = map.source_document(line, 0)?;
         Some((
             document
@@ -162,6 +162,14 @@ impl Mapping {
 
     pub fn document(&self) -> &Path {
         &self.document
+    }
+
+    fn file_map(&self, path: &Path) -> Option<&hick_lsp::position_map::PositionMap> {
+        self.files.get(path).or_else(|| {
+            path.canonicalize()
+                .ok()
+                .and_then(|canonical| self.files.get(&canonical))
+        })
     }
 
     /// Every generated file this document produces, for the launch config.

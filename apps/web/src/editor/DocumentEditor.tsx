@@ -11,6 +11,7 @@ import {
 } from "@codemirror/commands";
 import { search, searchKeymap } from "@codemirror/search";
 import { wordMotionBindings } from "./wordMotion";
+import { requestMenuAction } from "../lib/menuBridge";
 import { unwrapParagraphs } from "./unwrapParagraphs";
 import * as Y from "yjs";
 import { Awareness } from "y-protocols/awareness";
@@ -917,10 +918,10 @@ export function DocumentEditor({
               toggleReplayAt(card.at);
               return;
             }
-            // Run. A cell the server has not rendered yet has no id to run,
-            // and the icon says so rather than doing nothing silently.
+            // A new cell needs a saved document before it has a runnable id.
             const block = blockOf(card);
             if (block) onRunCell(block.id);
+            else requestMenuAction("save");
           }}
         />
         {open && (

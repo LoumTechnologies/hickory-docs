@@ -26,6 +26,7 @@ test("configure the Python agent, review its edit, recover the conversation and 
   await agent.getByRole("button", { name: "Send", exact: true }).click();
   const turnsPath = `${new URL((await sent).url()).pathname}/turns`;
   const review = page.getByRole("region", { name: "Document change review" });
+  await page.getByRole("button", { name: "Show left drawer" }).click();
   await expect(review).toBeVisible();
   await expect(review.locator(".comparison-added")).toContainText("Python agent proposal");
   expect((await (await page.request.get(`/api/docs/${note.id}`)).json()).source).toBe("# Original human input\n");
@@ -51,6 +52,7 @@ test("configure the Python agent, review its edit, recover the conversation and 
   await agent.getByRole("button", { name: "Send", exact: true }).click();
   await response.click(); await response.press("ControlOrMeta+End"); await response.pressSequentially("Cancel this Python proposal");
   await agent.getByRole("button", { name: "Send", exact: true }).click();
+  await page.getByRole("button", { name: "Show left drawer" }).click();
   await expect(review.locator(".comparison-added").filter({ hasText: "This needs approval" })).toBeVisible();
   await page.getByRole("tablist", { name: "Center views" }).getByRole("tab", { name: "Agent", exact: true }).click();
   await agent.getByRole("button", { name: "Stop the agent" }).click();

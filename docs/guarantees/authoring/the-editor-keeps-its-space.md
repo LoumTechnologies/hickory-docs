@@ -13,6 +13,16 @@ search button, then a temporary palette appears. It occupies no layout space
 when dismissed. Escape restores the previous focus and editor selection;
 reopening immediately does not inherit a pending dismissal.
 
+The palette offers Run document and Test document for the focused document or
+its generated file, naming the owning document. It uses that session's existing
+actions and omits them while work is pending. Results from a previous query are
+not selectable while a new query resolves; keyboard selection scrolls into view
+and identifies its result for assistive technology.
+
+An unnamed cell's Run icon offers to save its document through the existing
+Save action. It does not claim to run an unknown cell or silently ignore the
+click. The starter note explains Save → Run → Test before introducing agents.
+
 Given appearance preferences, Compact is the default. It reduces document and
 workspace margins and line spacing without changing the font size. Comfortable
 restores generous reading spacing. Files rows use ordinary editor leading;

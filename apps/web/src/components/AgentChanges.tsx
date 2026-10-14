@@ -36,7 +36,7 @@ export function AgentChanges({ doc, state, running, apply, update }: {
         before: change.oldText, after: change.newText, status: change.status,
         editable: change.status === "pending", decide: (accepted, text) => latest.current(change, accepted, text) });
       if (change.status === "pending" && !opened.current.has(id)) {
-        opened.current.add(id); openReading(id, `${change.path ?? change.name} · review`);
+        opened.current.add(id); openReading(id, `${change.path ?? change.name} · review`, true);
       }
     });
   }, [doc, state?.edits?.changes]);

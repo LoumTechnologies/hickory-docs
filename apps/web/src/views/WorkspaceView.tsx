@@ -1,3 +1,4 @@
+import { documentCommands } from "./documentCommands";
 import { nodeForAbsolutePath } from "../lib/openPath";
 import { viewBuffers } from "../lib/viewBuffers";
 import { hasCommandInstaller } from "./CommandPathSettings";
@@ -48,8 +49,8 @@ import {
 } from "../lib/insertCatalog";
 import { structureOf } from "../editor/wysiwyg";
 import { useRibbonPresentation } from "../components/LineageSettings";
-import { loadTabStyle, type TabStyle } from "../lib/tabStyle";
-import { loadChannelWidth } from "../lib/channelWidth";
+import { useWorkspaceAppearance, useWorkspaceSettings } from "./useWorkspaceAppearance";
+import { workspaceIsVisible } from "../lib/workspaceVisibility";
 import { windowTitle } from "../lib/windowTitle";
 import { deriveRibbons } from "../lib/ribbons";
 import { flashTab } from "../lib/flashTab";
@@ -189,8 +190,7 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
   useEffect(() => onLensChange(() => setLensTick((n) => n + 1)), []);
   const layoutRef = useRef(layout);
   layoutRef.current = layout;
-  // Read through refs by the welcome page's actions and the top field's
-  // candidates, which are built before the callbacks they reach for exist.
+  // Refs let welcome and search actions reach callbacks declared later.
   const openTerminalRef = useRef<() => Promise<unknown> | void>(
     () => undefined,
   );
@@ -259,8 +259,7 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
       return next;
     });
   }, []);
-  const [tabStyle] = useState<TabStyle>(() => loadTabStyle());
-  const [channelWidth] = useState<number>(() => loadChannelWidth());
+  const { tabStyle, channelWidth } = useWorkspaceAppearance();
   const [shellBox, setShellBox] = useState<HTMLElement | null>(null);
   // The workspace's own prompt, for the things that belong to the WINDOW
   // rather than to a document — asking for a worktree's branch name, now that
@@ -320,6 +319,7 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
   // still answers "take me to the next one".
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
+      if (!workspaceIsVisible()) return;
       // The first stroke of any chord is swallowed here so it reaches no
       // editor as a stray Ctrl+K; the second completes the action.
       if (beginsChord(event)) {
@@ -524,7 +524,7 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
         ];
       }
       if (mode === "command") {
-        const all: CommandItem[] = [
+        const all: CommandItem[] = [...documentCommands(registry.get(focusedDocId(layoutRef.current))),
           ...welcomeActions.map((action) => ({
             id: action.id,
             label: action.label,
@@ -534,7 +534,7 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
           {
             id: "settings",
             label: "Settings",
-            detail: "Appearance, provider keys",
+            detail: "Appearance and agent settings",
             run: () => navigate("/settings"),
           },
           {
@@ -580,7 +580,7 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
         run: () => openHitRef.current(node.path, 1),
       }));
     },
-    [welcomeActions],
+    [welcomeActions, registry],
   );
   /**
    * Open a path and put the caret on a line.
@@ -694,8 +694,6 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
   folderRootsRef.current = folderRoots;
   // What the window calls itself: the custom override from Settings, else
   // the project folder's name, else the focused file (lib/windowTitle.ts).
-  // The override is fetched once per mount — Settings is a different route,
-  // so returning from it remounts this view and picks up a fresh value.
   const untitledFocused = (() => {
     const pane = panesOf(layout.root).find(
       (candidate) => candidate.id === layout.focus,
@@ -703,22 +701,7 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
     return pane?.tabs[pane.active]?.kind === "untitled";
   })();
   const [customTitle, setCustomTitle] = useState<string | null>(null);
-  useEffect(() => {
-    let live = true;
-    api.settingsUi().then(
-      (ui) => {
-        if (live) {
-          setCustomTitle(ui.window_title);
-          setRetainSavedDrafts(ui.retain_unsaved_saved_files === true);
-        }
-      },
-      // A server without the route (or unreachable) means no override.
-      () => {},
-    );
-    return () => {
-      live = false;
-    };
-  }, []);
+  useWorkspaceSettings(setCustomTitle, setRetainSavedDrafts);
   const focusedFileName = untitledFocused
     ? "Untitled"
     : (focused?.doc?.path.split("/").pop() ?? null);
@@ -1294,6 +1277,7 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
     // The tree pane's reopen affordances, now that there is no toolbar:
     // File > Show Files in the native menu, and the explorer key everywhere.
     const onKey = (e: KeyboardEvent) => {
+      if (!workspaceIsVisible()) return;
       if (!(e.metaKey || e.ctrlKey)) return;
       if (e.shiftKey && e.key.toLowerCase() === "e") {
         e.preventDefault();
@@ -1414,6 +1398,7 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
   // again is a no-op either way.
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
+      if (!workspaceIsVisible()) return;
       if (!(event.metaKey || event.ctrlKey) || !event.shiftKey) return;
       if (event.key !== "f" && event.key !== "F") return;
       if (event.defaultPrevented) return;
@@ -1720,7 +1705,7 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
             />
           ))}
           <ShellView
-            sources={ribbonSources} files={ribbonFiles} links={ribbonLinks} folderRoot={folderRoots[0]?.root_path ?? folderRoots[0]?.root}
+            sources={ribbonSources} files={ribbonFiles} links={ribbonLinks} folderRoot={folderRoots[0]?.root_path ?? folderRoots[0]?.root} hasFiles={!!folderOpen && folderRoots.some(root => root.tree.length > 0)}
             layout={layout}
             onLayout={setLayout}
             onSearch={() => setSearchOpen(true)}

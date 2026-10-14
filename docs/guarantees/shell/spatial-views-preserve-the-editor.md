@@ -1,12 +1,20 @@
 # Spatial Views Preserve The Editor
 
-Given an open folder, the workspace retains two independent Files buffers at
-its outer left and right edges, showing the left side by default. Appearance
-settings independently control each side's Files buffer, context panes and
-vertical tabs; left defaults on and right defaults off. Disabling a side gives
-its space to the center without closing or unmounting its buffers. Its open
-views remain available in the center tabs, and revealing a hidden-side view
-centers it. Each Files buffer remains the ordinary CodeMirror tree
+Given a workspace, Appearance settings independently enable the left and right
+drawers; left defaults on and right defaults off. An enabled drawer appears only
+when it has content: a populated Files browser, a relationship to the focused
+view, a pending review, or an explicitly pinned view. Unrelated open tabs alone
+do not create drawer content. Empty drawers have no handle and reserve no space.
+Populated drawers start collapsed and reserve no space. Opening overlays the
+editor below its tabs; pinning reserves space beside it. Overlay dismissal by
+Escape, close, or a click outside preserves editor buffers and selections.
+Drawer pins persist per folder; transient open state does not.
+
+The workspace retains two independently mounted Files buffers even when their
+drawers are absent or closed. File → Show Files can explicitly open an empty
+folder's browser. Opening a file from Files centers it and dismisses an unpinned
+drawer. Center tabs keep ordinary files, documents and conversations available
+independently of the drawers. Each Files buffer remains the ordinary CodeMirror tree
 buffer, including its caret, selections, folding, keyboard editing, Dry Run,
 Apply and filesystem operations. Header extensions reserve space through
 native block decorations; they never rewrite the filesystem projection to
@@ -19,16 +27,17 @@ with its buffer, selection, editor tools, native gutters and line addresses.
 The Agent pane uses the same placement mechanism as other views; its own
 session and permission controls remain its document's responsibility.
 
-Given a side view, pinning or unpinning preserves its exact current rectangle
-and the other visible view rectangles. A pin freezes presentation until the
+Given a side view, a view pin freezes its placement within the drawer and pins
+that drawer. The center's **Pin view in drawer** action moves the view beside a
+different open tab without cloning its editor. A pin freezes presentation until the
 person drags, resizes, minimizes or centers that view, or changes the available
-viewport or column widths. Pin state does not grant permission to edit bytes.
+viewport, drawer geometry or column widths. Pin state does not grant permission to edit bytes.
 Dragging previews a tentative rectangle and dropping commits that rectangle.
 Dragging or resizing an unpinned view pins it. Both resize edges are available;
 growth uses free space, then shifts the adjacent pin into available space,
 then reduces that neighbor only when the next pin or viewport blocks a shift.
 
-Given related content in the center, enabled side views follow its real provenance
+Given related content in the center, visible drawer views follow its real provenance
 anchors with parallax. In the central alignment band they use the source's
 vertical coordinate without a speed offset. A default side view is collapsed
 to its filename; explicit opening/reveal requests can expand it. Optional
@@ -46,8 +55,8 @@ Given pinned obstacles, placement reserves their rectangles. Once a moving
 view crosses an obstacle's edge, a permitted bypass animation runs to completion
 even if scrolling stops. Its source and destination slots remain reserved while
 it runs. When a clear bypass is unavailable or reduced motion is requested,
-placement uses the final clear slot directly. On narrow screens side views
-occupy a separate region below the center. The workspace itself does not add
+placement uses the final clear slot directly. Narrow overlays fit within the
+center; drawer pins keep a nonzero center width. The workspace itself does not add
 an outer scrollbar to its native editor scrollports.
 
 Given a folder collapsed in a Files buffer, unpinned descendant side views on
@@ -58,6 +67,22 @@ extended headers use paths relative to the open folder; unnamed and tool views
 use their ordinary titles.
 
 ---
+
+Drawer continuation (2026-10-12): `spatialDrawers.ts` derives contextual content
+and overlay/pinned geometry. Empty and collapsed drawers reserve no width.
+`SpatialShellView` retains all editors and differentiates background pending
+reviews from explicit requests to open a review. Pins from older layouts migrate
+to drawer pins. `just test-spatial` passed type checking and 41 tests. The native
+`just test-spatial-ui` recipe passed four browser flows covering overlay and
+pinned rectangles, Files drafts, reload, native editor/selection identity,
+drag/resize, Center/Restore and narrow layouts. This replaces the pre-drawer
+browser witnesses described in the historical review below. Production native
+WebView acceptance and arbitrary multi-obstacle animation remain unverified.
+The full frontend suite passed 218 files / 2,087 tests; the production build and
+the native Python-agent review/recovery/cancellation browser flow also passed.
+Final focused and native-drawer checks passed again after the keyboard-focus and
+accessibility adjustments. Browser screenshots of collapsed, overlay and pinned
+states were inspected; this is implementation review, not recorded user approval.
 
 Appearance continuation (2026-10-12): `lib/spatialSides.ts` stores independent
 left/right preferences with left-on/right-off defaults. The shell retains hidden
@@ -118,3 +143,11 @@ Last LLM verification:
   the repository's affected checks separately.
 - Human judgment: the user approved the prototype's direction before this
   integration; production-app visual acceptance has not yet been recorded.
+
+Verification update (2026-10-13): a search result opened from Agent now follows
+the focused tab's identity as well as its pane. Restore previous center also
+restores layout focus, so command actions target that view. The real-engine
+flow in `e2e/workflow-polish.spec.ts` reproduces search → centered note → Restore
+→ Agent and verifies that document Test is unavailable while Agent is focused.
+The existing spatial suite passed after the change (5 files / 42 tests including
+the Settings preferences). Editor mounts and source bytes remain unchanged.

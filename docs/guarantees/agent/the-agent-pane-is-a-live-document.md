@@ -8,6 +8,11 @@ paste, undo, and programmatic widget edits. Only the conversation owner can
 replace that prefix. A streaming update preserves the user's response draft,
 including its line breaks.
 
+On first opening a visible conversation editor, the caret starts at the editable
+response. The footer's Write a response action returns to the end of the draft
+without changing session bytes. Streaming updates do not repeatedly steal focus
+or reset the reader's selection.
+
 Both speakers are left-aligned. Enter inserts a line. Send sits inline after the
 editable draft and is disabled for an empty draft or while a turn starts/runs;
 it is a view widget and contributes no document bytes. While a turn runs,
@@ -62,3 +67,10 @@ The pane does not duplicate live ACP tool reports in HTML disclosures; their
 recorded context blocks appear in the conversation editor. Permission decisions
 remain explicit controls. The change-review strip links directly to the existing
 literate comparison editor without a disclosure that hides its navigation.
+
+Verification update (2026-10-13): `ConversationEditor.test.tsx` verifies initial
+draft focus and the return-to-response action without source changes.
+`e2e/workflow-polish.spec.ts` types into the actual editor immediately after
+opening Agent and appends to the draft after using Write a response. The rebuilt
+macOS app was also driven through the command palette and its AX state showed
+the conversation editor focused. Live provider quality is not claimed.

@@ -5,7 +5,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-libra
 import { afterEach, expect, it, vi } from "vitest";
 import { EditorView } from "@codemirror/view";
 import { undo } from "@codemirror/commands";
-import { ConversationEditor } from "./ConversationEditor";
+import { ConversationEditor, focusConversationResponse } from "./ConversationEditor";
 import { responseStart } from "../editor/protectedPrefix";
 import { installMockHandler } from "../api/client";
 import { lensSources } from "../lib/lensSources";
@@ -25,6 +25,21 @@ function Harness({ stream = "Writing", reasoning = "Thinking" }: { stream?: stri
   const [draft, setDraft] = useState("");
   return <ConversationEditor branch={[first, live]} path="sessions/s.md" stamp="a,b" running="b" stream={stream} reasoning={reasoning} draft={draft} onDraft={setDraft} onSend={() => {}} canSend={false} />;
 }
+it("opens at the editable response and can return there without rewriting the conversation", async () => {
+  const props = { branch: [], path: null, running: null, stream: "", reasoning: "", draft: "My draft", onDraft: () => {}, onSend: () => {}, canSend: true, stamp: "" };
+  const rendered = render(<ConversationEditor {...props} />);
+  const host = await screen.findByRole("textbox", { name: "Agent conversation and response" });
+  const view = EditorView.findFromDOM(host)!;
+  await waitFor(() => expect(view.state.selection.main.head).toBe(view.state.doc.length));
+  expect(view.hasFocus).toBe(true);
+  const before = view.state.doc.toString();
+  act(() => view.dispatch({ selection: { anchor: 0 } }));
+  act(() => focusConversationResponse(rendered.container));
+  expect(view.state.selection.main.head).toBe(view.state.doc.length);
+  expect(view.state.doc.toString()).toBe(before);
+  rendered.rerender(<ConversationEditor {...props} stream="Update" />);
+  expect(view.state.doc.sliceString(view.state.field(responseStart))).toBe("My draft");
+});
 it("protects recorded and live content while preserving a response across streaming updates", async () => {
   const rendered = render(<Harness />);
   const host = await screen.findByRole("textbox", { name: "Agent conversation and response" });

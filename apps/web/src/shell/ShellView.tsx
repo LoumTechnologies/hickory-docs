@@ -1,4 +1,5 @@
 import { bufferTarget } from "../lib/editorBufferTargets";
+import { workspaceIsVisible } from "../lib/workspaceVisibility";
 // The shell: the tile tree, rendered.
 //
 // Deliberately dull. Every decision about what happens to a layout lives in
@@ -902,11 +903,10 @@ export function useShellKeys(
 ) {
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
+      if (!workspaceIsVisible()) return;
       if (isAction(event, "search.inFolder")) {
         // Find in folder asks about the whole folder, so it works from
-        // anywhere — including with an editor focused, which is why the
-        // editors leave this binding alone and keep plain Find for
-        // themselves. Bound through the keymap (lib/keymap.ts).
+        // anywhere in the workspace. Editors keep plain Find for themselves.
         if (!onSearch) return;
         event.preventDefault();
         onSearch();

@@ -92,7 +92,7 @@ export function CellPanel({
       <div className="cell-panel" data-testid="cell-panel-pending">
         {command !== undefined && <CommandLines command={command} />}
         <div className="cell-panel-bar">
-          <span className="muted">cell not yet known to the server — save to sync</span>
+          <span className="muted">Save this document before running the cell.</span>
         </div>
       </div>
     );

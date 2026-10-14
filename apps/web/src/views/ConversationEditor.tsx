@@ -17,6 +17,14 @@ import "./DocumentReading.css";
 import { AssumptionAudit, VerificationStanding } from "../components/AssumptionAudit";
 const noCells = new Set<string>();
 
+export function focusConversationResponse(host: Element | null) {
+  const editor = host?.querySelector<HTMLElement>(".cm-editor");
+  const view = editor && EditorView.findFromDOM(editor);
+  if (!view) return;
+  view.dispatch({ selection: { anchor: view.state.doc.length }, scrollIntoView: true });
+  view.focus();
+}
+
 export function ConversationEditor({ branch, path, running, stream, reasoning, draft, onDraft, onSend, canSend, sending = false, stamp, showCollapsedLineage = false }: {
   branch: AgentTurn[]; path: string | null; running: string | null; stream: string; reasoning: string;
   draft: string; onDraft: (draft: string) => void; onSend: () => void; canSend: boolean; sending?: boolean; stamp: string; showCollapsedLineage?: boolean;
@@ -25,6 +33,7 @@ export function ConversationEditor({ branch, path, running, stream, reasoning, d
   const [view, setView] = useState<EditorView | null>(null);
   const realtime = useMemo(() => new LocalRealtime(), []);
   const following = useRef(true);
+  const initialFocus = useRef(false);
   const syncLinks = useRef(() => {});
   const latest = useRef({ onDraft, onSend, canSend }); latest.current = { onDraft, onSend, canSend };
   useEffect(() => { setData(null); }, [path]);
@@ -63,6 +72,11 @@ export function ConversationEditor({ branch, path, running, stream, reasoning, d
     const before = view.state.doc.toString();
     view.dispatch({ changes: computeEdits(before, next).map(e => ({ from: e.start, to: e.end, insert: e.text })),
       effects: setResponseStart.of(reading.source.length), annotations: [replaceReading.of(true), Transaction.addToHistory.of(false)] });
+    if (!initialFocus.current && !view.dom.closest("[hidden]")) {
+      initialFocus.current = true;
+      view.dispatch({ selection: { anchor: view.state.doc.length }, scrollIntoView: true });
+      view.focus();
+    }
   }, [view, reading.source, draft]);
   useEffect(() => {
     if (view) view.dispatch({ effects: setSendState.of({ enabled: canSend, label: sending ? "Starting…" : "Send", visible: !running }) });

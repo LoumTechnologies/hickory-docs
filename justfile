@@ -318,7 +318,21 @@ test-files-browser url:
 
 # Spatial layout geometry and native editor behavior.
 test-spatial:
-    cd apps/web && npm run typecheck && npm test -- src/shell/spatialLayout.test.ts src/shell/SpatialShellView.test.tsx src/editor/spatialExcerpt.test.ts src/views/SettingsView.test.tsx
+    cd apps/web && npm run typecheck && npm test -- src/shell/spatialLayout.test.ts src/shell/spatialDrawers.test.ts src/shell/SpatialShellView.test.tsx src/editor/spatialExcerpt.test.ts src/views/SettingsView.test.tsx
+
+# Drawer geometry and real editor state against a disposable native engine.
+test-spatial-ui:
+    bash scripts/test-spatial-ui.sh
+
+# Focused command discovery and agent typing against a disposable native engine.
+test-workflow-ui:
+    bash scripts/test-spatial-ui.sh workflow-polish.spec.ts
+
+test-workflow:
+    cd apps/web && npm run typecheck && npm test -- src/App.test.tsx src/shell/CommandBar.test.tsx src/views/documentCommands.test.ts src/views/useWorkspaceAppearance.test.tsx src/views/ConversationEditor.test.tsx src/components/ChatDock.test.tsx src/editor/DocumentEditor.test.tsx src/components/CellPanel.test.tsx
+
+test-debugger-paths:
+    cargo test -p hick-dap --test project --test live_session -- --test-threads=1
 
 # Regenerate the standalone contextual-tiling prototype from its source.
 build-navigation-prototype:

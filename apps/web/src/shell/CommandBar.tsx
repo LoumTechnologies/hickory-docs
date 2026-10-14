@@ -18,7 +18,7 @@
 
 import { isAction } from "../lib/keymap";
 import "./commandPalette.css";
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
 
 const OPEN_COMMAND_BAR = "hickory-open-command-bar";
 export function openCommandBar(commands = false) {
@@ -72,9 +72,12 @@ export function CommandBar({
 }) {
   const [raw, setRaw] = useState("");
   const [open, setOpen] = useState(false);
-  const [items, setItems] = useState<CommandItem[]>([]);
+  const [results, setResults] = useState<{ raw: string; items: CommandItem[] } | null>(null);
   const [selected, setSelected] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
+  const listId = useId();
+  const items = results?.raw === raw ? results.items : [];
+  const loading = results?.raw !== raw;
   const previousFocus = useRef<HTMLElement | null>(null);
   const openRef = useRef(open); openRef.current = open;
   const { mode, term } = useMemo(() => parseQuery(raw), [raw]);
@@ -88,6 +91,7 @@ export function CommandBar({
       inputRef.current?.select();
     };
     const onKey = (event: KeyboardEvent) => {
+      if (inputRef.current?.closest("[hidden]:not(.command-palette)")) return;
       const commands = isAction(event, "search.commands");
       if (!commands && !isAction(event, "search.quickOpen")) return;
       event.preventDefault();
@@ -113,15 +117,17 @@ export function CommandBar({
 
   useEffect(() => {
     if (!open) return;
+    setResults(null);
+    setSelected(0);
     let live = true;
     const timer = window.setTimeout(() => {
       void Promise.resolve(candidates(mode, term)).then(
         (found) => {
           if (!live) return;
-          setItems(found);
+          setResults({ raw, items: found });
           setSelected(0);
         },
-        () => live && setItems([]),
+        () => live && setResults({ raw, items: [] }),
       );
       // A keystroke is not a question; a pause is. Short, because this is the
       // control people type into fastest.
@@ -130,7 +136,11 @@ export function CommandBar({
       live = false;
       window.clearTimeout(timer);
     };
-  }, [open, mode, term, candidates]);
+  }, [open, raw, mode, term, candidates]);
+
+  useEffect(() => {
+    if (open) document.getElementById(`${listId}-${selected}`)?.scrollIntoView?.({ block: "nearest" });
+  }, [open, selected, results, listId]);
 
   const choose = (item: CommandItem | undefined) => {
     if (!item) return;
@@ -150,6 +160,8 @@ export function CommandBar({
         placeholder={placeholder}
         aria-label={modeHint(mode)}
         aria-expanded={open}
+        aria-controls={open ? listId : undefined}
+        aria-activedescendant={items[selected] ? `${listId}-${selected}` : undefined}
         onFocus={() => setOpen(true)}
         // Result buttons keep the input focused on mousedown. An overlay
         // closes immediately when focus leaves it, so reopening cannot be
@@ -169,7 +181,7 @@ export function CommandBar({
             dismiss();
           } else if (event.key === "ArrowDown") {
             event.preventDefault();
-            setSelected((i) => Math.min(i + 1, items.length - 1));
+            setSelected((i) => Math.max(0, Math.min(i + 1, items.length - 1)));
           } else if (event.key === "ArrowUp") {
             event.preventDefault();
             setSelected((i) => Math.max(i - 1, 0));
@@ -184,15 +196,16 @@ export function CommandBar({
           <p className="command-bar__hint">{modeHint(mode)}</p>
           {items.length === 0 ? (
             <p className="command-bar__empty muted">
-              {term ? "Nothing matches." : "Start typing."}
+              {loading ? "Searching…" : term ? "Nothing matches." : "Start typing."}
             </p>
           ) : (
-            <ul className="command-bar__list" role="listbox">
+            <ul className="command-bar__list" role="listbox" id={listId} aria-label={modeHint(mode)}>
               {items.map((item, index) => (
                 <li key={item.id}>
                   <button
                     type="button"
                     role="option"
+                    id={`${listId}-${index}`}
                     aria-selected={index === selected}
                     className={`command-bar__item${index === selected ? " command-bar__item--on" : ""}`}
                     onMouseEnter={() => setSelected(index)}

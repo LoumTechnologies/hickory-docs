@@ -1,145 +1,120 @@
 import { expect, test, type Locator, type Page } from "@playwright/test";
 
 // Guarantee: docs/guarantees/shell/spatial-views-preserve-the-editor.md
-// Run against a scratch engine with note.md and notes/other.md, as described in the guarantee.
-test.use({ viewport: { width: 1800, height: 1100 } });
+// just test-spatial-ui supplies a native engine with note.md and notes/other.md.
+test.use({ viewport: { width: 1200, height: 900 } });
 test.beforeEach(async ({ page }) => {
-  test.skip(!process.env.HICKORY_SPATIAL_URL, "Use just test-spatial-browser with a scratch workspace URL.");
-  // These geometry witnesses exercise both optional context sides.
-  await page.addInitScript(() => {
-    if (!localStorage.getItem("hickory.spatialSides")) localStorage.setItem("hickory.spatialSides", JSON.stringify({ left: true, right: true }));
-  });
+  test.skip(!process.env.HICKORY_SPATIAL_URL, "Use just test-spatial-ui with a disposable workspace.");
   await page.goto(process.env.HICKORY_SPATIAL_URL!);
-  await expect(page.locator("[data-spatial-files]")).toHaveCount(2);
+  await expect(page.getByRole("tablist", { name: "Center views" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Show left drawer" })).toBeVisible();
 });
-async function open(page: Page, path: string, side: "left" | "right") {
-  await page.locator(`[data-spatial-files=${side}] [data-tree-path="${path}"]`).dblclick();
-  const tile = page.locator(`[data-spatial-key="document:${path}"]`);
-  await expect(tile).toBeVisible(); return tile;
+const center = (page: Page) => page.locator('[data-spatial-center=true]');
+const tile = (page: Page, path: string) => page.locator('[data-spatial-key="document:' + path + '"]');
+async function rect(element: Locator) {
+  return element.evaluate(el => { const box = el.getBoundingClientRect(); return { x: box.x, y: box.y, width: box.width, height: box.height }; });
 }
-async function rect(tile: Locator) { return tile.evaluate(el => { const r = el.getBoundingClientRect(); return { x: r.x, y: r.y, width: r.width, height: r.height }; }); }
-async function allRects(page: Page) { return page.locator("[data-spatial-key]").evaluateAll(elements => elements.filter(el => !el.hasAttribute("hidden")).map(el => ({ key: el.getAttribute("data-spatial-key"), rect: el.getBoundingClientRect().toJSON() }))); }
-async function rememberEditor(page: Page, selector: string) {
+async function open(page: Page, path: string) {
+  await page.getByRole("button", { name: "Show left drawer" }).click();
+  await page.locator('[data-spatial-files=left] [data-tree-path="' + path + '"]').dblclick();
+  await expect(tile(page, path)).toHaveAttribute("data-spatial-center", "true");
+  await expect(page.getByRole("button", { name: "Show left drawer" })).toBeVisible();
+  return tile(page, path);
+}
+async function remember(page: Page, selector: string) {
   await page.evaluate(async selector => {
-    // Vite exports the same real CodeMirror class used by the running application.
     const module = "/node_modules/.vite/deps/@codemirror_view.js";
     const { EditorView } = await import(/* @vite-ignore */ module);
-    const view = EditorView.findFromDOM(document.querySelector(`${selector} .cm-editor`));
+    const view = EditorView.findFromDOM(document.querySelector(selector + " .cm-editor"));
     const line = view.state.doc.line(Math.min(3, view.state.doc.lines));
-    view.dispatch({ selection: { anchor: line.from + Math.min(2, line.length), head: line.to }, scrollIntoView: true });
-    view.focus();
-    (window as unknown as { spatialWitness: unknown }).spatialWitness = { view, text: view.state.doc.toString(), selection: view.state.selection.toJSON() };
+    view.dispatch({ selection: { anchor: line.from, head: line.to }, scrollIntoView: true }); view.focus();
+    (window as unknown as { drawerWitness: unknown }).drawerWitness = { view, text: view.state.doc.toString(), selection: view.state.selection.toJSON() };
   }, selector);
 }
-async function unchanged(page: Page, selector: string) {
+async function preserved(page: Page, selector: string) {
   return page.evaluate(async selector => {
     const module = "/node_modules/.vite/deps/@codemirror_view.js", { EditorView } = await import(/* @vite-ignore */ module);
-    const witness = (window as unknown as { spatialWitness: { view: { state: { doc: { toString(): string }; selection: { toJSON(): unknown } } }; text: string; selection: unknown } }).spatialWitness;
-    const same = EditorView.findFromDOM(document.querySelector(`${selector} .cm-editor`)) === witness.view && witness.text === witness.view.state.doc.toString() && JSON.stringify(witness.selection) === JSON.stringify(witness.view.state.selection.toJSON());
-    if (!same) console.debug("Spatial editor witness", JSON.stringify({ sameView: EditorView.findFromDOM(document.querySelector(`${selector} .cm-editor`)) === witness.view, sameText: witness.text === witness.view.state.doc.toString(), selection: witness.selection, current: witness.view.state.selection.toJSON() }));
-    return same;
+    const witness = (window as unknown as { drawerWitness: { view: { state: { doc: { toString(): string }; selection: { toJSON(): unknown } } }; text: string; selection: unknown } }).drawerWitness;
+    return EditorView.findFromDOM(document.querySelector(selector + " .cm-editor")) === witness.view && witness.view.state.doc.toString() === witness.text && JSON.stringify(witness.view.state.selection.toJSON()) === JSON.stringify(witness.selection);
   }, selector);
 }
 
-test("pin/unpin freezes every rectangle and keeps the native header and Files buffer stable", async ({ page }) => {
-  const tile = await open(page, "note.md", "left");
-  await tile.getByRole("tab").click();
-  await expect(tile).toHaveAttribute("data-expanded", "true");
-  await expect.poll(async () => (await rect(tile)).height).toBe(253);
-  await rememberEditor(page, '[data-spatial-key="document:note.md"]');
-  const before = await allRects(page), treeBefore = await page.locator("[data-spatial-files=left] [data-tree-path=note\\.md]").boundingBox();
-  await tile.getByRole("button", { name: "Pin view", exact: true }).click();
-  await expect(tile).toHaveClass(/spatial-view--pinned/);
-  expect(await allRects(page)).toEqual(before);
-  const strip = page.locator('[data-spatial-strip="document:note.md"]');
-  expect((await rect(strip)).y).toBe((await rect(tile)).y);
-  await tile.getByRole("button", { name: "Unpin view", exact: true }).click();
-  await expect(tile).not.toHaveClass(/spatial-view--pinned/);
-  expect(await allRects(page)).toEqual(before);
-  expect(await page.locator('[data-spatial-files=left] [data-tree-path="note.md"]').boundingBox()).toEqual(treeBefore);
-  expect(await unchanged(page, '[data-spatial-key="document:note.md"]')).toBe(true);
+test("collapsed Files uses no space; overlay, pin, unpin and Escape preserve the native editor", async ({ page }) => {
+  const shell = page.locator(".spatial-shell"), before = await rect(center(page));
+  expect(before.width).toBe((await rect(shell)).width);
+  await expect(page.locator('[data-spatial-files=left]')).toBeHidden();
+  await expect(page.getByRole("button", { name: "Show right drawer" })).toHaveCount(0);
+  await remember(page, "[data-spatial-center=true]");
+  await page.screenshot({ path: "/tmp/hickory-drawers-collapsed.png", fullPage: true });
+  await page.getByRole("button", { name: "Show left drawer" }).click();
+  await expect(page.locator('[data-spatial-files=left]')).toBeVisible();
+  expect(await rect(center(page))).toEqual(before);
+  await page.screenshot({ path: "/tmp/hickory-drawers-overlay.png", fullPage: true });
+  await page.getByRole("button", { name: "Pin left drawer" }).click();
+  await expect.poll(async () => (await rect(center(page))).width).toBeLessThan(before.width);
+  await page.getByRole("button", { name: "Unpin left drawer" }).click();
+  await expect.poll(() => rect(center(page))).toEqual(before);
+  await page.getByRole("button", { name: "Close left drawer" }).press("Escape");
+  await expect(page.locator('[data-spatial-files=left]')).toBeHidden();
+  expect(await preserved(page, "[data-spatial-center=true]")).toBe(true);
 });
 
-test("drag previews commit exactly, both resize edges work, and Center/Restore preserve the editor", async ({ page }) => {
-  page.on("console", message => { if (message.text().startsWith("Spatial editor witness")) console.log(message.text()); });
+test("ordinary tabs stay out of context; a pinned view retains its native editor through drag, resize and Center", async ({ page }) => {
   const errors: string[] = []; page.on("pageerror", error => errors.push(error.message));
-  const tile = await open(page, "note.md", "left");
-  await tile.getByRole("tab").click();
-  await expect.poll(async () => (await rect(tile)).height).toBe(253);
-  await rememberEditor(page, '[data-spatial-key="document:note.md"]');
-  await tile.getByRole("button", { name: "Pin view", exact: true }).click();
-  const box = await rect(tile);
-  await page.mouse.move(box.x + 30, box.y + 18); await page.mouse.down(); await page.mouse.move(box.x + 30, box.y + 130, { steps: 10 });
-  await expect(tile).toHaveClass(/spatial-view--tentative/);
-  const preview = await rect(tile); await page.mouse.up();
-  await expect(tile).not.toHaveClass(/spatial-view--tentative/);
-  expect(await rect(tile)).toEqual(preview);
+  const note = await open(page, "note.md");
+  await open(page, "notes/other.md");
+  await expect(note).toBeHidden();
+  await page.getByRole("tablist", { name: "Center views" }).getByRole("tab", { name: "note.md", exact: true }).click();
+  await remember(page, '[data-spatial-key="document:note.md"]');
+  await center(page).getByRole("button", { name: "Pin view in drawer" }).click();
+  await expect(note).toHaveAttribute("data-spatial-center", "false");
+  await expect(note).toBeVisible();
+  await expect.poll(async () => (await rect(note)).height).toBe(253);
+  const initial = await rect(note);
+  await page.mouse.move(initial.x + 20, initial.y + 18); await page.mouse.down(); await page.mouse.move(initial.x + 20, initial.y + 78, { steps: 8 });
+  await expect(note).toHaveClass(/spatial-view--tentative/);
+  const preview = await rect(note); await page.mouse.up();
+  await expect.poll(() => rect(note)).toEqual(preview);
   for (const edge of ["top", "bottom"] as const) {
-    const beforeResize = await rect(tile);
-    const handle = page.locator(`[data-spatial-resize="document:note.md"][data-resize-edge=${edge}]`), h = (await handle.boundingBox())!;
-    await page.mouse.move(h.x + h.width / 2, h.y + 4); await page.mouse.down(); await page.mouse.move(h.x + h.width / 2, h.y + (edge === "top" ? -36 : 44), { steps: 6 }); await page.mouse.up();
-    await expect.poll(async () => (await rect(tile)).height).toBe(beforeResize.height + 40);
+    const before = await rect(note), handle = page.locator('[data-spatial-resize="document:note.md"][data-resize-edge="' + edge + '"]');
+    await expect(handle).toBeVisible();
+    await handle.press(edge === "top" ? "ArrowUp" : "ArrowDown");
+    await expect.poll(async () => (await rect(note)).height).toBe(before.height + 10);
   }
-  expect((await rect(tile)).height).toBeGreaterThan(preview.height);
-  const pin = await rect(tile);
-  await tile.getByRole("button", { name: "Center", exact: true }).click();
-  await expect(tile).toHaveAttribute("data-spatial-center", "true");
-  await expect(tile.locator(".cm-gutters")).toBeVisible(); await expect(tile.locator(".cm-right-rail")).toBeVisible();
-  await tile.getByRole("button", { name: "Restore previous center", exact: true }).click();
-  await expect(tile).toHaveAttribute("data-spatial-center", "false");
-  await expect.poll(() => rect(tile)).toEqual(pin);
-  await expect.poll(() => unchanged(page, '[data-spatial-key="document:note.md"]')).toBe(true);
+  await note.getByRole("button", { name: "Center", exact: true }).click();
+  await expect(note).toHaveAttribute("data-spatial-center", "true");
+  await note.getByRole("button", { name: "Restore previous center", exact: true }).click();
+  await expect(note).toHaveAttribute("data-spatial-center", "false");
+  expect(await preserved(page, '[data-spatial-key="document:note.md"]')).toBe(true);
   expect(errors).toEqual([]);
 });
 
-test("documents can be the center; file buffers remain editable and the workspace has no outer scrollbar", async ({ page }) => {
-  const first = await open(page, "note.md", "left"), second = await open(page, "notes/other.md", "right");
-  await first.getByRole("button", { name: "Center", exact: true }).click();
-  await expect(first).toHaveAttribute("data-spatial-center", "true");
-  await expect(second).toBeVisible();
-  const source = page.locator('[data-spatial-files=right] .filesystem-editor .cm-content');
-  await source.click(); await source.press("ControlOrMeta+End"); await source.press("End"); await source.pressSequentially("-tentative");
-  await expect(page.locator('[data-spatial-files=right]').getByRole("toolbar", { name: "Unsaved Files changes" })).toBeVisible();
-  await source.press("ControlOrMeta+z");
-  await expect(page.locator('[data-spatial-files=right]').getByRole("toolbar", { name: "Unsaved Files changes" })).toHaveCount(0);
-  const overflow = await page.evaluate(() => ({ body: document.documentElement.scrollHeight > window.innerHeight + 1, host: document.querySelector(".spatial-shell")!.scrollHeight > document.querySelector(".spatial-shell")!.clientHeight + 1 }));
-  expect(overflow).toEqual({ body: false, host: false });
-  const boxes = await allRects(page);
-  for (let i = 0; i < boxes.length; i++) for (let j = i + 1; j < boxes.length; j++) { const a = boxes[i].rect, b = boxes[j].rect; expect(a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top).toBe(false); }
+test("Files editing survives drawer dismissal and drawer pins survive reload", async ({ page }) => {
+  await page.getByRole("button", { name: "Show left drawer" }).click();
+  const files = page.locator('[data-spatial-files=left] .filesystem-editor .cm-content');
+  await files.click(); await files.press("ControlOrMeta+End"); await files.press("End"); await files.pressSequentially("-tentative");
+  await expect(page.getByRole("toolbar", { name: "Unsaved Files changes" })).toBeVisible();
+  await page.getByRole("button", { name: "Close left drawer" }).click();
+  await page.getByRole("button", { name: "Show left drawer" }).click();
+  await expect(page.getByRole("toolbar", { name: "Unsaved Files changes" })).toBeVisible();
+  await files.press("ControlOrMeta+z");
+  await page.getByRole("button", { name: "Pin left drawer" }).click();
+  await page.reload();
+  await expect(page.getByRole("button", { name: "Unpin left drawer" })).toBeVisible();
+  const root = await rect(page.locator(".spatial-shell"));
+  expect((await rect(center(page))).width).toBeLessThan(root.width);
+  await page.screenshot({ path: "/tmp/hickory-drawers-pinned.png", fullPage: true });
 });
 
-test("scrolling completes an edge crossing without overlapping a pin, including at narrow widths", async ({ page }) => {
-  const first = await open(page, "note.md", "left"), pinned = await open(page, "notes/other.md", "right");
-  await first.getByRole("button", { name: "Center", exact: true }).click();
-  await pinned.getByRole("button", { name: "Pin view", exact: true }).click();
-  await page.evaluate(() => {
-    const witness = { overlaps: [] as string[], frames: 0 };
-    (window as unknown as { spatialMotion: unknown }).spatialMotion = witness;
-    const watch = () => {
-      const root = document.querySelector(".spatial-shell")!.getBoundingClientRect();
-      const boxes = [...document.querySelectorAll<HTMLElement>("[data-spatial-key]")].filter(el => !el.hidden && getComputedStyle(el).visibility !== "hidden").map(el => ({ id: el.dataset.spatialKey!, r: el.getBoundingClientRect() })).filter(({ r }) => r.bottom > root.top && r.top < root.bottom);
-      for (let i = 0; i < boxes.length; i++) for (let j = i + 1; j < boxes.length; j++) { const a = boxes[i].r, b = boxes[j].r; if (a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top) witness.overlaps.push(`${boxes[i].id} / ${boxes[j].id}`); }
-      if (++witness.frames < 90) requestAnimationFrame(watch);
-    }; requestAnimationFrame(watch);
-  });
-  const source = first.locator(".cm-scroller");
-  await source.evaluate(el => { el.scrollTop = 1000; });
-  await expect.poll(() => page.evaluate(() => (window as unknown as { spatialMotion: { frames: number } }).spatialMotion.frames)).toBe(90);
-  expect(await page.evaluate(() => (window as unknown as { spatialMotion: { overlaps: string[] } }).spatialMotion.overlaps)).toEqual([]);
-  expect(await page.locator(".spatial-view--crossing").count()).toBe(0);
-  await page.setViewportSize({ width: 390, height: 844 });
-  await expect.poll(async () => { const boxes = await allRects(page); return boxes.some(({ rect: a }, i) => boxes.some(({ rect: b }, j) => i !== j && a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top)); }).toBe(false);
-});
-
-test("a native folder fold hides its unpinned descendant and becomes its brace endpoint", async ({ page }) => {
-  const tile = await open(page, "notes/other.md", "left");
-  const rail = page.locator("[data-spatial-files=left]"), folder = rail.locator('[data-tree-path="notes"]'), row = (await folder.boundingBox())!, gutter = (await rail.locator(".cm-foldGutter").boundingBox())!;
-  await page.mouse.click(gutter.x + gutter.width / 2, row.y + 18);
-  await expect(tile).toBeHidden();
-  const endpoint = await page.evaluate(async () => {
-    const path = "/src/shell/Ribbons.tsx", { findTerminal } = await import(/* @vite-ignore */ path);
-    const terminal = findTerminal(document.body, "document", "notes/other.md");
-    return terminal && { ends: terminal.ends, top: terminal.rect.top };
-  });
-  expect(endpoint?.ends).toBe("tree"); expect(endpoint?.top).toBe((await folder.boundingBox())!.y);
+test("overlays leave center tabs usable and reclaim their space at narrow widths", async ({ page }) => {
+  await page.setViewportSize({ width: 500, height: 800 });
+  const shell = page.locator(".spatial-shell");
+  await expect.poll(async () => (await rect(center(page))).width).toBe((await rect(shell)).width);
+  await page.getByRole("button", { name: "Show left drawer" }).click();
+  await expect(page.getByRole("tablist", { name: "Center views" })).toBeVisible();
+  const tabs = await rect(page.getByRole("tablist", { name: "Center views" })), drawer = await rect(page.locator('[data-drawer-toolbar=left]'));
+  expect(drawer.y).toBeGreaterThanOrEqual(tabs.y + tabs.height);
+  await page.getByRole("button", { name: "Close left drawer" }).click();
+  await expect.poll(async () => (await rect(center(page))).width).toBe((await rect(shell)).width);
+  expect(await page.evaluate(() => document.documentElement.scrollHeight > window.innerHeight + 1)).toBe(false);
 });

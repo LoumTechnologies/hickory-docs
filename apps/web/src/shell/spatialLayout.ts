@@ -1,10 +1,14 @@
 import { emptyPane, panes, tab, withRail, type Layout, type Node, type Pane } from "./layout";
 import type { SpatialSides } from "../lib/spatialSides";
+import type { DrawerPresentation } from "./spatialDrawers";
 
 export type Side = "left" | "right";
 export interface Rect { x: number; y: number; w: number; h: number }
 export interface ViewPlacement { side: Side; pin?: Rect; expanded?: boolean; height?: number }
 export interface SpatialState {
+  /** Runtime content and visibility; never stored in the folder layout. */
+  drawers?: DrawerPresentation;
+  drawerPins?: SpatialSides;
   /** Global appearance preferences; supplied by the shell, not folder storage. */
   sides?: SpatialSides;
   center: string | null;
@@ -98,6 +102,7 @@ export function readSpatialState(raw: string | null): SpatialState {
     if (typeof value.center === "string") state.center = value.center;
     if (Array.isArray(value.stack)) state.stack = value.stack.filter((key: unknown): key is string => typeof key === "string").slice(-24);
     state.auto = value.auto === true;
+    if (value.drawerPins) state.drawerPins = { left: value.drawerPins.left === true, right: value.drawerPins.right === true };
     if (Array.isArray(value.columns) && value.columns.length === 2 && value.columns.every((n: unknown) => typeof n === "number" && Number.isFinite(n) && n >= .16 && n <= .36)) state.columns = value.columns;
     for (const [key, rawView] of Object.entries(value.views ?? {})) {
       const view = rawView as ViewPlacement;
@@ -107,5 +112,10 @@ export function readSpatialState(raw: string | null): SpatialState {
       if (view.pin && [view.pin.x, view.pin.y, view.pin.w, view.pin.h].every(n => typeof n === "number" && Number.isFinite(n)) && view.pin.w > 0 && view.pin.h >= HEADER_HEIGHT) state.views[key].pin = view.pin;
     }
   } catch { /* Presentation storage never prevents opening a buffer. */ }
+  // Preserve explicitly pinned views from layouts saved before drawers existed.
+  if (!state.drawerPins && Object.values(state.views).some(view => view.pin)) state.drawerPins = {
+    left: Object.values(state.views).some(view => view.pin && view.side === "left"),
+    right: Object.values(state.views).some(view => view.pin && view.side === "right"),
+  };
   return state;
 }

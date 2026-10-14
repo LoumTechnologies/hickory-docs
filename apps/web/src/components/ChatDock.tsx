@@ -27,7 +27,7 @@ import type {
   TranscriptEvent,
 } from "../api/types";
 import type { Realtime } from "../api/realtime";
-import { ConversationEditor } from "../views/ConversationEditor";
+import { ConversationEditor, focusConversationResponse } from "../views/ConversationEditor";
 import { ChatTree } from "./ChatTree";
 import { StopMark } from "./icons";
 
@@ -638,7 +638,7 @@ export function ChatDock({
 
       {contextLabel && <p className="chat-note muted">Context: {contextLabel}. Current editor text is included when you send.</p>}
       <div className="chat-composer">
-        <span className="muted">Type your response at the bottom · ⌘/Ctrl+Enter to send</span>
+        <span className="muted">{!collapsed && !showTree ? <button className="btn-link" onClick={() => focusConversationResponse(logRef.current)}>Write a response</button> : "Type your response at the bottom"} · ⌘/Ctrl+Enter to send</span>
         {running ? (
           // The way out of a runaway turn — a model looping mid-stream bills
           // tokens until somebody pulls this. Never disabled while a run is

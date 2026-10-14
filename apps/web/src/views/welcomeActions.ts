@@ -37,7 +37,7 @@ export function welcomeActionsFor({
     {
       id: "new-project",
       label: "New project…",
-      hint: "Scaffold from `dotnet new`, and own every byte it writes",
+      hint: "Create a .NET project and record its scaffold recipe in git",
       run: () => requestMenuAction("new-project"),
     },
     {
@@ -49,7 +49,7 @@ export function welcomeActionsFor({
     {
       id: "agent",
       label: "Agent — show the conversation",
-      hint: "The chat pane about the focused document; /tree zooms out, /rewind branches",
+      hint: "Work with your open editors; /tree explores the conversation, /rewind branches",
       run: () => window.dispatchEvent(new CustomEvent("hickory-show-agent")),
     },
     {

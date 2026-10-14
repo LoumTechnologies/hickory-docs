@@ -6,6 +6,7 @@
 export type TabStyle = "top" | "side";
 
 export const TAB_STYLE_KEY = "hickory.tabStyle";
+export const TAB_STYLE_CHANGED = "hickory-tab-style-changed";
 
 const isStyle = (value: unknown): value is TabStyle => value === "top" || value === "side";
 
@@ -22,4 +23,5 @@ export function saveTabStyle(
   storage: Pick<Storage, "setItem"> | null = typeof localStorage === "undefined" ? null : localStorage,
 ): void {
   storage?.setItem(TAB_STYLE_KEY, style);
+  if (typeof window !== "undefined") window.dispatchEvent(new Event(TAB_STYLE_CHANGED));
 }

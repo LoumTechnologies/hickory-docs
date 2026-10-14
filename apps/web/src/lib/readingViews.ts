@@ -13,11 +13,16 @@ export interface ReadingView {
 export const OPEN_READING = "hickory.open-reading";
 const readings = new Map<string, ReadingView>();
 const listeners = new Set<() => void>();
-function changed() { listeners.forEach(listener => listener()); }
+let version = 0;
+function changed() { version++; listeners.forEach(listener => listener()); }
+export const readingStatus = (id: string) => readings.get(id)?.status;
+export function useReadingsVersion() {
+  return useSyncExternalStore(listener => { listeners.add(listener); return () => listeners.delete(listener); }, () => version);
+}
 export function publishReading(id: string, view: ReadingView) { readings.set(id, view); changed(); }
 export function forgetReading(id: string) { readings.delete(id); changed(); }
-export function openReading(id: string, title: string) {
-  window.dispatchEvent(new CustomEvent(OPEN_READING, { detail: { id, title } }));
+export function openReading(id: string, title: string, background = false) {
+  window.dispatchEvent(new CustomEvent(OPEN_READING, { detail: { id, title, ...(background ? { background: true } : {}) } }));
 }
 export function openCommit(sha: string) { openReading(`commit:${sha}`, "Commit"); }
 export function useReading(id: string) {

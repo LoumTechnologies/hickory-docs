@@ -32,6 +32,37 @@ describe("one field, four questions", () => {
 describe("the bar in use", () => {
   const item = (id: string, run = vi.fn()) => ({ id, label: id, detail: `/${id}`, run });
 
+  it("never runs an old result while a new query is being resolved", async () => {
+    const oldRun = vi.fn(), newRun = vi.fn();
+    let finish!: (items: ReturnType<typeof item>[]) => void;
+    const candidates = (_mode: string, term: string) => term === "old" ? [item("old", oldRun)]
+      : new Promise<ReturnType<typeof item>[]>(resolve => { finish = resolve; });
+    render(<CommandBar candidates={candidates} />);
+    const input = screen.getByRole("textbox");
+    fireEvent.change(input, { target: { value: "old" } });
+    await screen.findByRole("option", { name: /old/ });
+    fireEvent.change(input, { target: { value: "new" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+    expect(oldRun).not.toHaveBeenCalled();
+    expect(screen.queryAllByRole("option")).toHaveLength(0);
+    expect(screen.getByText("Searching…")).toBeTruthy();
+    await waitFor(() => expect(finish).toBeTypeOf("function"));
+    finish([item("new", newRun)]);
+    await screen.findByRole("option", { name: /new/ });
+    fireEvent.keyDown(input, { key: "Enter" });
+    expect(newRun).toHaveBeenCalledOnce();
+  });
+
+  it("connects keyboard selection to the result announced to assistive technology", async () => {
+    render(<CommandBar candidates={() => [item("a"), item("b")]} />);
+    const input = screen.getByRole("textbox");
+    fireEvent.change(input, { target: { value: "x" } });
+    await screen.findByRole("option", { name: /a/ });
+    fireEvent.keyDown(input, { key: "ArrowDown" });
+    expect(input.getAttribute("aria-activedescendant")).toBe(screen.getByRole("option", { name: /b/ }).id);
+    expect(input.getAttribute("aria-controls")).toBe(screen.getByRole("listbox").id);
+  });
+
   it("asks for candidates in the mode that was typed", async () => {
     const candidates = vi.fn().mockReturnValue([]);
     render(<CommandBar candidates={candidates} />);

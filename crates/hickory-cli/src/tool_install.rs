@@ -265,7 +265,10 @@ pub fn install(catalogue: &Catalogue, root: &Path, language: &str) -> Result<Pat
         Some(asset) => asset.command(),
         None => installer.command.to_string(),
     }
-    .replace("{prefix}", &prefix.to_string_lossy());
+    .replace(
+        "{prefix}",
+        &crate::scaffold::shell_quote(&prefix.to_string_lossy()),
+    );
 
     // The network is granted here and nowhere else in this tool: an install
     // that cannot fetch is not an install.
@@ -330,6 +333,36 @@ fn which(name: &str) -> Option<PathBuf> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn an_install_prefix_is_one_shell_word_even_with_spaces_and_punctuation() {
+        if Sandbox::detect() == Sandbox::None {
+            eprintln!("SKIPPED: no sandbox available");
+            return;
+        }
+        let catalogue = Catalogue {
+            what: "test tool",
+            prefix: ".hick-cache/test-installer",
+            command: "test install",
+            installers: &[Installer {
+                language: "test",
+                tool: "sh",
+                package: "test-tool",
+                command: "mkdir -p {prefix}/nested && printf installed > {prefix}/nested/receipt.txt",
+                assets: &[],
+                reason: "offline path quoting regression",
+            }],
+        };
+        let dir = tempfile::Builder::new()
+            .prefix("Hickory notes ' $() ; ")
+            .tempdir()
+            .unwrap();
+        let prefix = install(&catalogue, dir.path(), "test").unwrap();
+        assert_eq!(
+            std::fs::read_to_string(prefix.join("nested/receipt.txt")).unwrap(),
+            "installed"
+        );
+    }
 
     #[test]
     fn a_failed_installer_returns_its_diagnostics() {

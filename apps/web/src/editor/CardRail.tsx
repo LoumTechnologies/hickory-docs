@@ -107,7 +107,7 @@ function runSuffix(state: CardState): string {
     case "stale":
       return "stale recording — inputs changed";
     case "unknown":
-      return "not known to the server yet";
+      return "save the document first";
     default:
       return "unrecorded · never run";
   }
@@ -139,6 +139,7 @@ function title(
         ? `${card.label} — showing its result; click for the source`
         : `${card.label} — showing its source; click to render it`;
     case "run":
+      if (state === "unknown") return `${card.label} — save this document to enable running`;
       return state === "running"
         ? `${card.label} — running; click does nothing until it finishes`
         : `${card.label} — ${runSuffix(state)}; click to run it`;
