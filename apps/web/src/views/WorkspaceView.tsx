@@ -1702,11 +1702,7 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
       {/* Plain files' debug sessions, held above their panes so a session
           survives the tab that started it being fronted away. */}
       <PlainDebugHosts />
-      {/* One field across the top, understanding four prefixes, rather than
-          four separate controls to learn and four places to look. */}
-      <div className="workspace-top">
-        <CommandBar candidates={commandCandidates} />
-      </div>
+      <CommandBar candidates={commandCandidates} overlay />
       <div className="doc-main">
         {/* Asked at open, because a clone that never ran `hick init` merges
             `.md` documents with git's line merge and is told nothing. */}

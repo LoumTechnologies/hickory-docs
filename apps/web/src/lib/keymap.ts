@@ -74,6 +74,8 @@ export const ACTIONS: readonly ActionSpec[] = [
   { id: "zoom.tabOut", label: "Zoom out this tab", scope: "menu", menuId: "zoom-tab-out", keys: { hickory: "Mod+Alt+-" } },
   { id: "zoom.tabReset", label: "Actual size in this tab", scope: "menu", menuId: "zoom-tab-reset", keys: { hickory: "Mod+Alt+0" } },
   // The workspace.
+  { id: "search.quickOpen", label: "Search open files and folder", scope: "workspace", keys: { hickory: "Mod+P" } },
+  { id: "search.commands", label: "Command palette", scope: "workspace", keys: { hickory: "Mod+Shift+P" } },
   { id: "search.inFolder", label: "Find in folder", scope: "workspace", keys: { hickory: "Mod+Shift+F" } },
   { id: "view.problems", label: "Problems list", scope: "workspace", keys: { hickory: "F8", jetbrains: "Alt+6", visualstudio: "Mod+\\ E" } },
   { id: "debug.continue", label: "Debug: continue", scope: "workspace", keys: { hickory: "F5" } },

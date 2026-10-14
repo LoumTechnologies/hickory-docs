@@ -1,3 +1,5 @@
+import { PaneHeaderProvider, PaneHeaderSlots } from "./PaneHeader";
+import { openCommandBar } from "./CommandBar";
 import { useEffect, useMemo, useRef, useState, type PointerEvent } from "react";
 import { EditorView } from "@codemirror/view";
 import { bufferTarget } from "../lib/editorBufferTargets";
@@ -107,7 +109,7 @@ export function SpatialShellView(props: Props) {
       </section>;
     })}
     {entries.map(entry => { const tab = entry.tab, centered = entry.key === center?.key, name = relative(entry.path, props.folderRoot), title = tab?.title ?? props.ports?.find(port => port.id === entry.key)?.label ?? name;
-      return <section key={tab?.id ?? entry.key} hidden={!centered && !sides[entry.side]} id={centered ? "spatial-center" : undefined} className="shell-pane spatial-view" data-spatial-key={entry.key} data-spatial-side={entry.side} data-spatial-center={centered} data-expanded={centered || scene.views[entry.key]?.expanded || false}
+      return <PaneHeaderProvider key={tab?.id ?? entry.key}><section hidden={!centered && !sides[entry.side]} id={centered ? "spatial-center" : undefined} className="shell-pane spatial-view" data-spatial-key={entry.key} data-spatial-side={entry.side} data-spatial-center={centered} data-expanded={centered || scene.views[entry.key]?.expanded || false}
         data-shell-pane-id={entry.pane?.id} data-shell-target={entry.path} onFocusCapture={() => { if (entry.pane && props.layout.focus !== entry.pane.id) props.onLayout(focus(layout, entry.pane.id)); }}>
         <header className="spatial-view-header" onPointerDown={event => begin(entry, event)}>
           {centered ? <div className="spatial-center-tabs" role="tablist" aria-label="Center views">
@@ -128,15 +130,16 @@ export function SpatialShellView(props: Props) {
             })}
           </div> : <button type="button" role={tab ? "tab" : undefined} aria-label={title} aria-selected={tab ? layout.focus === entry.pane?.id : undefined} className="spatial-filename" data-tip={name} data-shell-tab-kind={tab?.kind} data-shell-tab-target={entry.path} data-shell-tab-source={entry.path} data-shell-tab-vertical={true} data-shell-tab-buffer={tab ? bufferTarget(tab.id) : undefined}
             data-ribbon-port={entry.port ? entry.key : undefined} onClick={() => click(() => { if (entry.port) openPort(entry); else if (!centered) { if (tab?.kind === "untitled") centerOn(entry); else controller.toggle(entry.key); } })}>{tab && !["document", "generated", "file"].includes(tab.kind) ? title : name || title}{tab && props.dirtyTabIds?.has(tab.id) ? " *" : ""}</button>}
+          <PaneHeaderSlots />
           <div className="spatial-window-controls">
-            {centered ? <><button data-tip="Restore previous center" aria-label="Restore previous center" onClick={restore}>▣</button><button data-tip="Automatic accordion" aria-label="Automatic accordion" aria-pressed={scene.auto} onClick={() => setScene(current => ({ ...current, auto: !current.auto }))}>↕</button></>
+            {centered ? <><button data-tip="Search (Ctrl/Cmd+P)" aria-label="Open search" onClick={() => openCommandBar()}>⌕</button><button data-tip="Restore previous center" aria-label="Restore previous center" onClick={restore}>▣</button><button data-tip="Automatic accordion" aria-label="Automatic accordion" aria-pressed={scene.auto} onClick={() => setScene(current => ({ ...current, auto: !current.auto }))}>↕</button></>
               : <><button data-tip={scene.views[entry.key]?.pin ? "Unpin view" : "Pin view"} aria-label={scene.views[entry.key]?.pin ? "Unpin view" : "Pin view"} aria-pressed={!!scene.views[entry.key]?.pin} onClick={() => click(() => controller.pin(entry.key))}><svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" aria-hidden="true"><path d="M5 2h6l-1 5 3 3H3l3-3-1-5ZM8 10v5" /></svg></button>
                 <button data-tip="Center" aria-label="Center" onClick={() => centerOn(entry)}>□</button><button data-tip="Minimize" aria-label="Minimize" onClick={() => { if (controller.frames.get(entry.key)?.h !== 36) controller.toggle(entry.key); }}>—</button></>}
             {tab && <button data-tip={`Close ${title}`} aria-label={`Close ${title}`} onClick={() => close(entry)}>×</button>}
           </div>
         </header>
         <div id={tab ? `spatial-content-${tab.id}` : undefined} className="shell-pane__body spatial-view-body">{tab && entry.pane ? props.render(tab, entry.pane) : <button className="spatial-open" onClick={() => openPort(entry)}>Open {title}</button>}</div>
-      </section>;
+      </section></PaneHeaderProvider>;
     })}
     {entries.map(entry => <div key={`strip-${entry.key}`} hidden={!sides[entry.side]} className="spatial-header-extension" data-spatial-strip={entry.key} onPointerDown={event => begin(entry, event)}>
       <button data-tip={`${relative(entry.path, props.folderRoot)} — click to pin or unpin`} className="spatial-file-tab" onClick={() => click(() => entry.port ? openPort(entry) : controller.pin(entry.key))}>{entry.tab && !["document", "generated", "file"].includes(entry.tab.kind) ? entry.tab.title ?? entry.tab.target : relative(entry.path, props.folderRoot)}</button>

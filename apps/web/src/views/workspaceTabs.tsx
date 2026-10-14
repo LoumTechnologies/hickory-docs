@@ -1,3 +1,4 @@
+import { PaneHeaderContent } from "../shell/PaneHeader";
 import { ProjectContextSelector } from "../components/ProjectContextSelector";
 import { SurfaceInfo } from "../components/SurfaceInfo";
 import { ActionNotice } from "../components/ActionNotice";
@@ -27,28 +28,7 @@ import { registerBufferEditor } from "../lib/editorBufferTargets";
 import { markUntitledEditor } from "../editor/activeEditor";
 import { useDocSession, type SessionRegistry } from "./documentSession";
 
-/**
- * A document's own actions, at the top of its tab.
- *
- * Two buttons and a menu, and the split is deliberate. The toolbar used to
- * read `Run · Verify · Refactor`, with **Verify** as the primary — and to
- * anyone arriving from a traditional IDE, two of those three were wrong.
- *
- * - `Run` is the everyday verb and is now the primary one, because it is what
- *   a person presses fifty times a day.
- * - `Verify` is what `hick test` does, so it says **Test**. Matching the CLI
- *   verb is worth more than a word of our own: somebody who reads the toolbar
- *   can type the command, and somebody who reads the command can find the
- *   button.
- * - `Refactor` named a *mode*, and in every other editor that word opens
- *   rename / extract / inline. It is now an item in the overflow menu that
- *   says what it produces — a baseline — and the toolbar shows the verdict
- *   only once there is one.
- *
- * The menu is where a document-wide action goes when it is real but rare. A
- * toolbar is read every time the tab is opened; anything on it is being
- * charged to every reader forever.
- */
+/** Document-wide actions share the pane header; cell actions stay on their rail. */
 function DocToolbar({
   path,
   running,
@@ -70,6 +50,8 @@ function DocToolbar({
   const [error, setError] = useState("");
 
   const items: ContextMenuItem[] = [
+    { id: "run", label: running ? "Running…" : "Run", disabled: running, tip: "Run every cell and rewrite its generated files." },
+    { id: "test", label: "Test", disabled: running, tip: "Re-run and check expectations and output drift, like hick test." },
     { id: "review", label: "Review changes", tip: "Compare this document with HEAD in an editable literate view." },
     baseline.active
       ? {
@@ -87,24 +69,8 @@ function DocToolbar({
   ];
 
   return (
-    <div className="doc-tab-toolbar" role="toolbar" aria-label={`Actions for ${path}`}>
+    <PaneHeaderContent part="actions"><div className="doc-tab-toolbar" role="toolbar" aria-label={`Actions for ${path}`}>
       {error && <span role="alert">{error}</span>}
-      <button
-        className="btn btn-primary"
-        disabled={running}
-        onClick={onRun}
-        data-tip="Run every cell in this document and rewrite the files it generates"
-      >
-        {running ? "Running…" : "Run"}
-      </button>
-      <button
-        className="btn"
-        disabled={running}
-        onClick={onTest}
-        data-tip="Re-run this document and check it against its own expectations, the way `hick test` does. Fails if a claim stopped being true or a committed output drifted."
-      >
-        Test
-      </button>
       <button
         className="btn doc-tab-toolbar__more"
         aria-label="More actions for this document"
@@ -125,6 +91,8 @@ function DocToolbar({
           subject={path}
           onPick={(id) => {
             setMenuAt(null);
+            if (id === "run" && !running) onRun();
+            if (id === "test" && !running) onTest();
             if (id === "review") void openLiterate({ kind: "document", doc_id: docId }, "HEAD").catch(e => setError(e instanceof Error ? e.message : String(e)));
             if (id === "baseline-on") baseline.begin();
             if (id === "baseline-off") baseline.end();
@@ -140,7 +108,7 @@ function DocToolbar({
           {syncState === "editing" ? "Saving…" : syncState === "failed" ? "Save not confirmed" : "Saved to disk"}
         </span>
       )}
-    </div>
+    </div></PaneHeaderContent>
   );
 }
 

@@ -1,0 +1,27 @@
+/* Density changes spacing, never source bytes or the chosen font size. */
+:root {
+  --editor-code-leading: 1.4;
+  --editor-document-leading: 1.45;
+  --editor-pad-top: .5rem;
+  --editor-pad-x: .75rem;
+  --editor-pad-bottom: .75rem;
+  --editor-number-pad: .5em;
+  --workspace-padding: .25rem;
+}
+:root[data-editor-density=comfortable] {
+  --editor-code-leading: 1.5;
+  --editor-document-leading: 1.65;
+  --editor-pad-top: 2rem;
+  --editor-pad-x: 2.5rem;
+  --editor-pad-bottom: 3rem;
+  --editor-number-pad: 1em;
+  --workspace-padding: 1rem;
+}
+:root[data-touch-targets=true] .spatial-shell .spatial-files .filesystem-editor .cm-line,
+:root[data-touch-targets=true] .spatial-shell .spatial-files .filesystem-editor .cm-gutterElement { min-height: 36px; line-height: 36px; }
+
+:root[data-right-line-numbers=false] .cm-right-rail { display: none; }
+
+:root .doc-page.wide-mode .doc-main { padding: var(--workspace-padding, .25rem); }
+
+.cm-card-rail[data-empty=true] { width: 0; border-left: 0; }

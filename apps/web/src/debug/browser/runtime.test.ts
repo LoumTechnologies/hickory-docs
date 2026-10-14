@@ -67,10 +67,19 @@ describe("browser interpreter", () => {
     expect(() => materializeLiteralFiles('<hick:file path="a.js"><hick:paste select="#x" /></hick:file>')).toThrow("full weave");
   });
   it("bounds an infinite loop and permits pause between batches", () => {
-    const { run, events, drain } = start("var n = 0;\nwhile (true) { n++; }");
+    const { run, events } = start("var n = 0;\nwhile (true) { n++; }");
     expect(run.pump(100)).toBe(true);
     run.pause(); run.pump(); expect(pause(events).reason).toBeDefined();
-    run.step("continue"); drain();
+    run.step("continue");
+    // Accrued interpreter steps are the limit, not elapsed wall time. Place
+    // the fixture at the boundary instead of spending the test's timeout on
+    // two million real steps while other compiler/browser checks run.
+    Reflect.set(run, "steps", 1_999_999);
+    expect(run.pump(1)).toBe(true);
+    expect(run.pump(1)).toBe(false);
+    expect(events).toContainEqual(expect.objectContaining({
+      event: "failed", message: "Browser execution limit exceeded (2 million interpreter steps)",
+    }));
     expect(events.at(-1)).toMatchObject({ event: "finished", exit_code: 1 });
   });
 });

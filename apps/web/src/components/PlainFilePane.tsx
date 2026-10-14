@@ -1,3 +1,4 @@
+import { PaneHeaderContent } from "../shell/PaneHeader";
 import { MoreActions } from "./MoreActions";
 import { SurfaceInfo } from "./SurfaceInfo";
 import { registerSearchEditor } from "../lib/workspaceSearch";
@@ -715,7 +716,7 @@ export function PlainFilePane({
   return (
     <div className="plain-file-pane">
       <SurfaceInfo name={`File · ${path}`} editable destination="Edits save automatically to this file on disk." />
-      <div className="doc-tab-toolbar" role="toolbar" aria-label={`Actions for ${path}`}>
+      <PaneHeaderContent part="actions"><div className="doc-tab-toolbar" role="toolbar" aria-label={`Actions for ${path}`}>
         <MoreActions label="More actions for this file">
         {!generatedBy && <button className="btn" disabled={!file || !["idle", "saved"].includes(saveState.kind)} onClick={() => void openLiterate({ kind: "files", paths: [path] }).catch(e => setNotice(e instanceof Error ? e.message : String(e)))} data-tip="Open an editable arrangement; Save writes code back to these source files.">Open literate view</button>}
         {!generatedBy && <button className="btn" disabled={!file || !["idle", "saved"].includes(saveState.kind)} onClick={() => void openLiterate({ kind: "files", paths: [path] }, "HEAD").catch(e => setNotice(e instanceof Error ? e.message : String(e)))}>Review changes</button>}
@@ -738,7 +739,6 @@ export function PlainFilePane({
           {adopting ? "Adopting…" : "Make literate"}
         </button>
         )}
-        </MoreActions>
         {/* The way into a session, for a file hick can debug. The strip's
             own "Debug again" takes over once a session has run, so this is
             only shown while there is none. */}
@@ -751,6 +751,7 @@ export function PlainFilePane({
             Debug
           </button>
         )}
+        </MoreActions>
         {notice && (
           <span className="muted plain-file__notice" role="status">
             {notice}
@@ -764,7 +765,7 @@ export function PlainFilePane({
             {saveState.kind === "saving" ? "Saving…" : "Saved"}
           </span>
         )}
-      </div>
+      </div></PaneHeaderContent>
       {adoptError && (
         <div className="banner banner-fail" role="alert">
           Could not adopt {path}: {adoptError}

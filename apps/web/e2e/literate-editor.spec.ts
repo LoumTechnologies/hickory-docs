@@ -195,7 +195,7 @@ test("automatic Save clears dirty state and a failed Run keeps the editable docu
   expect(created.ok()).toBeTruthy();
   const note = await created.json();
   await page.goto(`/#/docs/${note.id}`);
-  const document = page.locator(".debug-block").filter({ has: page.getByRole("toolbar", { name: "Actions for coherence.md", exact: true }) });
+  const document = page.locator("[data-spatial-center=true]").filter({ has: page.getByRole("toolbar", { name: "Actions for coherence.md", exact: true }) });
   const editor = document.locator(".cm-content");
   await expect(editor).toContainText("Before");
   await editor.click(); await editor.press("ControlOrMeta+a"); await editor.pressSequentially("# After automatic save");
@@ -203,7 +203,8 @@ test("automatic Save clears dirty state and a failed Run keeps the editable docu
   await expect(document.locator(".save-state")).toHaveText("Saved to disk");
   await expect(page.getByRole("tab", { name: /coherence.md/ })).not.toContainText("*");
   await page.route(`**/api/docs/${note.id}/run`, route => route.fulfill({ status: 503, contentType: "application/json", body: JSON.stringify({ error: "temporary runner failure" }) }));
-  await page.getByRole("button", { name: "Run", exact: true }).click();
+  await document.getByRole("button", { name: "More actions for this document" }).click();
+  await page.getByRole("menuitem", { name: "Run", exact: true }).click();
   const error = document.getByRole("alert");
   await expect(error).toContainText("temporary runner failure");
   await expect(editor).toHaveAttribute("contenteditable", "true");

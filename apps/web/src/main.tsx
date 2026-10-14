@@ -3,6 +3,7 @@ import { createRoot } from "react-dom/client";
 import { App } from "./App";
 import { MOCK } from "./api/client";
 import { setSharedRealtime } from "./api/realtime";
+import { applyEditorAppearance, loadEditorAppearance } from "./lib/editorAppearance";
 import { applyStoredTheme } from "./lib/theme";
 import { loadHickLang } from "./editor/hickLang";
 import { loadKeymap } from "./lib/keymap";
@@ -12,6 +13,7 @@ import "./styles.css";
 // here keeps any embedding that skips that script (tests, the desktop
 // webview's saved page) on the same contract.
 applyStoredTheme();
+applyEditorAppearance(loadEditorAppearance());
 
 async function boot() {
   // The parser is WebAssembly and parses synchronously once loaded; the

@@ -1,0 +1,5 @@
+.command-palette[hidden] { display: none; }
+.command-palette { position: fixed; inset: 0; z-index: 500; display: flex; justify-content: center; align-items: flex-start; padding-top: min(12vh, 100px); background: rgba(0, 0, 0, .18); }
+.command-bar--overlay { width: min(38rem, calc(100vw - 24px)); padding: 8px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg-raised); box-shadow: var(--shadow); }
+.command-bar--overlay .command-bar__input { box-sizing: border-box; text-align: left; }
+.command-bar--overlay .command-bar__panel { left: 0; right: 0; }

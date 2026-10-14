@@ -1,0 +1,13 @@
+.pane-header-slots { display: flex; align-items: center; flex: none; gap: 4px; }
+.pane-header-info, .pane-header-actions { display: flex; align-items: center; min-width: 0; }
+.spatial-view-header:has(.pane-header-slots) { overflow: visible; }
+.pane-header-slots .doc-tab-toolbar { padding: 0; background: transparent; border: 0; font-size: 12px; }
+.pane-header-slots .doc-tab-toolbar .btn { padding: 2px 5px; font-size: 12px; }
+.pane-header-slots .surface-info { position: relative; padding: 0; border: 0; font-size: 12px; }
+.pane-header-slots .surface-info > summary { padding: 4px; }
+.pane-header-slots .surface-info > summary::before { content: "ⓘ"; }
+.pane-header-slots .surface-info[open] > summary::before { transform: none; }
+.pane-header-slots .surface-info > summary > strong,
+.pane-header-slots .surface-info > summary > span { display: none; }
+.pane-header-slots .surface-info > p { position: absolute; z-index: 30; right: 0; top: 24px; width: min(320px, 75vw); box-sizing: border-box; margin: 0; padding: 10px; background: var(--bg-raised); color: var(--fg); border: 1px solid var(--border); border-radius: 4px; box-shadow: var(--shadow); white-space: normal; }
+.pane-header-slots .save-state { max-width: 8rem; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }

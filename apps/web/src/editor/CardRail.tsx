@@ -253,7 +253,7 @@ export function CardRail({
   }, [view, signature]);
 
   return (
-    <div className="cm-card-rail" role="toolbar" aria-label="Cell and diagram actions" ref={railRef}>
+    <div className="cm-card-rail" data-empty={icons.length === 0} role="toolbar" aria-label="Cell and diagram actions" ref={railRef}>
       {icons.map(({ card, action, key }) => {
         const state = stateOf(card);
         const rendered = renderedAt.includes(card.at);

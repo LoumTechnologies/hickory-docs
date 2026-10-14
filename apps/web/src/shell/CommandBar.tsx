@@ -16,7 +16,14 @@
 // candidates, and reports the pick. What any of those things MEAN belongs to
 // the workspace, which is the only thing that knows what is open.
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { isAction } from "../lib/keymap";
+import "./commandPalette.css";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+
+const OPEN_COMMAND_BAR = "hickory-open-command-bar";
+export function openCommandBar(commands = false) {
+  window.dispatchEvent(new CustomEvent(OPEN_COMMAND_BAR, { detail: commands }));
+}
 
 /** What a query is asking for. */
 export type CommandMode = "files" | "command" | "content" | "line";
@@ -56,31 +63,53 @@ export function modeHint(mode: CommandMode): string {
 export function CommandBar({
   candidates,
   placeholder = "Search",
+  overlay = false,
 }: {
   /** Answers for a query. Async because searching contents is a request. */
   candidates: (mode: CommandMode, term: string) => Promise<CommandItem[]> | CommandItem[];
   placeholder?: string;
+  overlay?: boolean;
 }) {
   const [raw, setRaw] = useState("");
   const [open, setOpen] = useState(false);
   const [items, setItems] = useState<CommandItem[]>([]);
   const [selected, setSelected] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
+  const previousFocus = useRef<HTMLElement | null>(null);
+  const openRef = useRef(open); openRef.current = open;
   const { mode, term } = useMemo(() => parseQuery(raw), [raw]);
 
-  // ⌘P from anywhere, the chord every editor uses for "go to a thing".
   useEffect(() => {
-    const onKey = (event: KeyboardEvent) => {
-      if (!(event.metaKey || event.ctrlKey) || event.key.toLowerCase() !== "p") return;
-      event.preventDefault();
+    const reveal = (commands: boolean) => {
+      if (!openRef.current) previousFocus.current = document.activeElement as HTMLElement | null;
+      setRaw(commands ? ">" : "");
       setOpen(true);
-      setRaw(event.shiftKey ? ">" : "");
       inputRef.current?.focus();
       inputRef.current?.select();
     };
+    const onKey = (event: KeyboardEvent) => {
+      const commands = isAction(event, "search.commands");
+      if (!commands && !isAction(event, "search.quickOpen")) return;
+      event.preventDefault();
+      reveal(commands);
+    };
+    const onOpen = (event: Event) => reveal((event as CustomEvent<boolean>).detail === true);
     window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
+    window.addEventListener(OPEN_COMMAND_BAR, onOpen);
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      window.removeEventListener(OPEN_COMMAND_BAR, onOpen);
+    };
   }, []);
+  useLayoutEffect(() => {
+    if (overlay && open) { inputRef.current?.focus(); inputRef.current?.select(); }
+  }, [overlay, open]);
+  const dismiss = () => {
+    setOpen(false);
+    setRaw("");
+    if (overlay && previousFocus.current?.isConnected) previousFocus.current.focus();
+    else inputRef.current?.blur();
+  };
 
   useEffect(() => {
     if (!open) return;
@@ -105,13 +134,14 @@ export function CommandBar({
 
   const choose = (item: CommandItem | undefined) => {
     if (!item) return;
-    setOpen(false);
-    setRaw("");
+    dismiss();
     item.run();
   };
 
   return (
-    <div className="command-bar" role="search">
+    <div className={overlay ? "command-palette" : "command-bar"} hidden={overlay && !open} role="search"
+      onMouseDown={event => { if (overlay && event.target === event.currentTarget) dismiss(); }}>
+      <div className={overlay ? "command-bar command-bar--overlay" : undefined}>
       <input
         ref={inputRef}
         className="command-bar__input"
@@ -121,17 +151,22 @@ export function CommandBar({
         aria-label={modeHint(mode)}
         aria-expanded={open}
         onFocus={() => setOpen(true)}
-        // A blur that closes immediately would fire before the click on a
-        // result landed; the frame's delay is what lets a pick through.
-        onBlur={() => window.setTimeout(() => setOpen(false), 120)}
+        // Result buttons keep the input focused on mousedown. An overlay
+        // closes immediately when focus leaves it, so reopening cannot be
+        // cancelled by a timeout from its previous dismissal.
+        onBlur={(event) => {
+          if (overlay) {
+            if (!event.currentTarget.parentElement?.contains(event.relatedTarget as Node | null)) setOpen(false);
+          } else window.setTimeout(() => setOpen(false), 120);
+        }}
         onChange={(event) => {
           setRaw(event.target.value);
           setOpen(true);
         }}
         onKeyDown={(event) => {
           if (event.key === "Escape") {
-            setOpen(false);
-            inputRef.current?.blur();
+            event.preventDefault();
+            dismiss();
           } else if (event.key === "ArrowDown") {
             event.preventDefault();
             setSelected((i) => Math.min(i + 1, items.length - 1));
@@ -175,6 +210,7 @@ export function CommandBar({
           )}
         </div>
       )}
+      </div>
     </div>
   );
 }

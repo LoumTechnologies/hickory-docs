@@ -804,7 +804,7 @@ textarea:focus {
   flex: 1;
   min-height: 0;
   max-height: 100%;
-  font-size: 0.95rem;
+  font-size: calc(0.95rem * var(--tab-zoom, 1));
 }
 
 .document-editor .cm-editor.cm-focused { outline: none; }
@@ -812,15 +812,15 @@ textarea:focus {
 /* Prose reads like a document: proportional type, generous measure. */
 .document-editor .cm-scroller {
   font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
-  line-height: 1.65;
+  line-height: var(--editor-document-leading, 1.45);
 }
 
 /* The editor uses the full pane; `--prose-wrap` supplies the reader's measure. */
 .document-editor .cm-content {
-  --cm-pad-x: 2.5rem;
+  --cm-pad-x: var(--editor-pad-x, .75rem);
   max-width: none;
   margin: 0;
-  padding: 2rem var(--cm-pad-x) 3rem;
+  padding: var(--editor-pad-top, .5rem) var(--cm-pad-x) var(--editor-pad-bottom, .75rem);
   caret-color: var(--fg);
   position: relative;
 }
@@ -2050,7 +2050,7 @@ textarea:focus {
   flex: 1;
   min-height: 0;
   max-height: 100%;
-  font-size: 0.86rem;
+  font-size: calc(0.86rem * var(--tab-zoom, 1));
 }
 
 .cm-prov-active {
@@ -2628,7 +2628,7 @@ button.fleet-grant {
   overflow: hidden;
   background: var(--bg-raised);
 }
-.split-output-editor .cm-editor { font-size: 0.84rem; }
+.split-output-editor .cm-editor { font-size: calc(0.84rem * var(--tab-zoom, 1)); }
 .split-output-editor .cm-editor.cm-focused { outline: none; }
 .split-output-editor .cm-scroller { font-family: ui-monospace, Menlo, monospace; }
 
@@ -5746,7 +5746,7 @@ button.fleet-grant {
   overflow: hidden;
   border-left: 1px solid var(--border);
   font-family: ui-monospace, Menlo, monospace;
-  font-size: 0.72rem;
+  font-size: calc(0.72rem * var(--tab-zoom, 1));
   color: var(--fg-muted);
   user-select: none;
   pointer-events: none;

@@ -59,9 +59,9 @@ export function editorChrome(kind: ChromeKind): Extension {
       fontFamily: code
         ? 'ui-monospace, "SF Mono", Menlo, Consolas, monospace'
         : 'system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", sans-serif',
-      lineHeight: code ? "1.5" : "1.65",
+      lineHeight: code ? "var(--editor-code-leading, 1.4)" : "var(--editor-document-leading, 1.45)",
     },
-    ".cm-content": { caretColor: "var(--fg)" },
+    ".cm-content": { "--cm-pad-x": "var(--editor-pad-x, .75rem)", caretColor: "var(--fg)", padding: "var(--editor-pad-top, .5rem) var(--editor-pad-x, .75rem) var(--editor-pad-bottom, .75rem)" },
 
     // -- the gutters, which is where this started ---------------------------
     ".cm-gutters": {
@@ -73,7 +73,7 @@ export function editorChrome(kind: ChromeKind): Extension {
       fontFamily: 'ui-monospace, "SF Mono", Menlo, Consolas, monospace',
       fontSize: "0.78em",
     },
-    ".cm-lineNumbers .cm-gutterElement": { padding: "0 0.5em 0 1em" },
+    ".cm-lineNumbers .cm-gutterElement": { padding: "0 0.5em 0 var(--editor-number-pad, .5em)" },
     ".cm-activeLineGutter": {
       backgroundColor: "transparent",
       color: "var(--fg)",

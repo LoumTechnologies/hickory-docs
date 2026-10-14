@@ -3,8 +3,11 @@
 Given a working surface, when controls and results are shown, then cell
 actions stay on the action rail, tab actions and notices stay inside that tab,
 and workspace notices stay at workspace scope. Document and file conversion,
-review, baseline, and local-view management actions use More actions; everyday
-Run, Test, Debug, and explicit literate Save remain directly accessible.
+review, baseline, and local-view management actions use More actions.
+Document-wide Run and Test and file-wide Debug use the pane header’s action
+menu; cell Run stays on its rail. Explicit literate Save remains directly
+accessible. View identity and write destination use the header’s information
+control rather than a separate document row.
 Lineage settings use the same Ribbons and Braces names locally and in Settings.
 
 ---
@@ -31,3 +34,12 @@ Last LLM implementation review:
   adjustment also passed all 8 `workspaceTabs.test.tsx` tests. See the audit
   for coverage gaps and earlier failed witnesses.
 - Human judgment: not recorded.
+
+
+Amendment (2026-10-13): the user authorized the minimalist editor audit’s
+recommendations, then explicitly retained the visible ruler and downward action
+rail collision handling. `PaneHeader` portals metadata and document/file action
+controls into each spatial pane’s existing header without moving the editor.
+`workspaceTabs.test.tsx` checks Run/Test menu dispatch and in-flight disabling.
+Earlier verification above is historical; current evidence and coverage gaps
+are in `authoring/the-editor-keeps-its-space.md`.

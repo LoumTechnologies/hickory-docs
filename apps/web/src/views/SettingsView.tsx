@@ -1,3 +1,4 @@
+import { loadEditorAppearance, saveEditorAppearance } from "../lib/editorAppearance";
 import { CommandPathSettings } from "./CommandPathSettings";
 // Settings ("#/settings"): LLM API keys, plus Appearance.
 //
@@ -148,6 +149,7 @@ function ChoiceRow<T extends string | number>({
  * launch for the native title bar.
  */
 function AppearanceSection() {
+  const [editorAppearance, setEditorAppearance] = useState(loadEditorAppearance);
   const spatialSides = useSpatialSides();
   const [theme, setTheme] = useState<Theme>(() => loadTheme());
   const [ribbonStyle, setRibbonStyle] = useState<RibbonStyle>(() => loadRibbonStyle());
@@ -248,6 +250,32 @@ function AppearanceSection() {
             },
           ]}
         />
+        <ChoiceRow
+          label="Editor density"
+          value={editorAppearance.density}
+          onPick={(density) => {
+            const next = { ...editorAppearance, density };
+            setEditorAppearance(next); saveEditorAppearance(next);
+          }}
+          choices={[
+            { value: "compact", label: "Compact", title: "More text on screen, with smaller margins and tighter line spacing" },
+            { value: "comfortable", label: "Comfortable", title: "Generous margins and line spacing for reading prose" },
+          ]}
+        />
+        <div className="settings-row settings-row--appearance">
+          <div className="settings-row__who"><label className="settings-row__label" htmlFor="touch-file-rows">Large Files touch targets</label></div>
+          <div className="settings-row__actions"><input id="touch-file-rows" type="checkbox" checked={editorAppearance.touchTargets} onChange={event => {
+            const next = { ...editorAppearance, touchTargets: event.target.checked };
+            setEditorAppearance(next); saveEditorAppearance(next);
+          }} /></div>
+        </div>
+        <div className="settings-row settings-row--appearance">
+          <div className="settings-row__who"><label className="settings-row__label" htmlFor="right-line-numbers">Right-hand line numbers</label></div>
+          <div className="settings-row__actions"><input id="right-line-numbers" type="checkbox" checked={editorAppearance.rightLineNumbers} onChange={event => {
+            const next = { ...editorAppearance, rightLineNumbers: event.target.checked };
+            setEditorAppearance(next); saveEditorAppearance(next);
+          }} /></div>
+        </div>
         <ChoiceRow
           label="Tab placement"
           value={tabStyle}

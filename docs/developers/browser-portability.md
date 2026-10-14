@@ -94,7 +94,7 @@ size. There is no performance budget promised yet.
 
 `embed/measure.ts` times initialization, structure and literal materialization
 of a 73,782-byte Unicode document with 4,096 code lines. Each browser acceptance
-run attaches its measurements to `test-results/browser-embedding.json` under
+run attaches its measurements to `test-results/browser-embedding-<pid>/report.json` under
 `portable-core-timings`. The measured run recorded:
 
 | Browser | Parser load (ms) | Structure (ms) | Literal files (ms) |

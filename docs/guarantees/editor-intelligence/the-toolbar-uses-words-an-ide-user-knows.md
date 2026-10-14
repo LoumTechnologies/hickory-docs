@@ -1,16 +1,23 @@
 # The Document Toolbar Uses Words An IDE User Already Knows
 
-Given a document open in the app, when its toolbar is read by somebody who has
-used a traditional IDE, then every control means what that word means
-everywhere else: **Run** is the primary action, **Test** is what `hick test`
-does, and nothing on the strip is a word another editor has already given a
-different meaning to. A document-wide action that is real but rare lives in an
-overflow menu, named by what it produces.
+Given a document open in the app, when its pane-header action menu is read by
+somebody who has used a traditional IDE, **Run** executes the document and
+**Test** does what `hick test` does. A baseline action is named for what it
+produces. These document-wide verbs use the existing header’s menu rather than
+a dedicated toolbar row; individual cell actions stay on their editor rail.
 
 The status bar's problem count **opens a list**. Clicking it shows every error
 and warning across open documents, worst first, each row naming the file and
 line and jumping there when picked. **F8** goes to the next problem, which is
 what the click used to do alone.
+
+## Current amendment
+
+The 2026-10-13 user request favors dense editor views. Run and Test now appear
+in the pane-header menu and remain disabled during a run. The earlier rationale
+and verification below record the former dedicated-toolbar arrangement; the
+current evidence is `authoring/the-editor-keeps-its-space.md` and
+`apps/web/src/views/workspaceTabs.test.tsx`.
 
 ## Why
 

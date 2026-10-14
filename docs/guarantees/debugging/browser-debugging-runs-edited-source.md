@@ -36,3 +36,26 @@ Last LLM verification:
   breakpoints, reverse execution or arbitrary instruction jumps. Worker isolation
   alone is not a security sandbox; the interpreter's restricted bridge is the
   execution boundary. Memory is bounded by browser resources, not a hard heap quota.
+
+
+Test verification amendment (2026-10-13, Codex): a pre-commit full-suite run
+exposed a hardware/load-dependent timeout in the loop-limit witness, which
+executed two million real interpreter steps within Vitest’s five-second test
+budget. The witness now runs a real loop, pauses and continues it, then places
+the fixture’s accrued step counter one step below the declared two-million
+limit. One step remains runnable and the next emits the explicit limit failure
+and exit code 1. This is a white-box fixture setup with public event assertions;
+it checks the boundary rather than interpreter throughput. The private counter
+name is a test dependency. Production interpreter code and its limit are
+unchanged. `just test-browser-core` passed its Rust parser/materialization
+checks and all 29 frontend tests, including all seven interpreter cases. The
+full commit hook is being rerun with isolated browser artifact directories.
+
+
+Browser-run isolation (2026-10-13): native and embedding Playwright configurations
+now allocate separate per-process artifact directories under `test-results/`.
+The embedding JSON report lives in that run’s directory. `HICKORY_E2E_OUTPUT_DIR`
+can supply an explicit directory. Concurrent default runs cannot erase another
+process’s traces; callers overriding the directory own its exclusivity. This
+addresses two hook failures caused by missing trace network files during context
+close while another browser run used the same output directory.

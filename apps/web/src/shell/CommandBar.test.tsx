@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 
-import { CommandBar, modeHint, parseQuery } from "./CommandBar";
+import { CommandBar, modeHint, parseQuery, openCommandBar } from "./CommandBar";
 
 afterEach(() => {
   cleanup();
@@ -80,7 +80,39 @@ describe("the bar in use", () => {
   it("opens on the chord every editor uses, and Shift starts a command", async () => {
     const candidates = vi.fn().mockReturnValue([]);
     render(<CommandBar candidates={candidates} />);
-    fireEvent.keyDown(window, { key: "p", metaKey: true, shiftKey: true });
+    fireEvent.keyDown(window, { key: "p", ctrlKey: true, shiftKey: true });
     await waitFor(() => expect(candidates).toHaveBeenCalledWith("command", ""));
   });
+});
+
+// Guarantee: docs/guarantees/authoring/the-editor-keeps-its-space.md
+it("reveals the overlay on demand and restores editor focus on dismissal", async () => {
+  const candidates = vi.fn().mockReturnValue([]);
+  render(<><textarea aria-label="Source" defaultValue="keep my text" /><CommandBar candidates={candidates} overlay /></>);
+  const source = screen.getByRole("textbox", { name: "Source" }) as HTMLTextAreaElement;
+  source.focus(); source.setSelectionRange(2, 6);
+  expect(screen.queryByRole("search")).toBeNull();
+  fireEvent.keyDown(window, { key: "p", ctrlKey: true });
+  const palette = screen.getByRole("textbox", { name: "Search open files and folder" });
+  expect(document.activeElement).toBe(palette);
+  fireEvent.keyDown(palette, { key: "Escape" });
+  expect(screen.queryByRole("search")).toBeNull();
+  expect(document.activeElement).toBe(source);
+  expect([source.selectionStart, source.selectionEnd, source.value]).toEqual([2, 6, "keep my text"]);
+  openCommandBar(true);
+  await waitFor(() => expect(screen.getByRole("textbox", { name: "Commands" })).toBeTruthy());
+});
+
+// Guarantee: docs/guarantees/authoring/the-editor-keeps-its-space.md
+it("can reopen immediately after Escape without a stale blur closing it", async () => {
+  render(<CommandBar candidates={() => []} overlay />);
+  fireEvent.keyDown(window, { key: "p", ctrlKey: true });
+  const input = screen.getByRole("textbox");
+  fireEvent.keyDown(input, { key: "Escape" });
+  openCommandBar();
+  await waitFor(() => expect(document.activeElement).toBe(input));
+  fireEvent.change(input, { target: { value: ">Settings" } });
+  await waitFor(() => expect(screen.getByRole("textbox", { name: "Commands" })).toBe(input));
+  await new Promise(resolve => setTimeout(resolve, 150));
+  expect(screen.getByRole("search")).toBeTruthy();
 });

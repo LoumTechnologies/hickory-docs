@@ -1,12 +1,7 @@
 // @vitest-environment jsdom
 //
-// The per-document toolbar: Run and Verify moved OFF the workspace toolbar
-// and into each document tab's own strip, so every open document can be run
-// or verified independently. These tests pin down:
-//  - a document tab renders the toolbar, wired to ITS session's actions;
-//  - both buttons are disabled while that document's run is in flight;
-//  - a generated-file tab gets NO toolbar (the actions belong to the
-//    document, and the workspace toolbar no longer carries them).
+// Document-wide actions live in the pane header's menu and target its session.
+// Guarantee: docs/guarantees/authoring/the-editor-keeps-its-space.md
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render } from "@testing-library/react";
@@ -85,10 +80,12 @@ describe("the document tab's toolbar", () => {
     const { getByRole, queryByRole } = mount(makeSession());
     const toolbar = getByRole("toolbar", { name: "Actions for notes/demo.md" });
     expect(toolbar.className).toBe("doc-tab-toolbar");
-    expect(getByRole("button", { name: "Run" })).toBeTruthy();
+    expect(queryByRole("button", { name: "Run" })).toBeNull();
+    fireEvent.click(getByRole("button", { name: "More actions for this document" }));
+    expect(getByRole("menuitem", { name: "Run" })).toBeTruthy();
     // `hick test` is the command; the button says the same word, so each one
     // is findable from the other.
-    expect(getByRole("button", { name: "Test" })).toBeTruthy();
+    expect(getByRole("menuitem", { name: "Test" })).toBeTruthy();
     expect(queryByRole("button", { name: "Verify" })).toBeNull();
     // "Refactor" means rename/extract in every other editor. It named a mode
     // here, and a mode belongs in a menu.
@@ -105,17 +102,20 @@ describe("the document tab's toolbar", () => {
   it("calls THIS session's runAll and verify", () => {
     const session = makeSession();
     const { getByRole } = mount(session);
-    fireEvent.click(getByRole("button", { name: "Run" }));
+    fireEvent.click(getByRole("button", { name: "More actions for this document" }));
+    fireEvent.click(getByRole("menuitem", { name: "Run" }));
     expect(session.runAll).toHaveBeenCalledTimes(1);
-    fireEvent.click(getByRole("button", { name: "Test" }));
+    fireEvent.click(getByRole("button", { name: "More actions for this document" }));
+    fireEvent.click(getByRole("menuitem", { name: "Test" }));
     expect(session.verify).toHaveBeenCalledTimes(1);
   });
 
   it("disables both buttons while the document's run is in flight", () => {
     const session = makeSession({ runningCells: new Set(["cell-1"]) });
     const { getByRole } = mount(session);
-    const run = getByRole("button", { name: "Running…" }) as HTMLButtonElement;
-    const test = getByRole("button", { name: "Test" }) as HTMLButtonElement;
+    fireEvent.click(getByRole("button", { name: "More actions for this document" }));
+    const run = getByRole("menuitem", { name: "Running…" }) as HTMLButtonElement;
+    const test = getByRole("menuitem", { name: "Test" }) as HTMLButtonElement;
     expect(run.disabled).toBe(true);
     expect(test.disabled).toBe(true);
     fireEvent.click(run);

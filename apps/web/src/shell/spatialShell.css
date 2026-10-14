@@ -35,8 +35,6 @@
 .spatial-resize-rule::after { content: ""; position: absolute; inset: 3px 0 auto; border-top: 1px dotted var(--fg-muted); opacity: .4; }
 .spatial-resize-rule:hover::after, .spatial-resize-rule:focus::after { opacity: 1; border-color: var(--accent); }
 .spatial-shell [hidden] { display: none !important; }
-.spatial-shell .spatial-files .filesystem-editor .cm-line { min-height: 36px; line-height: 36px; }
-.spatial-shell .spatial-files .filesystem-editor .cm-gutterElement { min-height: 36px; line-height: 36px; }
 .spatial-shell .spatial-files .cm-scroller { overflow-x: hidden; }
 .spatial-file-space { pointer-events: none; }
 .spatial-excerpt-edge { display: flex; gap: 8px; padding: 4px 8px; background: var(--bg); color: var(--fg-muted); border-block: 1px dotted var(--border); }

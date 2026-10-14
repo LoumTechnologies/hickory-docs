@@ -615,3 +615,10 @@ test-literate-agent-projects:
 test-literate-worktrees:
     cargo test -p hickory-cli --test merged_view
     cd apps/web && npm test -- src/views/MergedView.test.tsx --maxWorkers=2
+
+# Compact editor chrome, preferences and native browser geometry.
+test-editor-density:
+    cd apps/web && npm run typecheck && npm test -- src/views/workspaceTabs.test.tsx src/views/SettingsView.test.tsx src/shell/CommandBar.test.tsx src/shell/PaneHeader.test.tsx src/components/PlainFilePane.test.tsx src/editor/EditorRuler.test.tsx src/shell/SpatialShellView.test.tsx src/lib/keymap.test.ts src/lib/cardRail.test.ts --maxWorkers=2
+
+test-editor-density-ui:
+    bash scripts/test-spatial-ui.sh editor-density.spec.ts

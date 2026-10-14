@@ -1,3 +1,4 @@
+import { EDITOR_APPEARANCE_KEY, loadEditorAppearance } from "../lib/editorAppearance";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
@@ -25,6 +26,7 @@ let uiSettings: UiSettings;
 let uiPuts: UiSettings[];
 
 beforeEach(() => {
+  localStorage.removeItem(EDITOR_APPEARANCE_KEY);
   providers = [
     { id: "anthropic", label: "Anthropic", configured: true, masked: "sk-a…f3" },
     { id: "openai", label: "OpenAI", configured: false, masked: null },
@@ -75,6 +77,21 @@ afterEach(() => {
 });
 
 describe("the settings view", () => {
+  // Guarantee: docs/guarantees/authoring/the-editor-keeps-its-space.md
+  it("remembers spacing, touch targets and right numbers independently", () => {
+    const ui = render(<SettingsView />);
+    expect(loadEditorAppearance()).toEqual({ density: "compact", touchTargets: false, rightLineNumbers: true });
+    fireEvent.click(screen.getByRole("button", { name: "Comfortable" }));
+    fireEvent.click(screen.getByRole("checkbox", { name: "Large Files touch targets" }));
+    fireEvent.click(screen.getByRole("checkbox", { name: "Right-hand line numbers" }));
+    expect(loadEditorAppearance()).toEqual({ density: "comfortable", touchTargets: true, rightLineNumbers: false });
+    expect(document.documentElement.dataset.editorDensity).toBe("comfortable");
+    expect(document.documentElement.dataset.rightLineNumbers).toBe("false");
+    ui.unmount(); render(<SettingsView />);
+    expect(screen.getByRole("button", { name: "Comfortable" }).getAttribute("aria-pressed")).toBe("true");
+    expect((screen.getByRole("checkbox", { name: "Right-hand line numbers" }) as HTMLInputElement).checked).toBe(false);
+  });
+
   it("defaults left context on and right context off, and remembers independent changes", () => {
     const ui = render(<SettingsView />);
     const left = () => screen.getByRole("checkbox", { name: "Left context panes and vertical tabs" }) as HTMLInputElement;
