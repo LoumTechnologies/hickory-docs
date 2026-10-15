@@ -11,6 +11,7 @@ import { useWorkspaceDebugger } from "../debug/useDebugger";
 import { debugEditor, debugStateEffects } from "../debug/cmDebug";
 import { DebugStrip } from "../debug/DebugStrip";
 import { languageFromPath } from "../editor/languages";
+import { MarginActions } from "./MarginActions";
 
 const decode = (entry: ProjectEntry) => new TextDecoder("utf-8", {fatal:true}).decode(new Uint8Array(entry.bytes));
 function offset(text: string, line: number, column: number): number | null {
@@ -32,7 +33,7 @@ export async function openCapturedCode(target: LspNavigationTarget) {
 
 /** Rendering starts nothing. The explicit action registers an isolated value;
  * only didOpen/debug then materializes it for a native tool. */
-export function ComparisonTools({path,source,view}: {path:string;source:ComparisonSource;view:EditorView|null}) {
+export function ComparisonTools({path,source,view,compact=false}: {path:string;source:ComparisonSource;view:EditorView|null;compact?:boolean}) {
   const [context,setContext] = useState<{id:string;uri:string}|null>(null);
   const [error,setError] = useState("");
   const [busy,setBusy] = useState(false);
@@ -92,10 +93,12 @@ export function ComparisonTools({path,source,view}: {path:string;source:Comparis
     } catch(e) {setError(String(e));} finally {setBusy(false);}
   };
   if (!selected) return null;
-  return <div className="comparison-tools">
-    {!context && <button className="btn" disabled={busy || !active} onClick={()=>void enable()}>Enable language tools · {source.label}</button>}
+  const controls = <div className="comparison-tools">
+    <p>{source.label}</p>
+    <p className="muted">Code completion, navigation and debugging use the complete project for this side.{compact && (source.id === "old" ? " Before uses the project’s input." : " After uses its final output, including later patches.")}</p>
+    {!context && <button className="btn" disabled={busy || !active} onClick={()=>void enable()}>Enable code completion and navigation</button>}
     {!active && <span>Code absent from {source.label}; choose another scope endpoint.</span>}
-    {context && <><span>Native context · {source.label} · complete project</span>
+    {context && <><span>Code tools enabled</span>
       {!exact && <button className="btn" onClick={()=>void openCapturedCode({uri,range:{start:{line:0,character:0},end:{line:0,character:0}}})}>Open completed code to debug</button>}
       {exact && <><button className="btn" onClick={()=>debug.start()}>Debug · {source.label}</button>
         <DebugStrip {...debug} onSelectFrame={id=> {debug.selectFrame(id);const frame=debug.frames.find(f=>f.id===id); if (frame?.source?.startsWith("hick-project:///") && frame.source!==uri) void openCapturedCode({uri:frame.source,range:{start:{line:frame.source_line ?? 0,character:0},end:{line:frame.source_line ?? 0,character:0}}});}}
@@ -107,4 +110,5 @@ export function ComparisonTools({path,source,view}: {path:string;source:Comparis
     </>}
     {error && <p role="alert">{error}</p>}
   </div>;
+  return compact ? <MarginActions label={`Code tools · ${source.label}`} glyph="{}">{controls}</MarginActions> : controls;
 }

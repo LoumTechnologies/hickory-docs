@@ -112,8 +112,8 @@ export function PatchEditor({ slot, cx }: { slot: RenderedSlot; cx: SlotContext 
     };
     try {
       model = draft ?? { sources: [
-        { id: "old", label: "Local Old · declared predecessors", kind: "authored", target: capture.entry, text: decode(state.old), project: capture.project.old, local: state.old },
-        { id: "new", label: "Local New · this patch", kind: "authored", target: capture.entry, text: decode(state.new), project: capture.project.new, local: state.new },
+        { id: "old", label: "Before this patch", kind: "authored", target: capture.entry, text: decode(state.old), project: capture.project.old, local: state.old },
+        { id: "new", label: "After this patch", kind: "authored", target: capture.entry, text: decode(state.new), project: capture.project.new, local: state.new },
       ], old: "old", new: "new", policy: side, evidence: "unverified" };
     } catch { /* The explicit diagnostic below leaves binary source intact. */ }
   }
@@ -125,15 +125,14 @@ export function PatchEditor({ slot, cx }: { slot: RenderedSlot; cx: SlotContext 
     </>}
     {error && <p role="alert">{error}</p>}
     {capture && <>
-      <header className="doc-tab-toolbar"><span>{path} · {cx.view?.state.readOnly ? "read-only" : saving ? "Checking…" : draft ? "Unsaved draft" : "Up to date"}</span></header>
-      <details><summary>Patch options</summary>
+      {model ? <ComparisonEditor path={path} model={model} compact onChange={cx.view?.state.readOnly ? undefined : value => { setError(""); setDraft(value); }} options={<>
+      <p>{path} · {cx.view?.state.readOnly ? "read-only" : saving ? "Checking…" : draft ? "Unsaved draft" : "Up to date"}</p>
       <label>Editable side <select disabled={!!draft || saving} value={side} onChange={e => { setSide(e.target.value as "old" | "new"); setDraft(null); }}><option value="new">New</option><option value="old">Old · authored predecessor</option></select></label>
       <label>File <select disabled={!!draft || saving} value={path} onChange={e => { setPath(e.target.value); setDraft(null); }}>
         {patchPaths(capture.project.local_states[capture.id]).map(p => <option key={p}>{p}</option>)}
       </select></label>
       <p className="muted">Edits save automatically after checking later patches. Language and debug tools use the complete project endpoint.</p>
-      </details>
-      {model ? <ComparisonEditor path={path} model={model} compact onChange={cx.view?.state.readOnly ? undefined : value => { setError(""); setDraft(value); }} /> : <p role="alert">This entry is binary or a symlink. Edit its explicit entry construction.</p>}
+      </>} /> : <p role="alert">This entry is binary or a symlink. Edit its explicit entry construction.</p>}
     </>}
     {error && <button className="btn" onClick={() => void inspect()} disabled={saving}>Reload patch{draft ? " and discard draft" : ""}</button>}
   </section>;

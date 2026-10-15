@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { EditorState, Compartment } from "@codemirror/state";
 import { EditorView, keymap } from "@codemirror/view";
 import { defaultKeymap, history, historyKeymap } from "@codemirror/commands";
@@ -8,6 +8,7 @@ import { editorChrome } from "../editor/chrome";
 import { canEdit, comparisonDiff, editComparison, forkComparison, type ComparisonModel, type ComparisonSource } from "../lib/projectComparison";
 import { ComparisonTools } from "./ComparisonTools";
 import { DiffView } from "./DiffView";
+import { MarginActions } from "./MarginActions";
 
 function SideEditor({ path, item, base, editable, onChange, compact }: {
   path: string; item: ComparisonSource; base?: string; editable: boolean; onChange: (source: string) => void; compact?: boolean;
@@ -39,18 +40,17 @@ function SideEditor({ path, item, base, editable, onChange, compact }: {
           setComparison.of({ base: base ?? null, editable })] });
     } finally { synchronizing.current = false; }
   }, [source, base, editable]);
-  return <section className="comparison-side">{!compact && <h3>{label} · {editable ? "editable draft" : "read-only"}</h3>}<div ref={host} />{item.project && <ComparisonTools path={path} source={item} view={mounted} />}</section>;
+  return <section className="comparison-side">{!compact && <h3>{label} · {editable ? "editable draft" : "read-only"}</h3>}<div ref={host} />{item.project && <ComparisonTools path={path} source={item} view={mounted} compact={compact} />}</section>;
 }
 
 /** One N-source model; two chosen endpoints, with independent storage and evidence. */
-export function ComparisonEditor({ path, model, onChange, allowFork = false, compact = false }: {
-  path: string; model: ComparisonModel; onChange?: (model: ComparisonModel) => void; allowFork?: boolean; compact?: boolean;
+export function ComparisonEditor({ path, model, onChange, allowFork = false, compact = false, options }: {
+  path: string; model: ComparisonModel; onChange?: (model: ComparisonModel) => void; allowFork?: boolean; compact?: boolean; options?: ReactNode;
 }) {
   const [layout, setLayout] = useState("inline");
   const old = model.sources.find(s => s.id === model.old)!, next = model.sources.find(s => s.id === model.new)!;
   const change = (side: "old" | "new", text: string) => onChange?.(editComparison(model, side, text));
-  return <section className="comparison-editor" aria-label={`Comparison of ${path}`}>
-    <header className="doc-tab-toolbar">
+  const controls = <>
       {!compact && <span>{old.label} → {next.label} · {model.evidence === "verified" ? "output equality verified" : "unverified"}</span>}
       <label>Layout <select aria-label="Comparison layout" value={layout} onChange={e => setLayout(e.target.value)}>
         <option value="inline">Inline</option><option value="side-by-side">Side by side</option><option value="patch">Patch</option>
@@ -59,7 +59,10 @@ export function ComparisonEditor({ path, model, onChange, allowFork = false, com
       {model.sources.length > 2 && <label>New source <select value={model.new} onChange={e => onChange?.({ ...model, new: e.target.value, policy: "neither", evidence: "unverified" })}>
         {model.sources.filter(s => s.id !== model.old).map(s => <option key={s.id} value={s.id}>{s.label}</option>)}
       </select></label>}
-    </header>
+      {options}
+    </>;
+  return <section className={`comparison-editor${compact ? " comparison-editor--compact" : ""}`} aria-label={`Comparison of ${path}`}>
+    {compact ? <MarginActions label="Patch options" glyph="⋯">{controls}</MarginActions> : <header className="doc-tab-toolbar">{controls}</header>}
     {layout === "patch" ? <DiffView path={path} diff={comparisonDiff(path, old.text, next.text)} binary={false} staged={false} label="Local transition" />
       : <div className={`comparison-panes comparison-panes--${layout}`}>
         {(layout === "side-by-side" || canEdit(model, "old")) && <SideEditor path={old.path ?? path} item={old} compact={compact}

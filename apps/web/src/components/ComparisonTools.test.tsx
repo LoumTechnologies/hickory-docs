@@ -33,7 +33,7 @@ it("registers the completed project after an explicit gesture from a middle patc
   render(<ComparisonTools path="x.ts" view={null} source={{ id: "new", label: "New · completed project",
     kind: "authored", text: "new\n", local: project.local_states.middle.new, project: project.new }} />);
   expect(request).not.toHaveBeenCalled();
-  fireEvent.click(screen.getByRole("button", { name: "Enable language tools · New · completed project" }));
+  fireEvent.click(screen.getByRole("button", { name: "Enable code completion and navigation" }));
   await waitFor(() => expect(request).toHaveBeenCalledWith("POST", "/api/project-contexts", expect.anything()));
   const body = vi.mocked(request).mock.calls.find(([method]) => method === "POST")![2] as { snapshot: { entries: Record<string, {bytes: number[]}> } };
   expect(Object.keys(body.snapshot.entries).sort()).toEqual(["x.ts", "y.ts"]);
@@ -43,7 +43,7 @@ it("registers the completed project after an explicit gesture from a middle patc
 it("does not offer runnable tools for an empty Old endpoint", () => {
   render(<ComparisonTools path="x.ts" view={null} source={{ id: "old", label: "Old · scope input",
     kind: "authored", text: "old\n", project: [] }} />);
-  expect((screen.getByRole("button", { name: "Enable language tools · Old · scope input" }) as HTMLButtonElement).disabled).toBe(true);
+  expect((screen.getByRole("button", { name: "Enable code completion and navigation" }) as HTMLButtonElement).disabled).toBe(true);
   expect(screen.getByText("Code absent from Old · scope input; choose another scope endpoint.")).toBeTruthy();
   expect(request).not.toHaveBeenCalled();
 });
@@ -55,7 +55,7 @@ it("uses each revision's own file path for tools across a rename", () => {
     { id: "new", label: "New revision", kind: "git", text: "code\n", project: [entry("new.ts")] },
   ], old: "old", new: "new", policy: "neither", evidence: "unverified" }} />);
   fireEvent.change(screen.getByLabelText("Comparison layout"), { target: { value: "side-by-side" } });
-  expect((screen.getByRole("button", { name: "Enable language tools · Old revision" }) as HTMLButtonElement).disabled).toBe(false);
-  expect((screen.getByRole("button", { name: "Enable language tools · New revision" }) as HTMLButtonElement).disabled).toBe(false);
+  expect((screen.getAllByRole("button", { name: "Enable code completion and navigation" })[0] as HTMLButtonElement).disabled).toBe(false);
+  expect((screen.getAllByRole("button", { name: "Enable code completion and navigation" })[1] as HTMLButtonElement).disabled).toBe(false);
   expect(request).not.toHaveBeenCalled();
 });
