@@ -140,6 +140,7 @@ import { sessionById, useTerminals } from "../terminal/useTerminals";
 import { nextInQueue } from "../lib/attentionCursor";
 import { DocTabBody, GeneratedTabBody, UntitledTab } from "./workspaceTabs";
 import { useUntitledRecovery } from "./useUntitledRecovery";
+import { restoreFolderLayout } from "./restoreFolderLayout";
 import { useWorkspaceUi } from "./useWorkspaceUi";
 import { openSelectedFile, useFolderPane } from "./folderPane";
 import { focusedEditor } from "../editor/activeEditor";
@@ -377,9 +378,11 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
       }),
     [],
   );
-  const workspaceUi = useWorkspaceUi(layout, (restored) => {
-    if (!startup) setLayout((current) => (isWorkspaceEmpty(current) ? restored : current));
-  });
+  const { roots: folderRoots, error: folderError, folderOpen } = useFolderTrees();
+  folderRootsRef.current = folderRoots;
+  const workspaceUi = useWorkspaceUi(layout, restored => setLayout(current => restoreFolderLayout(current, restored,
+    folderOpen === true, introductionTab && untitledSourcesRef.current[introductionTab] === STARTUP_INTRODUCTION ? introductionTab : undefined)),
+    folderOpen === null ? (folderError ? "window" : null) : folderOpen ? folderRoots[0]?.root_path ?? folderRoots[0]?.root ?? "folder" : "window");
   const untitledRecovery = useUntitledRecovery({
     hydrated: workspaceUi.hydrated, layoutRef, setLayout,
     sourcesRef: untitledSourcesRef, setSources: setUntitledSources,
@@ -654,7 +657,7 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
       return;
     }
     if (route.name === "new") {
-      setLayout((current) => openUntitledTab(current));
+      if (!(startup && folderOpen && workspaceUi.restored)) setLayout(current => openUntitledTab(current));
       return;
     }
     if (route.name === "scratchpad") {
@@ -687,11 +690,6 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
     sourceFor: (tabId) => untitledSourcesRef.current[tabId],
     onSaved: forgetUntitled,
   });
-  // The folder tree's data: one root today, an array so several folders can
-  // sit side by side later without this view changing shape. Hoisted above
-  // the title effect: the root also names the window.
-  const { roots: folderRoots, error: folderError, folderOpen } = useFolderTrees();
-  folderRootsRef.current = folderRoots;
   // What the window calls itself: the custom override from Settings, else
   // the project folder's name, else the focused file (lib/windowTitle.ts).
   const untitledFocused = (() => {
@@ -990,7 +988,7 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
 
   // Show Files activates its pane and puts keyboard point in its tree.
   const focusTreeRef = useRef<() => void>(() => undefined);
-  const focusTree = useFolderPane(folderOpen, workspaceUi.hydrated, layout, setLayout, setTreeFocusRequest, setInsertNotice);
+  const focusTree = useFolderPane(folderOpen, workspaceUi.hydrated, layout, setLayout, setTreeFocusRequest, setInsertNotice, workspaceUi.restored);
   focusTreeRef.current = focusTree;
   openTerminalRef.current = () => openTerminal();
   // The "open here" ports: one per file the focused document's ribbons reach
@@ -1195,13 +1193,11 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
       text: view.state.doc.toString(),
     });
   }, []);
-  // Honor "Show this page when a folder opens" after restoring the workspace.
-  // Welcome becomes active; the person's restored tabs stay available.
   const welcomed = useRef(false);
   useEffect(() => {
     if (!workspaceUi.hydrated || welcomed.current) return;
     welcomed.current = true;
-    if (startup || (route.name === "new" && route.file) || !loadShowWelcome()) return;
+    if (startup || workspaceUi.restored || (route.name === "new" && route.file) || !loadShowWelcome()) return;
     setLayout(openWelcomeTab);
   }, [workspaceUi.hydrated]);
   useEffect(() => {
@@ -1454,6 +1450,7 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
     [layers],
   );
   const { dirtyTabIds, dirtyPaths, requestCloseTab } = useUnsavedLifecycle({
+    flushUi: workspaceUi.flush,
     layout,
     layoutRef,
     setLayout,
@@ -1706,7 +1703,7 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
           ))}
           <ShellView
             sources={ribbonSources} files={ribbonFiles} links={ribbonLinks} folderRoot={folderRoots[0]?.root_path ?? folderRoots[0]?.root} hasFiles={!!folderOpen && folderRoots.some(root => root.tree.length > 0)}
-            layout={layout}
+            layout={layout} spatialState={workspaceUi.spatial} onSpatialState={workspaceUi.setSpatial} spatialHydrated={workspaceUi.hydrated}
             onLayout={setLayout}
             onSearch={() => setSearchOpen(true)}
             ports={ports}

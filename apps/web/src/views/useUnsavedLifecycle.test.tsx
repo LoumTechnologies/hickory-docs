@@ -104,3 +104,24 @@ it("keeps an inactive view open when its attempted Save fails", async () => {
   expect(setLayout).not.toHaveBeenCalled();
   unmount(); viewBuffers.forget(workingTab.id);
 });
+
+// Guarantee: docs/guarantees/authoring/a-folder-remembers-its-window.md
+it("waits for the latest layout write before approving a clean window close", async () => {
+  let finish!: () => void;
+  const flushUi = vi.fn(() => new Promise<void>(resolve => { finish = resolve; }));
+  const close = vi.spyOn(api, "closeWindow").mockResolvedValue({ ok: true });
+  const layout = freeform();
+  const hook = renderHook(() => useUnsavedLifecycle({
+    layout, layoutRef: { current: layout }, setLayout: vi.fn(), flushUi,
+    registry: new SessionRegistry(), retainSavedDrafts: false,
+    untitledSources: {}, untitledSourcesRef: { current: {} }, forgetUntitled: vi.fn(),
+    saveUntitled: vi.fn(), prompt: { askChoice: vi.fn() } as never,
+    plainDirtyTabs: new Set(), plainUnsavedActions: { current: new Map() },
+  }));
+  act(() => window.dispatchEvent(new Event("hickory-workspace-close-request")));
+  expect(flushUi).toHaveBeenCalledTimes(1);
+  expect(close).not.toHaveBeenCalled();
+  await act(async () => finish());
+  expect(close).toHaveBeenCalledTimes(1);
+  hook.unmount();
+});

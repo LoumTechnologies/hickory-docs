@@ -267,3 +267,61 @@ fn remembering_into_an_unwritable_place_does_not_panic() {
     hickory_desktop_lib::server::remember(&impossible, project.path());
     assert!(hickory_desktop_lib::server::last_opened(&impossible).is_none());
 }
+
+/// Guarantee: docs/guarantees/authoring/a-folder-remembers-its-window.md
+#[tokio::test(flavor = "multi_thread")]
+async fn folder_layout_follows_the_first_folder_attached_to_a_blank_window() {
+    let config = tempfile::tempdir().unwrap();
+    let folder = tempfile::tempdir().unwrap();
+    let other = tempfile::tempdir().unwrap();
+    let store = hickory_workspace::WorkspaceStore::for_project(folder.path()).unwrap();
+    let remembered = serde_json::json!({"version": 1, "layout": {"open": ["notes.md"]}});
+    store.save_ui(&remembered).unwrap();
+    let session = hickory_desktop_lib::server::start_blank_with_config(Some(config.path()), None)
+        .await
+        .unwrap();
+    let http = reqwest::Client::new();
+    let endpoint = format!("{}/api/workspace/ui", session.url);
+    assert!(
+        http.put(&endpoint)
+            .json(&serde_json::json!({"state": {"blank": true}}))
+            .send()
+            .await
+            .unwrap()
+            .status()
+            .is_success()
+    );
+    assert!(
+        session
+            .attach_folder(folder.path(), Some(config.path()), None, None)
+            .await
+            .unwrap()
+    );
+    let response: serde_json::Value = http
+        .get(&endpoint)
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(response["state"], remembered);
+    let changed = serde_json::json!({"version": 1, "layout": {"open": ["notes.md", "todo.md"]}});
+    assert!(
+        http.put(&endpoint)
+            .json(&serde_json::json!({"state": changed}))
+            .send()
+            .await
+            .unwrap()
+            .status()
+            .is_success()
+    );
+    assert_eq!(store.load_ui(), Some(changed));
+    assert!(
+        hickory_workspace::WorkspaceStore::for_project(other.path())
+            .unwrap()
+            .load_ui()
+            .is_none()
+    );
+    store.clear_ui().unwrap();
+}

@@ -16,26 +16,23 @@
 // opens with default tabs, so there is no path here that leaves `hydrated`
 // false.
 //
-// Restoring is still "add, never arrange": the stored layout is applied only
-// into an untouched workspace, the same rule a document's own declared layout
-// follows. Once it is in, the route's `ensureDocOpen` runs on top and either
-// activates the tab the restore already brought back or adds one.
+// Folder identity gates both loading and saving. A late response from an old
+// folder is ignored; the caller preserves any editors already in use.
 
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { api } from "../api/client";
-import { isWorkspaceEmpty } from "./workspaceState";
 import {
   emptyUi,
   normalizeUi,
   withTableLayout,
   withWrap,
   withZoom,
-  worthStoring,
   wrapFor,
   zoomFor,
   type WorkspaceUi,
 } from "../lib/uiState";
+import type { SpatialState } from "../shell/spatialLayout";
 import type { Layout } from "../shell/layout";
 import type { TableLayout } from "../components/TablePanel";
 
@@ -46,6 +43,10 @@ export interface WorkspaceUiHandle {
   /** False until the stored state has been asked for and answered. The
    * route's opener must not touch the layout before this. */
   hydrated: boolean;
+  restored: boolean;
+  spatial: SpatialState | undefined;
+  setSpatial: (state: SpatialState) => void;
+  flush: () => Promise<void>;
   /** The prose measure for a tab, by its target path. */
   wrapFor: (target: string) => number;
   /** Record a measure the reader dragged on a ruler. */
@@ -62,18 +63,25 @@ export interface WorkspaceUiHandle {
 }
 
 /**
- * Load the stored window state once, then keep it up to date.
+ * Load each folder's stored window state, then keep it up to date.
  *
- * `applyLayout` is handed the restored arrangement exactly once, and only
- * when there is one worth restoring; it is expected to install it only into
- * an untouched workspace.
+ * The caller decides which existing editors to carry into the arrangement.
  */
 export function useWorkspaceUi(
   layout: Layout,
   applyLayout: (restored: Layout) => void,
+  scope: string | null = "window",
 ): WorkspaceUiHandle {
   const [ui, setUi] = useState<WorkspaceUi>(emptyUi);
-  const [hydrated, setHydrated] = useState(false);
+  const [loadedScope, setLoadedScope] = useState<string | null>(null);
+  const [restored, setRestored] = useState(false);
+  const hydrated = scope !== null && loadedScope === scope;
+  const applyRef = useRef(applyLayout);
+  applyRef.current = applyLayout;
+  const uiRef = useRef(ui);
+  uiRef.current = ui;
+  const pending = useRef(Promise.resolve());
+  const scopeRef = useRef(scope); scopeRef.current = scope;
   // The layout is read through a ref by the save timer, so a change to the
   // arrangement does not restart the timer on every keystroke that happens to
   // re-render this view.
@@ -81,46 +89,52 @@ export function useWorkspaceUi(
   layoutRef.current = layout;
 
   useEffect(() => {
+    if (scope === null) return;
     let cancelled = false;
+    setRestored(false);
     void api.workspaceUi().then(
       (response) => {
         if (cancelled) return;
         const stored = normalizeUi(response.state);
         setUi(stored);
-        if (stored.layout && isWorkspaceEmpty(layoutRef.current)) applyLayout(stored.layout);
-        setHydrated(true);
+        if (stored.layout) applyRef.current(stored.layout);
+        setRestored(stored.layout !== null);
+        setLoadedScope(scope);
       },
       () => {
         // No store, no home directory, a read-only disk: the window opens
         // with default tabs and says nothing. There is nothing here a person
         // could act on, and the route must not stay blocked.
-        if (!cancelled) setHydrated(true);
+        if (!cancelled) { setUi(emptyUi()); setLoadedScope(scope); }
       },
     );
     return () => {
       cancelled = true;
     };
-    // Once per mount, deliberately: this is hydration, not synchronisation.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [scope]);
+
+  const flush = useCallback(async (keepalive = false) => {
+    if (!hydrated) return;
+    const state: WorkspaceUi = { ...uiRef.current, layout: layoutRef.current };
+    pending.current = pending.current.then(() => {
+      if (scopeRef.current === scope) return api.saveWorkspaceUi(state, keepalive);
+    }).then(() => {}, () => {});
+    await pending.current;
+  }, [hydrated, scope]);
+
+  useEffect(() => {
+    const hide = () => { void flush(true); };
+    window.addEventListener("pagehide", hide);
+    return () => window.removeEventListener("pagehide", hide);
+  }, [flush]);
 
   // Write it down, debounced, once hydration has happened — saving before the
   // load returns would overwrite the stored layout with the default one.
   useEffect(() => {
     if (!hydrated) return;
-    const timer = window.setTimeout(() => {
-      const current = layoutRef.current;
-      const state: WorkspaceUi = {
-        ...ui,
-        layout: worthStoring(current) ? current : null,
-      };
-      void api.saveWorkspaceUi(state).catch(() => {
-        // Forgetting the arrangement is an annoyance, not something to
-        // interrupt anyone over.
-      });
-    }, UI_SAVE_DEBOUNCE_MS);
+    const timer = window.setTimeout(() => { void flush(); }, UI_SAVE_DEBOUNCE_MS);
     return () => window.clearTimeout(timer);
-  }, [hydrated, ui, layout]);
+  }, [hydrated, ui, layout, flush]);
 
   const setWrap = useCallback((target: string, column: number) => {
     setUi((current) => withWrap(current, target, column));
@@ -136,6 +150,13 @@ export function useWorkspaceUi(
 
   return {
     hydrated,
+    restored,
+    spatial: ui.spatial,
+    setSpatial: useCallback((spatial: SpatialState) => {
+      uiRef.current = { ...uiRef.current, spatial };
+      setUi(uiRef.current);
+    }, []),
+    flush,
     wrapFor: useCallback((target: string) => wrapFor(ui, target), [ui]),
     setWrap,
     zoomFor: useCallback((target: string) => zoomFor(ui, target), [ui]),

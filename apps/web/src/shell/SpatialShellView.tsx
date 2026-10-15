@@ -2,7 +2,7 @@ import { PRIMARY, dockTile, pruneTiles, tileRects, type DockEdge } from "./spati
 import { SPATIAL_RIBBON_OPEN, type SpatialRibbonOpen } from "./spatialNavigation";
 import { PaneHeaderProvider, PaneHeaderSlots } from "./PaneHeader";
 import { openCommandBar } from "./CommandBar";
-import { useEffect, useMemo, useRef, useState, type PointerEvent } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type SetStateAction, type PointerEvent } from "react";
 import { EditorView } from "@codemirror/view";
 import { bufferTarget } from "../lib/editorBufferTargets";
 import { onRevealLine } from "../lib/revealLine";
@@ -14,7 +14,7 @@ import { useShellKeys, type ShellViewProps } from "./ShellView";
 import { type RibbonFile, type RibbonLink, type RibbonSource } from "./Ribbons";
 import { SpatialController, type SpatialItem } from "./SpatialController";
 import { SpatialFileEdges } from "./SpatialFileEdges";
-import { readSpatialState, spatialize, spatialKey, type Side } from "./spatialLayout";
+import { readSpatialState, spatialize, spatialKey, type Side, type SpatialState } from "./spatialLayout";
 import { drawerContent } from "./spatialDrawers";
 import { spatialRelations } from "./spatialRelations";
 import "./spatialShell.css";
@@ -25,6 +25,9 @@ interface Props extends ShellViewProps {
   links: readonly RibbonLink[];
   folderRoot?: string;
   hasFiles?: boolean;
+  spatialState?: SpatialState;
+  onSpatialState?: (state: SpatialState) => void;
+  spatialHydrated?: boolean;
 }
 interface Entry extends SpatialItem { tab?: Tab; pane?: Pane }
 function PinIcon() { return <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" aria-hidden="true"><path d="M5 2h6l-1 5 3 3H3l3-3-1-5ZM8 10v5" /></svg>; }
@@ -38,7 +41,16 @@ export function SpatialShellView(props: Props) {
   const sides = useSpatialSides();
   useReadingsVersion();
   const root = useRef<HTMLDivElement>(null);
-  const [scene, setScene] = useState(() => load(props.folderRoot));
+  const [localScene, setLocalScene] = useState(() => load(props.folderRoot));
+  const scene = props.spatialState ?? localScene;
+  const sceneRef = useRef(scene); sceneRef.current = scene;
+  const updateRef = useRef(props.onSpatialState); updateRef.current = props.onSpatialState;
+  const setScene = useCallback((update: SetStateAction<SpatialState>) => {
+    const next = typeof update === "function" ? update(sceneRef.current) : update;
+    sceneRef.current = next;
+    setLocalScene(next);
+    updateRef.current?.(next);
+  }, []);
   const [drawerOpen, setDrawerOpen] = useState({ left: false, right: false });
   const [requestedFiles, setRequestedFiles] = useState({ left: false, right: false });
   const [minimap, setMinimap] = useState({ scroll: 0, total: 1, viewport: 1 });
@@ -54,7 +66,8 @@ export function SpatialShellView(props: Props) {
   const entries: Entry[] = all.flatMap(pane => pane.tabs.filter(tab => tab.kind !== "tree").map((tab, index) => ({ key: spatialKey(tab), path: ["document", "generated", "file"].includes(tab.kind) ? tab.target : sourcePaths.get(spatialKey(tab)) ?? (tab.kind === "untitled" ? bufferTarget(tab.id) : tab.target), tab, pane, side: scene.views[spatialKey(tab)]?.side ?? (all.indexOf(pane) % 2 || index % 2 ? "right" : "left") })));
   for (const port of props.ports ?? []) if (!entries.some(entry => entry.key === port.id || entry.path === port.id.slice(port.id.indexOf(":") + 1))) entries.push({ key: port.id, path: port.id.slice(port.id.indexOf(":") + 1), side: scene.views[port.id]?.side ?? (entries.length % 2 ? "right" : "left"), port: true });
   for (const entry of entries) if (!scene.views[entry.key]?.side && !sides[entry.side]) { const other = entry.side === "left" ? "right" : "left"; if (sides[other]) entry.side = other; }
-  const fallback = entries.find(entry => entry.tab?.kind === "chat") ?? entries.find(entry => entry.tab?.kind === "document") ?? entries.find(entry => entry.tab);
+  const activePane = all.find(pane => pane.id === layout.focus);
+  const fallback = entries.find(entry => entry.tab?.id === activePane?.tabs[activePane.active]?.id) ?? entries.find(entry => entry.tab?.kind === "document") ?? entries.find(entry => entry.tab);
   const center = entries.find(entry => entry.tab && entry.key === scene.center) ?? fallback;
   const tiles = pruneTiles(scene.tiles ?? PRIMARY, key => key === PRIMARY || key !== center?.key && entries.some(entry => entry.tab && entry.key === key)) ?? PRIMARY;
   const tiledKeys = new Set(tileRects(tiles, { x: 0, y: 0, w: 1, h: 1 }).keys());
@@ -75,7 +88,7 @@ export function SpatialShellView(props: Props) {
   useShellKeys(layout, props.onLayout, props.onSearch, props.onRequestCloseTab);
   useEffect(() => { if (layout !== props.layout) props.onLayout(layout); }, [layout, props.layout, props.onLayout]);
   useEffect(() => {
-    if (previousFolder.current !== props.folderRoot) { previousFolder.current = props.folderRoot; const loaded = load(props.folderRoot); setScene(current => ({ ...loaded, center: loaded.center ?? current.center, stack: loaded.stack.length ? loaded.stack : current.stack })); }
+    if (!props.onSpatialState && previousFolder.current !== props.folderRoot) { previousFolder.current = props.folderRoot; const loaded = load(props.folderRoot); setScene(current => ({ ...loaded, center: loaded.center ?? current.center, stack: loaded.stack.length ? loaded.stack : current.stack })); }
   }, [props.folderRoot]);
   useEffect(() => { try { localStorage.setItem(storageKey(props.folderRoot), JSON.stringify({ version: 1, ...scene })); } catch { /* An unavailable cache leaves the workspace usable. */ } }, [scene, props.folderRoot]);
   useEffect(() => controller.start(), [controller]);
@@ -142,6 +155,11 @@ export function SpatialShellView(props: Props) {
     else if (selected.offsetLeft + selected.offsetWidth > strip.scrollLeft + strip.clientWidth) strip.scrollLeft = selected.offsetLeft + selected.offsetWidth - strip.clientWidth;
   }, [center?.key, entries.length]);
   useEffect(() => {
+    if (!props.spatialHydrated) return;
+    previousTabs.current = new Set(entries.filter(entry => entry.tab).map(entry => entry.key));
+    lastChat.current = entries.find(entry => entry.tab?.kind === "chat")?.key ?? null;
+  }, [props.spatialHydrated, props.folderRoot]);
+  useEffect(() => {
     const requested = ribbonRequest.current;
     const destination = requested && entries.find(entry => samePath(entry.path, requested.path));
     if (requested && destination) {
@@ -157,7 +175,7 @@ export function SpatialShellView(props: Props) {
     previousTabs.current = new Set(entries.filter(entry => entry.tab).map(entry => entry.key));
     const unnamed = freshTabs.find(entry => entry.tab?.kind === "untitled" && entry.pane?.id === layout.focus);
     if (unnamed) setScene(current => ({ ...current, center: unnamed.key, stack: current.center && current.center !== unnamed.key ? [...current.stack, current.center] : current.stack }));
-    else if (!scene.center && center) setScene(current => ({ ...current, center: center.key }));
+    else if (center && !entries.some(entry => entry.tab && entry.key === scene.center)) setScene(current => ({ ...current, center: center.key }));
     const chat = entries.filter(entry => entry.tab?.kind === "chat").at(-1);
     if (chat && chat.key !== lastChat.current) { lastChat.current = chat.key; setScene(current => ({ ...current, center: chat.key, stack: current.center && current.center !== chat.key ? [...current.stack, current.center] : current.stack })); }
     const fresh = freshTabs.find(entry => entry.key !== center?.key);

@@ -42,5 +42,6 @@ log = "0.4"
 tempfile = "3"
 
 [dev-dependencies]
+hickory-workspace = { path = "../../../crates/hickory-workspace" }
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "time"] }

@@ -8,19 +8,13 @@ remain available for explicit opening. File → New Window uses the same editor
 surface. Closing a folderless window checks unsaved work through the same close
 gate as a folder window.
 
-Given Hickory Docs starts on a folder, even one with existing documents and
-previously stored Files and Agent panes, when the main window opens, then it
-shows one untitled, unsaved literate document containing an editable
-introduction to Hickory Docs. Files opens beside it by default once the folder
-and stored layout have loaded; Agent and Welcome remain closed. Files can be
-closed for the rest of that window's folder session.
-The editor takes keyboard focus. Opening the app and typing into this buffer
-create no document in the folder; Save or Save As names a .md file.
-
-Given that startup buffer, when the person opens Files or Agent, then the
-chosen pane opens beside the document and the document's edits survive.
-On another launch, the introduction opens with Files if a folder is open.
-Explicit document routes can still restore their workspace arrangement.
+Given Hickory Docs opens a folder with remembered window state, the open
+editors and arrangement return as recorded in
+[a-folder-remembers-its-window.md](a-folder-remembers-its-window.md).
+A folder with no remembered arrangement starts with the editable introduction
+and Files; Agent and Welcome remain closed. The editor takes keyboard focus.
+Typing creates no document in the folder; Save or Save As names a .md file.
+Opening Files or Agent preserves the introduction's edits.
 
 Given the introduction has been closed, when File → New Document is chosen,
 then a blank untitled document opens. The introduction is startup content,
@@ -33,6 +27,10 @@ exact contents. The Markdown file is the source for the bundled introduction.
 ---
 
 Last LLM verification:
+- Amendment (2026-10-14, Codex): the user requested folder-specific restoration.
+  Stored arrangements now take precedence over the introductory fallback;
+  the historical verification below predates this amendment. `App.test.tsx`
+  exercises both fresh-folder introduction and remembered-folder restoration.
 - Files default (2026-10-03, Codex): `useFolderPane` waits for layout
   hydration and confirmed folder visibility, then ensures Files is present
   once per folder session without moving keyboard focus. `App.test.tsx`

@@ -154,9 +154,9 @@ impl Session {
                             })
                     });
                 let existing_doc = doc.is_some_and(|id| index.path_of(&id).is_some());
-                // Keep existing document rooms and window recovery
-                // on their original session. Folder operations use the engine.
-                let window_storage = path == "/api/workspace/ui" || path == "/api/workspace/drafts";
+                // Keep existing document rooms and draft recovery on their
+                // original session. Layout belongs to the selected folder.
+                let window_storage = path == "/api/workspace/drafts";
                 if existing_doc || window_storage {
                     original.oneshot(request).await
                 } else {
