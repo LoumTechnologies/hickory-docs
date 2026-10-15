@@ -3,6 +3,7 @@
 // Document-wide actions live in the pane header's menu and target its session.
 // Guarantee: docs/guarantees/authoring/the-editor-keeps-its-space.md
 
+import { EditorView } from "@codemirror/view";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render } from "@testing-library/react";
 
@@ -11,15 +12,19 @@ import { api } from "../api/client";
 import { SessionRegistry, type DocSession } from "./documentSession";
 import { DocTabBody, GeneratedTabBody, UntitledTab } from "./workspaceTabs";
 
+const readyEditor = vi.hoisted(() => ({ view: null as import("@codemirror/view").EditorView | null }));
+
 // The editor and debugger chrome are heavyweight and irrelevant here; the
 // toolbar sits beside them in DocTabBody, not inside them.
 vi.mock("../editor/DocumentEditor", () => ({
-  DocumentEditor: ({ onChange, wrapColumn, onWrapColumn }: {
+  DocumentEditor: ({ onChange, wrapColumn, onWrapColumn, onViewReady }: {
+    onViewReady?: (view: EditorView | null) => void;
     onChange?: (source: string) => void;
     wrapColumn?: number;
     onWrapColumn?: (column: number) => void;
   }) => (
     <>
+      <button data-testid="ready" onClick={() => onViewReady?.(readyEditor.view)} />
       <button data-testid="editor" onClick={() => onChange?.("first thought")} />
       <button data-testid="wrap" onClick={() => onWrapColumn?.(60)}>{wrapColumn}</button>
     </>
@@ -174,4 +179,21 @@ describe("an untitled document", () => {
 
     drafts.mockRestore();
   });
+});
+
+// Guarantee: docs/guarantees/authoring/a-folder-remembers-its-window.md
+it("does not focus an unnamed editor that finishes loading in a hidden pane", () => {
+  const ui = render(<div hidden><UntitledTab tabId="background-note" /></div>);
+  const parent = document.createElement("div");
+  ui.container.querySelector(".untitled-tab")!.appendChild(parent);
+  const view = new EditorView({ parent });
+  const focus = vi.spyOn(view, "focus");
+  readyEditor.view = view;
+  fireEvent.click(ui.getByTestId("ready"));
+  expect(focus).not.toHaveBeenCalled();
+  ui.rerender(<div><UntitledTab tabId="background-note" /></div>);
+  fireEvent.click(ui.getByTestId("ready"));
+  expect(focus).toHaveBeenCalledOnce();
+  readyEditor.view = null;
+  view.destroy();
 });

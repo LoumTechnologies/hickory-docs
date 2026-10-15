@@ -10,16 +10,18 @@ export function useFolderPane(
   setLayout: Dispatch<SetStateAction<Layout>>,
   requestFocus: Dispatch<SetStateAction<number>>,
   notice: (message: string) => void,
+  restored = false,
 ) {
   const openedByDefault = useRef(false);
   useEffect(() => {
     if (folderOpen === false) openedByDefault.current = false;
     if (!hydrated || folderOpen !== true || openedByDefault.current) return;
     openedByDefault.current = true;
+    if (restored) return;
     // Wait for restoration, then add Files without taking editor focus.
     // Apply the default once so closing the pane remains a person's choice.
     setLayout((current) => treePane(current) ? current : withTree(current, tab("tree", "folder", "Files")));
-  }, [folderOpen, hydrated, setLayout]);
+  }, [folderOpen, hydrated, restored, setLayout]);
   useEffect(() => {
     if (folderOpen !== false) return;
     // Restored furniture may have come from a folder view of the same engine.

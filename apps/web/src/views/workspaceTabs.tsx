@@ -332,7 +332,7 @@ export function UntitledTab({
           unregisterBuffer.current = view ? registerBufferEditor(tabId, view) : () => {};
           // Land ready to type — an empty editor you still have to click
           // into is a chooser with extra steps.
-          view?.focus();
+          if (view && !view.dom.closest("[hidden]")) view.focus();
         }}
         onChange={(source) => onSource?.(tabId, source)}
       />

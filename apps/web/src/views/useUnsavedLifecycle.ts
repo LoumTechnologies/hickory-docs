@@ -31,6 +31,7 @@ async function discardUntitled(id: string) {
 
 export function useUnsavedLifecycle({
   layout,
+  flushUi,
   layoutRef,
   setLayout,
   registry,
@@ -45,6 +46,7 @@ export function useUnsavedLifecycle({
   plainUnsavedActions,
 }: {
   layout: Layout;
+  flushUi?: () => Promise<void>;
   layoutRef: MutableRefObject<Layout>;
   setLayout: Dispatch<SetStateAction<Layout>>;
   registry: SessionRegistry;
@@ -165,6 +167,7 @@ export function useUnsavedLifecycle({
     const onWindowClose = () => {
       void (async () => {
         if (dirtyTabIds.size === 0) {
+          await flushUi?.();
           await api.closeWindow().catch(() => {});
           return;
         }
@@ -216,12 +219,13 @@ export function useUnsavedLifecycle({
             if (tab) await discardRecoveryDraft(tab.target);
           }
         }
+        await flushUi?.();
         await api.closeWindow().catch(() => {});
       })();
     };
     window.addEventListener("hickory-workspace-close-request", onWindowClose);
     return () => window.removeEventListener("hickory-workspace-close-request", onWindowClose);
-  }, [dirtyTabIds, registry, retainSavedDrafts, saveUntitled, prompt, layoutRef, setLayout, untitledSourcesRef, untitledBaselines, plainDirtyTabs, plainUnsavedActions, forgetUntitled]);
+  }, [dirtyTabIds, registry, retainSavedDrafts, saveUntitled, prompt, layoutRef, setLayout, untitledSourcesRef, untitledBaselines, plainDirtyTabs, plainUnsavedActions, forgetUntitled, flushUi]);
 
   return { dirtyTabIds, dirtyPaths, requestCloseTab };
 }

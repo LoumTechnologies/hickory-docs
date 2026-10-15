@@ -1,3 +1,4 @@
+import { flushSync } from "react-dom";
 // Saving the one buffer that has no project path yet.
 //
 // An Untitled tab is a workspace draft until this hook creates its document.
@@ -59,9 +60,11 @@ export function useUntitledSave({
         window.dispatchEvent(new CustomEvent("hickory-untitled-saved", { detail: untitled.tabId }));
         onSaved?.(untitled.tabId);
         void api.discardDraft(untitledDraftKey(untitled.tabId));
-        setLayout((current) =>
+        // A window close may immediately persist its layout after Save all.
+        // Publish the named tab before reporting that this save succeeded.
+        flushSync(() => setLayout(current =>
           adoptUntitledTab(current, untitled.tabId, created.id, created.path),
-        );
+        ));
         redirect(`/docs/${created.id}`);
         return true;
       } catch (e) {

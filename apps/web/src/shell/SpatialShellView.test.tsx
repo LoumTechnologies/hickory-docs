@@ -5,6 +5,7 @@ import { EditorState } from "@codemirror/state";
 import { EditorView, lineNumbers } from "@codemirror/view";
 import { history, undo } from "@codemirror/commands";
 import { emptyPane, open, tab, type Layout, type Tab } from "./layout";
+import type { SpatialState } from "./spatialLayout";
 import { SpatialShellView } from "./SpatialShellView";
 import { saveSpatialSides } from "../lib/spatialSides";
 import { revealLine } from "../lib/revealLine";
@@ -202,4 +203,22 @@ it("centers a ribbon destination when both side areas are disabled", async () =>
   const ui = render(<Harness />);
   act(() => { requestSpatialRibbonOpen(ui.container, { kind: "path", path: "related.md", family: "declared" }); revealLine("related.md", 1); });
   await waitFor(() => expect(ui.container.querySelector('[data-spatial-key="document:related.md"]')?.getAttribute("data-spatial-center")).toBe("true"));
+});
+
+// Guarantee: docs/guarantees/authoring/a-folder-remembers-its-window.md
+it("restores the folder's spatial state without depending on browser storage", async () => {
+  const { emptySpatialState } = await import("./spatialLayout");
+  function Remembered() {
+    const [layout, setLayout] = useState<Layout>(() => {
+      const pane = emptyPane();
+      return { root: { ...pane, tabs: [tab("document", "main.md"), tab("document", "related.md"), tab("chat", "conversation", "Agent")], active: 0 }, focus: pane.id };
+    });
+    const [scene, setScene] = useState<SpatialState>(() => ({ ...emptySpatialState(), center: "document:related.md", columns: [.30, .20] as [number, number], auto: true, drawerPins: { left: true, right: false } }));
+    return <SpatialShellView layout={layout} onLayout={setLayout} sources={[]} files={[]} links={[]} spatialState={scene} onSpatialState={setScene} spatialHydrated render={entry => <Buffer entry={entry} />} />;
+  }
+  const ui = render(<Remembered />);
+  await waitFor(() => expect(ui.container.querySelector('[data-spatial-key="document:related.md"]')?.getAttribute("data-spatial-center")).toBe("true"));
+  expect(ui.getByRole("button", { name: "Automatic accordion" }).getAttribute("aria-pressed")).toBe("true");
+  fireEvent.click(within(ui.getByRole("tablist", { name: "Center views" })).getByRole("tab", { name: "main.md" }));
+  await waitFor(() => expect(ui.container.querySelector('[data-spatial-key="document:main.md"]')?.getAttribute("data-spatial-center")).toBe("true"));
 });

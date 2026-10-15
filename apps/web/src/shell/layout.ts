@@ -182,7 +182,7 @@ export function reid(layout: Layout): Layout {
     if (node.type === "pane") {
       const id = nextId("pane");
       if (node.id === layout.focus) focus = id;
-      return { ...node, id, tabs: node.tabs.map((t) => ({ ...t, id: nextId("tab") })) };
+      return { ...node, id, tabs: node.tabs.map((t) => ({ ...t, id: t.kind === "untitled" ? t.id : nextId("tab") })) };
     }
     return { ...node, id: nextId("split"), children: node.children.map(walk) };
   };

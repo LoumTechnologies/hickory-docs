@@ -1,7 +1,7 @@
 // What the window looked like when you closed it.
 //
-// Two things go in here and nothing else: the arrangement (which tabs, in
-// which panes, split which way) and each tab's prose measure. Deliberately
+// Presentation lives here: open tabs, pane and spatial arrangements, prose
+// measures, zoom and table sizes. Deliberately
 // not buffer contents — those are drafts, they are large, and they need a
 // merge on the way back in; see lib/drafts.ts.
 //
@@ -19,6 +19,7 @@
 // rather than trusting it into the shell.
 
 import { panes, reid, type Layout, type Node, type Pane, type Tab, type ViewKind } from "../shell/layout";
+import { readSpatialState, type SpatialState } from "../shell/spatialLayout";
 import { WRAP_DEFAULT, clampWrapColumn } from "../editor/wrapColumn";
 import type { TableLayout } from "../components/TablePanel";
 import { ZOOM_DEFAULT, clampZoom } from "./zoom";
@@ -28,6 +29,8 @@ export const UI_STATE_VERSION = 1;
 
 export interface WorkspaceUi {
   version: number;
+  /** Spatial tiles, centered view, drawer pins and widths. */
+  spatial?: SpatialState;
   /** The arrangement, or null when there is nothing worth restoring. */
   layout: Layout | null;
   /** Zoom level per tab, keyed the same way as `wrap`. The WHOLE-UI level
@@ -230,7 +233,7 @@ export function normalizeUi(raw: unknown): WorkspaceUi {
       if (size) tables[key] = size;
     }
   }
-  return { version: UI_STATE_VERSION, layout, wrap, zoom, tables };
+  return { version: UI_STATE_VERSION, layout, wrap, zoom, tables, ...(isRecord(raw.spatial) ? { spatial: readSpatialState(JSON.stringify({ ...raw.spatial, version: 1 })) } : {}) };
 }
 
 /** The measure for one tab, defaulting where none was stored. */

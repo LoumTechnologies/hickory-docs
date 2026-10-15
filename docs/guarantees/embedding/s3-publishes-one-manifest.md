@@ -25,3 +25,10 @@ Last LLM verification:
   are no advertised verified providers. The host supplies authenticated HTTPS
   requests and preserves/signs the conditional headers; the probe checks the
   configured connection when the application opens it. No cleanup policy ships.
+
+- Test correction (2026-10-15, Codex): the racing-head test now corrupts the
+  object selected by the published snapshot. Previously it selected the first
+  uploaded candidate, which could be the losing session's unreferenced object;
+  that made the expected hash-check failure depend on which upload won. The
+  adapter's runtime behavior is unchanged. Discovered during folder-layout
+  integration's full pre-commit check.

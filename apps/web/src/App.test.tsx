@@ -19,8 +19,7 @@ beforeEach(() => {
   window.history.replaceState(null, "", "/");
   localStorage.setItem(WELCOME_KEY, "1");
   installMockApi();
-  const previous = openDocTab(openChatTab(withTree(initialWorkspace(), tab("tree", "folder", "Files"))), "old-doc", "old.md");
-  vi.spyOn(api, "workspaceUi").mockResolvedValue({ state: { version: 1, layout: previous } });
+  vi.spyOn(api, "workspaceUi").mockResolvedValue({ state: { version: 1, layout: null } });
 });
 afterEach(() => {
   cleanup();
@@ -123,11 +122,11 @@ describe("the startup workspace", () => {
     expect(wrapColumnOf(live.state)).toBe(60);
     expect(live.state.doc.toString()).toBe(STARTUP_INTRODUCTION);
     await waitFor(() => expect(save).toHaveBeenLastCalledWith(
-      expect.objectContaining({ wrap: { untitled: 60 } }),
+      expect.objectContaining({ wrap: { untitled: 60 } }), false,
     ));
   });
 
-  it("opens a focused unsaved introduction despite stored panes and the welcome preference", async () => {
+  it("opens a focused unsaved introduction in a folder without stored panes", async () => {
     const create = vi.spyOn(api, "createDoc");
     const saveDialog = vi.spyOn(api, "saveFileDialog").mockResolvedValue({ path: null });
     const { container, getAllByRole, getByRole } = render(<App />);
@@ -174,7 +173,6 @@ describe("the startup workspace", () => {
     window.history.replaceState(null, "", "/");
     const second = render(<App />);
     await waitFor(() => expect(within(second.getByRole("tablist", { name: "Center views" })).getAllByRole("tab", { name: /Untitled/ })).toHaveLength(2));
-    await waitFor(() => expect(second.getByRole("tab", { name: /Files/, hidden: true })).toBeTruthy());
     const restored = new Set<string>();
     for (const id of within(second.getByRole("tablist", { name: "Center views" })).getAllByRole("tab", { name: /Untitled/ }).map(tab => tab.id)) {
       fireEvent.click(second.container.querySelector(`#${id}`)!);
@@ -183,7 +181,6 @@ describe("the startup workspace", () => {
     }
     expect(restored.has("First note")).toBe(true);
     expect(restored.has("Second note")).toBe(true);
-    await waitFor(() => expect(second.getByRole("tab", { name: /Files/, hidden: true })).toBeTruthy());
   });
 
   it("restores unnamed documents without adding the startup introduction on each launch", async () => {
@@ -202,7 +199,8 @@ describe("the startup workspace", () => {
       const restored = new Set<string>();
       for (const id of within(app.getByRole("tablist", { name: "Center views" })).getAllByRole("tab", { name: /Untitled/ }).map(tab => tab.id)) {
         fireEvent.click(app.container.querySelector(`#${id}`)!);
-        await waitFor(() => expect(editor(app.container).state.doc.toString()).not.toBe(""));
+        const expected = drafts.get(`untitled:${id.slice("spatial-tab-".length)}`)!.contents;
+        await waitFor(() => expect(editor(app.container).state.doc.toString()).toBe(expected));
         restored.add(editor(app.container).state.doc.toString());
       }
       expect(restored).toEqual(new Set(["A note begun blank", "# Older introduction\nMy edits"]));
@@ -376,4 +374,14 @@ describe("windows without an open folder", () => {
     expect(settings).not.toHaveBeenCalled();
     expect(window.location.hash).toBe("#/blank");
   });
+});
+
+// Guarantee: docs/guarantees/authoring/a-folder-remembers-its-window.md
+it("restores a folder's open document without adding the startup introduction", async () => {
+  const previous = openDocTab(openChatTab(withTree(initialWorkspace(), tab("tree", "folder", "Files"))), "d1", "quickstart.md");
+  vi.mocked(api.workspaceUi).mockResolvedValue({ state: { version: 1, layout: previous } });
+  const app = render(<App />);
+  await app.findByRole("tab", { name: /quickstart.md/ });
+  expect(app.queryByRole("tab", { name: /Untitled/ })).toBeNull();
+  expect(app.getByRole("tab", { name: /Files/, hidden: true })).toBeTruthy();
 });

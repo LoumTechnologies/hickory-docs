@@ -61,7 +61,8 @@ describe("S3 manifest publication", () => {
     const results = await Promise.allSettled([a.write("a.md", text("a"), null), b.write("b.md", text("b"), null)]);
     expect(results.filter((result) => result.status === "fulfilled")).toHaveLength(1);
     expect(await a.list()).toHaveLength(1);
-    const object = [...backend.objects.values()].find((entry) => new TextDecoder().decode(entry.bytes) === "a" || new TextDecoder().decode(entry.bytes) === "b")!;
+    const published = new TextDecoder().decode((await a.snapshot())[0].bytes);
+    const object = [...backend.objects.values()].find((entry) => new TextDecoder().decode(entry.bytes) === published)!;
     object.bytes = text("corrupt");
     await expect(a.snapshot()).rejects.toThrow("content hash check");
   });

@@ -146,6 +146,7 @@ export async function request<T>(
   method: string,
   path: string,
   body?: unknown,
+  keepalive = false,
 ): Promise<T> {
   if (mockHandler) {
     return (await mockHandler(method, path, body)) as T;
@@ -153,6 +154,7 @@ export async function request<T>(
   const headers: Record<string, string> = {};
   if (body !== undefined) headers["Content-Type"] = "application/json";
   const res = await fetch(path, {
+    ...(keepalive ? { keepalive: true } : {}),
     method,
     headers,
     body: body === undefined ? undefined : JSON.stringify(body),
@@ -787,8 +789,8 @@ export const api = {
    * a reason not to start). */
   workspaceUi: () =>
     request<{ state: WorkspaceUiState }>("GET", "/api/workspace/ui"),
-  saveWorkspaceUi: (state: WorkspaceUiState) =>
-    request<{ ok: true }>("PUT", "/api/workspace/ui", { state }),
+  saveWorkspaceUi: (state: WorkspaceUiState, keepalive = false) =>
+    request<{ ok: true }>("PUT", "/api/workspace/ui", { state }, keepalive),
 
   /** Every buffer that had unsaved changes when the app last closed, each
    * carrying the bytes it was taken from so a file that moved on can be

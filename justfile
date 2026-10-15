@@ -648,3 +648,17 @@ test-spatial-walkthrough project:
 # Resize the actual Files pane across its preview-layout breakpoint.
 test-responsive-files-ui:
     bash scripts/test-spatial-ui.sh spatialWorkspace.spec.ts --grep 'resizing Files'
+
+# Install the frontend dependencies from the checked-in lockfile.
+setup-web:
+    cd apps/web && npm ci
+
+# Folder-scoped open editors, layout restoration and close flushing.
+test-folder-window-web:
+    just check-web
+    cd apps/web && npm test -- --maxWorkers=2 src/views/useWorkspaceUi.test.tsx src/views/restoreFolderLayout.test.ts src/shell/SpatialShellView.test.tsx src/shell/spatialLayout.test.ts src/views/folderPane.test.tsx src/views/useUnsavedLifecycle.test.tsx src/views/useUntitledSave.test.tsx src/views/workspaceTabs.test.tsx src/lib/uiState.test.ts src/App.test.tsx
+
+test-folder-window-state:
+    just test-folder-window-web
+    just build-web
+    cargo test --manifest-path apps/desktop/src-tauri/Cargo.toml --test serves_one_origin folder_layout -- --test-threads=1
