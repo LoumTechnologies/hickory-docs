@@ -424,6 +424,17 @@ build-web:
 test-startup-web:
     cd apps/web && npm run typecheck && npm test -- src/App.test.tsx src/views/workspaceState.test.ts src/lib/newDoc.test.ts
 
+# Editor bootstrap, guarded background initialization, and startup API retries.
+test-startup:
+    cargo build -p hickory-cli --bin hick --example engine_client
+    cargo test -p hickory-cli --lib engine::startup::
+    cargo test -p hickory-cli --test engine_lifecycle -- --test-threads=1
+    cargo test --manifest-path apps/desktop/src-tauri/Cargo.toml --bin hickory-desktop launch_path::
+    cd apps/web && npm run typecheck && npm test -- src/api/workspaceStartup.test.tsx src/api/client.test.ts src/App.test.tsx src/views/workspaceState.test.ts src/lib/newDoc.test.ts
+
+test-startup-browser url:
+    cd apps/web && HICKORY_E2E_CHANNEL=chromium HICKORY_E2E_URL={{quote(url)}} npx playwright test e2e/startup.spec.ts
+
 # Make a locally signed macOS bundle without replacing the installed app.
 build-desktop-app:
     just stage-desktop-cli "" dev

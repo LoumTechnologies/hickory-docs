@@ -13,6 +13,14 @@ const MARKER: &[u8] = b"\0HICKORY_PATH\0";
 const LIMIT: u64 = 64 * 1024;
 
 pub fn load() -> Result<OsString, String> {
+    // A second window inherits the exact path already recovered by its
+    // parent. Do not execute arbitrary profiles again for each new window.
+    if let Some(path) = inherited_path(
+        std::env::var_os("PATH"),
+        std::env::var_os("HICKORY_RESOLVED_PATH"),
+    ) {
+        return Ok(path);
+    }
     let shell = std::env::var_os("SHELL").unwrap_or_else(|| "/bin/zsh".into());
     let home = std::env::var_os("HOME").ok_or("No home directory for shell PATH discovery")?;
     let mut command = shell_command(Path::new(&shell), Path::new(&home));
@@ -20,14 +28,20 @@ pub fn load() -> Result<OsString, String> {
     merge(&recovered, std::env::var_os("PATH").as_deref())
 }
 
+fn inherited_path(path: Option<OsString>, resolved: Option<OsString>) -> Option<OsString> {
+    path.filter(|path| !path.is_empty() && Some(path) == resolved.as_ref())
+}
+
 fn shell_command(shell: &Path, home: &Path) -> Command {
     let mut command = Command::new(shell);
     // Interactive as well as login: people put PATH in .zshrc/.bashrc too.
-    // Fish's PATH is a list rather than a colon-separated scalar.
+    // Fish's PATH is a list rather than a colon-separated scalar. Replace
+    // the shell with printf once startup has finished: logout hooks and
+    // terminal-session history saving have no place in PATH discovery.
     let script = if shell.file_name().is_some_and(|name| name == "fish") {
-        "printf '\\0HICKORY_PATH\\0%s\\0' (string join : $PATH)"
+        "exec /usr/bin/printf '\\0HICKORY_PATH\\0%s\\0' (string join : $PATH)"
     } else {
-        "printf '\\0HICKORY_PATH\\0%s\\0' \"$PATH\""
+        "exec /usr/bin/printf '\\0HICKORY_PATH\\0%s\\0' \"$PATH\""
     };
     command.args(["-ilc", script]).current_dir(home);
     command
@@ -109,6 +123,40 @@ mod tests {
     // Protects docs/guarantees/integrations/the-desktop-finds-tools-from-the-shell-path.md
     use super::*;
     use std::os::unix::fs::PermissionsExt;
+
+    // Guarantee: docs/guarantees/authoring/the-editor-does-not-wait-for-workspace-preparation.md
+    #[test]
+    fn new_windows_reuse_only_an_unchanged_resolved_path() {
+        assert_eq!(
+            inherited_path(Some("/bin".into()), Some("/bin".into())),
+            Some("/bin".into())
+        );
+        assert_eq!(
+            inherited_path(Some("/new".into()), Some("/old".into())),
+            None
+        );
+        assert_eq!(inherited_path(Some("/bin".into()), None), None);
+    }
+
+    #[test]
+    fn discovery_reads_login_and_interactive_paths_without_running_logout_hooks() {
+        let home = tempfile::tempdir().unwrap();
+        std::fs::write(home.path().join(".zprofile"), "export PATH=/login:$PATH\n").unwrap();
+        std::fs::write(
+            home.path().join(".zshrc"),
+            "export PATH=/interactive:$PATH\n",
+        )
+        .unwrap();
+        std::fs::write(home.path().join(".zlogout"), "touch logout-ran\n").unwrap();
+        let mut command = shell_command(Path::new("/bin/zsh"), home.path());
+        command
+            .env("ZDOTDIR", home.path())
+            .env("HOME", home.path())
+            .env("PATH", "/usr/bin:/bin");
+        let path = capture(&mut command, Duration::from_secs(5)).unwrap();
+        assert!(path.to_string_lossy().starts_with("/interactive:/login:"));
+        assert!(!home.path().join("logout-ran").exists());
+    }
 
     #[test]
     fn shell_startup_path_can_launch_gh_with_a_gui_environment() {

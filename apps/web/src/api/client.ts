@@ -73,6 +73,7 @@ import type {
   WorktreeInfo,
 } from "./types";
 import type { GithubIssue, GithubPullRequest, GithubWorkspace } from "./github";
+import { waitForWorkspace } from "./workspaceStartup";
 
 export const MOCK = import.meta.env.VITE_MOCK === "1";
 
@@ -153,17 +154,27 @@ export async function request<T>(
   }
   const headers: Record<string, string> = {};
   if (body !== undefined) headers["Content-Type"] = "application/json";
-  const res = await fetch(path, {
-    ...(keepalive ? { keepalive: true } : {}),
-    method,
-    headers,
-    body: body === undefined ? undefined : JSON.stringify(body),
-  });
-  if (!res.ok) {
-    throw await apiError(res);
+  // Preserve the exact requested bytes if preparation postpones dispatch;
+  // editing a form while waiting must not change an already submitted act.
+  const encoded = body === undefined ? undefined : JSON.stringify(body);
+  for (;;) {
+    const res = await fetch(path, {
+      ...(keepalive ? { keepalive: true } : {}),
+      method,
+      headers,
+      body: encoded,
+    });
+    if (!res.ok) {
+      if (res.status === 503 && res.headers.get("x-hickory-startup") === "pending") {
+        await res.body?.cancel();
+        await waitForWorkspace();
+        continue;
+      }
+      throw await apiError(res);
+    }
+    if (res.status === 204) return undefined as T;
+    return (await res.json()) as T;
   }
-  if (res.status === 204) return undefined as T;
-  return (await res.json()) as T;
 }
 
 // Rendering a document is the most expensive thing the API does, and the app

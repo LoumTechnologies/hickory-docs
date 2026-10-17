@@ -4,6 +4,7 @@ mod client;
 mod daemon;
 pub(crate) mod mcp;
 mod proxy;
+mod startup;
 mod watch;
 pub(crate) mod writes;
 
@@ -35,6 +36,10 @@ pub struct Attach {
     pub params: Vec<(String, String)>,
     pub executor: crate::ExecutorChoice,
     pub run: bool,
+    /// Desktop editors can boot before the initial weave. File operations
+    /// still wait for output ownership; CLI clients keep synchronous startup.
+    #[serde(default)]
+    pub background: bool,
     pub key_store_path: Option<PathBuf>,
     pub ui_settings_path: Option<PathBuf>,
     /// A runtime the attaching app ships inside its own bundle, if it does.
@@ -54,6 +59,7 @@ impl Attach {
             executor,
             params: Vec::new(),
             run: false,
+            background: false,
             key_store_path: None,
             ui_settings_path: None,
             python_runtime_path: None,

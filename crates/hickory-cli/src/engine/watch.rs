@@ -1,5 +1,6 @@
 //! A single event queue and write history, including overlapping folder views.
 use super::Attach;
+use super::startup::Startup;
 use crate::{
     serve::{
         LocalState,
@@ -25,6 +26,7 @@ struct Registration {
     state: LocalState,
     attach: Attach,
     ready: oneshot::Sender<Result<()>>,
+    completed: tokio::sync::watch::Sender<Option<Result<(), String>>>,
 }
 struct View {
     state: LocalState,
@@ -64,7 +66,9 @@ impl Coordinator {
                         let _write = writes.lock().await;
                         let mut woven = history.lock().await;
                         let root = reg.state.index.root().to_path_buf();
-                        let result = async {
+                        // Register the watcher and validate configuration before
+                        // acknowledging attachment, while holding the write gate.
+                        let setup = (|| -> Result<_> {
                             if !watched.iter().any(|p| root.starts_with(p)) {
                                 watcher.watch(&root, RecursiveMode::Recursive).map_err(crate::up::watch_error)
                                     .with_context(|| format!("watching {}", root.display()))?;
@@ -73,7 +77,18 @@ impl Coordinator {
                                 watched.push(root.clone());
                             }
                             *reg.state.up_commands.lock().unwrap() = Some(commands.clone());
-                            crate::up::drain_inbox(&root, &crate::ingest::InboxConfig::from_env()?);
+                            crate::ingest::InboxConfig::from_env()
+                        })();
+                        let inbox = match setup {
+                            Ok(inbox) => inbox,
+                            Err(error) => {
+                                let _ = reg.ready.send(Err(error));
+                                continue;
+                            }
+                        };
+                        let _ = reg.ready.send(Ok(()));
+                        let result: Result<()> = async {
+                            crate::up::drain_inbox(&root, &inbox);
                             let config = UpConfig { root: reg.attach.target.clone(), params: reg.attach.params,
                                 executor: reg.attach.executor, run: reg.attach.run };
                             let docs: Vec<_> = reg.state.index.entries().iter()
@@ -91,7 +106,7 @@ impl Coordinator {
                             publish_held(&reg.state, &root, &woven);
                             Ok(())
                         }.await;
-                        let _ = reg.ready.send(result);
+                        let _ = reg.completed.send(Some(result.map_err(|error| format!("{error:#}"))));
                     }
                     Some(command) = command_rx.recv() => {
                         let _write = writes.lock().await;
@@ -160,16 +175,23 @@ impl Coordinator {
         }
     }
 
-    pub async fn register(&self, state: LocalState, attach: Attach) -> Result<()> {
+    pub async fn register(&self, state: LocalState, attach: Attach) -> Result<Startup> {
         let (ready, rx) = oneshot::channel();
+        let (completed, startup) = Startup::channel();
+        let background = attach.background;
         self.add
             .send(Registration {
                 state,
                 attach,
                 ready,
+                completed,
             })
             .map_err(|_| anyhow::anyhow!("engine watcher stopped"))?;
-        rx.await?
+        rx.await??;
+        if !background {
+            startup.wait().await?;
+        }
+        Ok(startup)
     }
 }
 

@@ -65,7 +65,10 @@ fn main() {
     match launch_path::load() {
         Ok(path) => {
             // SAFETY: main is still single-threaded; load spawns no threads.
-            unsafe { std::env::set_var("PATH", path) };
+            unsafe {
+                std::env::set_var("PATH", &path);
+                std::env::set_var("HICKORY_RESOLVED_PATH", path);
+            };
         }
         Err(error) => eprintln!("Hickory Docs kept its inherited PATH: {error}"),
     }

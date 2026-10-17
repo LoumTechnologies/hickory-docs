@@ -120,6 +120,166 @@ async fn wait_file(path: &Path, expected: &str) {
     }
 }
 
+// Guarantee: docs/guarantees/authoring/the-editor-does-not-wait-for-workspace-preparation.md
+// A real running cell holds initialization open until the test releases it.
+// This tests ordering, rather than a launch-time threshold sensitive to CI load.
+#[cfg(unix)]
+#[tokio::test(flavor = "multi_thread")]
+async fn background_attach_serves_editor_storage_before_outputs_are_ready() {
+    let project = Project::new();
+    let _client = project.client(project.dir.path(), "bootstrap");
+    let workspace = tempfile::tempdir().unwrap();
+    let signals = tempfile::tempdir().unwrap();
+    let started = signals.path().join("started");
+    let release = signals.path().join("release");
+    let quote = |path: &Path| format!("'{}'", path.display().to_string().replace('\'', "'\\''"));
+    let source = format!(
+        r#"<hick:doc xmlns:hick="http://www.hickorydocs.com/1.0" weave="reading.md">
+<hick:container name="sh" image="alpine:3.20" />
+<hick:exec container="sh">
+printf started > {}
+i=0; while [ ! -f {} ]; do i=$((i+1)); [ "$i" -lt 300 ] || exit 1; sleep 0.1; done
+printf finished
+</hick:exec>
+<hick:file path="owned.txt">owned by the document</hick:file>
+</hick:doc>
+"#,
+        quote(&started),
+        quote(&release)
+    );
+    std::fs::write(workspace.path().join("slow.md"), &source).unwrap();
+    std::fs::write(workspace.path().join("plain.txt"), "before").unwrap();
+    let endpoint = project.endpoint();
+    let url = endpoint["url"].as_str().unwrap();
+    let token = endpoint["token"].as_str().unwrap();
+    let http = reqwest::Client::builder()
+        .timeout(Duration::from_secs(10))
+        .build()
+        .unwrap();
+    let mut opts = hickory_cli::engine::Attach::new(
+        workspace.path().to_path_buf(),
+        hickory_cli::ExecutorChoice::Local,
+    );
+    opts.background = true;
+    opts.run = true;
+    let response = http
+        .post(format!("{url}/attach"))
+        .bearer_auth(token)
+        .json(&opts)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), 200, "{}", response.text().await.unwrap());
+    wait_file(&started, "started").await;
+    let api = format!("{url}/clients/{}/api", opts.client);
+    let status: Value = http
+        .get(format!("{api}/startup"))
+        .bearer_auth(token)
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(status["ready"], false);
+    let draft = json!({ "path": "untitled:startup", "contents": "Writing while the workspace loads", "base": "" });
+    let response = http
+        .put(format!("{api}/workspace/drafts"))
+        .bearer_auth(token)
+        .json(&draft)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), 200);
+    let drafts: Value = http
+        .get(format!("{api}/workspace/drafts"))
+        .bearer_auth(token)
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(drafts["drafts"][0]["contents"], draft["contents"]);
+    for path in ["settings/ui", "workspace/ui", "files"] {
+        assert_eq!(
+            http.get(format!("{api}/{path}"))
+                .bearer_auth(token)
+                .send()
+                .await
+                .unwrap()
+                .status(),
+            200
+        );
+    }
+    let edit = json!({ "path": "plain.txt", "content": "after" });
+    let response = http
+        .put(format!("{api}/file"))
+        .bearer_auth(token)
+        .json(&edit)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), 503);
+    assert_eq!(response.headers()["x-hickory-startup"], "pending");
+    assert_eq!(
+        std::fs::read_to_string(workspace.path().join("plain.txt")).unwrap(),
+        "before"
+    );
+    let response = http
+        .get(format!("{api}/file?path=owned.txt"))
+        .bearer_auth(token)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(
+        response.status(),
+        503,
+        "output reads must wait for ownership too"
+    );
+    std::fs::write(release, "go").unwrap();
+    let deadline = Instant::now() + Duration::from_secs(15);
+    loop {
+        let status: Value = http
+            .get(format!("{api}/startup"))
+            .bearer_auth(token)
+            .send()
+            .await
+            .unwrap()
+            .json()
+            .await
+            .unwrap();
+        if status["ready"] == true {
+            break;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "workspace never finished: {status}"
+        );
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    assert_eq!(
+        std::fs::read_to_string(workspace.path().join("owned.txt")).unwrap(),
+        "owned by the document"
+    );
+    let response = http
+        .put(format!("{api}/file"))
+        .bearer_auth(token)
+        .json(&edit)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), 200, "{}", response.text().await.unwrap());
+    assert_eq!(
+        std::fs::read_to_string(workspace.path().join("plain.txt")).unwrap(),
+        "after"
+    );
+    assert_eq!(
+        std::fs::read_to_string(workspace.path().join("slow.md")).unwrap(),
+        source
+    );
+}
+
 // Guarantee: docs/guarantees/agent/acp-agents-are-first-class.md
 #[tokio::test(flavor = "multi_thread")]
 async fn desktop_proxy_routes_acp_connection_configuration_and_turns() {

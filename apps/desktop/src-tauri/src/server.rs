@@ -251,6 +251,7 @@ pub(crate) async fn start_with_menu(
         .with_context(|| format!("binding the window's local proxy at {addr}"))?;
     let callback = format!("http://{}", listener.local_addr()?);
     let mut opts = Attach::new(target.to_path_buf(), ExecutorChoice::from_env()?);
+    opts.background = true;
     opts.key_store_path = config_dir.map(|dir| dir.join("llm-keys.json"));
     opts.ui_settings_path = config_dir.map(ui_settings_file);
     // The Python runtime this app ships, if it does. Sent over the attach
@@ -278,7 +279,14 @@ pub(crate) async fn start_with_menu(
     } else {
         target.parent().unwrap_or(target)
     };
-    let index = std::sync::Arc::new(hickory_cli::serve::store::DocIndex::shared(root)?);
+    // Folder windows never migrate their existing rooms to another folder.
+    // Single-file windows can: preserve their companion-document identities
+    // for that later attachment, without charging folder launches for a scan.
+    let index = std::sync::Arc::new(if target.is_file() {
+        hickory_cli::serve::store::DocIndex::shared(root)?
+    } else {
+        hickory_cli::serve::store::DocIndex::empty_shared(root)
+    });
     let files = std::sync::Arc::new(std::sync::RwLock::new(std::collections::HashSet::new()));
     if target.is_file() {
         files.write().unwrap().insert(target.canonicalize()?);

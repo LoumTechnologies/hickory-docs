@@ -12,7 +12,7 @@ import { DocumentEditor } from "../editor/DocumentEditor";
 import { LocalRealtime, getWorkspaceRealtime } from "../api/realtime";
 import { representations, type Comparison, type Representation } from "../api/representations";
 import { PromptPanel, usePrompt } from "../components/PromptPanel";
-import { ChatDock } from "../components/ChatDock";
+import { ChatDock } from "./deferredAgent";
 import { RepresentationTools } from "./RepresentationTools";
 import { lspSupport, setLspDiagnostics, type DiagnosticSpan } from "../lsp/cmLsp";
 import { debugEditor, setBreakpointMarks, setPausedLine, type BreakpointMark } from "../debug/cmDebug";

@@ -27,6 +27,13 @@ exact contents. The Markdown file is the source for the bundled introduction.
 ---
 
 Last LLM verification:
+- Startup followup (2026-10-17, Codex): workspace preparation no longer gates
+  desktop editor bootstrap; file operations retain their initialization gate.
+  `lib/focusWhenShown.ts` focuses a new unnamed editor when its initially hidden
+  spatial pane is revealed. The Chromium startup flow verifies typing during
+  preparation, restoring the note and its ruler, opening Agent, and keyboard
+  focus in a newly created blank note. Full startup evidence and exclusions are
+  in `the-editor-does-not-wait-for-workspace-preparation.md`.
 - Amendment (2026-10-14, Codex): the user requested folder-specific restoration.
   Stored arrangements now take precedence over the introductory fallback;
   the historical verification below predates this amendment. `App.test.tsx`

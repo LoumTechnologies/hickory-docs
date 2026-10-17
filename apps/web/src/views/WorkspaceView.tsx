@@ -26,7 +26,7 @@ import type {
   OpenTerminal,
   SearchResponse,
 } from "../api/types";
-import { WorkspaceChat } from "./WorkspaceChat";
+import { WorkspaceChat } from "./deferredAgent";
 import { InsertMenu } from "../components/InsertMenu";
 import { PlainFilePane } from "../components/PlainFilePane";
 import { ScratchpadPane } from "../components/ScratchpadPane";

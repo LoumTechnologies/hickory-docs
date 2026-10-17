@@ -32,6 +32,7 @@ struct Client {
     state: LocalState,
     slot: String,
     seen: Instant,
+    startup: super::startup::Startup,
 }
 struct Engine {
     token: String,
@@ -240,7 +241,7 @@ async fn attach(
         .await
         .map_err(error)?
         .state;
-        state.index = Arc::new(DocIndex::shared(&root).map_err(error)?);
+        state.index = Arc::new(DocIndex::shared_from(&state.index));
         state.store = engine.store.clone();
         state.store.register(&state.index);
         state.rooms = engine.rooms.clone();
@@ -310,7 +311,7 @@ async fn attach(
         .write()
         .unwrap()
         .insert(opts.client.clone(), opts.clone());
-    engine
+    let startup = engine
         .watch
         .register(state.clone(), opts.clone())
         .await
@@ -326,6 +327,7 @@ async fn attach(
             state,
             slot: slot.clone(),
             seen: Instant::now(),
+            startup,
         },
     );
     Ok(Json(Attached { slot, log_offset }))
@@ -358,13 +360,17 @@ async fn dispatch(State(engine): State<Arc<Engine>>, req: Request) -> Response {
         return StatusCode::NOT_FOUND.into_response();
     }
     let id = id.to_owned();
-    let (router, state) = {
+    let (router, state, startup) = {
         let mut clients = engine.clients.lock().await;
         let Some(client) = clients.get_mut(&id) else {
             return StatusCode::NOT_FOUND.into_response();
         };
         client.seen = Instant::now();
-        (client.router.clone(), client.state.clone())
+        (
+            client.router.clone(),
+            client.state.clone(),
+            client.startup.clone(),
+        )
     };
     let (mut parts, body) = req.into_parts();
     let uri = parts.uri.to_string();
@@ -374,10 +380,40 @@ async fn dispatch(State(engine): State<Arc<Engine>>, req: Request) -> Response {
         .parse()
         .unwrap();
     let websocket = parts.headers.contains_key("upgrade");
+    if parts.method == axum::http::Method::GET && parts.uri.path() == "/api/startup" {
+        return match startup.result() {
+            None => Json(json!({ "ready": false })).into_response(),
+            Some(Ok(())) => Json(json!({ "ready": true })).into_response(),
+            Some(Err(error)) => (
+                StatusCode::SERVICE_UNAVAILABLE,
+                Json(json!({ "error": error })),
+            )
+                .into_response(),
+        };
+    }
+    let bootstrap = !websocket && super::startup::editor_bootstrap(parts.uri.path(), &parts.method);
+    // Free the browser's HTTP connection slots while preparation is pending.
+    // The marker means this request has NOT reached a handler and is safe
+    // for the client to submit once initialization completes, including PUTs.
+    if !bootstrap && !websocket && startup.result().is_none() {
+        return (
+            StatusCode::SERVICE_UNAVAILABLE,
+            [("x-hickory-startup", "pending")],
+            Json(json!({ "error": "Preparing generated files…" })),
+        )
+            .into_response();
+    }
+    if !bootstrap && let Err(error) = startup.wait().await {
+        return (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(json!({ "error": error.to_string() })),
+        )
+            .into_response();
+    }
     state.store.register(&state.index);
     let read = parts.method == axum::http::Method::GET || websocket;
     let request = Request::from_parts(parts, body);
-    if read {
+    if read || bootstrap {
         router.oneshot(request).await.unwrap()
     } else {
         super::writes::during(&engine.writes, async {

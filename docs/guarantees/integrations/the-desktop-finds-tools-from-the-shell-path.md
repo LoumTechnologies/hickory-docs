@@ -21,6 +21,15 @@ the launch error and useful next steps rather than claiming it is uninstalled.
 
 Last LLM verification:
 
+- Startup amendment (2026-10-17, Codex): discovery replaces its shell with
+  `/usr/bin/printf` after login and interactive profiles, avoiding logout hooks
+  and terminal-session saving. A new window reuses its parent process's resolved
+  PATH only when it is still identical; changed or unmarked paths are rediscovered.
+  `launch_path::tests` covers both cases and real profile/logout behavior.
+  Fresh launches retain the five-second bound. See
+  `authoring/the-editor-does-not-wait-for-workspace-preparation.md` for startup
+  scope and final executed-check evidence.
+
 - Date: 2026-10-01
 - Reviewer: Codex
 - Result: verified

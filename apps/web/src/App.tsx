@@ -1,17 +1,19 @@
-import { useEffect, useRef, useState } from "react";
+import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import { navigate, useRoute, newDocument } from "./router";
-import { LineageView } from "./views/LineageView";
-import { SettingsView } from "./views/SettingsView";
 import { WorkspaceView, type WorkspaceRoute } from "./views/WorkspaceView";
 import { api } from "./api/client";
 import { insertTarget, onMenuAction } from "./lib/menuBridge";
 import { TooltipLayer } from "./components/TooltipLayer";
-import { NewProjectDialog } from "./components/NewProjectDialog";
 import { showTerminalRequest } from "./lib/revealLine";
 import type { ScaffoldStarted } from "./api/types";
 import { FILES_CHANGED_EVENT } from "./shell/FolderTreePane";
 import { BlankWelcome } from "./views/BlankWelcome";
 import { SETTINGS_CLOSED } from "./lib/workspaceVisibility";
+import { StartupNotice } from "./components/StartupNotice";
+
+const LineageView = lazy(() => import("./views/LineageView").then((m) => ({ default: m.LineageView })));
+const SettingsView = lazy(() => import("./views/SettingsView").then((m) => ({ default: m.SettingsView })));
+const NewProjectDialog = lazy(() => import("./components/NewProjectDialog").then((m) => ({ default: m.NewProjectDialog })));
 
 /** How often the app asks whether a scaffold has landed, and for how long.
  * The person is watching the terminal; this is only so the tree and the
@@ -216,15 +218,17 @@ export function App() {
         {workspace.current && <div data-workspace hidden={!inWorkspace} style={{ display: inWorkspace ? "contents" : "none" }}>
           <WorkspaceView route={workspace.current.route} />
         </div>}
-        {inWorkspace ? null : route.name === "lineage" ? (
-          <LineageView projectId={route.id} />
-        ) : route.name === "settings" ? (
-          <SettingsView onBack={() => { navigate(workspace.current?.hash.replace(/^#/, "") ?? "/"); window.dispatchEvent(new Event(SETTINGS_CLOSED)); }} />
-        ) : route.name === "blank" ? (
-          <BlankWelcome />
-        ) : (
-          <BlankWelcome />
-        )}
+        <Suspense fallback={<div role="status">Opening…</div>}>
+          {inWorkspace ? null : route.name === "lineage" ? (
+            <LineageView projectId={route.id} />
+          ) : route.name === "settings" ? (
+            <SettingsView onBack={() => { navigate(workspace.current?.hash.replace(/^#/, "") ?? "/"); window.dispatchEvent(new Event(SETTINGS_CLOSED)); }} />
+          ) : route.name === "blank" ? (
+            <BlankWelcome />
+          ) : (
+            <BlankWelcome />
+          )}
+        </Suspense>
       </main>
       {notice && (
         <div className="menu-notice" role="status">
@@ -232,13 +236,13 @@ export function App() {
         </div>
       )}
       {newProject && (
-        <NewProjectDialog
-          onStarted={watchScaffold}
-          onClose={() => setNewProject(false)}
-        />
+        <Suspense fallback={<div role="status">Opening New Project…</div>}>
+          <NewProjectDialog onStarted={watchScaffold} onClose={() => setNewProject(false)} />
+        </Suspense>
       )}
       {/* One tooltip for the whole app; every `data-tip` in it lands here. */}
       <TooltipLayer />
+      <StartupNotice />
     </div>
   );
 }

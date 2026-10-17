@@ -1,6 +1,5 @@
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
-import { App } from "./App";
 import { MOCK } from "./api/client";
 import { setSharedRealtime } from "./api/realtime";
 import { applyEditorAppearance, loadEditorAppearance } from "./lib/editorAppearance";
@@ -16,12 +15,10 @@ applyStoredTheme();
 applyEditorAppearance(loadEditorAppearance());
 
 async function boot() {
-  // The parser is WebAssembly and parses synchronously once loaded; the
-  // editor must not mount before it is here.
-  await loadHickLang();
-  // The keymap is read once, before any editor is built: editors take their
-  // bindings at construction (lib/keymap.ts).
-  await loadKeymap();
+  // Fetch the application, parser and keymap together. A static App import
+  // would delay these requests until the whole editor bundle had been parsed.
+  // Editors need the parser and their configured bindings before mounting.
+  const [{ App }] = await Promise.all([import("./App"), loadHickLang(), loadKeymap()]);
   if (MOCK) {
     const { installMockApi, mockRealtime } = await import("./mock/mockApi");
     installMockApi();

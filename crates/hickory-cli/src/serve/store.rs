@@ -74,14 +74,26 @@ impl DocIndex {
     /// Shared engine views use the physical path as their room identity,
     /// so opening a parent and its child cannot mint two rooms for one file.
     pub fn shared(root: &Path) -> Result<Self> {
-        let mut index = Self::scan(root)?;
-        index.absolute_ids = true;
-        let paths: Vec<_> = index.entries().into_iter().map(|(_, path)| path).collect();
-        index.by_id.write().unwrap().clear();
-        for path in paths {
+        Ok(Self::shared_from(&Self::scan(root)?))
+    }
+
+    /// Reuse a completed scan when adopting physical room identities.
+    pub fn shared_from(scanned: &Self) -> Self {
+        let index = Self::empty_shared(scanned.root());
+        for (_, path) in scanned.entries() {
             index.add(&path);
         }
-        Ok(index)
+        index
+    }
+
+    /// Selected-file tracking in a window proxy needs no workspace scan;
+    /// the engine owns discovery and populates its own shared index.
+    pub fn empty_shared(root: &Path) -> Self {
+        Self {
+            root: root.to_path_buf(),
+            absolute_ids: true,
+            by_id: std::sync::RwLock::new(HashMap::new()),
+        }
     }
 
     /// Relative path for a document id.

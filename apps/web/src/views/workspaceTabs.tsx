@@ -25,6 +25,7 @@ import type { Baseline } from "../components/RefactorBadge";
 import { GeneratedFileView } from "../shell/views";
 import { registerBufferEditor } from "../lib/editorBufferTargets";
 import { markUntitledEditor } from "../editor/activeEditor";
+import { focusWhenShown } from "../lib/focusWhenShown";
 import { useDocSession, type SessionRegistry } from "./documentSession";
 
 /** Document-wide actions share the pane header; cell actions stay on their rail. */
@@ -307,6 +308,8 @@ export function UntitledTab({
   const viewRef = useRef<EditorView | null>(null);
   const unregisterBuffer = useRef(() => {});
   useEffect(() => () => unregisterBuffer.current(), []);
+  const cancelFocus = useRef(() => {});
+  useEffect(() => () => cancelFocus.current(), []);
   return (
     <div className="untitled-tab">
       <SurfaceInfo name="Untitled document" editable destination="Save names a .md file. Recovery drafts are kept outside the project." />
@@ -327,7 +330,8 @@ export function UntitledTab({
           unregisterBuffer.current = view ? registerBufferEditor(tabId, view) : () => {};
           // Land ready to type — an empty editor you still have to click
           // into is a chooser with extra steps.
-          if (view && !view.dom.closest("[hidden]")) view.focus();
+          cancelFocus.current();
+          cancelFocus.current = view ? focusWhenShown(view) : () => {};
         }}
         onChange={(source) => onSource?.(tabId, source)}
       />
