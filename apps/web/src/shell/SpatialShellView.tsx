@@ -298,6 +298,7 @@ export function SpatialShellView(props: Props) {
               const candidateTab = candidate.tab!, selected = candidate.key === entry.key;
               const label = candidateTab.title ?? relative(candidate.path, props.folderRoot);
               return <div key={candidateTab.id} className="spatial-tab-item"><button id={`spatial-tab-${candidateTab.id}`} type="button" role="tab" aria-label={label} aria-selected={selected} aria-controls={`spatial-content-${candidateTab.id}`} tabIndex={selected ? 0 : -1}
+                onContextMenu={event => props.onTabContextMenu?.(event, candidateTab)}
                 className="spatial-center-tab" data-tip={relative(candidate.path, props.folderRoot)}
                 data-shell-tab-kind={candidateTab.kind} data-shell-tab-target={candidate.path} data-shell-tab-source={selected ? candidate.path : undefined} data-shell-tab-buffer={selected ? bufferTarget(candidateTab.id) : undefined}
                 onPointerDown={event => { event.stopPropagation(); begin(candidate, event); }} onClick={() => centerOn(candidate)} onKeyDown={event => {
@@ -310,6 +311,7 @@ export function SpatialShellView(props: Props) {
                 }}>{label}{props.dirtyTabIds?.has(candidateTab.id) ? " *" : ""}</button><button type="button" className="spatial-tab-close" aria-label={`Close ${label}`} data-tip={`Close ${label}`} onPointerDown={event => event.stopPropagation()} onClick={event => { event.stopPropagation(); close(candidate); }}>×</button></div>;
             })}
           </div> : <button type="button" role={tab ? "tab" : undefined} aria-label={title} aria-selected={tab ? layout.focus === entry.pane?.id : undefined} className="spatial-filename" data-tip={name} data-shell-tab-kind={tab?.kind} data-shell-tab-target={entry.path} data-shell-tab-source={entry.path} data-shell-tab-vertical={true} data-shell-tab-buffer={tab ? bufferTarget(tab.id) : undefined}
+            onContextMenu={event => { if (tab) props.onTabContextMenu?.(event, tab); }}
             data-ribbon-port={entry.port ? entry.key : undefined} onClick={() => click(() => { if (entry.port) openPort(entry); else if (!centered) { if (tab?.kind === "untitled") centerOn(entry); else controller.toggle(entry.key); } })}>{tab && !["document", "generated", "file"].includes(tab.kind) ? title : name || title}{tab && props.dirtyTabIds?.has(tab.id) ? " *" : ""}</button>}
           <PaneHeaderSlots />
           <div className="spatial-window-controls">
@@ -323,7 +325,7 @@ export function SpatialShellView(props: Props) {
       </section></PaneHeaderProvider>;
     })}
     {entries.map(entry => <div key={`strip-${entry.key}`} hidden={!visible[entry.side] || !effective.drawers.keys.includes(entry.key)} data-drawer-side={entry.side} className="spatial-header-extension" data-spatial-strip={entry.key} onPointerDown={event => begin(entry, event)}>
-      <button data-tip={`${relative(entry.path, props.folderRoot)} — click to pin or unpin`} className="spatial-file-tab" onClick={() => click(() => entry.port ? openPort(entry) : pinView(entry))}>{entry.tab && !["document", "generated", "file"].includes(entry.tab.kind) ? entry.tab.title ?? entry.tab.target : relative(entry.path, props.folderRoot)}</button>
+      <button data-tip={`${relative(entry.path, props.folderRoot)} — click to pin or unpin`} className="spatial-file-tab" onContextMenu={event => { if (entry.tab) props.onTabContextMenu?.(event, entry.tab); }} onClick={() => click(() => entry.port ? openPort(entry) : pinView(entry))}>{entry.tab && !["document", "generated", "file"].includes(entry.tab.kind) ? entry.tab.title ?? entry.tab.target : relative(entry.path, props.folderRoot)}</button>
     </div>)}
     {entries.flatMap(entry => (["top", "bottom"] as const).map(edge => <div key={`${entry.key}-${edge}`} role="separator" aria-label={`Resize ${relative(entry.path, props.folderRoot)} ${edge}`} aria-orientation="horizontal" tabIndex={0}
       hidden={!visible[entry.side] || !effective.drawers.keys.includes(entry.key)} data-drawer-side={entry.side} className="spatial-resize-rule" data-spatial-resize={entry.key} data-resize-edge={edge} onPointerDown={event => { event.preventDefault(); controller.begin(entry.key, event, edge); }}

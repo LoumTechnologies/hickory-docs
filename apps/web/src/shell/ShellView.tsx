@@ -60,6 +60,7 @@ export interface ShellViewProps {
   /** Open project search (Mod-Shift-F). The shell only owns the key: what a
    * search panel is, and over what, belongs to whoever mounted the shell. */
   onSearch?: () => void;
+  onTabContextMenu?: (event: React.MouseEvent, tab: Tab) => void;
   /** "Open here" ports for files ribbons reach but no pane shows. Rendered
    * in the root's first vertical divider, or an edge rail when there is none. */
   ports?: readonly ShellPort[];

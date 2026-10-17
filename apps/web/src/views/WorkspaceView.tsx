@@ -1,3 +1,4 @@
+import { useFileTabMenu } from "./useFileTabMenu";
 import { documentCommands } from "./documentCommands";
 import { nodeForAbsolutePath } from "../lib/openPath";
 import { viewBuffers } from "../lib/viewBuffers";
@@ -427,9 +428,7 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
     setLayout((current) => openFileTab(current, path, into));
     if (already) flashTab("file", path);
   }, []);
-  // The tree tells us the identity change, not merely that its listing is
-  // stale. Keep the existing editor tab (and its buffer) in place while its
-  // path and caption follow the renamed file.
+  // Preserve the editor buffer while following a file rename.
   useEffect(() => {
     const onFilesChanged = (event: Event) => {
       const renames = (event as CustomEvent<{ renames?: { from: string; to: string }[] }>).detail
@@ -1413,8 +1412,7 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
     return searchWorkspace(query, limit, files, folderOpen ? api.search : undefined, folderRoots[0]?.root);
   }, [registry, folderOpen, folderRoots]);
   workspaceSearchRef.current = workspaceSearch;
-  // What a tree click can open beyond documents: any open document's
-  // generated files, each owned by the document that made it.
+  // Generated paths map to their owning open document.
   const openableOutputs = useMemo(() => {
     const map = new Map<string, string>(); // path -> owning docId
     for (const session of registry.all()) {
@@ -1427,9 +1425,8 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [registry, registry.version]);
   openableOutputsRef.current = openableOutputs;
-  // Continuity, for THIS project. `undefined` until the server answers (or
-  // forever, if it cannot) — the toggle is hidden rather than shown in a
-  // state nobody chose. Off is the answer to "I could not tell".
+  const { onTabContextMenu, fileTabMenu } = useFileTabMenu(folderRoots, focusedId, openableOutputs, ensureDocOpen);
+  // Hide continuity until the server answers.
   const [continuity, setContinuity] = useState<boolean | undefined>(undefined);
   useEffect(() => {
     let live = true;
@@ -1701,7 +1698,9 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
               retainUnsaved={retainSavedDrafts}
             />
           ))}
+          {fileTabMenu}
           <ShellView
+            onTabContextMenu={onTabContextMenu}
             sources={ribbonSources} files={ribbonFiles} links={ribbonLinks} folderRoot={folderRoots[0]?.root_path ?? folderRoots[0]?.root} hasFiles={!!folderOpen && folderRoots.some(root => root.tree.length > 0)}
             layout={layout} spatialState={workspaceUi.spatial} onSpatialState={workspaceUi.setSpatial} spatialHydrated={workspaceUi.hydrated}
             onLayout={setLayout}

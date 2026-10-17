@@ -681,3 +681,8 @@ test-folder-window-state:
 # Literate debugger navigation and exact source-position mapping.
 test-debug-navigation:
     cd apps/web && npm test -- src/debug/literateDebugNavigation.test.tsx src/debug/preferredDebugLocation.test.ts src/debug/plainDebugHosts.test.tsx src/lsp/representationMapping.test.ts --maxWorkers=2
+
+# File tabs and Files rows share context-menu actions and prompts.
+test-file-tab-menu:
+    just check-web
+    cd apps/web && npm test -- src/views/useFileTabMenu.test.tsx src/shell/FolderTreePane.test.tsx src/shell/SpatialShellView.test.tsx --maxWorkers=2

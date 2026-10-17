@@ -15,13 +15,12 @@ import { api } from "../api/client";
 import type { FileNode, FilesResponse } from "../api/types";
 import { TreeContextMenu } from "./TreeContextMenu";
 import { TreePrompt } from "./TreePrompt";
-import { fileRenameError, TreeRenameEditor } from "./TreeRenameEditor";
+import { FileActionPrompts, runFileMenuItem } from "./fileMenuActions";
 import { useDired } from "./useDired";
 import { useTreeNavigation } from "./useTreeNavigation";
 import { TreeFindReplace } from "./TreeFindReplace";
 import { FilesystemTreeEditor, type WorkspaceTextExtra } from "./FilesystemTreeEditor";
 import {
-  copyText,
   terminalMenuItems,
   treeMenuItems,
   type TreeFolder,
@@ -583,12 +582,7 @@ function FolderRoot({
   const runItem = useCallback((item: TreeMenuItem) => {
     setMenu(null);
     const action = item.action;
-    if (action.kind === "copy") {
-      void copyText(action.text).catch((e: unknown) =>
-        setNotice(`Could not copy: ${e instanceof Error ? e.message : String(e)}`),
-      );
-      return;
-    }
+    if (runFileMenuItem(item, dired, setNotice, id => onOpen({ kind: "doc", id }))) return;
     // Terminal verbs are the pane's owner's business: it holds the session
     // list and the layout a new terminal opens into.
     if (action.kind === "terminal") {
@@ -607,39 +601,6 @@ function FolderRoot({
       onCloseTerminal?.(action.id);
       return;
     }
-    if (action.kind === "literate" || action.kind === "ingest") {
-      // Byte-exact adoption, then the document it landed in opens: the
-      // person asked for a document, not a file that changed under them.
-      const into = action.kind === "ingest" ? action.into : undefined;
-      void api.adopt(action.path, into).then(
-        (outcome) => {
-          window.dispatchEvent(new Event(FILES_CHANGED_EVENT));
-          onOpen({ kind: "doc", id: outcome.doc_id });
-        },
-        (e: unknown) => setNotice(e instanceof Error ? e.message : String(e)),
-      );
-      return;
-    }
-    if (action.kind === "rename") {
-      dired.run({ kind: "rename", paths: action.paths });
-      return;
-    }
-    if (action.kind === "move" || action.kind === "delete") {
-      dired.run({ kind: action.kind, paths: action.paths });
-      return;
-    }
-    if (action.kind === "copy-to") {
-      dired.run({ kind: "copy", paths: action.paths });
-      return;
-    }
-    if (action.kind === "create" || action.kind === "mkdir") {
-      dired.run({ kind: action.kind, dir: action.dir });
-      return;
-    }
-    const call = action.kind === "reveal" ? api.reveal(action.path) : api.openExternal(action.path);
-    void call.catch((e: unknown) =>
-      setNotice(e instanceof Error ? e.message : String(e)),
-    );
   }, [onNewTerminal, onNewWorktree, onCloseTerminal, onOpen, dired]);
 
   const name = folder.root.replace(/\/+$/, "").split("/").pop() || folder.root;
@@ -667,37 +628,7 @@ function FolderRoot({
         <p className="muted folder-tree__truncated">Large folder — not everything is listed.</p>
       )}
       {notice && <p className="error folder-tree__notice">{notice}</p>}
-      {dired.prompt && (
-        <TreePrompt
-          label={dired.prompt.label}
-          verb={dired.prompt.verb}
-          initial={dired.prompt.initial}
-          onSubmit={dired.answer}
-          onCancel={dired.cancel}
-          error={dired.promptError}
-          busy={dired.busy}
-        />
-      )}
-      {dired.renamePaths && (
-        <TreeRenameEditor
-          items={dired.renamePaths.map((path) => ({
-            key: `filesystem:${encodeURIComponent(path)}`,
-            context: path,
-            value: path.split("/").pop() ?? path,
-          }))}
-          validate={fileRenameError}
-          inlinePath={dired.renamePaths.length === 1 ? dired.renamePaths[0] : undefined}
-          apply={async (item, value) => {
-            await api.fileOp({ op: "rename", path: item.context, to: value });
-            const slash = item.context.lastIndexOf("/");
-            const to = slash < 0 ? value : `${item.context.slice(0, slash + 1)}${value}`;
-            window.dispatchEvent(
-              new CustomEvent(FILES_CHANGED_EVENT, { detail: { renames: [{ from: item.context, to }] } }),
-            );
-          }}
-          onClose={dired.closeRename}
-        />
-      )}
+      <FileActionPrompts dired={dired} inlineRename />
       {issueAssociation && (
         <TreePrompt
           label={`GitHub issue for ${issueAssociation.folder || "this folder"} (owner/repo#123 or URL)`}

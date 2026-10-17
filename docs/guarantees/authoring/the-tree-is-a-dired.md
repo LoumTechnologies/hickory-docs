@@ -6,6 +6,14 @@ to one filesystem-operation endpoint inside the open folder. A rename never
 overwrites, a move or copy names a destination, `.git` and paths outside the
 root are refused, and the Git pane reports the resulting working-tree change.
 
+Given an open file tab, when a person right-clicks its center tab or drawer
+filename, then it offers the same file actions as its Files row, using the
+same menu definition, action handlers, and operation prompts. The act targets
+that file alone, independently of marked Files rows or the selected tab.
+Document and generated-file tabs do not offer adoption. Unsaved drafts and
+tool tabs do not acquire filesystem actions. These actions remain available
+when the Files pane is closed.
+
 Editing a line's name or indentation and saving is the ordinary rename/move
 path. Inserting a line creates its file or trailing-slash folder. Removing
 lines stages a destructive delete and asks once before removing bytes from
@@ -40,3 +48,9 @@ Last LLM verification:
   `FolderTreePane.test.tsx` ("the tree as dired"),
   `crates/hickory-cli/tests/tree_file_ops.rs`, and the live Playwright Files
   buffer rename flow
+
+File-tab menu verification (2026-10-17): `just test-file-tab-menu` covers menu
+parity, delete confirmation and target, adoption, document/generated-file
+restrictions, and center/drawer right-click forwarding. Shared handlers and
+prompts are in `apps/web/src/shell/fileMenuActions.tsx`; tab resolution is in
+`apps/web/src/views/useFileTabMenu.tsx`.

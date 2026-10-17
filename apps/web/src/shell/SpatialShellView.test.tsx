@@ -222,3 +222,19 @@ it("restores the folder's spatial state without depending on browser storage", a
   fireEvent.click(within(ui.getByRole("tablist", { name: "Center views" })).getByRole("tab", { name: "main.md" }));
   await waitFor(() => expect(ui.container.querySelector('[data-spatial-key="document:main.md"]')?.getAttribute("data-spatial-center")).toBe("true"));
 });
+
+it("forwards right-clicks on center tabs and drawer filenames without selecting them", () => {
+  const pane = emptyPane();
+  const first = tab("document", "main.md"), second = tab("file", "input.txt");
+  const layout: Layout = { root: { ...pane, tabs: [first, second], active: 0 }, focus: pane.id };
+  const picked: string[] = [];
+  const ui = render(<SpatialShellView layout={layout} onLayout={() => {}} sources={[]} files={[]} links={[]}
+    render={() => <p>Editor</p>} onTabContextMenu={(event, target) => { event.preventDefault(); picked.push(target.id); }} />);
+  const centerTab = ui.container.querySelector<HTMLElement>(`#spatial-tab-${second.id}`)!;
+  fireEvent.contextMenu(centerTab);
+  expect(picked).toEqual([second.id]);
+  expect(centerTab.getAttribute("aria-selected")).toBe("false");
+  const drawerTab = ui.container.querySelector<HTMLElement>('[data-spatial-key="file:input.txt"] .spatial-filename')!;
+  fireEvent.contextMenu(drawerTab);
+  expect(picked).toEqual([second.id, second.id]);
+});
