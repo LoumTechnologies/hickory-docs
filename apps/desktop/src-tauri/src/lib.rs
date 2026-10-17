@@ -41,6 +41,14 @@ pub fn run() {
             if let WindowEvent::Focused(true) = event {
                 recent::refresh(window.app_handle());
             }
+            if let WindowEvent::Destroyed = event {
+                let folder = window.state::<WindowFolder>();
+                if let Some(folder) = folder.0.lock().unwrap().as_deref()
+                    && let Ok(config) = window.app_handle().path().app_config_dir()
+                {
+                    server::remember(&config, folder);
+                }
+            }
             if let WindowEvent::CloseRequested { api, .. } = event {
                 let gate = window.state::<CloseGate>();
                 if !gate.0.swap(false, std::sync::atomic::Ordering::SeqCst) {
@@ -54,6 +62,7 @@ pub fn run() {
             }
         })
         .setup(|app| {
+            app.manage(WindowFolder(std::sync::Mutex::new(None)));
             app.manage(CloseGate(std::sync::atomic::AtomicBool::new(false)));
             let handle = app.handle().clone();
             // The menu is built here rather than through `.menu(...)`: it
@@ -70,6 +79,10 @@ pub fn run() {
 }
 
 struct CloseGate(std::sync::atomic::AtomicBool);
+
+// Each folder window has its own process. Record it at close as well as open
+// so the last window closed determines what an ordinary launch restores.
+struct WindowFolder(std::sync::Mutex<Option<PathBuf>>);
 
 /// The native menu bar.
 ///
@@ -533,6 +546,7 @@ fn open_folder_window(handle: &AppHandle, dir: &Path) {
             false
         };
         if attached {
+            *handle.state::<WindowFolder>().0.lock().unwrap() = Some(dir.to_path_buf());
             if let Some(window) = handle.get_webview_window("main") {
                 let _ = window.set_title(&native_title(config.as_deref(), dir));
                 let _ = window.eval("window.dispatchEvent(new Event('hickory:files-changed'))");
@@ -582,7 +596,7 @@ fn dispatch_to_ui(app: &AppHandle, action: &str) {
     }
 }
 
-/// Open an explicitly requested path, or an editor with no folder selected.
+/// Open an explicitly requested path, the last folder, or a blank editor.
 fn launch(handle: AppHandle, requested_file: Option<PathBuf>) {
     let runtime = match tokio::runtime::Builder::new_multi_thread()
         .enable_all()
@@ -608,7 +622,12 @@ fn launch(handle: AppHandle, requested_file: Option<PathBuf>) {
     // A folder named on the command line or in the environment is a deliberate
     // act, and is tried once: someone who typed a path wants that path, and
     // falling back to a picker would quietly hide their typo.
-    if let Some(dir) = requested_file.or_else(server::named_dir) {
+    if let Some(dir) = requested_file.or_else(server::named_dir).or_else(|| {
+        config_dir
+            .as_deref()
+            .and_then(server::last_opened)
+            .filter(|path| path.is_dir())
+    }) {
         match runtime.block_on(server::start_with_menu(
             &dir,
             config_dir.as_deref(),
@@ -624,9 +643,7 @@ fn launch(handle: AppHandle, requested_file: Option<PathBuf>) {
         return;
     }
 
-    // An ordinary launch starts an editor, not a remembered repository.
-    // Recent paths remain available through File → Recent; only an explicit
-    // path above opens a workspace and enables repository diagnostics.
+    // First launch, or a remembered folder that was moved or removed.
     match runtime.block_on(server::start_blank_with_config(
         config_dir.as_deref(),
         Some(server::shell_hooks(&handle, config_dir.as_deref())),
@@ -664,6 +681,7 @@ fn open(
     config_dir: Option<&Path>,
     dir: &Path,
 ) {
+    *handle.state::<WindowFolder>().0.lock().unwrap() = dir.is_dir().then(|| dir.to_path_buf());
     recent::record(handle, dir);
     if let Some(config_dir) = config_dir {
         server::remember(config_dir, dir);
