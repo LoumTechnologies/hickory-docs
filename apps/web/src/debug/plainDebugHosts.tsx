@@ -1,3 +1,6 @@
+import { capturedFiles, capturedSourceKey } from "../lib/capturedContexts";
+import { breakpointPreferences, rememberBreakpointPreferences, subscribeBreakpointPreferences } from "./breakpointPreferences";
+import { LaunchProfiles } from "./launchProfiles";
 // Where a plain file's debug session lives: above its pane.
 //
 // Only the active tab of a pane is rendered, so a plain file's pane
@@ -124,6 +127,7 @@ export function PlainDebugHosts() {
   const paths = useSyncExternalStore(subscribe, wantedPaths, wantedPaths);
   return (
     <>
+      <LaunchProfiles />
       {paths.map((path) => (
         <Host key={path} path={path} />
       ))}
@@ -140,6 +144,11 @@ export function usePublishDebugSession(owner: string, debug: DebugSession) {
 /** Borrow execution controls from the session that opened this callee. */
 export function useFollowingDebugSession(path: string, explicitOwner?: string): DebugSession | null {
   const own = usePlainDebugSession(path);
+  const key=capturedSourceKey(path);
+  const saved=useSyncExternalStore(subscribeBreakpointPreferences,()=>breakpointPreferences(key),()=>undefined);
+  const ownRef=useRef(own);ownRef.current=own;
+  const ownActive=!!own && ["starting","paused","running"].includes(own.status);
+  useEffect(()=>{if(saved && ownRef.current && !ownActive)ownRef.current.replaceBreakpoints(saved);},[saved,key,!!own,ownActive]);
   const elsewhere = usePausedElsewhere();
   const followed = useRef({path, owner:explicitOwner});
   if (followed.current.path !== path) followed.current = {path, owner:explicitOwner};
@@ -154,18 +163,22 @@ export function useFollowingDebugSession(path: string, explicitOwner?: string): 
     if (held && held !== own.breakpoints) own.replaceBreakpoints(held);
     else if (!held && own.breakpoints.length) borrowed.setSourceBreakpoints(source,own.breakpoints);
   },[active,borrowed,source,own]);
-  const direct = useMemo(()=>own ? {...own,start:(program?:string)=> {
+  const direct = useMemo(()=>own ? {...own,start:(program?:string, sources: Record<string, import("./useDebugger").HeldBreakpoint[]> = {}, project?: string, profile?: import("./launchProfiles").LaunchSelection)=> {
     const captured = /^hick-project:\/\/\/[^/]+\//.exec(path)?.[0];
     const initial = Object.fromEntries([...sessions].filter(([other])=>other!==path &&
       isDebuggable(languageFromPath(other)) && (captured ? other.startsWith(captured) : isWorkspaceSource(other)))
       .map(([other,session])=>[other.startsWith("hick-project:///")?other:`hick:///${other}`,session.breakpoints]));
-    own.start(program,initial);
+    if(captured)for(const file of capturedFiles(path)) {
+      const uri=`${captured}${file}`, held=breakpointPreferences(capturedSourceKey(uri));
+      if(uri!==path && held)initial[uri]=held;
+    }
+    own.start(program,{...initial,...sources},project,profile);
   }} : null,[own,path]);
-  if (!borrowed || !["starting", "running", "paused"].includes(borrowed.status) || followed.current.owner === path) return direct;
+  if (!borrowed || !["starting", "running", "paused"].includes(borrowed.status) || followed.current.owner === path) return preferences(direct,key);
   const frame = borrowed.frames.find(f => f.source === path);
   const pausedLine = frame?.source_line ?? (elsewhere?.path === path ? elsewhere.line : null);
   const breakpoints = borrowed.sourceBreakpoints[source] ?? own?.breakpoints ?? [];
-  return { ...borrowed, pausedLine, program: borrowed.program ?? followed.current.owner ?? null,
+  return preferences({ ...borrowed, pausedLine, program: borrowed.program ?? followed.current.owner ?? null,
     // These protocol verbs address the launch file, not the viewed callee.
     // Never send a callee's line number as a line in the launch file.
     capabilities: borrowed.capabilities ? {...borrowed.capabilities, goto_targets:false} : null,
@@ -176,5 +189,16 @@ export function useFollowingDebugSession(path: string, explicitOwner?: string): 
     toggleBreakpoint: line => borrowed.setSourceBreakpoints(source,breakpoints.some(bp=>bp.line===line)
       ? breakpoints.filter(bp=>bp.line!==line) : [...breakpoints,{line,state:"pending"}]),
     setBreakpointCondition: (line,patch) => borrowed.setSourceBreakpoints(source,breakpoints.map(bp=>bp.line===line?{...bp,...patch}:bp)),
-  };
+  },key);
+}
+
+function preferences(debug:DebugSession|null,key:string|null):DebugSession|null {
+  if(!debug || !key)return debug;
+  return {...debug,toggleBreakpoint:line=>{
+    const next=debug.breakpoints.some(bp=>bp.line===line)?debug.breakpoints.filter(bp=>bp.line!==line):[...debug.breakpoints,{line,state:"pending" as const}];
+    rememberBreakpointPreferences(key,next);debug.toggleBreakpoint(line);
+  },setBreakpointCondition:(line,patch)=>{
+    rememberBreakpointPreferences(key,debug.breakpoints.map(bp=>bp.line===line?{...bp,...patch}:bp));
+    debug.setBreakpointCondition(line,patch);
+  }};
 }

@@ -1,3 +1,4 @@
+import { launchWithProfiles } from "../debug/launchProfiles";
 import { DebugLaunchRail } from "../debug/DebugRail";
 import { RightRail } from "../editor/RightRail";
 import { PaneHeaderContent } from "../shell/PaneHeader";
@@ -706,6 +707,13 @@ export function PlainFilePane({
     );
   }, [saver, path, adoptDiskCopy]);
 
+  const launchProfile = async (choose=false) => {
+    const source=viewRef.current?.state.doc.toString();
+    if(source===undefined || !await saver.flushNow())return;
+    if(viewRef.current?.state.doc.toString()!==source)return;
+    await launchWithProfiles({uri:`hick:///${path}`,expected_source:source},
+      profile=>debug.start(undefined,{},undefined,profile),{choose,isCurrent:()=>viewRef.current?.state.doc.toString()===source});
+  };
   if (loadError) {
     return (
       <div className="plain-file-pane">
@@ -789,6 +797,7 @@ export function PlainFilePane({
         pausedLine={debug.pausedLine}
         status={debug.status}
         program={null}
+        launchTarget={debug.launchTarget}
         message={debug.message}
         offerInstall={debug.offerInstall}
         onInstall={offer => api.installTool(offer.kind, offer.language).then(() => undefined)}
@@ -805,7 +814,7 @@ export function PlainFilePane({
           if (!view) return;
           debug.jumpTo(view.state.doc.lineAt(view.state.selection.main.head).number - 1);
         }}
-        onStart={() => debug.start()}
+        onStart={() => {void launchProfile();}}
         onStop={debug.stop}
         onAddWatch={() => {
           void askTextRef.current?.("Expression to watch:", "").then((expression) => {
@@ -836,7 +845,7 @@ export function PlainFilePane({
       <div className="output-editor with-right-rail" hidden={merge !== null}>
         <div ref={hostRef} className="editor-cm-host" />
         <RightRail view={railView} />
-        <DebugLaunchRail view={railView} plainPath={path} enabled={!!file && isDebuggable(file.language)} onStart={() => debug.start()} />
+        <DebugLaunchRail view={railView} plainPath={path} enabled={!!file && isDebuggable(file.language)} onStart={()=>{void launchProfile();}} onProfiles={()=>{void launchProfile(true);}} />
       </div>
     </div>
   );

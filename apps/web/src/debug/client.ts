@@ -205,11 +205,11 @@ export class DebugClient {
     this.wire.send(frame);
   }
 
-  start(doc: string, breakpoints: DebugBreakpoint[], program?: string, project?: string, sources?: Record<string, DebugBreakpoint[]>) {
+  start(doc: string, breakpoints: DebugBreakpoint[], program?: string, project?: string, sources?: Record<string, DebugBreakpoint[]>, profile?: import("./launchProfiles").LaunchSelection) {
     // `program` names which generated file to run. A document with two
     // Python files has two answers, and picking the first is right only by
     // accident.
-    this.send({ op: "start", doc, breakpoints, program, ...(project && project !== "new" ? {project} : {}), ...(sources && Object.keys(sources).length ? {sources} : {}) });
+    this.send({ op: "start", doc, breakpoints, program, ...(profile ? {profile:{id:profile.id,fingerprint:profile.fingerprint}} : {}), ...(project && project !== "new" ? {project} : {}), ...(sources && Object.keys(sources).length ? {sources} : {}) });
   }
 
   setBreakpoints(session: string, breakpoints: DebugBreakpoint[]) {

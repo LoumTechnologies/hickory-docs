@@ -560,3 +560,105 @@ print(marker, total)
   await page.getByRole("button", {name:"Stop",exact:true}).last().click();
   expect(errors).toEqual([]);
 });
+
+// Guarantee: docs/guarantees/debugging/launch-profiles-choose-targets-within-the-viewed-project.md
+for(const launch of ["old-caller","new-caller","greet","welcome"] as const) test(`launch profiles reach library breakpoints through the application · ${launch}`,async({page})=>{
+  test.setTimeout(120_000);
+  test.skip(!process.env.HICKORY_E2E_DEBUG,"Use just test-launch-profiles-ui.");
+  const folder=`profiles-${launch}`;
+  const library=`<hick:file id="library" path="library.py">
+def greet():
+    return "Hello"
+</hick:file>`;
+  const libResponse=await page.request.post("/api/projects/local/docs",{data:{path:`${folder}/library.md`,source:library}});
+  expect(libResponse.ok()).toBeTruthy();
+  const source=`# Greeting application
+<hick:project sources="library.md"/>
+<hick:file id="app" path="app.py">
+from library import greet
+print(greet())
+</hick:file>
+<hick:scope id="greeting" after="app library">
+<hick:patch id="caller">
+--- a/app.py
++++ b/app.py
+@@ -1,2 +1,2 @@
+-from library import greet
+-print(greet())
++from library import welcome
++print(welcome("Hickory"))
+</hick:patch>
+<hick:patch id="complete" after="caller">
+--- a/library.py
++++ b/library.py
+@@ -1,2 +1,2 @@
+-def greet():
+-    return "Hello"
++def welcome(name):
++    return "Hello " + name
+</hick:patch>
+</hick:scope>`;
+  await page.request.put("/api/workspace/ui",{data:{state:null}});
+  const created=await page.request.post("/api/projects/local/docs",{data:{path:`${folder}/project.md`,source}});
+  expect(created.ok()).toBeTruthy();const note=await created.json();
+  await page.goto(`/#/docs/${note.id}`);
+  const patches=page.getByRole("region",{name:"Project patch editor"});
+  const libraryPatch=patches.nth(1);
+  const before=libraryPatch.locator(".comparison-side").first(),after=libraryPatch.locator(".comparison-side").last();
+  await expect(libraryPatch.getByRole("button",{name:"Debug library.py · Before this patch",exact:true})).toBeEnabled();
+  for(const pane of [before,after]) {
+    const dot=pane.locator('.cm-bp-ghost[data-breakpoint-line="1"]');await dot.scrollIntoViewIfNeeded();await dot.click();
+    await expect(pane.locator(".cm-bp")).toHaveCount(1);
+  }
+  const old=launch==="old-caller" || launch==="greet";
+  const target=launch.endsWith("caller")?patches.first():libraryPatch;
+  const path=launch.endsWith("caller")?"app.py":"library.py";
+  await target.getByRole("button",{name:`Debug ${path} · ${old?"Before":"After"} this patch`,exact:true}).click();
+  const stopped=old?before:after;
+  await expect(stopped.locator(".cm-paused-line")).toContainText(old?'return "Hello"':'return "Hello " + name',{timeout:90_000});
+  await expect(page.getByRole("region",{name:"Code · library.py"})).toHaveCount(0);
+  await page.screenshot({path:`/tmp/hickory-launch-profile-${launch}.png`,fullPage:true});
+  await page.getByRole("button",{name:"Stop",exact:true}).last().click();
+});
+
+// Guarantee: docs/guarantees/debugging/launch-profiles-choose-targets-within-the-viewed-project.md
+ test("manual launch profiles preserve arguments environment build and source layout",async({page})=>{
+  test.setTimeout(60_000);test.skip(!process.env.HICKORY_E2E_URL,"Use just test-launch-profiles-ui.");
+  const config={version:1,profiles:[{id:"named",name:"Greeting with Ada",program:"app.py",args:["Ada Lovelace","$(touch unwanted)"],env:{GREETING:"Welcome"},build:["python3","-c","print('profile build')"],default:true}]};
+  const source=`<hick:project/>
+<hick:file path=".hick-launch.json">${JSON.stringify(config)}</hick:file>
+<hick:file path="app.py">
+import os, sys
+message = os.environ['GREETING'] + ' ' + sys.argv[1]
+print(message, sys.argv[2])
+</hick:file>`;
+  await page.request.put("/api/workspace/ui",{data:{state:null}});
+  const created=await page.request.post("/api/projects/local/docs",{data:{path:"manual-profile/project.md",source}});
+  expect(created.ok()).toBeTruthy();const note=await created.json();
+  await page.goto(`/#/docs/${note.id}`);
+  const sourceLine=page.locator(".document-editor > .editor-cm-host > .cm-editor").first().locator(".cm-line").filter({hasText:"message = os.environ"});
+  await expect(sourceLine).toBeVisible();const position=await sourceLine.boundingBox();
+  await page.getByRole("button",{name:"Launch profiles for app.py",exact:true}).click();
+  const chooser=page.getByRole("dialog",{name:"Launch profiles"});await expect(chooser).toBeVisible();
+  const after=await sourceLine.boundingBox();expect(after?.y).toBe(position?.y);expect(after?.height).toBe(position?.height);
+  await expect(chooser).toContainText(".hick-launch.json");
+  await chooser.getByRole("button",{name:"Run Greeting with Ada",exact:true}).click();
+  await expect(chooser).toHaveCount(0);
+  const session=await expect.poll(async()=>{
+    const list=await (await page.request.get("/api/terminals")).json();
+    return list.sessions.find((s:{title:string})=>s.title==="Run Greeting with Ada")?.exit_code;
+  }).toBe(0);
+  void session;
+  const list=await (await page.request.get("/api/terminals")).json();
+  const terminal=list.sessions.find((s:{title:string})=>s.title==="Run Greeting with Ada");
+  const output=await page.evaluate(async id=>{
+    return await new Promise<string>((resolve,reject)=>{
+      const ws=new WebSocket(`${location.protocol==="https:"?"wss":"ws"}://${location.host}/api/terminals/ws?session=${id}`);
+      ws.binaryType="arraybuffer";let text="";
+      ws.onmessage=event=>{text+=new TextDecoder().decode(event.data);if(text.includes("Welcome Ada Lovelace")){ws.close();resolve(text);}};
+      ws.onerror=()=>reject(new Error("Terminal socket failed"));setTimeout(()=>{ws.close();resolve(text);},5000);
+    });
+  },terminal.id);
+  expect(output).toContain("profile build");expect(output).toContain("Welcome Ada Lovelace $(touch unwanted)");
+  await page.screenshot({path:"/tmp/hickory-launch-profile-manual.png",fullPage:true});
+});

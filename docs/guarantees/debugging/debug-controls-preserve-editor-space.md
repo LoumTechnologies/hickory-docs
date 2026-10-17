@@ -8,9 +8,9 @@ an additional inline Debug button.
 Patch comparisons use this same right-gutter launcher on each runnable side,
 including After this patch. Opening a comparison automatically connects its
 completion, diagnostics, definition and reference tools to the complete captured
-project. References present all results for selection. If the displayed fragment
-differs from the completed program, Debug opens that program as one code editor
-and starts it without another selection or nested menu.
+project. References present all results for selection. Debug preserves the displayed source and chooses the latest atomic project
+containing its exact bytes. A floating launch-profile picker selects the target
+when needed; the gutter ellipsis opens it explicitly.
 
 Generated-file tabs launch through their owning document session and map lines
 through provenance. Unsaved output bytes cannot launch an older saved program.
@@ -37,12 +37,10 @@ source's breakpoints preserves the others, including sources contributing to
 one generated file. Saved source sets are installed before execution on launch.
 Line-targeted jump/run commands never send callee coordinates to the launch file.
 
-For a declared literate project, tools default to the completed project. The
-Project version menu in the existing header exposes the input, completed scopes
-and advanced intermediate states. Changing this selection is disabled during
-an active session. Ordinary notes have no project-version control. Literate views keep their revision
-comparison form in a header menu and launch represented scripts through the
-same gutter action, requiring saved current code.
+For a declared literate project, tools default to the completed project when
+compatible with the displayed source. There is no global project-version menu.
+Literate views keep their revision comparison form in a header menu and launch
+through the same gutter action, requiring saved current code.
 
 ---
 
@@ -90,3 +88,9 @@ Last LLM verification:
 - Limits: standalone embedded editors without a workspace rail retain their
   own debugger toolbar. This frontend change does not add language support or
   establish live debugger installation on every platform.
+
+Launch-profile continuation (2026-10-17): the former global version-menu and
+replacement-editor paragraphs are superseded by exact-source selection and the
+floating picker. Historical checks above remain evidence for their original
+revision. Current witnesses and limits are in
+`launch-profiles-choose-targets-within-the-viewed-project.md`.

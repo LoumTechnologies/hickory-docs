@@ -1,5 +1,6 @@
+import { launchWithProfiles } from "../debug/launchProfiles";
 import { revealPreferredDebugLocation } from "../debug/preferredDebugLocation";
-import { preferCapturedLiterateSurface, ProjectDebugLinks } from "../debug/projectDebugSurface";
+import { preferCapturedLiterateSurface, registerCapturedComparison, ProjectDebugLinks } from "../debug/projectDebugSurface";
 import { PromptPanel, usePrompt } from "./PromptPanel";
 import { completionSource, completionSources } from "../lsp/completion";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
@@ -77,7 +78,7 @@ export function ComparisonTools({path,source,view,children}: {path:string;source
     }
     setBusy(true);
     const entries = Object.fromEntries(selected.map(e => [e.path, { bytes: e.bytes, kind: e.kind === "file" ? "File" : "Symlink", executable: e.executable, origins: e.origins ?? [] }]));
-    void acquireCapturedContext(entries).then(next => {
+    void acquireCapturedContext(entries,source.debugSurface?.path?.split("/").slice(0,-1).join("/") ?? source.target ?? "").then(next => {
       const dispose = next.release;
       if (!live) { dispose(); return; }
       release = dispose;
@@ -131,6 +132,9 @@ export function ComparisonTools({path,source,view,children}: {path:string;source
     return () => { if (view.dom.isConnected) view.dispatch({effects:tools.reconfigure([])}); };
   },[view,context,lsp.client,lsp.uri,path,exact,tools,local,selected,displayMatches]);
   useEffect(() => { if (view && context && exact) view.dispatch({effects:debugStateEffects(debug)}); },[view,context,exact,debug]);
+  useEffect(()=> {
+    if(view && context && exact && displayMatches)return registerCapturedComparison(uri,view,source.text,source.debugSurface?.view);
+  },[view,context,exact,displayMatches,uri,source.text,source.debugSurface?.view]);
   useEffect(() => {
     if (!view || !active || !local || !selected || !context || !displayMatches) { view?.dispatch({effects:setLspDiagnostics.of([])}); return; }
     const spans=diagnosticRanges(lsp.diagnostics,p=> {
@@ -142,23 +146,24 @@ export function ComparisonTools({path,source,view,children}: {path:string;source
     });
     view.dispatch({effects:setLspDiagnostics.of(spans)});
   },[view,lsp.diagnostics,context,active,local,selected,path,displayed,displayMatches]);
-  const launch = () => {
+  const launch = (choose = false) => {
     if (!context || !exact || !displayMatches || (view && view.state.doc.toString() !== source.text)) {
       setError("The displayed code changed. Wait for it to save or reload it before debugging.");
       return;
     }
     const surface = source.debugSurface;
     if (surface && selected && context) {
-      preferCapturedLiterateSurface(uri, context.uri, selected, surface);
+      preferCapturedLiterateSurface(uri, context.uri, selected, {...surface,codeView:view,codeUri:uri,codeText:source.text});
     }
-    debug.start();
+    void launchWithProfiles({uri}, profile=>debug.start(undefined,{},undefined,profile),
+      {choose,contextLabel:selection?.latest?"Completed project":"Earlier compatible atomic project",isCurrent:()=>!view || (view.dom.isConnected && view.state.doc.toString()===source.text)});
   };
   const canDebug = !!active && isDebuggable(languageFromPath(active.path));
   const selectedFrame = debug.frames.find(frame => frame.id === debug.selectedFrame);
   useSelectedFrame(view, exact ? (selectedFrame?.line ?? debug.pausedLine) : null);
   return <>
     {children?.(context && exact && canDebug ? debug : null)}
-    {canDebug && <DebugLaunchAction view={view} label={`Debug ${path} · ${source.label}`} disabled={!context || busy || !displayMatches || !exact} onStart={launch} hint={selection?.latest ? "Debug this code · latest project" : "Debug this code · latest project containing this version of the file"} />}
+    {canDebug && <DebugLaunchAction view={view} label={`Debug ${path} · ${source.label}`} disabled={!context || busy || !displayMatches || !exact} onStart={()=>launch()} onProfiles={()=>launch(true)} hint={selection?.latest ? "Debug this code · latest project" : "Debug this code · latest project containing this version of the file"} />}
     <DebugStrip {...debug} locationActions={<ProjectDebugLinks owner={source.debugOwner ?? uri} debug={debug}/>} editorView={view} pausedLine={exact ? debug.pausedLine : null} program={path}
       onSelectFrame={id=> {
         debug.selectFrame(id); const frame=debug.frames.find(f=>f.id===id);
@@ -166,7 +171,7 @@ export function ComparisonTools({path,source,view,children}: {path:string;source
         if (frame?.source?.startsWith("hick-project:///") && frame.source!==uri)
           void openCapturedCode({uri:frame.source,range:{start:{line:frame.source_line ?? 0,character:0},end:{line:frame.source_line ?? 0,character:0}}},source.debugOwner ?? uri).catch(e=>setError(String(e)));
         else if (view && frame?.line !== null && frame?.line !== undefined) revealLine(view,frame.line);
-      }} onStep={debug.step} onStart={launch} onStop={debug.stop}
+      }} onStep={debug.step} onStart={()=>launch()} onStop={debug.stop}
       onJumpHere={()=> {if(view && exact) debug.jumpTo(view.state.doc.lineAt(view.state.selection.main.head).number-1);}}
       onAddWatch={()=>{void prompt.askText("Expression to watch:", "").then(expression=>{if(expression)debug.addWatch(expression);});}}
       onToggleExceptionFilter={debug.toggleExceptionFilter} onRemoveWatch={debug.removeWatch}

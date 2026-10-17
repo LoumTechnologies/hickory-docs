@@ -59,9 +59,8 @@ mod project_incorporation;
 mod project_publish;
 mod python_agent;
 mod revision_projects;
-
-/// A Python runtime shipped inside this app, found from the executable's path.
 pub use python_agent::bundled_runtime;
+mod launch_profiles;
 pub mod refactor;
 pub mod representation;
 mod representation_store;
@@ -80,7 +79,6 @@ pub mod test_run;
 pub mod watch;
 pub mod workspace;
 pub mod workspace_fs;
-
 use std::collections::HashMap;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::path::{Path, PathBuf};
@@ -575,6 +573,8 @@ pub(crate) fn router(state: LocalState) -> Router {
         )
         .route("/elements", get(api::elements))
         .route("/revision-projects", post(revision_projects::capture))
+        .route("/launch-profiles", post(launch_profiles::list))
+        .route("/launch-profiles/run", post(launch_profiles::run))
         .route("/project-contexts", post(native_projects::register))
         .route("/project-contexts/file", get(native_projects::file))
         .route(

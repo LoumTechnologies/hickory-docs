@@ -1,3 +1,4 @@
+import { launchWithProfiles } from "../debug/launchProfiles";
 import { documentDebugContext } from "../debug/documentDebugContext";
 import { bindProjectDebugView } from "../debug/projectDebugSurface";
 import { completionSource, completionSources } from "../lsp/completion";
@@ -91,7 +92,7 @@ export interface DocSession {
   /** Live text differs from the last confirmed disk bytes. */
   dirty: boolean;
   liveSource: string;
-  startDebugFile: (path: string, at?: number) => void;
+  startDebugFile: (path: string, at?: number, choose?: boolean) => void;
   savedSource: string | null;
   runningCells: Set<string>;
   execBlocks: ExecBlock[];
@@ -716,7 +717,7 @@ function useDocumentSession(
   // One LSP session per document, shared by both editors. It is fed the LIVE
   // text (unsaved edits included) so positions always match the screen.
   const liveSource = dirtySource ?? doc?.source ?? "";
-  const startDebugFile = useCallback((path: string, at?: number) => {
+  const startDebugFile = useCallback((path: string, at?: number, choose = false) => {
     if (!doc) return;
     const source = editorRef.current?.state.doc.toString() ?? liveSource;
     let context: string;
@@ -725,7 +726,9 @@ function useDocumentSession(
     // Save the exact reading first. The native resolver also checks those bytes
     // so an external write cannot silently change the launch under this view.
     void menuSave().then(saved => {
-      if (saved && (!editorRef.current || editorRef.current.state.doc.toString() === source)) debug.start(path, {}, context);
+      if (saved && (!editorRef.current || editorRef.current.state.doc.toString() === source))
+        void launchWithProfiles({uri:`hick:///${doc.path.replace(/^\/+/, "")}`,program:path,project:context,expected_document:source},
+          profile=>debug.start(path, {}, context,profile), {choose,isCurrent:()=>!editorRef.current || editorRef.current.state.doc.toString()===source});
     });
   }, [doc, liveSource, menuSave, debug.start]);
   const lsp = useLsp(realtime, doc?.path ?? "", liveSource);

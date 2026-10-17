@@ -26,7 +26,9 @@ pub async fn register(
         .projects()
         .register(&id, tree)
         .map_err(ApiError::unprocessable)?;
-    Ok(Json(json!({"id":id,"uri":uri,"materialized":false})))
+    Ok(Json(
+        json!({"id":id,"uri":uri,"materialized":false,"workspace":state.index.root()}),
+    ))
 }
 #[derive(Deserialize)]
 pub struct File {

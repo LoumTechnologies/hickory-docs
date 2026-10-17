@@ -1,5 +1,11 @@
 # A terminal that writes the document
 
+> **Related proposal (2026-10-17, not implemented):**
+> [Invoke a function in a live REPL](function-invocation-and-repl.md) adds a
+> structured language-session design with argument popovers and a separate REPL
+> surface. This document describes shell recording; it does not implement that
+> language-level runtime integration.
+
 `launching-what-a-document-builds.md` says **a terminal you can type into is a
 second input the document does not have**. That rule is right and it is stated
 too narrowly. The rule is not *no typing*. It is **no unrecorded input** — and

@@ -67,8 +67,8 @@ export function DebugRailGroup({ view, at, sticky = false, children }: {
 }
 
 /** A single right-hand action column shared by launch icons and live controls. */
-export function DebugLaunchRail({ view, onStart, plainPath, enabled = true }: {
-  view: EditorView | null; onStart?: (path: string, at?: number) => void; plainPath?: string; enabled?: boolean;
+export function DebugLaunchRail({ view, onStart, onProfiles, plainPath, enabled = true }: {
+  view: EditorView | null; onStart?: (path: string, at?: number) => void; onProfiles?: (path: string, at?: number) => void; plainPath?: string; enabled?: boolean;
 }) {
   const targets: { path: string; at: number; end: number }[] = [];
   if (view && onStart && enabled) {
@@ -99,6 +99,7 @@ export function DebugLaunchRail({ view, onStart, plainPath, enabled = true }: {
     {view && targets.map(target => <DebugRailGroup key={`${target.path}:${target.at}`} view={view} at={target.at}>
       <button type="button" className="cm-debug-start debug-icon" aria-label={`Debug ${target.path}`}
         data-tip={`Debug ${target.path} · installs the debugger if needed`} onClick={() => onStart?.(target.path, plainPath ? undefined : target.at)}>▷</button>
+      {onProfiles && <button type="button" className="debug-icon" aria-label={`Launch profiles for ${target.path}`} data-tip="Choose a Run or Debug profile" onClick={()=>onProfiles(target.path,plainPath?undefined:target.at)}>⋯</button>}
     </DebugRailGroup>)}
   </div>;
 }
@@ -127,8 +128,8 @@ export function debugViewFocused(view: EditorView): boolean {
 }
 
 /** Projection editors use the same launch action as ordinary scripts. */
-export function DebugLaunchAction({ view, label, onStart, disabled = false, hint }: {
-  view: EditorView | null; label: string; onStart: () => void; disabled?: boolean; hint?: string;
+export function DebugLaunchAction({ view, label, onStart, disabled = false, hint, onProfiles }: {
+  view: EditorView | null; label: string; onStart: () => void; disabled?: boolean; hint?: string; onProfiles?: () => void;
 }) {
   const callback = useRef({onStart,disabled}); callback.current = {onStart,disabled};
   useEffect(() => {
@@ -144,5 +145,6 @@ export function DebugLaunchAction({ view, label, onStart, disabled = false, hint
   const rail = view ? debugRailElement(view) : null;
   return view && rail ? createPortal(<DebugRailGroup view={view} at={0}>
     <button type="button" className="cm-debug-start debug-icon" aria-label={label} data-tip={hint ?? `${label} · ${formatBinding(bindingOf("debug.start") || bindingOf("debug.continue"))}`} disabled={disabled} onClick={onStart}>▷</button>
+    {onProfiles && <button type="button" className="debug-icon" aria-label={`Launch profiles for ${label}`} data-tip="Choose a Run or Debug profile" disabled={disabled} onClick={onProfiles}>⋯</button>}
   </DebugRailGroup>, rail) : null;
 }

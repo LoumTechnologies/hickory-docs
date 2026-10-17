@@ -1,4 +1,5 @@
 use super::*;
+use hick_dap::Breakpoint;
 use std::path::Path;
 
 // Validate the client identity before asking the session's exact mapping.

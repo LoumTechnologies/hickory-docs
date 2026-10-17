@@ -64,7 +64,7 @@ pub struct EvaluatedProject {
     /// Atomic New endpoint. Always the completed scope, never a local patch.
     pub new: ProjectTree,
     pub inventory: ProjectInventory,
-    /// Complete evaluated prefixes, in dependency execution order (including input).
+    /// Complete atomic prefixes, in dependency execution order (including input).
     pub versions: Vec<ProjectTree>,
     /// Construction identities used by file-local debug actions.
     pub file_paths: BTreeMap<String, String>,
@@ -254,7 +254,22 @@ pub fn evaluate_project(
             writers.insert(path, op.id.clone());
         }
         apply_delta(&mut result, &delta)?;
-        versions.push(result.clone());
+        // A snapshot is launchable only at an atomic boundary. Independent
+        // operations may interleave, but no scope may be partially applied.
+        if operations
+            .values()
+            .filter(|scope| scope.tag.name == "scope")
+            .all(|scope| {
+                let done = scope
+                    .members
+                    .iter()
+                    .filter(|id| completed.contains_key(*id) || **id == op.id)
+                    .count();
+                done == 0 || done == scope.members.len()
+            })
+        {
+            versions.push(result.clone());
+        }
         if matches!(op.tag.name.as_str(), "file" | "entry") {
             file_paths.insert(op.id.clone(), required(&op.tag, "path")?.to_owned());
         }

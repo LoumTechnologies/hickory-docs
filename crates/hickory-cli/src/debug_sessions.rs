@@ -24,6 +24,11 @@ use anyhow::{Context, Result, bail};
 use hick_dap::{Breakpoint, BreakpointStatus, BuildOutput, Launch, Mapping, Session};
 use tokio::sync::Mutex;
 
+#[path = "debug_profiles.rs"]
+mod profiles;
+pub(crate) use profiles::safe_cwd;
+pub use profiles::{LaunchContext, ProfileSelection};
+
 /// How long a session may sit untouched before it is ended for us.
 pub const IDLE_TIMEOUT: Duration = Duration::from_secs(15 * 60);
 

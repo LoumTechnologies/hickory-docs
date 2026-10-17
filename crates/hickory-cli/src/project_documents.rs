@@ -103,36 +103,7 @@ pub(crate) fn debug_state_at(
             None,
         ));
     }
-    let root = document.parent().unwrap_or(Path::new("."));
-    let entry = document
-        .file_name()
-        .and_then(|s| s.to_str())
-        .context("project entry needs a UTF-8 filename")?;
-    let sources = hick_lang::load_project_sources(entry, &|name| {
-        if name == entry {
-            Ok(source.into())
-        } else {
-            let source_path = root.join(name);
-            if !std::fs::symlink_metadata(&source_path)
-                .map_err(|e| e.to_string())?
-                .is_file()
-            {
-                return Err(format!("Markdown source is not a regular file: {name}"));
-            }
-            let full = source_path.canonicalize().map_err(|e| e.to_string())?;
-            if !full.starts_with(root.canonicalize().map_err(|e| e.to_string())?) {
-                return Err(format!("Markdown input escapes root: {name}"));
-            }
-            std::fs::read_to_string(full).map_err(|e| e.to_string())
-        }
-    })
-    .map_err(anyhow::Error::msg)?;
-    let state = hick_lsp::document::HickDocumentState::from_project_at(
-        entry,
-        &sources,
-        &hick_lang::ProjectTree::default(),
-        endpoint,
-    )?;
+    let state = state_at(document, source, endpoint)?;
     let tree = state
         .selected_project
         .as_ref()
@@ -157,4 +128,46 @@ pub(crate) fn debug_state_at(
         _ => None,
     };
     Ok((mapping, files, target))
+}
+
+/// Capture/evaluate the live closure without writing files or starting tools.
+pub(crate) fn state_at(
+    document: &Path,
+    source: &str,
+    endpoint: &hick_lsp::ProjectEndpoint,
+) -> Result<hick_lsp::document::HickDocumentState> {
+    if hick_lang::parse(source)?.find_tags("project").is_empty() {
+        return hick_lsp::document::HickDocumentState::from_source(source).map_err(Into::into);
+    }
+    let root = document.parent().unwrap_or(Path::new("."));
+    let entry = document
+        .file_name()
+        .and_then(|s| s.to_str())
+        .context("project entry needs a UTF-8 filename")?;
+    let sources = hick_lang::load_project_sources(entry, &|name| {
+        if name == entry {
+            Ok(source.into())
+        } else {
+            let source_path = root.join(name);
+            if !std::fs::symlink_metadata(&source_path)
+                .map_err(|e| e.to_string())?
+                .is_file()
+            {
+                return Err(format!("Markdown source is not a regular file: {name}"));
+            }
+            let full = source_path.canonicalize().map_err(|e| e.to_string())?;
+            if !full.starts_with(root.canonicalize().map_err(|e| e.to_string())?) {
+                return Err(format!("Markdown input escapes root: {name}"));
+            }
+            std::fs::read_to_string(full).map_err(|e| e.to_string())
+        }
+    })
+    .map_err(anyhow::Error::msg)?;
+    hick_lsp::document::HickDocumentState::from_project_at(
+        entry,
+        &sources,
+        &hick_lang::ProjectTree::default(),
+        endpoint,
+    )
+    .map_err(Into::into)
 }

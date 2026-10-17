@@ -46,5 +46,30 @@ it("includes cleared file sets when collecting saved breakpoints for another lau
     return useFollowingDebugSession("app.py");
   });
   act(()=>hook.result.current?.start());
-  expect(start).toHaveBeenCalledWith(undefined,{"hick:///helpers.py":[]});
+  expect(start).toHaveBeenCalledWith(undefined,{"hick:///helpers.py":[]},undefined,undefined);
+});
+
+// Guarantee: docs/guarantees/debugging/launch-profiles-choose-targets-within-the-viewed-project.md
+it("carries standing library breakpoints into a different compatible capture and preserves clearing",async()=>{
+  const {acquireCapturedContext,capturedSourceKey}=await import("../lib/capturedContexts");
+  const {rememberBreakpointPreferences}=await import("./breakpointPreferences");
+  // Registration is exercised separately by capturedContexts.test; here use
+  // the API mock to supply two native identities for different complete trees.
+  const client=await import("../api/client");
+  let count=0;
+  const spy=vi.spyOn(client,"request").mockImplementation(async method=>method==="POST"?{id:`prefs${++count}`,uri:`hick-project:///prefs${count}/`,workspace:"/preferences-test"}:undefined);
+  const entries=(value:number)=>({"app.py":{bytes:[value]},"library.py":{bytes:[100,101,102]}});
+  const first=await acquireCapturedContext(entries(1),"project"),second=await acquireCapturedContext(entries(2),"project");
+  const key=capturedSourceKey(`${first.uri}library.py`);
+  const start=vi.fn();
+  const session={...IDLE_SESSION,start};
+  const hook=renderHook(()=>{usePublishDebugSession(`${second.uri}app.py`,session);return useFollowingDebugSession(`${second.uri}app.py`);});
+  try {
+    act(()=>rememberBreakpointPreferences(key,[{line:1,state:"pending",condition:"x > 0"}]));
+    act(()=>hook.result.current?.start(undefined,{},undefined,{id:"app",fingerprint:"f"}));
+    expect(start).toHaveBeenLastCalledWith(undefined,{[`${second.uri}library.py`]:[{line:1,state:"pending",condition:"x > 0",hit_condition:undefined,log_message:undefined}]},undefined,{id:"app",fingerprint:"f"});
+    act(()=>rememberBreakpointPreferences(key,[]));
+    act(()=>hook.result.current?.start());
+    expect(start).toHaveBeenLastCalledWith(undefined,{[`${second.uri}library.py`]:[]},undefined,undefined);
+  } finally {hook.unmount();first.release();second.release();spy.mockRestore();}
 });

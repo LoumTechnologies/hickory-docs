@@ -709,3 +709,15 @@ test-exact-source-debug:
 test-exact-source-debug-ui:
     cargo build -p hickory-cli --bin hick --example engine_client --example acp_fixture
     HICKORY_E2E_DEBUG=1 scripts/test-literate-editor.sh --grep 'exact-source debug|unified patch gutter|patch debugger keeps'
+
+# Launch discovery/configuration, atomic project versions and profile chooser.
+test-launch-profiles:
+    cargo test -p hick-lang --test project_debug --test project
+    cargo test -p hickory-cli --test launch_profiles
+    cargo test -p hickory-cli --lib serve::test_run
+    cd apps/web && npm run typecheck && npm test -- --maxWorkers=2 src/debug/launchProfiles.test.tsx src/debug/projectDebugSurface.test.tsx src/debug/GeneratedDebugTools.test.tsx src/debug/useDebugger.test.ts src/debug/plainDebugHosts.test.tsx src/debug/DebugRail.test.tsx src/components/ComparisonTools.test.tsx
+
+# Real app/profile selection, both atomic readings, library breakpoints and Run.
+test-launch-profiles-ui:
+    cargo build -p hickory-cli --bin hick --example engine_client --example acp_fixture
+    HICKORY_E2E_DEBUG=1 scripts/test-literate-editor.sh --grep 'launch profiles|unified patch gutter|patch debugger keeps|exact-source debug'

@@ -70,7 +70,8 @@ export interface DebugSession {
   exceptionFilters: string[];
 
   /** Debug one generated file. Omitted means the first debuggable one. */
-  start(program?: string, sources?: Record<string, HeldBreakpoint[]>, project?: string): void;
+  launchTarget?: string | null;
+  start(program?: string, sources?: Record<string, HeldBreakpoint[]>, project?: string, profile?: import("./launchProfiles").LaunchSelection): void;
   replaceBreakpoints(breakpoints: HeldBreakpoint[]): void;
   stop(): void;
   step(how: Step): void;
@@ -314,6 +315,7 @@ export function useDebuggerOver(client: DebugClient | null, docPath: string, ini
   const [sourceBreakpoints, holdSources] = useState<Record<string, HeldBreakpoint[]>>({});
   // Which file this session is running, for the panel to say so: "paused" is
   // ambiguous in a document that generates three programs.
+  const [launchTarget,setLaunchTarget] = useState<string|null>(null);
   const [program, setProgram] = useState<string | null>(null);
   const [lastValue, setLastValue] =
     useState<{ expression: string; value: string; type: string | null } | null>(null);
@@ -586,10 +588,11 @@ export function useDebuggerOver(client: DebugClient | null, docPath: string, ini
     [client, clearFailure],
   );
 
+  const launchProfile = useRef<import("./launchProfiles").LaunchSelection>();
   const launchContext = useRef(projectContext);
-  useEffect(() => { launchContext.current = projectContext; }, [uri, projectContext]);
+  useEffect(() => { launchContext.current = projectContext; launchProfile.current = undefined; }, [uri, projectContext]);
   const start = useCallback(
-    (program?: string, sources: Record<string, HeldBreakpoint[]> = {}, selection?: string) => {
+    (program?: string, sources: Record<string, HeldBreakpoint[]> = {}, selection?: string, profile?: import("./launchProfiles").LaunchSelection) => {
       if (!client) return;
       setStatus("starting");
       clearFailure();
@@ -597,7 +600,9 @@ export function useDebuggerOver(client: DebugClient | null, docPath: string, ini
       const initial = {...sourceBreakpoints,...sources};
       holdSources(initial);
       launchContext.current = selection ?? launchContext.current;
-      client.start(uri, onTheWire(breakpoints), program, launchContext.current, Object.fromEntries(Object.entries(initial).filter(([,bps])=>bps.length).map(([source,bps])=>[source,onTheWire(bps)])));
+      launchProfile.current = profile ?? (selection !== undefined ? undefined : launchProfile.current);
+      setLaunchTarget(launchProfile.current?.name ?? null);
+      client.start(uri, onTheWire(breakpoints), program, launchContext.current, Object.fromEntries(Object.entries(initial).filter(([,bps])=>bps.length).map(([source,bps])=>[source,onTheWire(bps)])), launchProfile.current);
     },
     [client, uri, breakpoints, sourceBreakpoints, clearFailure, projectContext],
   );
@@ -752,6 +757,7 @@ export function useDebuggerOver(client: DebugClient | null, docPath: string, ini
       message,
       offerInstall,
       program,
+      launchTarget,
       capabilities,
       pausedLine,
       frames,
@@ -785,6 +791,7 @@ export function useDebuggerOver(client: DebugClient | null, docPath: string, ini
       message,
       offerInstall,
       program,
+      launchTarget,
       capabilities,
       pausedLine,
       frames,

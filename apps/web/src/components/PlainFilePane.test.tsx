@@ -12,6 +12,7 @@ import { cleanup, render, screen, waitFor } from "@testing-library/react";
 
 import { PlainFilePane } from "./PlainFilePane";
 import { api } from "../api/client";
+import * as apiClient from "../api/client";
 import type { WorkspaceDraft } from "../api/types";
 import { setSharedRealtime, type Realtime } from "../api/realtime";
 import { createLspChannel, encodeLspFrame, type JsonRpcMessage } from "../lsp/channel";
@@ -324,12 +325,17 @@ describe("a plain file and the debugger", () => {
 
   it("starts from the gutter at the file's own path and exposes stepping", async () => {
     const { sent, deliver } = debugWire();
+    vi.spyOn(apiClient, "request").mockResolvedValue({
+      fingerprint: "plain-project", viewed: "tools/app.py", workspace: "repo",
+      configuration: ".hick-launch.json",
+      profiles: [{id: "app:tools/app.py", name: "Application", can_debug: true}],
+    });
     serveFile("tools/app.py", "python", APP);
     render(<><PlainDebugHosts /><PlainFilePane path="tools/app.py" /></>);
     const button = await screen.findByRole("button", { name: "Debug tools/app.py" });
     button.click();
     await waitFor(() =>
-      expect(sent[0]).toMatchObject({ op: "start", doc: "hick:///tools/app.py", breakpoints: [] }),
+      expect(sent[0]).toMatchObject({ op: "start", doc: "hick:///tools/app.py", breakpoints: [], profile: {id: "app:tools/app.py", fingerprint: "plain-project"} }),
     );
     // An answer for ANOTHER pane's file is not this pane's business.
     deliver({

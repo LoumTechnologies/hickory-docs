@@ -16,6 +16,7 @@ import { ComparisonTools } from "./ComparisonTools";
 import { DebugLaunchRail } from "../debug/DebugRail";
 import { ComparisonEditor } from "./ComparisonEditor";
 
+vi.mock("../debug/launchProfiles", () => ({launchWithProfiles: (_query: unknown, start: (profile: unknown) => void) => {start({id:"app",fingerprint:"f"});return Promise.resolve();}}));
 vi.mock("../debug/plainDebugHosts", () => ({ useFollowingDebugSession: vi.fn() }));
 vi.mock("../api/client", () => ({ api: {}, request: vi.fn() }));
 vi.mock("../lsp/useLsp", () => ({ useWorkspaceLsp: vi.fn(() => ({ client: null, uri: "", diagnostics: [], ready: true })) }));

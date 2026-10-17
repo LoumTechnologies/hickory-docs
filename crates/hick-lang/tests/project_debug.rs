@@ -146,3 +146,50 @@ fn equal_text_in_an_unrelated_file_is_not_used_as_a_rename() {
         (0, "app.py".into())
     );
 }
+
+// Guarantee: docs/guarantees/debugging/launch-profiles-choose-targets-within-the-viewed-project.md
+#[test]
+fn atomic_scope_never_exposes_a_new_caller_with_the_old_library() {
+    let source = "<hick:project/><hick:file id=\"app\" path=\"app.py\">from library import greet\nprint(greet())\n</hick:file><hick:file id=\"library\" path=\"library.py\">def greet():\n    return 'Hello'\n</hick:file><hick:scope id=\"greeting\" after=\"app library\"><hick:patch id=\"caller\">\n--- a/app.py\n+++ b/app.py\n@@ -1,2 +1,2 @@\n-from library import greet\n-print(greet())\n+from library import welcome\n+print(welcome('Hickory'))\n</hick:patch><hick:patch id=\"complete\" after=\"caller\">\n--- a/library.py\n+++ b/library.py\n@@ -1,2 +1,2 @@\n-def greet():\n-    return 'Hello'\n+def welcome(name):\n+    return 'Hello ' + name\n</hick:patch></hick:scope>";
+    let project = evaluate_project(
+        "p.md",
+        &BTreeMap::from([("p.md".into(), source.replace("><hick:", ">\n<hick:"))]),
+        &ProjectTree::default(),
+    )
+    .unwrap();
+    let old = latest_debug_project(
+        &project.versions,
+        &project.local_states["complete"].0,
+        "library.py",
+    )
+    .unwrap()
+    .0;
+    assert_eq!(
+        project.versions[old].get("app.py").unwrap().bytes.as_ref(),
+        b"from library import greet\nprint(greet())\n"
+    );
+    let old_caller = latest_debug_project(
+        &project.versions,
+        &project.local_states["caller"].0,
+        "app.py",
+    )
+    .unwrap()
+    .0;
+    assert_eq!(old, old_caller);
+    let new = latest_debug_project(
+        &project.versions,
+        &project.local_states["caller"].1,
+        "app.py",
+    )
+    .unwrap()
+    .0;
+    assert_eq!(
+        project.versions[new]
+            .get("library.py")
+            .unwrap()
+            .bytes
+            .as_ref(),
+        b"def welcome(name):\n    return 'Hello ' + name\n"
+    );
+    assert_eq!(new, project.versions.len() - 1);
+}

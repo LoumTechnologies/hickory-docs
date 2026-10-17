@@ -15,15 +15,13 @@
 //! throws all of that away. Nothing here is recorded, verified or woven —
 //! the transcript is the record; the terminal is the run happening.
 //!
-//! Found without being configured: there is no `launch.json` and there must
-//! not be. The command comes from the manifest the walk finds, which is the
-//! same fact that decides which test runner the project uses.
+//! The command comes from the manifest the walk finds. It is normalized as a
+//! launch profile and uses the same terminal runner as optional manual profiles.
 
 use std::path::{Path, PathBuf};
 
 use axum::Json;
 use axum::extract::State;
-use hick_term::SessionSpec;
 use serde::Deserialize;
 use serde_json::{Value, json};
 
@@ -244,16 +242,22 @@ pub async fn run(
     }
     let command =
         test_command(&root, &file, &body.name, &body.language).map_err(ApiError::unprocessable)?;
-    let session = state
-        .terminals
-        .open(SessionSpec {
-            title: command.title,
-            cwd: command.cwd,
-            argv: command.argv,
-            monitor: false,
-        })
+    let cwd = command
+        .cwd
+        .strip_prefix(&root)
+        .map_err(|e| ApiError::unprocessable(e.to_string()))?
+        .to_string_lossy()
+        .replace('\\', "/");
+    let profile = crate::launch_profiles::command_profile(
+        format!("test:{}:{}", body.path, body.name),
+        command.title,
+        command.argv,
+        if cwd.is_empty() { ".".into() } else { cwd },
+        "test gutter",
+    );
+    let summary = super::launch_profiles::open_run(&state, &profile, &root, &root, None)
         .map_err(|e| ApiError::unprocessable(format!("{e:#}")))?;
-    Ok(Json(json!(session.summary())))
+    Ok(Json(json!(summary)))
 }
 
 #[cfg(test)]

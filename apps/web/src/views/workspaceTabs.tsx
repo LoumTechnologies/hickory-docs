@@ -163,6 +163,7 @@ export function DocTabBody({
         pausedLine={debug.pausedLine}
         status={debug.status}
         program={debug.program}
+        launchTarget={debug.launchTarget}
         message={debug.message}
         offerInstall={debug.offerInstall}
         onInstall={offer => api.installTool(offer.kind, offer.language).then(() => undefined)}
@@ -184,7 +185,7 @@ export function DocTabBody({
             1;
           debug.jumpTo(line);
         }}
-        onStart={() => debug.start(debug.program ?? undefined)}
+        onStart={() => {if(debug.program)session.startDebugFile(debug.program);}}
         onStop={debug.stop}
         onAddWatch={() => {
           void session

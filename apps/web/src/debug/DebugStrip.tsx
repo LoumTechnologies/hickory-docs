@@ -160,6 +160,7 @@ export interface DebugStripProps {
   status: "idle" | "starting" | "paused" | "running" | "finished" | "failed";
   /** Which generated file this session is running. */
   program?: string | null;
+  launchTarget?: string | null;
   message: string | null;
   /** A tool this machine can fetch, when that is why the session failed. */
   offerInstall?: { kind: string; language: string } | null;
@@ -262,7 +263,7 @@ export function DebugStrip(props: DebugStripProps) {
   const controls = (
     <div className="debug-strip" role="toolbar" aria-label="Debugger">
       <span className={`debug-strip__dot debug-strip__dot--${props.status}`} aria-hidden="true" />
-      <span className="debug-strip__status" role="status">
+      <span className="debug-strip__status" role="status" data-tip={props.launchTarget ? `Launch target: ${props.launchTarget}` : undefined}>
         {props.program ? `${props.program} · ` : ""}
         {props.offerInstall ? "Debugger setup" : statusWord(props.status, props.exitCode)}
       </span>
@@ -351,7 +352,7 @@ export function DebugStrip(props: DebugStripProps) {
       {/* The stack, as a combo box: pick a frame, and the gutter marks, the
           paused line and the inline values follow it. */}
       <MoreActions label="Debug options">
-      <span>{props.program ? `${props.program} · ` : ""}{statusWord(props.status, props.exitCode)}</span>
+      <span>{props.launchTarget ?? props.program ?? ""} · {statusWord(props.status, props.exitCode)}</span>
       {!over && <>
       {props.frames.length > 0 && (
         <select

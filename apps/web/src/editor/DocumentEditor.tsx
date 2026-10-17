@@ -101,7 +101,7 @@ export interface DocumentEditorProps {
   runningCells: Set<string>;
   onRunCell: (execId: string) => void;
   /** Debug one of the files this document generates, named by its path. */
-  onDebugFile?: (path: string, at?: number) => void;
+  onDebugFile?: (path: string, at?: number, choose?: boolean) => void;
   /** Fired with the live EditorView on mount and null on teardown (the Split
    * view uses it to measure ribbon anchors against real geometry). */
   onViewReady?: (view: EditorView | null) => void;
@@ -897,7 +897,7 @@ export function DocumentEditor({
       <div className="document-editor with-right-rail with-card-rail">
         <div ref={hostRef} className="editor-cm-host" />
         <RightRail view={railView} />
-        <DebugLaunchRail view={railView} onStart={onDebugFile} enabled={!readOnly} />
+        <DebugLaunchRail view={railView} onStart={onDebugFile} onProfiles={onDebugFile ? (path,at)=>onDebugFile(path,at,true) : undefined} enabled={!readOnly} />
         <CardRail
           view={railView}
           cards={cards}

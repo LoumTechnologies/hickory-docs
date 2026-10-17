@@ -1,7 +1,6 @@
 //! Library core of the `hick` CLI.
-//! The binary (`src/main.rs`) is a thin argument parser over these functions,
-//! so the server can drive the same run/check/weave/render code paths via
-//! library calls instead of shelling out.
+//! The binary parses arguments; the local server calls the same library
+//! functions for execution, verification and rendering.
 pub mod adopt;
 pub mod agent_cell_runner;
 pub mod agent_lineage;
@@ -28,6 +27,7 @@ pub mod ingest_recording;
 pub mod init;
 pub mod java_debug;
 pub mod language_tier;
+pub mod launch_profiles;
 pub mod lsp_install;
 pub mod mcp;
 mod mcp_catalogue;

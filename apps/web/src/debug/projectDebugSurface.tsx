@@ -13,7 +13,25 @@ import { openCapturedCode } from "../lib/capturedCode";
 import { PromptPanel, usePrompt } from "../components/PromptPanel";
 import { DebugStrip } from "./DebugStrip";
 
-interface Surface { view: EditorView; entry: string; source: string; path?: string; frame?: Frame }
+interface ComparisonSurface {view:EditorView;source:string;outer?:EditorView}
+const comparisons=new Map<string,Set<ComparisonSurface>>();
+export function registerCapturedComparison(uri:string,view:EditorView,source:string,outer?:EditorView):()=>void {
+  const entry={view,source,outer}, all=comparisons.get(uri) ?? new Set<ComparisonSurface>();
+  all.add(entry);comparisons.set(uri,all);
+  return ()=>{all.delete(entry);if(!all.size)comparisons.delete(uri);};
+}
+function revealComparison(frame:Frame,outer:EditorView):boolean {
+  if(!frame.source || !Number.isInteger(frame.source_line) || frame.source_line!<0)return false;
+  for(const surface of comparisons.get(frame.source) ?? []) {
+    const view=surface.view;
+    if(surface.outer!==outer || !view.dom.isConnected || !view.dom.getClientRects().length
+        || view.state.doc.toString()!==surface.source || frame.source_line!>=view.state.doc.lines)continue;
+    view.dispatch({effects:setPausedLine.of(frame.source_line!)});revealLine(view,frame.source_line!);return true;
+  }
+  return false;
+}
+
+interface Surface { view: EditorView; entry: string; source: string; path?: string; codeView?: EditorView | null; codeUri?: string; codeText?: string; frame?: Frame }
 const locations = new Map<string, Surface>();
 const listeners = new Set<() => void>();
 let version = 0;
@@ -27,6 +45,14 @@ export function preferCapturedLiterateSurface(owner: string, prefix: string, ent
   preferProjectDebugSurface(owner, frame => {
     surface.frame = frame;
     const outer = surface.view;
+    const code = surface.codeView;
+    if (code?.dom.isConnected && code.dom.getClientRects().length && frame.source===surface.codeUri
+        && code.state.doc.toString()===surface.codeText && typeof frame.source_line==="number") {
+      code.dispatch({effects:setPausedLine.of(frame.source_line)});
+      revealLine(code,frame.source_line);
+      return true;
+    }
+    if(revealComparison(frame,outer))return true;
     const at = projectFrameOffset(prefix, entries, surface.entry, surface.source, frame);
     if (at !== null && (!outer.dom.isConnected || !outer.dom.getClientRects().length) && surface.path) {
       openLocation(surface.path, surface.source.slice(0,at).split("\n").length);

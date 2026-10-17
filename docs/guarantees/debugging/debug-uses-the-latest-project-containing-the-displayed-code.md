@@ -14,8 +14,9 @@ a replacement code editor. If no captured version matches, tools explain why
 instead of launching different code. Native document launches check the editor's
 source against the source read for evaluation and refuse a changed reading.
 
-Candidate versions are the captured input and cumulative states produced by the
-project evaluator in dependency order. Selection never mixes files from different
+Candidate versions are the captured input and atomic prefixes produced by the
+project evaluator in dependency order. A prefix inside an explicit scope is not
+a candidate until all of that scope has completed. Selection never mixes files from different
 versions and never searches VCS history. An immutable revision with one captured
 tree has that tree as its only candidate. Ordinary files continue running in their
 own workspace. Choosing a compatible tree does not certify that it builds or that
@@ -97,3 +98,14 @@ Evidence dependency SHA-256 values (working tree, 2026-10-17):
 - `apps/web/src/debug/GeneratedDebugTools.tsx`: `a54e068cb2f7c04275a44c7a98d80ecb118fb336723cc2b0d5d3a0ec59c31f90`
 - `apps/web/src/editor/generated/hick-lang/hick_lang_bg.wasm`: `18f95e4d61bc5e5f3a4c7a7864d7fb63c7744ae4ff7454b23255901870d5e026`
 - `apps/web/e2e/literate-editor.spec.ts`: `aedad0f430f2007742adcad8b82d42f2a6d23557b9f2fa31cf27bfb143dbec25`
+
+Launch-profile amendment (2026-10-17): the earlier cumulative-state interpretation
+was too permissive. A caller patch inside a scope could be selected with the old
+library even though the scope declares their change atomic. The evaluator now
+retains only atomic prefixes as debug candidates. Dependency-local editing states
+remain separate. `atomic_scope_never_exposes_a_new_caller_with_the_old_library`
+is the regression witness. Launch profiles choose the executable within that
+selected tree; source preferences and visible comparison routing preserve the
+viewed library's breakpoints. Earlier hashes and check counts above describe the
+previous implementation and are historical, not verification of this amendment.
+See `launch-profiles-choose-targets-within-the-viewed-project.md` for current evidence.

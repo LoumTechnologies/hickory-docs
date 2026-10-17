@@ -25,6 +25,15 @@ and `docs/guarantees/literate-projects/comparison-integration-evidence.md` recor
 executed evidence and remaining limits. Work items and structural merging are
 out of scope.
 
+**Function invocation and REPL design (2026-10-17, not implemented).**
+`docs/specs/freeform/function-invocation-and-repl.md` proposes invoking a function
+through an argument popover and an actual persistent language session. The form
+and typed calls share runtime state/history; results and inspection live in a
+separate REPL surface. No controls or results insert editor rows. Runtime/source
+identity, explicit restart/reload, optional kept examples and provider acceptance
+cases are specified. Launch discovery/manual profiles and atomic project-state
+selection remain the next design discussion; do not implement this proposal yet.
+
 **Browser embedding (2026-10-04).** `browser-embedding.md` widens the
 frontend decision: a host-controlled React editor, browser-local storage and a
 cross-origin iframe can use static assets without a native engine. Browser
@@ -1065,3 +1074,11 @@ appended to a replayable `hick:session` document — the same artifact the
 built-in agent produces. (Your own reasoning is not captured there; only
 what you did to the document.)
 <!-- END HICKORY -->
+
+**Launch profiles (2026-10-17).** Debug resolves the latest compatible atomic
+project independently of its launch target. Read `docs/users/launch-profiles.md`
+for `.hick-launch.json`, conservative discovery, Run-only commands/tests and the
+gutter picker; the behavioral contract is
+`docs/guarantees/debugging/launch-profiles-choose-targets-within-the-viewed-project.md`.
+This intentionally supersedes the historical prohibition on manual launch
+configuration above. Function invocation and the REPL remain design only.

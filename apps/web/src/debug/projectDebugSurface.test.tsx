@@ -39,3 +39,21 @@ it("preserves rendered blocks and the outer selection when a breakpoint hits", (
   expect(view.state.field(renderedField)).toEqual([at]);
   expect(view.state.selection.main.head).toBe(0);
 });
+
+// Guarantee: docs/guarantees/debugging/launch-profiles-choose-targets-within-the-viewed-project.md
+it("keeps a foreign-origin old library stop in its visible comparison pane",async()=>{
+  const {registerCapturedComparison}=await import("./projectDebugSurface");
+  const source='<hick:project sources="library.md"/><hick:file path="app.py">print(1)\n</hick:file>';
+  const project=materializeProject("project.md",{"project.md":source,"library.md":'<hick:file path="library.py">\ndef greet():\n    return "Hello"\n</hick:file>'});
+  view=new EditorView({parent:document.body,state:EditorState.create({doc:source})});
+  const code=new EditorView({parent:document.body,state:EditorState.create({doc:'def greet():\n    return "Hello"\n'})});
+  vi.spyOn(code.dom,"getClientRects").mockReturnValue([new DOMRect(0,0,300,100)] as unknown as DOMRectList);
+  const release=registerCapturedComparison("hick-project:///test/library.py",code,code.state.doc.toString(),view);
+  try {
+    const owner="hick-project:///test/app.py";
+    const frame={id:1,name:"greet",source:"hick-project:///test/library.py",source_line:1,line:null,in_document:false};
+    preferCapturedLiterateSurface(owner,"hick-project:///test/",project.new,{view,entry:"project.md",source});
+    expect(revealPreferredDebugLocation(owner,frame)).toBe(true);
+    expect(code.state.doc.lineAt(code.state.selection.main.head).text).toBe('    return "Hello"');
+  } finally {release();code.destroy();}
+});
