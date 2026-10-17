@@ -1,3 +1,4 @@
+import { DebugLaunchRail } from "../debug/DebugRail";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Compartment, EditorState, Transaction } from "@codemirror/state";
@@ -196,8 +197,6 @@ export function DocumentEditor({
   // Read through a ref: the editor is built once per document, and a callback
   // baked in at construction would go stale the moment the debugger's state
   // changed.
-  const onDebugFileRef = useRef(onDebugFile);
-  onDebugFileRef.current = onDebugFile;
   // The editor is built once per document, but a buffer that was untitled
   // when it was built has a path as soon as it is first saved — and where an
   // image lands, and what a relative link resolves to, both depend on it. So
@@ -419,7 +418,7 @@ export function DocumentEditor({
           ]),
           // The hovered-ribbon line tint, shared with the right rail.
           lineHighlightField,
-          wysiwyg(envRegistry, (path) => onDebugFileRef.current?.(path)),
+          wysiwyg(envRegistry),
           // Task boxes come from the DOCUMENT's structure parse, not a plain
           // markdown scan: a `- [ ]` inside an exec cell's payload is a
           // command's argument, and turning it into a checkbox would offer to
@@ -597,6 +596,8 @@ export function DocumentEditor({
   useEffect(() => {
     viewRef.current?.dispatch({ effects: [setComparison.of({ base: comparisonBase, editable: !readOnly }), access.reconfigure([EditorState.readOnly.of(readOnly), EditorView.editable.of(!readOnly), EditorState.transactionFilter.of(tr => readOnly && tr.docChanged && tr.annotation(Transaction.userEvent) ? [] : tr)])] });
   }, [comparisonBase, readOnly, access, docId, realtime]);
+
+
 
   // Close a card whose source disappeared.
   useEffect(() => {
@@ -896,6 +897,7 @@ export function DocumentEditor({
       <div className="document-editor with-right-rail with-card-rail">
         <div ref={hostRef} className="editor-cm-host" />
         <RightRail view={railView} />
+        <DebugLaunchRail view={railView} onStart={onDebugFile} enabled={!readOnly} />
         <CardRail
           view={railView}
           cards={cards}

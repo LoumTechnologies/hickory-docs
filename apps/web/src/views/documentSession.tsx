@@ -1,3 +1,5 @@
+import { completionSource, completionSources } from "../lsp/completion";
+import { usePublishDebugSession } from "../debug/plainDebugHosts";
 import { useDocumentPersistence, type SyncState } from "./useDocumentPersistence";
 // One document's machinery, alive for as long as the workspace holds any of
 // its tabs.
@@ -308,6 +310,7 @@ function useDocumentSession(
     return onProjectContext((path,selection) => { if (path === doc.path) setProjectSelection(selection); });
   },[doc?.path]);
   const debug = useDebugger(realtime, doc?.path ?? "", projectContext);
+  usePublishDebugSession(doc?.path ?? "", debug);
   const debugRef = useRef(debug);
   debugRef.current = debug;
   const editorRef = useRef<EditorView | null>(null);
@@ -817,8 +820,8 @@ function useDocumentSession(
   // The output panes build their own bindings: the same session, but their
   // positions must travel back through provenance first.
   const makeOutputLsp = useCallback(
-    (provenance: OutputProvenance[]) =>
-      lspSupport({
+    (provenance: OutputProvenance[]) => [
+      ...lspSupport({
         client: lsp.client,
         uri: lsp.uri,
         positionAt: (offset) =>
@@ -826,6 +829,8 @@ function useDocumentSession(
         onNavigate: openTarget,
         onReferences: (locations) => setReferences({ locations, query: "" }),
       }),
+      completionSources.of(completionSource({lsp:lsp.client?{client:lsp.client,uri:lsp.uri,positionAt:offset=>sourcePositionAt(offset,provenance,docPathRef.current ?? "",liveSourceRef.current)}:undefined})),
+    ],
     [lsp.client, lsp.uri, openTarget],
   );
 

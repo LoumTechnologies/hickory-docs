@@ -1,5 +1,5 @@
-import { EditorSelection, RangeSet, StateEffect, StateField } from "@codemirror/state";
-import { Decoration, EditorView, GutterMarker, gutter, WidgetType } from "@codemirror/view";
+import { EditorSelection, Prec, RangeSet, StateEffect, StateField } from "@codemirror/state";
+import { Decoration, EditorView, GutterMarker, gutter, keymap, WidgetType } from "@codemirror/view";
 
 interface Gap { pos: number; height: number; side?: number }
 const spacesEffect = StateEffect.define<Gap[]>();
@@ -71,11 +71,60 @@ const previewMouseSelection = EditorView.mouseSelectionStyle.of((view, startEven
   };
 });
 
+/** Move through the rows as they are drawn. Pinned filenames are translated
+ * without changing document order, so CodeMirror's height map no longer
+ * describes the row directly below the caret. */
+const previewVerticalNavigation = Prec.highest(keymap.of([
+  { key: "Shift-ArrowDown", run: (view) => moveToVisibleRow(view, 1, true) },
+  { key: "Shift-ArrowUp", run: (view) => moveToVisibleRow(view, -1, true) },
+  { key: "ArrowDown", run: (view) => moveToVisibleRow(view, 1, false) },
+  { key: "ArrowUp", run: (view) => moveToVisibleRow(view, -1, false) },
+]));
+
+function moveToVisibleRow(view: EditorView, direction: -1 | 1, extend: boolean): boolean {
+  if (!view.state.field(previewField).size) return false;
+  const selection = view.state.selection.main;
+  const head = selection.head;
+  const currentLine = view.state.doc.lineAt(head).number;
+  const rows = [...view.contentDOM.querySelectorAll<HTMLElement>(".cm-line")]
+    .map(element => {
+      try {
+        const line = view.state.doc.lineAt(view.posAtDOM(element)).number;
+        return { element, line, rect: element.getBoundingClientRect() };
+      } catch { return null; }
+    })
+    .filter((row): row is { element: HTMLElement; line: number; rect: DOMRect } => !!row && row.rect.height > 0)
+    .sort((a, b) => a.rect.top - b.rect.top);
+  const index = rows.findIndex(row => row.line === currentLine);
+  const target = rows[index + direction];
+  if (index < 0 || !target) return false;
+
+  const caret = view.coordsAtPos(head);
+  const x = caret?.left ?? target.rect.left;
+  const y = target.rect.top + Math.min(target.rect.height / 2, 12);
+  const doc = view.contentDOM.ownerDocument;
+  const caretPosition = doc.caretPositionFromPoint?.(x, y);
+  const caretRange = doc.caretRangeFromPoint?.(x, y);
+  let position: number | null = null;
+  try {
+    if (caretPosition && view.contentDOM.contains(caretPosition.offsetNode)) {
+      position = view.posAtDOM(caretPosition.offsetNode, caretPosition.offset);
+    } else if (caretRange && view.contentDOM.contains(caretRange.startContainer)) {
+      position = view.posAtDOM(caretRange.startContainer, caretRange.startOffset);
+    }
+  } catch { /* A stale DOM hit falls back to the target row start. */ }
+  if (position === null || view.state.doc.lineAt(position).number !== target.line) {
+    position = view.state.doc.line(target.line).from;
+  }
+  view.dispatch({ selection: extend ? { anchor: selection.anchor, head: position } : { anchor: position, head: position } });
+  return true;
+}
+
 /** The actual editable filename lines follow screen placements independently of
  * tree order. Reserve normal rows around them; no row feeds placement back into
  * the window, and a flowing filename can pass either side of a pinned one. */
 export function alignSpatialFileRows(view: EditorView, previews: readonly FilePreviewRow[]) {
-  if (!view.state.field(spacesField, false)) view.dispatch({ effects: StateEffect.appendConfig.of([spacesField, previewField, previewGutter, previewMouseSelection]) });
+  if (!view.state.field(spacesField, false)) view.dispatch({ effects: StateEffect.appendConfig.of([spacesField, previewField, previewGutter, previewMouseSelection, previewVerticalNavigation]) });
   const old: Gap[] = [], next: Gap[] = [], ranges = [];
   for (const cursor = view.state.field(spacesField).iter(); cursor.value; cursor.next()) {
     const widget = cursor.value.spec.widget;

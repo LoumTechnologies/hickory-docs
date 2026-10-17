@@ -42,3 +42,16 @@ real-worktree tests passed shared/single-target writes and guarded undo. Neither
 per-target success nor a rendered provider diff establishes replay equality.
 Current evidence and hashes are in `comparison-integration-evidence.md`;
 human judgment is not recorded.
+
+
+## Default presentation (2026-10-16)
+
+Comparisons open side by side. Both actual buffers remain separate: changed or
+removed lines on Old are highlighted as deletions and changed or added lines on
+New as insertions. Editing recomputes the highlights, without inserting historical
+rows or changing saved text. Inline and patch layouts remain explicit options.
+
+`ComparisonEditor.test.tsx` checks the default, both highlight colors' semantic
+classes, unchanged-line exclusion, live update, layout switching and independent
+edit permissions. Patch-editor tests continue to check that editing New preserves
+the Old bytes, editor identity, selection and downstream construction checks.

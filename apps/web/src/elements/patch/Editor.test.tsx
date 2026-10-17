@@ -1,4 +1,4 @@
-import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
 import { EditorState } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
 import { afterEach, expect, it, vi } from "vitest";
@@ -28,7 +28,7 @@ function mount(text = source, readOnly = false) {
     at: block.from, span: [block.from, block.to], text: text.slice(block.contentFrom, block.contentTo), renderer: "", asserts: [] };
   const cx: SlotContext = { view, path: "project.md", docId: "untitled", execBlocks: [], diagramBlocks: [], runningCells: new Set(), replaying: [], replaceBlockContent: vi.fn() };
   const ui = render(<PatchEditor slot={slot} cx={cx} />);
-  const inner = () => EditorView.findFromDOM(ui.container.querySelector<HTMLElement>(".comparison-side .cm-editor")!)!;
+  const inner = () => EditorView.findFromDOM(ui.container.querySelector<HTMLElement>(".comparison-side:last-child .cm-editor")!)!;
   return { ui, view, inner };
 }
 
@@ -67,7 +67,7 @@ it("keeps a downstream-breaking edit as an unsaved draft and saves a corrected d
 it("makes historical code read-only while the New code is editable", async () => {
   const { ui } = mount();
   await waitFor(() => expect(ui.container.querySelector(".comparison-side .cm-editor")).not.toBeNull());
-  fireEvent.change(screen.getByLabelText("Comparison layout"), { target: { value: "side-by-side" } });
+  expect((screen.getByLabelText("Comparison layout") as HTMLSelectElement).value).toBe("side-by-side");
   const editors = ui.container.querySelectorAll(".comparison-side .cm-content");
   expect(editors[0].getAttribute("contenteditable")).toBe("false");
   expect(editors[1].getAttribute("contenteditable")).toBe("true");

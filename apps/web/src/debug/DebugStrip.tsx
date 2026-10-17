@@ -1,6 +1,7 @@
+import { MoreActions } from "../components/MoreActions";
 // The debugger's chrome, dissolved into the block it debugs.
 //
-// One line above the debugged editor — not a panel below the page. The editor
+// Controls follow the paused line in the right gutter. The editor
 // carries almost everything (gutter, paused line, inline values, watches,
 // inline eval); this strip is only the verbs, the stack as a combo box, and
 // the words for what is happening: starting, running, finished, or why a
@@ -10,8 +11,11 @@
 // present and silently does nothing is worse than one that is absent, and the
 // two backwards controls are the sharp case: most adapters have exactly one.
 
-import { isAction } from "../lib/keymap";
-import { useEffect, useState } from "react";
+import { DebugGutterControls, debugViewFocused } from "./DebugRail";
+import type { EditorView } from "@codemirror/view";
+import { PaneHeaderContent } from "../shell/PaneHeader";
+import { bindingOf, formatBinding, isAction } from "../lib/keymap";
+import { useEffect, useRef, useState } from "react";
 import type { TranscriptEvent } from "../api/types";
 import { WatchingTerminal } from "../terminal/WatchingTerminal";
 import type { DebugCapabilities, Frame, Step } from "./client";
@@ -57,52 +61,61 @@ export function debugKeysActive(status: DebugStripProps["status"]): boolean {
   return status === "paused";
 }
 
-/**
- * The one debug failure a person can fix from here: no adapter for this
- * language, and hick knows where to get one.
- *
- * A sentence and a button, not a wall of prose. The old strip printed the
- * whole error — "no debug adapter for python on this machine. Install one
- * with `hick dap install python`, or…" — truncated at the width of the
- * strip, with the actionable half off the end of it. This says the same thing
- * in six words and does it.
- */
-function MissingTool({
-  offer,
-  detail,
-  onInstall,
-}: {
+// Missing catalogue adapters are a prerequisite of Debug. Share downloads and
+// resume only the request whose setup is still on screen.
+const installations = new Map<string, Promise<void>>();
+function MissingTool({ offer, detail, onInstall, onReady, attempted }: {
   offer: { kind: string; language: string };
   detail: string | null;
   onInstall?: (offer: { kind: string; language: string }) => Promise<void>;
+  onReady: () => void;
+  attempted: Set<string>;
 }) {
-  const [busy, setBusy] = useState(false);
+  const [busy, setBusy] = useState(true);
   const [failed, setFailed] = useState<string | null>(null);
-
+  const callbacks = useRef({ onInstall, onReady });
+  callbacks.current = { onInstall, onReady };
+  const active = useRef(false);
+  const attempt = useRef(0);
+  const run = () => {
+    const install = callbacks.current.onInstall;
+    if (!install) { setBusy(false); return; }
+    const id = ++attempt.current;
+    setBusy(true); setFailed(null);
+    const key = `${offer.kind}:${offer.language}`;
+    let pending = installations.get(key);
+    if (!pending) {
+      pending = Promise.resolve().then(() => install(offer));
+      installations.set(key, pending);
+      const remove = () => { if (installations.get(key) === pending) installations.delete(key); };
+      void pending.then(remove, remove);
+    }
+    void pending.then(() => {
+      if (active.current && attempt.current === id) callbacks.current.onReady();
+    }, e => {
+      if (active.current && attempt.current === id) setFailed(e instanceof Error ? e.message : String(e));
+    }).finally(() => {
+      if (active.current && attempt.current === id) setBusy(false);
+    });
+  };
+  useEffect(() => {
+    active.current = true;
+    const key = `${offer.kind}:${offer.language}`;
+    if (attempted.has(key) && !installations.has(key)) {
+      setBusy(false);
+      setFailed("The debugger is still unavailable. Retry installation to try again.");
+    } else {
+      attempted.add(key);
+      run();
+    }
+    return () => { active.current = false; attempt.current++; };
+  }, [offer.kind, offer.language]);
   const pretty = offer.language.charAt(0).toUpperCase() + offer.language.slice(1);
-  return (
-    <span className="debug-strip__missing" role="alert">
-      <span>No {pretty} debugger on this machine.</span>
-      {onInstall && (
-        <button
-          type="button"
-          className="btn btn-primary debug-strip__install"
-          disabled={busy}
-          data-tip={detail ?? undefined}
-          onClick={() => {
-            setBusy(true);
-            setFailed(null);
-            onInstall(offer)
-              .catch((e) => setFailed(e instanceof Error ? e.message : String(e)))
-              .finally(() => setBusy(false));
-          }}
-        >
-          {busy ? "Installing…" : `Install it`}
-        </button>
-      )}
-      {failed && <span className="debug-strip__error">{failed}</span>}
-    </span>
-  );
+  return <span className="debug-strip__missing" role={failed ? "alert" : "status"}>
+    <span data-tip={detail ?? undefined}>{busy ? `Installing ${pretty} debugger…` : failed ? `${pretty} debugger installation failed.` : `No ${pretty} debugger on this machine.`}</span>
+    {failed && <><span className="debug-strip__error">{failed}</span>
+      <button type="button" className="btn debug-strip__install" onClick={run}>Retry installation</button></>}
+  </span>;
 }
 
 /**
@@ -140,13 +153,16 @@ function IconButton({
 }
 
 export interface DebugStripProps {
+  editorView?: EditorView | null;
+  /** Zero-based line in the displayed editor. */
+  pausedLine?: number | null;
   status: "idle" | "starting" | "paused" | "running" | "finished" | "failed";
   /** Which generated file this session is running. */
   program?: string | null;
   message: string | null;
   /** A tool this machine can fetch, when that is why the session failed. */
   offerInstall?: { kind: string; language: string } | null;
-  /** Fetch it, then try again. Resolves when the attempt is over. */
+  /** Install the missing adapter. The strip restarts only while still mounted. */
   onInstall?: (offer: { kind: string; language: string }) => Promise<void>;
   capabilities: DebugCapabilities | null;
   frames: Frame[];
@@ -201,6 +217,10 @@ export function statusWord(status: DebugStripProps["status"], exitCode?: number 
 }
 
 export function DebugStrip(props: DebugStripProps) {
+  const attemptedInstallations = useRef(new Set<string>());
+  useEffect(() => {
+    if (["idle", "paused", "running", "finished"].includes(props.status)) attemptedInstallations.current.clear();
+  }, [props.status]);
   const paused = props.status === "paused";
   // A terminal state: the session no longer exists, and the strip's job is
   // to say how it ended and offer the way back in.
@@ -211,26 +231,22 @@ export function DebugStrip(props: DebugStripProps) {
   // The keys the tooltips promise. Bound only while a step can act, so the
   // browser keeps its own F5 the rest of the time.
   useEffect(() => {
-    if (!debugKeysActive(status)) return;
+    if (!["paused", "running", "starting"].includes(status)) return;
     const onKey = (event: KeyboardEvent) => {
-      if (event.defaultPrevented) return;
-      // Continue is the keymap's (`debug.continue`, F5 by default, and may
-      // carry a modifier if rebound); the stepping keys are the debugger's
-      // own, plain F10 and F11, and stay put.
-      const how = isAction(event, "debug.continue")
-        ? "continue"
-        : event.metaKey || event.ctrlKey || event.altKey
-          ? null
-          : stepForKey(event.key, event.shiftKey);
+      if (event.defaultPrevented || (props.editorView && !debugViewFocused(props.editorView))) return;
+      if (isAction(event, "debug.stop")) { event.preventDefault(); props.onStop(); return; }
+      if (!debugKeysActive(status)) return;
+      const how = isAction(event, "debug.continue") ? "continue"
+        : isAction(event, "debug.over") ? "over" : isAction(event, "debug.in") ? "in" : isAction(event, "debug.out") ? "out" : null;
       if (!how) return;
       event.preventDefault();
       onStep(how);
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [status, onStep]);
+  }, [status, onStep, props.editorView, props.onStop]);
 
-  // Idle means no session and nothing to say: the block's Debug chip is the
+  // Idle means no session and nothing to say: the script's gutter icon is the
   // way in, and chrome for a debugger nobody started is noise.
   if (props.status === "idle") return null;
 
@@ -242,18 +258,17 @@ export function DebugStrip(props: DebugStripProps) {
   const showBuild =
     build.length > 0 && (props.status === "starting" || props.status === "failed");
 
-  return (
-    <>
+  const controls = (
     <div className="debug-strip" role="toolbar" aria-label="Debugger">
       <span className={`debug-strip__dot debug-strip__dot--${props.status}`} aria-hidden="true" />
       <span className="debug-strip__status" role="status">
         {props.program ? `${props.program} · ` : ""}
-        {statusWord(props.status, props.exitCode)}
+        {props.offerInstall ? "Debugger setup" : statusWord(props.status, props.exitCode)}
       </span>
       {/* The way back in, once the session is over: the server reaped it
           with the program, so the only meaningful verb left is a fresh
           start — with the breakpoints kept locally for exactly this. */}
-      {over && (
+      {over && !props.offerInstall && (
         <IconButton
           glyph="▶"
           label="Debug again"
@@ -264,38 +279,38 @@ export function DebugStrip(props: DebugStripProps) {
       {/* The stepping verbs, only while there is a program to step: after
           the end there is nothing they could act on, and a row of disabled
           buttons next to "finished" reads as a session that still exists. */}
-      {!over && (
+      {!over && paused && (
         <IconButton
           glyph="▶"
           label="Continue"
-          hint="Run until the next breakpoint (F5)"
+          hint={`Run until the next breakpoint (${formatBinding(bindingOf("debug.continue"))})`}
           disabled={!paused}
           onClick={() => props.onStep("continue")}
         />
       )}
-      {!over && (
+      {!over && paused && (
         <IconButton
           glyph="⤼"
           label="Step over"
-          hint="Run this line, and stop on the next one in this function (F10)"
+          hint={`Run this line and stop on the next one (${formatBinding(bindingOf("debug.over"))})`}
           disabled={!paused}
           onClick={() => props.onStep("over")}
         />
       )}
-      {!over && (
+      {!over && paused && (
         <IconButton
           glyph="↓"
           label="Step into"
-          hint="Stop at the first line of the call on this line (F11)"
+          hint={`Stop inside this call (${formatBinding(bindingOf("debug.in"))})`}
           disabled={!paused}
           onClick={() => props.onStep("in")}
         />
       )}
-      {!over && (
+      {!over && paused && (
         <IconButton
           glyph="↑"
           label="Step out"
-          hint="Run to the end of this function and stop where it returns (Shift-F11)"
+          hint={`Stop where this function returns (${formatBinding(bindingOf("debug.out"))})`}
           disabled={!paused}
           onClick={() => props.onStep("out")}
         />
@@ -303,7 +318,7 @@ export function DebugStrip(props: DebugStripProps) {
       {/* The backwards control, whichever one this adapter has. Where it has
           neither, nothing is shown rather than something disabled with no
           explanation. */}
-      {!over && back && (
+      {!over && paused && back && (
         <IconButton
           glyph={back.kind === "step_back" ? "◀" : back.kind === "drop_frame" ? "↺" : "⤒"}
           label={back.label}
@@ -333,6 +348,9 @@ export function DebugStrip(props: DebugStripProps) {
       />
       {/* The stack, as a combo box: pick a frame, and the gutter marks, the
           paused line and the inline values follow it. */}
+      <MoreActions label="Debug options">
+      <span>{props.program ? `${props.program} · ` : ""}{statusWord(props.status, props.exitCode)}</span>
+      {!over && <>
       {props.frames.length > 0 && (
         <select
           className="debug-strip__stack"
@@ -389,6 +407,8 @@ export function DebugStrip(props: DebugStripProps) {
           </button>
         </span>
       ))}
+      </>}
+      </MoreActions>
       {/* The failure, in the one place a session's chrome is. Its own element
           rather than appended to the status word, which read as one unbroken
           sentence of two different weights.
@@ -407,9 +427,14 @@ export function DebugStrip(props: DebugStripProps) {
           offer={props.offerInstall}
           detail={props.message}
           onInstall={props.onInstall}
+          onReady={props.onStart}
+          attempted={attemptedInstallations.current}
         />
       )}
     </div>
+  );
+  return <>
+    {props.editorView ? <DebugGutterControls view={props.editorView} line={props.pausedLine} program={props.program}>{controls}</DebugGutterControls> : <PaneHeaderContent part="actions">{controls}</PaneHeaderContent>}
     {showBuild && (
       <div className="debug-build" data-testid="debug-build">
         <div className="debug-build__title">
@@ -419,6 +444,5 @@ export function DebugStrip(props: DebugStripProps) {
         <WatchingTerminal events={build} live={props.status === "starting"} />
       </div>
     )}
-    </>
-  );
+    </>;
 }

@@ -1,3 +1,5 @@
+import { DebugLaunchRail } from "../debug/DebugRail";
+import { RightRail } from "../editor/RightRail";
 import { PaneHeaderContent } from "../shell/PaneHeader";
 import { MoreActions } from "./MoreActions";
 import { SurfaceInfo } from "./SurfaceInfo";
@@ -65,7 +67,7 @@ import { usePausedElsewhere } from "../lib/pausedElsewhere";
 import { debugEditor, debugStateEffects, revealLine } from "../debug/cmDebug";
 import { isDebuggable } from "../debug/languages";
 import { IDLE_SESSION } from "../debug/useDebugger";
-import { isWorkspaceSource, usePlainDebugSession } from "../debug/plainDebugHosts";
+import { isWorkspaceSource, useFollowingDebugSession } from "../debug/plainDebugHosts";
 
 export function PlainFilePane({
   path,
@@ -183,7 +185,7 @@ export function PlainFilePane({
   // and a session held here would die the moment another tab was fronted.
   // The pane reads the session through a ref inside the editor's callbacks,
   // which were built once and must see the current state.
-  const debug = usePlainDebugSession(path) ?? IDLE_SESSION;
+  const debug = useFollowingDebugSession(path) ?? IDLE_SESSION;
   const debugRef = useRef(debug);
   debugRef.current = debug;
   // Selecting a frame is asking to go there. A frame in this file is
@@ -739,18 +741,6 @@ export function PlainFilePane({
           {adopting ? "Adopting…" : "Make literate"}
         </button>
         )}
-        {/* The way into a session, for a file hick can debug. The strip's
-            own "Debug again" takes over once a session has run, so this is
-            only shown while there is none. */}
-        {file && isDebuggable(file.language) && debug.status === "idle" && (
-          <button
-            className="btn"
-            onClick={() => debug.start()}
-            data-tip="Run this file under the debugger, in its own project, stopping at your breakpoints"
-          >
-            Debug
-          </button>
-        )}
         </MoreActions>
         {notice && (
           <span className="muted plain-file__notice" role="status">
@@ -795,17 +785,13 @@ export function PlainFilePane({
       {/* The debugger's chrome, above the file it debugs — nothing while
           idle. The same strip a document's block gets. */}
       <DebugStrip
+        editorView={railView}
+        pausedLine={debug.pausedLine}
         status={debug.status}
         program={null}
         message={debug.message}
         offerInstall={debug.offerInstall}
-        onInstall={async (offer) => {
-          await api.installTool(offer.kind, offer.language);
-          // Straight back into the session that failed: installing and then
-          // asking somebody to press Debug again is the same missing step
-          // this button exists to remove.
-          debug.start();
-        }}
+        onInstall={offer => api.installTool(offer.kind, offer.language).then(() => undefined)}
         capabilities={debug.capabilities}
         frames={debug.frames}
         selectedFrame={debug.selectedFrame}
@@ -847,8 +833,10 @@ export function PlainFilePane({
           onCancel={() => setMerge(null)}
         />
       ) : null}
-      <div className="output-editor" hidden={merge !== null}>
+      <div className="output-editor with-right-rail" hidden={merge !== null}>
         <div ref={hostRef} className="editor-cm-host" />
+        <RightRail view={railView} />
+        <DebugLaunchRail view={railView} plainPath={path} enabled={!!file && isDebuggable(file.language)} onStart={() => debug.start()} />
       </div>
     </div>
   );

@@ -1,3 +1,4 @@
+import { PaneHeaderContent } from "../shell/PaneHeader";
 import { SurfaceInfo } from "../components/SurfaceInfo";
 import { MoreActions } from "../components/MoreActions";
 import { ChangePreview } from "../components/ChangePreview";
@@ -130,7 +131,7 @@ export function RepresentationPane({ id, initialBase = "", initialTarget = "", b
   const historical = !!comparison?.target;
   return <section className="representation-pane" aria-label="Literate editor">
     <SurfaceInfo name="Literate view" editable={!historical} destination={historical ? "Historical comparison; this view writes nothing." : record.backing.kind === "files" ? `Save writes code to ${record.files.map(file => file.path).join(", ")} and keeps this reading arrangement locally.` : "Save writes changes into the owning document and keeps this reading arrangement locally."} />
-    <div className="doc-tab-toolbar" role="toolbar" aria-label="Literate view actions">
+    <PaneHeaderContent part="actions"><div className="doc-tab-toolbar" role="toolbar" aria-label="Literate view actions">
       <button className="btn btn-primary" disabled={!dirty || busy || historical} onClick={() => void save()}>{busy ? "Saving…" : "Save"}</button>
       <button className="btn" disabled={dirty || busy} onClick={() => void refresh()}>Refresh from source</button>
       <span role="status">{dirty ? "Unsaved changes" : "Saved"}</span>
@@ -140,18 +141,19 @@ export function RepresentationPane({ id, initialBase = "", initialTarget = "", b
       <button className="btn" disabled={dirty || busy || historical} onClick={() => void representations.keep(id).then(v => setNotice(`View kept locally at ${v.path}`), e => setNotice(message(e)))}>Keep view locally</button>
       <button className="btn" disabled={historical} onClick={() => setAgent(v => !v)}>Explain or edit with ACP</button>
       </MoreActions>
-    </div>
+    </div></PaneHeaderContent>
     {dirty && !historical && <ChangePreview heading="Review changes before saving" collapsible effects="Save writes these edits to the targets named above. This view has no recovery draft; closing without saving discards its edits.">
       <DocumentComparison id={`${id}:preview`} path="arrangement.md" before={record.source} after={source} />
       {files.filter(file => file.content !== record.files.find(base => base.path === file.path)?.content).map(file => <section key={file.path}><strong>{file.path}</strong>
         <DocumentComparison id={`${id}:preview:${file.path}`} path={file.path} before={record.files.find(base => base.path === file.path)?.content ?? ""} after={file.content} />
       </section>)}
     </ChangePreview>}
-    <form className="representation-comparison" onSubmit={e => { e.preventDefault(); void compare(); }}>
-      <label>Compare from <input aria-label="Comparison base" value={base} placeholder="HEAD, branch, or commit" onChange={e => setBase(e.target.value)} /></label>
-      <label>to <input aria-label="Comparison target" value={target} placeholder="working tree" onChange={e => setTarget(e.target.value)} /></label>
+    <PaneHeaderContent part="actions"><details className="representation-versions"><summary data-tip="Compare revisions; current code stays editable">{comparison ? `${comparison.base.slice(0, 8)} → ${comparison.target?.slice(0, 8) ?? "current"}` : "Compare revisions…"}</summary>
+    <div className="representation-versions__menu"><form className="representation-comparison" onSubmit={e => { e.preventDefault(); void compare(); }}>
+      <label>Earlier revision <input aria-label="Comparison base" value={base} placeholder="HEAD, branch, or commit" onChange={e => setBase(e.target.value)} /></label>
+      <label>Compare with <input aria-label="Comparison target" value={target} placeholder="Current code (editable)" onChange={e => setTarget(e.target.value)} /></label>
       <button className="btn" disabled={dirty}>Show diff</button>
-      {comparison && <button type="button" className="btn" disabled={dirty} onClick={() => { setComparison(null); setTarget(""); buffers.delete(id); accept(record); }}>Show current state</button>}
+      {comparison && <button type="button" className="btn" disabled={dirty} onClick={() => { setComparison(null); setTarget(""); buffers.delete(id); accept(record); }}>Return to current code</button>}
       {comparison && <button type="button" className="btn" onClick={() => {
         if (!editor) return; unfoldAll(editor);
         const changes = comparisonChanges(comparison.source, source);
@@ -162,15 +164,23 @@ export function RepresentationPane({ id, initialBase = "", initialTarget = "", b
           previous = change.to;
         }
       }}>Fold unchanged regions</button>}
+    <p className="muted">Leave the second revision empty to compare with editable current code. A historical target is read-only; use a worktree to run it.</p>
     </form>
     {comparison && record.backing.kind === "files" && <p className="muted">Explanations belong to this reading arrangement; they are not evidence from the compared commit.</p>}
     {comparison && <p className="muted">{comparison.base.slice(0, 12)} → {comparison.target?.slice(0, 12) ?? "working tree"}{historical ? " · historical, read-only; open a worktree to run this revision" : " · current side is editable"}</p>}
+    </div></details></PaneHeaderContent>
     {record.explanation_stale && <p role="status">Stale explanation — source changed. Review or regenerate the explanation; this is not an execution verdict.</p>}
     {record.local_warning && <p role="alert">{record.local_warning}</p>}
     {notice && <p role="alert">{notice}</p>}
     {!historical && files.map(file => <RepresentationTools key={file.path} file={file} source={mappedSource} view={editor} saved={!dirty} onDiagnostics={onDiagnostics} onDebug={onDebug} onMessage={setNotice} askText={prompt.askText} askChoice={prompt.askChoice} />)}
     <DocumentEditor docId={`lens:${id}`} initialSource={source} realtime={local} onChange={change} onViewReady={v => { viewRef.current = v; setEditor(v); }}
       execBlocks={[]} runningCells={noCells} onRunCell={() => setNotice("Run the repository's own tests or open its persistent document to execute cells.")}
+      onDebugFile={historical ? undefined : path => {
+        if (dirty) { setNotice("Save your edits before debugging."); return; }
+        const debug = debugSessions.current.get(path);
+        if (debug) debug.start();
+        else setNotice(`Code tools for ${path} are still opening. Try Debug again.`);
+      }}
       readOnly={historical} comparisonBase={comparison?.source ?? null} lspExtensions={extensions} />
     <PromptPanel prompt={prompt.prompt} onSettle={prompt.settle} />
     {agent && <ChatDock docId={`lens:${id}`} realtime={realtime} initialPrompt={`Read literate view ${id} using read_literate_view, then organize_literate_view to explain its code and arrange exact source fragments. Preserve every source byte.`}

@@ -13,7 +13,7 @@ import { DebugStrip } from "../debug/DebugStrip";
 import type { usePrompt } from "../components/PromptPanel";
 import { api } from "../api/client";
 
-export function RepresentationTools({ file, source, view, saved, onDiagnostics, onDebug, onMessage, askText, askChoice }: {
+export function RepresentationTools({ file, source, view, onDiagnostics, onDebug, onMessage, askText, askChoice }: {
   file: RepresentedFile; source: string; view: EditorView | null; saved: boolean;
   onDiagnostics: (path: string, spans: DiagnosticSpan[]) => void;
   onDebug: (path: string, session: DebugSession) => void;
@@ -24,7 +24,6 @@ export function RepresentationTools({ file, source, view, saved, onDiagnostics, 
   const lsp = useWorkspaceLsp(file.path, file.content);
   const debug = usePlainDebugSession(file.path) ?? IDLE_SESSION;
   const live = useRef({ source, file, debug }); live.current = { source, file, debug };
-  const language = file.path.split(".").pop();
   const compartment = useMemo(() => new Compartment(), []);
   useEffect(() => {
     if (!view) return;
@@ -53,15 +52,15 @@ export function RepresentationTools({ file, source, view, saved, onDiagnostics, 
   }, [lsp.diagnostics, file, source, onDiagnostics]);
   useEffect(() => () => { onDiagnostics(file.path, []); onDebug(file.path, IDLE_SESSION); }, [file.path, onDiagnostics, onDebug]);
   useEffect(() => { onDebug(file.path, debug); }, [file.path, debug, onDebug]);
-  return <div className="representation-file-tools">
-    <span className="mono">{file.path}</span>
-    {["py", "js", "ts", "go", "cs"].includes(language ?? "") && <button className="btn btn-small" disabled={!saved} onClick={() => debug.start()}>Debug</button>}
-    <DebugStrip status={debug.status} program={file.path} message={debug.message} capabilities={debug.capabilities}
-      offerInstall={debug.offerInstall} onInstall={async offer => { await api.installTool(offer.kind, offer.language); debug.start(); }}
+  const pausedOffset = debug.pausedLine === null ? null : representationOffset(source, file, { line: debug.pausedLine, character: 0 });
+  const pausedLine = pausedOffset === null || !view ? null : view.state.doc.lineAt(pausedOffset).number - 1;
+  return <>
+    <DebugStrip editorView={view} pausedLine={pausedLine} status={debug.status} program={file.path} message={debug.message} capabilities={debug.capabilities}
+      offerInstall={debug.offerInstall} onInstall={async offer => { await api.installTool(offer.kind, offer.language); }}
       frames={debug.frames} selectedFrame={debug.selectedFrame} watches={debug.watches} exitCode={debug.exitCode} buildOutput={debug.buildOutput}
       onSelectFrame={debug.selectFrame} onStep={debug.step} onStart={() => debug.start()} onStop={debug.stop}
       onJumpHere={() => { if (!view) return; const p = filePosition(source, file, view.state.selection.main.head); if (p) debug.jumpTo(p.line); }}
       onAddWatch={() => { void askText("Expression to watch:", "").then(expression=> { if (expression) debug.addWatch(expression); }); }}
       exceptionFilters={debug.exceptionFilters} onToggleExceptionFilter={debug.toggleExceptionFilter} onRemoveWatch={debug.removeWatch} />
-  </div>;
+  </>;
 }

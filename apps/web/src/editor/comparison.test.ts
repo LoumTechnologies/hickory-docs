@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 // Guarantee: editing/a-comparison-keeps-current-code-editable.md
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { EditorState } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
 import { comparisonChanges, comparisonField, setComparison } from "./comparison";
@@ -11,7 +11,8 @@ describe("editable comparison in the main buffer", () => {
     const view = new EditorView({ state:EditorState.create({ doc:"same\nnew\n", extensions:[comparisonField] }), parent:document.body }); views.push(view);
     view.dispatch({ effects:setComparison.of({ base:"same\nold\n",editable:true }) });
     expect(view.state.doc.toString()).toBe("same\nnew\n");
-    expect(document.querySelector(".comparison-removed pre")?.textContent).toContain("old");
+    expect(document.querySelector(".comparison-removed")).toBeNull();
+    expect(document.querySelector(".comparison-deletion")?.getAttribute("aria-label")).toBe("Show 1 removed line");
     expect(document.querySelector(".comparison-added")?.textContent).toBe("new");
     view.dispatch({ changes:{ from:5,to:8,insert:"edited" } });
     expect(view.state.doc.toString()).toBe("same\nedited\n");
@@ -19,12 +20,18 @@ describe("editable comparison in the main buffer", () => {
     view.dispatch({effects:setComparison.of({base:null,editable:true})});
     expect(document.querySelector(".comparison-removed")).toBeNull();
   });
-  it("restores only explicitly chosen removed lines and hides restoration for history", () => {
+  it("restores only explicitly chosen removed lines and hides restoration for history", async () => {
     const view=new EditorView({state:EditorState.create({doc:"same\n",extensions:[comparisonField]}),parent:document.body}); views.push(view);
     view.dispatch({effects:setComparison.of({base:"same\ndeleted\n",editable:false})});
-    expect(document.querySelector(".comparison-removed button")).toBeNull();
+    expect(document.querySelector(".comparison-deletion")).not.toBeNull();
     view.dispatch({effects:setComparison.of({base:"same\ndeleted\n",editable:true})});
-    (document.querySelector(".comparison-removed button") as HTMLButtonElement).click();
+    const marker = document.querySelector(".comparison-deletion") as HTMLButtonElement;
+    marker.click();
+    const tooltip = view.state.field(comparisonField);
+    expect(tooltip.comparison.editable).toBe(true);
+    await vi.waitFor(() => expect(document.querySelector(".comparison-removed pre")?.textContent).toContain("deleted"));
+    const restore = [...document.querySelectorAll(".comparison-removed button")].find(button => button.textContent === "Restore these lines") as HTMLButtonElement;
+    restore.click();
     expect(view.state.doc.toString()).toBe("same\ndeleted\n");
     expect(document.querySelector(".comparison-removed")).toBeNull();
   });

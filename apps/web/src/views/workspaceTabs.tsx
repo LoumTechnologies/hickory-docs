@@ -162,17 +162,13 @@ export function DocTabBody({
       <ProjectContextSelector doc={docId} source={session.liveSource} value={session.projectContext} onChange={session.setProjectContext}
         disabled={["starting","paused","running"].includes(debug.status)} />
       <DebugStrip
+        editorView={session.docEditor}
+        pausedLine={debug.pausedLine}
         status={debug.status}
         program={debug.program}
         message={debug.message}
         offerInstall={debug.offerInstall}
-        onInstall={async (offer) => {
-          await api.installTool(offer.kind, offer.language);
-          // Straight back into the session that failed: installing and then
-          // asking somebody to press Debug again is the same missing step
-          // this button exists to remove.
-          debug.start(debug.program ?? undefined);
-        }}
+        onInstall={offer => api.installTool(offer.kind, offer.language).then(() => undefined)}
         capabilities={debug.capabilities}
         frames={debug.frames}
         selectedFrame={debug.selectedFrame}
@@ -262,6 +258,7 @@ export function GeneratedTabBody({
       bufferId={bufferId}
       onSource={onSource}
       liveFile={session.outputs.get(path) ?? null}
+      debugger={session.doc ? {debug:session.debug,source:session.liveSource,docPath:session.doc.path,askText:session.askText} : undefined}
       makeOutputLsp={session.makeOutputLsp}
       onSourceEdits={session.flashSourceEdits}
       onReady={(target) =>

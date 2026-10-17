@@ -13,7 +13,7 @@ it("switches layouts, exposes independent permissions and invalidates a verified
   ], old: "a", new: "b", policy: "new", evidence: "verified" };
   const change = vi.fn();
   render(<ComparisonEditor path="app.ts" model={model} onChange={change} />);
-  fireEvent.change(screen.getByLabelText("Comparison layout"), { target: { value: "side-by-side" } });
+  expect((screen.getByLabelText("Comparison layout") as HTMLSelectElement).value).toBe("side-by-side");
   const editors = document.querySelectorAll<HTMLElement>(".cm-editor");
   expect(editors).toHaveLength(2);
   expect(editors[0].querySelector(".cm-content")?.getAttribute("contenteditable")).toBe("false");
@@ -35,4 +35,24 @@ it("an immutable reading forks without a save path or execution action", () => {
   expect(change.mock.lastCall?.[0].sources.every((s: {kind: string}) => s.kind === "authored")).toBe(true);
   expect(change.mock.lastCall?.[0].evidence).toBe("unverified");
   expect(screen.queryByText("Run")).toBeNull();
+});
+
+
+it("highlights changed lines on both sides by default without inserting historical rows", () => {
+  const model: ComparisonModel = { sources: [
+    { id: "old", label: "Before", kind: "git", text: "same\nremoved\nend\n" },
+    { id: "new", label: "After", kind: "authored", target: "app.py", text: "same\nadded\nend\n" },
+  ], old: "old", new: "new", policy: "new", evidence: "unverified" };
+  const mounted = render(<ComparisonEditor path="app.py" model={model} onChange={vi.fn()} />);
+  const panes = mounted.container.querySelectorAll(".comparison-side");
+  expect(panes[0].querySelector(".comparison-deleted")?.textContent).toBe("removed");
+  expect(panes[1].querySelector(".comparison-added")?.textContent).toBe("added");
+  expect(mounted.container.querySelectorAll(".comparison-added, .comparison-deleted")).toHaveLength(2);
+  expect(mounted.container.querySelector(".comparison-deletion")).toBeNull();
+  const next = EditorView.findFromDOM(panes[1].querySelector<HTMLElement>(".cm-editor")!)!;
+  next.dispatch({ changes: { from: 5, to: 10, insert: "removed" } });
+  expect(panes[1].querySelector(".comparison-added")).toBeNull();
+  fireEvent.change(screen.getByLabelText("Comparison layout"), { target: { value: "inline" } });
+  expect(mounted.container.querySelectorAll(".comparison-side")).toHaveLength(1);
+  expect(mounted.container.querySelector(".comparison-deletion")).not.toBeNull();
 });

@@ -55,3 +55,12 @@ describe("saving a working representation", () => {
     expect(viewBuffers.get("tab-v")?.dirty).toBe(false);
   });
 });
+
+it("keeps revision selection in a closed menu until requested", async () => {
+  await mount();
+  const menu = screen.getByText("Compare revisions…").closest("details")!;
+  expect(menu.open).toBe(false);
+  fireEvent.click(screen.getByText("Compare revisions…"));
+  expect(menu.open).toBe(true);
+  expect((screen.getByLabelText("Comparison target") as HTMLInputElement).placeholder).toBe("Current code (editable)");
+});

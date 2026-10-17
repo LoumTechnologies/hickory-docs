@@ -57,6 +57,11 @@ describe("inline values", () => {
     expect(placements.map((p) => p.at)).not.toContain(DOC.line(3).to);
   });
 
+  it("shows one inline value when the adapter repeats it across scopes", () => {
+    const placements = inlinePlacements(DOC, vars([["quantity", "2"], ["quantity", "2"]]), 1);
+    expect(placements.map(p=>p.text)).toEqual(["quantity = 2", "quantity = 2"]);
+  });
+
   it("shows nothing at all when nothing is paused", () => {
     expect(inlinePlacements(DOC, vars([["quantity", "2"]]), null)).toEqual([]);
   });

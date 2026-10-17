@@ -1,3 +1,5 @@
+import { GeneratedDebugTools } from "../debug/GeneratedDebugTools";
+import type { DebugSession } from "../debug/useDebugger";
 import { viewBuffers } from "../lib/viewBuffers";
 import { ActionNotice } from "../components/ActionNotice";
 import { SurfaceInfo } from "../components/SurfaceInfo";
@@ -37,9 +39,11 @@ export function GeneratedFileView({
   onSourceEdits,
   onSource,
   onReady,
+  debugger: debuggerContext,
 }: {
   docId: string;
   path: string;
+  debugger?: {debug:DebugSession;source:string;docPath:string;askText:(title:string,initial:string)=>Promise<string|null>};
   bufferId?: string;
   onSource?: (path: string, source: string) => void;
   /**
@@ -65,6 +69,7 @@ export function GeneratedFileView({
   const [file, setFile] = useState<OutputFile | null>(null);
   const [error, setError] = useState<string | null>(null);
   const outputView = useRef<EditorView | null>(null);
+  const [debugView,setDebugView] = useState<EditorView|null>(null);
   const [saveState, setSaveState] = useState<"saving" | "saved" | "failed" | null>(null);
   const pendingKey = `${docId}:${path}`;
   const [saveError, setSaveError] = useState<string | null>(null);
@@ -278,6 +283,7 @@ export function GeneratedFileView({
         onLocalEdit={save}
         onViewReady={(view) => {
         outputView.current = view;
+        setDebugView(view);
         if (view && pendingOutputs.has(pendingKey)) {
           const pending = pendingOutputs.get(pendingKey)!.contents;
           view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: pending } });
@@ -286,6 +292,7 @@ export function GeneratedFileView({
         onReady?.(view ? { view, file } : null);
       }}
       />
+      {debuggerContext && file && <GeneratedDebugTools view={debugView} file={file} {...debuggerContext} />}
       {range && <SamplePicker path={path} range={range} />}
       {saveError && (
         <ActionNotice kind="fail" retry={{ label: "Retry Save", run: () => { void saver.flushNow(); } }}>

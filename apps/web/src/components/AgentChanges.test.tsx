@@ -14,7 +14,7 @@ it("uses the document comparison editor, waits for Accept, and applies before ac
   const apply = vi.fn(); const update = vi.fn();
   vi.mocked(acpApi.edits).mockImplementation(async () => { expect(apply).toHaveBeenCalledWith(change); return state; });
   const view = render(<><AgentChanges doc="workspace" state={state} running apply={apply} update={update} /><DocumentReading id="proposal:workspace:change" /></>);
-  await waitFor(() => expect(view.container.querySelector(".comparison-removed pre")?.textContent).toContain("# Old 📝"));
+  await waitFor(() => expect(view.container.querySelector(".comparison-deleted")?.textContent).toContain("# Old 📝"));
   expect(view.container.querySelector(".comparison-added")?.textContent).toContain("New 📝");
   expect(view.container.querySelector(".cm-content")?.textContent).toContain("keep");
   expect(apply).not.toHaveBeenCalled();

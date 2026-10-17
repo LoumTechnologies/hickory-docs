@@ -1,5 +1,74 @@
 import { expect, test } from "@playwright/test";
 
+// Exercises the real catalog installer in a disposable project. Opt in because
+// a fresh machine needs uv and network access to obtain debugpy.
+test("unified patch gutter launches and steps the completed captured project", async ({page})=>{
+  test.setTimeout(120_000);
+  test.skip(!process.env.HICKORY_E2E_DEBUG, "Use just test-unified-debug-ui (requires uv and the Python package index).");
+  const errors:string[]=[];
+  page.on("pageerror",error=>errors.push(error.message));
+  const source=`# Debug a patch
+<hick:project/>
+<hick:file id="helper" path="helpers.py">
+def format_name(name):
+    result = name.upper()
+    return result
+</hick:file>
+<hick:file id="main" path="main.py">
+from helpers import format_name
+name = "developer"
+result = format_name(name)
+print(result)
+</hick:file>
+<hick:patch id="change" after="main">
+--- a/main.py
++++ b/main.py
+@@ -1,4 +1,4 @@
+ from helpers import format_name
+-name = "developer"
++name = "IDE user"
+ result = format_name(name)
+ print(result)
+</hick:patch>`;
+  await page.request.put("/api/workspace/ui",{data:{state:null}});
+  const response=await page.request.post("/api/projects/local/docs",{data:{path:"debug-ui.md",source}});
+  expect(response.ok()).toBeTruthy(); const note=await response.json();
+  await page.goto(`/#/docs/${note.id}`);
+  const patch=page.getByRole("region",{name:"Project patch editor"});
+  await expect(patch).toBeVisible();
+  await expect(patch.locator(".comparison-panes--side-by-side")).toBeVisible();
+  await expect(patch.locator(".comparison-deleted")).toContainText('name = "developer"');
+  await expect(patch.locator(".comparison-added")).toContainText('name = "IDE user"');
+  const launch=patch.getByRole("button",{name:"Debug main.py · After this patch",exact:true});
+  await expect(launch).toBeEnabled();
+  expect(await launch.evaluate(el=>!!el.closest(".cm-debug-rail") && !el.closest("details"))).toBe(true);
+  const after=patch.locator(".comparison-side").last();
+  const line=await after.locator(".cm-line").filter({hasText:"result = format_name(name)"}).boundingBox();
+  const gutter=await after.locator(".cm-breakpoint-gutter").boundingBox();
+  if(!line || !gutter) throw new Error("Expected the captured code's breakpoint gutter");
+  await page.mouse.click(gutter.x+gutter.width/2,line.y+line.height/2);
+  await expect(after.locator(".cm-bp")).toHaveCount(1);
+  await page.screenshot({path:"/tmp/hickory-unified-patch-idle.png",fullPage:true});
+  await launch.click();
+  const debuggerBar=patch.getByRole("toolbar",{name:"Debugger"});
+  await expect(debuggerBar.getByRole("button",{name:"Continue",exact:true})).toBeVisible({timeout:90_000});
+  expect(await debuggerBar.evaluate(el=>!!el.closest(".cm-debug-rail"))).toBe(true);
+  await page.screenshot({path:"/tmp/hickory-unified-patch-paused.png",fullPage:true});
+  await debuggerBar.getByRole("button",{name:"Step into",exact:true}).click();
+  const callee=page.getByRole("region",{name:"Code · helpers.py"});
+  await expect(callee).toBeVisible();
+  await expect(callee.locator(".cm-editor")).toHaveCount(1);
+  await expect(callee.locator(".cm-paused-line")).toBeVisible();
+  const calleeBar=callee.getByRole("toolbar",{name:"Debugger"});
+  await expect(calleeBar.getByRole("button",{name:"Step over",exact:true})).toBeVisible();
+  await calleeBar.getByRole("button",{name:"Step over",exact:true}).click();
+  await expect(callee.locator(".cm-paused-line")).toContainText("return result");
+  await page.screenshot({path:"/tmp/hickory-unified-callee-paused.png",fullPage:true});
+  await calleeBar.getByRole("button",{name:"Stop",exact:true}).click();
+  await expect(calleeBar.getByRole("button",{name:"Continue",exact:true})).toHaveCount(0);
+  expect(errors).toEqual([]);
+});
+
 // Guarantees: authoring/a-literate-view-writes-through-to-ordinary-source.md;
 // editing/a-comparison-keeps-current-code-editable.md.
 test("edit ordinary source in the main literate diff, then read history without changing it", async ({page})=>{
@@ -11,31 +80,33 @@ test("edit ordinary source in the main literate diff, then read history without 
   const response=await page.request.post("/api/representations",{data:{backing:{kind:"files",paths:["code.py"]}}});
   expect(response.ok()).toBeTruthy(); const view=await response.json();
   await page.goto("/");
-  await expect(page.locator(".shell-tabs").first()).toBeVisible();
+  await expect(page.getByRole("tablist",{name:"Center views"})).toBeVisible();
   await page.evaluate(id=>window.dispatchEvent(new CustomEvent("hickory.open-representation",{detail:{id}})),view.id);
+  await page.getByRole("tab",{name:"Literate view",exact:true}).click();
   const pane=page.getByRole("region",{name:"Literate editor"});
   await expect(pane).toBeVisible();
   const line=pane.locator(".cm-line").filter({hasText:"value = 1"});
   await expect(line).toBeVisible(); await line.click();
   const content=pane.locator(".cm-content").first();
   await content.press("Home"); await content.press("Shift+End"); await content.pressSequentially("value = 7");
-  await pane.getByRole("button",{name:"Save",exact:true}).click();
+  await page.getByRole("button",{name:"Save",exact:true}).click();
   await expect.poll(async()=> (await (await page.request.get("/api/file?path=code.py")).json()).content).toBe("value = 7\n");
-  await pane.getByLabel("Comparison base").fill("HEAD");
-  await pane.getByRole("button",{name:"Show diff",exact:true}).click();
-  await expect(pane.locator(".comparison-removed")).toHaveCount(1);
-  await pane.locator(".comparison-removed summary").click();
+  await page.getByText("Compare revisions…", { exact: true }).click();
+  await page.getByLabel("Comparison base").fill("HEAD");
+  await page.getByRole("button",{name:"Show diff",exact:true}).click();
+  await expect(pane.locator(".comparison-removed")).toHaveCount(0);
+  await pane.locator(".comparison-deletion").click();
   await expect(pane.locator(".comparison-removed pre")).toContainText("value = 1");
   await expect(pane.locator(".comparison-added")).toContainText("value = 7");
   const editedLine=pane.locator(".cm-line").filter({hasText:"value = 7"});
   await editedLine.click(); await content.press("Home"); await content.press("Shift+End"); await content.pressSequentially("value = 8");
-  await pane.getByRole("button",{name:"Save",exact:true}).click();
+  await page.getByRole("button",{name:"Save",exact:true}).click();
   await expect.poll(async()=> (await (await page.request.get("/api/file?path=code.py")).json()).content).toBe("value = 8\n");
-  await pane.getByLabel("Comparison target").fill("HEAD"); await pane.getByRole("button",{name:"Show diff",exact:true}).click();
+  await page.getByLabel("Comparison target").fill("HEAD"); await page.getByRole("button",{name:"Show diff",exact:true}).click();
   await expect(content).toHaveAttribute("contenteditable","false");
-  await expect(pane).toContainText("historical, read-only");
+  await expect(page.locator(".representation-versions")).toContainText("historical, read-only");
   expect((await (await page.request.get("/api/file?path=code.py")).json()).content).toBe("value = 8\n");
-  await pane.getByRole("button",{name:"Show current state"}).click();
+  await page.getByRole("button",{name:"Return to current code"}).click();
   await expect(content).toHaveAttribute("contenteditable","true");
   expect(errors).toEqual([]);
 });
@@ -105,7 +176,7 @@ test("review an ACP proposal in the literate editor, then read its commit", asyn
   const review = page.getByRole("region", { name: "Document change review" });
   await expect(review).toBeVisible();
   await expect(review.locator(".comparison-added")).toContainText("Changed by ACP");
-  await expect(review.locator(".comparison-removed pre")).toContainText("Original 📝");
+  await expect(review.locator(".comparison-deleted")).toContainText("Original 📝");
   expect((await (await page.request.get(`/api/docs/${note.id}`)).json()).source).toContain("Original 📝");
   await expect(agent.getByRole("button", { name: "Stop the agent" })).toBeVisible();
   await page.screenshot({ path: "/tmp/hickory-proposal-reading.png", fullPage: true });

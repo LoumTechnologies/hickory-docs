@@ -1,20 +1,21 @@
-# A Missing Debugger Is A Button, Not A Command To Go And Type
+# Debug installs a missing supported adapter and continues
 
-Given a debug session that cannot start because this machine has no adapter
-for the program's language, when hick can fetch one, then the app says so in
-one short sentence and offers a control that installs it and starts the
-session — never a paragraph naming a shell command.
+Given a developer clicking the gutter's Debug action, when this machine is
+missing an adapter available from Hickory's catalogue, then the app installs it
+and starts the requested program without another click. Setup reports its state
+in a floating message beside the right-gutter controls. A failed installation shows its diagnostic and a
+Retry installation action. Dismissing setup prevents a late download from
+starting a session. Repeated missing-adapter failures do not trigger an automatic
+installation loop.
 
-The offer appears **only when a catalogue can actually serve it**. For a
-language whose adapter comes from its own ecosystem — delve via `go install`,
-`lldb-dap` from LLVM, `rdbg` from the debug gem — there is no button, and the
-prose that names the ecosystem's own way is shown in full, because that is all
-there is to say.
+Only a typed, catalogue-supported missing-adapter response triggers installation.
+For tools supplied by another ecosystem, the engine's installation guidance
+remains visible. Installation uses the same confinement, prefix and catalogue
+as `hick dap install`. Concurrent requests for one adapter share the installation.
 
-Installing goes through the same catalogue, the same confinement and the same
-prefix `hick dap install` uses. A tool fetched from the app and a tool fetched
-in a terminal are the same tool; this adds an affordance, never a second
-mechanism.
+This supersedes the separate Install button decision on 2026-10-16: requesting
+Debug authorizes the prerequisite installation. The user should choose the
+program, not manage its adapter before each first run.
 
 On macOS, the redirected installer home applies to every command in the
 install, including creating the Python environment and installing debugpy.
@@ -30,16 +31,6 @@ and archive installers.
 The offer is cleared the moment a session starts. It belongs to the failure it
 came from, and an install that worked must not leave "No Python debugger on
 this machine" standing beside "finished — exit code 0".
-
-## Why
-
-This was the last place in the app that answered a fixable problem with
-homework. The strip said *"no debug adapter for python on this machine.
-Install one with `hick dap install python`, or…"* — and truncated it at the
-width of the strip, so the actionable half of the sentence was off the end of
-the control that could have performed it. Every other editor makes this a
-button. The gap between "here is a command" and "yes, do that" is most of what
-separates an IDE from a tool with a CLI attached.
 
 Deciding *which* failure this is must not be done by reading English.
 `hick_dap::MissingAdapter` is a type for exactly that reason: the server
@@ -99,3 +90,11 @@ substitutes a shell-quoted prefix. The offline confined regression
 `an_install_prefix_is_one_shell_word_even_with_spaces_and_punctuation` writes and
 reads a receipt through a prefix containing spaces, an apostrophe, `$()` and a
 semicolon. All seven installer tests and the confined-home test passed.
+
+
+Verification update (2026-10-16): `DebugStrip.tsx::MissingTool` automatically
+installs and resumes, shares in-flight installations, and guards continuation
+against dismissal and unmount. `DebugStrip.test.tsx` covers successful setup,
+installer failure and explicit retry, dismissal during download, and repeated
+missing-adapter responses. Installer and protocol behavior are unchanged; this
+update does not claim a new live provider download was exercised.

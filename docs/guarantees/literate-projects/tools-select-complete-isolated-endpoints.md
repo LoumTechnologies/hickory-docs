@@ -48,7 +48,8 @@ This supersedes the pending selector/foreign-document exclusions above for the
 working continuation. `project_contexts.rs`, `project_positions.rs` and
 `location_map.rs` carry captured project and source identities. The document
 selector exposes explicit scopes and advanced local states. Comparison tool
-registration is lazy and memory-only; native tools materialize on demand.
+registration is automatic and memory-only; opening the view connects language
+services to that captured project. It never launches the program being read.
 Revision-local paths keep Old tools usable across a rename.
 
 Executed witnesses: `just test-literate-comparison-editor` checks complete later
@@ -60,3 +61,32 @@ checks registration, retrieval and removal despite changed working bytes.
 flow on macOS arm64. Whole native toolbar automation and other platforms remain
 unverified. Dependency hashes and executed status are retained in
 `comparison-integration-evidence.md`; human judgment is not recorded.
+
+
+## Default code tools (2026-10-16)
+
+Opening a comparison registers each available completed endpoint automatically.
+Completion and navigation use that side's frozen project and mapped coordinates,
+including revision-local renamed paths and later patches in other files. Empty
+endpoints do not register runnable tools. Unsaved bytes without a matching
+captured map receive no guessed coordinates. Late registration responses are
+released after revision changes or unmount; an error offers Retry code tools.
+Status and recovery controls live in a margin popover, adding no editor rows.
+
+Definition, reference selection and debugger frames open a single captured code
+editor at the requested position. They retain the original native identity
+rather than registering a second snapshot. Captured records, mounted editors and
+active debug hosts share reference-counted lifetime; closing the original patch
+does not delete a project still needed by its navigated code or debugger.
+
+`ComparisonTools.test.tsx` covers automatic registration on a middle patch,
+empty input, both renamed sides, late-response cleanup, explicit retry after
+failure, completion requests and F12 navigation through the captured URI, and
+refusal to map a changed buffer. The protocol is mocked; these frontend tests
+do not establish installation or operation of every native language server.
+
+Live continuation (2026-10-17): `just test-unified-debug-ui` passed the captured
+Python patch launch, breakpoint, cross-file Step Into, single-code navigation,
+callee Step Over and Stop with a real engine and adapter. Screenshots were
+inspected. This does not establish native language-server behavior for other
+languages or operation on other platforms.

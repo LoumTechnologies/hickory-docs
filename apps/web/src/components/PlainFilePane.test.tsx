@@ -290,7 +290,7 @@ describe("a plain file and the debugger", () => {
     serveFile("tools/app.py", "python", APP);
     render(<><PlainDebugHosts /><PlainFilePane path="tools/app.py" /></>);
     await waitFor(() => {
-      expect(screen.getByRole("button", { name: "Debug" })).toBeDefined();
+      expect(screen.getByRole("button", { name: "Debug tools/app.py" })).toBeDefined();
       expect(document.querySelector(".cm-breakpoint-gutter")).not.toBeNull();
     });
   });
@@ -302,7 +302,7 @@ describe("a plain file and the debugger", () => {
     serveFile("notes.md", "markdown", ON_DISK);
     render(<><PlainDebugHosts /><PlainFilePane path="notes.md" /></>);
     await waitFor(() => expect(document.querySelector(".cm-content")).not.toBeNull());
-    expect(screen.queryByRole("button", { name: "Debug" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Debug tools/app.py" })).toBeNull();
     expect(document.querySelector(".cm-breakpoint-gutter")).toBeNull();
   });
 
@@ -322,11 +322,11 @@ describe("a plain file and the debugger", () => {
     await waitFor(() => expect(document.querySelector(".cm-paused-arrow")).toBeNull());
   });
 
-  it("starts at the file's own path and shows the session above the file", async () => {
+  it("starts from the gutter at the file's own path and exposes stepping", async () => {
     const { sent, deliver } = debugWire();
     serveFile("tools/app.py", "python", APP);
     render(<><PlainDebugHosts /><PlainFilePane path="tools/app.py" /></>);
-    const button = await screen.findByRole("button", { name: "Debug" });
+    const button = await screen.findByRole("button", { name: "Debug tools/app.py" });
     button.click();
     await waitFor(() =>
       expect(sent[0]).toMatchObject({ op: "start", doc: "hick:///tools/app.py", breakpoints: [] }),
@@ -358,8 +358,8 @@ describe("a plain file and the debugger", () => {
       const strip = screen.getByRole("toolbar", { name: "Debugger" });
       expect(strip.textContent).toContain("paused");
     });
-    // The way in is gone while a session runs; the strip's verbs take over.
-    expect(screen.queryByRole("button", { name: "Debug" })).toBeNull();
+    // The launch action stays in the gutter; stepping uses the session controls.
+    expect(screen.getByRole("button", { name: "Debug tools/app.py" })).toBeDefined();
     expect(screen.getByRole("button", { name: "Step over" })).toBeDefined();
   });
 });

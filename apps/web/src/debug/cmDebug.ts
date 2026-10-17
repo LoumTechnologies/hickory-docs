@@ -470,8 +470,8 @@ export function inlinePlacements(
     const line = doc.line(index + 1);
     const shown: string[] = [];
     for (const variable of named) {
-      const pattern = new RegExp(`\\b${variable.name}\\b`);
-      if (pattern.test(line.text)) shown.push(`${variable.name} = ${abbreviate(variable.value)}`);
+      const label = `${variable.name} = ${abbreviate(variable.value)}`;
+      if (new RegExp(`\\b${variable.name}\\b`).test(line.text) && !shown.includes(label)) shown.push(label);
     }
     if (shown.length > 0) out.push({ at: line.to, text: shown.join("  ") });
   }

@@ -1,3 +1,4 @@
+import { DebugLaunchRail } from "../debug/DebugRail";
 // The generated-output editor, shared by the Output view and the right pane of
 // Split. It is EDITABLE ON ARRIVAL: you type in woven output and the parent
 // resolves the edit backwards through provenance into the source document
@@ -361,6 +362,7 @@ export function OutputEditorPane({
         )}
         <div ref={hostRef} className="editor-cm-host" />
         <RightRail view={railView} />
+        <DebugLaunchRail view={railView} />
       </div>
     </div>
   );

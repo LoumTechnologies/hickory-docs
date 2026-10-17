@@ -7,6 +7,10 @@ export interface ReadingView {
   after: string;
   status: string;
   editable?: boolean;
+  codeUri?: string;
+  debugOwner?: string;
+  location?: {line:number;character:number};
+  dispose?: () => void;
   project?: import("../editor/hickLang").ProjectEntry[];
   decide?: (accepted: boolean, newText?: string) => Promise<void>;
 }
@@ -19,8 +23,8 @@ export const readingStatus = (id: string) => readings.get(id)?.status;
 export function useReadingsVersion() {
   return useSyncExternalStore(listener => { listeners.add(listener); return () => listeners.delete(listener); }, () => version);
 }
-export function publishReading(id: string, view: ReadingView) { readings.set(id, view); changed(); }
-export function forgetReading(id: string) { readings.delete(id); changed(); }
+export function publishReading(id: string, view: ReadingView) { const previous = readings.get(id); readings.set(id, view); previous?.dispose?.(); changed(); }
+export function forgetReading(id: string) { readings.get(id)?.dispose?.(); readings.delete(id); changed(); }
 export function openReading(id: string, title: string, background = false) {
   window.dispatchEvent(new CustomEvent(OPEN_READING, { detail: { id, title, ...(background ? { background: true } : {}) } }));
 }

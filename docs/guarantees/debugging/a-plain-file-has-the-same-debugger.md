@@ -3,8 +3,8 @@
 Given a folder open in the app and a file in it that is not a `.md`
 document — `src/main.rs`, `tools/app.py`, `index.ts`, `Program.cs` — in a
 language hick can debug, when it is opened in a pane, then the pane has the
-breakpoint gutter, the Debug button, and the debugger's strip a document's
-block has; a breakpoint on line *n* is a breakpoint on line *n* of the file;
+breakpoint gutter, one Debug icon beside the first line in the right gutter, and the same debugger
+controls beside the paused line in the right gutter as a document; a breakpoint on line *n* is a breakpoint on line *n* of the file;
 the program runs **in its own project**, built by that project's own tools
 where the language needs a build; and while paused the pane shows the paused
 line, the inline values, the stack, the watches, the hover value and the
@@ -61,8 +61,12 @@ A document is still debugged in a scratch copy; nothing here changes
 boundary. Only one file is debugged at a time per pane. When the program
 stops in *another* file of the folder, that file's tab is opened and its
 pane draws the paused line (published through `lib/pausedElsewhere.ts`,
-cleared by the owning session when it moves on); values, watches and the
-strip stay with the owning pane. Which program a multi-binary package launches is
+cleared by the owning session when it moves on). As of 2026-10-16 the callee
+borrows that session's values, watches and right-gutter execution controls,
+retaining them while running. Breakpoints in the callee are marked pending for
+a future direct launch: the protocol currently updates only the launch source.
+Callee coordinates are never used for jump/run-to in the launch source.
+Which program a multi-binary package launches is
 answered the way it is for a document — the artifact named after the
 package — and a package with several and no match is a refusal that lists
 them, not a guess.

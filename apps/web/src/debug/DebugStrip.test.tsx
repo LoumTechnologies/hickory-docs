@@ -1,5 +1,5 @@
 import { isAction } from "../lib/keymap";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { DebugStrip, debugKeysActive, frameLabel, stepForKey } from "./DebugStrip";
 import type { DebugStripProps } from "./DebugStrip";
@@ -186,7 +186,7 @@ describe("the strip on the debugged block", () => {
     expect(screen.getByRole("alert").textContent).toContain("no debug adapter");
   });
 
-  it("offers to install a missing debugger instead of printing the command", () => {
+  it("installs a missing debugger and resumes without another click", async () => {
     // Protects docs/guarantees/debugging/a-missing-debugger-is-a-button.md
     //
     // The failure a person CAN fix from here. The old strip printed the whole
@@ -194,6 +194,7 @@ describe("the strip on the debugged block", () => {
     // truncated it at the strip's width, so the actionable half was off the
     // end of the control that could have done it.
     const onInstall = vi.fn().mockResolvedValue(undefined);
+    const onStart = vi.fn();
     render(
       <DebugStrip
         {...base({
@@ -201,15 +202,13 @@ describe("the strip on the debugged block", () => {
           message: "no debug adapter for python on this machine. Install one with…",
           offerInstall: { kind: "dap", language: "python" },
           onInstall,
+          onStart,
         })}
       />,
     );
-    expect(screen.getByRole("alert").textContent).toContain("No Python debugger");
-    // And NOT the command: a button beside a command telling you to run the
-    // command is the thing this replaces.
-    expect(screen.getByRole("alert").textContent).not.toContain("hick dap install");
-    fireEvent.click(screen.getByRole("button", { name: "Install it" }));
-    expect(onInstall).toHaveBeenCalledWith({ kind: "dap", language: "python" });
+    expect(screen.queryByRole("button", { name: "Install it" })).toBeNull();
+    await waitFor(() => expect(onInstall).toHaveBeenCalledWith({ kind: "dap", language: "python" }));
+    await waitFor(() => expect(onStart).toHaveBeenCalledOnce());
   });
 
   it("still says the whole sentence when nothing here can install it", () => {
@@ -301,6 +300,7 @@ describe("stopping on exceptions", () => {
         })}
       />,
     );
+    fireEvent.click(screen.getByLabelText("Debug options"));
     const switches = screen.getAllByRole("switch");
     expect(switches.map((s) => s.textContent)).toEqual([
       "Raised Exceptions",
@@ -328,11 +328,50 @@ describe("stopping on exceptions", () => {
         })}
       />,
     );
+    fireEvent.click(screen.getByLabelText("Debug options"));
     const on = screen.getByRole("switch", { name: "Uncaught Exceptions" });
     expect(on.getAttribute("aria-checked")).toBe("true");
     fireEvent.click(screen.getByRole("switch", { name: "Raised Exceptions" }));
     // The id, never the label: the label is what a person reads and the id is
     // what the adapter answers to.
     expect(toggled).toEqual(["raised"]);
+  });
+});
+
+describe("automatic debugger setup", () => {
+  afterEach(cleanup);
+  const offerInstall = { kind: "dap", language: "python" };
+  it("reports installation failure and retries only when requested", async () => {
+    const onInstall = vi.fn().mockRejectedValueOnce(new Error("Download failed")).mockResolvedValueOnce(undefined);
+    const onStart = vi.fn();
+    render(<DebugStrip {...base({ status: "failed", offerInstall, onInstall, onStart })} />);
+    await waitFor(() => expect(screen.getByRole("alert").textContent).toContain("Download failed"));
+    expect(onInstall).toHaveBeenCalledTimes(1);
+    expect(onStart).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Retry installation" }));
+    await waitFor(() => expect(onStart).toHaveBeenCalledOnce());
+    expect(onInstall).toHaveBeenCalledTimes(2);
+  });
+  it("does not start a session after setup is dismissed", async () => {
+    let finish!: () => void;
+    const pending = new Promise<void>(resolve => { finish = resolve; });
+    const onInstall = vi.fn(() => pending);
+    const onStart = vi.fn();
+    const { rerender } = render(<DebugStrip {...base({ status: "failed", offerInstall, onInstall, onStart })} />);
+    await waitFor(() => expect(onInstall).toHaveBeenCalledOnce());
+    rerender(<DebugStrip {...base({ status: "idle", onStart })} />);
+    finish();
+    await pending;
+    expect(onStart).not.toHaveBeenCalled();
+  });
+  it("does not loop installations if starting still reports a missing adapter", async () => {
+    const onInstall = vi.fn().mockResolvedValue(undefined);
+    const onStart = vi.fn();
+    const { rerender } = render(<DebugStrip {...base({ status: "failed", offerInstall, onInstall, onStart })} />);
+    await waitFor(() => expect(onStart).toHaveBeenCalledOnce());
+    rerender(<DebugStrip {...base({ status: "starting", onInstall, onStart })} />);
+    rerender(<DebugStrip {...base({ status: "failed", offerInstall, onInstall, onStart })} />);
+    await waitFor(() => expect(screen.getByRole("alert").textContent).toContain("still unavailable"));
+    expect(onInstall).toHaveBeenCalledOnce();
   });
 });

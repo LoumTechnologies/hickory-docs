@@ -45,7 +45,7 @@ human judgment is not recorded.
 
 ## Direct editing review (2026-10-12)
 
-Patch code opens directly in the New editor; after a typing pause, regeneration
+Patch code opens side by side, with Old read-only and New directly editable; after a typing pause, regeneration
 checks the entire closure before changing the source. Old remains read-only by
 default and immutable owning documents disable code edits. A rejected edit stays
 in the mounted editor as an explicitly unsaved draft; correcting it retries the

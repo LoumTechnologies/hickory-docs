@@ -9,6 +9,10 @@ export interface ComparisonSource {
   text: string;
   /** Revision-local path, which can differ across a rename comparison. */
   path?: string;
+  /** An already registered immutable source, opened by code navigation. */
+  codeUri?: string;
+  debugOwner?: string;
+  location?: {line:number;character:number};
   target?: string;
   /** The complete selected project, independently of the displayed local text. */
   project?: ProjectEntry[];

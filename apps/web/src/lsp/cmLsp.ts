@@ -1,3 +1,4 @@
+import { cmKeyOf } from "../lib/keymap";
 // CodeMirror bindings for the LSP bridge: hover, go-to-definition, find
 // references, and diagnostics.
 //
@@ -269,27 +270,10 @@ export function lspSupport(opts: CmLspOptions): Extension[] {
       };
     }),
     keymap.of([
-      {
-        key: "F12",
-        run: (view) => {
-          void requestAt(view.state.selection.main.head, view, "definition");
-          return true;
-        },
-      },
-      {
-        key: "Shift-F12",
-        run: (view) => {
-          void requestAt(view.state.selection.main.head, view, "references");
-          return true;
-        },
-      },
-      {
-        key: "Alt-F12",
-        run: (view) => {
-          void requestAt(view.state.selection.main.head, view, "references");
-          return true;
-        },
-      },
+      ...([ ["editor.definition", "definition"], ["editor.references", "references"] ] as const).flatMap(([action,what]) => {
+        const key = cmKeyOf(action);
+        return key ? [{key,run:(view:EditorView)=>{void requestAt(view.state.selection.main.head,view,what);return true;}}] : [];
+      }),
     ]),
     EditorView.domEventHandlers({
       mousedown(event, view) {

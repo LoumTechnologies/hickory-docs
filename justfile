@@ -447,9 +447,18 @@ test-literate-views:
     cd apps/web && npm test -- src/editor/comparison.test.ts src/lsp/representationMapping.test.ts src/lsp/cmLspFeatures.test.ts src/lsp/completion.test.ts
 
 # Watched browser flows, with their own engine, state directory and scratch Git repository.
-test-literate-editor:
+test-literate-editor FILTER="":
     cargo build -p hickory-cli --bin hick --example engine_client --example acp_fixture
-    scripts/test-literate-editor.sh
+    scripts/test-literate-editor.sh --grep {{quote(FILTER)}}
+
+# Real patch-gutter Debug, automatic debugpy installation and native stepping.
+test-unified-debug-ui:
+    cargo build -p hickory-cli --bin hick --example engine_client --example acp_fixture
+    HICKORY_E2E_DEBUG=1 scripts/test-literate-editor.sh --grep 'unified patch gutter'
+
+# Shared debugger rails, captured navigation, generated-source routing and keys.
+test-unified-code-tools:
+    cd apps/web && npm run typecheck && npm test -- --maxWorkers=2 src/debug/DebugRail.test.tsx src/debug/DebugStrip.test.tsx src/debug/plainDebugHosts.test.tsx src/debug/GeneratedDebugTools.test.tsx src/debug/cmDebug.test.ts src/components/ComparisonTools.test.tsx src/lib/keymap.test.ts
 
 # Stage the self-contained Python agent runtime a desktop build bundles.
 # Writes .dev/python-agent/runtime and the Tauri `files` config that ships it.

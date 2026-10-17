@@ -8938,3 +8938,53 @@ button.status-bar__item:hover { background: var(--bg-sunken); color: var(--fg); 
 .change-preview > .document-reading, .change-preview > section { max-height: 20rem; overflow: auto; }
 
 .cm-card-rail__icon.is-stale { color: var(--stale); }
+
+/* Secondary editor controls use the existing header and floating previews. */
+.pane-header-actions .debug-strip { flex-wrap: nowrap; border: 0; padding: 0; background: transparent; max-width: 100%; }
+.debug-strip__stack { max-width: 12rem; }
+.debug-block, .plain-file-pane { position: relative; }
+.debug-build { position: absolute; inset: 2rem 0.5rem auto; z-index: 30; max-height: 45%; overflow: auto; background: var(--bg-raised); box-shadow: var(--shadow); }
+.project-context-selector { position: relative; font-size: .8rem; }
+.project-context-selector > summary { cursor: pointer; list-style: none; white-space: nowrap; }
+.project-context-selector__menu { position: absolute; right: 0; top: 100%; z-index: 40; width: max-content; max-width: 28rem; padding: .75rem; background: var(--bg-raised); border: 1px solid var(--border); box-shadow: var(--shadow); }
+.cm-debug-start, .comparison-deletion { border: 0; padding: 0 3px; background: transparent; color: var(--accent); cursor: pointer; font: inherit; line-height: inherit; }
+.comparison-deletion { color: var(--diff-del); }
+.comparison-removed { max-width: min(40rem, 80vw); max-height: 24rem; overflow: auto; }
+.comparison-removed > button { margin-left: .75rem; }
+.debug-strip .more-actions__items { max-width: min(24rem, 80vw); white-space: normal; }
+.debug-strip .more-actions__items .debug-strip__stack { width: 100%; max-width: none; }
+.representation-versions { position: relative; font-size: .8rem; }
+.representation-versions > summary { cursor: pointer; list-style: none; white-space: nowrap; }
+.representation-versions[open] { z-index: 35; }
+.representation-versions__menu { position: absolute; right: 0; top: 100%; width: min(27rem, 80vw); padding: .75rem; background: var(--bg-raised); border: 1px solid var(--border); box-shadow: var(--shadow); }
+.representation-versions__menu .representation-comparison { padding: 0; border: 0; }
+.representation-versions__menu p { white-space: normal; }
+.pane-header-actions .debug-strip__status { max-width: 14rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* Debugging is a right-gutter activity, level with the script or paused line. */
+.with-right-rail > .editor-cm-host { order: 0; }
+.with-right-rail > .cm-right-rail { order: 1; }
+.with-right-rail > .cm-debug-rail { order: 2; }
+.with-right-rail > .cm-card-rail { order: 3; }
+.cm-debug-rail { position: relative; flex: 0 0 24px; width: 24px; min-height: 0; background: var(--bg-sunken); border-left: 1px solid var(--border); z-index: 8; }
+.cm-debug-rail:empty { display: none; }
+.cm-debug-rail__group { position: absolute; left: 0; width: 24px; }
+.cm-debug-rail:has(.is-active) > .cm-debug-rail__group:not(.is-active) { display: none; }
+.cm-debug-rail .debug-strip { display: flex; flex-direction: column; flex-wrap: nowrap; gap: 2px; padding: 0; border: 0; background: transparent; }
+.cm-debug-rail .debug-icon, .cm-debug-rail .more-actions > summary { box-sizing: border-box; display: grid; place-items: center; width: 24px; height: 22px; padding: 0; font-size: 14px; }
+.cm-debug-rail .debug-strip__dot { display: none; }
+.cm-debug-rail .debug-strip__status { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+.cm-debug-rail .more-actions { position: static; }
+.cm-debug-rail .more-actions__items { top: var(--debug-menu-top, 0px); right: calc(100% + 6px); max-height: var(--debug-available, 60vh); overflow: auto; }
+.cm-debug-rail .debug-strip > .debug-strip__error, .cm-debug-rail .debug-strip__missing { position: absolute; top: var(--debug-menu-top, 0px); right: calc(100% + 6px); width: min(22rem, 65vw); max-height: var(--debug-available, 60vh); overflow: auto; padding: .6rem; white-space: normal; background: var(--bg-raised); border: 1px solid var(--border); box-shadow: var(--shadow); }
+
+.cm-debug-rail .debug-strip__stop { order: -1; }
+.comparison-deleted { background: color-mix(in srgb, var(--diff-del) 16%, transparent); box-shadow: inset 3px 0 var(--diff-del); }
+.comparison-side { position: relative; }
+.comparison-code { display: flex; position: relative; min-width: 0; min-height: 4rem; }
+.comparison-code .editor-cm-host { display: flex; }
+.captured-code-reading { display: flex; flex-direction: column; height: 100%; min-height: 0; }
+.captured-code-reading > .comparison-side { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.captured-code-reading .comparison-code { flex: 1; min-height: 0; }
+.captured-code-reading .comparison-code .cm-editor { height: 100%; min-height: 0; }
+.code-references { position: absolute; right: 1.5rem; top: 1.5rem; z-index: 30; display: flex; flex-direction: column; max-width: 75%; max-height: 60vh; overflow: auto; background: var(--bg-raised); border: 1px solid var(--border); box-shadow: var(--shadow); padding: .5rem; }

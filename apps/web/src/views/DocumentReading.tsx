@@ -1,6 +1,6 @@
 import { SurfaceInfo } from "../components/SurfaceInfo";
 import { useEffect, useState } from "react";
-import { ComparisonEditor } from "../components/ComparisonEditor";
+import { ComparisonEditor, CodeEditor } from "../components/ComparisonEditor";
 import type { ComparisonModel } from "../lib/projectComparison";
 import { useReading } from "../lib/readingViews";
 import { CommitReading } from "./CommitReading";
@@ -24,6 +24,11 @@ export function DocumentReading({ id }: { id: string }) {
   useEffect(() => { setDraft(null); },[id,reading?.before,reading?.after]);
   if (id.startsWith("commit:")) return <CommitReading sha={id.slice(7)} />;
   if (!reading) return <p className="muted">This proposal is no longer connected. Reopen its conversation to review changes.</p>;
+  if (reading.codeUri) return <section className="captured-code-reading" aria-label={`Code · ${reading.path}`}>
+    <SurfaceInfo name={reading.path} editable={false} destination="Captured project source. Navigation and debugging use this exact project." />
+    <CodeEditor path={reading.path} item={{ id, label: reading.path, kind: "git", text: reading.after,
+      project: reading.project, codeUri: reading.codeUri, debugOwner: reading.debugOwner, location: reading.location }} editable={false} onChange={() => {}} compact />
+  </section>;
   const decide = async (accepted: boolean) => {
     setBusy(true); setError("");
     try { await reading.decide?.(accepted, draft?.sources.find(s => s.id === draft.new)?.text); } catch (e) { setError(e instanceof Error ? e.message : String(e)); }

@@ -18,16 +18,18 @@
 // the fact belongs to the session, not to whichever pane happens to be on
 // screen.
 
-import { useEffect, useSyncExternalStore } from "react";
+import { useEffect, useRef, useSyncExternalStore } from "react";
 
 import { openLocation } from "../lib/revealLine";
-import { publishPausedElsewhere } from "../lib/pausedElsewhere";
+import { openCapturedCode } from "../lib/capturedCode";
+import { retainCapturedContext } from "../lib/capturedContexts";
+import { publishPausedElsewhere, usePausedElsewhere } from "../lib/pausedElsewhere";
 import type { DebugSession } from "./useDebugger";
 import { useWorkspaceDebugger } from "./useDebugger";
 
 /** Whether a frame's source is a file in the folder the app opened. */
 export function isWorkspaceSource(source: string | null | undefined): source is string {
-  return !!source && !/^([A-Za-z]:)?[\\/]/.test(source);
+  return !!source && !/^[A-Za-z][A-Za-z0-9+.-]*:/.test(source) && !/^([A-Za-z]:)?[\\/]/.test(source);
 }
 
 // The paths that want a host, and the session each host currently holds.
@@ -57,7 +59,7 @@ function wantedPaths(): readonly string[] {
 
 /** The session for `path`, or null until its host has mounted. */
 export function usePlainDebugSession(path: string): DebugSession | null {
-  useEffect(() => ensurePlainDebugHost(path), [path]);
+  useEffect(() => { if (path) ensurePlainDebugHost(path); }, [path]);
   return useSyncExternalStore(
     subscribe,
     () => sessions.get(path) ?? null,
@@ -79,6 +81,10 @@ function Host({ path }: { path: string }) {
     emit();
   }, [path, debug]);
 
+  useEffect(() => {
+    if (["starting", "running", "paused"].includes(debug.status)) return retainCapturedContext(path);
+  }, [path, debug.status]);
+
   // Where this session is paused when that is another file of the folder:
   // say so, and open that file, the way stepping into a callee in another
   // file opens it in any IDE. Cleared the moment the program moves on or
@@ -89,11 +95,13 @@ function Host({ path }: { path: string }) {
       debug.status === "paused" &&
       top &&
       !top.in_document &&
-      isWorkspaceSource(top.source) &&
+      (top.source?.startsWith("hick-project:///") || isWorkspaceSource(top.source)) &&
       typeof top.source_line === "number"
     ) {
-      publishPausedElsewhere(path, { path: top.source, line: top.source_line });
-      openLocation(top.source, top.source_line + 1);
+      publishPausedElsewhere(path, { path: top.source!, line: top.source_line });
+      if (top.source!.startsWith("hick-project:///")) {
+        void openCapturedCode({uri:top.source!,range:{start:{line:top.source_line,character:0},end:{line:top.source_line,character:0}}}, path).catch(() => {});
+      } else openLocation(top.source!, top.source_line + 1);
     } else {
       publishPausedElsewhere(path, null);
     }
@@ -111,4 +119,36 @@ export function PlainDebugHosts() {
       ))}
     </>
   );
+}
+
+/** Let document-owned sessions participate in the same cross-file controls. */
+export function usePublishDebugSession(owner: string, debug: DebugSession) {
+  useEffect(() => { if (owner) { sessions.set(owner, debug); emit(); } }, [owner, debug]);
+  useEffect(() => () => { if (owner) { sessions.delete(owner); emit(); } }, [owner]);
+}
+
+/** Borrow execution controls from the session that opened this callee. */
+export function useFollowingDebugSession(path: string, explicitOwner?: string): DebugSession | null {
+  const own = usePlainDebugSession(path);
+  const elsewhere = usePausedElsewhere();
+  const followed = useRef({path, owner:explicitOwner});
+  if (followed.current.path !== path) followed.current = {path, owner:explicitOwner};
+  if (explicitOwner) followed.current.owner = explicitOwner;
+  if (elsewhere?.path === path) followed.current.owner = elsewhere.owner;
+  const borrowed = useSyncExternalStore(subscribe, () => sessions.get(followed.current.owner ?? "") ?? null, () => null);
+  if (!borrowed || !["starting", "running", "paused"].includes(borrowed.status) || followed.current.owner === path) return own;
+  const frame = borrowed.frames.find(f => f.source === path);
+  const pausedLine = frame?.source_line ?? (elsewhere?.path === path ? elsewhere.line : null);
+  return { ...borrowed, pausedLine, program: borrowed.program ?? followed.current.owner ?? null,
+    // These protocol verbs address the launch file, not the viewed callee.
+    // Never send a callee's line number as a line in the launch file.
+    capabilities: borrowed.capabilities ? {...borrowed.capabilities, goto_targets:false} : null,
+    jumpTo: () => {}, runTo: () => {},
+    frames: borrowed.frames.map(f => ({ ...f, in_document: f.source === path, line: f.source === path ? (f.source_line ?? null) : null })),
+    breakpoints: (own?.breakpoints ?? []).map(bp=>({...bp,state:"pending" as const,
+      message:"Saved for debugging this file directly; this session started in another file."})),
+    start: own?.start ?? (() => {}),
+    toggleBreakpoint: own?.toggleBreakpoint ?? (() => {}),
+    setBreakpointCondition: own?.setBreakpointCondition ?? (() => {}),
+  };
 }

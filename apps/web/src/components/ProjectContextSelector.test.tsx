@@ -19,6 +19,8 @@ it("defaults to the completed project and makes partial states an explicit choic
   vi.mocked(request).mockResolvedValue({ entry: "project.md", sources: { "project.md": source } });
   const change = vi.fn();
   render(<ProjectContextSelector doc="project" source={source} value="new" onChange={change} disabled={false} />);
+  expect(screen.getByText("Project version…").closest("details")?.open).toBe(false);
+  fireEvent.click(screen.getByText("Project version…"));
   const selector = screen.getByLabelText("Project tools context") as HTMLSelectElement;
   expect(selector.value).toBe("new");
   expect(request).not.toHaveBeenCalled();

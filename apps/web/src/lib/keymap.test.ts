@@ -89,6 +89,16 @@ describe("the profiles", () => {
     expect(jb.get("editor.format")).toBe("Mod+Alt+L");
     expect(code.get("editor.format")).toBe("Shift+Alt+F");
     expect(jb.get("editor.rename")).toBe("Shift+F6");
+    expect(code.get("debug.continue")).toBe("F5");
+    expect(code.get("debug.stop")).toBe("Shift+F5");
+    expect(code.get("editor.definition")).toBe("F12");
+    expect(jb.get("debug.start")).toBe("Shift+F9");
+    expect(jb.get("debug.continue")).toBe("F9");
+    expect(jb.get("debug.over")).toBe("F8");
+    expect(jb.get("debug.in")).toBe("F7");
+    expect(jb.get("debug.stop")).toBe("Ctrl+F2");
+    expect(jb.get("editor.definition")).toBe("Mod+B");
+    expect(jb.get("editor.references")).toBe("Alt+F7");
     expect(vs.get("file.saveAll")).toBe("Mod+Shift+S");
     for (const map of [vs, jb, code]) expect(map.get("tree.delete")).toBe("Shift+D");
   });

@@ -133,7 +133,7 @@ test('tab zoom scales document and code text but leaves the header fixed; right 
   const code = center(page).locator('.cm-content');
   await expect(code).toContainText('print(42)');
   await center(page).getByLabel('More actions for this file').click();
-  await expect(center(page).getByRole('button', { name: 'Debug', exact: true })).toBeVisible();
+  await expect(center(page).getByRole('button', { name: /^Debug / })).toBeVisible();
   await center(page).getByLabel('More actions for this file').click();
   const original = await font(code);
   await code.click(); await code.press('ControlOrMeta+Alt+-');
