@@ -22,7 +22,7 @@
 /* One scrollbar owns the conversation and its editable response. */
 .conversation-document .document-editor .cm-editor { height: auto; max-height: none; }
 .conversation-document .document-editor .cm-scroller { overflow: visible; height: auto; }
-.conversation-send { margin-left: 0.6rem; vertical-align: baseline; }
+.conversation-send { display: block; margin: 0.6rem 0; }
 
 /* A shell pane shares the workspace's ribbon layer; only a floating dock is raised. */
 .chat-dock.chat-dock--pane { z-index: auto; }

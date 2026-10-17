@@ -15,11 +15,15 @@ struct Bridge {
     record: Arc<Mutex<Record>>,
     workspace_gate: Arc<Mutex<()>>,
     edits: Arc<super::edits::Edits>,
+    changeset: Arc<Mutex<Option<crate::changeset::Contract>>>,
 }
 
 pub struct Host {
     pub url: String,
     pub edits: Arc<super::edits::Edits>,
+    pub changeset: Arc<Mutex<Option<crate::changeset::Contract>>>,
+    record: Arc<Mutex<Record>>,
+    workspace_gate: Arc<Mutex<()>>,
     task: tokio::task::JoinHandle<()>,
 }
 impl Drop for Host {
@@ -47,6 +51,7 @@ impl Host {
         if let Some(mode) = super::record::edit_mode(&session) {
             *edits.mode.lock().unwrap() = mode;
         }
+        let changeset = Arc::new(Mutex::new(None));
         let bridge = Bridge {
             state: state.clone(),
             context: super::client::RoomContext {
@@ -54,8 +59,9 @@ impl Host {
                 rooms: state.rooms.clone(),
             },
             server: Arc::new(Mutex::new(server)),
-            record,
-            workspace_gate,
+            record: record.clone(),
+            workspace_gate: workspace_gate.clone(),
+            changeset: changeset.clone(),
             edits: edits.clone(),
         };
         let token = format!(
@@ -71,7 +77,14 @@ impl Host {
         let task = tokio::spawn(async move {
             let _ = axum::serve(listener, router).await;
         });
-        Ok(Self { url, edits, task })
+        Ok(Self {
+            url,
+            edits,
+            task,
+            changeset,
+            record,
+            workspace_gate,
+        })
     }
 }
 
@@ -83,6 +96,36 @@ async fn exchange(State(bridge): State<Bridge>, Json(message): Json<Value>) -> i
     let params = message.get("params").cloned().unwrap_or(json!({}));
     let name = params["name"].as_str().unwrap_or("");
     let args = &params["arguments"];
+    if method == "tools/call"
+        && matches!(
+            name,
+            "begin_changeset" | "changeset_status" | "submit_changeset"
+        )
+    {
+        let result = if name == "begin_changeset" {
+            Err(anyhow::anyhow!(
+                "The harness owns the starting boundary; call changeset_status."
+            ))
+        } else {
+            changeset_call(
+                &bridge.changeset,
+                &bridge.record,
+                &bridge.workspace_gate,
+                name,
+                args,
+            )
+            .await
+        };
+        return match result {
+            Ok(value) => (
+                StatusCode::OK,
+                Json(
+                    json!({"jsonrpc":"2.0","id":id,"result":{"content":[{"type":"text","text":value.to_string()}],"isError":value["accepted"] == false && name == "submit_changeset"}}),
+                ),
+            ),
+            Err(e) => tool_error(id, &format!("{e:#}")),
+        };
+    }
     if method == "tools/call"
         && let Some(buffer) = bridge.edits.buffer(&json!({}))
         && let Some(path) = buffer.document.or(buffer.path)
@@ -229,6 +272,7 @@ async fn exchange(State(bridge): State<Bridge>, Json(message): Json<Value>) -> i
         && let Ok(value) = &mut result
         && let Some(tools) = value["tools"].as_array_mut()
     {
+        tools.retain(|tool| tool["name"] != "begin_changeset");
         tools.extend(super::super::representation_tools::catalogue());
         tools.extend(super::edits::catalogue());
     }
@@ -386,4 +430,48 @@ fn tool_error(id: &Value, message: &str) -> (StatusCode, Json<Value>) {
             json!({"jsonrpc":"2.0","id":id,"result":{"content":[{"type":"text","text":message}],"isError":true}}),
         ),
     )
+}
+
+/// MCP and negotiated ACP requests execute the identical operation.
+async fn changeset_call(
+    contract: &Mutex<Option<crate::changeset::Contract>>,
+    record: &Mutex<Record>,
+    gate: &Mutex<()>,
+    name: &str,
+    args: &Value,
+) -> Result<Value> {
+    let _workspace = gate.lock().await;
+    let mut slot = contract.lock().await;
+    let contract = slot
+        .as_mut()
+        .context("This turn has no declared-project changeset boundary.")?;
+    let recorder = record.lock().await;
+    recorder.check()?;
+    let outcome = contract.call(name, args);
+    if let Err(error) = recorder.context("changeset-operation", &json!({"boundary":contract.boundary,"tool":name,"arguments":args,"result":outcome.as_ref().ok(),"error":outcome.as_ref().err().map(|e| format!("{e:#}"))})) {
+        contract.accepted = None;
+        return Err(error);
+    }
+    outcome
+}
+impl Host {
+    pub async fn changeset_call(&self, name: &str, args: &Value) -> Result<Value> {
+        changeset_call(
+            &self.changeset,
+            &self.record,
+            &self.workspace_gate,
+            name,
+            args,
+        )
+        .await
+    }
+    pub async fn completion(&self) -> Result<crate::changeset::Artifact> {
+        let _workspace = self.workspace_gate.lock().await;
+        self.changeset
+            .lock()
+            .await
+            .as_mut()
+            .context("No declared-project boundary")?
+            .completion()
+    }
 }

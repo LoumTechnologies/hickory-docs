@@ -10,7 +10,7 @@ import {
   waitFor,
 } from "@testing-library/react";
 
-vi.mock("../api/client", () => ({
+vi.mock("../api/client", () => ({ request: vi.fn().mockResolvedValue({}),
   api: { agent: vi.fn(), agentTurns: vi.fn(), agentStop: vi.fn(), executor: vi.fn().mockResolvedValue({}), sessionView: vi.fn().mockRejectedValue(new Error("No session fixture")), complete: vi.fn().mockResolvedValue({ suggestions: [] }) },
 }));
 

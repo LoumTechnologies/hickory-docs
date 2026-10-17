@@ -22,16 +22,30 @@ async fn main() {
     let mut prompt_waiting: Option<Value> = None;
     let mut auth = std::env::args().any(|a| a == "--auth");
     let mut inactive = false;
+    let changesets = std::env::args().any(|a| a == "--changesets");
+    let mut contract_turn = String::new();
+    let mut never_finalize = false;
     let stdin = std::io::stdin();
-    for line in stdin.lock().lines() {
+    let mut lines = stdin.lock().lines();
+    while let Some(line) = lines.next() {
         let message: Value = serde_json::from_str(&line.unwrap()).unwrap();
         let id = message["id"].clone();
         let params = &message["params"];
         match message["method"].as_str() {
-            Some("initialize") => result(
-                id,
-                json!({"protocolVersion":1,"agentInfo":{"name":"codex-acp-test-peer"},"agentCapabilities":{"sessionCapabilities":{"fork":{},"resume":{}},"loadSession":true,"mcpCapabilities":{"http":true}},"authMethods":[{"id":"login","name":"Sign in to fixture"}]}),
-            ),
+            Some("initialize") => {
+                let mut capabilities = json!({"sessionCapabilities":{"fork":{},"resume":{}},"loadSession":true,"mcpCapabilities":{"http":true}});
+                if changesets {
+                    assert_eq!(
+                        params["clientCapabilities"]["_meta"]["hickorydocs.com/changesets"]["version"],
+                        1
+                    );
+                    capabilities["_meta"] = json!({"hickorydocs.com/changesets":{"version":1}});
+                }
+                result(
+                    id,
+                    json!({"protocolVersion":1,"agentInfo":{"name":"codex-acp-test-peer"},"agentCapabilities":capabilities,"authMethods":[{"id":"login","name":"Sign in to fixture"}]}),
+                );
+            }
             Some("authenticate") => {
                 auth = false;
                 result(id, json!({}));
@@ -77,6 +91,89 @@ async fn main() {
                     .lines()
                     .next()
                     .unwrap();
+                if changesets
+                    && (prompt.starts_with("contract-")
+                        || prompt.starts_with("Hickory changeset not accepted"))
+                {
+                    let meta = &params["_meta"]["hickorydocs.com/changesets"];
+                    assert_eq!(meta["required"], true);
+                    let boundary = meta["boundary"].as_str().unwrap();
+                    let first = contract_turn != boundary;
+                    contract_turn = boundary.into();
+                    if first {
+                        std::fs::write(
+                            std::path::Path::new(&cwd).join("app.ts"),
+                            "abandoned draft\n",
+                        )
+                        .unwrap();
+                        std::fs::write(std::path::Path::new(&cwd).join("app.ts"), "contract B\n")
+                            .unwrap();
+                    }
+                    if prompt == "contract-never" {
+                        never_finalize = true;
+                    }
+                    if never_finalize || prompt == "contract-cancel" {
+                        // Dedicated failure/cancellation witnesses.
+                        if prompt == "contract-cancel" {
+                            continue;
+                        }
+                        result(id, json!({"stopReason":"end_turn"}));
+                        continue;
+                    }
+                    // Exercise the negotiated ACP route, including stale-turn rejection.
+                    send(
+                        json!({"jsonrpc":"2.0","id":801,"method":"_hickorydocs.com/changeset","params":{"sessionId":"fixture-session","boundary":"expired","operation":"status"}}),
+                    );
+                    let stale: Value =
+                        serde_json::from_str(&lines.next().unwrap().unwrap()).unwrap();
+                    assert!(stale.get("error").is_some());
+                    send(
+                        json!({"jsonrpc":"2.0","id":802,"method":"_hickorydocs.com/changeset","params":{"sessionId":"fixture-session","boundary":boundary,"operation":"status"}}),
+                    );
+                    let status: Value =
+                        serde_json::from_str(&lines.next().unwrap().unwrap()).unwrap();
+                    let status = &status["result"];
+                    assert_eq!(status["version"], 1);
+                    let sources = json!({"response.md":status["template"]});
+                    let arguments = json!({"boundary":boundary,"expected":status["expected"],"entry":"response.md","sources":sources});
+                    let bad_submission = first && prompt != "contract-late-write";
+                    let body = json!({"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"submit_changeset","arguments":if bad_submission { let mut bad = arguments.clone(); bad["sources"] = json!({"response.md":"<hick:project/>"}); bad } else { arguments.clone() }}});
+                    let response: Value = reqwest::Client::new()
+                        .post(&bridge)
+                        .json(&body)
+                        .send()
+                        .await
+                        .unwrap()
+                        .json()
+                        .await
+                        .unwrap();
+                    let value: Value = serde_json::from_str(
+                        response["result"]["content"][0]["text"].as_str().unwrap(),
+                    )
+                    .unwrap();
+                    assert_eq!(value["accepted"], !bad_submission);
+                    if first && prompt == "contract-late-write" {
+                        std::fs::write(std::path::Path::new(&cwd).join("app.ts"), "late C\n")
+                            .unwrap();
+                    }
+                    if !first {
+                        // Re-submit through ACP too: both routes share acceptance.
+                        let mut args = arguments;
+                        args["sessionId"] = json!("fixture-session");
+                        args["operation"] = json!("submit");
+                        send(
+                            json!({"jsonrpc":"2.0","id":803,"method":"_hickorydocs.com/changeset","params":args}),
+                        );
+                        let accepted: Value =
+                            serde_json::from_str(&lines.next().unwrap().unwrap()).unwrap();
+                        assert_eq!(accepted["result"]["accepted"], true);
+                    }
+                    update(
+                        json!({"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"Clean successful explanation."}}),
+                    );
+                    result(id, json!({"stopReason":"end_turn"}));
+                    continue;
+                }
                 if prompt == "hang" {
                     continue;
                 }

@@ -10,6 +10,7 @@ impl Server {
     ) -> Self {
         Self {
             root,
+            changeset: None,
             sessions: HashMap::new(),
             executor,
             params: Vec::new(),

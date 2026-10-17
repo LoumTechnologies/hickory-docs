@@ -33,7 +33,7 @@ export function responseSend(send: () => void) {
     if (!visible) return Decoration.none;
     const hasDraft = !!state.doc.sliceString(state.field(responseStart)).trim();
     return Decoration.set([Decoration.widget({
-      widget: new SendButton(enabled && hasDraft, label, send), side: 1,
+      widget: new SendButton(enabled && hasDraft, label, send), side: 1, block: true,
     }).range(state.doc.length)]);
   })];
 }

@@ -84,7 +84,8 @@ it("places Send after the multiline draft without adding bytes, and disables an 
   const host = await screen.findByRole("textbox", { name: "Agent conversation and response" });
   const view = EditorView.findFromDOM(host)!;
   const button = await screen.findByRole("button", { name: "Send" });
-  expect(button.closest(".cm-line")?.textContent).toBe("thereSend");
+  expect(button.closest(".cm-line")).toBeNull();
+  expect(view.contentDOM.textContent).toContain("there");
   expect(view.state.doc.sliceString(view.state.field(responseStart))).toBe("Hello\nthere");
   fireEvent.click(button);
   expect(send).toHaveBeenCalledTimes(1);

@@ -1,8 +1,6 @@
 .agent-changes {
   flex: 0 1 auto;
   min-height: 0;
-  max-height: min(45%, 26rem);
-  overflow: auto;
   padding: .5rem .75rem;
   border-bottom: 1px solid var(--border);
 }

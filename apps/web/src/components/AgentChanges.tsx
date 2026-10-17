@@ -2,6 +2,7 @@ import "./AgentChanges.css";
 import { useEffect, useRef, useState } from "react";
 import { acpApi, type AcpState, type AgentChange } from "../api/acp";
 import { publishReading, forgetReading, openReading } from "../lib/readingViews";
+import { DocumentReading } from "../views/DocumentReading";
 import { AgentEditConflict } from "../lib/agentEdit";
 
 export function AgentChanges({ doc, state, running, apply, update }: {
@@ -36,7 +37,7 @@ export function AgentChanges({ doc, state, running, apply, update }: {
         before: change.oldText, after: change.newText, status: change.status,
         editable: change.status === "pending", decide: (accepted, text) => latest.current(change, accepted, text) });
       if (change.status === "pending" && !opened.current.has(id)) {
-        opened.current.add(id); openReading(id, `${change.path ?? change.name} · review`, true);
+        opened.current.add(id);
       }
     });
   }, [doc, state?.edits?.changes]);
@@ -56,6 +57,7 @@ export function AgentChanges({ doc, state, running, apply, update }: {
     {error && <p role="alert">{error}</p>}
     {state.edits.changes.map(change => <div key={change.id} className="agent-change-link">
       <span>{change.status === "pending" ? "Proposed change" : change.status === "applying" ? "Applying change" : `${change.status.charAt(0).toUpperCase()}${change.status.slice(1)} change`} · {change.path ?? change.name}</span>
+      <DocumentReading id={`proposal:${doc}:${change.id}`} />
       <button className="btn" onClick={() => openReading(`proposal:${doc}:${change.id}`, `${change.path ?? change.name} · review`)}>Review in document</button>
     </div>)}
   </section>;

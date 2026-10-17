@@ -13,7 +13,7 @@ response. The footer's Write a response action returns to the end of the draft
 without changing session bytes. Streaming updates do not repeatedly steal focus
 or reset the reader's selection.
 
-Both speakers are left-aligned. Enter inserts a line. Send sits inline after the
+Both speakers are left-aligned. Enter inserts a line. Send sits on its own line after the
 editable draft and is disabled for an empty draft or while a turn starts/runs;
 it is a view widget and contributes no document bytes. While a turn runs,
 Send is replaced by the persistent Stop control. Send or Cmd/Ctrl+Enter
@@ -74,3 +74,9 @@ draft focus and the return-to-response action without source changes.
 opening Agent and appends to the draft after using Write a response. The rebuilt
 macOS app was also driven through the command palette and its AX state showed
 the conversation editor focused. Live provider quality is not claimed.
+
+Verification update (2026-10-17): `responseSend` uses a block widget after
+the draft without inserting a newline into session bytes. `ConversationEditor.test.tsx`
+checks that Send is outside the draft line and preserves multiline text.
+Proposal comparisons now render inside the conversation scroll area through
+`AgentChanges` and `DocumentReading`; opening a separate review is optional.

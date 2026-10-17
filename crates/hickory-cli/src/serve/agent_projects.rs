@@ -26,6 +26,8 @@ pub struct CapturedTurn {
     pub ambiguous: BTreeSet<String>,
     pub error: Option<String>,
     pub response: Option<String>,
+    #[serde(default)]
+    pub artifact: Option<crate::changeset::Artifact>,
     pub session: PathBuf,
     #[serde(default)]
     rooms: BTreeMap<String, String>,
@@ -107,6 +109,7 @@ pub async fn begin(
         ambiguous: BTreeSet::new(),
         error: None,
         response: None,
+        artifact: None,
         session,
         rooms,
     }))
@@ -136,6 +139,14 @@ pub async fn finish(
                     state.index.path_of(id).unwrap_or(id.clone())
                 ));
             }
+        }
+        if capture
+            .artifact
+            .as_ref()
+            .is_some_and(|a| a.expected != crate::changeset::fingerprint(&completed))
+        {
+            capture.artifact = None;
+            capture.response = None;
         }
         capture.completed = Some(ProjectSnapshot::capture(&completed));
         if explanation.is_none() {
@@ -210,7 +221,7 @@ pub async fn snapshot(
 ) -> ApiResult<Json<Value>> {
     let capture = captured(&state, &doc, &turn)?;
     Ok(Json(
-        json!({"entry":capture.entry,"ambiguous":capture.ambiguous,"error":capture.error,"response":capture.response,"starting":capture.starting,"completed":capture.completed}),
+        json!({"entry":capture.entry,"ambiguous":capture.ambiguous,"error":capture.error,"response":capture.response,"artifact":capture.artifact,"starting":capture.starting,"completed":capture.completed}),
     ))
 }
 
@@ -261,9 +272,37 @@ pub async fn finalize(
         .and_then(|ts| ts.iter().find(|t| t.id == turn))
         .and_then(|t| t.answer.clone())
         .ok_or_else(|| ApiError::unprocessable("No successful final answer."))?;
-    let response = boundary
-        .finalize(&completed, &explanation)
-        .map_err(ApiError::conflict)?;
+    let response = if let Some(artifact) = &capture.artifact {
+        if !capture.ambiguous.is_empty() {
+            return Err(ApiError::conflict(
+                "Resolve concurrent writes before attributing the transition.",
+            ));
+        }
+        let differences = crate::changeset::verify_sources(
+            &capture
+                .starting
+                .restore()
+                .map_err(ApiError::unprocessable)?,
+            &completed,
+            &artifact.entry,
+            &artifact.sources,
+        )
+        .map_err(|e| ApiError::conflict(e.to_string()))?;
+        if !differences.is_empty() {
+            return Err(ApiError::conflict(
+                "Submitted artifact does not reproduce the captured completed tree.",
+            ));
+        }
+        artifact
+            .sources
+            .get(&artifact.entry)
+            .cloned()
+            .ok_or_else(|| ApiError::unprocessable("Artifact entry is missing."))?
+    } else {
+        boundary
+            .finalize(&completed, &explanation)
+            .map_err(ApiError::conflict)?
+    };
     capture.response = Some(response.clone());
     super::acp::record::Record::existing(capture.session.clone())
         .context(

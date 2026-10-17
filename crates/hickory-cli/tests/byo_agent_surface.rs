@@ -223,6 +223,7 @@ fn mcp_exchange(doc: &Path, requests: &[serde_json::Value]) -> Vec<serde_json::V
 
 #[test]
 fn the_mcp_server_speaks_the_protocol_and_keeps_one_session_open() {
+    // Guarantee: docs/guarantees/agent/changeset-completion-is-negotiated-and-checked.md
     use serde_json::json;
 
     let dir = tempfile::tempdir().unwrap();
@@ -287,6 +288,9 @@ fn the_mcp_server_speaks_the_protocol_and_keeps_one_session_open() {
             "record_decision",
             "record_guarantee_review",
             "audit_assumptions",
+            "begin_changeset",
+            "changeset_status",
+            "submit_changeset",
         ]
     );
 

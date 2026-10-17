@@ -596,11 +596,11 @@ export function ChatDock({
         }} />Show lineage for collapsed conversation items</label>
         </FeatureSettings>}
       </header>
-      {!collapsed && <AgentChanges doc={docId} state={acp.state} running={running !== null} apply={applyAgentChange} update={acp.setState} />}
       {!collapsed && <AcpControls doc={docId} backend={backend} running={running !== null} control={acp} settingsOpen={false} showTools={false} />}
 
       {!collapsed && (
         <div className="chat-log" ref={logRef}>
+          <AgentChanges doc={docId} state={acp.state} running={running !== null} apply={applyAgentChange} update={acp.setState} />
           {branch.length === 0 && !running && (
             <p className="muted chat-empty">
               {backend === "python" ? "Ask the Python agent to edit or extend this document. Its edits require review; checks remain unrun." : "Ask the agent to edit, extend, or verify this document."} It works
@@ -619,7 +619,7 @@ export function ChatDock({
             />
           ) : (
             <>
-              {!running && branch.at(-1)?.status === "ok" && <AgentProject doc={docId} turn={branch.at(-1)!.id} />}
+              {branch.filter(turn => turn.status === "ok").map(turn => <AgentProject key={turn.id} doc={docId} turn={turn.id} />)}
               <ConversationEditor branch={branch} path={sessionPath} stamp={lensStamp} running={running}
                 showCollapsedLineage={showCollapsedLineage} stream={stream} reasoning={reasoning} draft={prompt} onDraft={setPrompt}
                 onSend={() => void send()} sending={sending} canSend={!running && !sending && (backend === "builtin" || (!!acp.state?.ready && !acp.busy))} />

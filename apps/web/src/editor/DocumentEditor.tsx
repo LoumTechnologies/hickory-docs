@@ -82,6 +82,7 @@ import type { Realtime } from "../api/realtime";
 import type { DiagramBlock, ExecBlock, ExecutorInfo } from "../api/types";
 
 export interface DocumentEditorProps {
+  capturedProject?: SlotContext["capturedProject"];
   editorExtensions?: Extension[];
   preserveBytes?: boolean;
   comparisonBase?: string | null;
@@ -164,6 +165,7 @@ export { assertionStates, matchExecBlock } from "../lib/blockMatch";
  * rail's never skip. See editor/CardRail.tsx.
  */
 export function DocumentEditor({
+  capturedProject,
   editorExtensions = [],
   preserveBytes = false,
   comparisonBase = null,
@@ -859,6 +861,7 @@ export function DocumentEditor({
   // What every rendered element is handed, beside its own slot. One object
   // so a view's signature never grows a parameter per element.
   const slotContext: SlotContext = {
+    capturedProject,
     docId,
     view: railView,
     path: path ?? null,

@@ -10,7 +10,7 @@ import { initialWorkspace, openUntitledTab } from "./workspaceState";
 import { panes, tab } from "../shell/layout";
 import { api } from "../api/client";
 import { registerSearchEditor } from "../lib/workspaceSearch";
-vi.mock("../api/client", () => ({ api: { agent: vi.fn(), agentTurns: vi.fn(), file: vi.fn(), executor: vi.fn().mockResolvedValue({}), complete: vi.fn().mockResolvedValue({ suggestions: [] }) } }));
+vi.mock("../api/client", () => ({ request: vi.fn().mockResolvedValue({}), api: { agent: vi.fn(), agentTurns: vi.fn(), file: vi.fn(), executor: vi.fn().mockResolvedValue({}), complete: vi.fn().mockResolvedValue({ suggestions: [] }) } }));
 vi.mock("../api/acp", () => ({ acpApi: { state: vi.fn(async () => ({backend: "builtin", ready: true, edits: {mode: "review", changes: []}})), agents: vi.fn().mockResolvedValue({ agents: [] }) } }));
 vi.mock("../api/realtime", async importOriginal => ({ ...await importOriginal<typeof import("../api/realtime")>(), getWorkspaceRealtime: () => ({ onRunEvent: () => () => {} }) }));
 afterEach(() => { cleanup(); vi.clearAllMocks(); localStorage.clear(); });

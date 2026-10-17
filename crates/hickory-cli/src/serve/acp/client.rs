@@ -99,7 +99,7 @@ impl Client {
         // execution boundary, rather than being silently redirected into ours.
         let initialized = rpc.request("initialize", json!({"protocolVersion":1,
             "clientInfo":{"name":"hickory-docs","title":"Hickory Docs","version":env!("CARGO_PKG_VERSION")},
-            "clientCapabilities":{"fs":{"readTextFile":true,"writeTextFile":true},"session":{"configOptions":{"boolean":{}}}}
+            "clientCapabilities":{"_meta":{"hickorydocs.com/changesets":{"version":1,"methods":["_hickorydocs.com/changeset"],"writeControl":"not-enforced"}},"fs":{"readTextFile":true,"writeTextFile":true},"session":{"configOptions":{"boolean":{}}}}
         }), Duration::from_secs(30)).await?;
         if initialized["protocolVersion"] != 1 {
             rpc.kill().await;
@@ -202,6 +202,7 @@ impl Client {
         view["edits"] = self.host.edits.snapshot();
         view["backend"] = json!(self.agent);
         view["canRewind"] = json!(self.can_rewind());
+        view["changesetContract"] = json!({"version":1,"negotiated":self.supports_changesets(),"writeControl":"not-enforced"});
         view["ready"] = json!(
             self.session.lock().unwrap().is_some()
                 && !self.closed.load(std::sync::atomic::Ordering::Relaxed)
@@ -258,6 +259,13 @@ impl Client {
             .lock()
             .await
             .context("editor-buffers", &json!({"turn":turn,"context":context}))?;
+        let has_changeset = self.host.changeset.lock().await.is_some();
+        let required = has_changeset && self.supports_changesets();
+        let context = if has_changeset {
+            format!("{context}\n{}", crate::changeset::INSTRUCTIONS)
+        } else {
+            context.to_string()
+        };
         let run_prompt = if context.is_empty() {
             prompt.to_string()
         } else {
@@ -273,30 +281,71 @@ impl Client {
             turn: turn.into(),
             ..Default::default()
         });
-        let call = self.rpc.request(
-            "session/prompt",
-            json!({"sessionId":session,"prompt":[{"type":"text","text":run_prompt}]}),
-            Duration::from_secs(24 * 60 * 60),
-        );
-        tokio::pin!(call);
-        let mut pulse = tokio::time::interval(Duration::from_millis(100));
+        let mut next_prompt = run_prompt;
+        let mut repairs = 0;
         let mut stopped_at = None;
         let outcome = loop {
-            tokio::select! {
-                result = &mut call => break result,
-                _ = pulse.tick() => {
-                    if cancel.load(std::sync::atomic::Ordering::Relaxed) && stopped_at.is_none() {
-                        stopped_at = Some(std::time::Instant::now());
-                        self.host.edits.cancel();
-                        self.cancel_permissions();
-                        let _ = self.rpc.notify("session/cancel", json!({"sessionId":session})).await;
-                    }
-                    if stopped_at.is_some_and(|at| at.elapsed() >= Duration::from_secs(3)) {
-                        self.rpc.kill().await; self.closed.store(true, std::sync::atomic::Ordering::Relaxed);
-                        break Err(anyhow::anyhow!(hickory_agent::STOPPED_BY_USER));
+            let metadata = if required {
+                json!({crate::changeset::CAPABILITY:{"version":1,"boundary":turn,"required":true}})
+            } else {
+                json!({})
+            };
+            let call = self.rpc.request(
+            "session/prompt",
+            json!({"sessionId":session,"prompt":[{"type":"text","text":next_prompt}],"_meta":metadata}),
+            Duration::from_secs(24 * 60 * 60),
+        );
+            tokio::pin!(call);
+            let mut pulse = tokio::time::interval(Duration::from_millis(100));
+            let result = loop {
+                tokio::select! {
+                    result = &mut call => break result,
+                    _ = pulse.tick() => {
+                        if cancel.load(std::sync::atomic::Ordering::Relaxed) && stopped_at.is_none() {
+                            stopped_at = Some(std::time::Instant::now());
+                            self.host.edits.cancel();
+                            self.cancel_permissions();
+                            let _ = self.rpc.notify("session/cancel", json!({"sessionId":session})).await;
+                        }
+                        if stopped_at.is_some_and(|at| at.elapsed() >= Duration::from_secs(3)) {
+                            self.rpc.kill().await; self.closed.store(true, std::sync::atomic::Ordering::Relaxed);
+                            break Err(anyhow::anyhow!(hickory_agent::STOPPED_BY_USER));
+                        }
                     }
                 }
+            };
+            if result.as_ref().is_ok_and(|v| v["stopReason"] == "end_turn")
+                && required
+                && stopped_at.is_none()
+                && let Err(error) = self.host.completion().await
+            {
+                if repairs >= 3 {
+                    break Err(anyhow::anyhow!(
+                        "Changeset finalization failed after three repairs: {error:#}"
+                    ));
+                }
+                repairs += 1;
+                next_prompt = format!(
+                    "Hickory changeset not accepted: {error:#}\n{}",
+                    crate::changeset::INSTRUCTIONS
+                );
+                self.record.lock().await.context(
+                    "changeset-repair",
+                    &json!({"turn":turn,"attempt":repairs,"diagnostic":next_prompt}),
+                )?;
+                continue;
             }
+            if required
+                && result
+                    .as_ref()
+                    .is_ok_and(|v| v["stopReason"] != "end_turn" && v["stopReason"] != "cancelled")
+            {
+                break Err(anyhow::anyhow!(
+                    "Agent stopped without completing its negotiated changeset: {}",
+                    result.as_ref().unwrap()["stopReason"]
+                ));
+            }
+            break result;
         };
         // RPC responses pass through the same queue as updates, so the last
         // token is recorded before the prompt's response can complete.
@@ -325,6 +374,10 @@ impl Client {
         }
         outcome?;
         Ok(active.answer)
+    }
+
+    pub fn supports_changesets(&self) -> bool {
+        self.initialized["agentCapabilities"]["_meta"][crate::changeset::CAPABILITY]["version"] == 1
     }
 
     /// Exact rewind requires the Codex adapter's documented AIR fork point.
@@ -545,6 +598,32 @@ impl Client {
                 bail!("unknown ACP session");
             }
             match method {
+                crate::changeset::METHOD => {
+                    anyhow::ensure!(
+                        self.supports_changesets(),
+                        "Changeset extension was not negotiated"
+                    );
+                    let turn = self
+                        .active
+                        .lock()
+                        .unwrap()
+                        .as_ref()
+                        .map(|a| a.turn.clone())
+                        .context("No active prompt")?;
+                    anyhow::ensure!(
+                        params["boundary"].as_str() == Some(&turn),
+                        "Wrong or expired turn boundary"
+                    );
+                    let operation = params["operation"]
+                        .as_str()
+                        .context("Pass operation: status or submit")?;
+                    let tool = match operation {
+                        "status" => "changeset_status",
+                        "submit" => "submit_changeset",
+                        _ => bail!("Unknown changeset operation"),
+                    };
+                    self.host.changeset_call(tool, params).await
+                }
                 "session/request_permission" => {
                     let key = format!("{:016x}", super::super::rand_id());
                     let (tx, rx) = oneshot::channel();
@@ -578,7 +657,7 @@ impl Client {
         let reply = match result {
             Ok(value) => json!({"jsonrpc":"2.0","id":id,"result":value}),
             Err(e) => {
-                json!({"jsonrpc":"2.0","id":id,"error":{"code":-32603,"message":format!("{e:#}")}})
+                json!({"jsonrpc":"2.0","id":id,"error":{"code":if matches!(method, crate::changeset::METHOD | "session/request_permission" | "fs/read_text_file" | "fs/write_text_file") {-32603} else {-32601},"message":format!("{e:#}")}})
             }
         };
         let _ = self.rpc.send(reply).await;

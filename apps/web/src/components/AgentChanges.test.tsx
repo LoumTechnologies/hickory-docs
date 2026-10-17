@@ -1,5 +1,4 @@
 import { installMockHandler } from "../api/client";
-import { DocumentReading } from "../views/DocumentReading";
 // Guarantee: docs/guarantees/agent/conversation-edits-use-the-client-review-policy.md
 import { afterEach, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
@@ -13,19 +12,17 @@ const state: AcpState = { backend: "codex", ready: true, edits: { mode: "review"
 it("uses the document comparison editor, waits for Accept, and applies before acknowledging", async () => {
   const apply = vi.fn(); const update = vi.fn();
   vi.mocked(acpApi.edits).mockImplementation(async () => { expect(apply).toHaveBeenCalledWith(change); return state; });
-  const view = render(<><AgentChanges doc="workspace" state={state} running apply={apply} update={update} /><DocumentReading id="proposal:workspace:change" /></>);
+  const view = render(<AgentChanges doc="workspace" state={state} running apply={apply} update={update} />);
   await waitFor(() => expect(view.container.querySelector(".comparison-deleted")?.textContent).toContain("# Old 📝"));
   expect(view.container.querySelector(".comparison-added")?.textContent).toContain("New 📝");
   expect(view.container.querySelector(".cm-content")?.textContent).toContain("keep");
   expect(apply).not.toHaveBeenCalled();
-  if (!screen.queryByRole("button", { name: "Accept change" })) render(<DocumentReading id="proposal:workspace:change" />);
   fireEvent.click(screen.getByRole("button", { name: "Accept change" }));
   await waitFor(() => expect(acpApi.edits).toHaveBeenCalledWith("workspace", { id: "change", accepted: true, error: undefined }, "codex"));
 });
 it("rejects without changing the editor", async () => {
   const apply = vi.fn(); vi.mocked(acpApi.edits).mockResolvedValue(state);
   render(<AgentChanges doc="workspace" state={state} running apply={apply} update={() => {}} />);
-  render(<DocumentReading id="proposal:workspace:change" />);
   fireEvent.click(screen.getByRole("button", { name: "Reject change" }));
   await waitFor(() => expect(acpApi.edits).toHaveBeenCalledWith("workspace", { id: "change", accepted: false, error: undefined }, "codex"));
   expect(apply).not.toHaveBeenCalled();
@@ -39,7 +36,6 @@ it("auto-accepts the same change without a user gesture", async () => {
 it("reports a stale buffer to the agent as a failed edit", async () => {
   vi.mocked(acpApi.edits).mockResolvedValue(state);
   render(<AgentChanges doc="workspace" state={state} running apply={() => { throw new Error("The document changed."); }} update={() => {}} />);
-  if (!screen.queryByRole("button", { name: "Accept change" })) render(<DocumentReading id="proposal:workspace:change" />);
   fireEvent.click(screen.getByRole("button", { name: "Accept change" }));
   await waitFor(() => expect(acpApi.edits).toHaveBeenCalledWith("workspace", { id: "change", accepted: false, error: "The document changed." }, "codex"));
   expect(screen.getAllByRole("alert")[0].textContent).toBe("The document changed.");
@@ -57,7 +53,6 @@ it("returns newer editor text with a stale rejection so the agent can read again
   const { AgentEditConflict } = await import("../lib/agentEdit");
   vi.mocked(acpApi.edits).mockResolvedValue(state);
   render(<AgentChanges doc="workspace" state={state} running apply={() => { throw new AgentEditConflict("Changed during review", "My new sentence"); }} update={() => {}} />);
-  if (!screen.queryByRole("button", { name: "Accept change" })) render(<DocumentReading id="proposal:workspace:change" />);
   fireEvent.click(screen.getByRole("button", { name: "Accept change" }));
   await waitFor(() => expect(acpApi.edits).toHaveBeenCalledWith("workspace", { id: "change", accepted: false, error: "Changed during review", current_text: "My new sentence" }, "codex"));
 });
@@ -67,7 +62,6 @@ it("requires a human gesture for Python proposals and labels checks unrun", asyn
   const pythonState: AcpState = { backend: "python", ready: true, edits: { mode: "review", changes: [{ ...change, editor: false }] } };
   const apply = vi.fn(); vi.mocked(acpApi.edits).mockResolvedValue(pythonState);
   render(<AgentChanges doc="workspace" state={pythonState} running={false} apply={apply} update={() => {}} />);
-  render(<DocumentReading id="proposal:workspace:change" />);
   expect((screen.getByRole("combobox", { name: "Document edits" }) as HTMLSelectElement).disabled).toBe(true);
   expect(screen.queryByRole("option", { name: "Auto-accept" })).toBeNull();
   expect(screen.getByText(/Checks remain unrun/)).toBeTruthy();
@@ -75,4 +69,20 @@ it("requires a human gesture for Python proposals and labels checks unrun", asyn
   fireEvent.click(screen.getByRole("button", { name: "Accept change" }));
   await waitFor(() => expect(acpApi.edits).toHaveBeenCalledWith("workspace", { id: "change", accepted: true, error: undefined }, "python"));
   expect(apply).not.toHaveBeenCalled(); // Rust applies approved file edits.
+});
+
+// Guarantee: docs/guarantees/agent/conversation-edits-use-the-client-review-policy.md
+it("accepts revised New bytes directly from the Agent pane", async () => {
+  const { EditorView } = await import("@codemirror/view");
+  const { act } = await import("@testing-library/react");
+  const apply = vi.fn();
+  vi.mocked(acpApi.edits).mockResolvedValue(state);
+  const view = render(<AgentChanges doc="workspace" state={state} running apply={apply} update={() => {}} />);
+  await waitFor(() => expect(view.container.querySelector('[aria-label="New · proposed change"]')).toBeTruthy());
+  const host = view.container.querySelector<HTMLElement>('[aria-label="New · proposed change"]')!;
+  const editor = EditorView.findFromDOM(host)!;
+  act(() => editor.dispatch({ changes: { from: 0, to: editor.state.doc.length, insert: "My revised proposal\n" } }));
+  fireEvent.click(screen.getByRole("button", { name: "Accept change" }));
+  await waitFor(() => expect(apply).toHaveBeenCalledWith({ ...change, newText: "My revised proposal\n" }));
+  expect(acpApi.edits).toHaveBeenCalledWith("workspace", { id: "change", accepted: true, error: undefined, new_text: "My revised proposal\n" }, "codex");
 });

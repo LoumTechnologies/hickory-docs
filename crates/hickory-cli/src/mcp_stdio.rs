@@ -42,6 +42,7 @@ pub async fn serve(default_doc: Option<PathBuf>, params: Vec<(String, String)>) 
     let executor = ExecutorChoice::from_env()?.build().await?;
     let mut server = Server {
         root: std::env::current_dir()?,
+        changeset: None,
         sessions: HashMap::new(),
         executor: executor.clone(),
         params,
@@ -120,6 +121,7 @@ pub async fn serve(default_doc: Option<PathBuf>, params: Vec<(String, String)>) 
 pub(crate) async fn engine_server(options: crate::engine::mcp::Options) -> Result<Server> {
     Ok(Server {
         root: options.root,
+        changeset: None,
         sessions: HashMap::new(),
         executor: options.executor.build().await?,
         params: options.params,

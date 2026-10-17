@@ -17,6 +17,8 @@
 //! three methods, and a dependency that moves faster than that surface would
 //! be a liability in a binary users install.
 //!
+#[path = "changeset_mcp.rs"]
+mod changeset_tools;
 #[path = "mcp_preview.rs"]
 mod preview;
 use crate::ExecutorChoice;
@@ -43,6 +45,7 @@ use crate::mcp_catalogue::tool_catalogue;
 /// A running server: open sessions, one executor, an optional session log.
 pub(crate) struct Server {
     root: PathBuf,
+    changeset: Option<crate::changeset::Contract>,
     /// One [`EditSession`] per document, kept open for the process's life.
     /// This is the whole point of the MCP surface over the command surface.
     sessions: HashMap<PathBuf, EditSession>,
@@ -65,6 +68,7 @@ impl Server {
     ) -> Self {
         Self {
             root,
+            changeset: None,
             sessions: HashMap::new(),
             executor,
             params: Vec::new(),
@@ -470,6 +474,12 @@ impl Server {
     }
 
     async fn call_tool(&mut self, name: &str, args: &Value) -> Value {
+        if matches!(
+            name,
+            "begin_changeset" | "changeset_status" | "submit_changeset"
+        ) {
+            return self.call_changeset(name, args);
+        }
         if hickory_agent::audit::is_tool(name) {
             let path = self
                 .session_log
@@ -573,10 +583,20 @@ impl Server {
                      files directly. Read a surface first (read_doc / read_output with \
                      with_lineage), anchor every edit on the SHA-256 content hashes it returns, \
                      put CODE changes through edit_output and structure or prose through \
-                     edit_doc, and call verify before reporting the work done."
+                     edit_doc, and call verify before reporting the work done. For a final \
+                     literate changeset, call begin_changeset BEFORE edits in standalone MCP \
+                     (the dock supplies its boundary), then changeset_status and submit_changeset. \
+                     Repair diagnostics until accepted; output equality does not verify prose or runtime behavior."
             })),
             "ping" => Ok(json!({})),
-            "tools/list" => Ok(tool_catalogue()),
+            "tools/list" => {
+                let mut result = tool_catalogue();
+                result["tools"]
+                    .as_array_mut()
+                    .unwrap()
+                    .extend(crate::changeset::catalogue(true));
+                Ok(result)
+            }
             "tools/call" => {
                 let name = params
                     .get("name")

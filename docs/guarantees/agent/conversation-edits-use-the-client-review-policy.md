@@ -14,9 +14,9 @@ untitled note never manufactures a filename or saves that note implicitly.
 
 In Review, edits submitted through these tools, the existing `edit_output`
 and `create_doc` tools, or ACP text-file writes wait for Accept or Reject.
-In Auto-accept they proceed without a review click. Proposals open in a document review tab beside the current panes. Accept and
-Reject live beside that editor. Proposed bytes stay in a read-only lens until
-accepted; the target buffer is never used as a temporary preview. Pending and
+In Auto-accept they proceed without a review click. Proposals appear directly in the Agent pane, with an optional separate review
+tab. Accept and Reject live beside the comparison editor. Proposed New bytes
+can be revised during review; the target buffer is never used as a temporary preview. Pending and
 completed changes use `DocumentEditor` and its `comparisonField`, the same
 mechanism as literate Git comparisons and commit readings. Adapter-reported
 raw diff content remains available in tool details.
@@ -77,3 +77,10 @@ operate on saved source, and do not gain ACP's live-buffer editing capability.
 `model_failure_audit::rejected_native_edits_record_the_decision_without_changing_the_document`
 is a regression witness. Restoring a saved policy occurs when its turn starts;
 pending proposals are connection state, not reconstructed on restart.
+
+Verification update (2026-10-17): `AgentChanges` embeds `DocumentReading` for
+each proposal and no longer automatically opens another pane. The comparison
+uses the same `ComparisonEditor` as `.md` patches. `AgentChanges.test.tsx`
+drives Accept/Reject from the Agent pane itself. This is shared comparison
+rendering, not full literate-project patch parity; see
+`../audits/2026-10-17-agent-document-parity.md` for outstanding differences.

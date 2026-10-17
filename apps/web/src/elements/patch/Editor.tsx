@@ -33,10 +33,10 @@ export function PatchEditor({ slot, cx }: { slot: RenderedSlot; cx: SlotContext 
     try {
       if (!cx.view) throw new Error("Open the source editor to inspect this patch.");
       const source = cx.view.state.doc.toString();
-      const context = cx.docId && cx.docId !== "untitled"
+      const context = cx.capturedProject ? { entry: cx.capturedProject.entry, sources: { ...cx.capturedProject.sources, [cx.capturedProject.document ?? cx.capturedProject.entry]: source } } : cx.docId && cx.docId !== "untitled"
         ? await request<{ entry: string; sources: Record<string, string> }>("POST", `/api/docs/${encodeURIComponent(cx.docId)}/project`, { source })
         : { entry: "project.md", sources: { "project.md": source } };
-      const project = materializeProject(context.entry, context.sources);
+      const project = materializeProject(context.entry, context.sources, cx.capturedProject?.input);
       const id = parseHickDoc(source).blocks.find(b => b.name === "patch" && b.from === slot.at)?.attrs.id;
       if (!id || !project.local_states[id]) throw new Error("Give this patch an explicit id before editing its constructed code.");
       const state = project.local_states[id];
@@ -46,7 +46,7 @@ export function PatchEditor({ slot, cx }: { slot: RenderedSlot; cx: SlotContext 
     } catch (e) { if (generation === loadGeneration.current) setError(e instanceof Error ? e.message : String(e)); }
     finally { if (generation === loadGeneration.current) setLoading(false); }
   };
-  useEffect(() => { void inspect(); return () => { loadGeneration.current++; }; }, [cx.view, cx.docId]);
+  useEffect(() => { void inspect(); return () => { loadGeneration.current++; }; }, [cx.view, cx.docId, cx.capturedProject]);
   useEffect(() => {
     if (capture && !draft && cx.view?.state.doc.toString() !== capture.source) void inspect();
   }, [slot.text]);
@@ -112,8 +112,8 @@ export function PatchEditor({ slot, cx }: { slot: RenderedSlot; cx: SlotContext 
     };
     try {
       model = draft ?? { sources: [
-        { id: "old", label: "Before this patch", kind: "authored", target: capture.entry, text: decode(state.old), project: capture.project.old, versions: capture.project.versions, local: state.old, debugSurface: cx.view ? { view: cx.view, entry: capture.entry, source: capture.source, path: cx.path ?? undefined } : undefined },
-        { id: "new", label: "After this patch", kind: "authored", target: capture.entry, text: decode(state.new), project: capture.project.new, versions: capture.project.versions, local: state.new, debugSurface: cx.view ? { view: cx.view, entry: capture.entry, source: capture.source, path: cx.path ?? undefined } : undefined },
+        { id: "old", label: "Before this patch", kind: "authored", target: capture.entry, text: decode(state.old), project: capture.project.old, versions: capture.project.versions, local: state.old, debugSurface: cx.view ? { view: cx.view, entry: cx.capturedProject?.document ?? capture.entry, source: capture.source, path: cx.path ?? undefined } : undefined },
+        { id: "new", label: "After this patch", kind: "authored", target: capture.entry, text: decode(state.new), project: capture.project.new, versions: capture.project.versions, local: state.new, debugSurface: cx.view ? { view: cx.view, entry: cx.capturedProject?.document ?? capture.entry, source: capture.source, path: cx.path ?? undefined } : undefined },
       ], old: "old", new: "new", policy: side, evidence: "unverified" };
     } catch { /* The explicit diagnostic below leaves binary source intact. */ }
   }

@@ -721,3 +721,19 @@ test-launch-profiles:
 test-launch-profiles-ui:
     cargo build -p hickory-cli --bin hick --example engine_client --example acp_fixture
     HICKORY_E2E_DEBUG=1 scripts/test-literate-editor.sh --grep 'launch profiles|unified patch gutter|patch debugger keeps|exact-source debug'
+
+# Negotiated ACP changeset completion and the shared MCP verification tools.
+test-agent-changesets:
+    cargo build -p hickory-cli --example acp_fixture
+    cargo test -p hickory-cli --lib changeset:: -- --nocapture
+    cargo test -p hickory-cli --test agent_changesets -- --nocapture
+    cargo test -p hickory-cli --test literate_agent_projects -- --nocapture
+
+# Final artifact rendering uses the same patch and native-tool context as notes.
+test-agent-changesets-web:
+    cd apps/web && npm run typecheck && npm test -- --maxWorkers=2 src/components/ChangesetDocument.test.tsx src/elements/patch/Editor.test.tsx src/elements/patch/view.test.tsx src/components/ComparisonTools.test.tsx src/components/AgentChanges.test.tsx src/views/ConversationEditor.test.tsx src/components/ChatDock.test.tsx src/views/WorkspaceChat.test.tsx
+
+check-agent-changesets:
+    cargo fmt --all -- --check
+    just check-file-length
+    cargo clippy -p hickory-cli --lib --example acp_fixture --test agent_changesets -- -D warnings

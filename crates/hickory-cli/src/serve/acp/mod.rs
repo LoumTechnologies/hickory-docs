@@ -444,10 +444,22 @@ pub async fn start_turn(
         hickory_agent::audit::INSTRUCTIONS
     );
     let project_capture = super::agent_projects::begin(&state, &doc_id, record_path.clone()).await;
+    *client.host.changeset.lock().await = match &project_capture {
+        Ok(Some(capture)) => Some(crate::changeset::Contract::new(
+            capture.root.clone(),
+            capture.inventory.clone(),
+            capture
+                .starting
+                .restore()
+                .map_err(ApiError::unprocessable)?,
+            turn_id.clone(),
+        )),
+        _ => None,
+    };
     let run_id = turn_id.clone();
     tokio::spawn(async move {
         let _annotation_gate = state.agent.annotations_gate.read().await;
-        let outcome = client
+        let mut outcome = client
             .prompt(
                 &run_id,
                 body.parent_id.as_deref(),
@@ -457,7 +469,13 @@ pub async fn start_turn(
             )
             .await;
         match project_capture {
-            Ok(Some(capture)) => {
+            Ok(Some(mut capture)) => {
+                if outcome.is_ok()
+                    && let Ok(artifact) = client.host.completion().await
+                {
+                    capture.response = artifact.sources.get(&artifact.entry).cloned();
+                    capture.artifact = Some(artifact);
+                }
                 super::agent_projects::finish(
                     &state,
                     &run_id,
@@ -474,6 +492,25 @@ pub async fn start_turn(
                 );
             }
         }
+        if outcome.is_ok()
+            && client.supports_changesets()
+            && client.host.changeset.lock().await.is_some()
+        {
+            let accepted = state
+                .agent
+                .projects
+                .lock()
+                .unwrap()
+                .get(&run_id)
+                .is_some_and(|capture| capture.artifact.is_some() && capture.error.is_none());
+            if !accepted {
+                outcome = Err(anyhow::anyhow!(
+                    "The final artifact became stale or could not be recorded at turn completion. Its writes remain captured."
+                ));
+            }
+        }
+        // Late MCP requests must not submit against a completed turn.
+        client.host.changeset.lock().await.take();
         state.agent.cancels.lock().unwrap().remove(&run_id);
         let status = {
             let mut map = state.agent.turns.lock().unwrap();

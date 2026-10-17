@@ -6,6 +6,7 @@ pub mod agent_cell_runner;
 pub mod agent_lineage;
 pub mod anchor;
 pub mod carry;
+mod changeset;
 pub mod clap_help;
 pub mod claude_code;
 pub mod code_model;
@@ -50,14 +51,13 @@ pub mod tool_install;
 pub mod toolchain;
 pub mod typed_client;
 pub mod up;
-/// `hick init` entry points: idempotent local git-repo setup.
-pub use editor_lsp::{AdoptedServer, EditorOutcome, EditorSetup};
-pub use init::{InitReport, print_init_report, run_init};
-
 /// Lineage for agent-authored bytes: session + turn from provenance,
 /// authorship from `git blame`, graceful degradation when the session is
 /// private or absent.
 pub use agent_lineage::{AgentLineage, Authorship, Reasoning};
+/// `hick init` entry points: idempotent local git-repo setup.
+pub use editor_lsp::{AdoptedServer, EditorOutcome, EditorSetup};
+pub use init::{InitReport, print_init_report, run_init};
 
 /// The binary's [`hick_literate::agent_cell::AgentRunner`]: settles one
 /// `<hick:agent>` DAG vertex through the real ReAct loop, or reports that no
