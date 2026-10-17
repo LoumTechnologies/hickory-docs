@@ -81,7 +81,7 @@ export function ComparisonEditor({ path, model, onChange, allowFork = false, com
             if (!debug) return null;
             const held = debug.breakpoints.find(bp => bp.line === line);
             return <button type="button" className="diff-breakpoint" aria-label={`${held ? "Remove" : "Set"} breakpoint on ${side} line ${line + 1}`}
-              aria-pressed={!!held} title={held?.message ?? `${side === "old" ? old.label : next.label} · line ${line + 1}`}
+              aria-pressed={!!held} data-tip={held?.message ?? `${side === "old" ? old.label : next.label} · line ${line + 1}`}
               onClick={() => debug.toggleBreakpoint(line)}>{held ? "●" : "○"}</button>;
           }} />
       }</ComparisonTools>

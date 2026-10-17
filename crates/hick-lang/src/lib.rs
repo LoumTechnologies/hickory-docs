@@ -17,9 +17,9 @@ pub use project::{
     AgentProjectCapture, ByteOrigin, ComparisonSource, DifferenceKind, EditPolicy, EntryKind,
     EvaluatedProject, IncorporationCandidate, IncorporationError, PatchResult, ProjectComparison,
     ProjectDifference, ProjectEntry, ProjectInventory, ProjectSnapshot, ProjectTree, RecordedCell,
-    RevisionIdentity, apply_project_patch, evaluate_project, load_project_sources,
-    project_byte_location, regenerate_patch, reverse_project_edit, transition_response,
-    unified_transition, validate_project_path,
+    RevisionIdentity, apply_project_patch, evaluate_project, latest_debug_project,
+    load_project_sources, project_byte_location, regenerate_patch, reverse_project_edit,
+    transition_response, unified_transition, validate_project_path,
 };
 mod fence;
 mod literal_files;

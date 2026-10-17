@@ -178,3 +178,82 @@ fn captured_native_contexts_are_lazy_isolated_and_never_borrow_working_files() {
             .is_err()
     );
 }
+
+// Guarantee: docs/guarantees/debugging/debug-uses-the-latest-project-containing-the-displayed-code.md
+#[test]
+fn clicked_file_uses_exact_old_bytes_and_original_document_breakpoint_lines() {
+    let source = "<hick:project/>\n<hick:file id=\"base\" path=\"app.py\">\nprint(1)\n</hick:file>\n<hick:file id=\"lib\" after=\"base\" path=\"lib.py\">value = 2\n</hick:file>\n<hick:patch id=\"replace\" after=\"lib\">\n--- a/app.py\n+++ b/app.py\n@@ -1 +1 @@\n-print(1)\n+print(2)\n</hick:patch>";
+    let sources = BTreeMap::from([("p.md".into(), source.into())]);
+    let selection = ProjectEndpoint::LatestFile {
+        id: "base".into(),
+        source: source.into(),
+    };
+    let state = hick_lsp::document::HickDocumentState::from_project_at(
+        "p.md",
+        &sources,
+        &ProjectTree::default(),
+        &selection,
+    )
+    .unwrap();
+    let tree = state.selected_project.as_ref().unwrap();
+    assert_eq!(tree.get("app.py").unwrap().bytes.as_ref(), b"print(1)\n");
+    assert!(tree.get("lib.py").is_some());
+    let map = &state.project_maps["app.py"];
+    assert_eq!(map.to_virtual(2, 0), Some((0, 0)));
+    let changed = BTreeMap::from([("p.md".into(), source.replace("print(1)", "print(3)"))]);
+    let error = hick_lsp::document::HickDocumentState::from_project_at(
+        "p.md",
+        &changed,
+        &ProjectTree::default(),
+        &selection,
+    )
+    .unwrap_err();
+    assert!(error.to_string().contains("document changed"));
+}
+
+// Guarantee: docs/guarantees/debugging/debug-uses-the-latest-project-containing-the-displayed-code.md
+#[test]
+fn generated_code_selection_uses_displayed_bytes_instead_of_the_previous_file_context() {
+    let source = "<hick:project/><hick:file id=\"base\" path=\"app.py\">print(1)\n</hick:file><hick:patch id=\"change\" after=\"base\">\n--- a/app.py\n+++ b/app.py\n@@ -1 +1 @@\n-print(1)\n+print(2)\n</hick:patch>";
+    let sources = BTreeMap::from([("p.md".into(), source.into())]);
+    for code in ["print(1)\n", "print(2)\n"] {
+        let value = format!(
+            "latest-code:{}",
+            serde_json::json!(["app.py", code, source])
+        );
+        let selection = ProjectEndpoint::parse(&value).unwrap();
+        let state = hick_lsp::document::HickDocumentState::from_project_at(
+            "p.md",
+            &sources,
+            &ProjectTree::default(),
+            &selection,
+        )
+        .unwrap();
+        assert_eq!(
+            state
+                .selected_project
+                .unwrap()
+                .get("app.py")
+                .unwrap()
+                .bytes
+                .as_ref(),
+            code.as_bytes()
+        );
+    }
+    let selection = ProjectEndpoint::LatestCode {
+        path: "app.py".into(),
+        code: "not evaluated".into(),
+        source: source.into(),
+    };
+    assert!(
+        hick_lsp::document::HickDocumentState::from_project_at(
+            "p.md",
+            &sources,
+            &ProjectTree::default(),
+            &selection
+        )
+        .unwrap_err()
+        .to_string()
+        .contains("exact displayed code")
+    );
+}

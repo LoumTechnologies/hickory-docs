@@ -12,8 +12,11 @@ summary in one can be proven to still describe what it summarized.
 current program, generated from an empty tree without VCS history or sidecars).
 Incorporation rewrites the latter while proving its outputs equal the agent's
 final state. Verification constructs and compares virtual file trees in memory;
-native tools materialize only when needed. Project LSP/DAP default to atomic
-scope endpoints, never a half-applied patch sequence. Declared portable projects,
+native tools materialize only when needed. Document LSP defaults to atomic
+scope endpoints. Debug actions select the latest whole evaluated project that
+contains the exact displayed file bytes; breakpoints and launch share that
+selection, with no global project-version selector (2026-10-17 amendment in the
+plan and `docs/guarantees/debugging/debug-uses-the-latest-project-containing-the-displayed-code.md`). Declared portable projects,
 exact patch replay, complete inventory comparison, candidate Git/index checks,
 shared patch rendering and default native project staging are implemented; the
 working continuation adds comparison editing, captured project tools, harness

@@ -179,7 +179,7 @@ impl Registry {
         let project = document.parent().unwrap_or(Path::new("."));
 
         let scratch = tempfile::tempdir().context("making a scratch directory for the session")?;
-        let (mapping, files) =
+        let (mapping, files, selected_program) =
             crate::project_documents::debug_state_at(document, &source, scratch.path(), endpoint)?;
         // Which file to run, when the document generates more than one.
         //
@@ -187,7 +187,7 @@ impl Registry {
         // document with two Python files got the first one, with nothing on
         // screen to say which. Naming it is the caller's job; falling back to
         // the first debuggable file keeps "just debug this" working.
-        let entry = match program {
+        let entry = match selected_program.as_deref().or(program) {
             Some(named) => {
                 let wanted = scratch.path().join(named);
                 files

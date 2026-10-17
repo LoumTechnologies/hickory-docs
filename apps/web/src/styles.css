@@ -8944,9 +8944,6 @@ button.status-bar__item:hover { background: var(--bg-sunken); color: var(--fg); 
 .debug-strip__stack { max-width: 12rem; }
 .debug-block, .plain-file-pane { position: relative; }
 .debug-build { position: absolute; inset: 2rem 0.5rem auto; z-index: 30; max-height: 45%; overflow: auto; background: var(--bg-raised); box-shadow: var(--shadow); }
-.project-context-selector { position: relative; font-size: .8rem; }
-.project-context-selector > summary { cursor: pointer; list-style: none; white-space: nowrap; }
-.project-context-selector__menu { position: absolute; right: 0; top: 100%; z-index: 40; width: max-content; max-width: 28rem; padding: .75rem; background: var(--bg-raised); border: 1px solid var(--border); box-shadow: var(--shadow); }
 .cm-debug-start, .comparison-deletion { border: 0; padding: 0 3px; background: transparent; color: var(--accent); cursor: pointer; font: inherit; line-height: inherit; }
 .comparison-deletion { color: var(--diff-del); }
 .comparison-removed { max-width: min(40rem, 80vw); max-height: 24rem; overflow: auto; }

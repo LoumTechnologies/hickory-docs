@@ -15,7 +15,8 @@
 use wasm_bindgen::prelude::*;
 mod project;
 pub use project::{
-    project_position, project_transition, regenerate_project_patch, reverse_project_edit,
+    latest_debug_project, project_position, project_transition, regenerate_project_patch,
+    reverse_project_edit,
 };
 
 /// The structure of a document — `hick_lang::Structure` as JSON.
@@ -69,7 +70,7 @@ pub fn evaluate_project(entry: &str, sources_json: &str, input_json: &str) -> St
             })
             .collect();
         Ok(
-            serde_json::json!({"scopes":scopes,"old":serialize(&project.old),"new":serialize(&project.new),"inventory":project.inventory,"local_states":states}),
+            serde_json::json!({"scopes":scopes,"old":serialize(&project.old),"new":serialize(&project.new),"inventory":project.inventory,"local_states":states,"versions":project.versions.iter().map(serialize).collect::<Vec<_>>()}),
         )
     })();
     match result {

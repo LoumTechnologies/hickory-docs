@@ -25,7 +25,7 @@ it("puts one launch icon per debuggable script in the right action rail", () => 
   expect(button.closest(".cm-gutters")).toBeNull();
   expect(document.querySelectorAll(".cm-debug-start")).toHaveLength(1);
   fireEvent.click(button);
-  expect(start).toHaveBeenCalledWith("app.py");
+  expect(start).toHaveBeenCalledWith("app.py", 0);
 });
 it("puts continue, stepping and stop beside the paused line and keeps their handlers", () => {
   const container = editor("one\ntwo\nthree\n");
@@ -69,7 +69,7 @@ it("starts the focused script with F5 without opening a menu", () => {
   render(<DebugLaunchRail view={view} plainPath="app.py" onStart={start}/>,{container});
   view.focus();
   fireEvent.keyDown(view.contentDOM,{key:"F5"});
-  expect(start).toHaveBeenCalledWith("app.py");
+  expect(start).toHaveBeenCalledWith("app.py", undefined);
 });
 
 it("keeps a document's controls out of the rails of its nested patch editors", () => {

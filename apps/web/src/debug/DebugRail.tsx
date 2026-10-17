@@ -68,7 +68,7 @@ export function DebugRailGroup({ view, at, sticky = false, children }: {
 
 /** A single right-hand action column shared by launch icons and live controls. */
 export function DebugLaunchRail({ view, onStart, plainPath, enabled = true }: {
-  view: EditorView | null; onStart?: (path: string) => void; plainPath?: string; enabled?: boolean;
+  view: EditorView | null; onStart?: (path: string, at?: number) => void; plainPath?: string; enabled?: boolean;
 }) {
   const targets: { path: string; at: number; end: number }[] = [];
   if (view && onStart && enabled) {
@@ -90,15 +90,15 @@ export function DebugLaunchRail({ view, onStart, plainPath, enabled = true }: {
       if (debugRailElement(view)?.querySelector(".is-active")) return;
       const {targets,onStart} = current.current, pos = view.state.selection.main.head;
       const target = targets.find(t => t.at <= pos && pos <= t.end) ?? (targets.length === 1 ? targets[0] : null);
-      if (target) { event.preventDefault(); onStart?.(target.path); }
+      if (target) { event.preventDefault(); onStart?.(target.path, plainPath ? undefined : target.at); }
     };
     window.addEventListener("keydown", key);
     return () => window.removeEventListener("keydown", key);
-  }, [view]);
+  }, [view, plainPath]);
   return <div className="cm-debug-rail" aria-label="Script debugging">
     {view && targets.map(target => <DebugRailGroup key={`${target.path}:${target.at}`} view={view} at={target.at}>
       <button type="button" className="cm-debug-start debug-icon" aria-label={`Debug ${target.path}`}
-        data-tip={`Debug ${target.path} · installs the debugger if needed`} onClick={() => onStart?.(target.path)}>▷</button>
+        data-tip={`Debug ${target.path} · installs the debugger if needed`} onClick={() => onStart?.(target.path, plainPath ? undefined : target.at)}>▷</button>
     </DebugRailGroup>)}
   </div>;
 }

@@ -17,6 +17,8 @@ export interface ComparisonSource {
   target?: string;
   /** The complete selected project, independently of the displayed local text. */
   project?: ProjectEntry[];
+  /** Evaluated whole-project versions, oldest first, for exact-source tools. */
+  versions?: ProjectEntry[][];
   /** Displayed construction tree, if different from the completed endpoint. */
   local?: ProjectEntry[];
 }
@@ -35,7 +37,7 @@ export function canEdit(model: ComparisonModel, side: "old" | "new"): boolean {
 export function editComparison(model: ComparisonModel, side: "old" | "new", text: string): ComparisonModel {
   if (!canEdit(model, side)) throw new Error("Fork this immutable reading before editing it.");
   return { ...model, evidence: "unverified", sources: model.sources.map(source =>
-    source.id === model[side] ? { ...source, text, project: undefined, local: undefined } : source) };
+    source.id === model[side] ? { ...source, text, project: undefined, local: undefined, versions: undefined } : source) };
 }
 export function forkComparison(model: ComparisonModel): ComparisonModel {
   return { ...model, policy: "both", evidence: "unverified", sources: model.sources.map(s =>

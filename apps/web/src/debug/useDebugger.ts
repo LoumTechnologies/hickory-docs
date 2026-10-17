@@ -70,7 +70,7 @@ export interface DebugSession {
   exceptionFilters: string[];
 
   /** Debug one generated file. Omitted means the first debuggable one. */
-  start(program?: string, sources?: Record<string, HeldBreakpoint[]>): void;
+  start(program?: string, sources?: Record<string, HeldBreakpoint[]>, project?: string): void;
   replaceBreakpoints(breakpoints: HeldBreakpoint[]): void;
   stop(): void;
   step(how: Step): void;
@@ -586,15 +586,18 @@ export function useDebuggerOver(client: DebugClient | null, docPath: string, ini
     [client, clearFailure],
   );
 
+  const launchContext = useRef(projectContext);
+  useEffect(() => { launchContext.current = projectContext; }, [uri, projectContext]);
   const start = useCallback(
-    (program?: string, sources: Record<string, HeldBreakpoint[]> = {}) => {
+    (program?: string, sources: Record<string, HeldBreakpoint[]> = {}, selection?: string) => {
       if (!client) return;
       setStatus("starting");
       clearFailure();
       setProgram(program ?? null);
       const initial = {...sourceBreakpoints,...sources};
       holdSources(initial);
-      client.start(uri, onTheWire(breakpoints), program, projectContext, Object.fromEntries(Object.entries(initial).filter(([,bps])=>bps.length).map(([source,bps])=>[source,onTheWire(bps)])));
+      launchContext.current = selection ?? launchContext.current;
+      client.start(uri, onTheWire(breakpoints), program, launchContext.current, Object.fromEntries(Object.entries(initial).filter(([,bps])=>bps.length).map(([source,bps])=>[source,onTheWire(bps)])));
     },
     [client, uri, breakpoints, sourceBreakpoints, clearFailure, projectContext],
   );

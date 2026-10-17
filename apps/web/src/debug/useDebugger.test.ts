@@ -711,3 +711,16 @@ describe("exception breakpoints", () => {
     );
   });
 });
+
+// Guarantee: docs/guarantees/debugging/debug-uses-the-latest-project-containing-the-displayed-code.md
+it("keeps the clicked source context for restart and replaces it for a different surface", () => {
+  const { socket, hook } = open();
+  const context = 'latest-file:["base","<hick:project/>source"]';
+  act(() => hook.result.current.start("app.py", {}, context));
+  expect(socket.sent.at(-1)).toMatchObject({ op: "start", program: "app.py", project: context });
+  act(() => hook.result.current.start("app.py"));
+  expect(socket.sent.at(-1)).toMatchObject({ project: context });
+  act(() => hook.result.current.start("other.py", {}, "new"));
+  expect(socket.sent.at(-1)).not.toHaveProperty("project");
+  hook.unmount();
+});

@@ -28,7 +28,7 @@ it("starts generated code in its document session and maps breakpoints and activ
   const container=wrapper.appendChild(document.createElement("div"));
   const rails=render(<DebugLaunchRail view={view}/>,{container});
   const tools=render(<GeneratedDebugTools view={view} file={file} debug={session} source={source} docPath="note.md" askText={async()=>null}/>);
-  fireEvent.click(screen.getByRole("button",{name:"Debug app.py"}));expect(start).toHaveBeenCalledWith("app.py");
+  fireEvent.click(screen.getByRole("button",{name:"Debug app.py"}));expect(start).toHaveBeenCalledWith("app.py", {}, "new");
   tools.rerender(<GeneratedDebugTools view={view} file={file} debug={{...session,status:"paused",program:"app.py",pausedLine:3}} source={source} docPath="note.md" askText={async()=>null}/>);
   expect(screen.getByRole("button",{name:"Step over"}).closest("[data-source-offset]")?.getAttribute("data-source-offset")).toBe(String(code.indexOf("print(2)")));
   fireEvent.click(screen.getByRole("button",{name:"Step over"}));expect(step).toHaveBeenCalledWith("over");

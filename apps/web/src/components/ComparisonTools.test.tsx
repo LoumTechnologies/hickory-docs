@@ -13,6 +13,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-libra
 import { request } from "../api/client";
 import { materializeProject } from "../editor/hickLang";
 import { ComparisonTools } from "./ComparisonTools";
+import { DebugLaunchRail } from "../debug/DebugRail";
 import { ComparisonEditor } from "./ComparisonEditor";
 
 vi.mock("../debug/plainDebugHosts", () => ({ useFollowingDebugSession: vi.fn() }));
@@ -127,13 +128,15 @@ it("requests completions from the captured project's mapped file without an enab
 });
 
 
-it("launches exact and completed patch code from the right gutter without opening menus", async () => {
+// Guarantee: docs/guarantees/debugging/debug-uses-the-latest-project-containing-the-displayed-code.md
+it("launches the latest compatible patch code without replacing the code in view", async () => {
   const start = vi.fn();
   vi.mocked(useFollowingDebugSession).mockReturnValue({...IDLE_SESSION,start});
   const project = [entry("final")];
-  vi.mocked(request).mockImplementation(async method => method === "POST" ? {id:"captured",uri:"hick-project:///captured/"} : method === "GET" ? {path:"app.ts",bytes:entry("final").bytes,files:project} : undefined);
+  const versions = [[entry()], project];
+  vi.mocked(request).mockImplementation(async method => method === "POST" ? {id:"captured",uri:"hick-project:///captured/"} : method === "GET" ? {path:"app.ts",bytes:entry().bytes,files:versions[0]} : undefined);
   const model = {sources:[{id:"old",label:"Before this patch",kind:"git" as const,text:""},
-    {id:"new",label:"After this patch",kind:"git" as const,text:"value",local:[entry()],project}],old:"old",new:"new",policy:"neither" as const,evidence:"unverified" as const};
+    {id:"new",label:"After this patch",kind:"git" as const,text:"value",local:[entry()],project,versions}],old:"old",new:"new",policy:"neither" as const,evidence:"unverified" as const};
   const mounted = render(<ComparisonEditor path="app.ts" model={model} compact/>);
   const launch = await screen.findByRole("button", {name:"Debug app.ts · After this patch"});
   await waitFor(()=>expect((launch as HTMLButtonElement).disabled).toBe(false));
@@ -143,11 +146,16 @@ it("launches exact and completed patch code from the right gutter without openin
   expect(screen.queryByText("Code tools enabled")).toBeNull();
   fireEvent.click(launch);
   expect(start).toHaveBeenCalledOnce();
-  await waitFor(()=>expect(request).toHaveBeenCalledWith("GET","/api/project-contexts/file?uri=hick-project%3A%2F%2F%2Fcaptured%2Fapp.ts"));
+  expect(vi.mocked(request).mock.calls.some(([method]) => method === "GET")).toBe(false);
+  const body = vi.mocked(request).mock.calls.find(([method]) => method === "POST")![2] as {snapshot:{entries:Record<string,{bytes:number[]}>}};
+  expect(new TextDecoder().decode(new Uint8Array(body.snapshot.entries["app.ts"].bytes))).toBe("value");
+  // Generated-code navigation remains explicit, never a side effect of launch.
+  const { openCapturedCode } = await import("../lib/capturedCode");
+  await openCapturedCode({uri:"hick-project:///captured/app.ts",range:{start:{line:0,character:0},end:{line:0,character:0}}}, "hick-project:///captured/app.ts");
   mounted.unmount();
   const reading = render(<DocumentReading id="captured:hick-project:///captured/app.ts"/>);
   await waitFor(()=>expect(reading.container.querySelectorAll(".cm-editor")).toHaveLength(1));
-  expect(reading.container.querySelector(".cm-content")?.textContent).toBe("final");
+  expect(reading.container.querySelector(".cm-content")?.textContent).toBe("value");
   expect(vi.mocked(request).mock.calls.filter(([method])=>method==="POST")).toHaveLength(1);
   const rerun=await screen.findByRole("button",{name:"Debug app.ts · app.ts"});
   await waitFor(()=>expect((rerun as HTMLButtonElement).disabled).toBe(false));
@@ -201,4 +209,26 @@ it("sets and removes patch-layout breakpoints at the correct endpoint line", asy
   fireEvent.click(screen.getByRole("button", { name: "Set breakpoint on new line 3" }));
   expect(toggle).toHaveBeenLastCalledWith(2);
   expect(screen.queryByRole("button", { name: "Set breakpoint on old line 4" })).toBeNull();
+});
+
+
+// Guarantee: docs/guarantees/debugging/debug-uses-the-latest-project-containing-the-displayed-code.md
+it("refuses a launch if the visible buffer changes before its captured model updates", async () => {
+  const start = vi.fn();
+  vi.mocked(useFollowingDebugSession).mockReturnValue({...IDLE_SESSION,start});
+  const wrapper = document.body.appendChild(document.createElement("div"));
+  const host = wrapper.appendChild(document.createElement("div"));
+  host.className = "editor-cm-host";
+  const view = new EditorView({parent:host,state:EditorState.create({doc:"value"})});
+  const railHost = wrapper.appendChild(document.createElement("div"));
+  try {
+    render(<DebugLaunchRail view={view}/>,{container:railHost});
+    render(<ComparisonTools path="app.ts" source={{id:"new",label:"New",kind:"git",text:"value",project:[entry()]}} view={view}/>);
+    const launch = await screen.findByRole("button",{name:"Debug app.ts · New"});
+    await waitFor(()=>expect((launch as HTMLButtonElement).disabled).toBe(false));
+    act(()=>view.dispatch({changes:{from:0,to:5,insert:"changed"}}));
+    fireEvent.click(launch);
+    expect(start).not.toHaveBeenCalled();
+    expect(screen.getByRole("alert").textContent).toContain("displayed code changed");
+  } finally { cleanup(); view.destroy(); wrapper.remove(); }
 });

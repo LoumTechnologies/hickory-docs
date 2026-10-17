@@ -3,7 +3,9 @@
 Given an evaluated project closure, when native services select New, then every
 file comes from its completed tree, including changes in later patches and other
 files. Old selects the captured input and refuses materialization as a runnable
-project when empty. Local states require an explicit selection. Explicit native
+project when empty. Explicit local-state APIs remain available. Debug actions instead resolve the
+latest whole evaluated state containing the exact displayed code, as specified
+in `../debugging/debug-uses-the-latest-project-containing-the-displayed-code.md`. Explicit native
 materializations use distinct private temporary directories. Deleted bytes have
 no endpoint mapping; ambiguous origins refuse routing. Coordinates stay bytes
 until conversion to editor/LSP UTF-16 positions.
@@ -90,3 +92,16 @@ Python patch launch, breakpoint, cross-file Step Into, single-code navigation,
 callee Step Over and Stop with a real engine and adapter. Screenshots were
 inspected. This does not establish native language-server behavior for other
 languages or operation on other platforms.
+
+
+## Exact-source debug selection (2026-10-17)
+
+The global document selector described in the historical continuation above is
+removed. File-block and generated-output launch requests identify their displayed
+code and editor source. Native selection refuses a changed document, then uses
+the latest matching evaluated whole tree. Comparison tools resolve the same rule
+through WASM and retain the selected immutable capture for breakpoints and launch.
+This supersedes the historical expectation that a local comparison may launch
+different endpoint code and open that code automatically. Ordinary document LSP
+still defaults to the completed endpoint; selecting a debugger does not change it.
+See the exact-source debugging guarantee for current executed evidence and limits.

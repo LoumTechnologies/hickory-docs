@@ -31,3 +31,6 @@ pub use recorded::RecordedCell;
 
 mod coordinates;
 pub use coordinates::project_byte_location;
+
+mod debug;
+pub use debug::latest_debug_project;

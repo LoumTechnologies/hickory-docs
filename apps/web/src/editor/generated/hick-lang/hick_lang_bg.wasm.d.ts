@@ -2,6 +2,7 @@
 /* eslint-disable */
 export const memory: WebAssembly.Memory;
 export const evaluate_project: (a: number, b: number, c: number, d: number, e: number, f: number, g: number) => void;
+export const latest_debug_project: (a: number, b: number, c: number, d: number, e: number, f: number, g: number) => void;
 export const literal_files: (a: number, b: number, c: number) => void;
 export const project_position: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number) => void;
 export const project_transition: (a: number, b: number, c: number, d: number, e: number) => void;

@@ -14,9 +14,29 @@ pub enum ProjectEndpoint {
     ScopeNew(String),
     LocalBefore(String),
     LocalAfter(String),
+    /// File construction and the exact editor source that requested a launch.
+    LatestFile {
+        id: String,
+        source: String,
+    },
+    LatestCode {
+        path: String,
+        code: String,
+        source: String,
+    },
 }
 impl ProjectEndpoint {
     pub fn parse(value: &str) -> Result<Self, String> {
+        if let Some(json) = value.strip_prefix("latest-code:") {
+            let (path, code, source): (String, String, String) =
+                serde_json::from_str(json).map_err(|e| e.to_string())?;
+            return Ok(Self::LatestCode { path, code, source });
+        }
+        if let Some(json) = value.strip_prefix("latest-file:") {
+            let (id, source): (String, String) =
+                serde_json::from_str(json).map_err(|e| e.to_string())?;
+            return Ok(Self::LatestFile { id, source });
+        }
         match value {
             "new" => Ok(Self::New),
             "old" => Ok(Self::Old),
@@ -49,6 +69,10 @@ pub fn endpoint<'a>(
     side: &ProjectEndpoint,
 ) -> Result<&'a ProjectTree, String> {
     match side {
+        ProjectEndpoint::LatestFile { .. } | ProjectEndpoint::LatestCode { .. } => {
+            let (index, _) = debug_selection(project, side)?;
+            Ok(&project.versions[index])
+        }
         ProjectEndpoint::Old => Ok(&project.old),
         ProjectEndpoint::New => Ok(&project.new),
         ProjectEndpoint::ScopeOld(id) => project
@@ -73,6 +97,43 @@ pub fn endpoint<'a>(
             .ok_or_else(|| format!("unknown local state: {id}")),
     }
 }
+/// Resolve the complete tree and revision-local filename for a clicked file.
+pub fn latest_file(project: &EvaluatedProject, id: &str) -> Result<(usize, String), String> {
+    let path = project
+        .file_paths
+        .get(id)
+        .ok_or_else(|| format!("File construction {id} changed. Reload it before debugging."))?;
+    let local = &project
+        .local_states
+        .get(id)
+        .ok_or("Missing file construction")?
+        .1;
+    hick_lang::latest_debug_project(&project.versions, local, path)
+}
+
+pub fn debug_selection(
+    project: &EvaluatedProject,
+    side: &ProjectEndpoint,
+) -> Result<(usize, String), String> {
+    match side {
+        ProjectEndpoint::LatestFile { id, .. } => latest_file(project, id),
+        ProjectEndpoint::LatestCode { path, code, .. } => {
+            let mut displayed = ProjectTree::default();
+            let mut entry = hick_lang::ProjectEntry::file(code.as_bytes());
+            // Recover lineage so unchanged renames can be followed.
+            if let Some(file) = project.versions.iter().rev().find_map(|v| {
+                v.get(path)
+                    .filter(|e| e.kind == EntryKind::File && e.bytes.as_ref() == code.as_bytes())
+            }) {
+                entry.origins = file.origins.clone();
+            }
+            displayed.insert(path, entry)?;
+            hick_lang::latest_debug_project(&project.versions, &displayed, path)
+        }
+        _ => Err("This endpoint is not an exact-source debug selection".into()),
+    }
+}
+
 #[derive(Debug)]
 pub struct MaterializedProject {
     directory: tempfile::TempDir,

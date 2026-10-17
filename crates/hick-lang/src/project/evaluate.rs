@@ -64,7 +64,11 @@ pub struct EvaluatedProject {
     /// Atomic New endpoint. Always the completed scope, never a local patch.
     pub new: ProjectTree,
     pub inventory: ProjectInventory,
-    /// Explicit advanced inspection only; default services use old/new above.
+    /// Complete evaluated prefixes, in dependency execution order (including input).
+    pub versions: Vec<ProjectTree>,
+    /// Construction identities used by file-local debug actions.
+    pub file_paths: BTreeMap<String, String>,
+    /// Local dependency states for editing and inspection.
     pub local_states: BTreeMap<String, (ProjectTree, ProjectTree)>,
     /// Explicit atomic scopes; their New endpoint includes every nested act.
     pub scopes: BTreeMap<String, (ProjectTree, ProjectTree)>,
@@ -141,6 +145,8 @@ pub fn evaluate_project(
     let mut completed: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
     let mut writers: BTreeMap<String, String> = BTreeMap::new();
     let mut local_states = BTreeMap::new();
+    let mut versions = vec![input.clone()];
+    let mut file_paths = BTreeMap::new();
     let mut deltas: Vec<(String, EntryDelta)> = vec![];
     while completed.len() < operations.len() {
         let ready = operations
@@ -248,6 +254,10 @@ pub fn evaluate_project(
             writers.insert(path, op.id.clone());
         }
         apply_delta(&mut result, &delta)?;
+        versions.push(result.clone());
+        if matches!(op.tag.name.as_str(), "file" | "entry") {
+            file_paths.insert(op.id.clone(), required(&op.tag, "path")?.to_owned());
+        }
         local_states.insert(op.id.clone(), (before, local));
         deltas.push((op.id.clone(), delta));
         completed.insert(op.id, ancestors);
@@ -263,6 +273,8 @@ pub fn evaluate_project(
         scopes.insert(op.id.clone(), (old, local_states[&op.id].1.clone()));
     }
     Ok(EvaluatedProject {
+        versions,
+        file_paths,
         scopes,
         recordings: recordings.into_values().collect(),
         old: input.clone(),

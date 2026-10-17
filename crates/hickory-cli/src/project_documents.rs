@@ -94,12 +94,13 @@ pub(crate) fn debug_state_at(
     source: &str,
     scratch: &Path,
     endpoint: &hick_lsp::ProjectEndpoint,
-) -> Result<(hick_dap::Mapping, Vec<std::path::PathBuf>)> {
+) -> Result<(hick_dap::Mapping, Vec<std::path::PathBuf>, Option<String>)> {
     let doc = hick_lang::parse(source)?;
     if doc.find_tags("project").is_empty() {
         return Ok((
             hick_dap::Mapping::for_document(document, source, scratch)?,
             hick_dap::weave_into(source, scratch)?,
+            None,
         ));
     }
     let root = document.parent().unwrap_or(Path::new("."));
@@ -142,5 +143,18 @@ pub(crate) fn debug_state_at(
     );
     let files = hick_lsp::write_tree(scratch, tree).map_err(anyhow::Error::msg)?;
     let mapping = hick_dap::Mapping::for_state(document, &state, scratch)?;
-    Ok((mapping, files))
+    let target = match endpoint {
+        hick_lsp::ProjectEndpoint::LatestFile { .. }
+        | hick_lsp::ProjectEndpoint::LatestCode { .. } => {
+            let project = state
+                .evaluated_project
+                .as_ref()
+                .context("Missing evaluated project")?;
+            let (_, target) =
+                hick_lsp::debug_selection(project, endpoint).map_err(anyhow::Error::msg)?;
+            Some(target)
+        }
+        _ => None,
+    };
+    Ok((mapping, files, target))
 }

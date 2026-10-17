@@ -45,10 +45,37 @@ impl HickDocumentState {
             .get(entry)
             .ok_or_else(|| error(format!("Missing source {entry}")))?;
         let doc = hick_lang::parse(source)?;
+        if let crate::project::ProjectEndpoint::LatestFile {
+            source: expected, ..
+        }
+        | crate::project::ProjectEndpoint::LatestCode {
+            source: expected, ..
+        } = endpoint
+            && source != expected
+        {
+            return Err(error(
+                "The document changed before debugging started. Save it and press Debug again."
+                    .into(),
+            ));
+        }
         let project = hick_lang::evaluate_project(entry, sources, input).map_err(error)?;
-        let tree = crate::project::endpoint(&project, endpoint)
+        let mut tree = crate::project::endpoint(&project, endpoint)
             .map_err(error)?
             .clone();
+        if let crate::project::ProjectEndpoint::LatestFile { id, .. } = endpoint {
+            let (_, target) = crate::project::latest_file(&project, id).map_err(error)?;
+            let path = &project.file_paths[id];
+            // Identical bytes can have newer provenance (e.g. a later revert).
+            // Bind the clicked construction's lines to those same runtime bytes.
+            let mut selected = tree.get(&target).unwrap().as_ref().clone();
+            selected.origins = project.local_states[id]
+                .1
+                .get(path)
+                .unwrap()
+                .origins
+                .clone();
+            tree.insert(&target, selected).map_err(error)?;
+        }
         let virtual_files = crate::project::virtual_files(&tree, sources, entry).map_err(error)?;
         let source_map = std::sync::Arc::new(sources.clone());
         let mut project_maps = BTreeMap::new();

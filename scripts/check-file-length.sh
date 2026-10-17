@@ -25,6 +25,9 @@ write=false
 # what the rule is about.
 current="$(
   git ls-files -z -- '*.rs' '*.ts' '*.tsx' \
+    | while IFS= read -r -d '' file; do
+        if [ -f "$file" ]; then printf '%s\0' "$file"; fi
+      done \
     | tr '\0' '\n' \
     | grep -vE 'node_modules/|/generated/|\.test\.(ts|tsx)$|/tests/|\.d\.ts$' \
     | tr '\n' '\0' \

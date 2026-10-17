@@ -500,3 +500,63 @@ for (const order of [["editor", "files", "agent"], ["files", "editor", "agent"],
     await expect(agent).toBeVisible();
   });
 }
+
+// Guarantee: docs/guarantees/debugging/debug-uses-the-latest-project-containing-the-displayed-code.md
+for (const surface of ["file", "before", "after"] as const) test(`exact-source debug chooses the latest compatible project · ${surface}`, async ({page}) => {
+  test.setTimeout(120_000);
+  test.skip(!process.env.HICKORY_E2E_DEBUG, "Use just test-exact-source-debug-ui.");
+  const errors: string[] = [];
+  page.on("pageerror", error => errors.push(error.message));
+  const source = `<hick:project/>
+<hick:file id="helper" path="helper.py">
+value = 1
+</hick:file>
+<hick:file id="main" after="helper" path="main.py">
+from helper import value
+marker = "viewed"
+total = value
+print(marker, total)
+</hick:file>
+<hick:patch id="updated" after="main">
+--- a/helper.py
++++ b/helper.py
+@@ -1 +1 @@
+-value = 1
++value = 7
+</hick:patch>
+<hick:patch id="replaced" after="updated">
+--- a/main.py
++++ b/main.py
+@@ -1,4 +1,4 @@
+ from helper import value
+-marker = "viewed"
++marker = "replaced"
+ total = value
+ print(marker, total)
+</hick:patch>`;
+  await page.request.put("/api/workspace/ui", {data:{state:null}});
+  const response = await page.request.post("/api/projects/local/docs", {data:{path:`exact-debug-${surface}.md`,source}});
+  expect(response.ok()).toBeTruthy();
+  const note = await response.json();
+  await page.goto(`/#/docs/${note.id}`);
+  await expect(page.locator(".project-context-selector")).toHaveCount(0);
+  const patch = page.getByRole("region", {name:"Project patch editor"}).last();
+  await expect(patch.getByRole("button", {name:"Debug main.py · Before this patch",exact:true})).toBeEnabled();
+  const pane = surface === "file" ? page.locator(".document-editor > .editor-cm-host > .cm-editor").first()
+    : patch.locator(".comparison-side").nth(surface === "before" ? 0 : 1);
+  const lineNumber = surface === "file" ? source.split("\n").indexOf("print(marker, total)") : 3;
+  const ghost = pane.locator(`.cm-bp-ghost[data-breakpoint-line="${lineNumber}"]`).first();
+  await ghost.scrollIntoViewIfNeeded();
+  await ghost.click();
+  await expect(pane.locator(".cm-bp")).toHaveCount(1);
+  if (surface === "file") await page.getByRole("button", {name:"Debug main.py",exact:true}).click();
+  else await patch.getByRole("button", {name:`Debug main.py · ${surface === "before" ? "Before" : "After"} this patch`,exact:true}).click();
+  await expect(page.getByRole("button", {name:"Continue",exact:true}).last()).toBeVisible({timeout:90_000});
+  await expect(pane.locator(".cm-paused-line").first()).toContainText("print(marker, total)");
+  await expect(pane.locator(".cm-debug-value").filter({hasText:"total = 7"}).first()).toBeVisible();
+  await expect(pane.locator(".cm-debug-value").filter({hasText:surface === "after" ? "replaced" : "viewed"}).first()).toBeVisible();
+  await expect(page.getByRole("region", {name:"Code · main.py"})).toHaveCount(0);
+  await page.screenshot({path:`/tmp/hickory-exact-debug-${surface}.png`,fullPage:true});
+  await page.getByRole("button", {name:"Stop",exact:true}).last().click();
+  expect(errors).toEqual([]);
+});

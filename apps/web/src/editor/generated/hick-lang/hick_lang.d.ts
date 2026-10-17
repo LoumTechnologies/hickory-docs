@@ -8,6 +8,11 @@
 export function evaluate_project(entry: string, sources_json: string, input_json: string): string;
 
 /**
+ * The same exact-source selection used by native document launches.
+ */
+export function latest_debug_project(versions_json: string, displayed_json: string, path: string): string;
+
+/**
  * Versioned non-executing materialization of literal files, including lineage.
  * Missing semantics are a diagnostic, never a successful partial program.
  */
@@ -40,6 +45,7 @@ export type InitInput = RequestInfo | URL | Response | BufferSource | WebAssembl
 export interface InitOutput {
     readonly memory: WebAssembly.Memory;
     readonly evaluate_project: (a: number, b: number, c: number, d: number, e: number, f: number, g: number) => void;
+    readonly latest_debug_project: (a: number, b: number, c: number, d: number, e: number, f: number, g: number) => void;
     readonly literal_files: (a: number, b: number, c: number) => void;
     readonly project_position: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number) => void;
     readonly project_transition: (a: number, b: number, c: number, d: number, e: number) => void;

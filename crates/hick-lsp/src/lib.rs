@@ -33,6 +33,6 @@ pub use backend::HickBackend;
 pub use staging::{STAGING_PREFIX, StagingArea, StagingError, staged_output_path};
 
 pub use project::{
-    MaterializedProject, ProjectEndpoint, endpoint, materialize, to_endpoint, to_source,
-    utf16_position, write_tree,
+    MaterializedProject, ProjectEndpoint, debug_selection, endpoint, latest_file, materialize,
+    to_endpoint, to_source, utf16_position, write_tree,
 };

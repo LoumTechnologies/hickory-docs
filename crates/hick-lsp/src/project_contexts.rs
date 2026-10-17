@@ -72,6 +72,8 @@ impl ProjectContext {
                 new: self.tree.clone(),
                 inventory: Default::default(),
                 local_states: Default::default(),
+                versions: vec![],
+                file_paths: Default::default(),
                 scopes: Default::default(),
                 recordings: vec![],
             };

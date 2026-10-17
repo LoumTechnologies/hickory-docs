@@ -14,7 +14,7 @@
 // points await `loadHickLang()` once before the first render, and the tests
 // load the bytes from disk in `test-setup.ts`.
 
-import init, { initSync, structure as wasmStructure, literal_files, evaluate_project, project_position, project_transition, regenerate_project_patch, reverse_project_edit } from "./generated/hick-lang/hick_lang.js";
+import init, { initSync, structure as wasmStructure, literal_files, evaluate_project, latest_debug_project, project_position, project_transition, regenerate_project_patch, reverse_project_edit } from "./generated/hick-lang/hick_lang.js";
 import wasmUrl from "./generated/hick-lang/hick_lang_bg.wasm?url";
 
 /** `hick_lang::StructureTag` — byte offsets into the UTF-8 source. */
@@ -106,6 +106,7 @@ export interface ProjectEntry {
   origins?: { output: [number, number]; document: string; source: [number, number] }[];
 }
 export interface EvaluatedProject {
+  versions: ProjectEntry[][];
   old: ProjectEntry[];
   new: ProjectEntry[];
   inventory: { documents: string[]; exclude: string[] };
@@ -142,4 +143,12 @@ export function projectPosition(local: ProjectEntry[], endpoint: ProjectEntry[],
   const result = JSON.parse(project_position(JSON.stringify(local),JSON.stringify(endpoint),path,byte));
   if (result.version !== 1 || result.error) throw new Error(result.error ?? "Unsupported project interface");
   return result.location;
+}
+
+/** Select a whole captured version; never patch the displayed file into another tree. */
+export function latestDebugProject(versions: ProjectEntry[][], displayed: ProjectEntry[], path: string): { project: ProjectEntry[]; path: string; latest: boolean } {
+  const result = JSON.parse(latest_debug_project(JSON.stringify(versions), JSON.stringify(displayed), path));
+  if (result.version !== 1 || result.error) throw new Error(result.error ?? "Unsupported project interface");
+  const [index, target] = result.selection as [number, string];
+  return { project: versions[index], path: target, latest: index === versions.length - 1 };
 }

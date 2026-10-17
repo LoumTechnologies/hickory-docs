@@ -101,7 +101,7 @@ export interface DocumentEditorProps {
   runningCells: Set<string>;
   onRunCell: (execId: string) => void;
   /** Debug one of the files this document generates, named by its path. */
-  onDebugFile?: (path: string) => void;
+  onDebugFile?: (path: string, at?: number) => void;
   /** Fired with the live EditorView on mount and null on teardown (the Split
    * view uses it to measure ribbon anchors against real geometry). */
   onViewReady?: (view: EditorView | null) => void;

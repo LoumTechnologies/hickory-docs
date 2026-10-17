@@ -1,3 +1,4 @@
+import { documentDebugContext } from "../debug/documentDebugContext";
 import { bindProjectDebugView } from "../debug/projectDebugSurface";
 import { completionSource, completionSources } from "../lsp/completion";
 import { usePublishDebugSession } from "../debug/plainDebugHosts";
@@ -43,7 +44,7 @@ import { positionToUtf16 } from "../lsp/positions";
 import { sourcePositionAt, type OutputProvenance } from "../lsp/outputMapping";
 import type { LspLocation } from "../lsp/client";
 import { FILES_CHANGED_EVENT } from "../shell/FolderTreePane";
-import { openLocation, pathOfDocUri, projectContextFor, onProjectContext, rememberProjectContext } from "../lib/revealLine";
+import { openLocation, pathOfDocUri } from "../lib/revealLine";
 import { publishPausedElsewhere } from "../lib/pausedElsewhere";
 import { navigate } from "../router";
 
@@ -90,8 +91,7 @@ export interface DocSession {
   /** Live text differs from the last confirmed disk bytes. */
   dirty: boolean;
   liveSource: string;
-  projectContext: string;
-  setProjectContext: (selection: string) => void;
+  startDebugFile: (path: string, at?: number) => void;
   savedSource: string | null;
   runningCells: Set<string>;
   execBlocks: ExecBlock[];
@@ -303,14 +303,7 @@ function useDocumentSession(
   // The debugger. It is a READER: nothing it does can change the document,
   // its generated files, or a recorded transcript — the channel carries no
   // edit operation and the debuggee runs in a scratch copy.
-  const [projectContext,setProjectSelection] = useState("new");
-  const setProjectContext = useCallback((selection: string) => { setProjectSelection(selection); if (doc?.path) rememberProjectContext(doc.path,selection); },[doc?.path]);
-  useEffect(() => {
-    if (!doc?.path) return;
-    setProjectSelection(projectContextFor(doc.path));
-    return onProjectContext((path,selection) => { if (path === doc.path) setProjectSelection(selection); });
-  },[doc?.path]);
-  const debug = useDebugger(realtime, doc?.path ?? "", projectContext);
+  const debug = useDebugger(realtime, doc?.path ?? "");
   usePublishDebugSession(doc?.path ?? "", debug);
   const debugRef = useRef(debug);
   debugRef.current = debug;
@@ -723,7 +716,19 @@ function useDocumentSession(
   // One LSP session per document, shared by both editors. It is fed the LIVE
   // text (unsaved edits included) so positions always match the screen.
   const liveSource = dirtySource ?? doc?.source ?? "";
-  const lsp = useLsp(realtime, doc?.path ?? "", liveSource,projectContext);
+  const startDebugFile = useCallback((path: string, at?: number) => {
+    if (!doc) return;
+    const source = editorRef.current?.state.doc.toString() ?? liveSource;
+    let context: string;
+    try { context = documentDebugContext(doc.path, source, at); }
+    catch (e) { setBanner({kind: "fail", text: e instanceof Error ? e.message : String(e)}); return; }
+    // Save the exact reading first. The native resolver also checks those bytes
+    // so an external write cannot silently change the launch under this view.
+    void menuSave().then(saved => {
+      if (saved && (!editorRef.current || editorRef.current.state.doc.toString() === source)) debug.start(path, {}, context);
+    });
+  }, [doc, liveSource, menuSave, debug.start]);
+  const lsp = useLsp(realtime, doc?.path ?? "", liveSource);
   // The callbacks below read the live text at the moment they are CALLED,
   // through a ref, rather than closing over it: closing over it would give
   // them a new identity on every keystroke, and the session they belong to
@@ -747,7 +752,7 @@ function useDocumentSession(
       const targetPath = pathOfDocUri(target.uri);
       const ownPath = (docPathRef.current ?? "").replace(/^\/+/, "");
       if (targetPath !== null && targetPath.replace(/^\/+/, "") !== ownPath) {
-        openLocation(targetPath, target.range.start.line + 1, new URL(target.uri).searchParams.get("hick-project") ?? undefined);
+        openLocation(targetPath, target.range.start.line + 1);
         return;
       }
       const text = liveSourceRef.current;
@@ -881,8 +886,7 @@ function useDocumentSession(
     outputs,
     openOutputs,
     docEditor,
-    projectContext,
-    setProjectContext,
+    startDebugFile,
     realtime,
     debug,
     selectSpan,

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef } from "react";
 import { Compartment, StateEffect } from "@codemirror/state";
 import type { EditorView } from "@codemirror/view";
+import { parseHickDoc } from "../editor/hickDoc";
 import type { OutputFile } from "../api/types";
 import { api } from "../api/client";
 import { provToChars } from "../components/OutputEditorPane";
@@ -59,7 +60,7 @@ export function GeneratedDebugTools({view,file,debug,docPath,source,askText}: {
     if(exact && pausedLine!==null)revealLine(view,pausedLine);
   },[view,file,debug,pausedLine,mapping,activeHere]);
   if(!isDebuggable(languageFromPath(file.path)))return null;
-  const start=()=>{if(view?.state.doc.toString()===file.content)debug.start(file.path);};
+  const start=()=>{if(view?.state.doc.toString()===file.content)debug.start(file.path, {}, parseHickDoc(source).blocks.some(b => b.name === "project") ? `latest-code:${JSON.stringify([file.path,file.content,source])}` : "new");};
   return <>
     <DebugLaunchAction view={view} label={`Debug ${file.path}`} onStart={start} disabled={!view || view.state.doc.toString()!==file.content} hint={view?.state.doc.toString()!==file.content?"Waiting for your edits to save before debugging":undefined}/>
     <DebugStrip {...debug} status={activeHere?debug.status:"idle"} editorView={view} pausedLine={pausedLine} program={file.path}

@@ -155,6 +155,22 @@ need not preserve the old patch shapes or the agent's chronological steps.
 
 ## Atomic project services and editable sides
 
+**Debug selection amendment (2026-10-17):** a debug action selects the latest
+whole evaluated project containing the exact file bytes displayed beside that
+action. This supersedes the Old/New debug defaults below; explicit endpoint
+APIs and ordinary document language-service defaults remain available. There
+is no global project-version selector. Comparison panes use the same resolved
+capture for breakpoints, launch and language tools. The candidates are the
+input and cumulative evaluated project states in dependency order, not lexical
+construction-id order, not mixed-file synthetic projects, and not Git history.
+Later changes to other files are included while the displayed file remains
+unchanged. A later replacement selects an older compatible state; a byte-equal
+revert can select the latest state again. Renames require unique provenance.
+An unavailable matching state is explained without launching different code or
+opening a replacement editor. Native builds can still fail: selecting a state
+does not certify it builds, and selection does not run speculative builds.
+
+
 The default atomic scope is a document's evaluated project closure. Patches
 retain ordered local before/after states internally, but invoking project
 services halfway down the document does not select a half-built program.

@@ -6,7 +6,7 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Compartment, StateEffect } from "@codemirror/state";
 import type { EditorView } from "@codemirror/view";
 import { api } from "../api/client";
-import { projectPosition, type ProjectEntry } from "../editor/hickLang";
+import { latestDebugProject, projectPosition, type ProjectEntry } from "../editor/hickLang";
 import type { ComparisonSource } from "../lib/projectComparison";
 import { openCapturedCode } from "../lib/capturedCode";
 import { acquireCapturedContext, retainCapturedContext } from "../lib/capturedContexts";
@@ -43,12 +43,17 @@ export function ComparisonTools({path,source,view,children}: {path:string;source
   const [retry,setRetry] = useState(0);
   const tools = useMemo(() => new Compartment(),[]);
   const local = source.local ?? source.project;
-  const selected = source.project;
+  const selection = useMemo(() => {
+    if (!local?.some(e => e.path === path) || !source.project) return null;
+    try {
+      return { ...latestDebugProject(source.versions ?? [source.project], local, path), error: "" };
+    } catch (e) {
+      return { project: undefined, path, latest: false, error: e instanceof Error ? e.message : String(e) };
+    }
+  }, [source.project, source.versions, local, path]);
+  const selected = selection?.project;
   const displayed = local?.find(e => e.path === path);
-  let activePath = selected?.find(e => e.path === path)?.path;
-  if (!activePath && displayed?.origins?.length && selected && local) {
-    try { activePath = projectPosition(local,selected,path,displayed.origins[0].output[0])?.[0]; } catch { /* explicit absent-code status */ }
-  }
+  const activePath = selection?.path;
   const active = selected?.find(e => e.path === activePath && e.kind === "file");
   const displayMatches = !!displayed && decode(displayed) === source.text;
   const context = registration?.project === selected && displayMatches ? registration : null;
@@ -56,7 +61,7 @@ export function ComparisonTools({path,source,view,children}: {path:string;source
   const lsp = useWorkspaceLsp(uri,active ? decode(active) : "");
   const debug = useFollowingDebugSession(uri, source.debugOwner) ?? IDLE_SESSION;
   const live = useRef({source,local,selected,context,debug}); live.current={source,local,selected,context,debug};
-  const exact = !!active && !!displayed && active.path === path && decode(active) === source.text;
+  const exact = !!active && !!displayed && decode(active) === source.text;
   useEffect(() => {
     let live = true;
     let release: (() => void) | undefined;
@@ -138,19 +143,22 @@ export function ComparisonTools({path,source,view,children}: {path:string;source
     view.dispatch({effects:setLspDiagnostics.of(spans)});
   },[view,lsp.diagnostics,context,active,local,selected,path,displayed,displayMatches]);
   const launch = () => {
+    if (!context || !exact || !displayMatches || (view && view.state.doc.toString() !== source.text)) {
+      setError("The displayed code changed. Wait for it to save or reload it before debugging.");
+      return;
+    }
     const surface = source.debugSurface;
     if (surface && selected && context) {
       preferCapturedLiterateSurface(uri, context.uri, selected, surface);
     }
     debug.start();
-    if (!exact) void openCapturedCode({uri,range:{start:{line:0,character:0},end:{line:0,character:0}}}, uri).catch(e=>setError(String(e)));
   };
   const canDebug = !!active && isDebuggable(languageFromPath(active.path));
   const selectedFrame = debug.frames.find(frame => frame.id === debug.selectedFrame);
   useSelectedFrame(view, exact ? (selectedFrame?.line ?? debug.pausedLine) : null);
   return <>
     {children?.(context && exact && canDebug ? debug : null)}
-    {canDebug && <DebugLaunchAction view={view} label={`Debug ${path} · ${source.label}`} disabled={!context || busy || !displayMatches} onStart={launch} />}
+    {canDebug && <DebugLaunchAction view={view} label={`Debug ${path} · ${source.label}`} disabled={!context || busy || !displayMatches || !exact} onStart={launch} hint={selection?.latest ? "Debug this code · latest project" : "Debug this code · latest project containing this version of the file"} />}
     <DebugStrip {...debug} locationActions={<ProjectDebugLinks owner={source.debugOwner ?? uri} debug={debug}/>} editorView={view} pausedLine={exact ? debug.pausedLine : null} program={path}
       onSelectFrame={id=> {
         debug.selectFrame(id); const frame=debug.frames.find(f=>f.id===id);
@@ -163,6 +171,7 @@ export function ComparisonTools({path,source,view,children}: {path:string;source
       onAddWatch={()=>{void prompt.askText("Expression to watch:", "").then(expression=>{if(expression)debug.addWatch(expression);});}}
       onToggleExceptionFilter={debug.toggleExceptionFilter} onRemoveWatch={debug.removeWatch}
       onInstall={async offer=> {await api.installTool(offer.kind,offer.language);}} />
+    {selection?.error && <div className="comparison-tools"><p role="alert">{selection.error}</p></div>}
     {error && <div className="comparison-tools">
       <p role="alert">Could not start code tools: {error}</p>
       <button className="btn" onClick={() => setRetry(n => n + 1)}>Retry code tools</button>

@@ -196,11 +196,10 @@ impl Sources {
             .unwrap()
             .get_mut(&source)
             .and_then(|held| held.iter_mut().find(|bp| bp.line == line))
+            && !status.state.is_refused()
         {
-            if !status.state.is_refused() {
-                status.state = BindState::Bound;
-                status.message = None;
-            }
+            status.state = BindState::Bound;
+            status.message = None;
         }
     }
 }

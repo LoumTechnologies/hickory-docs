@@ -627,7 +627,7 @@ verify-literate-project-fixtures:
 # Common editor contracts and portable browser patch regeneration.
 test-literate-comparison-editor:
     cd apps/web && npm run typecheck
-    cd apps/web && npm test -- src/lib/projectComparison.test.ts src/components/ComparisonEditor.test.tsx src/components/ComparisonTools.test.tsx src/components/ProjectContextSelector.test.tsx src/elements/patch/Editor.test.tsx src/views/workspaceTabs.test.tsx --maxWorkers=2
+    cd apps/web && npm test -- src/lib/projectComparison.test.ts src/components/ComparisonEditor.test.tsx src/components/ComparisonTools.test.tsx src/debug/documentDebugContext.test.ts src/elements/patch/Editor.test.tsx src/views/workspaceTabs.test.tsx --maxWorkers=2
 
 # All portable projects declared in the exact candidate index; no working reads.
 verify-literate-projects-index:
@@ -686,3 +686,14 @@ test-debug-navigation:
 test-file-tab-menu:
     just check-web
     cd apps/web && npm test -- src/views/useFileTabMenu.test.tsx src/shell/FolderTreePane.test.tsx src/shell/SpatialShellView.test.tsx --maxWorkers=2
+
+# Exact-source project selection, breakpoint rails and frozen comparison tools.
+test-exact-source-debug:
+    cargo test -p hick-lang --test project_debug --test project
+    cargo test -p hick-lsp --test project
+    cd apps/web && npm run typecheck && npm test -- --maxWorkers=2 src/debug/documentDebugContext.test.ts src/debug/DebugRail.test.tsx src/debug/useDebugger.test.ts src/components/ComparisonTools.test.tsx src/views/workspaceTabs.test.tsx
+
+# Real native adapter: file-block, Old and New launches preserve displayed bytes.
+test-exact-source-debug-ui:
+    cargo build -p hickory-cli --bin hick --example engine_client --example acp_fixture
+    HICKORY_E2E_DEBUG=1 scripts/test-literate-editor.sh --grep 'exact-source debug|unified patch gutter|patch debugger keeps'

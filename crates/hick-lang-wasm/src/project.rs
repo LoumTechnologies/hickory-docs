@@ -142,3 +142,23 @@ pub fn project_position(local_json: &str, endpoint_json: &str, path: &str, byte:
         Err(error) => serde_json::json!({"version":1,"location":null,"error":error}).to_string(),
     }
 }
+
+/// The same exact-source selection used by native document launches.
+#[wasm_bindgen]
+pub fn latest_debug_project(versions_json: &str, displayed_json: &str, path: &str) -> String {
+    let result = (|| {
+        let versions: Vec<serde_json::Value> =
+            serde_json::from_str(versions_json).map_err(|e| format!("project versions: {e}"))?;
+        let versions = versions
+            .iter()
+            .map(|v| read_tree(&v.to_string()))
+            .collect::<Result<Vec<_>, _>>()?;
+        hick_lang::latest_debug_project(&versions, &read_tree(displayed_json)?, path)
+    })();
+    match result {
+        Ok(selection) => {
+            serde_json::json!({"version":1,"selection":selection,"error":null}).to_string()
+        }
+        Err(error) => serde_json::json!({"version":1,"selection":null,"error":error}).to_string(),
+    }
+}

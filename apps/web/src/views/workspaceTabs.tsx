@@ -1,5 +1,4 @@
 import { PaneHeaderContent } from "../shell/PaneHeader";
-import { ProjectContextSelector } from "../components/ProjectContextSelector";
 import { SurfaceInfo } from "../components/SurfaceInfo";
 import { ActionNotice } from "../components/ActionNotice";
 // What the workspace's tabs render.
@@ -159,8 +158,6 @@ export function DocTabBody({
       {session.syncState === "failed" && session.banner?.retry?.label !== "Retry Save" && <ActionNotice kind="fail" retry={{ label: "Retry Save", run: () => { void session.menuSave(); } }}>Saving could not be confirmed. Your text is still in this editor.</ActionNotice>}
       {/* The debugger's chrome, on the block being debugged. Nothing while
           idle: the file chip's Debug button is the way in. */}
-      <ProjectContextSelector doc={docId} source={session.liveSource} value={session.projectContext} onChange={session.setProjectContext}
-        disabled={["starting","paused","running"].includes(debug.status)} />
       <DebugStrip
         editorView={session.docEditor}
         pausedLine={debug.pausedLine}
@@ -219,7 +216,7 @@ export function DocTabBody({
         lspExtensions={session.lspExtensions}
         lspDiagnostics={session.lspDiagnostics}
         lspCompletion={session.lspCompletion}
-        onDebugFile={(path) => debug.start(path)}
+        onDebugFile={session.startDebugFile}
         onViewReady={session.onDocViewReady}
         wrapColumn={wrapColumn}
         onWrapColumn={onWrapColumn}

@@ -112,8 +112,8 @@ export function PatchEditor({ slot, cx }: { slot: RenderedSlot; cx: SlotContext 
     };
     try {
       model = draft ?? { sources: [
-        { id: "old", label: "Before this patch", kind: "authored", target: capture.entry, text: decode(state.old), project: capture.project.old, local: state.old, debugSurface: cx.view ? { view: cx.view, entry: capture.entry, source: capture.source, path: cx.path ?? undefined } : undefined },
-        { id: "new", label: "After this patch", kind: "authored", target: capture.entry, text: decode(state.new), project: capture.project.new, local: state.new, debugSurface: cx.view ? { view: cx.view, entry: capture.entry, source: capture.source, path: cx.path ?? undefined } : undefined },
+        { id: "old", label: "Before this patch", kind: "authored", target: capture.entry, text: decode(state.old), project: capture.project.old, versions: capture.project.versions, local: state.old, debugSurface: cx.view ? { view: cx.view, entry: capture.entry, source: capture.source, path: cx.path ?? undefined } : undefined },
+        { id: "new", label: "After this patch", kind: "authored", target: capture.entry, text: decode(state.new), project: capture.project.new, versions: capture.project.versions, local: state.new, debugSurface: cx.view ? { view: cx.view, entry: capture.entry, source: capture.source, path: cx.path ?? undefined } : undefined },
       ], old: "old", new: "new", policy: side, evidence: "unverified" };
     } catch { /* The explicit diagnostic below leaves binary source intact. */ }
   }
@@ -131,7 +131,7 @@ export function PatchEditor({ slot, cx }: { slot: RenderedSlot; cx: SlotContext 
       <label>File <select disabled={!!draft || saving} value={path} onChange={e => { setPath(e.target.value); setDraft(null); }}>
         {patchPaths(capture.project.local_states[capture.id]).map(p => <option key={p}>{p}</option>)}
       </select></label>
-      <p className="muted">Edits save automatically after checking later patches. Language and debug tools use the complete project endpoint.</p>
+      <p className="muted">Edits save automatically after checking later patches. Debugging uses the latest project containing exactly the code shown.</p>
       </>} /> : <p role="alert">This entry is binary or a symlink. Edit its explicit entry construction.</p>}
     </>}
     {error && <button className="btn" onClick={() => void inspect()} disabled={saving}>Reload patch{draft ? " and discard draft" : ""}</button>}
