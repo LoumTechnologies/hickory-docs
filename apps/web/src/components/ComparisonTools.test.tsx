@@ -62,7 +62,7 @@ it("does not offer runnable tools for an empty Old endpoint", () => {
   render(<ComparisonTools path="x.ts" view={null} source={{ id: "old", label: "Old · scope input",
     kind: "authored", text: "old\n", project: [] }} />);
   expect(screen.queryByRole("button", { name: "Enable code completion and navigation" })).toBeNull();
-  expect(screen.getByText("Code absent from Old · scope input; choose another scope endpoint.")).toBeTruthy();
+  expect(screen.queryByRole("button", { name: /^Debug / })).toBeNull();
   expect(request).not.toHaveBeenCalled();
 });
 
@@ -96,10 +96,10 @@ it("offers a retry only after automatic setup fails", async () => {
   vi.mocked(request).mockRejectedValueOnce(new Error("Engine unavailable"));
   render(<ComparisonTools path="app.ts" source={{ id:"new",label:"New",kind:"git",text:"value",project:[entry()] }} view={null} />);
   await waitFor(() => expect(screen.getByText(/Engine unavailable/)).toBeTruthy());
-  fireEvent.click(document.querySelector('summary[aria-label="Code tools · New"]')!);
   expect(screen.getByRole("alert").textContent).toContain("Engine unavailable");
   fireEvent.click(screen.getByRole("button", {name:"Retry code tools"}));
-  await waitFor(() => expect(screen.getByText("Code tools enabled")).toBeTruthy());
+  await waitFor(() => expect(screen.queryByRole("alert")).toBeNull());
+  expect(screen.queryByRole("button", {name:"Retry code tools"})).toBeNull();
 });
 
 it("requests completions from the captured project's mapped file without an enable click", async () => {
@@ -139,6 +139,8 @@ it("launches exact and completed patch code from the right gutter without openin
   await waitFor(()=>expect((launch as HTMLButtonElement).disabled).toBe(false));
   expect(launch.closest(".cm-debug-rail")).not.toBeNull();
   expect(launch.closest("details")).toBeNull();
+  expect(mounted.container.querySelector('summary[aria-label^="Code tools"]')).toBeNull();
+  expect(screen.queryByText("Code tools enabled")).toBeNull();
   fireEvent.click(launch);
   expect(start).toHaveBeenCalledOnce();
   await waitFor(()=>expect(request).toHaveBeenCalledWith("GET","/api/project-contexts/file?uri=hick-project%3A%2F%2F%2Fcaptured%2Fapp.ts"));

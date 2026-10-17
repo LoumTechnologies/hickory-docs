@@ -20,7 +20,6 @@ import { lspSupport, setLspDiagnostics, diagnosticRanges } from "../lsp/cmLsp";
 import { debugEditor, debugStateEffects } from "../debug/cmDebug";
 import { DebugStrip } from "../debug/DebugStrip";
 import { languageFromPath } from "../editor/languages";
-import { MarginActions } from "./MarginActions";
 
 const decode = (entry: ProjectEntry) => new TextDecoder("utf-8", {fatal:true}).decode(new Uint8Array(entry.bytes));
 function offset(text: string, line: number, column: number): number | null {
@@ -35,7 +34,7 @@ function position(bytes: number[], byte: number) {
 export { openCapturedCode } from "../lib/capturedCode";
 
 /** Opening the view registers its isolated snapshot; native tools use only that captured project. */
-export function ComparisonTools({path,source,view,compact=false}: {path:string;source:ComparisonSource;view:EditorView|null;compact?:boolean}) {
+export function ComparisonTools({path,source,view}: {path:string;source:ComparisonSource;view:EditorView|null}) {
   const prompt = usePrompt();
   const [registration,setContext] = useState<{id:string;uri:string;project:ProjectEntry[]}|null>(null);
   const [references,setReferences] = useState<import("../lsp/client").LspLocation[] | null>(null);
@@ -149,15 +148,6 @@ export function ComparisonTools({path,source,view,compact=false}: {path:string;s
   const canDebug = !!active && isDebuggable(languageFromPath(active.path));
   const selectedFrame = debug.frames.find(frame => frame.id === debug.selectedFrame);
   useSelectedFrame(view, exact ? (selectedFrame?.line ?? debug.pausedLine) : null);
-  const controls = <div className="comparison-tools">
-    <p>{source.label}</p>
-    <p className="muted">Code tools use the complete project for this side.{compact && (source.id === "old" ? " Before uses the project’s input." : " After uses its final output, including later patches.")}</p>
-    {busy && <span role="status">Starting code tools…</span>}
-    {!displayMatches && <span>Code tools will update after this draft is saved.</span>}
-    {!active && <span>Code absent from {source.label}; choose another scope endpoint.</span>}
-    {context && <span>Code tools enabled</span>}
-    {error && <><p role="alert">Could not start code tools: {error}</p><button className="btn" onClick={() => setRetry(n => n + 1)}>Retry code tools</button></>}
-  </div>;
   return <>
     {canDebug && <DebugLaunchAction view={view} label={`Debug ${path} · ${source.label}`} disabled={!context || busy || !displayMatches} onStart={launch} />}
     <DebugStrip {...debug} locationActions={<ProjectDebugLinks owner={source.debugOwner ?? uri} debug={debug}/>} editorView={view} pausedLine={exact ? debug.pausedLine : null} program={path}
@@ -172,7 +162,10 @@ export function ComparisonTools({path,source,view,compact=false}: {path:string;s
       onAddWatch={()=>{void prompt.askText("Expression to watch:", "").then(expression=>{if(expression)debug.addWatch(expression);});}}
       onToggleExceptionFilter={debug.toggleExceptionFilter} onRemoveWatch={debug.removeWatch}
       onInstall={async offer=> {await api.installTool(offer.kind,offer.language);}} />
-    <MarginActions label={`Code tools · ${source.label}`} glyph={error ? "!" : "{}"}>{controls}</MarginActions>
+    {error && <div className="comparison-tools">
+      <p role="alert">Could not start code tools: {error}</p>
+      <button className="btn" onClick={() => setRetry(n => n + 1)}>Retry code tools</button>
+    </div>}
     <PromptPanel prompt={prompt.prompt} onSettle={prompt.settle} />
     {references && <div className="code-references" role="dialog" aria-label="References" onKeyDown={event=>{if(event.key==="Escape")setReferences(null);}}>
       <button type="button" aria-label="Close references" onClick={()=>setReferences(null)}>×</button>

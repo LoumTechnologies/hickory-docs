@@ -50,7 +50,7 @@ export function CodeEditor({ path, item, base, presentation, editable, onChange,
     mounted.dispatch({selection:{anchor:Math.min(line.to, line.from + item.location.character)},scrollIntoView:true});
     mounted.focus();
   }, [mounted, item.location]);
-  return <section className="comparison-side">{!compact && <h3>{label} · {editable ? "editable draft" : "read-only"}</h3>}<div className="comparison-code with-right-rail"><div className="editor-cm-host" ref={host} /><RightRail view={mounted} /><DebugLaunchRail view={mounted} /></div>{item.project ? <ComparisonTools path={path} source={item} view={mounted} compact={compact} /> : isDebuggable(languageFromPath(path)) && item.kind === "authored" && <DebugLaunchAction view={mounted} label={`Debug ${path}`} onStart={() => {}} disabled hint="Save or apply this draft before debugging its project." />}</section>;
+  return <section className="comparison-side">{!compact && <h3>{label} · {editable ? "editable draft" : "read-only"}</h3>}<div className="comparison-code with-right-rail"><div className="editor-cm-host" ref={host} /><RightRail view={mounted} /><DebugLaunchRail view={mounted} /></div>{item.project ? <ComparisonTools path={path} source={item} view={mounted} /> : isDebuggable(languageFromPath(path)) && item.kind === "authored" && <DebugLaunchAction view={mounted} label={`Debug ${path}`} onStart={() => {}} disabled hint="Save or apply this draft before debugging its project." />}</section>;
 }
 
 /** One N-source model; two chosen endpoints, with independent storage and evidence. */
