@@ -184,3 +184,21 @@ function renderHookReading(id:string) {
   function Capture(){ record=useReading(id)!; return null; }
   const result=render(<Capture/>); result.unmount(); return record;
 }
+
+// Guarantee: docs/guarantees/literate-projects/patch-layout-breakpoints.md
+it("sets and removes patch-layout breakpoints at the correct endpoint line", async () => {
+  const toggle = vi.fn();
+  vi.mocked(useFollowingDebugSession).mockReturnValue({ ...IDLE_SESSION, toggleBreakpoint: toggle,
+    breakpoints: [{ line: 1, state: "bound" }] });
+  render(<ComparisonEditor path="app.ts" model={{ sources: [
+    { id: "old", label: "Before", kind: "git", text: "same\nremoved\nend\n", project: [entry("same\nremoved\nend\n")] },
+    { id: "new", label: "After", kind: "authored", text: "same\nadded\nextra\nend\n", project: [entry("same\nadded\nextra\nend\n")] },
+  ], old: "old", new: "new", policy: "neither", evidence: "unverified" }} />);
+  fireEvent.change(screen.getByLabelText("Comparison layout"), { target: { value: "patch" } });
+  await waitFor(() => expect(screen.getByRole("button", { name: "Remove breakpoint on old line 2" })).toBeTruthy());
+  fireEvent.click(screen.getByRole("button", { name: "Remove breakpoint on old line 2" }));
+  expect(toggle).toHaveBeenLastCalledWith(1);
+  fireEvent.click(screen.getByRole("button", { name: "Set breakpoint on new line 3" }));
+  expect(toggle).toHaveBeenLastCalledWith(2);
+  expect(screen.queryByRole("button", { name: "Set breakpoint on old line 4" })).toBeNull();
+});

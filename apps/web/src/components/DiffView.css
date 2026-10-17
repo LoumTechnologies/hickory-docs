@@ -1,0 +1,5 @@
+.diff-breakpoints { display: inline-flex; width: 3rem; vertical-align: baseline; }
+.diff-breakpoints > span { display: inline-block; width: 1.5rem; }
+.diff-breakpoint { border: 0; padding: 0; width: 1.5rem; background: transparent; color: var(--fg-muted); font: inherit; cursor: pointer; }
+.diff-breakpoint:hover, .diff-breakpoint[aria-pressed="true"] { color: var(--fail); }
+.diff-breakpoint:focus-visible { outline: 1px solid var(--accent-2); }

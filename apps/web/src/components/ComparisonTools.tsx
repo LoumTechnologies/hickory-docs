@@ -2,7 +2,7 @@ import { revealPreferredDebugLocation } from "../debug/preferredDebugLocation";
 import { preferCapturedLiterateSurface, ProjectDebugLinks } from "../debug/projectDebugSurface";
 import { PromptPanel, usePrompt } from "./PromptPanel";
 import { completionSource, completionSources } from "../lsp/completion";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Compartment, StateEffect } from "@codemirror/state";
 import type { EditorView } from "@codemirror/view";
 import { api } from "../api/client";
@@ -34,7 +34,7 @@ function position(bytes: number[], byte: number) {
 export { openCapturedCode } from "../lib/capturedCode";
 
 /** Opening the view registers its isolated snapshot; native tools use only that captured project. */
-export function ComparisonTools({path,source,view}: {path:string;source:ComparisonSource;view:EditorView|null}) {
+export function ComparisonTools({path,source,view,children}: {path:string;source:ComparisonSource;view:EditorView|null;children?: (debug: typeof IDLE_SESSION | null) => ReactNode}) {
   const prompt = usePrompt();
   const [registration,setContext] = useState<{id:string;uri:string;project:ProjectEntry[]}|null>(null);
   const [references,setReferences] = useState<import("../lsp/client").LspLocation[] | null>(null);
@@ -149,6 +149,7 @@ export function ComparisonTools({path,source,view}: {path:string;source:Comparis
   const selectedFrame = debug.frames.find(frame => frame.id === debug.selectedFrame);
   useSelectedFrame(view, exact ? (selectedFrame?.line ?? debug.pausedLine) : null);
   return <>
+    {children?.(context && exact && canDebug ? debug : null)}
     {canDebug && <DebugLaunchAction view={view} label={`Debug ${path} · ${source.label}`} disabled={!context || busy || !displayMatches} onStart={launch} />}
     <DebugStrip {...debug} locationActions={<ProjectDebugLinks owner={source.debugOwner ?? uri} debug={debug}/>} editorView={view} pausedLine={exact ? debug.pausedLine : null} program={path}
       onSelectFrame={id=> {

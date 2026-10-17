@@ -1,3 +1,6 @@
+import "./DiffView.css";
+import type { ReactNode } from "react";
+
 // A diff, as git prints it, with the lines told apart.
 //
 // Unified diff and nothing cleverer: side-by-side needs a wide pane and a
@@ -38,14 +41,17 @@ export function DiffView({
   binary,
   staged,
   label,
+  gutter,
 }: {
   path: string;
   diff: string;
   binary: boolean;
   staged: boolean;
   label?: string;
+  gutter?: (side: "old" | "new", line: number) => ReactNode;
 }) {
   const lines = diff.replace(/\n$/, "").split("\n");
+  let oldLine = 0, newLine = 0;
   return (
     <section className="diff-view" aria-label={`Diff of ${path}`}>
       <header className="diff-view__head">
@@ -58,12 +64,18 @@ export function DiffView({
         <p className="muted diff-view__binary">No difference.</p>
       ) : (
         <pre className="diff-view__body">
-          {lines.map((line, index) => (
-            <span key={index} className={`diff-line diff-line--${diffLineKind(line)}`}>
-              {line}
-              {"\n"}
-            </span>
-          ))}
+          {lines.map((line, index) => {
+            const kind = diffLineKind(line);
+            const hunk = /^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/.exec(line);
+            if (hunk) { oldLine = Number(hunk[1]) - 1; newLine = Number(hunk[2]) - 1; }
+            const code = kind === "add" || kind === "del" || (kind === "ctx" && line.startsWith(" "));
+            const oldAt = oldLine, newAt = newLine;
+            if (code) { if (kind !== "add") oldLine++; if (kind !== "del") newLine++; }
+            return <span key={index} className={`diff-line diff-line--${kind}`}>
+              {gutter && <span className="diff-breakpoints"><span>{code && kind !== "add" ? gutter("old", oldAt) : null}</span><span>{code && kind !== "del" ? gutter("new", newAt) : null}</span></span>}
+              {line}{"\n"}
+            </span>;
+          })}
         </pre>
       )}
     </section>

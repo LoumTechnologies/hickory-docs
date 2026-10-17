@@ -73,7 +73,19 @@ export function ComparisonEditor({ path, model, onChange, allowFork = false, com
     </>;
   return <section className={`comparison-editor${compact ? " comparison-editor--compact" : ""}`} aria-label={`Comparison of ${path}`}>
     {compact ? <MarginActions label="Patch options" glyph="⋯">{controls}</MarginActions> : <header className="doc-tab-toolbar">{controls}</header>}
-    {layout === "patch" ? <DiffView path={path} diff={comparisonDiff(path, old.text, next.text)} binary={false} staged={false} label="Local transition" />
+    {layout === "patch" ? <ComparisonTools path={old.path ?? path} source={old} view={null}>{oldDebug =>
+      <ComparisonTools path={next.path ?? path} source={next} view={null}>{newDebug =>
+        <DiffView path={path} diff={comparisonDiff(path, old.text, next.text)} binary={false} staged={false} label="Local transition"
+          gutter={(side, line) => {
+            const debug = side === "old" ? oldDebug : newDebug;
+            if (!debug) return null;
+            const held = debug.breakpoints.find(bp => bp.line === line);
+            return <button type="button" className="diff-breakpoint" aria-label={`${held ? "Remove" : "Set"} breakpoint on ${side} line ${line + 1}`}
+              aria-pressed={!!held} title={held?.message ?? `${side === "old" ? old.label : next.label} · line ${line + 1}`}
+              onClick={() => debug.toggleBreakpoint(line)}>{held ? "●" : "○"}</button>;
+          }} />
+      }</ComparisonTools>
+    }</ComparisonTools>
       : <div className={`comparison-panes comparison-panes--${layout}`}>
         {(layout === "side-by-side" || canEdit(model, "old")) && <CodeEditor path={old.path ?? path} item={old} compact={compact} base={layout === "side-by-side" ? next.text : undefined} presentation="old"
           editable={!!onChange && canEdit(model, "old")} onChange={text => change("old", text)} />}
