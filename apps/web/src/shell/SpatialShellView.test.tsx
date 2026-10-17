@@ -1,17 +1,19 @@
 import { useEffect, useRef, useState } from "react";
 import { act, cleanup, fireEvent, render, waitFor, within } from "@testing-library/react";
-import { afterEach, expect, it } from "vitest";
+import { afterEach, beforeEach, expect, it } from "vitest";
 import { EditorState } from "@codemirror/state";
 import { EditorView, lineNumbers } from "@codemirror/view";
 import { history, undo } from "@codemirror/commands";
 import { emptyPane, open, tab, type Layout, type Tab } from "./layout";
 import type { SpatialState } from "./spatialLayout";
 import { SpatialShellView } from "./SpatialShellView";
+import { saveFilesWindows } from "../lib/filesWindows";
 import { saveSpatialSides } from "../lib/spatialSides";
 import { revealLine } from "../lib/revealLine";
 import { publishReading, forgetReading, openReading } from "../lib/readingViews";
 
 // Guarantee: docs/guarantees/shell/spatial-views-preserve-the-editor.md
+beforeEach(() => saveFilesWindows(true));
 afterEach(() => { cleanup(); localStorage.clear(); forgetReading("proposal"); });
 const live = new Map<string, EditorView>();
 function Buffer({ entry }: { entry: Tab }) {
@@ -237,4 +239,18 @@ it("forwards right-clicks on center tabs and drawer filenames without selecting 
   const drawerTab = ui.container.querySelector<HTMLElement>('[data-spatial-key="file:input.txt"] .spatial-filename')!;
   fireEvent.contextMenu(drawerTab);
   expect(picked).toEqual([second.id, second.id]);
+});
+
+it("hides Files windows immediately while preserving the file list and editor buffers", async () => {
+  const ui = render(<Harness related files />);
+  const related = ui.container.querySelector<HTMLElement>('[data-spatial-key="document:related.md"]')!;
+  const original = live.get("related.md");
+  fireEvent.click(ui.getByRole("button", { name: "Show left drawer" }));
+  await waitFor(() => expect(related.hidden).toBe(false));
+  act(() => saveFilesWindows(false));
+  await waitFor(() => expect(related.hidden).toBe(true));
+  expect(ui.container.querySelector<HTMLElement>('[data-spatial-files="left"]')!.hidden).toBe(false);
+  expect(live.get("related.md")).toBe(original);
+  act(() => saveFilesWindows(true));
+  await waitFor(() => expect(related.hidden).toBe(false));
 });

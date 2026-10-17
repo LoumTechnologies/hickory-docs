@@ -7,6 +7,7 @@ import { EditorView } from "@codemirror/view";
 import { bufferTarget } from "../lib/editorBufferTargets";
 import { onRevealLine } from "../lib/revealLine";
 import { samePath } from "../lib/paths";
+import { useFilesWindows } from "../lib/filesWindows";
 import { useFilesParallax } from "../lib/filesParallax";
 import { useSpatialSides } from "../lib/spatialSides";
 import { OPEN_READING, readingStatus, useReadingsVersion } from "../lib/readingViews";
@@ -41,6 +42,7 @@ const paneId = (entry: Entry) => `spatial-pane-${entry.tab?.id ?? encodeURICompo
 export function SpatialShellView(props: Props) {
   const sides = useSpatialSides();
   const filesParallax = useFilesParallax();
+  const filesWindows = useFilesWindows();
   const parallaxRef = useRef(filesParallax); parallaxRef.current = filesParallax;
   useReadingsVersion();
   const root = useRef<HTMLDivElement>(null);
@@ -77,14 +79,14 @@ export function SpatialShellView(props: Props) {
   useEffect(() => { if (JSON.stringify(scene.tiles ?? PRIMARY) !== JSON.stringify(tiles)) setScene(current => ({ ...current, tiles })); }, [scene.tiles, tiles]);
   const relations = spatialRelations(props.sources, props.files, props.links);
   const pending = new Set(entries.filter(entry => entry.tab?.kind === "tool" && entry.tab.target.startsWith("reading:") && readingStatus(entry.tab.target.slice(8)) === "pending").map(entry => entry.key));
-  const contextual = drawerContent(entries, center, relations, scene.views, pending, entries.filter(entry => entry.key === center?.key || tiledKeys.has(entry.key))).filter(entry => !tiledKeys.has(entry.key));
+  const contextual = filesWindows ? drawerContent(entries, center, relations, scene.views, pending, entries.filter(entry => entry.key === center?.key || tiledKeys.has(entry.key))).filter(entry => !tiledKeys.has(entry.key)) : [];
   const files = { left: !!trees[0] && (!!(props.hasFiles ?? trees.length) || requestedFiles.left), right: !!trees[1] && (!!(props.hasFiles ?? trees.length) || requestedFiles.right) };
   const contexts = { left: contextual.some(entry => entry.side === "left"), right: contextual.some(entry => entry.side === "right") };
   const available = { left: sides.left && (files.left || contexts.left), right: sides.right && (files.right || contexts.right) };
   const pinned = scene.drawerPins ?? { left: false, right: false };
   const visible = { left: available.left && (drawerOpen.left || pinned.left), right: available.right && (drawerOpen.right || pinned.right) };
   const effective = { ...scene, tiles, center: center?.key ?? null, sides: visible, drawers: { available, visible, files, contexts, pinned, keys: contextual.map(entry => entry.key) } };
-  const latest = useRef({ state: effective, entries, relations, enabled: sides }); latest.current = { state: effective, entries, relations, enabled: sides };
+  const latest = useRef({ state: effective, entries, relations, enabled: sides, windows: filesWindows }); latest.current = { state: effective, entries, relations, enabled: sides, windows: filesWindows };
   const controller = useMemo(() => new SpatialController({ root: () => root.current, state: () => latest.current.state, items: () => latest.current.entries, relations: () => latest.current.relations,
     parallax: () => parallaxRef.current,
     dock: (key, target, edge) => dockHandler.current(key, target, edge),
@@ -119,7 +121,7 @@ export function SpatialShellView(props: Props) {
       const entry = latest.current.entries.find(item => samePath(item.path, detail.path));
       const side = detail.side && latest.current.enabled[detail.side] ? detail.side : latest.current.enabled.left ? "left" : "right";
       if (entry) requestAnimationFrame(() => { if (ribbonRequest.current === detail) ribbonRequest.current = null; });
-      if (!detail.central && (latest.current.enabled.left || latest.current.enabled.right)) {
+      if (!detail.central && latest.current.windows && (latest.current.enabled.left || latest.current.enabled.right)) {
         setDrawerOpen(current => ({ ...current, [side]: true }));
         if (entry) setScene(current => ({ ...current, views: { ...current.views, [entry.key]: { ...current.views[entry.key], side, revealed: true, expanded: true } } }));
       } else if (!detail.central && entry) setScene(current => ({ ...current, center: entry.key, stack: current.center ? [...current.stack, current.center].slice(-24) : current.stack }));
@@ -319,7 +321,7 @@ export function SpatialShellView(props: Props) {
             data-ribbon-port={entry.port ? entry.key : undefined} onClick={() => click(() => { if (entry.port) openPort(entry); else if (!centered) { if (tab?.kind === "untitled") centerOn(entry); else controller.toggle(entry.key); } })}>{tab && !["document", "generated", "file"].includes(tab.kind) ? title : name || title}{tab && props.dirtyTabIds?.has(tab.id) ? " *" : ""}</button>}
           <PaneHeaderSlots />
           <div className="spatial-window-controls">
-            {centered ? <><button data-tip="Search (Ctrl/Cmd+P)" aria-label="Open search" onClick={() => openCommandBar()}>⌕</button><button data-tip="Restore previous center" aria-label="Restore previous center" onClick={restore}>▣</button>{(sides.left || sides.right) && entries.some(item => item.tab && item.key !== entry.key) && <button data-tip="Pin view in drawer" aria-label="Pin view in drawer" onClick={() => pinCentered(entry)}><PinIcon /></button>}<button data-tip="Automatic accordion" aria-label="Automatic accordion" aria-pressed={scene.auto} onClick={() => setScene(current => ({ ...current, auto: !current.auto }))}>↕</button></>
+            {centered ? <><button data-tip="Search (Ctrl/Cmd+P)" aria-label="Open search" onClick={() => openCommandBar()}>⌕</button><button data-tip="Restore previous center" aria-label="Restore previous center" onClick={restore}>▣</button>{filesWindows && (sides.left || sides.right) && entries.some(item => item.tab && item.key !== entry.key) && <button data-tip="Pin view in drawer" aria-label="Pin view in drawer" onClick={() => pinCentered(entry)}><PinIcon /></button>}<button data-tip="Automatic accordion" aria-label="Automatic accordion" aria-pressed={scene.auto} onClick={() => setScene(current => ({ ...current, auto: !current.auto }))}>↕</button></>
               : <><button data-tip={scene.views[entry.key]?.pin ? "Unpin view" : "Pin view"} aria-label={scene.views[entry.key]?.pin ? "Unpin view" : "Pin view"} aria-pressed={!!scene.views[entry.key]?.pin} onClick={() => click(() => { if (tiled) { controller.pin(entry.key); dockHandler.current(entry.key, sides[entry.side] ? entry.side : sides.left ? "left" : "right", "center"); } else pinView(entry); })}><PinIcon /></button>
                 <button data-tip="Center" aria-label="Center" onClick={() => click(() => centerOn(entry))}>□</button>{!tiled && <button data-tip="Minimize" aria-label="Minimize" onClick={() => { if (controller.frames.get(entry.key)?.h !== 36) controller.toggle(entry.key); }}>—</button>}</>}
             {tab && !centered && <button data-tip={`Close ${title}`} aria-label={`Close ${title}`} onClick={() => close(entry)}>×</button>}

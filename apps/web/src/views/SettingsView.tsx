@@ -41,6 +41,7 @@ import {
 } from "../lib/channelWidth";
 import { applyTheme, loadTheme, saveTheme, type Theme } from "../lib/theme";
 import { loadWordMotion, saveWordMotion, type WordMotion } from "../lib/wordMotion";
+import { saveFilesWindows, useFilesWindows } from "../lib/filesWindows";
 import { saveFilesParallax, useFilesParallax } from "../lib/filesParallax";
 import { saveSpatialSides, useSpatialSides } from "../lib/spatialSides";
 
@@ -151,7 +152,6 @@ function ChoiceRow<T extends string | number>({
 function AppearanceSection() {
   const [editorAppearance, setEditorAppearance] = useState(loadEditorAppearance);
   const spatialSides = useSpatialSides();
-  const filesParallax = useFilesParallax();
   const [theme, setTheme] = useState<Theme>(() => loadTheme());
   const [ribbonStyle, setRibbonStyle] = useState<RibbonStyle>(() => loadRibbonStyle());
   const [ribbonVisibility, setRibbonVisibility] = useState<RibbonVisibility>(
@@ -277,13 +277,6 @@ function AppearanceSection() {
             setEditorAppearance(next); saveEditorAppearance(next);
           }} /></div>
         </div>
-        <div className="settings-row settings-row--appearance">
-          <div className="settings-row__who"><label className="settings-row__label" htmlFor="files-parallax">Files pane parallax</label></div>
-          <div className="settings-row__actions">
-            <input id="files-parallax" type="checkbox" checked={filesParallax} onChange={event => saveFilesParallax(event.target.checked)} />
-            <span className="muted">Move Files previews at a different rate while scrolling the editor. Off by default.</span>
-          </div>
-        </div>
         <ChoiceRow
           label="Tab placement"
           value={tabStyle}
@@ -358,6 +351,32 @@ function AppearanceSection() {
         focused file. A custom title also names the desktop window at its
         next launch.
       </p>
+    </section>
+  );
+}
+
+function ExperimentsSection() {
+  const filesParallax = useFilesParallax();
+  const filesWindows = useFilesWindows();
+  return (
+    <section aria-label="Experiments">
+      <h2 className="settings__section-title">Experiments</h2>
+      <div className="settings__rows">
+        <div className="settings-row settings-row--appearance">
+          <div className="settings-row__who"><label className="settings-row__label" htmlFor="files-windows">Show windows in Files pane</label></div>
+          <div className="settings-row__actions">
+            <input id="files-windows" type="checkbox" checked={filesWindows} onChange={event => saveFilesWindows(event.target.checked)} />
+            <span className="muted">Show related and pinned preview windows alongside the file list. Off by default.</span>
+          </div>
+        </div>
+        <div className="settings-row settings-row--appearance">
+          <div className="settings-row__who"><label className="settings-row__label" htmlFor="files-parallax">Files pane parallax</label></div>
+          <div className="settings-row__actions">
+            <input id="files-parallax" type="checkbox" checked={filesParallax} onChange={event => saveFilesParallax(event.target.checked)} />
+            <span className="muted">Move Files previews at a different rate while scrolling the editor. Off by default.</span>
+          </div>
+        </div>
+      </div>
     </section>
   );
 }
@@ -644,6 +663,7 @@ export function SettingsView({ onBack = () => navigate("/") }: { onBack?: () => 
 
         <AppearanceSection />
         <EditingSection />
+        <ExperimentsSection />
         <CommandPathSettings />
         <AgentSettings />
       <KeyboardSection />

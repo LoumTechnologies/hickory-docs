@@ -1,3 +1,5 @@
+import { FILES_WINDOWS_KEY, loadFilesWindows } from "../lib/filesWindows";
+import { FILES_PARALLAX_KEY, loadFilesParallax } from "../lib/filesParallax";
 import { EDITOR_APPEARANCE_KEY, loadEditorAppearance } from "../lib/editorAppearance";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -26,6 +28,8 @@ let uiSettings: UiSettings;
 let uiPuts: UiSettings[];
 
 beforeEach(() => {
+  localStorage.removeItem(FILES_WINDOWS_KEY);
+  localStorage.removeItem(FILES_PARALLAX_KEY);
   localStorage.removeItem(EDITOR_APPEARANCE_KEY);
   providers = [
     { id: "anthropic", label: "Anthropic", configured: true, masked: "sk-a…f3" },
@@ -307,4 +311,17 @@ describe("the appearance section", () => {
     );
     expect(box.checked).toBe(true);
   });
+});
+
+it("groups Files experiments together, defaults them off, and saves opt-ins", () => {
+  render(<SettingsView />);
+  const experiments = within(screen.getByRole("region", { name: "Experiments" }));
+  const windows = experiments.getByRole("checkbox", { name: "Show windows in Files pane" }) as HTMLInputElement;
+  const parallax = experiments.getByRole("checkbox", { name: "Files pane parallax" }) as HTMLInputElement;
+  expect(windows.checked).toBe(false);
+  expect(parallax.checked).toBe(false);
+  fireEvent.click(windows);
+  fireEvent.click(parallax);
+  expect(loadFilesWindows()).toBe(true);
+  expect(loadFilesParallax()).toBe(true);
 });
