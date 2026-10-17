@@ -6,7 +6,7 @@ import { PRIMARY } from "./spatialTiles";
 // Guarantee: docs/guarantees/shell/spatial-views-preserve-the-editor.md
 const box = (x: number, y: number, width: number, height: number) => new DOMRect(x, y, width, height);
 afterEach(() => document.body.replaceChildren());
-it("follows the ribbon's source tile in screen coordinates when Files floats away from it", () => {
+it.each([false, true])("follows the source tile with parallax enabled=%s when Files floats away", (parallax) => {
   const root = document.createElement("div"); document.body.append(root);
   Object.defineProperties(root, { clientWidth: { value: 1200 }, clientHeight: { value: 800 } });
   root.getBoundingClientRect = () => box(20, 100, 1200, 800);
@@ -24,9 +24,10 @@ it("follows the ribbon's source tile in screen coordinates when Files floats awa
       files: { left: false, right: false }, contexts: { left: true, right: false }, pinned: { left: false, right: false }, keys: ["target"] } };
   const items = ["main", "second", "target"].map(key => ({ key, path: `${key}.md`, side: "left" as const }));
   const controller = new SpatialController({ root: () => root, state: () => state, items: () => items,
+    parallax: () => parallax,
     relations: () => [{ key: "receipt", fromPath: "second.md", toPath: "target.md", anchor }], update: make => { state = make(state); } });
   controller.paint();
-  expect(controller.frames.get("target")!.y).toBeCloseTo(parallaxAnchor(760, 601.5, 397) - 18);
+  expect(controller.frames.get("target")!.y).toBeCloseTo(parallaxAnchor(760, 601.5, 397, parallax ? .75 : 1) - 18);
   const before = controller.frames.get("target")!;
   state = { ...state, drawerOffsets: { left: { x: 80, y: 40 } } };
   controller.paint();
@@ -34,7 +35,7 @@ it("follows the ribbon's source tile in screen coordinates when Files floats awa
   expect(controller.frames.get("target")!.y).toBe(before.y);
   sourceY -= 120;
   controller.paint();
-  expect(controller.frames.get("target")!.y).toBeCloseTo(parallaxAnchor(640, 601.5, 397) - 18);
+  expect(controller.frames.get("target")!.y).toBeCloseTo(parallaxAnchor(640, 601.5, 397, parallax ? .75 : 1) - 18);
   expect(controller.frames.get("target")!.y).toBeLessThan(before.y);
 });
 

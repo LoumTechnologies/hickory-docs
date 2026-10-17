@@ -18,6 +18,7 @@ export interface SpatialAdapter {
   state: () => SpatialState;
   items: () => readonly SpatialItem[];
   relations: () => readonly SpatialRelation[];
+  parallax?: () => boolean;
   dock?: (key: string, target: string, edge: DockEdge) => void;
   update: (make: (state: SpatialState) => SpatialState) => void;
 }
@@ -262,7 +263,8 @@ export class SpatialController {
       const fileTop = filesView?.scrollDOM.getBoundingClientRect().top;
       const laneTop = fileTop === undefined ? region.y : Math.max(region.y, fileTop - base.top);
       const lane = { ...region, y: laneTop, h: Math.max(0, region.y + region.h - laneTop) };
-      const release = this.released.get(item.key), held = this.hold?.frames.get(item.key), natural = parallaxAnchor((relation?.y ?? pivot + index * 70 - scroll) - base.top, (relation?.pivot ?? pivot) - base.top, relation?.height ?? sourceBox?.height ?? lane.h), c = release ? release.r.y + release.r.h / 2 - (scroll - release.scroll) * .75 : natural;
+      const speed = this.adapter.parallax?.() === true ? .75 : 1;
+      const release = this.released.get(item.key), held = this.hold?.frames.get(item.key), natural = parallaxAnchor((relation?.y ?? pivot + index * 70 - scroll) - base.top, (relation?.pivot ?? pivot) - base.top, relation?.height ?? sourceBox?.height ?? lane.h, speed), c = release ? release.r.y + release.r.h / 2 - (scroll - release.scroll) * speed : natural;
       const distance = Math.min(c - lane.y, lane.y + lane.h - c), expanded = state.views[item.key]?.expanded ?? (state.auto && distance > 100), h = held?.h ?? release?.r.h ?? (expanded && !item.port ? Math.min(253, lane.h) : 36);
       el.hidden = false; el.dataset.spatialCenter = "false"; el.dataset.expanded = String(h > 36); el.style.width = `${lane.w}px`; el.style.height = `${h}px`;
       const offset = release || held ? h / 2 : this.endpoint(el, relation?.range, h > 36), requested = held ?? { x: lane.x, y: c - offset, w: lane.w, h }, pins = Object.entries(state.views).filter(([key, p]) => key !== item.key && p.side === side && p.pin), map = this.gates.get(item.key) ?? new Map<string, boolean>(); this.gates.set(item.key, map);

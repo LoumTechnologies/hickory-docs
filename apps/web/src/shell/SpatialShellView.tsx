@@ -7,6 +7,7 @@ import { EditorView } from "@codemirror/view";
 import { bufferTarget } from "../lib/editorBufferTargets";
 import { onRevealLine } from "../lib/revealLine";
 import { samePath } from "../lib/paths";
+import { useFilesParallax } from "../lib/filesParallax";
 import { useSpatialSides } from "../lib/spatialSides";
 import { OPEN_READING, readingStatus, useReadingsVersion } from "../lib/readingViews";
 import { closeTab, focus, panes, split, type Pane, type Tab } from "./layout";
@@ -39,6 +40,8 @@ const paneId = (entry: Entry) => `spatial-pane-${entry.tab?.id ?? encodeURICompo
 /** Each editor has one stable mount. Centering, pinning and parallax only change its rectangle. */
 export function SpatialShellView(props: Props) {
   const sides = useSpatialSides();
+  const filesParallax = useFilesParallax();
+  const parallaxRef = useRef(filesParallax); parallaxRef.current = filesParallax;
   useReadingsVersion();
   const root = useRef<HTMLDivElement>(null);
   const [localScene, setLocalScene] = useState(() => load(props.folderRoot));
@@ -83,6 +86,7 @@ export function SpatialShellView(props: Props) {
   const effective = { ...scene, tiles, center: center?.key ?? null, sides: visible, drawers: { available, visible, files, contexts, pinned, keys: contextual.map(entry => entry.key) } };
   const latest = useRef({ state: effective, entries, relations, enabled: sides }); latest.current = { state: effective, entries, relations, enabled: sides };
   const controller = useMemo(() => new SpatialController({ root: () => root.current, state: () => latest.current.state, items: () => latest.current.entries, relations: () => latest.current.relations,
+    parallax: () => parallaxRef.current,
     dock: (key, target, edge) => dockHandler.current(key, target, edge),
     update: make => setScene(current => make({ ...current, center: latest.current.state.center })) }), []);
   useShellKeys(layout, props.onLayout, props.onSearch, props.onRequestCloseTab);

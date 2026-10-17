@@ -41,6 +41,7 @@ import {
 } from "../lib/channelWidth";
 import { applyTheme, loadTheme, saveTheme, type Theme } from "../lib/theme";
 import { loadWordMotion, saveWordMotion, type WordMotion } from "../lib/wordMotion";
+import { saveFilesParallax, useFilesParallax } from "../lib/filesParallax";
 import { saveSpatialSides, useSpatialSides } from "../lib/spatialSides";
 
 function KeyRow({
@@ -150,6 +151,7 @@ function ChoiceRow<T extends string | number>({
 function AppearanceSection() {
   const [editorAppearance, setEditorAppearance] = useState(loadEditorAppearance);
   const spatialSides = useSpatialSides();
+  const filesParallax = useFilesParallax();
   const [theme, setTheme] = useState<Theme>(() => loadTheme());
   const [ribbonStyle, setRibbonStyle] = useState<RibbonStyle>(() => loadRibbonStyle());
   const [ribbonVisibility, setRibbonVisibility] = useState<RibbonVisibility>(
@@ -274,6 +276,13 @@ function AppearanceSection() {
             const next = { ...editorAppearance, rightLineNumbers: event.target.checked };
             setEditorAppearance(next); saveEditorAppearance(next);
           }} /></div>
+        </div>
+        <div className="settings-row settings-row--appearance">
+          <div className="settings-row__who"><label className="settings-row__label" htmlFor="files-parallax">Files pane parallax</label></div>
+          <div className="settings-row__actions">
+            <input id="files-parallax" type="checkbox" checked={filesParallax} onChange={event => saveFilesParallax(event.target.checked)} />
+            <span className="muted">Move Files previews at a different rate while scrolling the editor. Off by default.</span>
+          </div>
         </div>
         <ChoiceRow
           label="Tab placement"
