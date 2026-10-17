@@ -62,6 +62,7 @@ import {
 } from "../lib/ribbonGeometry";
 import { visibleElementRect } from "../lib/visibleElementRect";
 import { treeEndpoint, spatialEditorVisible } from "./spatialTerminals";
+import { coalesceRibbons } from "../lib/coalesceRibbons";
 import { pickTerminal } from "../lib/terminalPriority";
 import type { RibbonStyle } from "../lib/ribbonStyle";
 import { caretTouches, type RibbonVisibility } from "../lib/ribbonVisibility";
@@ -662,11 +663,8 @@ export function RibbonOverlay({
       const sourceLength = documentView?.state.doc.length ?? 0;
 
       for (const entry of shownFiles) {
-        const ribbons = deriveRibbons(
-          entry.file,
-          source.docPath,
-          source.docSource,
-        );
+        const ribbons = coalesceRibbons(deriveRibbons(entry.file, source.docPath, source.docSource),
+          source.docSource, entry.file.content, !entry.view);
         if (ribbons.length === 0) continue;
 
         if (entry.view && documentView && left && docEdges && structure) {

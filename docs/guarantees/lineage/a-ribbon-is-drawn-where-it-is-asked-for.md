@@ -33,6 +33,18 @@ Three properties hold it up:
    Hover reveal, whitespace-only attribution, and chrome terminals behave
    exactly as before, so nothing the overlay knows becomes unreachable.
 
+## Adjacent sources share a visualization
+
+Given sources in the same document separated only by whitespace, when their
+connections have the same provenance family and destination, then the overlay
+combines them into one ribbon or brace. Context and declared links must name
+the same target passage (or the same file without a passage). Byte-lineage
+connections retain their origin kind and combine only when the output spans
+also meet across whitespace or name the same range; connections to a closed
+file's terminal may combine regardless of output position. Intervening prose,
+different destinations, and separately anchored message cards stay separate.
+This changes presentation only; the original byte provenance stays intact.
+
 ## Boundary
 
 The caret moves the picture, so the picture moves while you type — that is
@@ -59,3 +71,10 @@ Last LLM verification:
   the predicate) and `apps/web/src/views/SettingsView.test.tsx` (the row, its
   default, and that picking "Always" persists). The gate itself sits in the
   overlay, which measures DOM and is not unit-tested — LLM/manual review.
+
+Grouping verification (2026-10-17):
+- `just test-ribbon-grouping` covers whitespace chains, intervening prose,
+  distinct destinations and families, unchanged attribution, and terminal grouping.
+- Implemented in `coalesceRibbons.ts` and `coalesceLinks.ts`, before the shared
+  ribbon/brace geometry in `Ribbons.tsx` and `linkShapes.ts`.
+- Browser appearance has not been manually verified for this amendment.

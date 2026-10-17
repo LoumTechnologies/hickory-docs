@@ -1,4 +1,5 @@
 // Context and declared links use the same rails and geometry as byte lineage.
+import { coalesceLinks } from "./coalesceLinks";
 import type { EditorView } from "@codemirror/view";
 import type { Draft, Terminal, RibbonFamily, RibbonLink, RibbonSource, RibbonFile } from "./Ribbons";
 import { samePath } from "../lib/paths";
@@ -10,7 +11,7 @@ export function linkShapes(container: HTMLElement, sources: readonly RibbonSourc
   const { bandBetween, paneEdges, findTerminal, attachTerminal, revealStrip } = geometry;
   const box = container.getBoundingClientRect();
   const out: Draft[] = [];
-    for (const link of links) {
+    for (const link of coalesceLinks(links, sources)) {
       if (!on(link.family)) continue;
       const source = sources.find(
         (s) => s.view && samePath(s.docPath, link.from.path),

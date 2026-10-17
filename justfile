@@ -737,3 +737,7 @@ check-agent-changesets:
     cargo fmt --all -- --check
     just check-file-length
     cargo clippy -p hickory-cli --lib --example acp_fixture --test agent_changesets -- -D warnings
+
+# Provenance visualization grouping and overlay geometry.
+test-ribbon-grouping:
+    cd apps/web && npm test -- src/lib/coalesceRibbons.test.ts src/shell/coalesceLinks.test.ts src/lib/ribbons.test.ts src/shell/linkShapes.test.ts src/lib/ribbonGeometry.test.ts
