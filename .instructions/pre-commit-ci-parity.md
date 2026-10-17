@@ -3,7 +3,15 @@ skills:
   - implement-dev-environment
 ---
 
-# Pre-Commit / CI Parity And Selective Checks
+# Local Checks / CI Parity And Selective Checks
+
+**2026-10-17 amendment:** Repository checks run through blocking `just checks`.
+`post-commit` launches it detached; no pre-commit or pre-push check may block Git.
+A dirty working tree has an unassociated result; clean runs use a detached
+worktree and record the exact commit. The older gate wording below applies to
+check coverage, not permission to block a Git operation. Local execution does
+not require GitHub Actions. Existing release workflows are separate.
+
 
 - **Pre-commit hooks must be at least as strict as CI.** It must never be
   possible to pass hooks, push, and then have CI fail on something a hook

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # The one shared "which checks does this diff need" mapping. Called
-# identically by .githooks/pre-commit and .github/workflows/ci.yml so the two
+# identically by just checks and .github/workflows/ci.yml so the two
 # can never disagree about what a change requires.
 #
 # Usage: scripts/affected-checks.sh <base-ref>
@@ -20,6 +20,7 @@ BASE_REF="${1:?usage: affected-checks.sh <base-ref>}"
 changed=$(mktemp)
 trap 'rm -f "$changed"' EXIT
 git diff --name-only -z "$BASE_REF" -- . > "$changed"
+git ls-files --others --exclude-standard -z >> "$changed"
 if [ ! -s "$changed" ]; then
   exit 0
 fi
@@ -74,7 +75,7 @@ if matches "docker-compose.yml" || matches "scripts/dev*.sh" || matches "scripts
 fi
 
 # Changes to the gate or its shared selector must exercise every branch.
-if matches ".githooks/*" || matches "scripts/affected-checks.sh"; then
+if matches ".githooks/*" || matches "scripts/affected-checks.sh" || matches "scripts/checks*"; then
   checks+=(rust web desktop dev python-agent)
 fi
 if matches "scripts/check-file-length.sh" || matches "scripts/file-length-baseline.txt"; then

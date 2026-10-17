@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+# Git waits for hooks: detach the blocking command and disconnect all terminal
+# descriptors. Checks and Git operations never wait for one another.
+root=$(git rev-parse --show-toplevel) || exit 0
+common=$(git rev-parse --path-format=absolute --git-common-dir) || exit 0
+mkdir -p "$common/checks" || exit 0
+# Clear Git's inherited index/worktree variables before the detached worker.
+for name in $(git rev-parse --local-env-vars); do unset "$name"; done
+cd "$root" || exit 0
+nohup just checks </dev/null >>"$common/checks/hook.log" 2>&1 &
+exit 0

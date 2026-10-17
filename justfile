@@ -1,5 +1,17 @@
 # Hickory Docs task runner — the only entry point for project tasks.
 
+# Run local checks, with compact progress and per-commit results for clean trees.
+checks:
+    @scripts/checks.sh
+
+# Exercise local runner attribution, isolation, locking and hook detachment.
+test-checks:
+    @scripts/checks.sh --test
+
+# Show HEAD’s recorded result and the latest local run without running checks.
+checks-status:
+    @scripts/checks.sh --status
+
 # Build the whole Rust workspace.
 build:
     cargo build --workspace
@@ -35,7 +47,7 @@ codegen:
     scripts/check-codegen.sh --write
 
 # Fail if anything generated is out of date with its source. Runs in CI and in
-# the pre-commit hook, so drift cannot reach master.
+# the local checks, so each run records generated-file drift.
 check-codegen:
     scripts/check-codegen.sh
 

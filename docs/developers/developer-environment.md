@@ -19,7 +19,7 @@ in dev mode, on a folder of documents.
   `rustup target add wasm32-unknown-unknown` and
   `cargo install wasm-pack --version 0.15.0 --locked`. The built parser is
   committed, so these are needed to *change* the parser, and by the
-  pre-commit hook's codegen check — not to run the app.
+  local codegen check — not to run the app.
 - On Linux, the system webview and bundler dependencies:
   `sudo apt install libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf`
 
@@ -29,7 +29,7 @@ command that fixes whichever is missing.
 ## From clone to running app
 
 1. `just dev` — idempotent, and the only command you need. Every run brings
-   the whole environment up to date before opening anything: the pre-commit
+   the whole environment up to date before opening anything: the local
    hook, frontend dependencies (reinstalled when `package-lock.json` is newer
    than `node_modules`), the `hick` binary, and the seeded scratch project.
    Then it opens the desktop app with the UI hot-reloading — a frontend
@@ -99,7 +99,40 @@ this repository and change together.
 - `hick test examples/ docs/` — the documents in this repository are part of
   the build, and drift in them fails CI the same way a failing test does.
 
-The pre-commit hook runs the subset that applies to what you changed; CI runs
-all of it on `master`. If the hook passes and CI fails on something the hook
-could have caught, that gap is a bug in the hook —
-see `.instructions/pre-commit-ci-parity.md`.
+Run `just checks` for a blocking check run with one progress line per check.
+Successful command output stays in log files; failures show the last 50 lines
+and the full log path. It exits nonzero if a check fails. It accepts no commit
+argument. Run `just checks-status` to see HEAD's recorded result and the latest
+local run without starting checks.
+
+Committing starts `just checks` in the background through `post-commit` and
+returns immediately. There is no pre-commit gate. Launch errors and background
+progress go to the Git common directory's `checks/hook.log`. Only one check run
+executes at a time on the machine; additional invocations wait. Each waiting
+invocation examines HEAD and the working tree after acquiring the lock, so
+rapid commits can coalesce onto the same latest state rather than guaranteeing
+a separate check of every intermediate commit.
+
+A clean working tree (including no untracked, non-ignored files) is checked in
+a disposable detached worktree and its result belongs to that exact commit.
+You can keep editing while it runs. A dirty tree is checked in place; its
+result never updates a commit's record, even if those edits are committed
+while checks run. Avoid editing during a dirty run if you need a consistent
+result. Ignored files are not part of the cleanliness test.
+
+Results and complete logs stay under the Git common directory's `checks/`:
+`latest.txt`, `commits/<full-hash>.txt`, and `runs/<run-id>/`. Records distinguish
+running, passed, failed, and unchecked; the status command identifies a dead
+supervisor as interrupted. A forcibly killed run can leave a disposable
+worktree under that directory for later `git worktree remove --force` cleanup.
+These are local records, not remotely published statuses. The lock is released
+by the OS; on Unix a running child check retains it if its supervisor dies.
+
+Checks retain the shared path selection in `scripts/affected-checks.sh`.
+On master the comparison starts at HEAD's parent so a clean post-commit run
+actually checks the new commit; branches compare with their merge base.
+Untracked paths also participate in selection. A passing result means the
+selected checks passed on this machine, not that every CI/platform job ran.
+Clean runs install web dependencies from the lockfile when web checks apply;
+Cargo build artifacts are reused from the original working tree's target
+folder. No GitHub Actions service is needed for these checks.
