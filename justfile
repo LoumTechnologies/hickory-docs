@@ -458,7 +458,13 @@ test-unified-debug-ui:
 
 # Shared debugger rails, captured navigation, generated-source routing and keys.
 test-unified-code-tools:
-    cd apps/web && npm run typecheck && npm test -- --maxWorkers=2 src/debug/DebugRail.test.tsx src/debug/DebugStrip.test.tsx src/debug/plainDebugHosts.test.tsx src/debug/GeneratedDebugTools.test.tsx src/debug/cmDebug.test.ts src/components/ComparisonTools.test.tsx src/lib/keymap.test.ts
+    cd apps/web && npm run typecheck && npm test -- --maxWorkers=2 src/debug/DebugRail.test.tsx src/debug/DebugStrip.test.tsx src/debug/plainDebugHosts.test.tsx src/debug/useDebugger.test.ts src/debug/GeneratedDebugTools.test.tsx src/debug/cmDebug.test.ts src/components/ComparisonTools.test.tsx src/lib/keymap.test.ts
+
+test-source-breakpoints:
+    cargo test -p hick-dap --lib --test project
+    cargo test -p hickory-cli --lib serve::debug_bridge:: -- --test-threads=1
+    cargo test -p hickory-cli --test debug_desktop source_breakpoints -- --test-threads=1
+    just test-unified-code-tools
 
 # Stage the self-contained Python agent runtime a desktop build bundles.
 # Writes .dev/python-agent/runtime and the Tauri `files` config that ships it.

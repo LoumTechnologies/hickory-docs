@@ -85,6 +85,28 @@ function open() {
 }
 
 describe("the debugger, over the socket", () => {
+  it("keeps source breakpoint replies separate from the caller and includes them in a fresh launch", async () => {
+    const {socket,hook}=open();
+    act(()=>hook.result.current.start());
+    act(()=>{socket.deliver(STARTED);socket.deliver(STOPPED);});
+    const caller=hook.result.current.breakpoints;
+    act(()=>hook.result.current.setSourceBreakpoints("hick:///helpers.py",[{line:25,state:"pending",condition:"x > 1"}]));
+    expect(socket.sent.at(-1)).toEqual({op:"source_breakpoints",session:"dbg-0",source:"hick:///helpers.py",breakpoints:[{line:25,condition:"x > 1"}]});
+    act(()=>socket.deliver({event:"source_breakpoints",session:"dbg-0",source:"hick:///helpers.py",breakpoints:[{line:25,state:"bound",moved_to:26}]}));
+    expect(hook.result.current.sourceBreakpoints["hick:///helpers.py"]).toMatchObject([{line:26,state:"bound",condition:"x > 1"}]);
+    expect(hook.result.current.breakpoints).toBe(caller);
+    act(()=>socket.deliver({event:"failed",session:"dbg-0",doc:"hick:///helpers.py",about:"source_breakpoints",message:"adapter rejected the update"}));
+    expect(hook.result.current.status).toBe("paused");
+    expect(hook.result.current.breakpoints).toBe(caller);
+    expect(hook.result.current.sourceBreakpoints["hick:///helpers.py"][0].state).toBe("refused");
+    expect(hook.result.current.message).toContain("helpers.py");
+    act(()=>socket.deliver({event:"finished",session:"dbg-0"}));
+    act(()=>hook.result.current.start());
+    expect(socket.sent.at(-1)).toMatchObject({op:"start",sources:{"hick:///helpers.py":[{line:26,condition:"x > 1"}]}});
+    act(()=>{socket.deliver(STARTED);socket.deliver({event:"finished",session:"dbg-0"});});
+    act(()=>hook.result.current.start(undefined,{"hick:///helpers.py":[]}));
+    expect(socket.sent.at(-1)).not.toHaveProperty("sources");
+  });
   it("leaves 'starting' when the engine answers", async () => {
     const { socket, hook } = open();
     act(() => hook.result.current.start());

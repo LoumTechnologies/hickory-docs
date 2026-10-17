@@ -26,8 +26,8 @@ pub use capture::{CaptureSpec, Captured, Hit};
 pub use discovery::{Discovered, discover, how_to_get, known_languages, suggests_hick_install};
 pub use program::{MissingAdapter, adapter_for, entry_point, language_of, weave_into};
 pub use session::{
-    BindState, Breakpoint, BreakpointStatus, Capabilities, Exit, Frame, Launch, Session, Step,
-    Stopped, Variable,
+    BindState, Breakpoint, BreakpointStatus, Capabilities, Exit, Frame, Launch, Session,
+    SourceBreakpoints, Step, Stopped, Variable,
 };
 
 pub use project::{ProjectLaunch, prepare as prepare_project, prepare_closure};

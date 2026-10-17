@@ -33,6 +33,8 @@ use tokio::sync::{broadcast, mpsc};
 
 use crate::adapter::Adapter;
 use crate::protocol::Event;
+#[path = "source_breakpoints.rs"]
+mod source_breakpoints;
 
 /// What this adapter can actually do, read from its `initialize` reply.
 ///
@@ -116,6 +118,13 @@ pub struct Breakpoint {
     /// three.
     #[serde(default)]
     pub log_message: Option<String>,
+}
+
+/// A breakpoint set in a source other than the session's entry document.
+pub struct SourceBreakpoints {
+    pub source: String,
+    pub document: PathBuf,
+    pub breakpoints: Vec<Breakpoint>,
 }
 
 /// What came back when a breakpoint was set.
@@ -309,6 +318,7 @@ pub struct Session {
     /// deletes the ones a person put there. Keeping the asked-for set here is
     /// what lets the temporary one be layered over it and then taken away.
     desired: tokio::sync::Mutex<Vec<Breakpoint>>,
+    sources: Arc<source_breakpoints::Sources>,
     /// Set while a one-shot "run to" breakpoint is in the adapter, so the
     /// next stop can take it out again.
     running_to: tokio::sync::Mutex<Option<u32>>,
@@ -405,9 +415,18 @@ impl Session {
         mapping: Arc<Mapping>,
         breakpoints: &[Breakpoint],
     ) -> Result<(Self, Vec<BreakpointStatus>)> {
+        Self::start_with_sources(launch, mapping, breakpoints, &[]).await
+    }
+
+    pub async fn start_with_sources(
+        launch: Launch,
+        mapping: Arc<Mapping>,
+        breakpoints: &[Breakpoint],
+        sources: &[SourceBreakpoints],
+    ) -> Result<(Self, Vec<BreakpointStatus>)> {
         let adapter = Adapter::start(&launch.adapter, launch.transport).await?;
         let extra = launch.extra.clone();
-        Self::start_on(adapter, None, &launch, extra, mapping, breakpoints).await
+        Self::start_on(adapter, None, &launch, extra, mapping, breakpoints, sources).await
     }
 
     /// Start a session on one connection, following a child if the adapter
@@ -425,6 +444,7 @@ impl Session {
         extra: Value,
         mapping: Arc<Mapping>,
         breakpoints: &[Breakpoint],
+        source_breakpoints: &[SourceBreakpoints],
     ) -> Result<(Self, Vec<BreakpointStatus>)> {
         // Subscribed BEFORE initialize: `initialized` arrives as an event and
         // routinely beats the response to the request that caused it.
@@ -497,6 +517,8 @@ impl Session {
             Arc::new(std::sync::Mutex::new(Vec::new()));
         let bound_ids: Arc<std::sync::Mutex<HashMap<i64, u32>>> =
             Arc::new(std::sync::Mutex::new(HashMap::new()));
+        let sources = Arc::new(source_breakpoints::Sources::default());
+        let promoting_sources = sources.clone();
         let promoting = statuses.clone();
         let promoting_ids = bound_ids.clone();
 
@@ -533,6 +555,7 @@ impl Session {
                     // breakpoint in a compiled language stays "pending" for
                     // the life of the session while working perfectly.
                     "breakpoint" => {
+                        promoting_sources.promote(&event.body);
                         let Some(reported) = event.body.get("breakpoint") else {
                             continue;
                         };
@@ -576,6 +599,7 @@ impl Session {
             mapping: mapping.clone(),
             statuses,
             bound_ids,
+            sources,
             last_stopped: tokio::sync::Mutex::new(None),
             desired: tokio::sync::Mutex::new(Vec::new()),
             running_to: tokio::sync::Mutex::new(None),
@@ -583,6 +607,11 @@ impl Session {
             exit,
         };
         let statuses = session.set_breakpoints(breakpoints).await?;
+        for set in source_breakpoints {
+            session
+                .set_source_breakpoints(&set.source, &set.document, &set.breakpoints)
+                .await?;
+        }
         session
             .adapter
             .request("configurationDone", json!({}))
@@ -609,6 +638,7 @@ impl Session {
                 configuration,
                 mapping.clone(),
                 breakpoints,
+                source_breakpoints,
             ))
             .await;
         }
@@ -635,125 +665,6 @@ impl Session {
 
     pub fn events(&self) -> broadcast::Receiver<Event> {
         self.adapter.events()
-    }
-
-    /// Set every breakpoint, grouped by the generated file they land in.
-    ///
-    /// DAP replaces a file's whole breakpoint set on each call, so they must
-    /// be grouped: sending them one at a time leaves only the last one set,
-    /// which looks like the others silently failing to bind.
-    pub async fn set_breakpoints(
-        &self,
-        breakpoints: &[Breakpoint],
-    ) -> Result<Vec<BreakpointStatus>> {
-        *self.desired.lock().await = breakpoints.to_vec();
-        self.apply_breakpoints(breakpoints).await
-    }
-
-    /// Put a set into the adapter without changing what the caller asked for.
-    async fn apply_breakpoints(&self, breakpoints: &[Breakpoint]) -> Result<Vec<BreakpointStatus>> {
-        let mut ids: Vec<(i64, u32)> = Vec::new();
-        let mut by_file: HashMap<PathBuf, Vec<(&Breakpoint, u32)>> = HashMap::new();
-        let mut unmapped = Vec::new();
-        for breakpoint in breakpoints {
-            match self.mapping.to_generated(breakpoint.line) {
-                Some((path, line)) => by_file.entry(path).or_default().push((breakpoint, line)),
-                None => unmapped.push(BreakpointStatus {
-                    line: breakpoint.line,
-                    moved_to: None,
-                    state: BindState::Refused,
-                    message: Some(
-                        "this line has no unique location in the selected complete project — it \
-                         may be prose, removed code, or an ambiguous contribution. Inspect an \
-                         explicit local state to debug intermediate code"
-                            .into(),
-                    ),
-                }),
-            }
-        }
-
-        let mut out = unmapped;
-        for (path, entries) in by_file {
-            let payload: Vec<Value> = entries
-                .iter()
-                .map(|(breakpoint, line)| {
-                    let mut item = json!({ "line": line + 1 });
-                    if let Some(condition) = &breakpoint.condition
-                        && self.capabilities.conditional_breakpoints
-                    {
-                        item["condition"] = json!(condition);
-                    }
-                    if let Some(hit) = &breakpoint.hit_condition
-                        && self.capabilities.hit_conditional_breakpoints
-                    {
-                        item["hitCondition"] = json!(hit);
-                    }
-                    if let Some(message) = &breakpoint.log_message
-                        && self.capabilities.log_points
-                    {
-                        item["logMessage"] = json!(message);
-                    }
-                    item
-                })
-                .collect();
-
-            let body = self
-                .adapter
-                .request(
-                    "setBreakpoints",
-                    json!({
-                        "source": { "path": path.to_string_lossy() },
-                        "breakpoints": payload,
-                    }),
-                )
-                .await?;
-
-            let verified = body
-                .get("breakpoints")
-                .and_then(Value::as_array)
-                .cloned()
-                .unwrap_or_default();
-            for (index, (breakpoint, _)) in entries.iter().enumerate() {
-                let answer = verified.get(index);
-                // Where it really landed, back in document coordinates.
-                let bound = answer
-                    .and_then(|a| a.get("line"))
-                    .and_then(Value::as_u64)
-                    .map(|line| (line as u32).saturating_sub(1))
-                    .and_then(|line| self.mapping.to_document(&path, line))
-                    .filter(|line| *line != breakpoint.line);
-                // `verified: false` is "not yet", not "never" — the only
-                // refusal this code is entitled to make is the unmapped one
-                // above, where no adapter was asked.
-                let confirmed = answer
-                    .and_then(|a| a.get("verified"))
-                    .and_then(Value::as_bool)
-                    .unwrap_or(false);
-                // The adapter's own id for it, so a later `breakpoint` event
-                // can be matched to the document line it belongs to without
-                // guessing from coordinates the adapter may have moved.
-                if let Some(id) = answer.and_then(|a| a.get("id")).and_then(Value::as_i64) {
-                    ids.push((id, breakpoint.line));
-                }
-                out.push(BreakpointStatus {
-                    line: breakpoint.line,
-                    state: if confirmed {
-                        BindState::Bound
-                    } else {
-                        BindState::Pending
-                    },
-                    message: answer
-                        .and_then(|a| a.get("message"))
-                        .and_then(Value::as_str)
-                        .map(str::to_string),
-                    moved_to: bound,
-                });
-            }
-        }
-        out.sort_by_key(|status| status.line);
-        *self.bound_ids.lock().unwrap() = ids.into_iter().collect();
-        *self.statuses.lock().unwrap() = out.clone();
-        Ok(out)
     }
 
     /// The breakpoint statuses as they stand now, including any promotion a

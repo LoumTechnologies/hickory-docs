@@ -34,3 +34,30 @@ fn dap_line_breakpoints_ignore_diff_prefix_columns_and_refuse_deleted_lines() {
     assert_eq!(mapping.to_generated(8), None);
     assert!(hick_lang::evaluate_project("p.md", &sources, &ProjectTree::default()).is_ok());
 }
+
+#[test]
+fn captured_source_breakpoints_require_this_context_and_a_present_file() {
+    let source = "<hick:project/>\n<hick:file path=\"main.py\">\nprint(1)\n</hick:file>\n<hick:file path=\"helpers.py\">\ndef helper():\n    return 2\n</hick:file>";
+    let sources = BTreeMap::from([("p.md".into(), source.into())]);
+    let project = hick_lang::evaluate_project("p.md", &sources, &ProjectTree::default()).unwrap();
+    let scratch = tempfile::tempdir().unwrap();
+    hick_lsp::write_tree(scratch.path(), &project.new).unwrap();
+    let mapping =
+        hick_dap::Mapping::captured(&project.new, scratch.path(), "current", "main.py").unwrap();
+    assert_eq!(
+        mapping.to_generated_in(Path::new("hick-project:///current/helpers.py"), 1),
+        Some((scratch.path().canonicalize().unwrap().join("helpers.py"), 1))
+    );
+    assert_eq!(
+        mapping.to_generated_in(Path::new("hick-project:///other/helpers.py"), 1),
+        None
+    );
+    assert_eq!(
+        mapping.to_generated_in(Path::new("hick-project:///current/missing.py"), 1),
+        None
+    );
+    assert_eq!(
+        mapping.to_generated_in(Path::new("hick-project:///current/helpers.py"), 99),
+        None
+    );
+}

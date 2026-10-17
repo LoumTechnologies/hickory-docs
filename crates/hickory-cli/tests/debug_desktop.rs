@@ -815,3 +815,113 @@ async fn a_plain_csharp_file_builds_its_own_project_in_place_and_stops_on_its_ow
 
     registry.stop(&id).await.expect("stops");
 }
+
+#[tokio::test]
+async fn source_breakpoints_bind_clear_and_leave_the_callers_breakpoints_set() {
+    let mut app = open_plain_workspace().await;
+    if !python_available(&app.root) {
+        eprintln!("SKIPPED: source breakpoints need a Python debug adapter");
+        return;
+    }
+    std::fs::write(
+        app.root.join("tools/app.py"),
+        APP_PY.replace("print(run(21))", "print(run(21))\nprint(run(21))"),
+    )
+    .unwrap();
+    send(
+        &mut app.socket,
+        json!({"op":"start","doc":"hick:///tools/app.py","breakpoints":[{"line":TOTAL_LINE}],
+        "sources":{"hick:///tools/helpers.py":[{"line":1}]}}),
+    )
+    .await;
+    let started = wait_for(&mut app.socket, "started", Duration::from_secs(60))
+        .await
+        .unwrap();
+    let session = started["session"].as_str().unwrap();
+    let first = wait_for(&mut app.socket, "stopped", Duration::from_secs(60))
+        .await
+        .unwrap();
+    assert_eq!(first["line"], TOTAL_LINE, "{first}");
+    // Two source identities can contribute to the same generated file.
+    // Replacing either set must preserve the other, including when clearing it.
+    for breakpoints in [json!([{"line":TOTAL_LINE+1}]), json!([])] {
+        send(
+            &mut app.socket,
+            json!({"op":"source_breakpoints","session":session,
+            "source":"hick:///tools/app.py","breakpoints":breakpoints}),
+        )
+        .await;
+        let reply = wait_for(
+            &mut app.socket,
+            "source_breakpoints",
+            Duration::from_secs(30),
+        )
+        .await
+        .unwrap();
+        assert_eq!(
+            reply["breakpoints"].as_array().unwrap().len(),
+            breakpoints.as_array().unwrap().len()
+        );
+    }
+    send(
+        &mut app.socket,
+        json!({"op":"source_breakpoints","session":session,"source":"hick:///tools/helpers.py",
+        "breakpoints":[{"line":1,"condition":"x == 21"}]}),
+    )
+    .await;
+    let bound = wait_for(
+        &mut app.socket,
+        "source_breakpoints",
+        Duration::from_secs(30),
+    )
+    .await
+    .unwrap();
+    assert_eq!(bound["source"], "hick:///tools/helpers.py");
+    assert_eq!(bound["breakpoints"][0]["state"], "bound", "{bound}");
+    send(
+        &mut app.socket,
+        json!({"op":"step","session":session,"how":"continue"}),
+    )
+    .await;
+    let helper = wait_for(&mut app.socket, "stopped", Duration::from_secs(30))
+        .await
+        .unwrap();
+    assert_eq!(
+        helper["frames"][0]["source"], "tools/helpers.py",
+        "{helper}"
+    );
+    assert_eq!(helper["frames"][0]["source_line"], 1);
+    send(&mut app.socket,json!({"op":"source_breakpoints","session":session,"source":"hick:///tools/helpers.py","breakpoints":[]})).await;
+    let cleared = wait_for(
+        &mut app.socket,
+        "source_breakpoints",
+        Duration::from_secs(30),
+    )
+    .await
+    .unwrap();
+    assert_eq!(cleared["breakpoints"], json!([]));
+    send(
+        &mut app.socket,
+        json!({"op":"step","session":session,"how":"continue"}),
+    )
+    .await;
+    let caller = wait_for(&mut app.socket, "stopped", Duration::from_secs(30))
+        .await
+        .unwrap();
+    assert_eq!(
+        caller["line"], TOTAL_LINE,
+        "caller breakpoint was replaced: {caller}"
+    );
+    send(
+        &mut app.socket,
+        json!({"op":"step","session":session,"how":"continue"}),
+    )
+    .await;
+    let finished = wait_for(&mut app.socket, "finished", Duration::from_secs(30))
+        .await
+        .unwrap();
+    assert_eq!(
+        finished["event"], "finished",
+        "cleared callee breakpoint stopped again: {finished}"
+    );
+}

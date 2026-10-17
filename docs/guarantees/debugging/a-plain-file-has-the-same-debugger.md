@@ -63,8 +63,13 @@ stops in *another* file of the folder, that file's tab is opened and its
 pane draws the paused line (published through `lib/pausedElsewhere.ts`,
 cleared by the owning session when it moves on). As of 2026-10-16 the callee
 borrows that session's values, watches and right-gutter execution controls,
-retaining them while running. Breakpoints in the callee are marked pending for
-a future direct launch: the protocol currently updates only the launch source.
+retaining them while running. As of 2026-10-17, breakpoints in another source
+update the owning session, carrying that source's exact identity through the
+request and reply. Conditions and adapter-reported moves stay with their source;
+clearing its set preserves the caller's breakpoints. Saved source breakpoints
+are installed before execution on the next launch, even without a caller
+breakpoint. Captured sources must belong to the session's captured context;
+workspace sources must remain inside the open folder.
 Callee coordinates are never used for jump/run-to in the launch source.
 Which program a multi-binary package launches is
 answered the way it is for a document — the artifact named after the

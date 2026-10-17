@@ -44,6 +44,8 @@ export interface DebugSession {
   selectedFrame: number | null;
   /** Where the user has asked to stop, whether or not it bound. */
   breakpoints: HeldBreakpoint[];
+  sourceBreakpoints: Record<string, HeldBreakpoint[]>;
+  setSourceBreakpoints(source: string, breakpoints: HeldBreakpoint[]): void;
   /** How the program ended, once it has: its exit code, when reported. */
   exitCode: number | null;
   /**
@@ -68,7 +70,8 @@ export interface DebugSession {
   exceptionFilters: string[];
 
   /** Debug one generated file. Omitted means the first debuggable one. */
-  start(program?: string): void;
+  start(program?: string, sources?: Record<string, HeldBreakpoint[]>): void;
+  replaceBreakpoints(breakpoints: HeldBreakpoint[]): void;
   stop(): void;
   step(how: Step): void;
   jumpTo(line: number): void;
@@ -197,6 +200,9 @@ export function eventIsOurs(
 
 /** A session that does nothing: what a pane shows until its host has mounted. */
 export const IDLE_SESSION: DebugSession = {
+  sourceBreakpoints: {},
+  setSourceBreakpoints() {},
+  replaceBreakpoints() {},
   offerInstall: null,
   status: "idle",
   message: null,
@@ -305,6 +311,7 @@ export function useDebuggerOver(client: DebugClient | null, docPath: string, ini
   const [variables, setVariables] = useState<Variable[]>([]);
   const [selectedFrame, setSelectedFrame] = useState<number | null>(null);
   const [breakpoints, setBreakpoints] = useState<HeldBreakpoint[]>(() => initialBreakpoints.map((line) => ({ line, state: "bound" })));
+  const [sourceBreakpoints, holdSources] = useState<Record<string, HeldBreakpoint[]>>({});
   // Which file this session is running, for the panel to say so: "paused" is
   // ambiguous in a document that generates three programs.
   const [program, setProgram] = useState<string | null>(null);
@@ -373,6 +380,9 @@ export function useDebuggerOver(client: DebugClient | null, docPath: string, ini
         case "breakpoints":
           setBreakpoints((current) => followMoves(current, event.breakpoints));
           break;
+        case "source_breakpoints":
+          holdSources(current=>({...current,[event.source]:followMoves(current[event.source] ?? [],event.breakpoints)}));
+          break;
         case "value": {
           setLastValue({ expression: event.expression, value: event.value, type: event.type });
           // Answers carry the expression they answer, and the watch list is
@@ -417,6 +427,12 @@ export function useDebuggerOver(client: DebugClient | null, docPath: string, ini
           setWatches((current) => current.map((watch) => ({ ...watch, value: null })));
           break;
         case "failed": {
+          if (event.about === "source_breakpoints") {
+            setMessage(`Could not update breakpoints in ${event.doc ?? "this source"}: ${event.message}`);
+            const source=event.doc;
+            if(source)holdSources(current=>({...current,[source]:(current[source] ?? []).map(bp=>({...bp,state:"refused" as const,message:event.message}))}));
+            break;
+          }
           const stillWaiting = [...pendingValues.current.values()];
           pendingValues.current.clear();
           for (const resolve of stillWaiting) resolve(null);
@@ -493,6 +509,16 @@ export function useDebuggerOver(client: DebugClient | null, docPath: string, ini
     [client],
   );
 
+  const setSourceBreakpoints = useCallback((source: string, next: HeldBreakpoint[]) => {
+    const prepared = next.map(bp=>({...bp, condition:bp.condition?.trim() || undefined,
+      hit_condition:bp.hit_condition?.trim() || undefined, log_message:bp.log_message?.trim() || undefined,
+      state:"pending" as const,message:undefined}));
+    holdSources(current=>({...current,[source]:prepared}));
+    const session = sessionRef.current;
+    if (client && session && ["paused","running"].includes(statusRef.current))
+      client.setSourceBreakpoints(session,source,onTheWire(prepared));
+  }, [client]);
+
   const toggleExceptionFilter = useCallback(
     (id: string) => {
       setExceptionFilters((current) => {
@@ -561,14 +587,16 @@ export function useDebuggerOver(client: DebugClient | null, docPath: string, ini
   );
 
   const start = useCallback(
-    (program?: string) => {
+    (program?: string, sources: Record<string, HeldBreakpoint[]> = {}) => {
       if (!client) return;
       setStatus("starting");
       clearFailure();
       setProgram(program ?? null);
-      client.start(uri, onTheWire(breakpoints), program, projectContext);
+      const initial = {...sourceBreakpoints,...sources};
+      holdSources(initial);
+      client.start(uri, onTheWire(breakpoints), program, projectContext, Object.fromEntries(Object.entries(initial).filter(([,bps])=>bps.length).map(([source,bps])=>[source,onTheWire(bps)])));
     },
-    [client, uri, breakpoints, clearFailure, projectContext],
+    [client, uri, breakpoints, sourceBreakpoints, clearFailure, projectContext],
   );
 
   const stop = useCallback(() => {
@@ -727,6 +755,8 @@ export function useDebuggerOver(client: DebugClient | null, docPath: string, ini
       variables,
       selectedFrame,
       breakpoints,
+      sourceBreakpoints, setSourceBreakpoints,
+      replaceBreakpoints: setBreakpoints,
       exitCode,
       buildOutput,
       lastValue,
@@ -758,6 +788,7 @@ export function useDebuggerOver(client: DebugClient | null, docPath: string, ini
       variables,
       selectedFrame,
       breakpoints,
+      sourceBreakpoints, setSourceBreakpoints,
       exitCode,
       buildOutput,
       lastValue,

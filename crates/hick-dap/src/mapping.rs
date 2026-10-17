@@ -140,6 +140,19 @@ impl Mapping {
         ))
     }
     pub fn to_generated_in(&self, document: &Path, line: u32) -> Option<(PathBuf, u32)> {
+        if let Some((id, root)) = &self.captured {
+            let prefix = format!("hick-project:///{id}/");
+            let name = document.to_str()?.strip_prefix(&prefix)?;
+            let path = root.join(name).canonicalize().ok()?;
+            return (line < self.files.get(&path)?.virtual_lines()).then_some((path, line));
+        }
+        if self.plain {
+            return document
+                .canonicalize()
+                .ok()
+                .filter(|path| path.is_file())
+                .map(|path| (path, line));
+        }
         if same_file(document, &self.document) {
             return self.to_generated(line);
         }

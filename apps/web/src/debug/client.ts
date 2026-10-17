@@ -118,6 +118,7 @@ export type DebugEvent =
       selected_frame?: number;
     }
   | { event: "breakpoints"; session: string; breakpoints: BreakpointStatus[] }
+  | { event: "source_breakpoints"; session: string; source: string; breakpoints: BreakpointStatus[] }
   | { event: "value"; session: string; expression: string; value: string; type: string | null; reference: number }
   | { event: "children"; session: string; reference: number; variables: Variable[] }
   | {
@@ -204,15 +205,19 @@ export class DebugClient {
     this.wire.send(frame);
   }
 
-  start(doc: string, breakpoints: DebugBreakpoint[], program?: string, project?: string) {
+  start(doc: string, breakpoints: DebugBreakpoint[], program?: string, project?: string, sources?: Record<string, DebugBreakpoint[]>) {
     // `program` names which generated file to run. A document with two
     // Python files has two answers, and picking the first is right only by
     // accident.
-    this.send({ op: "start", doc, breakpoints, program, ...(project && project !== "new" ? {project} : {}) });
+    this.send({ op: "start", doc, breakpoints, program, ...(project && project !== "new" ? {project} : {}), ...(sources && Object.keys(sources).length ? {sources} : {}) });
   }
 
   setBreakpoints(session: string, breakpoints: DebugBreakpoint[]) {
     this.send({ op: "breakpoints", session, breakpoints });
+  }
+
+  setSourceBreakpoints(session: string, source: string, breakpoints: DebugBreakpoint[]) {
+    this.send({ op: "source_breakpoints", session, source, breakpoints });
   }
 
   state(session: string, frame?: number) {

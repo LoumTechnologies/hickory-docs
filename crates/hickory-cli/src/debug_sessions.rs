@@ -80,6 +80,16 @@ impl Registry {
         breakpoints: &[Breakpoint],
         on_build: &mut (dyn FnMut(BuildOutput) + Send),
     ) -> Result<(String, Arc<Live>, Vec<BreakpointStatus>)> {
+        self.start_captured_with_sources(uri, breakpoints, &[], on_build)
+            .await
+    }
+    pub async fn start_captured_with_sources(
+        &self,
+        uri: &tower_lsp::lsp_types::Url,
+        breakpoints: &[Breakpoint],
+        sources: &[hick_dap::SourceBreakpoints],
+        on_build: &mut (dyn FnMut(BuildOutput) + Send),
+    ) -> Result<(String, Arc<Live>, Vec<BreakpointStatus>)> {
         let (id, path, context) = self.projects.get(uri).map_err(anyhow::Error::msg)?;
         let scratch = tempfile::tempdir()?;
         hick_lsp::write_tree(scratch.path(), &context.tree).map_err(anyhow::Error::msg)?;
@@ -88,7 +98,7 @@ impl Registry {
             hick_dap::adapter_for(&entry, self.host_root.as_deref().unwrap_or(scratch.path()))?;
         let program = hick_dap::build(&entry, scratch.path(), scratch.path(), on_build).await?;
         let mapping = Mapping::captured(&context.tree, scratch.path(), &id, &path)?;
-        let (session, statuses) = Session::start(
+        let (session, statuses) = Session::start_with_sources(
             Launch {
                 transport: adapter.transport,
                 multi_session: adapter.multi_session,
@@ -100,6 +110,7 @@ impl Registry {
             },
             Arc::new(mapping),
             breakpoints,
+            sources,
         )
         .await?;
         Ok(self.register(session, Some(scratch), statuses).await)
@@ -142,13 +153,25 @@ impl Registry {
         endpoint: &hick_lsp::ProjectEndpoint,
         on_build: &mut (dyn FnMut(BuildOutput) + Send),
     ) -> Result<(String, Arc<Live>, Vec<BreakpointStatus>)> {
+        self.start_at_with_sources(document, breakpoints, program, endpoint, &[], on_build)
+            .await
+    }
+    pub async fn start_at_with_sources(
+        &self,
+        document: &Path,
+        breakpoints: &[Breakpoint],
+        program: Option<&str>,
+        endpoint: &hick_lsp::ProjectEndpoint,
+        sources: &[hick_dap::SourceBreakpoints],
+        on_build: &mut (dyn FnMut(BuildOutput) + Send),
+    ) -> Result<(String, Arc<Live>, Vec<BreakpointStatus>)> {
         if !is_document(document) {
             // No folder was named, so the repository the file is in stands
             // in for it — the same bound a plain file's language server
             // falls back to.
             let root = repository_of(document);
             return self
-                .start_plain(document, &root, breakpoints, on_build)
+                .start_plain_with_sources(document, &root, breakpoints, sources, on_build)
                 .await;
         }
         let source = std::fs::read_to_string(document)
@@ -201,7 +224,7 @@ impl Registry {
         // of "build failed" is the thing this exists to prevent.
         let program = hick_dap::build(&entry, scratch.path(), project, on_build).await?;
 
-        let (session, statuses) = Session::start(
+        let (session, statuses) = Session::start_with_sources(
             Launch {
                 transport: adapter.transport,
                 multi_session: adapter.multi_session,
@@ -213,6 +236,7 @@ impl Registry {
             },
             Arc::new(mapping),
             breakpoints,
+            sources,
         )
         .await?;
 
@@ -242,6 +266,17 @@ impl Registry {
         breakpoints: &[Breakpoint],
         on_build: &mut (dyn FnMut(BuildOutput) + Send),
     ) -> Result<(String, Arc<Live>, Vec<BreakpointStatus>)> {
+        self.start_plain_with_sources(file, root, breakpoints, &[], on_build)
+            .await
+    }
+    pub async fn start_plain_with_sources(
+        &self,
+        file: &Path,
+        root: &Path,
+        breakpoints: &[Breakpoint],
+        sources: &[hick_dap::SourceBreakpoints],
+        on_build: &mut (dyn FnMut(BuildOutput) + Send),
+    ) -> Result<(String, Arc<Live>, Vec<BreakpointStatus>)> {
         if !file.is_file() {
             bail!(
                 "{} is not a file in this folder, so there is nothing to debug.",
@@ -259,7 +294,7 @@ impl Registry {
         } else {
             serde_json::json!({})
         };
-        let (session, statuses) = Session::start(
+        let (session, statuses) = Session::start_with_sources(
             Launch {
                 transport: adapter.transport,
                 multi_session: adapter.multi_session,
@@ -271,6 +306,7 @@ impl Registry {
             },
             Arc::new(Mapping::identity(file)),
             breakpoints,
+            sources,
         )
         .await?;
         Ok(self.register(session, None, statuses).await)

@@ -18,7 +18,9 @@
 // the fact belongs to the session, not to whichever pane happens to be on
 // screen.
 
-import { useEffect, useRef, useSyncExternalStore } from "react";
+import { useEffect, useMemo, useRef, useSyncExternalStore } from "react";
+import { isDebuggable } from "./languages";
+import { languageFromPath } from "../editor/languages";
 
 import { openLocation } from "../lib/revealLine";
 import { openCapturedCode } from "../lib/capturedCode";
@@ -136,19 +138,35 @@ export function useFollowingDebugSession(path: string, explicitOwner?: string): 
   if (explicitOwner) followed.current.owner = explicitOwner;
   if (elsewhere?.path === path) followed.current.owner = elsewhere.owner;
   const borrowed = useSyncExternalStore(subscribe, () => sessions.get(followed.current.owner ?? "") ?? null, () => null);
-  if (!borrowed || !["starting", "running", "paused"].includes(borrowed.status) || followed.current.owner === path) return own;
+  const source = path.startsWith("hick-project:///") ? path : `hick:///${path}`;
+  const active = borrowed && ["paused","running"].includes(borrowed.status) && followed.current.owner !== path;
+  useEffect(()=> {
+    if (!active || !own || !borrowed) return;
+    const held = borrowed.sourceBreakpoints[source];
+    if (held && held !== own.breakpoints) own.replaceBreakpoints(held);
+    else if (!held && own.breakpoints.length) borrowed.setSourceBreakpoints(source,own.breakpoints);
+  },[active,borrowed,source,own]);
+  const direct = useMemo(()=>own ? {...own,start:(program?:string)=> {
+    const captured = /^hick-project:\/\/\/[^/]+\//.exec(path)?.[0];
+    const initial = Object.fromEntries([...sessions].filter(([other])=>other!==path &&
+      isDebuggable(languageFromPath(other)) && (captured ? other.startsWith(captured) : isWorkspaceSource(other)))
+      .map(([other,session])=>[other.startsWith("hick-project:///")?other:`hick:///${other}`,session.breakpoints]));
+    own.start(program,initial);
+  }} : null,[own,path]);
+  if (!borrowed || !["starting", "running", "paused"].includes(borrowed.status) || followed.current.owner === path) return direct;
   const frame = borrowed.frames.find(f => f.source === path);
   const pausedLine = frame?.source_line ?? (elsewhere?.path === path ? elsewhere.line : null);
+  const breakpoints = borrowed.sourceBreakpoints[source] ?? own?.breakpoints ?? [];
   return { ...borrowed, pausedLine, program: borrowed.program ?? followed.current.owner ?? null,
     // These protocol verbs address the launch file, not the viewed callee.
     // Never send a callee's line number as a line in the launch file.
     capabilities: borrowed.capabilities ? {...borrowed.capabilities, goto_targets:false} : null,
     jumpTo: () => {}, runTo: () => {},
     frames: borrowed.frames.map(f => ({ ...f, in_document: f.source === path, line: f.source === path ? (f.source_line ?? null) : null })),
-    breakpoints: (own?.breakpoints ?? []).map(bp=>({...bp,state:"pending" as const,
-      message:"Saved for debugging this file directly; this session started in another file."})),
+    breakpoints,
     start: own?.start ?? (() => {}),
-    toggleBreakpoint: own?.toggleBreakpoint ?? (() => {}),
-    setBreakpointCondition: own?.setBreakpointCondition ?? (() => {}),
+    toggleBreakpoint: line => borrowed.setSourceBreakpoints(source,breakpoints.some(bp=>bp.line===line)
+      ? breakpoints.filter(bp=>bp.line!==line) : [...breakpoints,{line,state:"pending"}]),
+    setBreakpointCondition: (line,patch) => borrowed.setSourceBreakpoints(source,breakpoints.map(bp=>bp.line===line?{...bp,...patch}:bp)),
   };
 }

@@ -33,6 +33,8 @@ use serde_json::{Value, json};
 use tokio::sync::mpsc;
 
 use crate::debug_sessions::Registry;
+#[path = "debug_sources.rs"]
+mod sources;
 
 /// What the app asks for.
 #[derive(Debug, Deserialize)]
@@ -50,10 +52,17 @@ pub enum Request {
         program: Option<String>,
         #[serde(default)]
         project: Option<String>,
+        #[serde(default)]
+        sources: std::collections::HashMap<String, Vec<Breakpoint>>,
     },
     /// Replace the breakpoint set while a session is running.
     Breakpoints {
         session: String,
+        breakpoints: Vec<Breakpoint>,
+    },
+    SourceBreakpoints {
+        session: String,
+        source: String,
         breakpoints: Vec<Breakpoint>,
     },
     /// Where are we, and what is in scope.
@@ -144,6 +153,11 @@ pub enum Response {
     },
     Breakpoints {
         session: String,
+        breakpoints: Vec<hick_dap::BreakpointStatus>,
+    },
+    SourceBreakpoints {
+        session: String,
+        source: String,
         breakpoints: Vec<hick_dap::BreakpointStatus>,
     },
     Value {
@@ -310,6 +324,7 @@ fn about_of(request: &Request) -> &'static str {
     match request {
         Request::Start { .. } => "start",
         Request::Breakpoints { .. } => "breakpoints",
+        Request::SourceBreakpoints { .. } => "source_breakpoints",
         Request::State { .. } => "state",
         Request::Eval { .. } => "eval",
         Request::Step { .. } => "step",
@@ -342,12 +357,21 @@ async fn handle_inner(
     built: &mut Vec<Value>,
 ) -> Result<Vec<Response>, Failure> {
     match request {
+        Request::SourceBreakpoints {
+            session,
+            source,
+            breakpoints,
+        } => Ok(vec![
+            sources::set(registry, root, session, source, breakpoints).await,
+        ]),
         Request::Start {
             doc,
             breakpoints,
             program,
             project,
+            sources,
         } => {
+            let sources = sources::initial(root, sources).map_err(|e| (None, e))?;
             let path = resolve(root, &doc);
             let endpoint = hick_lsp::ProjectEndpoint::parse(project.as_deref().unwrap_or("new"))
                 .map_err(|e| (None, anyhow::Error::msg(e)))?;
@@ -360,21 +384,22 @@ async fn handle_inner(
             let started = if doc.starts_with("hick-project:///") {
                 let uri = tower_lsp::lsp_types::Url::parse(&doc).map_err(|e| (None, e.into()))?;
                 registry
-                    .start_captured(&uri, &breakpoints, &mut on_build)
+                    .start_captured_with_sources(&uri, &breakpoints, &sources, &mut on_build)
                     .await
             } else if crate::debug_sessions::is_document(&path) {
                 registry
-                    .start_at(
+                    .start_at_with_sources(
                         &path,
                         &breakpoints,
                         program.as_deref(),
                         &endpoint,
+                        &sources,
                         &mut on_build,
                     )
                     .await
             } else {
                 registry
-                    .start_plain(&path, root, &breakpoints, &mut on_build)
+                    .start_plain_with_sources(&path, root, &breakpoints, &sources, &mut on_build)
                     .await
             };
             let (session, live, statuses) = started.map_err(|e| (None, e))?;
@@ -384,6 +409,7 @@ async fn handle_inner(
                 capabilities: live.session.capabilities().clone(),
                 breakpoints: statuses,
             }];
+            out.extend(sources::statuses(&session, &live));
             // Run to the first stop before answering, so the UI never shows a
             // started session with no position in it.
             out.extend(settle(registry, root, &session, &live).await);
@@ -578,6 +604,7 @@ async fn settle(
                 // while the program stops on it perfectly.
                 breakpoints: live.session.breakpoint_statuses(),
             }];
+            out.extend(sources::statuses(session, live));
             out.extend(position_with(root, session, live, &stopped.reason).await);
             out
         }
@@ -785,6 +812,7 @@ mod tests {
                 breakpoints: vec![],
                 program: None,
                 project: None,
+                sources: Default::default(),
             },
         )
         .await;
@@ -872,6 +900,7 @@ mod tests {
                 breakpoints,
                 program,
                 project,
+                ..
             } => {
                 assert!(project.is_none());
                 assert_eq!(doc, "hick:///a.md");

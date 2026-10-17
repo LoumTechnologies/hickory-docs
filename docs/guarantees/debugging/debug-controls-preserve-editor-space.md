@@ -31,8 +31,10 @@ F5 starts the focused script or continues its active session. Step over, into,
 out and Stop use the selected keymap (F10, F11, Shift-F11 and Shift-F5 by
 default). Definition and References also respect that keymap. A callee opened
 while stepping borrows execution controls and values from the owning session,
-including while running. Callee breakpoints remain explicitly pending for a
-direct launch; the current protocol cannot update another source's breakpoints.
+including while running. Callee breakpoints update that same active session,
+with replies and conditions kept under the exact source identity. Removing one
+source's breakpoints preserves the others, including sources contributing to
+one generated file. Saved source sets are installed before execution on launch.
 Line-targeted jump/run commands never send callee coordinates to the launch file.
 
 For a declared literate project, tools default to the completed project. The
@@ -68,6 +70,17 @@ Last LLM verification:
   within the callee and stopped from there. Idle, paused-patch and paused-callee
   screenshots were inspected. Both diff sides retain their change highlights;
   the active debugger adds no editor rows.
+- Source-breakpoint continuation (2026-10-17): the same browser flow sets a
+  breakpoint in `helpers.py`, continues to it, selects the caller frame, stops,
+  removes the caller breakpoint and launches again with only the saved callee
+  breakpoint. It stops at that breakpoint, then removes it and continues to
+  completion. Native socket coverage also checks conditions and preservation
+  of the caller's breakpoint after clearing another source's set.
+  `just test-source-breakpoints` passed 58 DAP unit tests, three project mapping
+  tests, nine bridge tests, the live socket test and 142 focused frontend tests.
+  The full frontend run passed 2,145 tests before the final clearing regression
+  was added; the focused continuation also checks source failures and prevents
+  a breakpoint cleared while idle from reappearing on a later launch.
 - Revision witness: `just test-literate-editor 'edit ordinary source'` passed
   editing and saving current code, inspecting deleted bytes through the gutter,
   selecting a historical read-only revision and returning to editable current
