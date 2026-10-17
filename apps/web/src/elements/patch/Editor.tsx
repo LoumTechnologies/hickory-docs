@@ -112,8 +112,8 @@ export function PatchEditor({ slot, cx }: { slot: RenderedSlot; cx: SlotContext 
     };
     try {
       model = draft ?? { sources: [
-        { id: "old", label: "Before this patch", kind: "authored", target: capture.entry, text: decode(state.old), project: capture.project.old, local: state.old },
-        { id: "new", label: "After this patch", kind: "authored", target: capture.entry, text: decode(state.new), project: capture.project.new, local: state.new },
+        { id: "old", label: "Before this patch", kind: "authored", target: capture.entry, text: decode(state.old), project: capture.project.old, local: state.old, debugSurface: cx.view ? { view: cx.view, entry: capture.entry, source: capture.source, path: cx.path ?? undefined } : undefined },
+        { id: "new", label: "After this patch", kind: "authored", target: capture.entry, text: decode(state.new), project: capture.project.new, local: state.new, debugSurface: cx.view ? { view: cx.view, entry: capture.entry, source: capture.source, path: cx.path ?? undefined } : undefined },
       ], old: "old", new: "new", policy: side, evidence: "unverified" };
     } catch { /* The explicit diagnostic below leaves binary source intact. */ }
   }

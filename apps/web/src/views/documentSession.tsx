@@ -1,3 +1,4 @@
+import { bindProjectDebugView } from "../debug/projectDebugSurface";
 import { completionSource, completionSources } from "../lsp/completion";
 import { usePublishDebugSession } from "../debug/plainDebugHosts";
 import { useDocumentPersistence, type SyncState } from "./useDocumentPersistence";
@@ -334,6 +335,7 @@ function useDocumentSession(
   // The editors currently showing one, keyed by path.
   const [openOutputs, setOpenOutputs] = useState<Map<string, EditorView>>(new Map());
   const [docEditor, setDocEditor] = useState<EditorView | null>(null);
+  useEffect(() => { if(docEditor && doc?.path) bindProjectDebugView(doc.path,docEditor); }, [docEditor,doc?.path]);
   // Bumped by the up-loop's files_changed event: outputs changed on disk
   // without a run or a render in this window.
   const [outputsRefresh, setOutputsRefresh] = useState(0);

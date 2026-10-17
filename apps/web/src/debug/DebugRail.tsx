@@ -118,7 +118,8 @@ export function DebugGutterControls({ view, line, program, children }: {
 
 
 export function debugRailElement(view: EditorView): HTMLElement | null {
-  return view.dom.closest(".editor-cm-host")?.parentElement?.querySelector<HTMLElement>(".cm-debug-rail") ?? null;
+  const host = view.dom.closest(".editor-cm-host");
+  return [...(host?.parentElement?.querySelectorAll<HTMLElement>(".cm-debug-rail") ?? [])].find(rail => !host?.contains(rail)) ?? null;
 }
 export function debugViewFocused(view: EditorView): boolean {
   const active = document.activeElement;

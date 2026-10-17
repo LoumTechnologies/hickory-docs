@@ -9,42 +9,48 @@ When the view is unavailable, its mapping is stale, or the line has no exact
 mapping, navigation falls back to the source file. A session launched from an
 ordinary file retains ordinary file navigation.
 
+Given a captured project launched from a patch, when stepping reaches surviving
+bytes in that note, then the note reveals the innermost source block (including
+a later patch in the same atomic scope). It uses the selected complete tree's
+byte origins, never a search for matching text. A stale note refuses the mapping.
+A rendered patch keeps its current layout, highlighting, and code panes when
+execution pauses or a frame is revealed. Debug navigation never switches it
+to raw patch source; the paused marker belongs in its corresponding code pane.
+
+While paused, Show literate source and Show generated code address the same
+frame. Each mounted editor marks its corresponding paused line in the gutter.
+Controls remain available in the rendered code panes and when the reader
+explicitly chooses raw source.
+Returning to a note rebinds its editor to the captured session. Patch panes
+with the same complete endpoint share a captured identity, so a breakpoint
+in a later patch is installed when debugging the caller. Old and New trees
+and genuinely different snapshots keep separate identities.
+
 Verification:
 
-- `apps/web/src/debug/literateDebugNavigation.test.tsx` drives the debugger host
-  through mapped and unmapped stops and checks which navigation consumes them.
-- `apps/web/src/debug/preferredDebugLocation.test.ts` checks exact representation
-  provenance, absent lines, unrelated sessions, and surface removal.
-- `just test-web` runs type checking and the frontend regression suite.
+- `just test-debug-navigation`: exact origins, stale/absent lines, context
+  identity, navigation preference, paired location actions and debugger rails.
+- `just test-unified-debug-ui`: real debugpy launched from a patch, stepping
+  into a later welcome definition, generated-code navigation and return.
+- `just test-web`: frontend type checking and regression suite.
 
-Last LLM implementation review (2026-10-17, Codex): partially verified.
+Implementation review (2026-10-17, Codex): partially verified.
 
-- Origin: the user's report that stepping opens an ordinary file even when the
-  target line is already in the literate file. This change addresses personal
-  literate arrangements, which use plain-file debug sessions; native woven
-  documents already use the DAP document mapping.
-- Implementation: `RepresentationPane` records the launching surface;
-  `plainDebugHosts.Host` asks it to reveal a mapped frame before opening a file.
-  `representedFrameOffset` checks bounds before using exact provenance.
-- Assumptions: source paths use the workspace-relative spelling supplied by the
-  debugger bridge. No text matching or filename-only matching is attempted.
-- Limits: a closed/unmounted view cannot consume navigation. This does not yet
-  reopen a closed literate view when stepping returns from an unrepresented
-  callee. Real adapter and interactive browser validation were not performed in
-  this change; the host tests inject debugger state.
-- Challenges: absent files, out-of-range lines, unrelated owners, removed views,
-  and stops lacking provenance must fall back. A mapped stop opening an ordinary
-  file while the launching view remains available would falsify the guarantee.
-- Executed checks: `just test-debug-navigation` passed all 7 tests;
-  `just check-web` and `just check-file-length` passed. `just test-web` passed
-  all 2,148 tests across 230 files. The first full run overlapped an edit to the
-  new test and failed; the completed rerun above supersedes that result.
-- Human judgment: not recorded.
+The captured project's complete endpoint supplies byte origins. Patch launches
+retain the launching note's source and editor separately from the patch widget;
+debug stops scroll to rendered blocks without changing their rendering state
+or moving the outer caret into replaced source. Removing a widget by choice
+does not remove the session or its controls. Returning
+notes rebind by workspace path, provided their bytes still match the capture.
+Ordinary file launches keep ordinary file navigation. Unmapped targets fall
+back to captured code. Cross-document authored navigation is not claimed by
+this added mapping; origins in another contributing note currently fall back.
+Human judgment has not been recorded.
 
-Evidence dependencies (SHA-256; changes invalidate this implementation review):
-- `apps/web/src/debug/preferredDebugLocation.ts`: `292683a51998ca5aaac9181382704da6b9909a388f4a64e3433f26e472b0cd7e`
-- `apps/web/src/debug/plainDebugHosts.tsx`: `b68e80264563bed6bece7226e28eeff6e7680992954d2527f95e2d82b771a71e`
-- `apps/web/src/views/RepresentationPane.tsx`: `87ff952ac72a860b98d71b2e985cddf5f71d0f21392036b9b4f5c4bc2f08d736`
-- `apps/web/src/views/RepresentationTools.tsx`: `538409bfa9ccefe84eb74ad74c81ad78f852da41968f4aa6296632d8071568c9`
-- `apps/web/src/debug/preferredDebugLocation.test.ts`: `ee120464679a08de5f91332bdcac58ca3ba08a9a2e5c60687769af08ebbd71b4`
-- `apps/web/src/debug/literateDebugNavigation.test.tsx`: `35da6c5c4b3bab11c7f22f02f7ae75f9061c1cf0ebd3a26be9d03fa370a6f3b5`
+Executed evidence: `just test-unified-debug-ui` passed all three real-adapter
+flows, including launching from the caller with only the later callee's
+breakpoint set and checking both paused gutter arrows. `just
+test-debug-navigation` passed 25 focused tests. `just check-web` passed after the rendering correction. The preceding
+`just test-web` run passed all 2,160 tests across 234 files. `just check-file-length` and
+`git diff --check` passed. The captured-context lifetime regression checks
+that no release occurs between starting, running and paused states.

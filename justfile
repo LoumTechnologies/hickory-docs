@@ -454,7 +454,7 @@ test-literate-editor FILTER="":
 # Real patch-gutter Debug, automatic debugpy installation and native stepping.
 test-unified-debug-ui:
     cargo build -p hickory-cli --bin hick --example engine_client --example acp_fixture
-    HICKORY_E2E_DEBUG=1 scripts/test-literate-editor.sh --grep 'unified patch gutter'
+    HICKORY_E2E_DEBUG=1 scripts/test-literate-editor.sh --grep 'unified patch gutter|patch debugger keeps'
 
 # Shared debugger rails, captured navigation, generated-source routing and keys.
 test-unified-code-tools:
@@ -680,7 +680,7 @@ test-folder-window-state:
 
 # Literate debugger navigation and exact source-position mapping.
 test-debug-navigation:
-    cd apps/web && npm test -- src/debug/literateDebugNavigation.test.tsx src/debug/preferredDebugLocation.test.ts src/debug/plainDebugHosts.test.tsx src/lsp/representationMapping.test.ts --maxWorkers=2
+    cd apps/web && npm test -- src/debug/literateDebugNavigation.test.tsx src/lib/capturedContexts.test.ts src/debug/projectFrameOffset.test.ts src/debug/projectDebugSurface.test.tsx src/debug/DebugRail.test.tsx src/debug/preferredDebugLocation.test.ts src/debug/plainDebugHosts.test.tsx src/components/ComparisonTools.test.tsx src/lsp/representationMapping.test.ts --maxWorkers=2
 
 # File tabs and Files rows share context-menu actions and prompts.
 test-file-tab-menu:

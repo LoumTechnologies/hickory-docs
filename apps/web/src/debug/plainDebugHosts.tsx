@@ -18,6 +18,7 @@
 // the fact belongs to the session, not to whichever pane happens to be on
 // screen.
 
+import { ProjectDebugSurface } from "./projectDebugSurface";
 import { useEffect, useMemo, useRef, useSyncExternalStore } from "react";
 import { clearPreferredDebugSurface, revealPreferredDebugLocation } from "./preferredDebugLocation";
 import { isDebuggable } from "./languages";
@@ -84,9 +85,10 @@ function Host({ path }: { path: string }) {
     emit();
   }, [path, debug]);
 
+  const active = ["starting", "running", "paused"].includes(debug.status);
   useEffect(() => {
-    if (["starting", "running", "paused"].includes(debug.status)) return retainCapturedContext(path);
-  }, [path, debug.status]);
+    if (active) return retainCapturedContext(path);
+  }, [path, active]);
 
   // Where this session is paused when that is another file of the folder:
   // say so, and open that file, the way stepping into a callee in another
@@ -96,7 +98,7 @@ function Host({ path }: { path: string }) {
     const top = debug.frames[0];
     if (["idle", "finished", "failed"].includes(debug.status)) clearPreferredDebugSurface(path);
     if (debug.status === "paused" && top && revealPreferredDebugLocation(path, top)) {
-      publishPausedElsewhere(path, null);
+      publishPausedElsewhere(path, top.source && typeof top.source_line === "number" ? {path:top.source,line:top.source_line} : null);
       return;
     }
     if (
@@ -114,7 +116,7 @@ function Host({ path }: { path: string }) {
       publishPausedElsewhere(path, null);
     }
   }, [debug.status, debug.frames, path]);
-  return null;
+  return <ProjectDebugSurface owner={path} debug={debug}/>;
 }
 
 /** Mount once, in the workspace: one host per path a pane has asked for. */

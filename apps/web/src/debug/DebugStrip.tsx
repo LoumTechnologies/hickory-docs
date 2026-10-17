@@ -15,7 +15,7 @@ import { DebugGutterControls, debugViewFocused } from "./DebugRail";
 import type { EditorView } from "@codemirror/view";
 import { PaneHeaderContent } from "../shell/PaneHeader";
 import { bindingOf, formatBinding, isAction } from "../lib/keymap";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import type { TranscriptEvent } from "../api/types";
 import { WatchingTerminal } from "../terminal/WatchingTerminal";
 import type { DebugCapabilities, Frame, Step } from "./client";
@@ -153,6 +153,7 @@ function IconButton({
 }
 
 export interface DebugStripProps {
+  locationActions?: ReactNode;
   editorView?: EditorView | null;
   /** Zero-based line in the displayed editor. */
   pausedLine?: number | null;
@@ -346,6 +347,7 @@ export function DebugStrip(props: DebugStripProps) {
         className="debug-strip__stop"
         onClick={props.onStop}
       />
+      {props.locationActions}
       {/* The stack, as a combo box: pick a frame, and the gutter marks, the
           paused line and the inline values follow it. */}
       <MoreActions label="Debug options">

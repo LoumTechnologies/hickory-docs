@@ -12,6 +12,7 @@ export interface ComparisonSource {
   /** An already registered immutable source, opened by code navigation. */
   codeUri?: string;
   debugOwner?: string;
+  debugSurface?: { view: import("@codemirror/view").EditorView; entry: string; source: string; path?: string };
   location?: {line:number;character:number};
   target?: string;
   /** The complete selected project, independently of the displayed local text. */

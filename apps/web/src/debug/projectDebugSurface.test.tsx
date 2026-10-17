@@ -1,0 +1,41 @@
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { afterEach, expect, it, vi } from "vitest";
+import { EditorState } from "@codemirror/state";
+import { EditorView } from "@codemirror/view";
+import { renderedField, renderBlock } from "../editor/rendered";
+import { materializeProject } from "../editor/hickLang";
+import { preferCapturedLiterateSurface, ProjectDebugLinks } from "./projectDebugSurface";
+import { clearPreferredDebugSurface, revealPreferredDebugLocation } from "./preferredDebugLocation";
+import { IDLE_SESSION } from "./useDebugger";
+import { openCapturedCode } from "../lib/capturedCode";
+vi.mock("../lib/capturedCode", () => ({openCapturedCode:vi.fn().mockResolvedValue(undefined)}));
+let view: EditorView;
+afterEach(() => { clearPreferredDebugSurface("hick-project:///test/app.py"); cleanup(); view?.destroy(); document.body.replaceChildren(); });
+it("reveals exact literate source and offers both directions for one captured paused frame", () => {
+  const source = '<hick:project/>\n<hick:file path="library.py">\ndef welcome(name):\n    return name\n</hick:file>';
+  const project = materializeProject("project.md", {"project.md":source});
+  view = new EditorView({parent:document.body, state:EditorState.create({doc:source})});
+  const owner = "hick-project:///test/app.py";
+  const frame = {id:1,name:"welcome",source:"hick-project:///test/library.py",source_line:1,line:null,in_document:false};
+  preferCapturedLiterateSurface(owner,"hick-project:///test/",project.new,{view,entry:"project.md",source});
+  expect(revealPreferredDebugLocation(owner,frame)).toBe(true);
+  expect(view.state.doc.lineAt(view.state.selection.main.head).text).toBe("    return name");
+  render(<ProjectDebugLinks owner={owner} debug={{...IDLE_SESSION,status:"paused",frames:[frame]}}/>);
+  fireEvent.click(screen.getByRole("button",{name:"Show generated code"}));
+  expect(openCapturedCode).toHaveBeenCalledWith(expect.objectContaining({uri:frame.source}),owner);
+  fireEvent.click(screen.getByRole("button",{name:"Show literate source"}));
+  expect(view.state.doc.lineAt(view.state.selection.main.head).text).toBe("    return name");
+});
+
+it("preserves rendered blocks and the outer selection when a breakpoint hits", () => {
+  const source = '<hick:project/>\n<hick:file path="library.py">\ndef welcome(name):\n    return name\n</hick:file>';
+  const project = materializeProject("project.md", {"project.md":source});
+  const at = source.indexOf("<hick:file");
+  view = new EditorView({parent:document.body,state:EditorState.create({doc:source,extensions:[renderedField]})});
+  view.dispatch({effects:renderBlock.of(at)});
+  const frame = {id:1,name:"welcome",source:"hick-project:///test/library.py",source_line:1,line:null,in_document:false};
+  preferCapturedLiterateSurface("hick-project:///test/app.py","hick-project:///test/",project.new,{view,entry:"project.md",source});
+  expect(revealPreferredDebugLocation("hick-project:///test/app.py",frame)).toBe(true);
+  expect(view.state.field(renderedField)).toEqual([at]);
+  expect(view.state.selection.main.head).toBe(0);
+});

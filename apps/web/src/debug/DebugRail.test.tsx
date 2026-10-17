@@ -2,7 +2,7 @@ import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, expect, it, vi } from "vitest";
 import { EditorState } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
-import { debugRailTop, DebugLaunchRail } from "./DebugRail";
+import { debugRailTop, debugRailElement, DebugLaunchRail } from "./DebugRail";
 import { DebugStrip, type DebugStripProps } from "./DebugStrip";
 import { EnvRegistry, wysiwyg } from "../editor/wysiwyg";
 
@@ -70,4 +70,13 @@ it("starts the focused script with F5 without opening a menu", () => {
   view.focus();
   fireEvent.keyDown(view.contentDOM,{key:"F5"});
   expect(start).toHaveBeenCalledWith("app.py");
+});
+
+it("keeps a document's controls out of the rails of its nested patch editors", () => {
+  const container = editor("source");
+  const nested = view.dom.appendChild(document.createElement("div"));
+  nested.className = "cm-debug-rail";
+  const rail = container.appendChild(document.createElement("div"));
+  rail.className = "cm-debug-rail";
+  expect(debugRailElement(view)).toBe(rail);
 });

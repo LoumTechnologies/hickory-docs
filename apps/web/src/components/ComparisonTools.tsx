@@ -1,13 +1,15 @@
+import { revealPreferredDebugLocation } from "../debug/preferredDebugLocation";
+import { preferCapturedLiterateSurface, ProjectDebugLinks } from "../debug/projectDebugSurface";
 import { PromptPanel, usePrompt } from "./PromptPanel";
 import { completionSource, completionSources } from "../lsp/completion";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Compartment, StateEffect } from "@codemirror/state";
 import type { EditorView } from "@codemirror/view";
-import { api, request } from "../api/client";
+import { api } from "../api/client";
 import { projectPosition, type ProjectEntry } from "../editor/hickLang";
 import type { ComparisonSource } from "../lib/projectComparison";
 import { openCapturedCode } from "../lib/capturedCode";
-import { retainCapturedContext } from "../lib/capturedContexts";
+import { acquireCapturedContext, retainCapturedContext } from "../lib/capturedContexts";
 import { useFollowingDebugSession } from "../debug/plainDebugHosts";
 import { IDLE_SESSION } from "../debug/useDebugger";
 import { DebugLaunchAction } from "../debug/DebugRail";
@@ -71,8 +73,8 @@ export function ComparisonTools({path,source,view,compact=false}: {path:string;s
     }
     setBusy(true);
     const entries = Object.fromEntries(selected.map(e => [e.path, { bytes: e.bytes, kind: e.kind === "file" ? "File" : "Symlink", executable: e.executable, origins: e.origins ?? [] }]));
-    void request<{id:string;uri:string}>("POST", "/api/project-contexts", { snapshot: { entries } }).then(next => {
-      const dispose = retainCapturedContext(next.uri, true);
+    void acquireCapturedContext(entries).then(next => {
+      const dispose = next.release;
       if (!live) { dispose(); return; }
       release = dispose;
       setContext({ ...next, project: selected });
@@ -137,6 +139,10 @@ export function ComparisonTools({path,source,view,compact=false}: {path:string;s
     view.dispatch({effects:setLspDiagnostics.of(spans)});
   },[view,lsp.diagnostics,context,active,local,selected,path,displayed,displayMatches]);
   const launch = () => {
+    const surface = source.debugSurface;
+    if (surface && selected && context) {
+      preferCapturedLiterateSurface(uri, context.uri, selected, surface);
+    }
     debug.start();
     if (!exact) void openCapturedCode({uri,range:{start:{line:0,character:0},end:{line:0,character:0}}}, uri).catch(e=>setError(String(e)));
   };
@@ -154,9 +160,10 @@ export function ComparisonTools({path,source,view,compact=false}: {path:string;s
   </div>;
   return <>
     {canDebug && <DebugLaunchAction view={view} label={`Debug ${path} · ${source.label}`} disabled={!context || busy || !displayMatches} onStart={launch} />}
-    <DebugStrip {...debug} editorView={view} pausedLine={exact ? debug.pausedLine : null} program={path}
+    <DebugStrip {...debug} locationActions={<ProjectDebugLinks owner={source.debugOwner ?? uri} debug={debug}/>} editorView={view} pausedLine={exact ? debug.pausedLine : null} program={path}
       onSelectFrame={id=> {
         debug.selectFrame(id); const frame=debug.frames.find(f=>f.id===id);
+        if (frame && revealPreferredDebugLocation(source.debugOwner ?? uri, frame)) return;
         if (frame?.source?.startsWith("hick-project:///") && frame.source!==uri)
           void openCapturedCode({uri:frame.source,range:{start:{line:frame.source_line ?? 0,character:0},end:{line:frame.source_line ?? 0,character:0}}},source.debugOwner ?? uri).catch(e=>setError(String(e)));
         else if (view && frame?.line !== null && frame?.line !== undefined) revealLine(view,frame.line);

@@ -50,11 +50,12 @@ print(result)
   await expect(after.locator(".cm-bp")).toHaveCount(1);
   await page.screenshot({path:"/tmp/hickory-unified-patch-idle.png",fullPage:true});
   await launch.click();
-  const debuggerBar=patch.getByRole("toolbar",{name:"Debugger"});
+  const debuggerBar=page.getByRole("toolbar",{name:"Debugger"}).last();
   await expect(debuggerBar.getByRole("button",{name:"Continue",exact:true})).toBeVisible({timeout:90_000});
   expect(await debuggerBar.evaluate(el=>!!el.closest(".cm-debug-rail"))).toBe(true);
   await page.screenshot({path:"/tmp/hickory-unified-patch-paused.png",fullPage:true});
   await debuggerBar.getByRole("button",{name:"Step into",exact:true}).click();
+  await page.getByRole("button",{name:"Show generated code",exact:true}).last().click();
   const callee=page.getByRole("region",{name:"Code · helpers.py"});
   await expect(callee).toBeVisible();
   await expect(callee.locator(".cm-editor")).toHaveCount(1);
@@ -67,6 +68,8 @@ print(result)
   await page.mouse.click(calleeGutter.x+calleeGutter.width/2,returnLine.y+returnLine.height/2);
   await expect(callee.locator(".cm-bp:not(.cm-bp-pending)")).toHaveCount(1);
   await calleeBar.getByRole("button",{name:"Continue",exact:true}).click();
+  await expect(page.locator(".cm-paused-line").filter({hasText:"return result"}).first()).toBeVisible();
+  await page.getByRole("button",{name:"Show generated code",exact:true}).last().click();
   await expect(callee.locator(".cm-paused-line")).toContainText("return result");
   await page.screenshot({path:"/tmp/hickory-unified-callee-paused.png",fullPage:true});
   // Reopen the caller through its frame, preserving this captured identity.
@@ -74,6 +77,7 @@ print(result)
   const stack=calleeBar.getByRole("combobox",{name:"Call stack"});
   const callerFrame=await stack.locator("option").filter({hasText:"main.py"}).getAttribute("value");
   await stack.selectOption(callerFrame!);
+  await page.getByRole("button",{name:"Show generated code",exact:true}).last().click();
   const caller=page.getByRole("region",{name:"Code · main.py"});
   await expect(caller).toBeVisible();
   await caller.getByRole("button",{name:"Stop",exact:true}).click();
@@ -95,6 +99,78 @@ print(result)
   await calleeBar.getByRole("button",{name:"Continue",exact:true}).click();
   await expect(calleeBar.getByRole("button",{name:"Continue",exact:true})).toHaveCount(0);
   expect(errors).toEqual([]);
+});
+
+for (const calleeOnly of [false,true]) test(`patch debugger keeps a later welcome definition in the literate document · ${calleeOnly ? "callee breakpoint" : "step into"}`, async ({page}) => {
+  test.setTimeout(120_000);
+  test.skip(!process.env.HICKORY_E2E_DEBUG, "Use just test-unified-debug-ui.");
+  const source = `# Greeting
+<hick:project/>
+<hick:file id="app" path="app.py">
+from library import greet
+print(greet())
+</hick:file>
+<hick:file id="library" path="library.py">
+def greet():
+    return "Hello"
+</hick:file>
+<hick:scope id="greeting" after="app library">
+<hick:patch id="caller">
+--- a/app.py
++++ b/app.py
+@@ -1,2 +1,2 @@
+-from library import greet
+-print(greet())
++from library import welcome
++print(welcome("Hickory"))
+</hick:patch>
+<hick:patch id="complete" after="caller">
+--- a/library.py
++++ b/library.py
+@@ -1,2 +1,2 @@
+-def greet():
+-    return "Hello"
++def welcome(name):
++    return "Hello " + name
+</hick:patch>
+</hick:scope>`;
+  const response = await page.request.post("/api/projects/local/docs", {data:{path:calleeOnly ? "welcome-breakpoint.md" : "welcome-debug.md", source}});
+  expect(response.ok()).toBeTruthy();
+  const note = await response.json();
+  await page.goto(`/#/docs/${note.id}`);
+  const patch = page.getByRole("region", {name:"Project patch editor"}).first();
+  await expect(patch.getByRole("button", {name:"Debug app.py · After this patch", exact:true})).toBeEnabled();
+  const target = calleeOnly ? page.getByRole("region", {name:"Project patch editor"}).nth(1) : patch;
+  await expect(target.getByRole("button", {name:/^Debug .* · After this patch$/})).toBeEnabled();
+  const after = target.locator(".comparison-side").last();
+  const line = await after.locator(".cm-line").filter({hasText:calleeOnly ? 'return "Hello " + name' : 'print(welcome("Hickory"))'}).boundingBox();
+  const gutter = await after.locator(".cm-breakpoint-gutter").boundingBox();
+  if (!line || !gutter) throw new Error("Expected caller breakpoint gutter");
+  await page.mouse.click(gutter.x + gutter.width/2, line.y + line.height/2);
+  await expect(after.locator(".cm-bp")).toHaveCount(1);
+  await patch.getByRole("button", {name:"Debug app.py · After this patch", exact:true}).click();
+  await expect(page.getByRole("button", {name:"Continue",exact:true}).last()).toBeVisible({timeout:90_000});
+  await page.screenshot({path:"/tmp/welcome-paused.png",fullPage:true});
+  // Pausing and stepping preserve both rendered, highlighted patch panes.
+  if (!calleeOnly) {
+    await expect(patch.locator(".cm-paused-line")).toContainText('print(welcome("Hickory"))', {timeout:90_000});
+    await page.getByRole("button", {name:"Step into", exact:true}).last().click();
+  }
+  const calleePatch = page.getByRole("region", {name:"Project patch editor"}).nth(1);
+  await expect(calleePatch.locator(".cm-paused-line")).toContainText('return "Hello " + name');
+  await expect(page.getByRole("region", {name:"Project patch editor"})).toHaveCount(2);
+  await expect(calleePatch.locator(".comparison-panes--side-by-side")).toBeVisible();
+  await expect(calleePatch.locator(".comparison-added.cm-paused-line")).toContainText('return "Hello " + name');
+  await expect(calleePatch.locator(".cm-paused-arrow")).toHaveCount(1);
+  await expect(page.getByRole("region", {name:"Code · library.py"})).toHaveCount(0);
+  await page.getByRole("button", {name:"Show generated code",exact:true}).last().click();
+  const generated = page.getByRole("region", {name:"Code · library.py"});
+  await expect(generated.locator(".cm-paused-line")).toContainText('return "Hello " + name');
+  await expect(generated.locator(".cm-paused-arrow")).toHaveCount(1);
+  await generated.getByRole("button", {name:"Show literate source",exact:true}).click();
+  await expect(calleePatch.locator(".comparison-panes--side-by-side")).toBeVisible();
+  await expect(calleePatch.locator(".cm-paused-line")).toContainText('return "Hello " + name');
+  await expect(calleePatch.locator(".cm-paused-arrow")).toHaveCount(1);
 });
 
 // Guarantees: authoring/a-literate-view-writes-through-to-ordinary-source.md;
