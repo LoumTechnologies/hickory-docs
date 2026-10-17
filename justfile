@@ -677,3 +677,7 @@ test-folder-window-state:
     just test-folder-window-web
     just build-web
     cargo test --manifest-path apps/desktop/src-tauri/Cargo.toml --test serves_one_origin folder_layout -- --test-threads=1
+
+# Literate debugger navigation and exact source-position mapping.
+test-debug-navigation:
+    cd apps/web && npm test -- src/debug/literateDebugNavigation.test.tsx src/debug/preferredDebugLocation.test.ts src/debug/plainDebugHosts.test.tsx src/lsp/representationMapping.test.ts --maxWorkers=2

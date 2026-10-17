@@ -1,3 +1,4 @@
+import { registerDebugSurface, preferDebugSurface, representedFrameOffset } from "../debug/preferredDebugLocation";
 import { PaneHeaderContent } from "../shell/PaneHeader";
 import { SurfaceInfo } from "../components/SurfaceInfo";
 import { MoreActions } from "../components/MoreActions";
@@ -42,7 +43,7 @@ export function RepresentationPane({ id, initialBase = "", initialTarget = "", b
   const local = useMemo(() => new LocalRealtime(), [id]);
   const realtime = useMemo(() => getWorkspaceRealtime() ?? new LocalRealtime(), []);
   const viewRef = useRef<EditorView | null>(null);
-  const current = useRef({ source, files, record, busy, comparison }); current.current = { source, files, record, busy, comparison };
+  const current = useRef({ source, mappedSource, files, record, busy, comparison }); current.current = { source, mappedSource, files, record, busy, comparison };
   const debugSessions = useRef(new Map<string, DebugSession>());
   const diagnostics = useRef(new Map<string, DiagnosticSpan[]>());
   const [debugTick, setDebugTick] = useState(0);
@@ -50,7 +51,7 @@ export function RepresentationPane({ id, initialBase = "", initialTarget = "", b
   const accept = useCallback((next: Representation) => {
     setRecord(next); setFiles(next.files); setMappedSource(next.source);
     const text = buffers.get(id) ?? next.source;
-    current.current = { ...current.current, record: next, source: text, files: next.files };
+    current.current = { ...current.current, record: next, source: text, mappedSource: next.source, files: next.files };
     setSource(text);
     const view = viewRef.current;
     if (view && view.state.doc.toString() !== text) view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: text } });
@@ -105,6 +106,21 @@ export function RepresentationPane({ id, initialBase = "", initialTarget = "", b
     } }),
   ], []);
   const onDiagnostics = useCallback((path: string, spans: DiagnosticSpan[]) => { diagnostics.current.set(path, spans); viewRef.current?.dispatch({ effects: setLspDiagnostics.of([...diagnostics.current.values()].flat()) }); }, []);
+  useEffect(() => registerDebugSurface(id, frame => {
+    const view = viewRef.current;
+    const now = current.current;
+    if (!view || now.source !== now.mappedSource || view.state.doc.toString() !== now.source) return false;
+    const offset = representedFrameOffset(now.source, now.files, frame);
+    if (offset === null) return false;
+    view.dispatch({ selection: { anchor: offset }, scrollIntoView: true });
+    return true;
+  }), [id]);
+  const startDebug = (path: string) => {
+    if (dirty) { setNotice("Save your edits before debugging."); return; }
+    const debug = debugSessions.current.get(path);
+    if (debug) { preferDebugSurface(path, id); debug.start(); }
+    else setNotice(`Code tools for ${path} are still opening. Try Debug again.`);
+  };
   const onDebug = useCallback((path: string, session: DebugSession) => { debugSessions.current.set(path, session); setDebugTick(n => n + 1); }, []);
   useEffect(() => {
     if (!editor || comparison?.target) return;
@@ -113,10 +129,14 @@ export function RepresentationPane({ id, initialBase = "", initialTarget = "", b
       const debug = debugSessions.current.get(file.path); if (!debug) continue;
       const line = (n: number) => { const offset = representationOffset(source, file, { line: n, character: 0 }); return offset === null ? null : editor.state.doc.lineAt(offset).number - 1; };
       for (const bp of debug.breakpoints) { const mapped = line(bp.line); if (mapped !== null) marks.push({ ...bp, line: mapped, conditional: !!(bp.condition || bp.hit_condition || bp.log_message) }); }
-      if (debug.pausedLine !== null) paused = line(debug.pausedLine);
+      if (debug.status === "paused") {
+        const frame = debug.frames.find(frame => frame.id === debug.selectedFrame) ?? debug.frames[0];
+        const offset = frame && source === mappedSource ? representedFrameOffset(source, files, frame) : null;
+        if (offset !== null) paused = editor.state.doc.lineAt(offset).number - 1;
+      }
     }
     editor.dispatch({ effects: [setBreakpointMarks.of(marks), setPausedLine.of(paused)] });
-  }, [editor, files, source, debugTick, comparison?.target]);
+  }, [editor, files, source, mappedSource, debugTick, comparison?.target]);
   const compare = async () => {
     if (dirty) { setNotice("Save your edits before changing the comparison."); return; }
     try {
@@ -172,15 +192,10 @@ export function RepresentationPane({ id, initialBase = "", initialTarget = "", b
     {record.explanation_stale && <p role="status">Stale explanation — source changed. Review or regenerate the explanation; this is not an execution verdict.</p>}
     {record.local_warning && <p role="alert">{record.local_warning}</p>}
     {notice && <p role="alert">{notice}</p>}
-    {!historical && files.map(file => <RepresentationTools key={file.path} file={file} source={mappedSource} view={editor} saved={!dirty} onDiagnostics={onDiagnostics} onDebug={onDebug} onMessage={setNotice} askText={prompt.askText} askChoice={prompt.askChoice} />)}
+    {!historical && files.map(file => <RepresentationTools key={file.path} file={file} source={mappedSource} view={editor} saved={!dirty} onStart={() => startDebug(file.path)} onDiagnostics={onDiagnostics} onDebug={onDebug} onMessage={setNotice} askText={prompt.askText} askChoice={prompt.askChoice} />)}
     <DocumentEditor docId={`lens:${id}`} initialSource={source} realtime={local} onChange={change} onViewReady={v => { viewRef.current = v; setEditor(v); }}
       execBlocks={[]} runningCells={noCells} onRunCell={() => setNotice("Run the repository's own tests or open its persistent document to execute cells.")}
-      onDebugFile={historical ? undefined : path => {
-        if (dirty) { setNotice("Save your edits before debugging."); return; }
-        const debug = debugSessions.current.get(path);
-        if (debug) debug.start();
-        else setNotice(`Code tools for ${path} are still opening. Try Debug again.`);
-      }}
+      onDebugFile={historical ? undefined : startDebug}
       readOnly={historical} comparisonBase={comparison?.source ?? null} lspExtensions={extensions} />
     <PromptPanel prompt={prompt.prompt} onSettle={prompt.settle} />
     {agent && <ChatDock docId={`lens:${id}`} realtime={realtime} initialPrompt={`Read literate view ${id} using read_literate_view, then organize_literate_view to explain its code and arrange exact source fragments. Preserve every source byte.`}

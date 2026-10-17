@@ -19,6 +19,7 @@
 // screen.
 
 import { useEffect, useMemo, useRef, useSyncExternalStore } from "react";
+import { clearPreferredDebugSurface, revealPreferredDebugLocation } from "./preferredDebugLocation";
 import { isDebuggable } from "./languages";
 import { languageFromPath } from "../editor/languages";
 
@@ -93,6 +94,11 @@ function Host({ path }: { path: string }) {
   // the session ends; only this owner can clear what it published.
   useEffect(() => {
     const top = debug.frames[0];
+    if (["idle", "finished", "failed"].includes(debug.status)) clearPreferredDebugSurface(path);
+    if (debug.status === "paused" && top && revealPreferredDebugLocation(path, top)) {
+      publishPausedElsewhere(path, null);
+      return;
+    }
     if (
       debug.status === "paused" &&
       top &&

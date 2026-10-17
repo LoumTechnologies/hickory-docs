@@ -1,0 +1,34 @@
+import { representationOffset, type RepresentedFile } from "../lsp/representationMapping";
+import type { Frame } from "./client";
+
+type Reveal = (frame: Frame) => boolean;
+const surfaces = new Map<string, Reveal>();
+const preferred = new Map<string, string>();
+
+/** A launch remembers its reading surface throughout stepping across files. */
+export function preferDebugSurface(owner: string, surface: string): void {
+  preferred.set(owner, surface);
+}
+
+export function clearPreferredDebugSurface(owner: string): void {
+  preferred.delete(owner);
+}
+
+export function registerDebugSurface(id: string, reveal: Reveal): () => void {
+  surfaces.set(id, reveal);
+  return () => { if (surfaces.get(id) === reveal) surfaces.delete(id); };
+}
+
+/** Only an exact mapping may consume navigation; otherwise open the source. */
+export function revealPreferredDebugLocation(owner: string, frame: Frame): boolean {
+  const id = preferred.get(owner);
+  return id !== undefined && (surfaces.get(id)?.(frame) ?? false);
+}
+
+/** DAP lines must exist; the editor position helpers otherwise clamp them. */
+export function representedFrameOffset(source: string, files: readonly RepresentedFile[], frame: Frame): number | null {
+  const file = files.find(file => file.path === frame.source);
+  const line = frame.source_line;
+  if (!file || typeof line !== "number" || !Number.isInteger(line) || line < 0 || line >= file.content.split("\n").length) return null;
+  return representationOffset(source, file, { line, character: 0 });
+}

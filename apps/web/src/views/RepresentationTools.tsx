@@ -13,8 +13,8 @@ import { DebugStrip } from "../debug/DebugStrip";
 import type { usePrompt } from "../components/PromptPanel";
 import { api } from "../api/client";
 
-export function RepresentationTools({ file, source, view, onDiagnostics, onDebug, onMessage, askText, askChoice }: {
-  file: RepresentedFile; source: string; view: EditorView | null; saved: boolean;
+export function RepresentationTools({ file, source, view, onStart, onDiagnostics, onDebug, onMessage, askText, askChoice }: {
+  file: RepresentedFile; source: string; view: EditorView | null; saved: boolean; onStart: () => void;
   onDiagnostics: (path: string, spans: DiagnosticSpan[]) => void;
   onDebug: (path: string, session: DebugSession) => void;
   onMessage: (message: string) => void;
@@ -58,7 +58,7 @@ export function RepresentationTools({ file, source, view, onDiagnostics, onDebug
     <DebugStrip editorView={view} pausedLine={pausedLine} status={debug.status} program={file.path} message={debug.message} capabilities={debug.capabilities}
       offerInstall={debug.offerInstall} onInstall={async offer => { await api.installTool(offer.kind, offer.language); }}
       frames={debug.frames} selectedFrame={debug.selectedFrame} watches={debug.watches} exitCode={debug.exitCode} buildOutput={debug.buildOutput}
-      onSelectFrame={debug.selectFrame} onStep={debug.step} onStart={() => debug.start()} onStop={debug.stop}
+      onSelectFrame={debug.selectFrame} onStep={debug.step} onStart={onStart} onStop={debug.stop}
       onJumpHere={() => { if (!view) return; const p = filePosition(source, file, view.state.selection.main.head); if (p) debug.jumpTo(p.line); }}
       onAddWatch={() => { void askText("Expression to watch:", "").then(expression=> { if (expression) debug.addWatch(expression); }); }}
       exceptionFilters={debug.exceptionFilters} onToggleExceptionFilter={debug.toggleExceptionFilter} onRemoveWatch={debug.removeWatch} />
