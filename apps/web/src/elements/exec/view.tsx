@@ -11,6 +11,7 @@ export const execView: ElementView = {
     return (
       <CellPanel
         block={block}
+        recordedOutput={slot.recordedOutput}
         running={block ? cx.runningCells.has(block.id) : false}
         command={slot.text}
         replay={cx.replaying.includes(slot.at)}

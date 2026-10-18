@@ -7,6 +7,7 @@ import { elementViews, renderableBlocks, slotKindOf } from "./index";
 import type { SlotKind } from "./types";
 
 const KINDS: SlotKind[] = [
+  "dataset",
   "patch",
   "exec",
   "output",

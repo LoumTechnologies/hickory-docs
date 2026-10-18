@@ -2561,11 +2561,23 @@ pub async fn run_pipeline_live(
                 let exec_options = ExecOptions {
                     timeout: config.cell_timeout.for_cell(exec_info.timeout_secs),
                 };
+                // Send notebook Python through stdin rather than a shell argument:
+                // cmd.exe has an 8191-character command limit, and Python has a
+                // different executable name on Windows. Code never becomes shell text.
+                let python = hick_lang::notebook::python_program(&exec_info.command);
+                if python.is_some() && stdin_content.is_some() {
+                    anyhow::bail!("Python notebook cells cannot also declare a stdin source");
+                }
+                let python_command = executor.script_platform().python_script_command("-");
                 let exec_result = executor
                     .execute_with_options(
                         &exec_info.container,
-                        &exec_info.command,
-                        stdin_content.as_deref(),
+                        if python.is_some() {
+                            &python_command
+                        } else {
+                            &exec_info.command
+                        },
+                        python.as_deref().or(stdin_content.as_deref()),
                         exec_options,
                     )
                     .await;

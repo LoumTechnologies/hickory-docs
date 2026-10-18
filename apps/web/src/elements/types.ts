@@ -21,6 +21,7 @@ import type { TableLayout } from "../components/TablePanel";
 
 /** The kinds of block the editor renders in place of their source. */
 export type SlotKind =
+  | "dataset"
   | "patch"
   | "exec"
   | "output"

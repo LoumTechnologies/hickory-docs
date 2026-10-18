@@ -28,6 +28,7 @@ export type TranscriptEvent =
 export type ExecStatus = "ok" | "failed" | "stale" | "unrecorded";
 
 export type Block =
+  | { kind: "dataset"; src: string; format: string; span: [number, number] }
   | { kind: "prose"; html: string; span: [number, number] }
   | {
       kind: "exec";

@@ -745,7 +745,7 @@ fn extract_exec_info(tag: &HickTag, index: usize) -> Result<ExecInfo, DagValidat
         });
     }
 
-    let command = command_text(tag);
+    let command = notebook_command(tag, command_text(tag));
 
     // Collect non-command child tags (paste, val, etc.) as stdin sources.
     // Command text is extracted separately via command_text() above.
@@ -930,6 +930,18 @@ fn paste_inside_command(tag: &HickTag) -> Option<String> {
             _ => None,
         })
         .find_map(|t| find(&t.children))
+}
+
+/// Python source stays data while crossing the executor's command boundary.
+/// Hex avoids shell interpolation and works with both POSIX and Windows shells.
+fn notebook_command(tag: &HickTag, source: String) -> String {
+    if !matches!(
+        tag.get_attribute("language"),
+        Some("python" | "python3" | "py")
+    ) {
+        return source;
+    }
+    hick_lang::notebook::python_command(&source)
 }
 
 fn command_text(tag: &HickTag) -> String {

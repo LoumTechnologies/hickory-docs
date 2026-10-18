@@ -39,6 +39,7 @@ mod audit_evidence;
 pub mod bisect;
 mod changeset_drafts;
 pub mod commit_reading;
+pub mod dataset;
 pub mod debug_bridge;
 pub mod environments;
 pub mod files_ops;
@@ -497,7 +498,13 @@ impl LocalState {
                     if !check_only && let Err(e) = crate::write_outputs(&run, None) {
                         log::error!("writing outputs failed: {e:#}");
                     }
-                    let failed = run.result.expectations.iter().any(|o| !o.passed);
+                    let output_failed = !check_only
+                        && crate::output::refresh_outputs(&run)
+                            .inspect_err(|e| {
+                                log::error!("saving cell outputs failed: {e:#}");
+                            })
+                            .is_err();
+                    let failed = output_failed || run.result.expectations.iter().any(|o| !o.passed);
                     let blocks = crate::block_model_json(&run)
                         .map(|v| v.get("blocks").cloned().unwrap_or(json!([])))
                         .unwrap_or(json!([]));
@@ -566,6 +573,7 @@ pub(crate) fn router(state: LocalState) -> Router {
         .route("/docs/{id}/project/undo", post(project_comparison::undo))
         .merge(changeset_drafts::routes())
         .route("/elements", get(api::elements))
+        .route("/dataset", get(dataset::preview))
         .route("/revision-projects", post(revision_projects::capture))
         .route("/launch-profiles", post(launch_profiles::list))
         .route("/launch-profiles/run", post(launch_profiles::run))

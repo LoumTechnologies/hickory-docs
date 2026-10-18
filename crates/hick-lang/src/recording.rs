@@ -117,7 +117,8 @@ pub fn render_transcript_entry(commands: &[String], output: &str, show: ExecShow
     let mut text = String::new();
     if matches!(show, ExecShow::All | ExecShow::Command) {
         for command in commands {
-            for (i, line) in command.lines().enumerate() {
+            let source = crate::notebook::source_command(command);
+            for (i, line) in source.as_deref().unwrap_or(command).lines().enumerate() {
                 text.push_str(if i == 0 { "$ " } else { "  " });
                 text.push_str(line);
                 text.push('\n');
@@ -125,7 +126,7 @@ pub fn render_transcript_entry(commands: &[String], output: &str, show: ExecShow
         }
     }
     if matches!(show, ExecShow::All | ExecShow::Output) && !output.is_empty() {
-        text.push_str(output);
+        text.push_str(&crate::notebook::render_output(output));
         text.push('\n');
     }
     text

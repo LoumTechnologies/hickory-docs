@@ -8993,3 +8993,12 @@ button.status-bar__item:hover { background: var(--bg-sunken); color: var(--fg); 
 .launch-profile-option { display: flex; flex-direction: column; gap: .3rem; padding: .6rem 0; border-top: 1px solid var(--border); }
 .launch-profile-option code { white-space: pre-wrap; overflow-wrap: anywhere; }
 .launch-profile-option > span:last-child { display: flex; gap: .5rem; flex-wrap: wrap; }
+
+/* Both external datasets and cell outputs use the same read-only grid. */
+.dataset-panel, .notebook-outputs { padding: .75rem; min-width: 0; }
+.notebook-table-scroll { max-height: 32rem; overflow: auto; margin: .5rem 0; }
+.notebook-table table { border-collapse: collapse; width: 100%; font-variant-numeric: tabular-nums; }
+.notebook-table th, .notebook-table td { border: 1px solid var(--border, #8885); padding: .3rem .6rem; text-align: left; white-space: pre-wrap; max-width: 28rem; overflow-wrap: anywhere; }
+.notebook-table th { position: sticky; top: 0; background: var(--bg, #fff); }
+.notebook-table th small { display: block; opacity: .65; font-weight: normal; }
+.notebook-outputs img, .cell-figure img { max-width: 100%; }

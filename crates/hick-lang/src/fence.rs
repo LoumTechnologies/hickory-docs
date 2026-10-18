@@ -139,11 +139,22 @@ fn fence_tag(info: &str, line: usize, column: usize) -> Option<HickTag> {
         "output"
     } else if has("path") {
         "file"
-    } else if has("container") || has("image") || has("mount") || has("show") {
+    } else if attributes.iter().any(|(k, v)| k == "exec" && v == "true")
+        || (!has("exec") && (has("container") || has("image") || has("mount") || has("show")))
+    {
         "exec"
     } else {
         return None;
     };
+    if name == "exec" && !has("container") {
+        attributes.push(("container".to_string(), "default".to_string()));
+    }
+    if name == "exec"
+        && attributes.iter().any(|(k, v)| k == "exec" && v == "true")
+        && !attributes.iter().any(|(k, _)| k == "show")
+    {
+        attributes.push(("show".into(), "output".into()));
+    }
     Some(HickTag {
         name: name.to_string(),
         attributes,

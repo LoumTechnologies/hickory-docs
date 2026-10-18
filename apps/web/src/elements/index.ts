@@ -3,6 +3,7 @@
 
 import { markdownTableBlocks } from "../editor/markdownTables";
 import type { HickBlock, HickDocStructure } from "../editor/hickDoc";
+import { datasetView } from "./dataset/view";
 import { diagramView } from "./diagram/view";
 import { execView } from "./exec/view";
 import { mathView } from "./math/view";
@@ -19,6 +20,7 @@ export type { ElementView, SlotContext, SlotKind } from "./types";
  * a picture is claimed by the picture view and no other. */
 export const elementViews: Record<SlotKind, ElementView> = {
   exec: execView,
+  dataset: datasetView,
   patch: patchView,
   output: outputView,
   diagram: diagramView,

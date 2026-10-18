@@ -24,6 +24,7 @@ pub use project::{
 };
 mod fence;
 mod literal_files;
+pub mod notebook;
 pub use literal_files::{LiteralFile, LiteralSegment, literal_files, strip_opening_break};
 mod parser;
 use parser::Parser;
@@ -1403,6 +1404,28 @@ mod tests {
                     .iter()
                     .all(|n| matches!(n, HickNode::Text(t, _) if t.trim().is_empty()))
         );
+    }
+
+    #[test]
+    fn python_fences_use_xml_attributes_and_explicit_exec_opt_in() {
+        let doc = parse("```python exec=\"true\" id=\"summary\"\nprint(1)\n```\n").unwrap();
+        let cell = doc.find_tags("exec").pop().unwrap();
+        assert_eq!(cell.get_attribute("container"), Some("default"));
+        assert_eq!(cell.get_attribute("id"), Some("summary"));
+        assert_eq!(cell.text_content(), "print(1)\n");
+        for info in [
+            "python",
+            "python exec=\"false\"",
+            "python exec=\"false\" container=\"py\"",
+            "python exec",
+        ] {
+            assert!(
+                parse(&format!("```{info}\nprint(1)\n```\n"))
+                    .unwrap()
+                    .find_tags("exec")
+                    .is_empty()
+            );
+        }
     }
 
     #[test]

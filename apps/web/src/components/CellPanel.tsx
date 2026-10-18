@@ -1,3 +1,5 @@
+import { notebookOutputs } from "../lib/notebookOutput";
+import { NotebookOutputs } from "./NotebookOutputs";
 import { useMemo } from "react";
 import { hasReplay } from "../lib/railActions";
 import type { ExecBlock } from "../api/types";
@@ -41,6 +43,7 @@ export interface CellPanelProps {
    * render catches up with a freshly typed cell). */
   block?: ExecBlock;
   running?: boolean;
+  recordedOutput?: string;
   /** The cell's commands. Passed when this panel STANDS IN for the source —
    * the block is rendered, so the commands are not on screen anywhere else
    * and the panel has to show them. Omitted when the source is visible above
@@ -72,9 +75,13 @@ export function CellPanel({
   running,
   command,
   replay = false,
+  recordedOutput,
 }: CellPanelProps) {
-  const transcript = block?.transcript ?? [];
-  const stdout = useMemo(() => stdoutOf(transcript), [transcript]);
+  const transcript = useMemo(() => (block?.transcript ?? []).map(event => event.kind === "cmd" && (event.data.startsWith('python3 -c "exec(bytes.fromhex(') || event.data === "python3 -" || event.data === "python -") ? { ...event, data: block?.command ?? event.data } : event), [block]);
+  const savedOnly = !transcript.length && recordedOutput !== undefined;
+  const stdout = useMemo(() => savedOnly ? recordedOutput ?? "" : stdoutOf(transcript), [transcript, recordedOutput, savedOnly]);
+  const rich = useMemo(() => notebookOutputs(stdout), [stdout]);
+  const displayTranscript = useMemo(() => rich.outputs.length ? transcript.filter(e => e.kind !== "out").concat(rich.text.trim() ? [{ t: 0, kind: "out" as const, data: rich.text }] : []) : transcript, [transcript, rich]);
   const svgFigure = useMemo(() => (looksLikeSvg(stdout) ? stdout.trim() : null), [stdout]);
 
   const verified = !running && block?.status === "ok" && !!block?.expect;
@@ -105,7 +112,8 @@ export function CellPanel({
     running: !!running,
   });
   const showTranscript =
-    running || (transcript.length > 0 && (collapsible ? replay : !verified && !failedExpect));
+    running || (transcript.length > 0 && (collapsible ? replay : !verified && !failedExpect)
+      && (rich.outputs.length === 0 || !!rich.text.trim() || transcript.some(e => e.kind === "err") || replay));
 
   return (
     <div className="cell-panel" data-testid={`cell-panel-${block.id}`}>
@@ -116,6 +124,7 @@ export function CellPanel({
           {block.image ? ` · ${block.image}` : ""}
         </span>
         <StatusChip status={block.status} running={running} />
+        {savedOnly && <span className="muted">Saved output</span>}
         {verified && (
           <span className="cell-verified" data-tip="The recorded stdout matches this cell’s expectation; this does not assert that the prose is correct.">
             ✓ Expected output matches
@@ -143,15 +152,13 @@ export function CellPanel({
         // input none, writes nothing. It replaced a `<pre>` that showed a
         // build's escape sequences as literal text.
         <div className="transcript">
-          <WatchingTerminal events={transcript} live={running} />
+          <WatchingTerminal events={displayTranscript} live={running} />
         </div>
       )}
+      {savedOnly && !!rich.text.trim() && !svgFigure && <pre className="notebook-saved-text">{rich.text}</pre>}
+      {!running && rich.outputs.length > 0 && <NotebookOutputs outputs={rich.outputs} />}
       {svgFigure && !running && (
-        <figure
-          className="cell-figure"
-          // Figure output produced by the executed cell itself (inline SVG).
-          dangerouslySetInnerHTML={{ __html: svgFigure }}
-        />
+        <figure className="cell-figure"><img alt="Cell SVG output" src={`data:image/svg+xml,${encodeURIComponent(svgFigure)}`} /></figure>
       )}
     </div>
   );

@@ -162,3 +162,19 @@ describe("a cell that owns ingested files", () => {
     view.destroy();
   });
 });
+
+describe("a cell's saved notebook result", () => {
+  it("folds an adjacent saved result into one card while keeping the exec span for actions", async () => {
+    const cell = '```python exec="true" id="summary"\ndisplay(result)\n```\n';
+    const output = '```output-for="#summary" hash="snapshot"\nsaved output\n```\n';
+    const { registry, view } = open(`${cell}\n${output}`);
+    view.dispatch({ effects: setRenderedBlocks.of([0, cell.length + 1]) });
+    await new Promise((r) => queueMicrotask(() => r(null)));
+    expect(registry.list()).toHaveLength(1);
+    expect(registry.list()[0].kind).toBe("exec");
+    expect(registry.list()[0].recordedOutput).toContain("saved output");
+    expect(registry.list()[0].text).toContain("display(result)");
+    expect(view.dom.textContent).not.toContain("saved output");
+    view.destroy();
+  });
+});

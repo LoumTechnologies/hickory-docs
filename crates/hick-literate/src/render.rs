@@ -79,6 +79,7 @@ pub fn registry<'a>() -> Registry<BlockModelInput<'a>> {
     let mut registry = Registry::new();
     registry
         .register(ExecElement)
+        .register(DatasetElement)
         .register(OutputElement)
         .register(FileElement)
         .register(DiagramElement)
@@ -187,6 +188,31 @@ impl<'a> Element<BlockModelInput<'a>> for OutputElement {
             Block::new("output", span_of(tag))
                 .with("outputFor", attr(tag, "output-for").unwrap_or_default())
                 .with("body", tag.text_content()),
+        )
+    }
+}
+
+/// External data is always a reference; rendering never executes Python or writes it.
+struct DatasetElement;
+impl<'a> Element<BlockModelInput<'a>> for DatasetElement {
+    fn name(&self) -> &'static str {
+        "dataset"
+    }
+    fn attributes(&self) -> &'static [AttrSpec] {
+        const ATTRS: &[AttrSpec] = &[
+            AttrSpec::required("src", "document-relative dataset or S3 URI"),
+            AttrSpec::optional("format", "parquet (default) or delta"),
+        ];
+        ATTRS
+    }
+    fn render(&self, tag: &HickTag, _: &BlockModelInput<'a>) -> Option<Block> {
+        Some(
+            Block::new("dataset", span_of(tag))
+                .with("src", attr(tag, "src").unwrap_or_default())
+                .with(
+                    "format",
+                    attr(tag, "format").unwrap_or_else(|| "parquet".into()),
+                ),
         )
     }
 }

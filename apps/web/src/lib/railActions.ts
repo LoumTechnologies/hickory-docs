@@ -75,6 +75,7 @@ export function actionsFor(
       const own: RailAction[] = options.source === false ? ["run"] : ["run", "source"];
       return options.replay ? [...own, "replay"] : own;
     }
+    case "dataset":
     case "diagram":
     // An equation is a picture too: the only verb it has is "show me what I
     // actually typed".

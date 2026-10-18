@@ -192,6 +192,12 @@ fn command(tag: &HickTag) -> Result<String, String> {
             }
         }
     }
+    if matches!(
+        tag.get_attribute("language"),
+        Some("python" | "python3" | "py")
+    ) {
+        return Ok(crate::notebook::python_command(&text));
+    }
     Ok(text)
 }
 pub(super) fn render(
@@ -213,7 +219,10 @@ pub(super) fn render(
     };
     let text = crate::render_transcript_entry(&record.commands, &record.output, show);
     let mut origins = vec![];
-    if matches!(show, ExecShow::All | ExecShow::Output) && !record.output.is_empty() {
+    if matches!(show, ExecShow::All | ExecShow::Output)
+        && !record.output.is_empty()
+        && crate::notebook::render_output(&record.output) == record.output
+    {
         let start = crate::render_transcript_entry(&record.commands, "", show).len();
         origins.push(ByteOrigin {
             output: (start, start + record.output.len()),

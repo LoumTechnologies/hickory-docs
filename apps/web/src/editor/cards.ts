@@ -19,7 +19,7 @@ import { markdownTableBlocks } from "./markdownTables";
 import { execBlocksOf, blocksNamed, pictureBlocksOf, proseFences } from "./hickDoc";
 import type { HickDocStructure } from "./hickDoc";
 
-export type CardKind = "exec" | "diagram" | "math" | "table" | "picture" | "fence";
+export type CardKind = "dataset" | "exec" | "diagram" | "math" | "table" | "picture" | "fence";
 
 export interface DocCard {
   /** Stable within one document version; the rail keys its buttons on it. */
@@ -73,6 +73,10 @@ export function cardsOf(structure: HickDocStructure, options: CardsOptions): Doc
       label: container ? `Cell ${index + 1} — ${container}` : `Cell ${index + 1}`,
       insidePicture: pictures.some((p) => block.from > p.from && block.from < p.to),
     });
+  });
+
+  blocksNamed(structure, "dataset").forEach((block, index) => {
+    cards.push({ key: `dataset-${index}`, kind: "dataset", index, at: block.from, from: block.from, to: block.to, label: `Dataset — ${block.attrs.src ?? ""}` });
   });
 
   if (options.diagrams !== false) {

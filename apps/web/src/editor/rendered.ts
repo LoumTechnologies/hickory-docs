@@ -95,6 +95,8 @@ export interface RenderedSlot {
   table?: { formats?: string; format?: string; path?: string; delimiter?: string; header: boolean; language?: string };
   /** picture only: the file this block writes, as the document spells it. */
   picture?: { path: string };
+  dataset?: { src: string; format: string };
+  recordedOutput?: string;
   asserts: string[];
 }
 
@@ -127,6 +129,8 @@ export class RenderedRegistry extends SlotRegistry<RenderedSlot> {
     slot.text = next.text;
     slot.renderer = next.renderer;
     slot.table = next.table;
+    slot.dataset = next.dataset;
+    slot.recordedOutput = next.recordedOutput;
     slot.picture = next.picture;
     slot.asserts = next.asserts;
     queueMicrotask(() => this.notify());
@@ -140,6 +144,9 @@ function sameContent(a: Omit<RenderedSlot, "el">, b: Omit<RenderedSlot, "el">): 
     a.kind === b.kind &&
     a.text === b.text &&
     a.renderer === b.renderer &&
+    a.recordedOutput === b.recordedOutput &&
+    a.dataset?.src === b.dataset?.src &&
+    a.dataset?.format === b.dataset?.format &&
     a.table?.format === b.table?.format &&
     a.table?.formats === b.table?.formats &&
     a.table?.path === b.table?.path &&
@@ -275,7 +282,13 @@ function buildRendered(state: EditorState, registry: RenderedRegistry): Decorati
     const ingested = blocksNamed(structure, "ingested").find(
       (child) => child.from > block.from && child.to <= block.to,
     );
-    const end = ingested ? ingested.from - 1 : block.to;
+    // A saved adjacent result belongs to its cell's card. Folding the pair
+    // avoids showing the same table twice and keeps a reopened notebook useful
+    // before this machine has any execution transcript.
+    const savedOutput = kind === "exec" && block.attrs.id ? structure.blocks.find(candidate =>
+      candidate.name === "output" && candidate.attrs["output-for"] === `#${block.attrs.id}`
+      && candidate.from >= block.to && !doc.sliceString(block.to, candidate.from).trim()) : undefined;
+    const end = ingested ? ingested.from - 1 : savedOutput?.to ?? block.to;
     // A block replacement must cover whole lines, or CodeMirror cannot take
     // the rows out of the height map.
     const first = doc.lineAt(Math.min(block.from, doc.length));
@@ -292,6 +305,8 @@ function buildRendered(state: EditorState, registry: RenderedRegistry): Decorati
           ? commandOf(state, structure, block)
           : doc.sliceString(block.contentFrom, block.contentTo),
       renderer: block.attrs.renderer ?? "mermaid",
+      recordedOutput: savedOutput ? doc.sliceString(savedOutput.contentFrom, savedOutput.contentTo) : undefined,
+      dataset: kind === "dataset" ? { src: block.attrs.src ?? "", format: block.attrs.format ?? "parquet" } : undefined,
       picture:
         kind === "picture" ? { path: block.attrs.path ?? "" } : undefined,
       table:
