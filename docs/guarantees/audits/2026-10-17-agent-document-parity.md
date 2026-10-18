@@ -98,3 +98,28 @@ provider cases intentionally ignored). After correcting the included-source
 debug identity and its asynchronous assertion, `just test-web` passed
 typechecking and all 2,180 tests in 236 files. This supersedes the earlier
 full-web development run that reported that mismatch.
+
+## Editable final-artifact continuation (2026-10-17)
+
+The earlier editable-fork gap is superseded by
+[the final-revision guarantee](../agent/final-changeset-revisions-apply-b-to-c.md).
+Accepted artifacts remain immutable. Revise New creates an authored draft using
+ordinary patch regeneration and full downstream validation against captured A.
+Explicit Apply guards B-to-C disk publication and identified editor transactions;
+Discard writes nothing. Tools use captured evaluated draft projects. The developer
+contract records per-target recovery, metadata and non-atomic batch limits.
+Durable response drafts, harness repair-loop adoption and policy defaults remain
+separate work; this continuation does not change them.
+
+Continuation evidence: the native recipe passed 26 cases, the focused web recipe
+passed typechecking and 72 tests, and the full web recipe passed 2,198 tests in
+239 files. The real Chromium recipe passed both folder and folderless flows.
+Focused Clippy, formatting, file lengths and whitespace checks passed. Native
+compilation initially stalled on macOS compiler-library loading; affected local
+build artifacts were rebuilt. A real process test found and fixed plain-file
+publication incorrectly entering the document-room lookup. Browser undo exposed
+that applied editor transactions lacked the local user-event marker; they now
+enter editor history as isolated transactions. The standalone MCP witness uses
+an isolated engine state directory so a running desktop engine cannot supply
+older code to the test. Human visual acceptance and real-provider compliance
+remain unrecorded.

@@ -42,11 +42,11 @@ export function PatchEditor({ slot, cx }: { slot: RenderedSlot; cx: SlotContext 
       const state = project.local_states[id];
       const paths = patchPaths(state);
       if (generation !== loadGeneration.current) return;
-      setCapture({ ...context, source, project, id }); setPath(paths[0] ?? ""); setDraft(null);
+      setCapture({ ...context, source, project, id }); setPath(previous => paths.includes(previous) ? previous : paths[0] ?? ""); setDraft(null);
     } catch (e) { if (generation === loadGeneration.current) setError(e instanceof Error ? e.message : String(e)); }
     finally { if (generation === loadGeneration.current) setLoading(false); }
   };
-  useEffect(() => { void inspect(); return () => { loadGeneration.current++; }; }, [cx.view, cx.docId, cx.capturedProject]);
+  useEffect(() => { void inspect(); return () => { loadGeneration.current++; }; }, [cx.view, cx.docId, cx.capturedProject?.sources, cx.capturedProject?.input]);
   useEffect(() => {
     if (capture && !draft && cx.view?.state.doc.toString() !== capture.source) void inspect();
   }, [slot.text]);
@@ -55,12 +55,13 @@ export function PatchEditor({ slot, cx }: { slot: RenderedSlot; cx: SlotContext 
     setSaving(true);
     try {
       if (!capture || !draft || !cx.view) return;
-      if (cx.view.state.readOnly) throw new Error("This source is read-only. Fork it before editing.");
+      if (cx.view.state.readOnly && !cx.capturedProject?.editPatch) throw new Error("This source is read-only. Fork it before editing.");
       if (cx.view.state.doc.toString() !== capture.source) throw new Error("The document changed elsewhere. This draft is unsaved; reload the patch before editing further.");
       const state = capture.project.local_states[capture.id];
       const text = draft.sources.find(s => s.id === draft[side])!.text;
       const newEntries = state.new.map(e => e.path === path ? { ...e, bytes: [...new TextEncoder().encode(text)], origins: [] } : e);
       if (side === "new" && !newEntries.some(e => e.path === path)) throw new Error("This path is removed by the patch. Edit the patch source to restore it.");
+      const input = cx.capturedProject?.input ?? [];
       let sources: Record<string, string>;
       if (side === "old") {
         const file = state.old.find(e => e.path === path);
@@ -71,12 +72,16 @@ export function PatchEditor({ slot, cx }: { slot: RenderedSlot; cx: SlotContext 
         while (first < a.length && first < b.length && a[first] === b[first]) first++;
         while (suffix < a.length-first && suffix < b.length-first && a[a.length-1-suffix] === b[b.length-1-suffix]) suffix++;
         const bytes = (s: string) => new TextEncoder().encode(s).length;
-        sources = reverseProjectEdit(capture.entry, capture.sources, [], state.old, { path,
+        sources = reverseProjectEdit(capture.entry, capture.sources, input, state.old, { path,
           range: [bytes(a.slice(0, first).join("")), bytes(a.slice(0, a.length-suffix).join(""))], replacement: b.slice(first,b.length-suffix).join("") });
-      } else sources = regenerateProjectPatch(capture.entry, capture.sources, [], capture.id, newEntries);
-      const replacement = sources[capture.entry];
-      const project = materializeProject(capture.entry, sources);
-      if (Object.keys(sources).some(p => p !== capture.entry && sources[p] !== capture.sources[p])) {
+      } else sources = regenerateProjectPatch(capture.entry, capture.sources, input, capture.id, newEntries);
+      const replacement = sources[cx.capturedProject?.document ?? capture.entry];
+      const project = materializeProject(capture.entry, sources, input);
+      if (cx.capturedProject?.editPatch) {
+        cx.capturedProject.editPatch(sources);
+        cx.capturedProject.draftPending?.(capture.id, false);
+      }
+      if (!cx.capturedProject?.editPatch && Object.keys(sources).some(p => p !== capture.entry && sources[p] !== capture.sources[p])) {
         if (!cx.docId) throw new Error("Open the project in its native workspace to publish contributing source edits.");
         const completed = materializeProject(capture.entry,sources).new;
         const entries=Object.fromEntries(completed.map(e=>[e.path,{bytes:e.bytes,kind:e.kind === "file" ? "File" : "Symlink",executable:e.executable,origins:e.origins ?? []}]));
@@ -91,13 +96,13 @@ export function PatchEditor({ slot, cx }: { slot: RenderedSlot; cx: SlotContext 
       while (suffix < capture.source.length - from && suffix < replacement.length - from && capture.source[capture.source.length - suffix - 1] === replacement[replacement.length - suffix - 1]) suffix++;
       if (suffix > 0 && /[\uDC00-\uDFFF]/.test(capture.source[capture.source.length - suffix])) suffix--;
       setCapture({ ...capture, sources, source: replacement, project });
-      cx.view.dispatch({ changes: { from, to: capture.source.length - suffix, insert: replacement.slice(from, replacement.length - suffix) }, userEvent: "input.project-patch" });
+      cx.view.dispatch({ changes: { from, to: capture.source.length - suffix, insert: replacement.slice(from, replacement.length - suffix) }, ...(!cx.capturedProject?.editPatch ? {userEvent: "input.project-patch"} : {}) });
       if (latestDraft.current === draft) setDraft(null);
     } catch (e) { setError(e instanceof Error ? e.message : String(e)); }
     finally { setSaving(false); }
   };
   useEffect(() => {
-    if (!draft || saving || error || !cx.view || cx.view.state.readOnly) return;
+    if (!draft || saving || error || !cx.view || (cx.view.state.readOnly && !cx.capturedProject?.editPatch)) return;
     const timer = window.setTimeout(() => void save(), 400);
     return () => window.clearTimeout(timer);
   }, [draft, saving, capture, error]);
@@ -120,7 +125,7 @@ export function PatchEditor({ slot, cx }: { slot: RenderedSlot; cx: SlotContext 
       model = draft ?? { sources: [
         { id: "old", label: "Before this patch", kind: "authored", target: capture.entry, text: decode(state.old), project: tools ? nativeTree(capture.project.old) : undefined, versions: tools ? capture.project.versions.map(nativeTree) : undefined, local: nativeTree(state.old), debugSurface: cx.view && tools && !filesystemOnly ? { view: cx.view, entry: cx.capturedProject?.document ?? capture.entry, source: capture.source, path: cx.path ?? undefined } : undefined },
         { id: "new", label: "After this patch", kind: "authored", target: capture.entry, text: decode(state.new), project: tools ? nativeTree(capture.project.new) : undefined, versions: tools ? capture.project.versions.map(nativeTree) : undefined, local: nativeTree(state.new), debugSurface: cx.view && tools && !filesystemOnly ? { view: cx.view, entry: cx.capturedProject?.document ?? capture.entry, source: capture.source, path: cx.path ?? undefined } : undefined },
-      ], old: "old", new: "new", policy: side, evidence: "unverified" };
+      ], old: "old", new: "new", policy: cx.capturedProject?.editPatch ? cx.capturedProject.activePatch && cx.capturedProject.activePatch !== capture.id ? "neither" : "new" : side, evidence: "unverified" };
     } catch { /* The explicit diagnostic below leaves binary source intact. */ }
   }
   return <section aria-label="Project patch editor">
@@ -131,15 +136,15 @@ export function PatchEditor({ slot, cx }: { slot: RenderedSlot; cx: SlotContext 
     </>}
     {error && <p role="alert">{error}</p>}
     {capture && <>
-      {model ? <ComparisonEditor path={path} model={model} compact onChange={cx.view?.state.readOnly ? undefined : value => { setError(""); setDraft(value); }} options={<>
-      <p>{path} · {cx.view?.state.readOnly ? "read-only" : saving ? "Checking…" : draft ? "Unsaved draft" : "Up to date"}</p>
-      <label>Editable side <select disabled={!!draft || saving} value={side} onChange={e => { setSide(e.target.value as "old" | "new"); setDraft(null); }}><option value="new">New</option><option value="old">Old · authored predecessor</option></select></label>
+      {model ? <ComparisonEditor path={path} model={model} compact onChange={cx.view?.state.readOnly && !cx.capturedProject?.editPatch ? undefined : value => { setError(""); cx.capturedProject?.draftPending?.(capture.id, true); setDraft(value); }} options={<>
+      <p>{path} · {cx.view?.state.readOnly && !cx.capturedProject?.editPatch ? "read-only" : saving ? "Checking…" : draft ? "Unsaved draft" : "Up to date"}</p>
+      {!cx.capturedProject?.editPatch && <label>Editable side <select disabled={!!draft || saving} value={side} onChange={e => { setSide(e.target.value as "old" | "new"); setDraft(null); }}><option value="new">New</option><option value="old">Old · authored predecessor</option></select></label>}
       <label>File <select disabled={!!draft || saving} value={path} onChange={e => { setPath(e.target.value); setDraft(null); }}>
         {patchPaths(capture.project.local_states[capture.id]).map(p => <option key={p}>{p}</option>)}
       </select></label>
       <p className="muted">Edits save automatically after checking later patches. Debugging uses the latest project containing exactly the code shown.</p>
       </>} /> : <p role="alert">This entry is binary or a symlink. Edit its explicit entry construction.</p>}
     </>}
-    {error && <button className="btn" onClick={() => void inspect()} disabled={saving}>Reload patch{draft ? " and discard draft" : ""}</button>}
+    {error && <button className="btn" onClick={() => { cx.capturedProject?.draftPending?.(capture?.id ?? "", false); void inspect(); }} disabled={saving}>Reload patch{draft ? " and discard draft" : ""}</button>}
   </section>;
 }

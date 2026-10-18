@@ -82,8 +82,8 @@ ends its turn.
 Hickory records accepted artifacts separately from trial work and renders their
 patches with captured whole-project context. Source equality does not resolve
 ambiguous native-write attribution. Resolve that separately before incorporating
-into maintained source. Accepted artifacts are immutable; editable final-artifact
-fork/apply workflows remain future work.
+into maintained source. Accepted artifacts are immutable. Choose **Revise New** to create a separate
+authored draft; its guarded application workflow is described below.
 
 ## Workspace and editor boundaries
 
@@ -96,7 +96,9 @@ windows capture editors only; the execution directory is never their workspace.
 Standalone MCP requires an explicit directory and has no connected editor state.
 
 Keep each editor's stable `id` for the whole turn. The captured `workspace`
-context records `identities`, mapping IDs to backing paths or null. Every editor
+context records `identities`, mapping IDs to backing paths or null, and
+`provenance`, retaining each supplied buffer instance URI. Untitled instance
+URIs include the window lifetime; an old record cannot bind to a reused tab ID. Every editor
 has its own evaluator address: `__hickory_editor_buffers__/` followed by the
 lowercase hexadecimal UTF-8 bytes of its ID. This reserved namespace cannot
 coexist with a real workspace entry at that prefix. These are non-filesystem
@@ -155,3 +157,76 @@ Run `just test-agent-changesets` for the real ACP/MCP peer and verifier cases,
 and `just test-agent-changesets-web` for final-document rendering and proposal UI.
 The peer is deterministic and tests the wire contract; it cannot establish
 real-provider explanation quality or third-party adapter compliance.
+
+## Revise an accepted result
+
+For contributors extending the final-artifact editor or publication handlers.
+After finalization and attribution resolution, choose **Revise New**, edit a
+patch's New code, and wait for C construction to succeed. Patch comparisons
+need explicit patch IDs, as ordinary Markdown patches do. Other construction
+kinds retain their captured read-only rendering. **Apply revision**
+changes the captured destinations; **Discard draft** leaves them alone. Old and
+the accepted artifact remain visible and read-only. Only one patch can have
+unchecked edits at a time. Drafts are local to the mounted view and do not
+survive closing it or restarting.
+
+For example, the agent changed `old` (A) to `new` (B). Replacing New with
+`revised` constructs C using the same WASM `regenerate_patch` as an ordinary
+Markdown patch. The entire closure, including later patches, must evaluate.
+Application checks for `new` at the destination and writes `revised`; it never
+tries to replay the `old`-to-`revised` patch over `new`.
+
+`POST /api/docs/{doc}/agent/projects/{turn}/draft/apply` receives `sources` and
+fresh `context` from the workspace editor. It re-evaluates the supplied closure
+with captured A, checks that atomic Old is unchanged and the accepted artifact
+still reproduces B, and compares the current inventory to B. Workspace capture
+checks the frozen ID/path map, so saving, renaming, closing or opening an editor, or changing its window instance,
+requires restoring the original identities before applying. Disk and buffer
+bytes remain separate channels. Standalone declared-project captures have no
+editor channel; untitled revisions require the original connected workspace.
+
+Disk differences use `project_publish::publish_text`, the text publication path
+shared with literate source editing. Each write checks the expected bytes and
+live room, preserves existing permissions, and uses the engine write lock.
+Creations use no-clobber publication. Editor differences return identified
+transactions and use `applyAgentEdit` with an exact old-text guard; the workspace
+also rechecks the tab's backing path. Untitled text stays in its editor.
+
+The response separates `constructed`, `runtime`, `applied`, `error`, `editors`
+and `undo`. The browser reports each editor result independently and appends a separate
+client-reported acknowledgement on `draft/result`. The displayed draft is read-only while Apply is in flight. Cross-file
+and disk/editor application is **not atomic**. On failure, stop applying and keep
+the application receipt: `undo` gives each landed disk path's before/after text.
+Restore a path only after checking it still has those after bytes; use editor
+undo for a landed buffer transaction where supported. No automatic rollback
+runs over concurrent changes. A network failure can make the UI's outcome
+unknown: inspect the separate `authored-changeset-revision` and
+`authored-changeset-application` and `authored-changeset-editor-application`
+session records and compare destinations before
+recovering. The accepted artifact is never rewritten.
+
+The tree model checks file bytes, kind, executable bits and symlink targets.
+Other filesystem metadata and empty directories are outside it. New code edits
+preserve kind/mode; binary, symlink and executable-mode revisions are refused
+before publication. External processes are not locked by the engine: final
+check/write races and ABA writes remain limitations of guarded filesystem
+publication. A read-only target can produce a partial batch after earlier writes.
+
+A draft has no inherited output-equality or runtime claim. Successful evaluation
+establishes construction of C only. Native language/debug tools use the exact
+complete evaluated draft project containing the displayed bytes. Unchecked
+edits lose the preceding context. Editor-address patches still have no native
+executable project; no working-tree dependency is borrowed to fill a gap.
+Authored revision records describe an edit by the user workflow, not proof of
+human authorship or correctness. Built-in/Python agent behavior and review
+policy are unchanged.
+
+Validation commands: `just test-agent-changesets`,
+`just test-agent-changesets-web`, `just test-workspace-changesets-browser`, and
+`just check-agent-changesets`.
+
+The 2026-10-17 implementation checks passed 26 native cases, 72 focused web tests,
+2,198 full web tests, both real Chromium workspace/folderless flows, and focused
+Clippy/formatting/file-length checks. Native recipes used `CARGO_INCREMENTAL=0`
+after rebuilding stalled local macOS compiler-library artifacts. Runtime checks
+of arbitrary revised user programs remain explicit and unrun by Apply.

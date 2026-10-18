@@ -303,6 +303,9 @@ pub fn write_atomic(path: &Path, bytes: &[u8]) -> Result<()> {
     {
         let mut file = std::fs::File::create(&tmp)?;
         file.write_all(bytes)?;
+        if let Ok(metadata) = std::fs::metadata(path) {
+            file.set_permissions(metadata.permissions())?;
+        }
         file.sync_all()?;
     }
     std::fs::rename(&tmp, path)?;

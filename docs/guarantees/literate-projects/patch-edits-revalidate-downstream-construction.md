@@ -57,3 +57,14 @@ publication, selection/editor preservation, downstream refusal and correction,
 and read-only Old and owning-document policies. The comparison recipe passed
 26 tests with type checking. Native visual behavior is not claimed by these
 tests.
+
+## Captured final drafts (2026-10-17)
+
+`PatchEditor` now supplies the captured input tree to regeneration and candidate
+evaluation instead of assuming an empty input. A captured draft callback receives
+the successfully regenerated closure without dispatching any destination edit.
+The owning accepted document stays read-only; only New code can be revised.
+`ChangesetDocument.test.tsx` covers frozen-input regeneration, immutable original
+source, and a later patch refusing an incompatible early edit. Unchecked edits
+disable explicit application and lose native project context until construction
+succeeds. See the final-revision guarantee for publication and recovery limits.

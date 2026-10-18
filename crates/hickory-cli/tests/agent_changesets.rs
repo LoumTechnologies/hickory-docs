@@ -240,6 +240,7 @@ async fn a_native_write_after_acceptance_requires_a_new_artifact() {
 
 #[tokio::test]
 async fn standalone_mcp_freezes_one_task_across_engine_forwarding() {
+    let engine_state = tempfile::tempdir().unwrap();
     for workspace in [false, true] {
         use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
         let dir = tempfile::tempdir().unwrap();
@@ -255,6 +256,7 @@ async fn standalone_mcp_freezes_one_task_across_engine_forwarding() {
         std::fs::write(dir.path().join("app.ts"), "dirty A\n").unwrap();
         let mut child = tokio::process::Command::new(env!("CARGO_BIN_EXE_hick"))
             .args(["mcp", "--doc", "project.md"])
+            .env("HICKORY_STATE_DIR", engine_state.path())
             .current_dir(dir.path())
             .env("HICKORY_EXECUTOR", "local")
             .stdin(std::process::Stdio::piped())
@@ -466,4 +468,45 @@ async fn browser_workspace_changesets() {
         );
         assert!(!host.root.join("__hickory_editor_buffers__").exists());
     }
+}
+
+// Guarantee: docs/guarantees/agent/final-changeset-revisions-apply-b-to-c.md
+#[tokio::test]
+async fn accepted_process_result_b_can_be_revised_to_c_without_replaying_a_over_b() {
+    let host = host(true).await;
+    let turn = run(&host, "contract-repair").await;
+    assert_eq!(finished(&host, &turn).await["status"], "ok");
+    let path = format!("/api/docs/{}/agent/projects/{turn}", host.doc);
+    let (_, capture) = request(&host, &path, None).await;
+    let (status, resolved) =
+        request(&host, &path, Some(json!({"resolve":capture["ambiguous"]}))).await;
+    assert_eq!(status, 200, "{resolved}");
+    let (_, accepted) = request(&host, &path, None).await;
+    let a: hick_lang::ProjectSnapshot =
+        serde_json::from_value(accepted["starting"].clone()).unwrap();
+    let b: hick_lang::ProjectSnapshot =
+        serde_json::from_value(accepted["completed"].clone()).unwrap();
+    let a = a.restore().unwrap();
+    let b = b.restore().unwrap();
+    assert!(!a.compare(&b).is_empty());
+    let mut c = b.clone();
+    c.insert(
+        "app.ts",
+        hick_lang::ProjectEntry::file(b"revision C\n".to_vec()),
+    )
+    .unwrap();
+    let source = hick_lang::transition_response(&a, &c, "Authored revision").unwrap();
+    let (status, result) = request(
+        &host,
+        &format!("{path}/draft/apply"),
+        Some(json!({"sources":{"response.md":source},"context":{"buffers":[]}})),
+    )
+    .await;
+    assert_eq!(status, 200, "{result}");
+    assert_eq!(result["error"], Value::Null, "{result}");
+    assert_eq!(
+        std::fs::read_to_string(host.root.join("app.ts")).unwrap(),
+        "revision C\n"
+    );
+    assert_eq!(request(&host, &path, None).await.1, accepted);
 }

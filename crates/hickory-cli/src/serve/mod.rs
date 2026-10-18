@@ -37,6 +37,7 @@ pub mod api;
 pub mod asset;
 mod audit_evidence;
 pub mod bisect;
+mod changeset_drafts;
 pub mod commit_reading;
 pub mod debug_bridge;
 pub mod environments;
@@ -563,14 +564,7 @@ pub(crate) fn router(state: LocalState) -> Router {
         .route("/docs/{id}/project", post(project_comparison::capture))
         .route("/docs/{id}/project/apply", post(project_comparison::apply))
         .route("/docs/{id}/project/undo", post(project_comparison::undo))
-        .route(
-            "/docs/{id}/agent/projects/{turn}",
-            get(agent_projects::snapshot).post(agent_projects::finalize),
-        )
-        .route(
-            "/docs/{id}/agent/projects/{turn}/incorporate",
-            get(project_incorporation::status).post(project_incorporation::propose),
-        )
+        .merge(changeset_drafts::routes())
         .route("/elements", get(api::elements))
         .route("/revision-projects", post(revision_projects::capture))
         .route("/launch-profiles", post(launch_profiles::list))

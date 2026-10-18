@@ -12,12 +12,15 @@ pub const BUFFERS: &str = hick_lang::EDITOR_BUFFER_PREFIX;
 pub struct WorkspaceCapture {
     pub root: Option<PathBuf>,
     pub identities: BTreeMap<String, Option<String>>,
+    #[serde(default)]
+    pub provenance: BTreeMap<String, Option<String>>,
 }
 impl WorkspaceCapture {
     pub fn freeze(root: Option<PathBuf>, buffers: &[EditorBuffer]) -> Result<(Self, ProjectTree)> {
         let mut scope = Self {
             root,
             identities: BTreeMap::new(),
+            provenance: BTreeMap::new(),
         };
         for buffer in buffers {
             let id = buffer
@@ -29,6 +32,9 @@ impl WorkspaceCapture {
                 "Duplicate or empty editor ID: {id}"
             );
             scope.identities.insert(id.clone(), buffer.path.clone());
+            scope
+                .provenance
+                .insert(id.clone(), buffer.provenance_uri.clone());
         }
         let tree = scope.current(buffers)?;
         Ok((scope, tree))
@@ -42,6 +48,16 @@ impl WorkspaceCapture {
             identities.len() == buffers.len() && identities == self.identities,
             "Editor identity changed (opened, closed, saved or renamed). Restore the original editors and paths, then retry; start a new turn to use a new boundary."
         );
+        if !self.provenance.is_empty() {
+            let provenance: BTreeMap<_, _> = buffers
+                .iter()
+                .map(|b| (b.id.clone().unwrap_or_default(), b.provenance_uri.clone()))
+                .collect();
+            ensure!(
+                provenance == self.provenance,
+                "Editor identity changed (window or buffer instance). Reopen the original captured window before retrying."
+            );
+        }
         let mut tree = if let Some(root) = &self.root {
             {
                 let first =
@@ -246,6 +262,9 @@ mod tests {
         buffers.pop();
         assert!(scope.current(&buffers).is_err());
         buffers = original;
+        let mut replacement = buffers.clone();
+        replacement[0].provenance_uri = Some("new-window-buffer".into());
+        assert!(scope.current(&replacement).is_err());
         buffers[0].id = Some("renamed".into());
         assert!(scope.current(&buffers).is_err());
     }

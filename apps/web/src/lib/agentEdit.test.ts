@@ -29,3 +29,16 @@ it("refuses a closed editor", () => {
   try { expect(() => applyAgentEdit(view, change)).toThrow("unavailable"); }
   finally { view.destroy(); }
 });
+
+// Guarantee: docs/guarantees/agent/final-changeset-revisions-apply-b-to-c.md
+it("undoes an applied revision separately from immediately preceding typing", () => {
+  const view = new EditorView({state:EditorState.create({doc:"A",extensions:[history()]}),parent:document.body});
+  try {
+    view.dispatch({changes:{from:0,to:1,insert:"B"},userEvent:"input.type"});
+    applyAgentEdit(view,{...change,oldText:"B",newText:"C"});
+    expect(undo(view)).toBe(true);
+    expect(view.state.doc.toString()).toBe("B");
+    expect(undo(view)).toBe(true);
+    expect(view.state.doc.toString()).toBe("A");
+  } finally { view.destroy(); }
+});

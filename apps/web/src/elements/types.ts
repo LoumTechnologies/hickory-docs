@@ -45,7 +45,7 @@ export type SlotKind =
 export interface SlotContext {
   docId?: string;
   /** Frozen final-artifact closure and A. Never borrowed from the working tree. */
-  capturedProject?: { filesystemOnly?: boolean; tools?: boolean; entry: string; document?: string; sources: Record<string, string>; input: import("../editor/hickLang").ProjectEntry[] };
+  capturedProject?: { activePatch?: string | null; draftPending?: (id: string, pending: boolean) => void; editPatch?: (sources: Record<string, string>) => void; filesystemOnly?: boolean; tools?: boolean; entry: string; document?: string; sources: Record<string, string>; input: import("../editor/hickLang").ProjectEntry[] };
   /** The live editor, when mounted. */
   view: EditorView | null;
   /** This document's path (for assets and per-table state), or null. */

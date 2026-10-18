@@ -156,3 +156,15 @@ modeled; special filesystem entries refuse capture. Save/rename/close during a
 turn requires restoring the boundary or a new turn. Built-in/Python mandatory finalization loops remain unimplemented.
 The earlier inspected hashes describe the prior implementation and are superseded
 for the paths changed by this continuation.
+
+## Final-artifact revision continuation (2026-10-17)
+
+Accepted records remain read-only. The separate authored-draft and explicit
+B-to-C application workflow is protected by
+[the final-revision guarantee](final-changeset-revisions-apply-b-to-c.md).
+It adds no agent write permission or repair-loop policy. Captures now retain
+supplied buffer-instance provenance URIs as well as IDs and paths; a reused
+untitled tab ID in another window cannot acquire an old revision's destination.
+The new workspace-capture witness checks this instance transition. The final
+native recipe passed 26 cases; the browser recipe passed both folder and
+folderless captures with guarded revision application and editor undo.

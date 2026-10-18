@@ -61,6 +61,7 @@ export function WorkspaceChat({ layout, registry, untitledSources, plainSources,
   const applyAgentChange = (change: AgentChange) => {
     const target = latest.current.tabs.find(tab => tab.id === (change.buffer ?? change.name));
     if (!target) throw new Error("The target editor was closed. Reopen it and ask the agent again.");
+    if ((target.kind === "untitled" ? null : target.target) !== change.path) throw new Error("The target editor was saved or renamed. Nothing was applied to that editor; preserve the revision and review its destination.");
     const session = registry.get(target.docId);
     const view = target.kind === "untitled" ? bufferEditor(target.id)
       : target.kind === "document" ? session?.docEditor

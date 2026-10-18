@@ -265,7 +265,7 @@ pub async fn finish(
         .insert(turn.into(), capture);
 }
 
-fn captured(state: &LocalState, doc: &str, turn: &str) -> ApiResult<CapturedTurn> {
+pub(super) fn captured(state: &LocalState, doc: &str, turn: &str) -> ApiResult<CapturedTurn> {
     let record = state
         .agent
         .turns

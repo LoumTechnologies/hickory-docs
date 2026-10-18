@@ -31,13 +31,56 @@ test("untitled edits complete as a captured changeset without saving", async ({ 
   const turns = await (await page.request.get("/api/docs/workspace/agent/turns")).json();
   const turn = turns.turns.at(-1);
   expect(turn.status).toBe("ok");
-  const capture = await (await page.request.get(`/api/docs/workspace/agent/projects/${turn.id}`)).json();
+  let capture = await (await page.request.get(`/api/docs/workspace/agent/projects/${turn.id}`)).json();
   const values = (snapshot: { entries: Record<string,{bytes:number[]}> }) => Object.entries(snapshot.entries)
     .filter(([path]) => path.startsWith("__hickory_editor_buffers__/"))
     .map(([,entry]) => new TextDecoder().decode(new Uint8Array(entry.bytes)));
   expect(values(capture.starting)).toContain("Authoritative unsaved A");
   expect(values(capture.completed)).toContain("Edited by the agent");
   expect(capture.workspace.root === null).toBe(process.env.HICKORY_CHANGESET_FOLDER === "false");
+  expect((await page.request.get("/api/file?path=Untitled.md")).ok()).toBe(false);
+  if (capture.ambiguous.length) {
+    for (const path of capture.ambiguous) await agent.getByLabel(path,{exact:true}).check();
+    await agent.getByRole("button",{name:"Verify A-to-B explanation",exact:true}).click();
+    await expect(agent.getByRole("button",{name:"Revise New",exact:true})).toBeEnabled();
+    capture = await (await page.request.get(`/api/docs/workspace/agent/projects/${turn.id}`)).json();
+  }
+  const identity = Object.keys(capture.workspace.identities)[0];
+  const changedIdentity = await page.request.post(`/api/docs/workspace/agent/projects/${turn.id}/draft/apply`, {data:{sources:capture.artifact.sources,context:{buffers:[{id:identity,name:"Saved elsewhere",path:"invented.md",content:"Edited by the agent"}]}}});
+  expect(changedIdentity.status()).toBe(409); // Refuses the changed frozen identity before publishing.
+  // Guarantee: docs/guarantees/agent/final-changeset-revisions-apply-b-to-c.md
+  await agent.getByRole("button",{name:"Revise New",exact:true}).click();
+  const draft = agent.getByRole("region",{name:"Authored final changeset draft"});
+  const revisedCode = draft.locator(".comparison-side:last-child .cm-content");
+  await revisedCode.click(); await revisedCode.press("ControlOrMeta+a");
+  await revisedCode.pressSequentially("Discarded C");
+  await expect(draft.getByText("C construction succeeded.",{exact:false})).toBeVisible();
+  await expect(editor).toContainText("Edited by the agent");
+  await draft.getByRole("button",{name:"Discard draft"}).click();
+  await expect(editor).toContainText("Edited by the agent");
+  await agent.getByRole("button",{name:"Revise New",exact:true}).click();
+  await revisedCode.click(); await revisedCode.press("ControlOrMeta+a");
+  await revisedCode.pressSequentially("Authored C");
+  await expect(draft.getByText("C construction succeeded.",{exact:false})).toBeVisible();
+  await page.getByRole("tab",{name:"Untitled",exact:true}).click();
+  await editor.click(); await editor.press("ControlOrMeta+a");
+  await editor.pressSequentially("Concurrent editor work");
+  await page.getByRole("tab",{name:"Agent",exact:true}).click();
+  await draft.getByRole("button",{name:"Apply revision",exact:true}).click();
+  await expect(agent.getByRole("alert")).toContainText("Destinations changed");
+  await expect(editor).toContainText("Concurrent editor work");
+  await page.getByRole("tab",{name:"Untitled",exact:true}).click();
+  await editor.click(); await editor.press("ControlOrMeta+a");
+  await editor.pressSequentially("Edited by the agent");
+  await page.getByRole("tab",{name:"Agent",exact:true}).click();
+  await draft.getByRole("button",{name:"Apply revision",exact:true}).click();
+  await expect(agent.getByText(/Revision application succeeded/)).toBeVisible();
+  await expect(editor).toContainText("Authored C");
+  const after = await (await page.request.get(`/api/docs/workspace/agent/projects/${turn.id}`)).json();
+  expect(after).toEqual(capture);
+  await page.getByRole("tab",{name:"Untitled",exact:true}).click();
+  await editor.click(); await editor.press("ControlOrMeta+z");
+  await expect(editor).toContainText("Edited by the agent");
   expect((await page.request.get("/api/file?path=Untitled.md")).ok()).toBe(false);
   expect(errors).toEqual([]);
 });

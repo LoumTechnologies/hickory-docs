@@ -370,3 +370,168 @@ async fn native_acp_capture_omits_abandoned_bytes_and_requires_attribution_resol
             .contains("abandoned draft")
     );
 }
+
+// Guarantee: docs/guarantees/agent/final-changeset-revisions-apply-b-to-c.md
+async fn revision(host: &Host, turn: &str, changes: &[(&str, &str)]) -> (String, Value) {
+    let path = format!("/api/docs/{}/agent/projects/{turn}", host.doc);
+    let (_, capture) = request(host, &path, None).await;
+    let starting: hick_lang::ProjectSnapshot =
+        serde_json::from_value(capture["starting"].clone()).unwrap();
+    let completed: hick_lang::ProjectSnapshot =
+        serde_json::from_value(capture["completed"].clone()).unwrap();
+    let a = starting.restore().unwrap();
+    let mut c = completed.restore().unwrap();
+    for (name, text) in changes {
+        let mut entry = c
+            .get(name)
+            .map(|e| (**e).clone())
+            .unwrap_or_else(|| hick_lang::ProjectEntry::file(Vec::new()));
+        entry.bytes = text.as_bytes().to_vec().into();
+        entry.origins.clear();
+        c.insert(name, entry).unwrap();
+    }
+    let response = hick_lang::transition_response(&a, &c, "Authored revision").unwrap();
+    (
+        format!("{path}/draft/apply"),
+        json!({"sources":{"response.md":response},"context":{"buffers":[]}}),
+    )
+}
+#[tokio::test]
+async fn final_revision_publishes_b_to_c_without_changing_the_accepted_artifact() {
+    let host = host().await;
+    let turn = finalized(&host).await;
+    let path = format!("/api/docs/{}/agent/projects/{turn}", host.doc);
+    let (_, original) = request(&host, &path, None).await;
+    let (apply, body) = revision(&host, &turn, &[("app.ts", "authored C\n")]).await;
+    assert_eq!(
+        std::fs::read_to_string(host.root.join("app.ts")).unwrap(),
+        "dirty A\n"
+    );
+    let (status, result) = request(&host, &apply, Some(body.clone())).await;
+    assert_eq!(status, 200, "{result}");
+    assert_eq!(result["error"], Value::Null, "{result}");
+    assert_eq!(result["constructed"], true);
+    assert_eq!(result["runtime"], "unrun");
+    assert_eq!(result["applied"], json!(["app.ts"]));
+    assert_eq!(
+        std::fs::read_to_string(host.root.join("app.ts")).unwrap(),
+        "authored C\n"
+    );
+    let (_, after) = request(&host, &path, None).await;
+    assert_eq!(after, original);
+    let (status, recorded) = request(
+        &host,
+        &format!("{path}/draft/result"),
+        Some(json!({"editorResults":[],"applied":["app.ts"]})),
+    )
+    .await;
+    assert_eq!(status, 200, "{recorded}");
+    assert_eq!(request(&host, &path, None).await.1, original);
+
+    let (status, _) = request(&host, &apply, Some(body)).await;
+    assert_eq!(status, 409, "A-to-C must never replay on already applied C");
+}
+#[tokio::test]
+async fn final_revision_refuses_stale_inventory_and_invalid_construction_without_writes() {
+    let host = host().await;
+    let turn = finalized(&host).await;
+    let (path, body) = revision(&host, &turn, &[("app.ts", "C\n")]).await;
+    std::fs::write(host.root.join("app.ts"), "newer work\n").unwrap();
+    assert_eq!(request(&host, &path, Some(body.clone())).await.0, 409);
+    assert_eq!(
+        std::fs::read_to_string(host.root.join("app.ts")).unwrap(),
+        "newer work\n"
+    );
+    std::fs::write(host.root.join("app.ts"), "dirty A\n").unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(
+            host.root.join("app.ts"),
+            std::fs::Permissions::from_mode(0o755),
+        )
+        .unwrap();
+        assert_eq!(request(&host, &path, Some(body.clone())).await.0, 409);
+        std::fs::set_permissions(
+            host.root.join("app.ts"),
+            std::fs::Permissions::from_mode(0o644),
+        )
+        .unwrap();
+    }
+    std::fs::write(host.root.join("created.txt"), "newer creation").unwrap();
+    assert_eq!(request(&host, &path, Some(body.clone())).await.0, 409);
+    std::fs::remove_file(host.root.join("created.txt")).unwrap();
+    std::fs::rename(host.root.join("app.ts"), host.root.join("renamed.ts")).unwrap();
+    assert_eq!(request(&host, &path, Some(body.clone())).await.0, 409);
+    std::fs::rename(host.root.join("renamed.ts"), host.root.join("app.ts")).unwrap();
+    let mut broken = body;
+    broken["sources"]["response.md"] = json!(
+        "<hick:project/><hick:patch id=\"broken\">\n--- a/app.ts\n+++ b/app.ts\n@@ -1 +1 @@\n-wrong baseline\n+broken\n</hick:patch>"
+    );
+    assert_eq!(request(&host, &path, Some(broken)).await.0, 422);
+    let downstream = json!({"context":{"buffers":[]},"sources":{"response.md":"<hick:project/><hick:patch id=\"first\">\n--- a/app.ts\n+++ b/app.ts\n@@ -1 +1 @@\n-dirty A\n+broken early edit\n</hick:patch><hick:patch id=\"later\" after=\"first\">\n--- a/app.ts\n+++ b/app.ts\n@@ -1 +1 @@\n-new\n+final\n</hick:patch>"}});
+    assert_eq!(request(&host, &path, Some(downstream)).await.0, 422);
+
+    assert_eq!(
+        std::fs::read_to_string(host.root.join("app.ts")).unwrap(),
+        "dirty A\n"
+    );
+}
+#[cfg(unix)]
+#[tokio::test]
+async fn final_revision_reports_partial_publication_and_keeps_guarded_recovery_bytes() {
+    use std::os::unix::fs::PermissionsExt;
+    let host = host().await;
+    std::fs::write(host.root.join("z.txt"), "B\n").unwrap();
+    let turn = finalized(&host).await;
+    let (path, body) = revision(&host, &turn, &[("app.ts", "C\n"), ("z.txt", "C\n")]).await;
+    std::fs::set_permissions(
+        host.root.join("z.txt"),
+        std::fs::Permissions::from_mode(0o444),
+    )
+    .unwrap();
+    let (status, result) = request(&host, &path, Some(body)).await;
+    assert_eq!(status, 200, "{result}");
+    assert_eq!(result["applied"], json!(["app.ts"]));
+    assert!(
+        result["error"].as_str().unwrap().contains("read-only"),
+        "{result}"
+    );
+    assert_eq!(result["undo"][0]["before"], "dirty A\n");
+    assert_eq!(result["undo"][0]["after"], "C\n");
+    assert_eq!(
+        std::fs::read_to_string(host.root.join("z.txt")).unwrap(),
+        "B\n"
+    );
+    std::fs::set_permissions(
+        host.root.join("z.txt"),
+        std::fs::Permissions::from_mode(0o644),
+    )
+    .unwrap();
+}
+
+// Guarantee: docs/guarantees/agent/final-changeset-revisions-apply-b-to-c.md
+#[cfg(unix)]
+#[tokio::test]
+async fn final_revision_preserves_the_accepted_executable_mode() {
+    use std::os::unix::fs::PermissionsExt;
+    let host = host().await;
+    std::fs::set_permissions(
+        host.root.join("app.ts"),
+        std::fs::Permissions::from_mode(0o755),
+    )
+    .unwrap();
+    let turn = finalized(&host).await;
+    let (path, body) = revision(&host, &turn, &[("app.ts", "C\n")]).await;
+    let (status, result) = request(&host, &path, Some(body)).await;
+    assert_eq!(status, 200, "{result}");
+    assert_eq!(result["error"], Value::Null, "{result}");
+    assert_eq!(
+        std::fs::metadata(host.root.join("app.ts"))
+            .unwrap()
+            .permissions()
+            .mode()
+            & 0o777,
+        0o755
+    );
+}
