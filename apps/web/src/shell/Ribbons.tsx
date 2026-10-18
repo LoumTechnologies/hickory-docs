@@ -423,17 +423,16 @@ export function revealStrip(
 }
 
 /**
- * A pane's full horizontal extent INCLUDING both line-number rails: from the
- * outer edge of CodeMirror's left gutter (the scroller's left edge) to the
- * outer edge of the right rail the editor wrapper mounts beside it. This is
+ * A pane's ribbon anchors: from the brace column one third of the left
+ * gutter away from the text to the outer edge of the right rail the editor
+ * wrapper mounts beside it. This is
  * what ribbons anchor on — the numbers, not the text, are the ribbon's
  * x-axis vocabulary.
  */
 export function paneEdges(view: EditorView): {
   left: number;
   right: number;
-  /** Width of the left (CodeMirror gutter) rail: outer edge to the text-side
-   * boundary. Brace horns reach this far back in, wrapping the numbers. */
+  /** Short horizontal horn from the left brace column to the text edge. */
   leftRailW: number;
   /** Width of the right rail (0 when the pane has none). */
   rightRailW: number;
@@ -452,10 +451,15 @@ export function paneEdges(view: EditorView): {
       (edge, el) => Math.max(edge, el.getBoundingClientRect().right),
       scroller.right,
     );
+  // Reserve two thirds of the left gutter for the flowing connection. Long
+  // horizontal horns used to consume this space and squeeze unrelated links
+  // into nearly overlapping vertical lines at the outer edge. Both agent
+  // conversations and literate documents use this same anchor calculation.
+  const leftRailW = Math.max(0, content.left - scroller.left) / 3;
   return {
-    left: scroller.left,
+    left: content.left - leftRailW,
     right: outer,
-    leftRailW: Math.max(0, content.left - scroller.left),
+    leftRailW,
     // Everything past the text is rail, so the horn wraps both of them and
     // the numbers stay inside the brace exactly as before.
     rightRailW: Math.max(0, outer - scroller.right),
