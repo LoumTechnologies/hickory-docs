@@ -759,3 +759,18 @@ test-ribbon-grouping:
 test-workspace-changesets-browser:
     cargo build -p hickory-cli --example acp_fixture
     cargo test -p hickory-cli --test agent_changesets browser_workspace_changesets -- --ignored --nocapture
+
+# Personal agent response recovery and the actual durable store.
+test-response-recovery:
+    just check-web
+    cd apps/web && npm test -- --maxWorkers=2 src/lib/responseRecovery.test.ts src/components/ChatDock.test.tsx src/views/WorkspaceChat.test.tsx src/views/ConversationEditor.test.tsx src/views/useUnsavedLifecycle.test.tsx src/App.test.tsx
+    cargo test -p hickory-workspace --lib
+    cargo check -p hickory-cli
+
+test-response-recovery-ui:
+    bash scripts/test-spatial-ui.sh responseRecovery.spec.ts
+
+check-response-recovery:
+    cargo fmt --all -- --check
+    cargo clippy -p hickory-workspace -p hickory-cli --lib -- -D warnings
+    just check-file-length

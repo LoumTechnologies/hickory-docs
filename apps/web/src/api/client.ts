@@ -800,6 +800,9 @@ export const api = {
    * a reason not to start). */
   workspaceUi: () =>
     request<{ state: WorkspaceUiState }>("GET", "/api/workspace/ui"),
+  responseDraft: (doc: string) => request<{ scope: string; state: unknown }>("GET", `/api/workspace/responses?doc=${encodeURIComponent(doc)}`),
+  saveResponseDraft: (doc: string, scope: string, state: unknown, keepalive = false) =>
+    request<{ ok: true }>("PUT", `/api/workspace/responses?doc=${encodeURIComponent(doc)}`, { scope, state }, keepalive),
   saveWorkspaceUi: (state: WorkspaceUiState, keepalive = false) =>
     request<{ ok: true }>("PUT", "/api/workspace/ui", { state }, keepalive),
 

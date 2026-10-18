@@ -123,3 +123,9 @@ enter editor history as isolated transactions. The standalone MCP witness uses
 an isolated engine state directory so a running desktop engine cannot supply
 older code to the test. Human visual acceptance and real-provider compliance
 remain unrecorded.
+
+Recovery follow-up (2026-10-17): the historical process-local-map gap in the
+Persistence row is addressed by personal workspace response recovery. The current
+contract and its validation are in
+[Unsent responses survive restart](../agent/unsent-responses-survive-restart.md).
+The draft remains separate from recorded conversation evidence.

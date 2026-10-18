@@ -1,3 +1,4 @@
+import { flushResponseRecovery } from "../lib/responseRecovery";
 import { viewBuffers, useViewBuffersVersion } from "../lib/viewBuffers";
 // Close decisions use acknowledged file persistence, not a separate Save
 // checkpoint. Recovery drafts never count as a successful file save.
@@ -168,6 +169,7 @@ export function useUnsavedLifecycle({
       void (async () => {
         if (dirtyTabIds.size === 0) {
           await flushUi?.();
+          await flushResponseRecovery();
           await api.closeWindow().catch(() => {});
           return;
         }
@@ -220,6 +222,7 @@ export function useUnsavedLifecycle({
           }
         }
         await flushUi?.();
+        await flushResponseRecovery();
         await api.closeWindow().catch(() => {});
       })();
     };

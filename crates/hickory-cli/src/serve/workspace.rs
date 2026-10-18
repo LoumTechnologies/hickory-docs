@@ -118,3 +118,57 @@ pub async fn discard_draft(
     store(&state)?.discard_draft(&q.path)?;
     Ok(Json(json!({ "ok": true })))
 }
+
+#[derive(Deserialize)]
+pub struct ResponseQuery {
+    pub doc: String,
+}
+
+fn response_store(state: &LocalState, doc: &str) -> ApiResult<(WorkspaceStore, String, String)> {
+    let store = store(state)?.responses()?;
+    let subject = super::agent_context::subject(state, doc)?
+        .to_string_lossy()
+        .into_owned();
+    // Reject a queued write if a blank window attached a different folder.
+    let scope = serde_json::to_string(&(store.dir(), &subject)).map_err(anyhow::Error::from)?;
+    Ok((store, subject, scope))
+}
+
+pub async fn get_response(
+    State(state): State<LocalState>,
+    Query(q): Query<ResponseQuery>,
+) -> ApiResult<Json<Value>> {
+    let (store, subject, scope) = response_store(&state, &q.doc)?;
+    let draft = store.response(&subject)?;
+    let saved = draft
+        .map(|draft| serde_json::from_str::<Value>(&draft.contents))
+        .transpose()
+        .map_err(|e| ApiError::unprocessable(format!("Response recovery is damaged: {e}")))?;
+    Ok(Json(json!({ "scope": scope, "state": saved })))
+}
+
+#[derive(Deserialize)]
+pub struct PutResponse {
+    pub scope: String,
+    pub state: Value,
+}
+
+pub async fn put_response(
+    State(state): State<LocalState>,
+    Query(q): Query<ResponseQuery>,
+    Json(body): Json<PutResponse>,
+) -> ApiResult<Json<Value>> {
+    let (store, subject, scope) = response_store(&state, &q.doc)?;
+    if body.scope != scope {
+        return Err(ApiError::conflict(
+            "The workspace changed. Response recovery was not written.",
+        ));
+    }
+    store.save_draft(&Draft {
+        path: subject,
+        contents: serde_json::to_string(&body.state).map_err(anyhow::Error::from)?,
+        base: String::new(),
+        saved_at: 0,
+    })?;
+    Ok(Json(json!({ "ok": true })))
+}

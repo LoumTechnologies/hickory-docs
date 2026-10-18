@@ -11,7 +11,7 @@ import {
 } from "@testing-library/react";
 
 vi.mock("../api/client", () => ({ request: vi.fn().mockResolvedValue({}),
-  api: { agent: vi.fn(), agentTurns: vi.fn(), agentStop: vi.fn(), executor: vi.fn().mockResolvedValue({}), sessionView: vi.fn().mockRejectedValue(new Error("No session fixture")), complete: vi.fn().mockResolvedValue({ suggestions: [] }) },
+  api: { responseDraft: vi.fn().mockResolvedValue({ scope: "test", state: null }), saveResponseDraft: vi.fn().mockResolvedValue({ ok: true }), agent: vi.fn(), agentTurns: vi.fn(), agentStop: vi.fn(), executor: vi.fn().mockResolvedValue({}), sessionView: vi.fn().mockRejectedValue(new Error("No session fixture")), complete: vi.fn().mockResolvedValue({ suggestions: [] }) },
 }));
 
 vi.mock("../api/acp", () => ({ acpApi: { catalogue: vi.fn().mockResolvedValue({ agents: [] }), connect: vi.fn(), state: vi.fn() } }));
@@ -474,3 +474,25 @@ async function typeResponse(text: string) {
   const view = EditorView.findFromDOM(host)!;
   act(() => view.dispatch({ changes: { from: view.state.field(responseStart), to: view.state.doc.length, insert: text }, userEvent: "input.type" }));
 }
+
+// Guarantee: docs/guarantees/agent/unsent-responses-survive-restart.md
+it("retains a rejected send and preserves a newer response when a later send is accepted", async () => {
+  vi.mocked(api.agentTurns).mockResolvedValue({ turns: [], provider: "anthropic", model: "claude-sonnet-5", totals: { usd: 0, input: 0, output: 0, cache_read: 0, cache_write: 0 } });
+  vi.mocked(api.agent).mockRejectedValueOnce(new Error("send rejected"));
+  const realtime = { onRunEvent: () => () => undefined } as unknown as Realtime;
+  const view = render(<ChatDock docId="send-recovery" realtime={realtime} onAgentFinished={() => {}} />);
+  await typeResponse("submitted text");
+  fireEvent.click(screen.getByRole("button", { name: "Send" }));
+  await screen.findByText("send rejected");
+  expect(screen.getByRole("textbox", { name: "Agent conversation and response" }).textContent).toContain("submitted text");
+  let accept!: (result: { session_id: string }) => void;
+  vi.mocked(api.agent).mockReturnValueOnce(new Promise(resolve => { accept = resolve; }));
+  fireEvent.click(screen.getByRole("button", { name: "Send" }));
+  await typeResponse("newer text while sending");
+  await act(async () => accept({ session_id: "accepted" }));
+  await screen.findByRole("button", { name: "Stop the agent" });
+  expect(screen.getByRole("textbox", { name: "Agent conversation and response" }).textContent).toContain("newer text while sending");
+  fireEvent.click(screen.getByRole("button", { name: "Discard response" }));
+  expect(screen.getByRole("textbox", { name: "Agent conversation and response" }).textContent).not.toContain("newer text while sending");
+  view.unmount(); cleanup();
+});

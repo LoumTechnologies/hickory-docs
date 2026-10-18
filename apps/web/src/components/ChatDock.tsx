@@ -31,6 +31,7 @@ import type { Realtime } from "../api/realtime";
 import { ConversationEditor, focusConversationResponse } from "../views/ConversationEditor";
 import { ChatTree } from "./ChatTree";
 import { StopMark } from "./icons";
+import { useResponseRecovery } from "../lib/responseRecovery";
 
 /** The providers the backend accepts (ProviderSelection::ALL), with each
  * one's default model as the free-text input's placeholder. */
@@ -110,6 +111,8 @@ export function hasUsage(t: AgentTotals): boolean {
 export interface ChatDockProps {
   initialPrompt?: string;
   docId: string;
+  /** Folder identity invalidates queued recovery when this window attaches a folder. */
+  recoveryWorkspace?: string;
   getContext?: () => Promise<AgentEditorContext>;
   applyAgentChange?: (change: AgentChange) => void | Promise<void>;
   contextLabel?: string;
@@ -250,11 +253,6 @@ export function childrenOf(
   return turns.filter((t) => t.parent_id === parent);
 }
 
-/** The newest turn, used as the default tip when nothing is selected. */
-function newestTurn(turns: AgentTurn[]): AgentTurn | null {
-  return turns.length === 0 ? null : turns[turns.length - 1];
-}
-
 /** Follow the newest child at each step — the tip a branch switch lands on. */
 export function deepestFrom(turns: AgentTurn[], from: string): string {
   let cursor = from;
@@ -265,11 +263,10 @@ export function deepestFrom(turns: AgentTurn[], from: string): string {
   }
 }
 
-const responseDrafts = new Map<string, string>();
-
 export function ChatDock({
   initialPrompt = "",
   docId,
+  recoveryWorkspace = "window",
   getContext,
   applyAgentChange,
   contextLabel,
@@ -281,9 +278,11 @@ export function ChatDock({
 }: ChatDockProps) {
   const [hydrated, setHydrated] = useState(false);
   const [turns, setTurns] = useState<AgentTurn[]>([]);
-  const [tip, setTip] = useState<string | null>(null);
-  const [prompt, setPrompt] = useState(() => responseDrafts.get(docId) ?? initialPrompt);
-  useEffect(() => { responseDrafts.set(docId, prompt); }, [docId, prompt]);
+  const recovery = useResponseRecovery(docId, recoveryWorkspace, initialPrompt, turns, hydrated);
+  const tip = recovery.state.tip;
+  const setTip = recovery.select;
+  const prompt = recovery.text;
+  const setPrompt = recovery.edit;
   const [running, setRunning] = useState<string | null>(null);
   // A stop was asked for and its terminal frame has not arrived yet. The
   // button stays pressed-looking rather than clickable twice.
@@ -329,7 +328,6 @@ export function ChatDock({
           // choice being made in the select/input mid-conversation.
           if (!hydratedRef.current) {
             hydratedRef.current = true;
-            setTip(newestTurn(r.turns)?.id ?? null);
             setBackend(r.turns.length ? r.backend ?? "builtin" : preferredAgent());
             setRunning(r.turns.find(t => t.status === "running")?.id ?? null);
             setProvider(r.provider);
@@ -417,6 +415,7 @@ export function ChatDock({
   }, [running, captureRequest, docId, backend]);
 
   const send = async () => {
+    const submitted = recovery.snapshot();
     const text = prompt.trim();
     if (!text || running || sendingRef.current || (backend !== "builtin" && (!acp.state?.ready || acp.busy))) return;
     setError(null);
@@ -483,7 +482,7 @@ export function ChatDock({
       );
       setRunning(session_id);
       runningRef.current = session_id;
-      setPrompt("");
+      recovery.accepted(submitted, session_id);
       // Show the new turn immediately rather than waiting for the round trip.
       setTurns((prev) => [
         ...prev,
@@ -502,7 +501,6 @@ export function ChatDock({
           session: tip ? turns.find((t) => t.id === tip)?.session : undefined,
         },
       ]);
-      setTip(session_id);
       const buffered = earlyEvents.current.filter(m => "run_id" in m && m.run_id === session_id);
       for (const msg of buffered) {
         if ("event" in msg) { setStream(prev => appendStream(prev, msg.event)); setReasoning(prev => appendReasoning(prev, msg.event)); }
@@ -672,6 +670,8 @@ export function ChatDock({
           </button>
         ) : null}
       </div>
+      {prompt && <button className="btn-link" onClick={recovery.discard}>Discard response</button>}
+      {recovery.error && <p className="chat-note error" role="status">{recovery.error}</p>}
       {unavailable && (
         <p className="chat-note muted">
           The agent needs a provider API key. Add one in <a href="#/settings">Settings</a>, then try again.

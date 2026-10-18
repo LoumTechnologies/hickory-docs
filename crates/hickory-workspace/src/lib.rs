@@ -105,6 +105,24 @@ impl WorkspaceStore {
         &self.dir
     }
 
+    /// Response recovery is personal state, never a recoverable document file.
+    pub fn responses(mut self) -> Result<Self> {
+        self.dir = self.dir.join("responses");
+        fs::create_dir_all(self.drafts_dir())?;
+        Ok(self)
+    }
+
+    /// Unlike document enumeration, a requested response must report corruption.
+    pub fn response(&self, subject: &str) -> Result<Option<Draft>> {
+        match fs::read_to_string(self.draft_path(subject)) {
+            Ok(text) => Ok(Some(
+                serde_json::from_str(&text).context("response recovery is damaged")?,
+            )),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
+            Err(e) => Err(e.into()),
+        }
+    }
+
     /// A window's recovery state is separate from every other window's.
     /// Slot zero retains the existing layout and drafts on first upgrade.
     pub fn window(mut self, slot: &str) -> Result<Self> {
@@ -543,5 +561,93 @@ mod tests {
         fs::write(s.dir().join("drafts").join("stale.partial"), "half").unwrap();
         assert_eq!(s.load_draft("a.md"), Some(good));
         assert_eq!(s.list_drafts().len(), 1);
+    }
+}
+
+#[cfg(test)]
+mod response_tests {
+    use super::*;
+
+    // Guarantee: docs/guarantees/agent/unsent-responses-survive-restart.md
+    #[test]
+    fn responses_round_trip_outside_documents_and_isolate_folders_windows_and_subjects() {
+        let base = tempfile::tempdir().unwrap();
+        let project = tempfile::tempdir().unwrap();
+        let other = tempfile::tempdir().unwrap();
+        let open = || {
+            WorkspaceStore::under(base.path(), project.path())
+                .unwrap()
+                .window("1")
+                .unwrap()
+                .responses()
+                .unwrap()
+        };
+        // Workspace subject covers unsaved editors without inventing a filename.
+        let draft = Draft {
+            path: "workspace".into(),
+            contents: r#"{"version":1,"tip":null,"drafts":{"new":"unsent"}}"#.into(),
+            base: String::new(),
+            saved_at: 1,
+        };
+        open().save_draft(&draft).unwrap();
+        assert_eq!(open().response("workspace").unwrap(), Some(draft));
+        assert!(open().response("lens:0123456789abcdef").unwrap().is_none());
+        assert!(
+            WorkspaceStore::under(base.path(), project.path())
+                .unwrap()
+                .list_drafts()
+                .is_empty()
+        );
+        assert!(
+            WorkspaceStore::under(base.path(), project.path())
+                .unwrap()
+                .window("2")
+                .unwrap()
+                .responses()
+                .unwrap()
+                .response("workspace")
+                .unwrap()
+                .is_none()
+        );
+        assert!(
+            WorkspaceStore::under(base.path(), other.path())
+                .unwrap()
+                .window("1")
+                .unwrap()
+                .responses()
+                .unwrap()
+                .response("workspace")
+                .unwrap()
+                .is_none()
+        );
+        assert_eq!(fs::read_dir(project.path()).unwrap().count(), 0);
+        open().discard_draft("workspace").unwrap();
+        assert!(open().response("workspace").unwrap().is_none());
+    }
+
+    // Guarantee: docs/guarantees/agent/unsent-responses-survive-restart.md
+    #[test]
+    fn corrupt_response_is_reported_and_partial_write_does_not_replace_recovery() {
+        let base = tempfile::tempdir().unwrap();
+        let project = tempfile::tempdir().unwrap();
+        let store = WorkspaceStore::under(base.path(), project.path())
+            .unwrap()
+            .responses()
+            .unwrap();
+        let draft = Draft {
+            path: "workspace".into(),
+            contents: "retained".into(),
+            base: String::new(),
+            saved_at: 0,
+        };
+        store.save_draft(&draft).unwrap();
+        fs::write(
+            store.draft_path("workspace").with_extension("partial"),
+            "interrupted",
+        )
+        .unwrap();
+        assert_eq!(store.response("workspace").unwrap(), Some(draft));
+        fs::write(store.draft_path("workspace"), "damaged").unwrap();
+        assert!(store.response("workspace").is_err());
     }
 }

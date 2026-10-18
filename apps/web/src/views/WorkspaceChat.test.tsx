@@ -10,7 +10,7 @@ import { initialWorkspace, openUntitledTab } from "./workspaceState";
 import { panes, tab } from "../shell/layout";
 import { api } from "../api/client";
 import { registerSearchEditor } from "../lib/workspaceSearch";
-vi.mock("../api/client", () => ({ request: vi.fn().mockResolvedValue({}), api: { agent: vi.fn(), agentTurns: vi.fn(), file: vi.fn(), executor: vi.fn().mockResolvedValue({}), complete: vi.fn().mockResolvedValue({ suggestions: [] }) } }));
+vi.mock("../api/client", () => ({ request: vi.fn().mockResolvedValue({}), api: { responseDraft: vi.fn().mockResolvedValue({ scope: "test", state: null }), saveResponseDraft: vi.fn().mockResolvedValue({ ok: true }), agent: vi.fn(), agentTurns: vi.fn(), file: vi.fn(), executor: vi.fn().mockResolvedValue({}), complete: vi.fn().mockResolvedValue({ suggestions: [] }) } }));
 vi.mock("../api/acp", () => ({ acpApi: { state: vi.fn(async () => ({backend: "builtin", ready: true, edits: {mode: "review", changes: []}})), agents: vi.fn().mockResolvedValue({ agents: [] }) } }));
 vi.mock("../api/realtime", async importOriginal => ({ ...await importOriginal<typeof import("../api/realtime")>(), getWorkspaceRealtime: () => ({ onRunEvent: () => () => {} }) }));
 afterEach(() => { cleanup(); vi.clearAllMocks(); localStorage.clear(); });
@@ -74,4 +74,19 @@ it("keeps distinct buffers when two panes show the same file", async () => {
     new Map([[left.id, "left changes"], [right.id, "right changes"]]));
   expect(result.buffers.map(buffer => buffer.content)).toEqual(["left changes", "right changes"]);
   expect(result.buffers.map(buffer => buffer.focused)).toEqual([false, true]);
+});
+
+// Guarantee: docs/guarantees/agent/unsent-responses-survive-restart.md
+it("restores the folderless workspace response across distinct unnamed editor identities", async () => {
+  vi.mocked(api.responseDraft).mockResolvedValueOnce({ scope: "blank-window", state: { version: 1, tip: null, drafts: { new: "Recovered unnamed-editor conversation" } } });
+  vi.mocked(api.agentTurns).mockResolvedValue({ turns: [], provider: "anthropic", model: "claude-sonnet-5", totals: { usd: 0, input: 0, output: 0, cache_read: 0, cache_write: 0 } });
+  const layout = openUntitledTab(openUntitledTab(initialWorkspace(), true), true);
+  const unnamed = panes(layout.root).flatMap(pane => pane.tabs).filter(tab => tab.kind === "untitled");
+  expect(unnamed[0].id).not.toBe(unnamed[1].id);
+  const props = { layout, registry: new SessionRegistry(), untitledSources: { current: {} }, plainSources: { current: new Map<string, string>() }, folder: null, onOpenSession: () => {} };
+  const view = render(<WorkspaceChat {...props} focusedEditor={unnamed[0].id} />);
+  await waitFor(() => expect(screen.getByRole("textbox", { name: "Agent conversation and response" }).textContent).toContain("Recovered unnamed-editor conversation"));
+  view.rerender(<WorkspaceChat {...props} focusedEditor={unnamed[1].id} />);
+  expect(screen.getByRole("textbox", { name: "Agent conversation and response" }).textContent).toContain("Recovered unnamed-editor conversation");
+  expect(api.responseDraft).toHaveBeenLastCalledWith("workspace");
 });

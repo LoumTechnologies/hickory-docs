@@ -449,3 +449,14 @@ amend teaches a workflow it cannot finish.
 All network access and authentication go through the person's installed `gh`.
 No token crosses these routes or enters `.hick-workspace.json`. Provider
 failure is data on this lens and never makes `/api/files` fail.
+
+### Agent response recovery
+
+`GET /api/workspace/responses?doc=<agent subject id>` returns `{scope,state}`.
+`state` is null initially, otherwise the client's versioned response map and
+selected tip. `PUT` to the same URL takes `{scope,state}`. The server resolves the
+existing agent subject and personal workspace/window store; a scope mismatch is
+409, preventing a delayed write from entering a newly attached folder. Response
+records use the workspace store's atomic draft writer in a separate `responses`
+namespace and never appear in ordinary document draft enumeration. Damaged
+response records report a storage error; other workspace functions remain usable.

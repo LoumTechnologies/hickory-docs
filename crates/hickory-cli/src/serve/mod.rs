@@ -771,6 +771,10 @@ pub(crate) fn router(state: LocalState) -> Router {
             get(workspace::get_ui).put(workspace::put_ui),
         )
         .route(
+            "/workspace/responses",
+            get(workspace::get_response).put(workspace::put_response),
+        )
+        .route(
             "/workspace/drafts",
             get(workspace::list_drafts)
                 .put(workspace::put_draft)

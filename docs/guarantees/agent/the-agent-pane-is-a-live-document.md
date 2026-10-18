@@ -80,3 +80,8 @@ the draft without inserting a newline into session bytes. `ConversationEditor.te
 checks that Send is outside the draft line and preserves multiline text.
 Proposal comparisons now render inside the conversation scroll area through
 `AgentChanges` and `DocumentReading`; opening a separate review is optional.
+
+2026-10-17 recovery extension: response text now uses personal workspace
+persistence, outside recorded session bytes. See
+[Unsent responses survive restart](unsent-responses-survive-restart.md) for
+identity, rewind sharing, discard, send acceptance and interruption boundaries.

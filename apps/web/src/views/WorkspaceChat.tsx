@@ -69,7 +69,7 @@ export function WorkspaceChat({ layout, registry, untitledSources, plainSources,
       : plainSearchEditor(target.target);
     applyAgentEdit(view, change);
   };
-  return <ChatDock docId="workspace" applyAgentChange={applyAgentChange} realtime={realtime} getContext={getContext}
+  return <ChatDock key={folder ?? "window"} docId="workspace" recoveryWorkspace={folder ?? "window"} applyAgentChange={applyAgentChange} realtime={realtime} getContext={getContext}
     contextLabel={[folder, ...tabs.map(tab => `${tab.title ?? tab.target}${tab.kind === "untitled" ? " (unsaved)" : ""}`)].filter(Boolean).join(" · ") || "No open editors or folder"}
     onOpenSession={onOpenSession}
     onAgentFinished={() => {
