@@ -139,6 +139,12 @@ pub async fn decide(
     Path(doc): Path<String>,
     Json(body): Json<super::acp::EditDecision>,
 ) -> ApiResult<Json<Value>> {
+    if let (Some(id), Some(context)) = (body.capture_request, body.context) {
+        queue(&state, &doc)
+            .edits
+            .refreshed(&id, context.buffers)
+            .map_err(|e| ApiError::conflict(e.to_string()))?;
+    }
     if body.mode == Some(super::acp::edits::Mode::AutoAccept) {
         return Err(ApiError::bad_request(
             "Python agent edits always require independent approval.",

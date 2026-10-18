@@ -17,6 +17,10 @@ use std::{
 
 #[derive(Clone, Serialize, Deserialize)]
 pub struct CapturedTurn {
+    #[serde(default)]
+    pub workspace: Option<crate::workspace_capture::WorkspaceCapture>,
+    #[serde(skip)]
+    pub live_editors: Option<std::sync::Arc<super::acp::edits::Edits>>,
     pub root: PathBuf,
     pub entry: String,
     pub documents: BTreeMap<String, String>,
@@ -100,6 +104,8 @@ pub async fn begin(
         .map_err(anyhow::Error::msg)?;
     let starting = crate::project_revision::directory(&root, Some(&project.inventory))?;
     Ok(Some(CapturedTurn {
+        workspace: None,
+        live_editors: None,
         root,
         entry,
         documents,
@@ -115,6 +121,78 @@ pub async fn begin(
     }))
 }
 
+pub(super) fn editors(
+    state: &LocalState,
+    id: &str,
+    python: bool,
+    context: &super::agent_context::EditorContext,
+) -> std::sync::Arc<super::acp::edits::Edits> {
+    let key = if python {
+        format!("python:{id}")
+    } else {
+        id.into()
+    };
+    let edits = super::agent_review::queue(state, &key).edits.clone();
+    edits
+        .live_context
+        .store(context.live, std::sync::atomic::Ordering::Relaxed);
+    *edits.buffers.lock().unwrap() = context.buffers.clone();
+    edits
+}
+
+/// ACP workspace fallback: the folder flag, never the execution cwd, defines disk scope.
+pub async fn begin_editors(
+    state: &LocalState,
+    doc: &str,
+    session: PathBuf,
+    edits: std::sync::Arc<super::acp::edits::Edits>,
+) -> anyhow::Result<Option<CapturedTurn>> {
+    anyhow::ensure!(
+        edits
+            .live_context
+            .load(std::sync::atomic::Ordering::Relaxed)
+            || edits.buffers.lock().unwrap().is_empty(),
+        "This editor client cannot provide fresh completion snapshots. Update the editor client to send context.live and answer capture requests; ordinary conversation remains available without verified capture."
+    );
+    let declared = begin(state, doc, session.clone()).await?;
+    // Editor overlays need the ordinary workspace inventory, including Markdown bytes.
+    if edits.buffers.lock().unwrap().is_empty() && declared.is_some() {
+        return Ok(declared);
+    }
+    let root = state
+        .folder_open
+        .then(|| state.index.root().canonicalize())
+        .transpose()?;
+    let (workspace, starting) =
+        crate::workspace_capture::WorkspaceCapture::freeze(root, &edits.buffers.lock().unwrap())?;
+    Ok(Some(CapturedTurn {
+        root: workspace.root.clone().unwrap_or_default(),
+        workspace: Some(workspace),
+        live_editors: Some(edits),
+        entry: "response.md".into(),
+        documents: BTreeMap::new(),
+        inventory: ProjectInventory::default(),
+        starting: ProjectSnapshot::capture(&starting),
+        completed: None,
+        ambiguous: BTreeSet::new(),
+        error: None,
+        response: None,
+        artifact: None,
+        session,
+        rooms: BTreeMap::new(),
+    }))
+}
+
+pub(super) fn cancelled(state: &LocalState, turn: &str) -> bool {
+    state
+        .agent
+        .cancels
+        .lock()
+        .unwrap()
+        .get(turn)
+        .is_some_and(|flag| flag.load(std::sync::atomic::Ordering::Relaxed))
+}
+
 pub async fn finish(
     state: &LocalState,
     turn: &str,
@@ -122,8 +200,24 @@ pub async fn finish(
     explanation: Option<&str>,
 ) {
     let result = async {
-        let completed =
-            crate::project_revision::directory(&capture.root, Some(&capture.inventory))?;
+        let completed = if let Some(scope) = &capture.workspace {
+            let editors = capture
+                .live_editors
+                .as_ref()
+                .ok_or_else(|| anyhow::anyhow!("Live editor capture unavailable"))?;
+            if explanation.is_some() {
+                tokio::select! {
+                    result = editors.refresh() => result?,
+                    _ = async { while !cancelled(state, turn) { tokio::time::sleep(std::time::Duration::from_millis(50)).await; } } => {
+                        editors.cancel();
+                        anyhow::bail!(hickory_agent::STOPPED_BY_USER);
+                    }
+                }
+            }
+            scope.current(&editors.buffers.lock().unwrap())?
+        } else {
+            crate::project_revision::directory(&capture.root, Some(&capture.inventory))?
+        };
         // Native filesystem writes have no exclusive writer identity. Do not
         // silently call an external editor's write the agent's successful act.
         let starting = capture.starting.restore().map_err(anyhow::Error::msg)?;
@@ -221,7 +315,7 @@ pub async fn snapshot(
 ) -> ApiResult<Json<Value>> {
     let capture = captured(&state, &doc, &turn)?;
     Ok(Json(
-        json!({"entry":capture.entry,"ambiguous":capture.ambiguous,"error":capture.error,"response":capture.response,"artifact":capture.artifact,"starting":capture.starting,"completed":capture.completed}),
+        json!({"workspace":capture.workspace,"entry":capture.entry,"ambiguous":capture.ambiguous,"error":capture.error,"response":capture.response,"artifact":capture.artifact,"starting":capture.starting,"completed":capture.completed}),
     ))
 }
 
@@ -303,6 +397,20 @@ pub async fn finalize(
             .finalize(&completed, &explanation)
             .map_err(ApiError::conflict)?
     };
+    if capture.artifact.is_none() {
+        let entry = crate::changeset::response_entry(
+            &capture
+                .starting
+                .restore()
+                .map_err(ApiError::unprocessable)?,
+            &completed,
+        );
+        capture.artifact = Some(crate::changeset::Artifact {
+            sources: BTreeMap::from([(entry.clone(), response.clone())]),
+            entry,
+            expected: crate::changeset::fingerprint(&completed),
+        });
+    }
     capture.response = Some(response.clone());
     super::acp::record::Record::existing(capture.session.clone())
         .context(
@@ -320,6 +428,11 @@ pub(super) fn completed_capture(
     turn: &str,
 ) -> ApiResult<CapturedTurn> {
     let capture = captured(state, doc, turn)?;
+    if capture.workspace.is_some() {
+        return Err(ApiError::conflict(
+            "Workspace/editor captures have no maintained literate source destination. Save a declared project explicitly before incorporation.",
+        ));
+    }
     if capture.response.is_none() || capture.error.is_some() || !capture.ambiguous.is_empty() {
         return Err(ApiError::conflict(
             "Finalize the captured transition and resolve concurrent changes before incorporation.",

@@ -1,5 +1,6 @@
 import { AgentProject } from "./AgentProject";
 import { AgentChanges } from "./AgentChanges";
+import { acpApi } from "../api/acp";
 import type { AgentChange } from "../api/acp";
 import type { AgentEditorContext } from "../api/agentTypes";
 // The conversation is a TREE, not a transcript. Every message records the turn
@@ -405,6 +406,15 @@ export function ChatDock({
     }, 1000);
     return () => clearInterval(timer);
   }, [running, docId, refresh]);
+
+  const captureRequest = acp.state?.edits?.captureRequest;
+  useEffect(() => {
+    if (!running || !captureRequest || !getContext) return;
+    let live = true;
+    void getContext().then(async context => { if (live) await acpApi.edits(docId, { capture_request: captureRequest, context }, backend); })
+      .catch(e => setError(String(e)));
+    return () => { live = false; };
+  }, [running, captureRequest, docId, backend]);
 
   const send = async () => {
     const text = prompt.trim();

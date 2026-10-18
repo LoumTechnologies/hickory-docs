@@ -28,13 +28,44 @@ pub struct Change {
 }
 #[derive(Default)]
 pub struct Edits {
+    pub live_context: std::sync::atomic::AtomicBool,
     pub mode: Mutex<Mode>,
     pub buffers: Mutex<Vec<EditorBuffer>>,
     changes: Mutex<Vec<Change>>,
     replies: Mutex<HashMap<String, oneshot::Sender<Result<(), String>>>>,
     revised: Mutex<HashMap<String, String>>,
+    refresh: Mutex<Option<(String, oneshot::Sender<Vec<EditorBuffer>>)>>,
 }
 impl Edits {
+    pub async fn refresh(&self) -> Result<()> {
+        if !self.live_context.load(std::sync::atomic::Ordering::Relaxed)
+            && self.buffers.lock().unwrap().is_empty()
+        {
+            return Ok(());
+        }
+        let id = format!("{:016x}", super::super::rand_id());
+        let (tx, rx) = oneshot::channel();
+        *self.refresh.lock().unwrap() = Some((id.clone(), tx));
+        let result = tokio::time::timeout(std::time::Duration::from_secs(10), rx).await;
+        let mut pending = self.refresh.lock().unwrap();
+        if pending.as_ref().is_some_and(|(key, _)| key == &id) {
+            pending.take();
+        }
+        drop(pending);
+        let buffers = result.context("Editor capture timed out. Keep the workspace window open and retry changeset_status.")?.context("Editor capture was cancelled; retry changeset_status.")?;
+        *self.buffers.lock().unwrap() = buffers;
+        Ok(())
+    }
+    pub fn refreshed(&self, id: &str, buffers: Vec<EditorBuffer>) -> Result<()> {
+        let mut pending = self.refresh.lock().unwrap();
+        anyhow::ensure!(
+            pending.as_ref().is_some_and(|(key, _)| key == id),
+            "Expired editor capture request"
+        );
+        let (_, tx) = pending.take().expect("checked request");
+        let _ = tx.send(buffers);
+        Ok(())
+    }
     pub fn revise(&self, id: &str, replacement: String) -> Result<()> {
         let mut changes = self.changes.lock().unwrap();
         let change = changes
@@ -51,7 +82,7 @@ impl Edits {
         self.revised.lock().unwrap().get(id).cloned()
     }
     pub fn snapshot(&self) -> Value {
-        json!({"mode":*self.mode.lock().unwrap(),"changes":*self.changes.lock().unwrap()})
+        json!({"mode":*self.mode.lock().unwrap(),"changes":*self.changes.lock().unwrap(),"captureRequest":self.refresh.lock().unwrap().as_ref().map(|(id,_)|id.clone())})
     }
     pub fn buffer(&self, args: &Value) -> Option<EditorBuffer> {
         let buffers = self.buffers.lock().unwrap();
@@ -181,6 +212,7 @@ impl Edits {
         }
     }
     pub fn cancel(&self) {
+        self.refresh.lock().unwrap().take();
         let ids: Vec<_> = self.replies.lock().unwrap().keys().cloned().collect();
         for id in ids {
             let _ = self.resolve(
@@ -235,6 +267,45 @@ pub fn replacement(source: &str, args: &Value) -> Result<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    // Guarantee: docs/guarantees/agent/changeset-completion-is-negotiated-and-checked.md
+    #[tokio::test]
+    async fn fresh_context_is_token_bound_and_cancellable_even_without_initial_editors() {
+        let edits = std::sync::Arc::new(Edits::default());
+        edits
+            .live_context
+            .store(true, std::sync::atomic::Ordering::Relaxed);
+        let worker = edits.clone();
+        let pending = tokio::spawn(async move { worker.refresh().await });
+        let token = loop {
+            if let Some(id) = edits.snapshot()["captureRequest"].as_str() {
+                break id.to_owned();
+            }
+            tokio::task::yield_now().await;
+        };
+        assert!(edits.refreshed("old-turn", vec![]).is_err());
+        edits
+            .refreshed(
+                &token,
+                serde_json::from_value(
+                    json!([{"id":"new","name":"Untitled","path":null,"content":"fresh"}]),
+                )
+                .unwrap(),
+            )
+            .unwrap();
+        pending.await.unwrap().unwrap();
+        assert_eq!(
+            edits.buffer(&json!({"buffer":"new"})).unwrap().content,
+            "fresh"
+        );
+        assert!(edits.refreshed(&token, vec![]).is_err());
+        let worker = edits.clone();
+        let pending = tokio::spawn(async move { worker.refresh().await });
+        while edits.snapshot()["captureRequest"].is_null() {
+            tokio::task::yield_now().await;
+        }
+        edits.cancel();
+        assert!(pending.await.unwrap().is_err());
+    }
     // Guarantee: docs/guarantees/agent/conversation-edits-use-the-client-review-policy.md
     #[tokio::test]
     async fn a_stale_rejection_refreshes_only_the_target_buffer() {

@@ -15,7 +15,12 @@ fn read_directory(
     inventory: Option<&ProjectInventory>,
     tree: &mut ProjectTree,
 ) -> Result<()> {
-    for item in std::fs::read_dir(dir)? {
+    for item in std::fs::read_dir(dir).with_context(|| {
+        format!(
+            "Cannot inventory {}; make it readable and pause other writers before retrying",
+            dir.display()
+        )
+    })? {
         let item = item?;
         let full = item.path();
         let path = full
@@ -23,7 +28,12 @@ fn read_directory(
             .to_str()
             .context("project contains a non-UTF-8 path")?
             .replace('\\', "/");
-        let metadata = std::fs::symlink_metadata(&full)?;
+        let metadata = std::fs::symlink_metadata(&full).with_context(|| {
+            format!(
+                "Cannot capture {}; restore access and pause other writers before retrying",
+                full.display()
+            )
+        })?;
         if metadata.is_dir() {
             // Metadata and explicitly excluded dependency/build directories
             // are not read. No gitignore or extension heuristic is consulted.
@@ -36,7 +46,8 @@ fn read_directory(
                 continue;
             }
             let (kind, bytes) = if metadata.file_type().is_symlink() {
-                let target = std::fs::read_link(&full)?;
+                let target = std::fs::read_link(&full)
+                    .with_context(|| format!("Cannot read symlink {}", full.display()))?;
                 (
                     EntryKind::Symlink,
                     target
@@ -46,7 +57,7 @@ fn read_directory(
                         .to_vec(),
                 )
             } else if metadata.is_file() {
-                (EntryKind::File, std::fs::read(&full)?)
+                (EntryKind::File, std::fs::read(&full).with_context(|| format!("Cannot capture bytes of {}; make it readable and pause other writers before retrying", full.display()))?)
             } else {
                 bail!("unsupported project entry kind: {path}");
             };

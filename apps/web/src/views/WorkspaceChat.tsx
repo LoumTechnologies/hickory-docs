@@ -38,7 +38,7 @@ export async function editorContext(
     return { id: tab.id, kind: tab.kind, ...(tab.kind === "untitled" ? { provenance_uri: bufferTarget(tab.id) } : {}), ...(tab.kind === "generated" ? { document: session?.doc?.path ?? tabs.find(t => t.kind === "document" && t.docId === tab.docId)?.target } : {}), name: tab.title ?? tab.target, path: tab.kind === "untitled" ? null : tab.target,
       content, focused: tab.id === focused };
   }));
-  return { buffers };
+  return { live: true, buffers };
 }
 
 /** A conversation belongs to the window, independent of which editor is active. */

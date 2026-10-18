@@ -5,6 +5,11 @@ use std::path::{Path, PathBuf};
 /// before any write; never follow a pre-existing symlink in the destination.
 pub fn write_tree(root: &Path, tree: &ProjectTree) -> Result<Vec<PathBuf>, String> {
     for (path, entry) in tree.entries() {
+        if path.starts_with(hick_lang::EDITOR_BUFFER_PREFIX) {
+            return Err(format!(
+                "Editor identity has no filesystem destination: {path}"
+            ));
+        }
         hick_lang::validate_project_path(path)?;
         let mut parent = root.to_path_buf();
         for part in path.split('/') {

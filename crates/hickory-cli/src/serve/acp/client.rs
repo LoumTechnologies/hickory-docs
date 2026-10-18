@@ -317,8 +317,17 @@ impl Client {
             if result.as_ref().is_ok_and(|v| v["stopReason"] == "end_turn")
                 && required
                 && stopped_at.is_none()
-                && let Err(error) = self.host.completion().await
+                && let Err(error) = tokio::select! {
+                    result = self.host.completion() => result,
+                    _ = async { while !cancel.load(std::sync::atomic::Ordering::Relaxed) { tokio::time::sleep(Duration::from_millis(50)).await; } } => {
+                        self.host.edits.cancel();
+                        Err(anyhow::anyhow!(hickory_agent::STOPPED_BY_USER))
+                    }
+                }
             {
+                if cancel.load(std::sync::atomic::Ordering::Relaxed) {
+                    break Err(anyhow::anyhow!(hickory_agent::STOPPED_BY_USER));
+                }
                 if repairs >= 3 {
                     break Err(anyhow::anyhow!(
                         "Changeset finalization failed after three repairs: {error:#}"

@@ -11,7 +11,7 @@ use std::{
 
 pub const CAPABILITY: &str = "hickorydocs.com/changesets";
 pub const METHOD: &str = "_hickorydocs.com/changeset";
-pub const INSTRUCTIONS: &str = "Hickory changeset contract v1: call changeset_status to obtain the frozen starting project, current output fingerprint and a response.md template. Submit a concise literate explanation of the entire successful A-to-B change, without abandoned attempts, through submit_changeset. Pass its boundary and expected fingerprint plus entry and sources (a map of .md paths to complete document text). Repair diagnostics and resubmit until accepted. Any later project writes require resubmission. Acceptance checks source-output equality only, not runtime behavior, explanatory accuracy, authorship or approval. Do not claim every native write was reviewed.";
+pub const INSTRUCTIONS: &str = "Hickory changeset contract v1: call changeset_status to obtain the frozen starting project, current output fingerprint and a response.md template. Submit a concise literate explanation of the entire successful A-to-B change, without abandoned attempts, through submit_changeset. Pass its boundary and expected fingerprint plus entry and sources (a map of .md paths to complete document text). Repair diagnostics and resubmit until accepted. Any later project writes require resubmission. Acceptance checks source-output equality only, not runtime behavior, explanatory accuracy, authorship or approval. Do not claim every native write was reviewed. Workspace/editor status context identifies reserved editor entries: reproduce them in memory, never save them as paths. Use the returned entry name for the final document.";
 
 #[derive(Clone, Serialize, Deserialize)]
 pub struct Artifact {
@@ -26,6 +26,10 @@ pub struct Contract {
     pub starting: ProjectTree,
     pub boundary: String,
     pub accepted: Option<Artifact>,
+    pub workspace: Option<(
+        crate::workspace_capture::WorkspaceCapture,
+        std::sync::Arc<crate::serve::acp::edits::Edits>,
+    )>,
 }
 
 pub fn fingerprint(tree: &ProjectTree) -> String {
@@ -40,6 +44,13 @@ pub fn fingerprint(tree: &ProjectTree) -> String {
         Sha256::digest(serde_json::to_vec(&entries).expect("project serializes"))
     )
 }
+pub fn response_entry(starting: &ProjectTree, current: &ProjectTree) -> String {
+    let mut entry = "response.md".to_owned();
+    while starting.get(&entry).is_some() || current.get(&entry).is_some() {
+        entry.insert(0, '_');
+    }
+    entry
+}
 impl Contract {
     pub fn new(
         root: PathBuf,
@@ -53,6 +64,7 @@ impl Contract {
             starting,
             boundary,
             accepted: None,
+            workspace: None,
         }
     }
     pub fn capture(doc: &Path, boundary: String) -> Result<Self> {
@@ -86,6 +98,9 @@ impl Contract {
         Ok(Self::new(root, project.inventory, starting, boundary))
     }
     pub fn current(&self) -> Result<ProjectTree> {
+        if let Some((scope, edits)) = &self.workspace {
+            return scope.current(&edits.buffers.lock().unwrap());
+        }
         crate::project_revision::directory(&self.root, Some(&self.inventory))
     }
     pub fn status(&mut self) -> Result<Value> {
@@ -98,6 +113,7 @@ impl Contract {
         {
             self.accepted = None;
         }
+        let entry = response_entry(&self.starting, &current);
         let template = hick_lang::transition_response(
             &self.starting,
             &current,
@@ -105,9 +121,10 @@ impl Contract {
         );
         Ok(
             json!({"version":1,"boundary":self.boundary,"expected":expected,
+            "context":self.workspace.as_ref().map(|(scope,_)| json!({"kind":"workspace-editors","capture":scope,"editorNamespace":hick_lang::EDITOR_BUFFER_PREFIX,"exclusions":self.inventory.exclude})),
             "startingFingerprint":fingerprint(&self.starting),"differences":self.starting.compare(&current),
             "accepted":self.accepted.is_some(),"starting":ProjectSnapshot::capture(&self.starting),
-            "current":ProjectSnapshot::capture(&current),"entry":"response.md",
+            "current":ProjectSnapshot::capture(&current),"entry":entry,
             "template":template.as_ref().ok(),"templateError":template.as_ref().err(),
             "evidence":"source-output-equality-only","writeControl":"not-enforced"}),
         )
@@ -214,7 +231,7 @@ pub fn catalogue(begin: bool) -> Vec<Value> {
         json!({"name":"submit_changeset","description":"Verify a final literate .md changeset over the frozen starting tree against the complete current output tree. Repair diagnostics and resubmit. Later writes invalidate acceptance.","inputSchema":{"type":"object","properties":{"boundary":{"type":"string"},"expected":{"type":"string"},"entry":{"type":"string"},"sources":{"type":"object","additionalProperties":{"type":"string"}}},"required":["boundary","expected","entry","sources"]}}),
     ];
     if begin {
-        tools.insert(0,json!({"name":"begin_changeset","description":"Freeze a declared project's current output tree BEFORE making changes. One boundary per MCP server; an existing boundary cannot be reset. Use changeset_status and submit_changeset to deliver the final artifact.","inputSchema":{"type":"object","properties":{"doc":{"type":"string"},"include_snapshots":{"type":"boolean"}}}}));
+        tools.insert(0,json!({"name":"begin_changeset","description":"Freeze a declared project (doc) or explicit open workspace directory (workspace) BEFORE making changes. One boundary per MCP server; an existing boundary cannot be reset. Use changeset_status and submit_changeset to deliver the final artifact.","inputSchema":{"type":"object","properties":{"doc":{"type":"string"},"workspace":{"type":"string"},"include_snapshots":{"type":"boolean"}}}}));
     }
     tools
 }

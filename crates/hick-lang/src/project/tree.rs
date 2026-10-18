@@ -1,3 +1,5 @@
+/// Reserved evaluator addresses for editor state. Never materialize as filesystem paths.
+pub const EDITOR_BUFFER_PREFIX: &str = "__hickory_editor_buffers__/";
 use std::{collections::BTreeMap, sync::Arc};
 
 /// Portable entry metadata. Symlink bytes are the exact UTF-8 target.

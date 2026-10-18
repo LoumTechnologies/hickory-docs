@@ -104,6 +104,12 @@ pub async fn decide(
 ) -> ApiResult<Json<Value>> {
     super::agent_context::subject(&state, &doc)?;
     let review = queue(&state, &doc);
+    if let (Some(id), Some(context)) = (body.capture_request, body.context) {
+        review
+            .edits
+            .refreshed(&id, context.buffers)
+            .map_err(|e| ApiError::conflict(e.to_string()))?;
+    }
     if let Some(mode) = body.mode {
         if state
             .agent

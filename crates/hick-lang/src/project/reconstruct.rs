@@ -27,8 +27,12 @@ pub fn transition_response(
     let response = format!(
         "<{prefix}:doc xmlns:{prefix}=\"http://www.hickorydocs.com/1.0\">\n{explanation}\n\n<{prefix}:project/>\n{patch}</{prefix}:doc>\n"
     );
-    let sources = BTreeMap::from([("response.md".into(), response.clone())]);
-    let evaluated = evaluate_project("response.md", &sources, before)?;
+    let mut entry = "response.md".to_owned();
+    while before.get(&entry).is_some() || after.get(&entry).is_some() {
+        entry.insert(0, '_');
+    }
+    let sources = BTreeMap::from([(entry.clone(), response.clone())]);
+    let evaluated = evaluate_project(&entry, &sources, before)?;
     if !evaluated.new.compare(after).is_empty() {
         return Err("reconstructed response did not reproduce the completed state".into());
     }

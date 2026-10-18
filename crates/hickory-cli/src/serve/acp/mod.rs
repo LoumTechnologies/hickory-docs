@@ -1,7 +1,7 @@
 //! ACP is an optional agent extension. The language and model client stay independent.
 mod client;
 pub(super) mod config;
-pub(super) mod edits;
+pub(crate) mod edits;
 mod mcp;
 pub(super) mod read_receipt;
 pub(crate) mod record;
@@ -429,6 +429,11 @@ pub async fn start_turn(
         .lock()
         .unwrap()
         .insert(doc_id.clone(), backend);
+    client
+        .host
+        .edits
+        .live_context
+        .store(body.context.live, std::sync::atomic::Ordering::Relaxed);
     *client.host.edits.buffers.lock().unwrap() = body.context.buffers.clone();
     let context =
         if doc_id == super::agent_context::WORKSPACE_AGENT || !body.context.buffers.is_empty() {
@@ -443,17 +448,58 @@ pub async fn start_turn(
         "{}\n{context}\nFor changes to the current open editor, call read_buffer then edit_buffer using its hashes. Do not return a replacement document as your answer. The client handles approval. For generated code use read_output and edit_output so lineage carries the edit into its source.",
         hickory_agent::audit::INSTRUCTIONS
     );
-    let project_capture = super::agent_projects::begin(&state, &doc_id, record_path.clone()).await;
+    let project_capture = super::agent_projects::begin_editors(
+        &state,
+        &doc_id,
+        record_path.clone(),
+        client.host.edits.clone(),
+    )
+    .await;
+    if let Err(error) = &project_capture
+        && client.supports_changesets()
+    {
+        client
+            .record
+            .lock()
+            .await
+            .context(
+                "literate-project-capture-error",
+                &json!({"turn":turn_id,"error":format!("{error:#}")}),
+            )
+            .map_err(self::error)?;
+        state.agent.cancels.lock().unwrap().remove(&turn_id);
+        if let Some(turn) = state
+            .agent
+            .turns
+            .lock()
+            .unwrap()
+            .get_mut(&doc_id)
+            .and_then(|ts| ts.iter_mut().find(|t| t.id == turn_id))
+        {
+            turn.status = "error".into();
+            turn.error = Some(format!("Cannot freeze changeset: {error:#}"));
+        }
+        return Err(ApiError::unprocessable(format!(
+            "Cannot freeze changeset before agent writes: {error:#}"
+        )));
+    }
     *client.host.changeset.lock().await = match &project_capture {
-        Ok(Some(capture)) => Some(crate::changeset::Contract::new(
-            capture.root.clone(),
-            capture.inventory.clone(),
-            capture
-                .starting
-                .restore()
-                .map_err(ApiError::unprocessable)?,
-            turn_id.clone(),
-        )),
+        Ok(Some(capture)) => {
+            let mut contract = crate::changeset::Contract::new(
+                capture.root.clone(),
+                capture.inventory.clone(),
+                capture
+                    .starting
+                    .restore()
+                    .map_err(ApiError::unprocessable)?,
+                turn_id.clone(),
+            );
+            contract.workspace = capture
+                .workspace
+                .clone()
+                .map(|scope| (scope, client.host.edits.clone()));
+            Some(contract)
+        }
         _ => None,
     };
     let run_id = turn_id.clone();
@@ -491,6 +537,9 @@ pub async fn start_turn(
                     &json!({"turn":run_id,"error":format!("{e:#}")}),
                 );
             }
+        }
+        if super::agent_projects::cancelled(&state, &run_id) {
+            outcome = Err(anyhow::anyhow!(hickory_agent::STOPPED_BY_USER));
         }
         if outcome.is_ok()
             && client.supports_changesets()
@@ -559,6 +608,8 @@ pub struct EditDecision {
     pub error: Option<String>,
     pub current_text: Option<String>,
     pub new_text: Option<String>,
+    pub capture_request: Option<String>,
+    pub context: Option<super::agent_context::EditorContext>,
 }
 pub async fn edit_decision(
     State(state): State<LocalState>,
@@ -566,6 +617,13 @@ pub async fn edit_decision(
     Json(body): Json<EditDecision>,
 ) -> ApiResult<Json<Value>> {
     let client = connection(&state, &doc).await?;
+    if let (Some(id), Some(context)) = (body.capture_request, body.context) {
+        client
+            .host
+            .edits
+            .refreshed(&id, context.buffers)
+            .map_err(error)?;
+    }
     if let Some(mode) = body.mode {
         if state
             .agent

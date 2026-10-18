@@ -10,6 +10,8 @@ pub const WORKSPACE_AGENT: &str = "workspace";
 #[derive(Default, Deserialize, Serialize)]
 pub struct EditorContext {
     #[serde(default)]
+    pub live: bool,
+    #[serde(default)]
     pub buffers: Vec<EditorBuffer>,
 }
 

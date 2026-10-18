@@ -5,13 +5,13 @@ import { materializeProject, type ProjectEntry } from "../editor/hickLang";
 
 const noCells = new Set<string>();
 /** Accepted artifacts are immutable records. Their patches use ordinary note rendering. */
-export function ChangesetDocument({ entry, sources, input }: {
-  entry: string; sources: Record<string,string>; input: ProjectEntry[];
+export function ChangesetDocument({ entry, sources, input, tools = true, filesystemOnly = false }: {
+  entry: string; sources: Record<string,string>; input: ProjectEntry[]; tools?: boolean; filesystemOnly?: boolean;
 }) {
   const realtime = useMemo(() => new LocalRealtime(), []);
   const documents = useMemo(() => [entry,...Object.keys(sources).filter(path => path !== entry)].map(document => ({
-    document, project: {entry,document,sources,input},
-  })),[entry,sources,input]);
+    document, project: {entry,document,sources,input,tools,filesystemOnly},
+  })),[entry,sources,input,tools,filesystemOnly]);
   useEffect(() => () => realtime.close(),[realtime]);
   // Check the closure locally before exposing native tools. Never substitute disk bytes.
   const error = useMemo(() => {

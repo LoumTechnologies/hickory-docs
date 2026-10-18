@@ -111,9 +111,15 @@ export function PatchEditor({ slot, cx }: { slot: RenderedSlot; cx: SlotContext 
       return new TextDecoder("utf-8", { fatal: true }).decode(new Uint8Array(entry.bytes));
     };
     try {
+      const filesystemOnly = cx.capturedProject?.filesystemOnly;
+      const editorAddress = (path: string) => path.startsWith("__hickory_editor_buffers__/");
+      const tools = cx.capturedProject?.tools !== false && (!filesystemOnly || !editorAddress(path));
+      // Editor addresses stay in replay. Native tools receive only the complete
+      // captured filesystem; a buffer is never disguised as a disk file.
+      const nativeTree = (entries: typeof state.old) => filesystemOnly ? entries.filter(e => !editorAddress(e.path)) : entries;
       model = draft ?? { sources: [
-        { id: "old", label: "Before this patch", kind: "authored", target: capture.entry, text: decode(state.old), project: capture.project.old, versions: capture.project.versions, local: state.old, debugSurface: cx.view ? { view: cx.view, entry: cx.capturedProject?.document ?? capture.entry, source: capture.source, path: cx.path ?? undefined } : undefined },
-        { id: "new", label: "After this patch", kind: "authored", target: capture.entry, text: decode(state.new), project: capture.project.new, versions: capture.project.versions, local: state.new, debugSurface: cx.view ? { view: cx.view, entry: cx.capturedProject?.document ?? capture.entry, source: capture.source, path: cx.path ?? undefined } : undefined },
+        { id: "old", label: "Before this patch", kind: "authored", target: capture.entry, text: decode(state.old), project: tools ? nativeTree(capture.project.old) : undefined, versions: tools ? capture.project.versions.map(nativeTree) : undefined, local: nativeTree(state.old), debugSurface: cx.view && tools && !filesystemOnly ? { view: cx.view, entry: cx.capturedProject?.document ?? capture.entry, source: capture.source, path: cx.path ?? undefined } : undefined },
+        { id: "new", label: "After this patch", kind: "authored", target: capture.entry, text: decode(state.new), project: tools ? nativeTree(capture.project.new) : undefined, versions: tools ? capture.project.versions.map(nativeTree) : undefined, local: nativeTree(state.new), debugSurface: cx.view && tools && !filesystemOnly ? { view: cx.view, entry: cx.capturedProject?.document ?? capture.entry, source: capture.source, path: cx.path ?? undefined } : undefined },
       ], old: "old", new: "new", policy: side, evidence: "unverified" };
     } catch { /* The explicit diagnostic below leaves binary source intact. */ }
   }

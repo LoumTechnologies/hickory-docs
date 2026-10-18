@@ -19,6 +19,16 @@ pub fn file_content_entry(content: &FileContent) -> Result<ProjectEntry> {
 pub fn pipeline(entry: &str, sources: &BTreeMap<String, String>) -> Result<PipelineResult> {
     let evaluated =
         evaluate_project(entry, sources, &ProjectTree::default()).map_err(anyhow::Error::msg)?;
+    if evaluated
+        .new
+        .entries()
+        .keys()
+        .any(|path| path.starts_with(hick_lang::EDITOR_BUFFER_PREFIX))
+    {
+        bail!(
+            "Editor-only entries cannot be run or saved as filesystem outputs; inspect them with the captured changeset evaluator."
+        );
+    }
     let mut files = HashMap::new();
     let mut provenance_maps = HashMap::new();
     for (path, entry) in evaluated.new.entries() {

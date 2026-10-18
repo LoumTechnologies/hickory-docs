@@ -14,12 +14,13 @@ pub use recording::{
 };
 mod project;
 pub use project::{
-    AgentProjectCapture, ByteOrigin, ComparisonSource, DifferenceKind, EditPolicy, EntryKind,
-    EvaluatedProject, IncorporationCandidate, IncorporationError, PatchResult, ProjectComparison,
-    ProjectDifference, ProjectEntry, ProjectInventory, ProjectSnapshot, ProjectTree, RecordedCell,
-    RevisionIdentity, apply_project_patch, evaluate_project, latest_debug_project,
-    load_project_sources, project_byte_location, regenerate_patch, reverse_project_edit,
-    transition_response, unified_transition, validate_project_path,
+    AgentProjectCapture, ByteOrigin, ComparisonSource, DifferenceKind, EDITOR_BUFFER_PREFIX,
+    EditPolicy, EntryKind, EvaluatedProject, IncorporationCandidate, IncorporationError,
+    PatchResult, ProjectComparison, ProjectDifference, ProjectEntry, ProjectInventory,
+    ProjectSnapshot, ProjectTree, RecordedCell, RevisionIdentity, apply_project_patch,
+    evaluate_project, latest_debug_project, load_project_sources, project_byte_location,
+    regenerate_patch, reverse_project_edit, transition_response, unified_transition,
+    validate_project_path,
 };
 mod fence;
 mod literal_files;
@@ -30,7 +31,6 @@ pub mod structure;
 pub use structure::{Structure, StructureBlock, StructureTag, structure};
 /// The XML namespace URI that identifies hick elements.
 pub const HICK_NAMESPACE: &str = "http://www.hickorydocs.com/1.0";
-
 /// Byte-level source location for provenance tracking.
 ///
 /// Tracks where a piece of text or tag originated in the `.md` source file.

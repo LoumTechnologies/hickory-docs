@@ -29,7 +29,7 @@
 
 pub mod acp;
 pub mod agent;
-mod agent_context;
+pub(crate) mod agent_context;
 mod agent_projects;
 mod agent_review;
 pub mod anchored;

@@ -71,8 +71,9 @@ Still unimplemented from the discussion:
 - Adapter adoption by installed Codex/Claude peers, ACP v2 support, or an upstream
   ACP proposal. The new v1 capability is implemented and tested with the existing
   deterministic subprocess peer, not authenticated external adapters.
-- Whole-workspace or untitled-project capture: automatic turn capture still
-  requires an existing declared project.
+- Whole-workspace and untitled-editor capture are implemented in the workspace/editor
+  continuation of `changeset-completion-is-negotiated-and-checked.md`; editor identity
+  transitions currently require a new boundary.
 - Editable forks of accepted final artifacts and application of their revised
   New code through the same guarded project/source write pipeline. Pending text
   proposals can be revised before Accept; this is still a separate workflow.

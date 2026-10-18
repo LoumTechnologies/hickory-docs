@@ -737,6 +737,8 @@ test-launch-profiles-ui:
 test-agent-changesets:
     cargo build -p hickory-cli --example acp_fixture
     cargo test -p hickory-cli --lib changeset:: -- --nocapture
+    cargo test -p hickory-cli --lib workspace_capture:: -- --nocapture
+    cargo test -p hickory-cli --lib serve::acp::edits:: -- --nocapture
     cargo test -p hickory-cli --test agent_changesets -- --nocapture
     cargo test -p hickory-cli --test literate_agent_projects -- --nocapture
 
@@ -752,3 +754,8 @@ check-agent-changesets:
 # Provenance visualization grouping and overlay geometry.
 test-ribbon-grouping:
     cd apps/web && npm test -- src/lib/coalesceRibbons.test.ts src/shell/coalesceLinks.test.ts src/lib/ribbons.test.ts src/shell/linkShapes.test.ts src/lib/ribbonGeometry.test.ts
+
+# Real editor, fresh-context exchange and ACP repair, with and without a folder.
+test-workspace-changesets-browser:
+    cargo build -p hickory-cli --example acp_fixture
+    cargo test -p hickory-cli --test agent_changesets browser_workspace_changesets -- --ignored --nocapture

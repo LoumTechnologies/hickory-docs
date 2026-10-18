@@ -6,7 +6,7 @@ import type { ProjectEntry } from "../editor/hickLang";
 import type { ComparisonModel } from "../lib/projectComparison";
 
 interface Snapshot { entries: Record<string,{ bytes: number[]; kind: string; executable: boolean }> }
-interface Capture { artifact?: { entry: string; sources: Record<string,string>; expected: string }; entry: string; ambiguous: string[]; error: string | null; response: string | null; starting: Snapshot; completed: Snapshot | null }
+interface Capture { workspace?: { root: string | null; identities: Record<string,string | null> }; artifact?: { entry: string; sources: Record<string,string>; expected: string }; entry: string; ambiguous: string[]; error: string | null; response: string | null; starting: Snapshot; completed: Snapshot | null }
 const entries = (snapshot: Snapshot): ProjectEntry[] => Object.entries(snapshot.entries).map(([path,e]) => ({...e,path,kind:e.kind === "File" ? "file" : "symlink"}));
 export function AgentProject({ doc, turn }: { doc: string; turn: string }) {
   const [capture,setCapture] = useState<Capture | null>(null);
@@ -40,7 +40,8 @@ export function AgentProject({ doc, turn }: { doc: string; turn: string }) {
     <button className="btn" disabled={busy} onClick={() => void run(async () => { setCapture(await request<Capture>("GET",path)); })}>Review completed project changes</button>
     {error && <p role="alert">{error}</p>}
     {capture && <>
-      <p>{capture.entry} · Old is the captured starting project, including pre-existing work. New is the actual completed source tree.</p>
+      <p>{capture.workspace ? capture.workspace.root ? `Workspace ${capture.workspace.root}` : "Open editors · no folder" : capture.entry} · Old is the captured starting state, including pre-existing work. New is the actual completed state.</p>
+      {capture.workspace && <p className="muted">Editor addresses identify captured buffers and have no filesystem destination. Disk patches use the complete captured filesystem for native tools; editor-only patches have no executable project. Incorporation requires maintained literate source.</p>}
       {capture.error && <p role="alert">Incomplete capture: {capture.error}</p>}
       {capture.ambiguous.length > 0 && <fieldset><legend>Resolve attribution before finalizing</legend>
         <p className="muted">These writes do not have an exclusive agent identity. Confirm which belong in this transition; unconfirmed paths prevent finalization.</p>
@@ -62,8 +63,8 @@ export function AgentProject({ doc, turn }: { doc: string; turn: string }) {
       {capture.response && <>
         <p role="status">A-to-B source equality verified. Runtime behavior and explanatory accuracy are separate checks.</p>
         <ChangesetDocument entry={capture.artifact?.entry ?? "response.md"}
-          sources={capture.artifact?.sources ?? {"response.md":capture.response}} input={starting} />
-        <button className="btn" disabled={busy || capture.ambiguous.length > 0 || !!job && ["generating","reviewing","applying"].includes(job.status)} onClick={() => void incorporate()}>Apply to literate source</button>
+          tools={!capture.workspace || capture.workspace.root !== null} filesystemOnly={!!capture.workspace} sources={capture.artifact?.sources ?? {"response.md":capture.response}} input={starting} />
+        <button className="btn" disabled={!!capture.workspace || busy || capture.ambiguous.length > 0 || !!job && ["generating","reviewing","applying"].includes(job.status)} onClick={() => void incorporate()}>Apply to literate source</button>
       </>}
       {job && <p role={job.error ? "alert" : "status"}>{job.error ?? (job.status === "reviewing" ? "Verified candidate ready in Document edits. Review every source change before applying." : `Incorporation · ${job.status}`)}</p>}
     </>}

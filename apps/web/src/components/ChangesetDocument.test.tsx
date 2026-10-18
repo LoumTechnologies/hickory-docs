@@ -49,3 +49,25 @@ it("renders included artifact documents against the same frozen project", async 
   await waitFor(() => expect(vi.mocked(ComparisonTools).mock.calls.some(([props]) => props.source.debugSurface?.entry === "patches.md")).toBe(true));
   expect(screen.queryByRole("alert")).toBeNull();
 });
+
+it("renders editor captures with frozen context but exposes no native project tools", async () => {
+  const view = render(<ChangesetDocument entry="response.md" sources={{"response.md":source}} input={input} tools={false} />);
+  await waitFor(() => expect(view.container.querySelector(".comparison-editor")).toBeTruthy());
+  expect(vi.mocked(ComparisonTools).mock.calls.every(([props]) => !props.source.project && !props.source.versions && !props.source.debugSurface)).toBe(true);
+  expect(view.container.textContent).toContain("new");
+});
+
+it("offers tools for disk patches using captured filesystem dependencies, while keeping buffer addresses virtual", async () => {
+  const address = "__hickory_editor_buffers__/6162";
+  const captured = [...input, file(address,"old\n")];
+  const view = render(<ChangesetDocument entry="response.md" sources={{"response.md":source}} input={captured} filesystemOnly />);
+  await waitFor(() => expect(view.container.querySelector(".comparison-editor")).toBeTruthy());
+  await waitFor(() => expect(vi.mocked(ComparisonTools).mock.calls.some(([props]) => props.source.project?.some(e => e.path === "library.py"))).toBe(true));
+  expect(vi.mocked(ComparisonTools).mock.calls.every(([props]) => !props.source.project?.some(e => e.path === address))).toBe(true);
+  expect(vi.mocked(ComparisonTools).mock.calls.every(([props]) => !props.source.debugSurface)).toBe(true);
+  view.unmount(); vi.clearAllMocks();
+  const editorSource = source.replaceAll("app.py",address);
+  const editor = render(<ChangesetDocument entry="response.md" sources={{"response.md":editorSource}} input={captured} filesystemOnly />);
+  await waitFor(() => expect(editor.container.querySelector(".comparison-editor")).toBeTruthy());
+  expect(vi.mocked(ComparisonTools).mock.calls.every(([props]) => !props.source.project && !props.source.versions)).toBe(true);
+});

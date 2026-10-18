@@ -100,6 +100,21 @@ async fn main() {
                     let boundary = meta["boundary"].as_str().unwrap();
                     let first = contract_turn != boundary;
                     contract_turn = boundary.into();
+                    if first && prompt == "contract-buffer" {
+                        let client = reqwest::Client::new();
+                        let read: Value = client.post(&bridge).json(&json!({"jsonrpc":"2.0","id":21,"method":"tools/call","params":{"name":"read_buffer","arguments":{}}})).send().await.unwrap().json().await.unwrap();
+                        let text = read["result"]["content"][0]["text"].as_str().unwrap();
+                        let hash = text
+                            .lines()
+                            .filter_map(|l| l.split_once('|'))
+                            .map(|(hash, _)| hash)
+                            .find(|hash| {
+                                !hash.is_empty() && hash.bytes().all(|b| b.is_ascii_hexdigit())
+                            })
+                            .unwrap();
+                        let edit: Value = client.post(&bridge).json(&json!({"jsonrpc":"2.0","id":22,"method":"tools/call","params":{"name":"edit_buffer","arguments":{"run":hash,"input":"Edited by the agent"}}})).send().await.unwrap().json().await.unwrap();
+                        assert_ne!(edit["result"]["isError"], true, "{edit}");
+                    }
                     if first {
                         std::fs::write(
                             std::path::Path::new(&cwd).join("app.ts"),
@@ -134,8 +149,9 @@ async fn main() {
                         serde_json::from_str(&lines.next().unwrap().unwrap()).unwrap();
                     let status = &status["result"];
                     assert_eq!(status["version"], 1);
-                    let sources = json!({"response.md":status["template"]});
-                    let arguments = json!({"boundary":boundary,"expected":status["expected"],"entry":"response.md","sources":sources});
+                    let entry = status["entry"].as_str().unwrap();
+                    let sources = json!({entry:status["template"]});
+                    let arguments = json!({"boundary":boundary,"expected":status["expected"],"entry":entry,"sources":sources});
                     let bad_submission = first && prompt != "contract-late-write";
                     let body = json!({"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"submit_changeset","arguments":if bad_submission { let mut bad = arguments.clone(); bad["sources"] = json!({"response.md":"<hick:project/>"}); bad } else { arguments.clone() }}});
                     let response: Value = reqwest::Client::new()

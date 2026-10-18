@@ -521,16 +521,18 @@ pub async fn start_turn(
         .lock()
         .unwrap()
         .insert(turn_id.clone(), cancel.clone());
-
+    let capture_edits =
+        super::agent_projects::editors(&state, &id, python.is_some(), &body.context);
     let task_state = state.clone();
     let doc_id = id.clone();
     let run_key = turn_id.clone();
     tokio::spawn(async move {
         let _annotation_gate = task_state.agent.annotations_gate.read().await;
-        let project_capture = super::agent_projects::begin(
+        let project_capture = super::agent_projects::begin_editors(
             &task_state,
             &doc_id,
             task_state.index.root().join(&session_rel),
+            capture_edits,
         )
         .await;
         let mut outcome = run_turn(
@@ -571,6 +573,9 @@ pub async fn start_turn(
                     &json!({"turn":run_key,"error":format!("{e:#}")}),
                 );
             }
+        }
+        if super::agent_projects::cancelled(&task_state, &run_key) {
+            outcome = Err(hickory_agent::STOPPED_BY_USER.into());
         }
         let status = match &outcome {
             Ok(_) => "ok",

@@ -1,7 +1,7 @@
 # Changeset completion is negotiated and checked
 
 Given an ACP v1 peer that advertises `hickorydocs.com/changesets` version 1,
-and a turn on an existing declared project, when work begins, Hickory freezes
+and a turn on a declared project, ordinary workspace, or untitled editors, when work begins, Hickory freezes
 starting output tree A and binds it to that turn's boundary. The peer can inspect
 A and current output B and submit a literate `.md` closure over MCP or the
 negotiated ACP method. Both routes use the same verifier. The harness owns A;
@@ -20,7 +20,8 @@ without requesting an artifact. Acceptance and the completed capture are checked
 again before reporting success. The artifact and repair evidence are recorded
 in the conversation. Peers without the capability retain ordinary completion
 and may voluntarily call the MCP tools. Such completion never claims acceptance.
-A turn without a declared project cannot negotiate a usable output boundary.
+A turn without a declared project uses the open workspace and stable editor identities.
+A folderless turn captures only editor state.
 
 Standalone MCP exposes `begin_changeset` to freeze one task's starting project
 before edits, followed by the same status/submission tools. Reset requires a new
@@ -95,3 +96,63 @@ The corrected displayed-document identity and asynchronous assertion passed
 `just test-agent-changesets-web`, then final `just test-web` passed typechecking
 and all 2,180 tests in 236 files. No live-provider or desktop visual acceptance
 is claimed.
+
+## Workspace/editor continuation (2026-10-17)
+
+Given ordinary workspace files and open editors, when capture starts, the open
+folder and editor ID/backing-path map are frozen before agent writes. Then all
+non-excluded descendants, new paths and authoritative editor bytes participate
+in A/B replay. Disk and editor channels remain separate. The reserved
+`__hickory_editor_buffers__/` evaluator namespace identifies editor state;
+materializers refuse it as a filesystem destination.
+
+Given no open folder, when an untitled editor is captured or finalized, then
+only editor state participates. No filename is assigned, buffer saved, repository
+created, or execution directory captured. Given a changed editor identity map,
+conflicting copies, unconfined backing path or missing fresh browser context,
+when capture is requested, then an actionable refusal prevents acceptance.
+
+The browser answers token-bound fresh-context requests at status, submission
+and successful completion. Concurrent content edits invalidate acceptance.
+Native writes remain ambiguous for attribution. Final documents render against
+captured context. Disk patches offer native tools using the complete captured
+filesystem with editor addresses removed; no working-tree dependencies are
+borrowed and no editor is assigned a disk destination. Editor-address patches
+and folderless captures have no executable project and disable native tools.
+Workspace incorporation requires maintained literate source and remains disabled.
+Review defaults, cancellation, legacy capability handling and source/runtime
+verification distinctions remain unchanged.
+
+Verification (Codex, 2026-10-17): reviewed `workspace_capture::WorkspaceCapture`,
+`agent_projects::{begin_editors,finish,finalize}`, `Edits::{refresh,refreshed}`,
+ACP/MCP boundary handling, `WorkspaceChat.editorContext`, `ChatDock`,
+`ChangesetDocument`, `PatchEditor`, and native publication guards. New witnesses
+cover workspace file rename/create/delete, separate dirty saved bytes, multiple
+untitled buffers, folderless replay, identity transitions, stale acceptance,
+metadata and repair. Relative standalone project defaults are anchored to the
+MCP client's root, including across shared-engine forwarding.
+
+Executed through root recipes:
+
+- `just test-agent-changesets`: 21 native cases passed. The separate browser
+  runner is ignored by this recipe and was executed explicitly below.
+- `just test-workspace-changesets-browser`: both real Chromium flows passed,
+  with and without an open folder. Each approved an actual untitled editor edit,
+  refreshed the editor snapshot, repaired a refused artifact, and finalized it
+  without saving the buffer or materializing its virtual address.
+- `just test-agent-changesets-web`: typechecking and 67 tests passed, including
+  full captured filesystem dependencies for disk patches and disabled native
+  tools for virtual editor patches.
+- `just test-acp`: 45 native cases and all 2,192 web tests passed. Two paid/live
+  Codex cases remained intentionally ignored. This run included unrelated
+  concurrent startup changes in the shared working tree.
+- Formatting, the file-length ratchet, focused Clippy with warnings denied,
+  and whitespace checks passed. A disk-full build failure was cleared by
+  removing old completed incremental caches before rerunning validation.
+
+Limitations: filesystem snapshots are observed reads, not transactions; empty
+directories, ownership, timestamps and non-executable permission bits are not
+modeled; special filesystem entries refuse capture. Save/rename/close during a
+turn requires restoring the boundary or a new turn. Built-in/Python mandatory finalization loops remain unimplemented.
+The earlier inspected hashes describe the prior implementation and are superseded
+for the paths changed by this continuation.

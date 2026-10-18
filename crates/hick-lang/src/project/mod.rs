@@ -10,8 +10,8 @@ pub use comparison::{ComparisonSource, EditPolicy, ProjectComparison, RevisionId
 pub use evaluate::{EvaluatedProject, ProjectInventory, evaluate_project};
 pub use patch::{PatchResult, apply_project_patch};
 pub use tree::{
-    ByteOrigin, DifferenceKind, EntryKind, ProjectDifference, ProjectEntry, ProjectTree,
-    validate_project_path,
+    ByteOrigin, DifferenceKind, EDITOR_BUFFER_PREFIX, EntryKind, ProjectDifference, ProjectEntry,
+    ProjectTree, validate_project_path,
 };
 
 pub use reconstruct::{

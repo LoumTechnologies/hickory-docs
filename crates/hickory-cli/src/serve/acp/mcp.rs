@@ -109,6 +109,7 @@ async fn exchange(State(bridge): State<Bridge>, Json(message): Json<Value>) -> i
         } else {
             changeset_call(
                 &bridge.changeset,
+                &bridge.edits,
                 &bridge.record,
                 &bridge.workspace_gate,
                 name,
@@ -435,6 +436,7 @@ fn tool_error(id: &Value, message: &str) -> (StatusCode, Json<Value>) {
 /// MCP and negotiated ACP requests execute the identical operation.
 async fn changeset_call(
     contract: &Mutex<Option<crate::changeset::Contract>>,
+    edits: &super::edits::Edits,
     record: &Mutex<Record>,
     gate: &Mutex<()>,
     name: &str,
@@ -444,7 +446,11 @@ async fn changeset_call(
     let mut slot = contract.lock().await;
     let contract = slot
         .as_mut()
-        .context("This turn has no declared-project changeset boundary.")?;
+        .context("This turn has no changeset boundary.")?;
+    if name == "submit_changeset" && args["boundary"].as_str() == Some(&contract.boundary) {
+        contract.accepted = None;
+    }
+    edits.refresh().await?;
     let recorder = record.lock().await;
     recorder.check()?;
     let outcome = contract.call(name, args);
@@ -458,6 +464,7 @@ impl Host {
     pub async fn changeset_call(&self, name: &str, args: &Value) -> Result<Value> {
         changeset_call(
             &self.changeset,
+            &self.edits,
             &self.record,
             &self.workspace_gate,
             name,
@@ -467,11 +474,12 @@ impl Host {
     }
     pub async fn completion(&self) -> Result<crate::changeset::Artifact> {
         let _workspace = self.workspace_gate.lock().await;
+        self.edits.refresh().await?;
         self.changeset
             .lock()
             .await
             .as_mut()
-            .context("No declared-project boundary")?
+            .context("No changeset boundary")?
             .completion()
     }
 }
