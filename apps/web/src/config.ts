@@ -51,10 +51,12 @@ export interface WebConfig {
   readonly posthogHost: string;
   /** The one-line installer shown as the primary call to action. */
   readonly installCommand: string;
+  readonly sourceRevision: string | null;
 }
 
 export const config: WebConfig = Object.freeze({
   mock: import.meta.env.VITE_MOCK === "1",
+  sourceRevision: /^[a-f0-9]{40}$/.test(import.meta.env.VITE_SOURCE_REVISION ?? "") ? import.meta.env.VITE_SOURCE_REVISION! : null,
   posthogKey: readPosthogKey(),
   posthogHost: (import.meta.env.VITE_POSTHOG_HOST ?? "https://us.i.posthog.com").replace(
     /\/+$/,

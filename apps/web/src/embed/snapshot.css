@@ -1,0 +1,3 @@
+.snapshot-header, .published-snapshot { max-width:72rem; margin:2rem auto; padding:0 1.5rem; line-height:1.55; }
+.published-snapshot code { overflow-wrap:anywhere; }
+.published-snapshot > section { margin:1.5rem 0; }

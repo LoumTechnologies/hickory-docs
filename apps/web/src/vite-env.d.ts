@@ -6,6 +6,7 @@
  * (`src/config.ts`), never in a component.
  */
 interface ImportMetaEnv {
+  readonly VITE_SOURCE_REVISION?: string;
   /** `1` → the mock profile: no network at all. */
   readonly VITE_MOCK?: string;
   /** PostHog project write key (`phc_…`). Absent → no browser capture. */

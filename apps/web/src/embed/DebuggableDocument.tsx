@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { EditorView } from "@codemirror/view";
 import { DocumentEmbed } from "./DocumentEmbed";
 import type { DocumentEmbedProps } from "./DocumentEmbed";
@@ -13,8 +13,10 @@ import "./debug.css";
 export interface DebuggableDocumentProps extends DocumentEmbedProps {
   /** Explicit opt-in: start once on mount at this 0-based document breakpoint. */
   startPausedAt?: number;
+  onExecutionResult?: (result: { revision: string; exitCode: number }) => void;
 }
 export function DebuggableDocument(props: DebuggableDocumentProps) {
+  const capturedRevision = useRef(props.revision);
   const current = useRef(props); current.current = props;
   const [backend, setBackend] = useState<ReturnType<typeof createBrowserDebugger> | null>(null);
   const [output, setOutput] = useState("");
@@ -22,16 +24,18 @@ export function DebuggableDocument(props: DebuggableDocumentProps) {
   const staleRef = useRef(false);
   const [runRevision, setRunRevision] = useState<string | null>(null);
   const [view, setView] = useState<EditorView | null>(null);
+  const ready = useCallback((value: EditorView | null) => { setView(value); current.current.onViewReady?.(value); }, []);
   const [watch, setWatch] = useState("");
   const [children, setChildren] = useState<Record<number, Variable[]>>({});
   useEffect(() => {
     const local = createBrowserDebugger({
-      readDocument: () => { setRunSource(current.current.source); return { source: current.current.source, revision: current.current.revision }; },
+      readDocument: () => { capturedRevision.current = current.current.revision; setRunSource(current.current.source); return { source: current.current.source, revision: current.current.revision }; },
       onOutput: (text) => setOutput((previous) => previous + text),
       onRevision: (revision) => { setRunRevision(revision); setOutput(""); },
     });
     setBackend(local);
     const off = local.client.on((event) => {
+      if (event.event === "finished" && typeof event.exit_code === "number") current.current.onExecutionResult?.({ revision: capturedRevision.current, exitCode: event.exit_code });
       if (event.event === "children") setChildren((previous) => ({ ...previous, [event.reference]: event.variables }));
       if (event.event === "stopped" || event.event === "ended") setChildren({});
     });
@@ -84,7 +88,7 @@ export function DebuggableDocument(props: DebuggableDocumentProps) {
       onStart={start} onStop={debug.stop} onStep={debug.step} onSelectFrame={debug.selectFrame}
       onJumpHere={() => {}} onAddWatch={() => document.getElementById(`watch-${props.path}`)?.focus()}
       exceptionFilters={debug.exceptionFilters} onToggleExceptionFilter={debug.toggleExceptionFilter} onRemoveWatch={debug.removeWatch} />
-    <DocumentEmbed {...props} extensions={extensions} onViewReady={setView} />
+    <DocumentEmbed {...props} extensions={extensions} onViewReady={ready} />
     {debug.status === "paused" && <div className="browser-debug-inspection">
       <p>Paused on line {(debug.pausedLine ?? 0) + 1}{stale ? " of the previous revision" : ""}</p>
       <h3>Variables</h3>

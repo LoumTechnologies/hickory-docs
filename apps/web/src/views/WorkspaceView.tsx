@@ -1,3 +1,6 @@
+import { SnapshotExport } from "../components/SnapshotExport";
+import { WorkflowTour } from "../components/WorkflowTour";
+import { ReviewPanel } from "../components/ReviewPanel";
 import { useFileTabMenu } from "./useFileTabMenu";
 import { documentCommands } from "./documentCommands";
 import { nodeForAbsolutePath } from "../lib/openPath";
@@ -1678,6 +1681,11 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
 
   return (
     <div className="doc-page with-chat wide-mode">
+      <div className="workspace-review-toolbar">
+        <ReviewPanel />
+        <SnapshotExport docId={focused?.docId} />
+        <WorkflowTour surface="app" />
+      </div>
       {/* Plain files' debug sessions, held above their panes so a session
           survives the tab that started it being fronted away. */}
       <PlainDebugHosts />

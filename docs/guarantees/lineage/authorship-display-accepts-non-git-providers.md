@@ -1,0 +1,39 @@
+# Authorship display accepts non-Git providers
+
+Given an attribution provider supplying line metadata, when author colors are
+turned on in Lineage settings, then the editor distinguishes credited authors
+without replacing syntax colors. Git blame is the default provider. A host can
+install a replacement provider without Git. Recorded agent writes supplement
+Git attribution using the existing strong session-write fingerprints. Session
+user and assistant elements expose their recorded roles. Absent origin evidence
+remains unknown; a Git identity alone never classifies text as human or agent.
+
+An edit clears color attribution for that buffer until refreshed. A late request
+for earlier editor bytes cannot reinstall stale attribution. Provider records
+include the attributed line text, and records that differ from the editor are
+omitted, including when colors are enabled over an unsaved edit. Color is accompanied
+by a provider/author/origin tooltip; agent origin uses a dashed stripe and
+imported origin uses a dotted stripe.
+
+---
+
+Last LLM verification:
+
+- Date: 2026-10-18
+- Reviewer: Codex
+- Result: partially verified
+- Originating requirement: Git-backed authorship coloring with a non-Git seam.
+- Evidence: `lib/attribution.ts`, `editor/blameGutter.ts`, `editor/useBlame.ts`,
+  `components/LineageSettings.tsx`, `serve/api.rs::blame`.
+- Test coverage: `lib/attribution.test.ts`, existing `blameGutter.test.ts`.
+- Assumptions and exclusions: line-granular; mixed-origin lines cannot provide
+  span-level identity. Recorded roles are declarations, not authenticated people.
+  Missing sessions cannot establish agent origin. Uncommitted is a Git state.
+- Witnesses and challenges: non-Git provider installation/restoration; edit
+  invalidation; stable author colors. Agent origin remains separate from credit.
+- Executed checks: attribution and existing blame-gutter unit tests passed;
+  non-Git human/agent display passed in Chromium, Firefox and WebKit.
+  `serve_blame` HTTP tests verify recorded conversation roles without Git.
+- Human judgment: not recorded; visual accessibility review remains necessary.
+
+- Dependency fingerprint: `apps/web/src/editor/useBlame.ts` SHA-256 `1c9d803dc560607ac94cc0f4ec5dace515a555d59d4cf9fab542ce3caa22bbaa`; changes to this implementation or its cited integration paths require review.

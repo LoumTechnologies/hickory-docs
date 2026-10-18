@@ -673,6 +673,9 @@ export interface ReplaceResponse {
 
 /** One line's authorship, from `GET /api/blame`. */
 export interface BlameLine {
+  text?: string;
+  origin?: "human" | "agent" | "imported" | "unknown";
+  provider?: string;
   line: number;
   commit: string;
   author: string;

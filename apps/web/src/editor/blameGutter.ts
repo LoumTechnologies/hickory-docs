@@ -20,10 +20,13 @@
 import { RangeSet, StateEffect, StateField } from "@codemirror/state";
 import type { EditorState, Extension } from "@codemirror/state";
 import { GutterMarker, gutter } from "@codemirror/view";
-import { EditorView } from "@codemirror/view";
+import { EditorView, Decoration, type DecorationSet } from "@codemirror/view";
+import { authorColor, type TextOrigin } from "../lib/attribution";
 
 /** One line's authorship, as the server reports it. */
 export interface LineBlame {
+  origin?: TextOrigin;
+  provider?: string;
   line: number;
   commit: string;
   author: string;
@@ -36,6 +39,8 @@ export interface LineBlame {
 
 /** Replace what the column knows. Empty turns it blank without unloading it. */
 export const setBlame = StateEffect.define<readonly LineBlame[]>();
+
+export const setAuthorshipShown = StateEffect.define<boolean>();
 
 /** Show or hide the column. */
 export const setBlameShown = StateEffect.define<boolean>();
@@ -166,6 +171,7 @@ export function blameTip(entry: LineBlame): string {
 export function blameGutter(): Extension {
   return [
     blameField,
+    authorshipField,
     gutter({
       class: "cm-blame-gutter",
       markers: (view) => {
@@ -193,6 +199,40 @@ export function blameGutter(): Extension {
     }),
     EditorView.baseTheme({
       ".cm-blame-gutter": { minWidth: "0" },
+      ".cm-authorship": { borderLeft: "3px solid var(--author-color)", backgroundColor: "color-mix(in srgb, var(--author-color) 9%, transparent)" },
+      ".cm-author-0": { "--author-color": "var(--ribbon-0)" },
+      ".cm-author-1": { "--author-color": "var(--ribbon-1)" },
+      ".cm-author-2": { "--author-color": "var(--ribbon-2)" },
+      ".cm-author-3": { "--author-color": "var(--ribbon-3)" },
+      ".cm-author-4": { "--author-color": "var(--ribbon-4)" },
+      ".cm-author-5": { "--author-color": "var(--ribbon-5)" },
+      ".cm-origin-agent": { "--author-color": "var(--tok-function)", borderLeftStyle: "dashed" },
+      ".cm-origin-human": { "--author-color": "var(--accent-2)" },
+      ".cm-origin-imported": { borderLeftStyle: "dotted" },
     }),
   ];
 }
+
+
+interface AuthorshipState { shown: boolean; lines: readonly LineBlame[]; marks: DecorationSet }
+/** Unsaved edits invalidate attribution rather than inheriting the old line identity. */
+export const authorshipField = StateField.define<AuthorshipState>({
+  create: () => ({ shown: false, lines: [], marks: Decoration.none }),
+  update(value, tr) {
+    let { shown, lines } = value;
+    if (tr.docChanged) lines = [];
+    for (const effect of tr.effects) {
+      if (effect.is(setBlame)) lines = effect.value;
+      if (effect.is(setAuthorshipShown)) shown = effect.value;
+    }
+    const marks = shown ? lines.filter(line => line.line > 0 && line.line <= tr.newDoc.lines).map(line => {
+      const origin = line.origin ?? "unknown";
+      return Decoration.line({ attributes: {
+        class: `cm-authorship cm-author-${authorColor(line.email || line.author)} cm-origin-${origin}`,
+        "data-tip": `${line.provider ?? "Git blame"}: ${line.author || "unknown author"}${line.uncommitted ? " · uncommitted" : ""} · text origin: ${origin}`,
+      } }).range(tr.newDoc.line(line.line).from);
+    }) : [];
+    return { shown, lines, marks: Decoration.set(marks, true) };
+  },
+  provide: field => EditorView.decorations.from(field, value => value.marks),
+});

@@ -407,6 +407,31 @@ pub async fn render_doc(
     })?))
 }
 
+/// Export the same weave and transcripts the local viewer receives. No execution.
+pub async fn snapshot_doc(
+    State(state): State<LocalState>,
+    Path(id): Path<String>,
+) -> ApiResult<Json<Value>> {
+    use sha2::{Digest, Sha256};
+    let run = state.weave(&id).await?;
+    let rendered =
+        crate::block_model_json(&run).map_err(|e| ApiError::unprocessable(e.to_string()))?;
+    let source = &run.doc.source;
+    let path = state
+        .index
+        .path_of(&id)
+        .map(|p| p.to_string())
+        .unwrap_or_else(|| id.clone());
+    Ok(Json(json!({
+        "format":"hickory-viewer-snapshot", "version":1,
+        "path":path, "source":source,
+        "source_hash":format!("{:x}",Sha256::digest(source.as_bytes())),
+        "captured_at_ms":std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_err(|e| ApiError::internal(e.to_string()))?.as_millis(),
+        "execution":"recorded-output-snapshot; export does not execute checks",
+        "cells":rendered["blocks"].as_array().map(|blocks| blocks.iter().filter(|block| block["kind"] == "exec").cloned().collect::<Vec<_>>()).unwrap_or_default()
+    })))
+}
+
 // ---------------------------------------------------------------------------
 // Outputs — the lineage ribbons
 // ---------------------------------------------------------------------------
@@ -1604,7 +1629,54 @@ pub async fn blame(
         )));
     }
     let rel = std::path::PathBuf::from(&params.path);
-    let lines = tokio::task::spawn_blocking(move || crate::agent_lineage::blame_file(&root, &rel))
+    let lines = tokio::task::spawn_blocking(move || {
+        let mut lines: Vec<Value> = crate::agent_lineage::blame_file(&root, &rel).into_iter()
+            .filter_map(|line| serde_json::to_value(line).ok()).collect();
+        let path = root.join(&rel);
+        let confined = path.canonicalize().ok().zip(root.canonicalize().ok())
+            .is_some_and(|(path, root)| path.starts_with(root));
+        if confined && let Ok(source) = std::fs::read_to_string(&path) {
+            // Reuse strong session-write fingerprints, never guess origin from an author name.
+            let mut ranges: Vec<(usize, usize, &str, &str)> = hickory_agent::context::context_for_document(&path, &source)
+                .into_iter().filter_map(|write| write.current_lines.map(|(first,last)| (first,last,"agent","Recorded agent write"))).collect();
+            if hick_lang::is_session_source(&source) {
+                let (document, _) = hick_lang::parse_lenient(&source);
+                for tag in document.all_tags() {
+                    let origin = match tag.name.as_str() { "user" => "human", "assistant" => "agent", _ => continue };
+                    let spans: Vec<_> = tag.children.iter().filter_map(|node| match node {
+                        hick_lang::HickNode::Text(text, Some(span)) if !text.trim().is_empty() => Some((span.start, span.end)),
+                        hick_lang::HickNode::Tag(child) if child.name == "input" && child.get_attribute("name").is_none() => child.source_span.zip(child.close_span).map(|(open,close)| (open.end,close.start)),
+                        _ => None,
+                    }).collect();
+                    for (start,end) in spans {
+                        let first = source[..start].bytes().filter(|b| *b == b'\n').count()+1;
+                        let last = source.as_bytes()[..end.saturating_sub(1).max(start)].iter().copied().filter(|b| *b == b'\n').count()+1;
+                        ranges.push((first,last,origin,"Recorded conversation role"));
+                    }
+                }
+            }
+            for (first,last,origin,evidence) in ranges {
+                for number in first..=last {
+                    if let Some(line) = lines.iter_mut().find(|line| line["line"] == number) {
+                        let mixed = line.get("origin").and_then(Value::as_str).is_some_and(|previous| previous != origin);
+                        line["origin"] = json!(if mixed { "unknown" } else { origin });
+                        line["provider"] = json!(if mixed { "Mixed recorded origins on this line".to_string() } else { format!("Git blame + {evidence}") });
+                    } else {
+                        lines.push(json!({"line":number,"commit":"","author":evidence,"email":"","time":0,"summary":"Recorded origin; no Git attribution","uncommitted":false,"origin":origin,"provider":evidence}));
+                    }
+                }
+            }
+            let text: Vec<_> = source.lines().collect();
+            for line in &mut lines {
+                if let Some(number) = line["line"].as_u64().and_then(|n| n.checked_sub(1))
+                    && let Some(content) = text.get(number as usize) {
+                    line["text"] = json!(content);
+                }
+            }
+        }
+        lines.sort_by_key(|line| line["line"].as_u64().unwrap_or(0));
+        lines
+    })
         .await
         .map_err(|e| ApiError::internal(format!("the blame task failed: {e}")))?;
 

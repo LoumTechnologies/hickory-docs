@@ -84,6 +84,10 @@ async fn every_line_gets_its_author_from_one_blame() {
     assert_eq!(status, 200);
     let lines = body["lines"].as_array().expect("a list of lines");
     assert_eq!(lines.len(), 3, "one entry per line: {body}");
+    assert_eq!(
+        lines[0]["text"], "one",
+        "attribution must identify the actual saved bytes"
+    );
     assert_eq!(lines[0]["line"], 1);
     assert_eq!(lines[2]["line"], 3);
     for line in lines {
@@ -157,4 +161,98 @@ fn urlencoding(s: &str) -> String {
             other => format!("%{:02X}", other as u32),
         })
         .collect()
+}
+
+// Guarantees:
+// - docs/guarantees/authoring/review-threads-preserve-the-questioned-target.md
+// - docs/guarantees/embedding/a-viewer-snapshot-keeps-recorded-results-historical.md
+#[tokio::test(flavor = "multi_thread")]
+async fn reviews_and_snapshots_preserve_captured_source_without_running_it() {
+    use sha2::{Digest, Sha256};
+    let dir = tempfile::tempdir().unwrap();
+    let source = "# Requirement\n\n<hick:container name=\"shell\" />\n<hick:exec container=\"shell\">\nprintf should-not-run\n</hick:exec>\n";
+    std::fs::write(dir.path().join("spec.md"), source).unwrap();
+    let session = start(dir).await;
+    let client = reqwest::Client::new();
+    let (_, history) = get(&session, "/api/reviews").await;
+    let target = serde_json::json!({"kind":"claim","path":"spec.md","quote":"Requirement","source_hash":format!("{:x}",Sha256::digest(source)),"lines":[1,1]});
+    let response = client.post(format!("{}/api/reviews",session.base)).json(&serde_json::json!({"scope":history["scope"],"target":target,"action":"comment","body":"Does this cover retries?"})).send().await.unwrap();
+    assert_eq!(response.status(), 200);
+    let event: Value = response.json().await.unwrap();
+    std::fs::write(
+        session._dir.path().join("spec.md"),
+        format!("{source}\nChanged\n"),
+    )
+    .unwrap();
+    let (_, history) = get(&session, "/api/reviews").await;
+    assert_eq!(history["targets"][0]["current_state"], "changed");
+    let response=client.post(format!("{}/api/reviews",session.base)).json(&serde_json::json!({"scope":history["scope"],"thread":event["thread"],"action":"resolve","body":"Reviewed the correction"})).send().await.unwrap();
+    assert_eq!(response.status(), 200);
+    let response=client.post(format!("{}/api/reviews",session.base)).json(&serde_json::json!({"scope":"wrong workspace","thread":event["thread"],"action":"resolve","body":"Wrong workspace"})).send().await.unwrap();
+    assert_eq!(response.status(), 409);
+    let (_, history) = get(&session, "/api/reviews").await;
+    assert_eq!(history["events"].as_array().unwrap().len(), 2);
+    assert_eq!(history["events"][0]["target"], target);
+    let (_, docs) = get(&session, "/api/projects/local/docs").await;
+    let id = docs
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|doc| doc["path"] == "spec.md")
+        .unwrap()["id"]
+        .as_str()
+        .unwrap();
+    let (status, snapshot) = get(&session, &format!("/api/docs/{id}/snapshot")).await;
+    assert_eq!(status, 200, "{snapshot}");
+    assert_eq!(snapshot["format"], "hickory-viewer-snapshot");
+    assert_eq!(snapshot["cells"][0]["status"], "unrecorded");
+    assert!(
+        snapshot["cells"][0]["transcript"]
+            .as_array()
+            .is_none_or(|events| events.is_empty())
+    );
+    assert!(
+        snapshot["execution"]
+            .as_str()
+            .unwrap()
+            .contains("does not execute")
+    );
+}
+
+// Guarantee: docs/guarantees/lineage/authorship-display-accepts-non-git-providers.md
+#[tokio::test(flavor = "multi_thread")]
+async fn conversation_roles_supply_origin_without_git() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("session.md"),"<hick:session>\n<hick:user>\nHuman requirement\n</hick:user>\n<hick:assistant>\nAgent proposal\n</hick:assistant>\n</hick:session>\n").unwrap();
+    let session = start(dir).await;
+    let (status, body) = get(&session, "/api/blame?path=session.md").await;
+    assert_eq!(status, 200);
+    let lines = body["lines"].as_array().unwrap();
+    assert!(
+        lines
+            .iter()
+            .any(|line| line["line"] == 3 && line["origin"] == "human"),
+        "{body}"
+    );
+    assert!(
+        lines
+            .iter()
+            .any(|line| line["line"] == 6 && line["origin"] == "agent"),
+        "{body}"
+    );
+}
+
+// Guarantee: docs/guarantees/lineage/authorship-display-accepts-non-git-providers.md
+#[tokio::test(flavor = "multi_thread")]
+async fn unicode_and_mixed_roles_do_not_fabricate_a_single_origin() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(
+        dir.path().join("session.md"),
+        "<hick:session><hick:user>☕</hick:user><hick:assistant>🤖</hick:assistant></hick:session>",
+    )
+    .unwrap();
+    let session = start(dir).await;
+    let (status, body) = get(&session, "/api/blame?path=session.md").await;
+    assert_eq!(status, 200, "{body}");
+    assert_eq!(body["lines"][0]["origin"], "unknown", "{body}");
 }

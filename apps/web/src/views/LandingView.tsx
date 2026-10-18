@@ -1,3 +1,5 @@
+import { config } from "../config";
+import { WorkflowTour } from "../components/WorkflowTour";
 import { useEffect } from "react";
 import { emit } from "../analytics/events";
 import { TooltipLayer } from "../components/TooltipLayer";
@@ -22,11 +24,14 @@ export function LandingView() {
       <a className="btn" href="#download">Get the desktop app</a>
       <p><a href="https://github.com/LoumTechnologies/hickory-docs">View source on GitHub</a></p>
     </header>
+    <WorkflowTour surface="site" />
     <BrowserDebugDemo />
     <footer className="landing-download" id="download">
       <h2>Download Hickory Docs</h2>
       <p>The desktop app works with your own files and tools. No account required.</p>
       <p className="muted">Public downloads coming soon.</p>
+      <p><a href="./snapshot.html">Open a document snapshot</a></p>
+      {config.sourceRevision && <p className="muted">Build source: <a href={`https://github.com/LoumTechnologies/hickory-docs/tree/${config.sourceRevision}`}>{config.sourceRevision.slice(0, 7)}</a></p>}
     </footer>
     <TooltipLayer />
   </main>;

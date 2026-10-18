@@ -9,29 +9,34 @@
 // what is committed; re-running it on every keystroke would burn a process
 // per character to move a label that has not changed.
 
+import { registerReviewEditor } from "../lib/reviews";
 import { useEffect } from "react";
 import type { EditorView } from "@codemirror/view";
 
-import { api } from "../api/client";
-import { setBlame, setBlameShown } from "./blameGutter";
+import { attributionProvider, authorshipColors, ATTRIBUTION_CHANGED } from "../lib/attribution";
+import { setBlame, setBlameShown, setAuthorshipShown } from "./blameGutter";
 import { loadBlameShown, onBlameChanged } from "../lib/blamePref";
 import { FILES_CHANGED_EVENT } from "../shell/FolderTreePane";
 
 export function useBlame(view: EditorView | null, path: string | null): void {
   useEffect(() => {
     if (!view || !path) return;
+    const unregisterReview = registerReviewEditor(view, path);
     let live = true;
+    let generation = 0;
 
     const fill = () => {
-      api.blame(path).then(
+      const request = ++generation;
+      const source = view.state.doc;
+      attributionProvider().lines(path).then(
         (answer) => {
-          if (!live || !view.dom.isConnected) return;
-          view.dispatch({ effects: setBlame.of(answer.lines) });
+          if (!live || !view.dom.isConnected || request !== generation || source !== view.state.doc) return;
+          view.dispatch({ effects: setBlame.of(answer.filter(line => line.line > 0 && line.line <= source.lines && line.text === source.line(line.line).text)) });
         },
         () => {
           // No git, no repository, an untracked file: the column is simply
           // blank. Nothing here is worth interrupting anyone over.
-          if (live && view.dom.isConnected) view.dispatch({ effects: setBlame.of([]) });
+          if (live && view.dom.isConnected && request === generation) view.dispatch({ effects: setBlame.of([]) });
         },
       );
     };
@@ -42,17 +47,25 @@ export function useBlame(view: EditorView | null, path: string | null): void {
       if (shown) fill();
     };
 
-    apply(loadBlameShown());
+    const update = () => {
+      view.dispatch({ effects: setAuthorshipShown.of(authorshipColors()) });
+      apply(loadBlameShown());
+      if (authorshipColors() && !loadBlameShown()) fill();
+    };
+    update();
+    window.addEventListener(ATTRIBUTION_CHANGED, update);
     const offToggle = onBlameChanged(apply);
     // A save (or anything else that rewrites files) can change what is
     // committed under this buffer.
     const onFiles = () => {
-      if (loadBlameShown()) fill();
+      if (loadBlameShown() || authorshipColors()) fill();
     };
     window.addEventListener(FILES_CHANGED_EVENT, onFiles);
     return () => {
       live = false;
+      unregisterReview();
       offToggle();
+      window.removeEventListener(ATTRIBUTION_CHANGED, update);
       window.removeEventListener(FILES_CHANGED_EVENT, onFiles);
     };
   }, [view, path]);

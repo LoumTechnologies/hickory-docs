@@ -1,3 +1,4 @@
+import { registerReviewEditor } from "../lib/reviews";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Prec, Transaction } from "@codemirror/state";
 import { EditorView, keymap } from "@codemirror/view";
@@ -50,6 +51,10 @@ export function ConversationEditor({ branch, path, running, stream, reasoning, d
     return () => { live = false; window.clearInterval(timer); };
   }, [path, running, stamp]);
   const reading = useMemo(() => conversationReading(data, branch, running, stream, reasoning), [data, branch, running, stream, reasoning]);
+  useEffect(() => {
+    if (!view || !path) return;
+    return registerReviewEditor(view, path, () => data?.source ?? null);
+  }, [view, path, data?.source]);
   const extensions = useMemo(() => [...protectedPrefix, sessionBookkeeping, ...responseSend(() => { if (latest.current.canSend) { following.current = true; latest.current.onSend(); } }),
     EditorView.domEventHandlers({
       mousedown(event) {

@@ -1,3 +1,4 @@
+import { reviewRelationship, reviewError } from "../lib/reviews";
 // Provenance ribbons, drawn between panes — and out to files that are not
 // open yet.
 //
@@ -1121,6 +1122,22 @@ export function RibbonOverlay({
         return (
           <g
             key={shape.key}
+            tabIndex={shown ? 0 : -1}
+            role="link"
+            aria-label={`${shape.family} connection to ${shape.target.path}; Alt+Enter to comment`}
+            onContextMenu={event => {
+              const side = shape.hl[0];
+              if (!side) return;
+              event.preventDefault();
+              void reviewRelationship(side.view, [side.from, side.to], { family: shape.family, target: shape.target, key: shape.key }).catch(reviewError);
+            }}
+            onKeyDown={event => {
+              if (event.key !== "Enter") return;
+              event.preventDefault();
+              const side = shape.hl[0];
+              if (event.altKey && side) void reviewRelationship(side.view, [side.from, side.to], { family: shape.family, target: shape.target, key: shape.key }).catch(reviewError);
+              else onNavigate?.(shape.target, ribbonOpenIntent(container, side?.view.dom, shape.target));
+            }}
             className={`ribbon-group${hoverOnly && shown ? " ribbon-group--revealed" : ""}${
               shape.family === "lineage" ? "" : ` ribbon-group--${shape.family}`
             }`}

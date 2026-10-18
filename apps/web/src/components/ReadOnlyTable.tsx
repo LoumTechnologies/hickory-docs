@@ -34,7 +34,7 @@ export function ReadOnlyTable({ table }: { table: NotebookTable }) {
       <thead><tr>{table.schema.map((col, i) => <th key={i} aria-sort={sort?.column === i ? (sort.descending ? "descending" : "ascending") : "none"}>
         <button onClick={() => setSort({ column: i, descending: sort?.column === i && !sort.descending })}>{col.name}</button><small>{col.dtype}</small>
       </th>)}</tr></thead>
-      <tbody>{rows.map((row, i) => <tr key={i}>{table.schema.map((_, j) => <td key={j} title={cell(row[j])} className={row[j] === null ? "muted" : ""}>{cell(row[j])}</td>)}</tr>)}</tbody>
+      <tbody>{rows.map((row, i) => <tr key={i}>{table.schema.map((_, j) => <td key={j} data-tip={cell(row[j])} className={row[j] === null ? "muted" : ""}>{cell(row[j])}</td>)}</tr>)}</tbody>
     </table></div>
   </section>;
 }

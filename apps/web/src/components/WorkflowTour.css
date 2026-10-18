@@ -1,0 +1,10 @@
+.workflow-tour-launcher { margin:.5rem 1rem; }
+.workflow-tour { margin:1rem auto; padding:1rem; border:1px solid var(--border); border-radius:8px; max-width:72rem; max-height:80vh; overflow:auto; }
+.workflow-tour h2 { margin:.4rem 0; }
+.workflow-tour textarea { display:block; width:100%; min-height:5rem; }
+.workflow-tour pre { white-space:pre-wrap; overflow-wrap:anywhere; }
+.workflow-tour-controls { display:flex; flex-wrap:wrap; gap:.6rem; margin:1rem 0; }
+
+.workflow-tour--app { position:fixed; inset:3rem 1rem auto; z-index:140; background:var(--bg-raised); color:var(--fg); box-shadow:var(--shadow); }
+
+.workflow-tour .hickory-browser-debug .cm-scroller { max-height:20rem; }

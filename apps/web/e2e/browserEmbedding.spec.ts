@@ -331,3 +331,88 @@ test("static assets and debugger work below a deployment prefix with scoped CSP"
     expect(unexpected).toEqual([]);
   } finally { server.closeAllConnections(); await new Promise<void>((done) => server.close(() => done())); }
 });
+
+// Guarantee: docs/guarantees/authoring/the-engineer-tour-distinguishes-replay-from-execution.md
+test("homepage engineer tour executes the counterexample and correction", async ({ page }) => {
+  const unexpected = await noEngine(page);
+  await page.goto("/");
+  await page.getByRole("button", { name: "AI engineer tour", exact: true }).click();
+  const tour = page.getByRole("region", { name: "AI engineer tour" });
+  await tour.getByRole("button", { name: "Continue", exact: true }).click();
+  await tour.getByRole("button", { name: "Continue", exact: true }).click();
+  await tour.getByLabel("Your objection").fill("Each retry receives the full deadline.");
+  await tour.getByRole("button", { name: "Continue", exact: true }).click();
+  await expect(tour.getByRole("button", { name: "Continue", exact: true })).toBeDisabled();
+  await tour.getByRole("button", { name: "Debug document", exact: true }).click();
+  await expect(tour.getByRole("button", { name: "Continue", exact: true })).toBeEnabled();
+  await tour.getByRole("button", { name: "Continue", exact: true }).click();
+  await tour.getByRole("button", { name: "Debug document", exact: true }).click();
+  await expect(tour.getByLabel("Program output")).toContainText("R1: all three checks passed");
+  await page.screenshot({ path: test.info().outputPath("engineer-tour.png"), fullPage: true });
+  await expect(tour.getByRole("button", { name: "Continue", exact: true })).toBeEnabled();
+  expect(unexpected).toEqual([]);
+});
+
+// Guarantee: docs/guarantees/embedding/a-viewer-snapshot-keeps-recorded-results-historical.md
+test("published snapshot reuses document and failed cell views without a backend", async ({ page }) => {
+  const unexpected = await noEngine(page);
+  await page.goto("/snapshot.html");
+  const source = "# Retry deadline\n\nThe budget includes retries.\n";
+  const source_hash = await page.evaluate(async text => Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256",new TextEncoder().encode(text))),b=>b.toString(16).padStart(2,"0")).join(""),source);
+  const snapshot = {format:"hickory-viewer-snapshot",version:1,path:"spec.md",source,source_hash,captured_at_ms:0,execution:"recorded",cells:[{kind:"exec",id:"deadline-check",container:"shell",command:"node deadline.js",span:[0,1],status:"failed",expect:{match:"exact",body:"100\n"},transcript:[{t:0,kind:"out",data:"160\n"},{t:0,kind:"err",data:"deadline exceeded\n"},{t:1,kind:"exit",code:1}]}]};
+  await page.getByLabel("Open exported snapshot").setInputFiles({name:"snapshot.json",mimeType:"application/json",buffer:Buffer.from(JSON.stringify(snapshot))});
+  await expect(page.getByText("historical snapshot",{exact:false})).toBeVisible();
+  await expect(page.getByText("deadline-check · failed",{exact:true})).toBeVisible();
+  await expect(page.getByTestId("cell-diff")).toContainText("160");
+  await expect(page.getByRole("group",{name:"spec.md",exact:true})).toContainText("Retry deadline");
+  await page.screenshot({ path: test.info().outputPath("published-snapshot.png"), fullPage: true });
+  await page.getByLabel("Open exported snapshot").setInputFiles({name:"tampered.json",mimeType:"application/json",buffer:Buffer.from(JSON.stringify({...snapshot,source:"changed"}))});
+  await expect(page.getByRole("alert")).toContainText("hash does not match");
+  expect(unexpected).toEqual([]);
+});
+
+// Guarantees: docs/guarantees/authoring/review-threads-preserve-the-questioned-target.md
+// docs/guarantees/lineage/authorship-display-accepts-non-git-providers.md
+test("review selection persists its target and non-Git authorship distinguishes recorded roles", async ({ page }) => {
+  const events: Record<string, unknown>[] = [];
+  await page.route("**/api/reviews",async route => {
+    if (route.request().method() === "POST") {
+      const body=route.request().postDataJSON();
+      const id=`review-${events.length}`;
+      const event={id,thread:body.thread ?? id,target:body.target,body:body.body,action:body.action,actor:"user-declared",recorded_at:"1792342800000"};
+      events.push(event);
+      await route.fulfill({json:event});
+    } else await route.fulfill({json:{scope:"workspace",events,targets:events.filter(event=>event.target).map(event=>({thread:event.thread,current_state:"unchanged"}))}});
+  });
+  await page.goto("/embed.html?review");
+  await page.getByRole("button",{name:"Lineage settings",exact:true}).click();
+  await page.getByRole("checkbox",{name:"Color credited authors"}).check();
+  const editor=page.getByRole("group",{name:"spec.md",exact:true});
+  await expect(editor.locator(".cm-origin-human")).toHaveCount(1);
+  await expect(editor.locator(".cm-origin-agent")).toHaveCount(1);
+  await page.getByRole("button",{name:"Lineage settings",exact:true}).click();
+  await editor.locator(".cm-line").nth(1).click();
+  await page.keyboard.press("Home"); await page.keyboard.press("Shift+End");
+  await page.getByRole("button",{name:"Comment on selection"}).click();
+  const panel=page.getByRole("region",{name:"Review threads",exact:true});
+  await expect(panel.locator("blockquote")).toContainText("Agent claim about total deadline");
+  await panel.getByLabel("Comment or reason").fill("Only each attempt is bounded");
+  await panel.getByRole("button",{name:"Save comment",exact:true}).click();
+  await expect(panel.getByText("Only each attempt is bounded",{exact:true})).toBeVisible();
+  await panel.getByLabel("Comment or reason").fill("Reviewed the correction and its check");
+  await panel.getByRole("button",{name:"Resolve after review"}).click();
+  await expect(panel.getByText("Resolved by user",{exact:false})).toBeVisible();
+  expect(events[0].target).toMatchObject({kind:"claim",path:"spec.md",quote:"Agent claim about total deadline",lines:[2,2]});
+  expect(events).toHaveLength(2);
+  await page.screenshot({path:test.info().outputPath("review-and-authorship.png"),fullPage:true});
+  await page.getByRole("button",{name:"Close review threads",exact:true}).click();
+  await editor.locator(".cm-line").nth(1).click();
+  await page.keyboard.press("Home"); await page.keyboard.press("Shift+End");
+  await page.keyboard.type("Human correction");
+  await expect(editor.locator(".cm-origin-agent")).toHaveCount(0);
+  await page.getByRole("button",{name:"Lineage settings",exact:true}).click();
+  await page.getByRole("checkbox",{name:"Color credited authors"}).uncheck();
+  await page.getByRole("checkbox",{name:"Color credited authors"}).check();
+  await expect(editor.locator(".cm-origin-human")).toHaveCount(1);
+  await expect(editor.locator(".cm-origin-agent")).toHaveCount(0);
+});

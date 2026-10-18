@@ -68,6 +68,7 @@ pub mod representation;
 mod representation_store;
 pub mod representation_tools;
 pub mod reveal;
+mod reviews;
 pub mod revision;
 pub mod sample;
 pub mod scaffold;
@@ -568,6 +569,7 @@ pub(crate) fn router(state: LocalState) -> Router {
         )
         .route("/docs/{id}", get(api::get_doc).put(api::put_doc))
         .route("/docs/{id}/render", get(api::render_doc))
+        .route("/docs/{id}/snapshot", get(api::snapshot_doc))
         .route("/docs/{id}/project", post(project_comparison::capture))
         .route("/docs/{id}/project/apply", post(project_comparison::apply))
         .route("/docs/{id}/project/undo", post(project_comparison::undo))
@@ -593,6 +595,7 @@ pub(crate) fn router(state: LocalState) -> Router {
         .route("/docs/{id}/replay", get(history::replay))
         .route("/sessions/view", get(api::session_view))
         .route("/sessions/audit", post(sessions::annotate))
+        .route("/reviews", get(reviews::list).post(reviews::create))
         .route("/docs/{id}/refactor/begin", post(refactor::begin))
         .route("/docs/{id}/refactor/status", get(refactor::status))
         .route("/docs/{id}/refactor/end", post(refactor::end))

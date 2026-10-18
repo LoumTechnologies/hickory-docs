@@ -10,6 +10,11 @@
 import { defineConfig, type Plugin } from "vite";
 import react from "@vitejs/plugin-react";
 import { resolve } from "node:path";
+import { execFileSync } from "node:child_process";
+function revision(): string {
+  try { return process.env.GITHUB_SHA ?? execFileSync("git", ["rev-parse", "HEAD"], { encoding: "utf8" }).trim(); }
+  catch { return ""; }
+}
 
 /// Emit the entry as `index.html`.
 ///
@@ -36,13 +41,14 @@ function emitAsIndex(): Plugin {
 
 export default defineConfig({
   plugins: [react(), emitAsIndex()],
+  define: { "import.meta.env.VITE_SOURCE_REVISION": JSON.stringify(revision()) },
   base: "./",
   worker: { format: "iife" },
   build: {
     outDir: "dist-site",
     emptyOutDir: true,
     rollupOptions: {
-      input: { site: resolve(import.meta.dirname, "site.html"), ...(process.env.HICKORY_SITE_ONLY === "1" ? {} : {
+      input: { snapshot: resolve(import.meta.dirname, "snapshot.html"), site: resolve(import.meta.dirname, "site.html"), ...(process.env.HICKORY_SITE_ONLY === "1" ? {} : {
         embed: resolve(import.meta.dirname, "embed.html"), iframe: resolve(import.meta.dirname, "iframe.html"),
       }) },
     },
