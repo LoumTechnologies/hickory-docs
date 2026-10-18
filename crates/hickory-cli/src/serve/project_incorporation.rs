@@ -98,8 +98,10 @@ pub async fn propose(
         .and_then(|ts| ts.iter().find(|t| t.id == turn))
         .map(|t| t.backend.clone())
         .unwrap_or_default();
-    let queue = if matches!(backend.as_str(), "builtin" | "python") {
-        super::agent_review::queue(&state, &doc).edits.clone()
+    let queue = if backend == "python" {
+        super::agent_review::queue(&state, &format!("python:{doc}"))
+            .edits
+            .clone()
     } else {
         super::acp::project_review(&state, &doc).await?
     };

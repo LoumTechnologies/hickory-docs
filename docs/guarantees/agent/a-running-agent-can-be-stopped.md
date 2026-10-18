@@ -1,27 +1,30 @@
-# A Running Agent Can Be Stopped
+# A running agent can be stopped
 
-Given an agent turn running on a document, when the reader presses the Stop
-button in the chat dock (a stop-square icon, shown in place of Send for the
-whole time a turn is live and never disabled while one is), then
-`POST /api/docs/:id/agent/stop` sets the run's cancel flag and the loop halts
-at its next seam — **between streamed chunks**, dropping the provider stream,
-which is what stops the token spend on a model looping mid-generation; between
-turns; and after a script or tool finishes — the session file still closes
-honestly (spend recorded, end marked), the turn finishes with status
-`"stopped"` and a terminal frame on the run channel, and the dock renders it
-as the user's own quiet act, never as a red error. A stopped turn keeps no
-answer, so the next message replays the branch as if it never ran.
+Given a hosted Python turn, Stop cancels in-flight inference or review and
+terminates the confined process group. A pending proposal is not approved by
+cancellation. The session records the failure/cancellation, the turn has status
+stopped and no successful answer, and the existing WebSocket terminal event
+restores the Send control. Standalone Python also accepts an injectable cancel
+callback and its development CLI handles Ctrl-C.
 
-The reason: the incident that forced this was a model degenerating into an
-endless `<sh:exec></sh:exec>` stream, and the only cord was killing the whole
-program. A tool that bills by the token owes its user a hand on that cord —
-and the mid-stream check is the load-bearing part, because a runaway spends
-between turns' checkpoints, not at them. Scripts are deliberately not killed
-half-way (they are bounded by their own limits, and a half-run script leaves
-a workspace the session file does not describe); the stop lands right after,
-with the observation recorded.
+Partial provider usage received before a cancelled inference is not currently
+emitted as a completed usage receipt. This does not promise that a provider
+immediately stops billing when its HTTP stream is dropped.
 
 ---
+
+Last LLM implementation review (2026-10-18): partially verified. Requirement,
+choices, limitations and executable witnesses are in
+[the migration audit](../audits/2026-10-18-python-agent-ownership.md).
+Evidence: Python `core.py`, `runtime.py`, `hosted.py`; Rust `python_agent.rs`,
+`serve/python_agent.rs`, existing changeset verifier and confinement profile.
+Executed checks: see the audit. Human correctness judgment: not recorded.
+
+## Historical evidence for the retired implementation
+
+The following notes predate the migration. Deleted Rust-runtime paths and old
+check results do not verify the current implementation.
+
 
 Last LLM verification:
 - Date: 2026-08-25

@@ -1,5 +1,5 @@
 //! The `hick` binary's implementation of [`AgentRunner`]: run one
-//! `<hick:agent>` cell through the real ReAct loop.
+//! `<hick:agent>` cell through the confined Python agent.
 //!
 //! `hick-literate` schedules the cell as a DAG vertex and asks this to settle
 //! it. Keeping the LLM on this side of the boundary is what stops the pipeline
@@ -17,7 +17,7 @@ use std::sync::Arc;
 use anyhow::{Context as _, Result};
 use async_trait::async_trait;
 use hick_literate::agent_cell::{AgentRequest, AgentRunOutcome, AgentRunner};
-use hickory_agent::{AgentConfig, LlmClient, ScriptLimits, client_for, run_agent};
+use hickory_agent::{LlmClient, client_for};
 use hickory_executor::Executor;
 
 /// Provider selector used when the environment names none.
@@ -32,16 +32,16 @@ const MODEL_ENV: &str = "HICKORY_AGENT_MODEL";
 /// Turn budget used when a cell declares no `max-turns=`.
 const DEFAULT_MAX_TURNS: usize = 20;
 
-/// Runs an agent cell through [`run_agent`].
+/// Runs an agent cell through the Python process supervisor.
 pub struct LlmAgentRunner {
     llm: Arc<dyn LlmClient>,
-    executor: Arc<dyn Executor>,
+    python: std::path::PathBuf,
 }
 
 impl LlmAgentRunner {
     /// Build a runner over an explicit client (tests use a scripted one).
-    pub fn new(llm: Arc<dyn LlmClient>, executor: Arc<dyn Executor>) -> Self {
-        Self { llm, executor }
+    pub fn new(llm: Arc<dyn LlmClient>, python: std::path::PathBuf) -> Self {
+        Self { llm, python }
     }
 
     /// Build a runner from the environment, or `None` when no provider key is
@@ -51,11 +51,14 @@ impl LlmAgentRunner {
     /// an ordinary, expected state, and turning it into a failed run would
     /// mean a document containing one cannot be checked anywhere without
     /// spending money.
-    pub fn from_env(executor: Arc<dyn Executor>) -> Option<Self> {
+    pub fn from_env(_executor: Arc<dyn Executor>) -> Option<Self> {
         let selector = std::env::var(PROVIDER_ENV).unwrap_or_else(|_| DEFAULT_PROVIDER.into());
         let model = std::env::var(MODEL_ENV).ok();
         match client_for(&selector, model.as_deref(), None) {
-            Ok(llm) => Some(Self::new(llm, executor)),
+            Ok(llm) => std::env::var_os("HICKORY_AGENT_PYTHON")
+                .map(Into::into)
+                .or_else(crate::serve::bundled_runtime)
+                .map(|python| Self::new(llm, python)),
             Err(e) => {
                 log::info!(
                     "no agent runner configured ({e}); <hick:agent> cells will be reported as \
@@ -96,20 +99,31 @@ impl AgentRunner for LlmAgentRunner {
 
         let before = std::fs::read(&request.doc_path).ok();
 
-        let mut config = AgentConfig::new(request.prompt.clone(), request.project_dir.clone());
-        config.doc_path = Some(request.doc_path.clone());
-        config.max_turns = request.max_turns.unwrap_or(DEFAULT_MAX_TURNS);
-        config.script_limits = ScriptLimits::default();
-
+        anyhow::ensure!(
+            !self.python.as_os_str().is_empty(),
+            "Configure HICKORY_AGENT_PYTHON with the installed Python agent runtime to execute agent cells"
+        );
         let mut sink = |_event: hickory_agent::AgentEvent| {};
-        let outcome = run_agent(self.llm.as_ref(), self.executor.clone(), &config, &mut sink)
-            .await
-            .with_context(|| {
-                format!(
-                    "the agent cell at line {} did not settle",
-                    request.source_line
-                )
-            })?;
+        let outcome = crate::python_agent::run_conversation(
+            crate::python_agent::Config {
+                python: self.python.clone(),
+                root: request.project_dir.clone(),
+                doc: Some(request.doc_path.clone()),
+                prompt: request.prompt.clone(),
+                max_turns: request.max_turns.unwrap_or(DEFAULT_MAX_TURNS),
+            },
+            self.llm.as_ref(),
+            &mut crate::python_agent::TerminalReview,
+            crate::python_agent::Conversation::default(),
+            &mut sink,
+        )
+        .await
+        .with_context(|| {
+            format!(
+                "the agent cell at line {} did not settle",
+                request.source_line
+            )
+        })?;
 
         // Whether the document changed is answered by the bytes, not by
         // trusting the loop to report its own writes.
@@ -120,7 +134,7 @@ impl AgentRunner for LlmAgentRunner {
             summary: outcome.summary,
             model: self.llm.model_name().to_string(),
             edited_source,
-            session_path: Some(outcome.session_path),
+            session_path: Some(outcome.session),
         })
     }
 }

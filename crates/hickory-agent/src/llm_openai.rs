@@ -24,7 +24,7 @@
 //!
 //! None of these providers take Anthropic's explicit `cache_control`
 //! breakpoints; they cache a common prefix automatically. The frozen
-//! system-prefix discipline in [`crate::react_loop`] still pays off — an
+//! system-prefix discipline in the Python agent still pays off — an
 //! automatic cache keys on the prefix being byte-identical, which is exactly
 //! what that layout guarantees — there is simply nothing to mark.
 //!

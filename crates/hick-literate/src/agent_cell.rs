@@ -7,7 +7,7 @@
 //! grow an LLM dependency — the same reason the flow placement was going to
 //! pull its client out of `Context`'s extension map. So the pipeline calls
 //! through this trait and the caller supplies the implementation:
-//! `hickory-cli` builds one over `hickory_agent::run_agent`, tests build one
+//! `hickory-cli` builds one over the confined Python process supervisor, tests build one
 //! over `ScriptedLlmClient`.
 //!
 //! **No runner configured is a supported state, not an error.** A machine

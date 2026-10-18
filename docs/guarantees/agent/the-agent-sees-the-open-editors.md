@@ -1,5 +1,12 @@
 # The agent sees the open editors
 
+> 2026-10-18 amendment: the built-in loop is Python, not Rust. Branch data and
+> evidence persist through the existing session/UI; Python constructs model
+> context. Hosted completion requires a current accepted changeset and reports
+> runtime checks unrun. Old Rust-runtime evidence below is historical. See
+> [the migration audit](../audits/2026-10-18-python-agent-ownership.md).
+
+
 Given a window containing untitled notes, saved documents, generated files, or
 ordinary text files, with or without an open folder,
 when the user sends an agent message,

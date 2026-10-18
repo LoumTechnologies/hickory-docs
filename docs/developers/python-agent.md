@@ -1,115 +1,149 @@
-# Use the Python agent in Hickory or a terminal
+# Run and change the Python agent
 
-For Hickory contributors testing the experimental Python agent.
+For contributors developing the agent without starting Hickory, then connecting
+that same agent to the desktop application or CLI.
 
-The experimental `hickory-agent` CLI runs a LangGraph worker in a separate
-process. Hickory confines that process with Seatbelt on macOS or Bubblewrap on
-Linux. Model-written Python runs in Monty inside that confinement. Rust keeps
-the provider credentials, conversation, workspace tools and edit approvals.
-Windows currently refuses this runtime. There is no unconfined fallback.
+Python owns the LangGraph loop, system instructions, branch history, context
+selection, model messages, action processing, retries, iteration limit and
+completion attempts. Hickory owns tools, exact edit proposals, approvals,
+application, recording and independent changeset verification. There is one
+built-in agent: Python. External ACP agents remain supported.
 
-From the repository root, install the locked environment and run its tests:
+## Start independently
+
+Install `uv`, then run from the repository root:
 
 ```sh
-just test-python-agent
+uv sync --project apps/agent --locked --no-editable
+printf '[{"python":"tool(\"list_docs\", {})"},{"done":"Inspected the fixture"}]\n' > /tmp/hickory-responses.json
+uv run --project apps/agent --locked --no-editable hickory-agent-dev \
+  --responses /tmp/hickory-responses.json 'Inspect the development workspace'
+uv run --project apps/agent --locked --no-editable python -m unittest discover -s apps/agent/tests -v
 ```
 
-`uv` installs the pinned Python version, LangGraph and Monty into
-`apps/agent/.venv`. The package must be installed normally: the sandbox cannot
-import an editable checkout. Linux also needs a working `bwrap` with user
-namespaces enabled. The tests exercise the real process without buying model
-calls.
+This creates an isolated temporary workspace and deletes it on exit. Add
+`--workspace /absolute/path/to/fixtures` to read an existing fixture. The supplied
+development tool client only lists and reads documents; unknown tools fail.
+Development completion is explicitly unverified. CPython itself is unconfined
+in this mode; Monty still interprets generated snippets with resource limits.
 
-## Use it in the UI
+To call an OpenAI-compatible provider directly from Python, set `OPENAI_API_KEY`
+and choose a model your endpoint supports (these calls can cost money):
 
-A desktop build ships its own self-contained runtime inside the app bundle,
-under `Contents/Resources/python-agent` (built by
-`scripts/build-python-agent-runtime.sh`, which `just local-install` and
-`scripts/dist-desktop.sh` call). **Nothing has to be configured**: open
-Settings → Agents and the page says it is using the bundled runtime, and the
-Agent pane offers **Hickory Python (experimental)** already available. The
-runtime is discovered from the app's own location, never written into
-`python.json`.
+```sh
+uv run --project apps/agent --locked --no-editable hickory-agent-dev \
+  --api-model "$MODEL" --base-url "$OPENAI_BASE_URL" \
+  --workspace /absolute/path/to/fixtures 'Summarize the documents'
+```
 
-1. To use a different environment — a source checkout without a bundle, or a
-   venv you maintain yourself — set **Python executable** to the absolute path
-   of `apps/agent/.venv/bin/python`, then click **Save Python runtime**.
-   Hickory starts the confined worker to check the installation before saving.
-   Clearing the field returns to the bundled runtime.
-2. Add a provider API key in Settings if you have not already.
-3. Open the **Agent** pane, open its settings, and choose
-   **Hickory Python (experimental)**. Choose the provider and model there.
-   Switching agents starts a new thread.
-4. Send a task. Each edit opens a comparison; choose **Accept change** or
-   **Reject change**. Auto-accept is unavailable for this runtime. **Stop** also
-   cancels a pending review without applying it.
+The default base URL is `https://api.openai.com/v1`. No Rust inference proxy is
+involved in standalone mode. Missing keys, missing fixtures, malformed fake
+responses, exhausted response lists and iteration exhaustion produce errors.
 
-Tool activity and usage appear live. Provider answers are collected rather than
-streamed token by token. Conversations keep their turn tree, backend, model and
-session file when the UI or engine restarts. Rewind selects the prior branch's
-prompts and answers for a fresh worker; it does not undo previous edits.
-Unsaved editor text is supplied as context. The current tool bridge edits saved
-workspace documents; save an untitled note before asking the agent to edit it.
+## Inject clients
 
-`just test-python-agent` includes real confined-worker HTTP/WS tests and a
-Chromium flow covering setup, selection, review, reload and Stop. For the browser
-flow alone after setup, run `just test-python-agent-ui`. The browser harness
-uses a disposable workspace and scripted model; it makes no paid calls.
+`core.Agent(model, tools, execute, record, cancelled)` is the independent API.
+`model.complete(messages)` returns raw model response text.
+`tools.call(name, arguments)` implements capabilities; `tools.complete(summary)`
+returns an acceptance receipt. The executor interprets a snippet and returns an
+observation. The recorder and cancellation callback are optional.
 
-## Use it from a terminal
+For a terminal experiment, put a trusted module on Python's import path with a
+factory accepting a workspace path and returning `(model_client, tool_client)`:
 
-Use a provider key already configured in Hickory Settings or the provider's
-environment variable, then run:
+```python
+from hickory_agent_worker.cli import DevelopmentTools, ReplayModel
+
+def clients(workspace):
+    return ReplayModel([{"done": "Fixture answer"}]), DevelopmentTools(workspace)
+```
+
+```sh
+PYTHONPATH="$PWD" uv run --project apps/agent --locked hickory-agent-dev \
+  --factory experiment:clients 'Try the injected clients'
+```
+
+Factories are trusted development code, not model snippets. They can have all
+the permissions of your terminal. An injected development receipt is never
+Hickory verification evidence. The unit tests use the same interface to exercise
+failed tools, rejected completion, retries, history and cancellation.
+
+## Connect to Hickory
+
+Desktop macOS builds bundle the installed runtime. In a source build, set
+Settings → Agents → Python executable to the absolute path of
+`apps/agent/.venv/bin/python`, then save. Saving probes the confined runtime and
+Monty without calling a provider. Add a provider key in Settings and send a task
+from the Agent pane. Each edit requires Accept change or Reject change; Stop
+also cancels pending review. Python has no auto-accept mode.
+
+From a terminal, run the same confined agent with Hickory tools:
 
 ```sh
 cargo run -p hickory-cli --bin hickory-agent -- \
   --python "$PWD/apps/agent/.venv/bin/python" \
-  --dir /absolute/path/to/notes \
-  'Read the documents, record consequential assumptions, and propose a new summary.'
+  --dir /absolute/path/to/notes 'Read the notes and propose a summary'
 ```
 
-Add `--doc notes.md` to select a default document. `--provider`, `--model` and
-`--max-turns` select the provider, model and turn budget. Once the binary is
-built, it can be invoked directly as `target/debug/hickory-agent`.
-The same supervisor is available through `hick agent --runtime python
---python /absolute/path/to/venv/bin/python 'Your task'`.
+The equivalent command is `hick agent --python /absolute/path/to/python TASK`.
+`--doc notes.md`, `--provider`, `--model` and `--max-turns` configure the run.
+Document `<hick:agent>` cells use `HICKORY_AGENT_PYTHON` (or the bundled runtime),
+the same supervisor and terminal review. CI baseline playback makes no model calls.
+The old Rust runtime and `--runtime` selector are removed; old sessions remain
+readable but their backend cannot be resumed as Rust. Start a Python thread.
 
-The agent calls Rust tools through its private stdio pipe. A Python snippet
-can call `tool("read_doc", {"doc": "notes.md"})`; it cannot open the workspace
-directly, launch a shell or connect to a provider. Snippets can author documents
-containing the project's language. Python is the execution restriction, not a
-restriction on the language of files the agent proposes.
+## Follow the boundaries
 
-Each edit displays a diff and asks you to type `approve`. This permission comes
-from the supervisor's terminal, separate from the worker's stdin. Piped input
-cannot approve edits. Existing and unknown authorship receive the same
-protection. Acceptance retains the recorded agent proposal; it does not establish
-human authorship. A source change detected during review invalidates approval.
-Ctrl-C also cancels a pending review without applying its proposal.
+`hosted.py` adapts the core to bounded JSON-lines stdio. Rust sends task data,
+branch exchanges, editor snapshots and capability schemas. Python constructs the
+conversation. Its inference client sends complete messages to a credential-holding
+proxy; Rust translates them to the chosen provider and streams tokens, reasoning
+and usage to the existing run channel. Rust never parses model actions, appends
+observations to a second conversation, chooses retries or prompts for repair.
+Recorded request envelopes are evidence snapshots, not conversation state.
 
-The session is written incrementally to `sessions/python-agent-*.md`. Keep or
-export it if you want to debug the work later: ordinary Hickory projects ignore
-`sessions/`. It retains model requests and responses, Python snippets, actual
-tool receipts, assumptions, proposals, approval decisions and failures. Worker
-observations are labeled separately from Rust-observed results. The existing
-assumption audit includes these records.
+The hosted process uses Seatbelt on macOS or Bubblewrap on Linux; Windows and
+unavailable confinement fail closed. There is no unconfined fallback. Install
+normally: confined workers cannot import an editable checkout. Runtime directories
+are trusted readable inputs; do not place credentials in them. macOS permits
+startup filesystem metadata and the root directory listing. This is OS process
+confinement, not a VM or a native-interpreter security proof.
 
-This is an opt-in runtime in both the UI and CLI. The default agent remains
-Rust. The worker environment is **not** bundled into the CLI archives; macOS
-desktop builds (`.dmg` and `just local-install`) do bundle it, which is why the
-runtime needs no path there. Other desktop platforms do not bundle it yet.
-Provider responses are collected rather than streamed; reasoning is not captured
-by this path. The existing `verify` and debugger tools are withheld because they
-can write derived files without an exact edit preview. The UI and CLI label completion
-as **checks unrun**, with the model summary kept apart from verification. Run the appropriate project checks separately;
-a model's summary cannot establish their result.
+Model snippets have only Monty's `tool` callback, no workspace mounts, shell,
+network, CPython execution or filesystem-write callback. The host independently
+allowlists reads, searches, audit records, reviewed document edits and changeset
+tools. `verify`, debug execution and generic filesystem writes are withheld.
+Weaving for read/edit tools evaluates in memory; proposed source changes do not
+implicitly run code or publish generated outputs. Every exposed workspace write
+is previewed, separately approved and rechecked before application. Approval does
+not establish human authorship. Arbitrary outside editors can still race the
+final filesystem check/write; cross-file changes are not atomic.
 
-Monty limits memory, execution time, recursion and host callbacks. Rust also
-limits protocol frames, total tool requests, context size and overall runtime.
-These bounds do not promise protection from every native interpreter or OS
-vulnerability. Trusted runtime directories and installed dependencies are readable
-to the worker; keep credentials out of them. macOS permits filesystem metadata
-and the root directory listing needed for process startup.
+Python decides when to call `changeset_status`, repair and `submit_changeset`,
+then attempts completion. Hickory freezes A before work, verifies the supplied
+literate artifact against actual B, and rechecks freshness at completion. The UI
+uses its existing workspace/editor capture and shared artifact rendering. A bare
+`done`, a forged observation or a claim of passing tests cannot establish
+acceptance. Equality verification does not execute programs or verify explanation
+accuracy. Runtime checks remain unrun. Python exhausts its configured iterations
+with an error rather than reporting unverified work as successful completion.
 
-The design decisions and remaining authorship work are recorded in
-[the runtime specification](../specs/freeform/python-agent-runtime.md).
+Sessions retain actual tool receipts and approval decisions at the host boundary,
+separately labeled from worker observations and model declarations. Branches,
+provider/model identity and unsent responses use the existing persistence. Rewind
+replays an earlier branch into a fresh Python conversation; it does not undo edits.
+Unsaved editor text is context and part of capture, but the current Python tools
+edit saved documents. Save untitled notes before requesting tool edits.
+
+## Check the integration
+
+```sh
+just test-python-agent
+just test-python-agent-ui
+```
+
+The first installs the locked environment and runs Python units, real confined
+CLI/HTTP/WS tests, confinement checks and Chromium acceptance. Both use fake
+models, temporary workspaces and no paid provider calls. Linux confinement needs
+working `bwrap` and user namespaces. The runtime is bundled in macOS desktop
+builds; CLI archives and other desktop platforms still need a configured runtime.

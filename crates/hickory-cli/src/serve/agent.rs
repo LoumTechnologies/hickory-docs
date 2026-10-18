@@ -1,4 +1,4 @@
-//! The in-app agent: the same ReAct loop `hick agent` runs, behind the
+//! The in-app agent: the same confined Python process `hick agent` runs, behind the
 //! document view's chat dock.
 //!
 //! One `POST /api/docs/:id/agent` is one agent run — up to `max_turns`
@@ -8,7 +8,7 @@
 //!
 //! The conversation is a TREE. Each POST names the turn it continues from
 //! (`parent_id`); replaying the ancestor chain into
-//! [`AgentConfig::prior_turns`] is what makes a reply a reply, and what makes
+//! Python-owned branch history is what makes a reply a reply, and what makes
 //! rewinding cheap — a branch is just a different ancestor chain fed to a
 //! fresh loop. The tree lives in server state for the session's lifetime;
 //! the durable record is the `hick:session` file each run writes under
@@ -27,9 +27,8 @@ use axum::Json;
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
 use hickory_agent::{
-    AGENT_EXEC_ID, AgentConfig, AgentEvent, DEFAULT_ANTHROPIC_MODEL, LlmClient, PriorTurn,
-    ProviderSelection, Usage, client_for_with_store, cost_usd, resolve_selector_with_store,
-    run_agent,
+    DEFAULT_ANTHROPIC_MODEL, LlmClient, PriorTurn, ProviderSelection, Usage, client_for_with_store,
+    cost_usd, resolve_selector_with_store,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -77,7 +76,7 @@ pub struct DocSelection {
 #[derive(Default)]
 pub struct AgentHub {
     pub(super) annotations_gate: tokio::sync::RwLock<()>,
-    pub(super) reviews: Mutex<HashMap<String, Arc<super::agent_review::NativeReview>>>,
+    pub(super) reviews: Mutex<HashMap<String, Arc<super::agent_review::ReviewQueue>>>,
     pub(super) acp: super::acp::Hub,
     /// Turn tree per document id, in creation order (the dock treats the
     /// last element as the default tip).
@@ -358,9 +357,14 @@ pub async fn start_turn(
             .unwrap()
             .get(&id)
             .cloned()
-            .unwrap_or_else(|| "builtin".into())
+            .unwrap_or_else(|| "python".into())
     });
-    if !matches!(backend.as_str(), "builtin" | "python") {
+    if backend == "builtin" {
+        return Err(ApiError::bad_request(
+            "The Rust agent was removed. Select Hickory Python or an ACP agent.",
+        ));
+    }
+    if backend != "python" {
         return super::acp::start_turn(state, id, body, backend).await;
     }
     if id.starts_with("lens:") {
@@ -375,16 +379,10 @@ pub async fn start_turn(
         .lock()
         .unwrap()
         .insert(id.clone(), backend.clone());
-    let python = if backend == "python" {
-        Some(
-            super::python_agent::runtime(&state)
-                .map_err(|e| ApiError::unavailable(format!("agent not available — {e:#}")))?,
-        )
-    } else {
-        None
-    };
+    let python = super::python_agent::runtime(&state)
+        .map_err(|e| ApiError::unavailable(format!("agent not available — {e:#}")))?;
     let doc_path = super::agent_context::subject(&state, &id)?;
-    let context = super::agent_context::describe(&state, &body.context);
+    let context = json!({"folder_open":state.folder_open,"editors":body.context}).to_string();
     let primary = super::agent_context::primary(&state, &body.context);
     let prompt = body.prompt.trim().to_string();
     if prompt.is_empty() {
@@ -521,8 +519,7 @@ pub async fn start_turn(
         .lock()
         .unwrap()
         .insert(turn_id.clone(), cancel.clone());
-    let capture_edits =
-        super::agent_projects::editors(&state, &id, python.is_some(), &body.context);
+    let capture_edits = super::agent_projects::editors(&state, &id, true, &body.context);
     let task_state = state.clone();
     let doc_id = id.clone();
     let run_key = turn_id.clone();
@@ -535,26 +532,66 @@ pub async fn start_turn(
             capture_edits,
         )
         .await;
-        let mut outcome = run_turn(
-            &task_state,
-            &doc_id,
-            llm,
-            doc_path,
-            prompt,
-            prior_turns,
-            TurnIdentity {
-                python,
-                session: task_state.index.root().join(&session_rel),
-                turn: run_key.clone(),
-                parent: parent_for_run.clone(),
-                cancel,
-                context,
-                primary,
-            },
-        )
-        .await;
+        if let Ok(Some(capture)) = &project_capture {
+            task_state
+                .agent
+                .projects
+                .lock()
+                .unwrap()
+                .insert(run_key.clone(), capture.clone());
+        }
+        let contract = project_capture
+            .as_ref()
+            .ok()
+            .and_then(|capture| capture.as_ref())
+            .map(|capture| {
+                let mut contract = crate::changeset::Contract::new(
+                    capture.root.clone(),
+                    capture.inventory.clone(),
+                    capture.starting.restore().expect("Frozen project tree"),
+                    run_key.clone(),
+                );
+                contract.workspace = capture.workspace.clone().zip(capture.live_editors.clone());
+                contract
+            });
+        let mut outcome = if let Err(error) = &project_capture {
+            Err(format!("Cannot freeze changeset boundary: {error:#}"))
+        } else {
+            run_turn(
+                &task_state,
+                &doc_id,
+                llm,
+                doc_path,
+                prompt,
+                prior_turns,
+                TurnIdentity {
+                    changeset: contract,
+                    python,
+                    session: task_state.index.root().join(&session_rel),
+                    turn: run_key.clone(),
+                    parent: parent_for_run.clone(),
+                    cancel,
+                    context,
+                    primary,
+                },
+            )
+            .await
+        };
         match project_capture {
-            Ok(Some(capture)) => {
+            Ok(Some(mut capture)) => {
+                if outcome.is_ok() {
+                    if let Some(artifact) = task_state
+                        .agent
+                        .projects
+                        .lock()
+                        .unwrap()
+                        .get(&run_key)
+                        .and_then(|c| c.artifact.clone())
+                    {
+                        capture.response = artifact.sources.get(&artifact.entry).cloned();
+                        capture.artifact = Some(artifact);
+                    }
+                }
                 super::agent_projects::finish(
                     &task_state,
                     &run_key,
@@ -573,6 +610,17 @@ pub async fn start_turn(
                     &json!({"turn":run_key,"error":format!("{e:#}")}),
                 );
             }
+        }
+        if outcome.is_ok()
+            && !task_state
+                .agent
+                .projects
+                .lock()
+                .unwrap()
+                .get(&run_key)
+                .is_some_and(|capture| capture.artifact.is_some() && capture.error.is_none())
+        {
+            outcome = Err("The accepted changeset became stale or could not be recorded at turn completion. Actual writes remain captured.".into());
         }
         if super::agent_projects::cancelled(&task_state, &run_key) {
             outcome = Err(hickory_agent::STOPPED_BY_USER.into());
@@ -601,27 +649,6 @@ pub async fn start_turn(
         };
         task_state.agent.finish(&doc_id, &run_key, outcome);
 
-        // The agent may have edited the document (or an upstream one) on
-        // disk; a live room still serving pre-run text would write that
-        // stale text back over the agent's work on its next debounce, so
-        // every room is reconciled before anyone types again — the same
-        // move `api::edit_outputs` makes.
-        for (other_id, _) in task_state
-            .index
-            .entries()
-            .into_iter()
-            .filter(|_| backend != "python")
-        {
-            if let Some(path) = task_state.index.absolute(&other_id)
-                && let Ok(text) = std::fs::read_to_string(&path)
-            {
-                task_state
-                    .rooms
-                    .apply_external_source(&other_id, &text)
-                    .await;
-            }
-        }
-
         task_state
             .rooms
             .publish_run_event(&doc_id, &json!({ "run_id": run_key, "status": status }))
@@ -636,7 +663,8 @@ pub async fn start_turn(
 /// the error message to record.
 /// Where a turn is recorded and how it is named in the file.
 pub(super) struct TurnIdentity {
-    pub(super) python: Option<std::path::PathBuf>,
+    pub(super) changeset: Option<crate::changeset::Contract>,
+    pub(super) python: std::path::PathBuf,
     pub(super) context: String,
     pub(super) primary: Option<std::path::PathBuf>,
     pub(super) session: std::path::PathBuf,
@@ -656,7 +684,6 @@ async fn run_turn(
     prior_turns: Vec<PriorTurn>,
     identity: TurnIdentity,
 ) -> Result<(String, Usage), String> {
-    let turn_id: &str = &identity.turn.clone();
     // Flush the live room to disk first: the agent's edit session reads the
     // file, and running against text missing the newest keystrokes would
     // edit a document the user is no longer looking at.
@@ -672,113 +699,7 @@ async fn run_turn(
         }
     }
 
-    if identity.python.is_some() {
-        return super::python_agent::run_turn(
-            state,
-            doc_id,
-            llm,
-            doc_path,
-            prompt,
-            prior_turns,
-            identity,
-        )
-        .await;
-    }
-
-    // The session's executor choice (HICKORY_EXECUTOR; sandbox by default)
-    // applies to the agent's scripts exactly as it does to cell runs.
-    let executor = match state.executor.build().await {
-        Ok(executor) => executor,
-        Err(e) => {
-            return Err(format!(
-                "could not start the {} executor: {e:#}",
-                state.executor.as_str()
-            ));
-        }
-    };
-
-    // `AgentConfig::new` defaults to 20 internal turns per prompt, matching
-    // `hick agent`. The session file lands in `<served folder>/sessions/`.
-    let mut config = AgentConfig::new(prompt, state.index.root());
-    config.session_subject = Some(doc_path.clone());
-    config.doc_context = Some(identity.context);
-    config.doc_path = if doc_id == super::agent_context::WORKSPACE_AGENT {
-        identity.primary
-    } else {
-        Some(doc_path)
-    };
-    config.folder_context =
-        (state.folder_open && config.doc_path.is_none()).then(|| state.index.root().to_path_buf());
-    config.prior_turns = prior_turns;
-    // One file per conversation, each turn naming its parent: the tree is
-    // on disk, and `hydrate` rebuilds the dock from it after a restart.
-    config.session_path = Some(identity.session);
-    config.turn_id = Some(identity.turn);
-    config.parent_turn_id = identity.parent;
-    config.cancel = Some(identity.cancel);
-    let review = super::agent_review::queue(state, doc_id);
-    *review.cancel.lock().unwrap() = config.cancel.clone();
-    {
-        let mut session = review.session.lock().unwrap();
-        if session.as_ref() != config.session_path.as_ref() {
-            let previous = session.is_some();
-            let restored = config
-                .session_path
-                .as_ref()
-                .and_then(|path| super::acp::record::edit_mode(path))
-                .unwrap_or_else(|| {
-                    if previous {
-                        Default::default()
-                    } else {
-                        *review.edits.mode.lock().unwrap()
-                    }
-                });
-            *review.edits.mode.lock().unwrap() = restored;
-            *session = config.session_path.clone();
-        }
-    }
-    config.review = Some(review);
-
-    // `run_agent`'s callback is synchronous; publishing is async. A channel
-    // decouples them: the loop pushes, a forwarder task publishes in order.
-    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<AgentEvent>();
-    let forwarder = {
-        let state = state.clone();
-        let doc_id = doc_id.to_string();
-        let run_id = turn_id.to_string();
-        tokio::spawn(async move {
-            while let Some(event) = rx.recv().await {
-                state
-                    .rooms
-                    .publish_run_event(
-                        &doc_id,
-                        &json!({ "run_id": run_id, "exec_id": AGENT_EXEC_ID, "event": event }),
-                    )
-                    .await;
-            }
-        })
-    };
-
-    let mut on_event = move |event: AgentEvent| {
-        let _ = tx.send(event);
-    };
-    let outcome = run_agent(llm.as_ref(), executor.clone(), &config, &mut on_event).await;
-    if let Err(e) = executor.shutdown().await {
-        log::warn!("agent executor shutdown failed: {e:#}");
-    }
-    // Dropping the callback drops the sender; the forwarder then drains what
-    // is queued and exits, so the terminal status frame cannot overtake the
-    // last token.
-    drop(on_event);
-    let _ = forwarder.await;
-
-    match outcome {
-        Ok(outcome) => Ok((outcome.summary, outcome.total_usage)),
-        Err(e) => {
-            log::warn!("agent turn {turn_id} failed: {e:#}");
-            Err(format!("{e:#}"))
-        }
-    }
+    super::python_agent::run_turn(state, doc_id, llm, doc_path, prompt, prior_turns, identity).await
 }
 
 /// `POST /api/docs/:id/agent/stop` — stop the turn running on this document.
@@ -845,7 +766,7 @@ pub async fn list_turns(State(state): State<LocalState>, Path(id): Path<String>)
         .unwrap_or_else(|| default_model_for(&provider));
     let (total, usd) = totals_of(&turns);
     Json(json!({
-        "backend": state.agent.acp.selected.lock().unwrap().get(&id).cloned().or_else(|| turns.last().map(|t| t.backend.clone())).unwrap_or_else(|| "builtin".into()),
+        "backend": state.agent.acp.selected.lock().unwrap().get(&id).cloned().or_else(|| turns.last().map(|t| t.backend.clone())).unwrap_or_else(|| "python".into()),
         "turns": turns,
         "provider": provider,
         "model": model,
@@ -865,7 +786,7 @@ mod tests {
 
     fn turn(id: &str, parent: Option<&str>, answer: Option<&str>) -> TurnRecord {
         TurnRecord {
-            backend: "builtin".into(),
+            backend: "python".into(),
             id: id.into(),
             parent_id: parent.map(Into::into),
             prompt: format!("p:{id}"),

@@ -585,10 +585,6 @@ pub(crate) fn router(state: LocalState) -> Router {
         .route("/docs/{id}/replay", get(history::replay))
         .route("/sessions/view", get(api::session_view))
         .route("/sessions/audit", post(sessions::annotate))
-        .route(
-            "/docs/{id}/agent/review",
-            get(agent_review::snapshot).post(agent_review::decide),
-        )
         .route("/docs/{id}/refactor/begin", post(refactor::begin))
         .route("/docs/{id}/refactor/status", get(refactor::status))
         .route("/docs/{id}/refactor/end", post(refactor::end))

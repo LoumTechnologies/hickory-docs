@@ -1,37 +1,19 @@
-//! The Hickory Docs AI agent harness.
-//!
-//! A script-first ReAct loop whose durable output is **literate
-//! programming**: every session is written incrementally as a `hick:session`
-//! document that round-trips through `hick-lang`'s `SessionDocument` parser
-//! and can be promoted into a clean `hick:doc` pipeline with
-//! `hick ingest --from session`.
-//!
-//! The loop: the LLM responds with `<hick:next>code</hick:next>` plus one
-//! fenced code block (shell or python) → the script executes through the
-//! [`hickory_executor::Executor`] boundary in a workspace container →
-//! stdout/stderr feeds back as the next observation. A
-//! `<hick:next>done</hick:next>` response ends the run.
-//!
-//! Ported (minimally) from the `hick-agent` monorepo's `hick-agent-sdk` and
-//! `hick-agent-script-first` crates; the security stack, MCP layers,
-//! conversation trees, TUI, relay, and local-llama backends were deliberately
-//! left behind — see `docs/developers/vendoring-notes.md`.
+//! Shared provider transports, document tools, evidence and session rendering.
+//! Agent orchestration lives exclusively in apps/agent.
 
 pub mod audit;
 pub mod context;
 mod events;
 pub mod harness;
+mod invocation;
 mod key_store;
 mod llm;
 mod llm_anthropic;
 mod llm_batch;
 mod llm_openai;
-mod protocol;
 mod provider;
-mod react_loop;
+mod receipt;
 mod review;
-pub use review::ToolReview;
-mod script;
 mod scripted;
 mod session;
 pub mod session_view;
@@ -42,6 +24,7 @@ mod usage;
 pub use events::AGENT_EXEC_ID;
 /// Structured events emitted by the agent loop (serde; WS run channel).
 pub use events::AgentEvent;
+pub use invocation::{ToolInvocation, parse_tool_invocation};
 /// Provider keys stored on disk by the desktop app (0600; Debug-redacted).
 pub use key_store::KeyStore;
 /// A displayable key fragment: first 4 + last 2 chars at most, never the key.
@@ -74,46 +57,21 @@ pub use llm_batch::BatchResult;
 pub use llm_openai::OpenAiCompatClient;
 /// An OpenAI-compatible vendor (OpenAI, DeepSeek, xAI/Grok, OpenRouter).
 pub use llm_openai::Provider;
-/// Default system prompt for the script-first strategy.
-pub use protocol::SYSTEM_PROMPT;
-/// System prompt addendum enabling the document edit tool set.
-pub use protocol::TOOLS_SYSTEM_PROMPT;
-/// One tool invocation parsed from a `<hick:next>tool</hick:next>` response.
-pub use protocol::ToolInvocation;
-/// One parsed turn of the `<hick:next>` protocol.
-pub use protocol::Turn;
-/// Build the re-prompt correction message for a malformed response.
-pub use protocol::correction_message;
-/// Parse an LLM response against the `<hick:next>` protocol.
-pub use protocol::parse_response;
-/// Parse the `<hick:tool>` element out of a tool response.
-pub use protocol::parse_tool_invocation;
 /// Build the client for a provider selector (`anthropic`/`openai`/…). The
 /// `_with_store` variants consult a [`KeyStore`] before the environment.
 pub use provider::{
     ProviderSelection, client_for, client_for_with_store, resolve_selector,
     resolve_selector_with_store,
 };
-/// The result of a completed agent run.
-pub use react_loop::AgentOutcome;
-/// Run the script-first ReAct loop to completion.
-pub use react_loop::run_agent;
-/// Configuration for one agent run.
-pub use react_loop::{AgentConfig, PriorTurn, STOPPED_BY_USER};
-/// The container name the agent runs in.
-pub use script::AGENT_CONTAINER;
-/// A code block extracted from an LLM response.
-pub use script::CodeBlock;
-/// Execution backend for an extracted code block (shell / python).
-pub use script::Language;
-/// Timeout and output limits applied to every agent script.
-pub use script::ScriptLimits;
-/// Result of executing a script.
-pub use script::ScriptResult;
-/// Extract supported fenced code blocks from an LLM response.
-pub use script::extract_code_blocks;
-/// Run one code block through an executor and capture the result.
-pub use script::run_script;
+/// Cancellation status shared by the process supervisors and UI.
+pub const STOPPED_BY_USER: &str = "stopped by you";
+/// Persisted exchanges supplied as data to the Python agent.
+#[derive(Debug, Clone)]
+pub struct PriorTurn {
+    pub prompt: String,
+    pub answer: String,
+}
+pub use receipt::ScriptResult;
 /// A canned LLM client replaying scripted responses (tests, offline dev).
 pub use scripted::ScriptedLlmClient;
 /// Incremental `hick:session` document writer.

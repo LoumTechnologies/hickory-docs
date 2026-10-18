@@ -94,9 +94,13 @@ computed from the data on every run.
 
 ## The agent writes literate programs
 
-`hick agent "add a section benchmarking sort vs awk"` runs an AI agent
+`hick agent --python /absolute/path/to/python "add a section benchmarking sort vs awk"` runs an AI agent
 whose *entire session* — your prompt, its reasoning, every script it ran,
 every observation — is saved as a replayable `hick:session` document.
+
+The built-in agent runs its loop in Python and requires an installed runtime;
+see [run the Python agent](docs/developers/python-agent.md) for setup, independent
+development, confinement and review.
 
 Bring your own key. Anthropic, OpenAI, DeepSeek, and Grok are supported:
 `--provider` (or `HICKORY_LLM_PROVIDER`) picks the vendor and the matching
@@ -221,7 +225,7 @@ details, including how to verify a download:
 - `hick weave <doc>` — render from cached transcripts without executing
 - `hick lineage <doc> --output <file>` — print the byte-precise provenance of a
   generated output file: which source spans produced each byte range
-- `hick agent "<prompt>"` — run an agent session (writes `sessions/*.md`)
+- `hick agent --python /absolute/path/to/python "<prompt>"` — run an agent session (writes `sessions/*.md`)
 - `hick ingest --from session <session.md>` — compact a session into a pipeline
 - `hick refresh <doc>` — rewrite stale `hick:transform` passages; the only
   command that calls a model

@@ -1,5 +1,12 @@
 # The Model's Reasoning Is Shown Apart From Its Answer, Folded
 
+> 2026-10-18 amendment: the built-in loop is Python, not Rust. Branch data and
+> evidence persist through the existing session/UI; Python constructs model
+> context. Hosted completion requires a current accepted changeset and reports
+> runtime checks unrun. Old Rust-runtime evidence below is historical. See
+> [the migration audit](../audits/2026-10-18-python-agent-ownership.md).
+
+
 Given a provider that streams the model's reasoning (Anthropic `thinking_delta`;
 OpenAI-compatible `reasoning` / `reasoning_content`, as OpenRouter, DeepSeek,
 and Gab AI send it), when the agent runs, then the reasoning is streamed as

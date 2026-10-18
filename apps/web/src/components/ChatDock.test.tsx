@@ -41,12 +41,12 @@ afterEach(() => { localStorage.clear(); });
 describe("switching agents", () => {
   afterEach(() => { cleanup(); vi.mocked(acpApi.catalogue).mockResolvedValue({ agents: [] }); });
   it("detects adapters, remembers a choice, and sends an ACP turn from a new thread", async () => {
-    const agents = [{ id: "codex", name: "Codex", command: "codex-acp", args: [], available: true },
+    const agents = [{ id: "python", name: "Hickory Python", command: "python", args: [], available: true }, { id: "codex", name: "Codex", command: "codex-acp", args: [], available: true },
       { id: "claude", name: "Claude Agent", command: "claude-agent-acp", args: [], available: false, installable: true }];
     vi.mocked(acpApi.catalogue).mockResolvedValue({ agents });
     vi.mocked(acpApi.connect).mockResolvedValue({ backend: "codex", ready: true });
     vi.mocked(acpApi.state).mockResolvedValue({ backend: "codex", ready: true });
-    vi.mocked(api.agentTurns).mockResolvedValue({ turns: [turn("old", null)], backend: "builtin", provider: "anthropic", model: "claude-sonnet-5", totals: { usd: 0, input: 0, output: 0, cache_read: 0, cache_write: 0 } });
+    vi.mocked(api.agentTurns).mockResolvedValue({ turns: [turn("old", null)], backend: "python", provider: "anthropic", model: "claude-sonnet-5", totals: { usd: 0, input: 0, output: 0, cache_read: 0, cache_write: 0 } });
     vi.mocked(api.agent).mockResolvedValue({ session_id: "acp-turn" });
     const realtime = { onRunEvent: () => () => undefined } as unknown as Realtime;
     const props = { docId: "d1", realtime, onAgentFinished: () => undefined };
@@ -54,7 +54,7 @@ describe("switching agents", () => {
     expect(screen.queryByRole("combobox", { name: "Agent" })).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Agent settings" }));
     await screen.findByRole("option", { name: "Codex (ACP)" });
-    expect(screen.getByRole("option", { name: "Hickory (built-in)" })).toBeTruthy();
+    expect(screen.getByRole("option", { name: "Hickory Python" })).toBeTruthy();
     expect(screen.getByRole("option", { name: "Claude Agent — install adapter" })).toBeTruthy();
     await waitFor(() => expect(document.querySelector(".cm-content")?.textContent).toContain("p:old"));
     fireEvent.change(screen.getByRole("combobox", { name: "Agent" }), { target: { value: "codex" } });
@@ -67,7 +67,7 @@ describe("switching agents", () => {
     await screen.findByRole("button", { name: "Stop the agent" });
     expect((screen.getByRole("combobox", { name: "Agent" }) as HTMLSelectElement).value).toBe("codex");
     view.unmount();
-    vi.mocked(api.agentTurns).mockResolvedValue({ turns: [], backend: "builtin", provider: "anthropic", model: "claude-sonnet-5", totals: { usd: 0, input: 0, output: 0, cache_read: 0, cache_write: 0 } });
+    vi.mocked(api.agentTurns).mockResolvedValue({ turns: [], backend: "python", provider: "anthropic", model: "claude-sonnet-5", totals: { usd: 0, input: 0, output: 0, cache_read: 0, cache_write: 0 } });
     render(<ChatDock {...props} />);
     fireEvent.click(screen.getByRole("button", { name: "Agent settings" }));
     await waitFor(() => expect((screen.getByRole("combobox", { name: "Agent" }) as HTMLSelectElement).value).toBe("codex"));
@@ -78,15 +78,15 @@ describe("switching agents", () => {
   // Guarantee: docs/guarantees/agent/python-execution-has-two-boundaries.md
   it("selects Python without ACP login, retains model choice and hydrates its backend", async () => {
     vi.mocked(acpApi.connect).mockClear();
-    vi.mocked(acpApi.catalogue).mockResolvedValue({ agents: [{ id: "python", name: "Hickory Python (experimental)", command: "/venv/bin/python", args: [], available: true, kind: "python" }] });
+    vi.mocked(acpApi.catalogue).mockResolvedValue({ agents: [{ id: "python", name: "Hickory Python", command: "/venv/bin/python", args: [], available: true, kind: "python" }] });
     vi.mocked(acpApi.state).mockResolvedValue({ backend: "python", ready: true, canRewind: true, edits: { mode: "review", changes: [] } });
-    vi.mocked(api.agentTurns).mockResolvedValue({ turns: [], backend: "builtin", provider: "anthropic", model: "claude-sonnet-5", totals: { usd: 0, input: 0, output: 0, cache_read: 0, cache_write: 0 } });
+    vi.mocked(api.agentTurns).mockResolvedValue({ turns: [], backend: "python", provider: "anthropic", model: "claude-sonnet-5", totals: { usd: 0, input: 0, output: 0, cache_read: 0, cache_write: 0 } });
     vi.mocked(api.agent).mockResolvedValue({ session_id: "python-turn" });
     const realtime = { onRunEvent: () => () => undefined } as unknown as Realtime;
     const props = { docId: "d1", realtime, onAgentFinished: () => undefined };
     const view = render(<ChatDock {...props} />);
     fireEvent.click(screen.getByRole("button", { name: "Agent settings" }));
-    await screen.findByRole("option", { name: "Hickory Python (experimental)" });
+    await screen.findByRole("option", { name: "Hickory Python" });
     fireEvent.change(screen.getByRole("combobox", { name: "Agent" }), { target: { value: "python" } });
     await waitFor(() => expect(acpApi.state).toHaveBeenCalledWith("d1", "python"));
     expect(acpApi.connect).not.toHaveBeenCalled();
@@ -301,7 +301,7 @@ describe("the dock's model control and stats line", () => {
         null,
         "openai",
         "gpt-5-mini",
-        "builtin",
+        "python",
       ),
     );
   });

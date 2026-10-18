@@ -53,7 +53,7 @@ pub mod typed_client;
 pub mod up;
 mod workspace_capture;
 /// The binary's [`hick_literate::agent_cell::AgentRunner`]: settles one
-/// `<hick:agent>` DAG vertex through the real ReAct loop, or reports that no
+/// `<hick:agent>` DAG vertex through the confined Python agent, or reports that no
 /// provider key is available so the cell is unverifiable rather than fatal.
 pub use agent_cell_runner::LlmAgentRunner;
 /// Lineage for agent-authored bytes: session + turn from provenance,

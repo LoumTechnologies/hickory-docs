@@ -19,6 +19,9 @@ async fn main() -> anyhow::Result<()> {
     .await?;
     prepared.state.agent.set_llm_override(Arc::new(hickory_agent::ScriptedLlmClient::new([
         json!({"python":"tool('read_doc', {'doc':'note.md'})\ntool('edit_doc', {'doc':'note.md','after':'^','input':'# Python agent proposal'})"}).to_string(),
+        json!({"python":r#"import json
+s = json.loads(tool('changeset_status', {})['content'][0]['text'])
+tool('submit_changeset', {'boundary':s['boundary'], 'expected':s['expected'], 'entry':s['entry'], 'sources':{s['entry']:s['template']}})"#}).to_string(),
         json!({"done":"Proposed the prefix. No checks were run."}).to_string(),
         json!({"python":"tool('create_doc', {'path':'cancelled.md','input':'This needs approval'})"}).to_string(),
     ])));

@@ -19,6 +19,28 @@ impl Server {
             debuggers: crate::debug_sessions::Registry::new(),
         }
     }
+    pub(crate) fn agent_set_changeset(&mut self, contract: crate::changeset::Contract) {
+        self.changeset = Some(contract);
+    }
+    pub(crate) fn agent_begin_changeset(&mut self) -> Result<()> {
+        let (scope, starting) =
+            crate::workspace_capture::WorkspaceCapture::freeze(Some(self.root.clone()), &[])?;
+        let mut contract = crate::changeset::Contract::new(
+            self.root.clone(),
+            hick_lang::ProjectInventory::default(),
+            starting,
+            format!("{:016x}", crate::serve::rand_id()),
+        );
+        contract.workspace = Some((scope, Arc::new(crate::serve::acp::edits::Edits::default())));
+        self.changeset = Some(contract);
+        Ok(())
+    }
+    pub(crate) fn agent_completion(&mut self) -> Result<crate::changeset::Artifact> {
+        self.changeset
+            .as_mut()
+            .ok_or_else(|| anyhow::anyhow!("Missing changeset boundary"))?
+            .completion()
+    }
     pub(crate) async fn agent_revision(
         &mut self,
         args: &Value,

@@ -81,7 +81,7 @@ fn bundled_runtime_for(exe: PathBuf) -> Option<PathBuf> {
 }
 pub fn catalogue(state: &LocalState) -> Value {
     let result = runtime(state);
-    json!({"id":"python","name":"Hickory Python (experimental)","command":load(state).unwrap_or_default().python,"args":[],"available":result.is_ok(),"error":result.err().map(|e| format!("{e:#}")),"kind":"python"})
+    json!({"id":"python","name":"Hickory Python","command":load(state).unwrap_or_default().python,"args":[],"available":result.is_ok(),"error":result.err().map(|e| format!("{e:#}")),"kind":"python"})
 }
 pub async fn settings(State(state): State<LocalState>) -> ApiResult<Json<Value>> {
     let settings = load(&state).map_err(|e| ApiError::unprocessable(format!("{e:#}")))?;
@@ -118,7 +118,7 @@ pub async fn configure(
     .map_err(|e| ApiError::unprocessable(format!("{e:#}")))?;
     settings(State(state)).await
 }
-fn queue(state: &LocalState, doc: &str) -> Arc<super::agent_review::NativeReview> {
+fn queue(state: &LocalState, doc: &str) -> Arc<super::agent_review::ReviewQueue> {
     // ACP/native policy and historical proposals cannot contaminate this runtime's queue.
     super::agent_review::queue(state, &format!("python:{doc}"))
 }
@@ -195,7 +195,7 @@ pub fn session_backend(path: &std::path::Path, provider: &str) -> String {
 struct Review {
     context: super::acp::RoomContext,
     snapshots: std::collections::HashMap<String, super::acp::workspace::Snapshot>,
-    queue: Arc<super::agent_review::NativeReview>,
+    queue: Arc<super::agent_review::ReviewQueue>,
     accepted: Option<String>,
 }
 #[async_trait::async_trait]
@@ -241,6 +241,17 @@ impl crate::python_agent::Review for Review {
                 Ok(false)
             }
         }
+    }
+    async fn refresh(&mut self) -> anyhow::Result<()> {
+        if self
+            .queue
+            .edits
+            .live_context
+            .load(std::sync::atomic::Ordering::Relaxed)
+        {
+            self.queue.edits.refresh().await?;
+        }
+        Ok(())
     }
     async fn completed(&mut self, ok: bool) -> anyhow::Result<()> {
         let result =
@@ -290,7 +301,7 @@ pub(super) async fn run_turn(
         .map(|t| t.provider.clone())
         .unwrap_or_default();
     let config = crate::python_agent::Config {
-        python: identity.python.expect("Python run has a runtime"),
+        python: identity.python,
         root: state.index.root().to_path_buf(),
         doc: if doc == super::agent_context::WORKSPACE_AGENT {
             identity.primary
@@ -309,7 +320,9 @@ pub(super) async fn run_turn(
         context: identity.context,
         prior_turns,
         cancel: Some(identity.cancel),
+        changeset: identity.changeset,
     };
+    let identity_turn = identity.turn.clone();
     let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<AgentEvent>();
     let forwarder = {
         let state = state.clone();
@@ -341,7 +354,12 @@ pub(super) async fn run_turn(
     drop(emit);
     let _ = forwarder.await;
     result
-        .map(|outcome| (outcome.summary, outcome.usage))
+        .map(|outcome| {
+            if let Some(capture) = state.agent.projects.lock().unwrap().get_mut(&identity_turn) {
+                capture.artifact = Some(outcome.artifact);
+            }
+            (outcome.summary, outcome.usage)
+        })
         .map_err(|e| format!("{e:#}"))
 }
 

@@ -1,6 +1,6 @@
 //! A canned [`LlmClient`] that replays scripted responses — no network.
 //!
-//! Used by tests (and offline development) to drive the ReAct loop
+//! Used by tests (and offline development) to exercise model-client integrations
 //! deterministically: each `complete` call pops the next scripted response.
 //! Responses can carry fake [`Usage`] so cost-accounting plumbing is
 //! testable offline (e.g. asserting `cache_read_input_tokens` propagates

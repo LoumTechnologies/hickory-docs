@@ -15,6 +15,10 @@ use std::{
     time::Duration,
 };
 
+const SUBMIT: &str = r#"import json
+s = json.loads(tool('changeset_status', {})['content'][0]['text'])
+tool('submit_changeset', {'boundary':s['boundary'], 'expected':s['expected'], 'entry':s['entry'], 'sources':{s['entry']:s['template']}})"#;
+
 struct Model {
     replies: Mutex<VecDeque<String>>,
     requests: Mutex<Vec<Vec<Message>>>,
@@ -22,7 +26,19 @@ struct Model {
 impl Model {
     fn new(replies: impl IntoIterator<Item = Value>) -> Arc<Self> {
         Arc::new(Self {
-            replies: Mutex::new(replies.into_iter().map(|v| v.to_string()).collect()),
+            replies: Mutex::new(
+                replies
+                    .into_iter()
+                    .flat_map(|v| {
+                        let mut actions = vec![];
+                        if v.get("done").is_some() {
+                            actions.push(json!({"python":SUBMIT}).to_string());
+                        }
+                        actions.push(v.to_string());
+                        actions
+                    })
+                    .collect(),
+            ),
             requests: Mutex::new(vec![]),
         })
     }
@@ -46,6 +62,21 @@ impl LlmClient for Model {
                 ..Default::default()
             },
         ))
+    }
+    async fn complete_stream(
+        &self,
+        messages: Vec<Message>,
+    ) -> anyhow::Result<hickory_agent::ChatStream> {
+        let (raw, usage) = self.complete_with_usage(messages).await?;
+        Ok(Box::pin(futures::stream::iter([
+            Ok(hickory_agent::ChatChunk::reasoning("fixture reasoning")),
+            Ok(hickory_agent::ChatChunk::text(raw)),
+            Ok(hickory_agent::ChatChunk {
+                usage: Some(usage),
+                finish_reason: Some("stop".into()),
+                ..Default::default()
+            }),
+        ])))
     }
     fn model_name(&self) -> &str {
         "fixture-no-paid-calls"
@@ -120,7 +151,7 @@ impl App {
         assert_eq!(value["available"], true);
     }
     async fn send(&self, prompt: &str, parent: Option<&str>) -> String {
-        let (status,value) = self.request("POST", &self.route(""), json!({"backend":"python","prompt":prompt,"parent_id":parent,"context":{"buffers":[{"name":"Meeting note","path":"note.md","content":"Editor context to retain","focused":true}]}})).await;
+        let (status,value) = self.request("POST", &self.route(""), json!({"backend":"python","prompt":prompt,"parent_id":parent,"context":{"live":true,"buffers":[{"id":"note-editor","name":"Meeting note","path":"note.md","content":"Editor context to retain","focused":true}]}})).await;
         assert_eq!(status, 202, "{value}");
         value["session_id"].as_str().unwrap().into()
     }
@@ -144,9 +175,21 @@ impl App {
         .await
         .expect("proposal must become visible")
     }
+    async fn refresh_capture(&self) {
+        let (_, snapshot) = self
+            .request("GET", &self.route("/python"), Value::Null)
+            .await;
+        if let Some(id) = snapshot["edits"]["captureRequest"].as_str() {
+            let content = self.state.rooms.get(&self.doc).await.unwrap().text().await;
+            self.request("POST", &self.route("/python/review"), json!({"capture_request":id,"context":{"live":true,"buffers":[{
+                "id":"note-editor","name":"Meeting note","path":"note.md","content":content,"focused":true
+            }]}})).await;
+        }
+    }
     async fn wait(&self, id: &str) -> Value {
         tokio::time::timeout(Duration::from_secs(20), async {
             loop {
+                self.refresh_capture().await;
                 let (_, listing) = self
                     .request("GET", &self.route("/turns"), Value::Null)
                     .await;
@@ -269,9 +312,9 @@ async fn python_turn_requires_review_streams_receipts_and_rehydrates_its_branch(
             turn["answer"]
                 .as_str()
                 .unwrap()
-                .starts_with("Checks unrun.")
+                .starts_with("Changeset verified")
         );
-        assert_eq!(turn["usage"]["input_tokens"], 14);
+        assert_eq!(turn["usage"]["input_tokens"], 21);
         assert_eq!(app.root.join("proposal.md").exists(), accept);
         let mut events = vec![];
         tokio::time::timeout(Duration::from_secs(10), async {
@@ -297,6 +340,7 @@ async fn python_turn_requires_review_streams_receipts_and_rehydrates_its_branch(
         assert!(events.contains(&"tool_started".into()));
         assert!(events.contains(&"tool_finished".into()));
         assert!(events.contains(&"done".into()));
+        assert!(events.contains(&"reasoning".into()));
         let child_id = app
             .send("Continue from that proposal", Some(&turn_id))
             .await;
@@ -330,6 +374,7 @@ async fn python_turn_requires_review_streams_receipts_and_rehydrates_its_branch(
         let source = std::fs::read_to_string(&path).unwrap();
         assert!(source.contains("python-edit-review"));
         assert!(source.contains("python-model-response"));
+        assert!(source.contains("<hick:reasoning>"));
         if !accept {
             assert!(source.contains("Human rejects this summary's premise"));
         }
@@ -366,11 +411,12 @@ async fn python_turn_requires_review_streams_receipts_and_rehydrates_its_branch(
                 .iter()
                 .all(|t| t["backend"] == "python" && t["status"] == "ok")
         );
-        assert!(
-            recovered
-                .iter()
-                .all(|t| t["answer"].as_str().unwrap().starts_with("Checks unrun."))
-        );
+        assert!(recovered.iter().all(|t| {
+            t["answer"]
+                .as_str()
+                .unwrap()
+                .starts_with("Changeset verified")
+        }));
     }
 }
 

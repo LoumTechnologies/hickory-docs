@@ -1,4 +1,4 @@
-//! Doctrine (see [`crate::protocol::TOOLS_SYSTEM_PROMPT`]): read both
+//! Shared document tools: read both
 //! surfaces; write CODE through the OUTPUT (byte-exact via lineage);
 //! escalate to the DOCUMENT for structural/prose work and whenever lineage
 //! refuses; verify via full execution before finishing.
@@ -28,7 +28,7 @@ use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use crate::protocol::ToolInvocation;
+use crate::invocation::ToolInvocation;
 mod read_file;
 use hashline::LineIndex;
 mod edit_resolve;

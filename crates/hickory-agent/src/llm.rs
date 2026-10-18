@@ -97,13 +97,13 @@ pub trait LlmClient: Send + Sync {
     /// [`LlmClient::complete`] and emits it as a single chunk. Providers that
     /// support streaming should override this for incremental output.
     async fn complete_stream(&self, messages: Vec<Message>) -> anyhow::Result<ChatStream> {
-        let response = self.complete(messages).await?;
+        let (response, usage) = self.complete_with_usage(messages).await?;
         let stream = futures::stream::once(async move {
             Ok(ChatChunk {
                 delta: response,
                 reasoning: String::new(),
                 finish_reason: Some("stop".into()),
-                usage: None,
+                usage: Some(usage),
             })
         });
         Ok(Box::pin(stream))

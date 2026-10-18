@@ -5,8 +5,8 @@ documents: the built-in `hick agent`, or a coding agent they already use
 (Claude Code, etc.) on a local repo.*
 
 Agent edits made through Hickory's tools change the source document in place.
-Session documents record how the work happened. The built-in agent can also
-produce executable scripts that you promote into a pipeline document.
+Session documents record how the work happened. The built-in Python agent proposes reviewed document changes and submits a
+literate artifact that Hickory checks against the captured workspace.
 
 ## Use your existing agent inside Hickory
 
@@ -15,104 +15,47 @@ ACP, supplies its document-editing tools, and records the conversation as a
 session document. See [Use Codex in Hickory Docs](acp-agents.md) for installation,
 sign-in, permissions, and recovery.
 
-## Option 1: the built-in agent
+## Option 1: the built-in Python agent
+
+The macOS desktop app bundles its runtime. Add your provider key in Settings,
+select **Hickory Python**, and send a task. A source build needs an installed
+Python runtime configured in Settings → Agents. Each edit opens a review:
+choose Accept change or Reject change. Stop cancels pending review.
+
+From a terminal:
 
 ```sh
-export ANTHROPIC_API_KEY=...
-hick agent "add a section benchmarking sort vs awk" --doc docs/tour.md
+hick agent --python /absolute/path/to/python \
+  --doc docs/tour.md "add a section benchmarking sort vs awk"
 ```
 
-### Whose key it runs on
+See [Python runtime setup](../developers/python-agent.md) for installation and
+running the Python package independently. The CLI reads keys configured in
+Hickory Settings or provider environment variables. `--provider` and `--model`
+select the provider and model. Missing credentials or confinement stop execution.
 
-Yours, always — read from your environment, sent only to the vendor you
-chose, never stored anywhere by the CLI. Five vendors are supported:
-Anthropic (`ANTHROPIC_API_KEY`), OpenAI (`OPENAI_API_KEY`), DeepSeek
-(`DEEPSEEK_API_KEY`), xAI/Grok (`XAI_API_KEY`), and OpenRouter
-(`OPENROUTER_API_KEY`).
+Python owns the agent loop. Model snippets run in Monty, inside a separately
+confined process, and call Hickory tools. They cannot execute a shell, write
+workspace files directly or run verification commands. `HICKORY_EXECUTOR=local`
+does not disable this confinement. Hosted Windows support remains unavailable.
 
-(The desktop app is the one exception to "environment only": it is launched
-from a dock, where no shell exports anything, so its Settings page stores
-keys in a private file on your machine. Keys you enter there win over the
-environment; everything below still applies.)
+The agent reads documents and woven outputs, then proposes hash-anchored
+`edit_doc`, `edit_output` or `create_doc` changes. Hickory requires approval of
+the exact preview and rejects detected source changes during review. Unsaved
+editor text is context; save untitled notes before requesting tool edits.
 
-Which vendor an agent run uses is resolved in this order:
-
-1. **`--provider`** (`anthropic`, `openai`, `deepseek`, `grok`,
-   `openrouter`) wins over everything.
-2. **`HICKORY_LLM_PROVIDER`**, if set, is next — same values.
-3. Otherwise hick looks at **which of the five key variables are actually
-   set**. Exactly one set: that vendor is used, no question asked. Several
-   set and one of them is `ANTHROPIC_API_KEY`: Anthropic, the default.
-   Several set without an Anthropic key: the run stops and asks you to pass
-   `--provider` — guessing would bill an account you did not pick.
-4. No key at all: the run fails before the first request, naming the five
-   variables and the `--provider` escape hatch.
-
-So with one key in your environment there is nothing to configure; the
-provider is picked for you.
-
-What happens, procedurally:
-
-1. The agent gets your prompt (and `--doc` context), then loops: it proposes
-   a shell or python script, hick executes it through the same `Executor`
-   as `hick run` (sandboxed by default; `HICKORY_EXECUTOR` selects another
-   backend), and the observation goes back to the model.
-2. Every turn — prompt, reasoning, each script, each observation — is
-   appended to a `hick:session` document under `sessions/`. The session *is*
-   the log; there is no separate chat transcript to lose.
-3. When it's done, you review the session, then
-   `hick ingest --from session sessions/<name>.md --out docs/benchmark.md` to keep
-   only the surviving pipeline (last write wins, dead ends dropped).
-
-Choose this when you want sessions captured with full fidelity by
-construction.
-
-### The document edit tools (`--doc`)
-
-Passing `--doc` makes that file the session's *primary document* and gives
-the agent a first-class edit tool set alongside scripts. Tool calls are
-`<hick:tool>` elements in the session file — the session stays a parseable,
-replayable `hick:session` document.
-
-The tools:
-
-| Tool | What it does |
-| --- | --- |
-| `read_doc` | The document source, hashline-rendered: every line prefixed `hash\|`, a SHA-256 content hash of that line. |
-| `read_output` | A woven output file, hashline-rendered; `with_lineage` adds per-range annotations showing which lines are editable and where they come from. |
-| `edit_output` | Edit a contiguous line run of an *output*; the edit maps back to the document byte-exactly through lineage. |
-| `edit_doc` | The same edit shape applied directly to the document source. |
-| `verify` | Execute the document for real (every exec block, every expectation) and write the output files. |
-
-Edits anchor on content hashes (`run="firsthash..lasthash"`, or
-`after="hash"` to insert), never on line numbers. That is what makes stale
-edits impossible inside a session: after every successful edit the session
-re-weaves immediately and hands back fresh hashes, and an anchor only
-resolves against text that is actually there. If the document changes on
-disk underneath the session (you, another tool), the session detects the
-content mismatch, re-weaves once automatically, and either resolves the
-edit against the fresh state or returns a structured error — it never
-misapplies an edit.
-
-The doctrine the agent follows (and that you can rely on when reviewing):
-
-1. **Read both surfaces first** — `read_doc` and `read_output` with lineage.
-2. **Code changes go through the output** (`edit_output`): the generated
-   file is what the agent — like any engineer — actually reasons about, and
-   lineage guarantees the document update reproduces the edit byte-for-byte.
-3. **Structural and prose work goes through the document** (`edit_doc`):
-   headings, copy blocks, pipeline structure.
-4. **Lineage refusals are routing, not failure.** Editing exec output, a
-   separator, or one occurrence of a copy block pasted twice cannot be
-   reproduced exactly — the refusal names the document location to edit,
-   and the agent follows the pointer with `edit_doc`.
-5. **`verify` before done** — same semantics as `hick run` + expectation
-   checking, through the same executor as the agent's scripts.
+Prompts, reasoning, model requests, actual tools and approval decisions remain
+in a session document. Python decides when to submit its final literate changeset;
+Hickory checks that it reproduces captured output bytes. Successful completion
+means source-output equality, with runtime checks unrun. Run project checks
+explicitly when needed. A model claim is not verification evidence.
 
 ## Option 2: bring your own coding agent (local repo)
 
 Claude Code, Codex, Grok CLI — any agent that can run a command gets the
-**same five tools** the built-in agent uses. It is not a lesser path.
+shared document tools, including explicit verification. External agents retain
+their own command permissions; the built-in Python agent withholds execution
+tools to preserve exact edit review.
 
 `hick init` sets this up:
 
@@ -194,12 +137,10 @@ agent should handle both, or you want your existing agent tooling
 
 ## Mixing them
 
-They compose. A common split: your coding agent does repo-wide work and
-document editing; `hick agent` does exploratory data/tool work where the
-replayable session is the deliverable. Your coding agent can also *drive*
-the built-in one (`hick agent "..."`) and then review and promote the
-resulting session — promote works on any `hick:session` file regardless of
-which agent produced it.
+External agents can do repo-wide command work using their own permissions.
+The built-in Python agent uses reviewed document tools and retains its session
+and verified changeset artifact. Historical script sessions can still be
+imported or promoted; new Monty snippets are not shell pipeline recordings.
 
 ## Don't assume
 
@@ -213,11 +154,9 @@ which agent produced it.
   pipeline from *script* writes; tool calls edit the document in place, so
   there is nothing left to promote. That is not a failure — the document is
   already the product, and the session is the record of how it got that way.
-- **The built-in agent needs a key** — `ANTHROPIC_API_KEY` or the selected
-  provider's variable, in your environment. Without one it says so and stops;
-  nothing else in hick needs a key or a network. It executes scripts for
-  real: sandboxed under the default executor, and unsandboxed — as your
-  user — if you set `HICKORY_EXECUTOR=local`.
+- **The built-in agent needs a provider key and a configured or bundled runtime.**
+  It stays confined regardless of the cell-executor setting. Its completion
+  artifact does not establish native runtime correctness.
 - **`promote` is lossy on purpose**: it keeps the last write to each output
   and drops dead ends. Keep the original session file if you want the full
   history (it's just a file in git).

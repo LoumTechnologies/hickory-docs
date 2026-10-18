@@ -17,7 +17,7 @@ export function AgentSettings() {
   useEffect(() => { void acpApi.pythonSettings().then(r => { setPython(r.python); setBundled(r.bundled ?? null); setPythonAvailable(r.available); }, () => undefined); }, []);
   return <section className="settings-section" aria-label="Agents">
     <h2>Agents</h2>
-    <h3>Hickory Python agent (experimental)</h3>
+    <h3>Hickory Python agent</h3>
     <p>Uses the provider key in Settings, an isolated Python worker and Monty for generated code. Each document edit requires review. Verification tools are not yet available.</p>
     <p>Choose a virtual environment with the Hickory agent package installed. <a href="https://github.com/LoumTechnologies/hickory-docs/blob/master/docs/developers/python-agent.md" target="_blank" rel="noreferrer">Runtime setup</a></p>
     {!python.trim() && bundled && <p role="status">Using the runtime bundled with this app: {bundled}</p>}

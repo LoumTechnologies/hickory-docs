@@ -8,7 +8,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::script::ScriptResult;
+use crate::receipt::ScriptResult;
 use crate::usage::Usage;
 
 /// The `exec_id` agent sessions stream under on the WS run channel.

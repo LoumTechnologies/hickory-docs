@@ -6,7 +6,7 @@ use hickory_cli::python_agent::{Config, TerminalReview, run};
 use std::path::PathBuf;
 
 #[derive(Parser)]
-#[command(about = "Run the confined Python Hickory agent (experimental)")]
+#[command(about = "Run the confined Python Hickory agent")]
 struct Args {
     prompt: String,
     /// Absolute path to Python in the locked, non-editable agent venv.

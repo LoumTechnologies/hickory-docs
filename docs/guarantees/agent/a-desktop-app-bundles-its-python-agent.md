@@ -2,11 +2,11 @@
 
 Given a macOS desktop build produced by `just local-install`, `just
 build-desktop-app`, or `scripts/dist-desktop.sh`, when the app is installed
-and opened, then the experimental Python agent is available without naming a
+and opened, then the built-in Python agent is available without naming a
 path: the app carries a self-contained Python runtime at
 `Contents/Resources/python-agent`, discovered from the running executable's own
 location. **Settings → Agents** says it is using that runtime, the Agent pane
-offers **Hickory Python (experimental)** as available, and no value is written
+offers **Hickory Python** as available, and no value is written
 into `python.json`.
 
 The bundled runtime is built by `scripts/build-python-agent-runtime.sh` from

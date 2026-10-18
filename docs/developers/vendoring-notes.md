@@ -1,5 +1,10 @@
 # Vendoring notes (Phase A)
 
+> Agent history below predates the 2026-10-18 migration. The Rust loop and
+> experiment runner are removed. Python owns the built-in loop; see
+> [the current runtime](../specs/freeform/python-agent-runtime.md).
+
+
 All crates under `crates/` were vendored on 2026-08-05 from the
 `hickory-docs-task-63` monorepo checkout at
 `/home/loumtech/Documents/src/hickory-docs-task-63`. That checkout is a **git

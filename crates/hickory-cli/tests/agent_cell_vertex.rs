@@ -8,15 +8,15 @@
 //! **Zero API calls**: every turn comes from `ScriptedLlmClient`. This is the
 //! companion to `crates/hick-literate/tests/agent_cells.rs`, which covers the
 //! same vertex with a stub runner; here the runner is the shipped
-//! `LlmAgentRunner` over the shipped ReAct loop, so the `edit_doc`-only write
-//! channel is exercised for real.
+//! `LlmAgentRunner` over the Python process supervisor. The recording case uses
+//! an unchanged workspace and a real verified artifact, then replays without a model.
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use hick_literate::agent_cell::AgentRunner;
 use hick_literate::{CellId, LocalExecutor, NoBaseline, PipelineConfig, cache, run_pipeline_live};
-use hickory_agent::{LlmClient, ScriptedLlmClient, hashline};
+use hickory_agent::{LlmClient, ScriptedLlmClient};
 use hickory_cli::{
     CheckFailure, CheckOutcome, ExecutorChoice, LlmAgentRunner, RunMode, check_failures,
     check_outcome, run_doc, unverifiable_message,
@@ -24,7 +24,6 @@ use hickory_cli::{
 
 const MODEL: &str = "claude-sonnet-5";
 const ANCHOR: &str = "The agent writes below this line.";
-const PAYLOAD: &str = "<hick:file path=\"greeting.txt\">\nhello from the agent\n</hick:file>";
 
 fn doc_source() -> String {
     format!(
@@ -45,21 +44,12 @@ fn doc_source() -> String {
 /// One `edit_doc` turn, then `done` — the smallest run that proves the write
 /// channel and the settle.
 fn scripted() -> Arc<dyn LlmClient> {
-    let anchor = hashline::line_hash(ANCHOR);
-    let tool_turn = format!(
-        "<hick:next>tool</hick:next>\n\
-         <hick:tool name=\"edit_doc\">\n\
-         <hick:arg name=\"after\">{anchor}</hick:arg>\n\
-         <hick:input>\n{PAYLOAD}\n</hick:input>\n\
-         </hick:tool>"
-    );
-    Arc::new(
-        ScriptedLlmClient::new([
-            tool_turn,
-            "<hick:next>done</hick:next>\nWrote greeting.txt through the document.".to_string(),
-        ])
-        .with_model_name(MODEL),
-    )
+    Arc::new(ScriptedLlmClient::new([
+        serde_json::json!({"python":r#"import json
+s = json.loads(tool('changeset_status', {})['content'][0]['text'])
+tool('submit_changeset', {'boundary':s['boundary'], 'expected':s['expected'], 'entry':s['entry'], 'sources':{s['entry']:s['template']}})"#}).to_string(),
+        serde_json::json!({"done":"Recorded unchanged fixture"}).to_string(),
+    ]).with_model_name(MODEL))
 }
 
 fn write_doc(dir: &Path, body: &str) -> PathBuf {
@@ -92,45 +82,7 @@ async fn run_with_runner(
     .await
 }
 
-/// The shipped runner settles the vertex from inside the topological loop, and
-/// its one write channel — `edit_doc` — leaves the bytes in the document.
-#[tokio::test(flavor = "multi_thread")]
-async fn the_shipped_runner_settles_the_vertex_and_its_edit_lands_in_the_document() {
-    let dir = tempfile::tempdir().unwrap();
-    let doc = write_doc(dir.path(), &doc_source());
-    let runner: Arc<dyn AgentRunner> = Arc::new(LlmAgentRunner::new(
-        scripted(),
-        Arc::new(LocalExecutor::new().unwrap()),
-    ));
-
-    let result = run_with_runner(&doc, Some(runner), None, false)
-        .await
-        .unwrap();
-
-    let after = std::fs::read_to_string(&doc).unwrap();
-    assert!(
-        after.contains("hello from the agent"),
-        "the agent's only write channel is the document: {after}"
-    );
-    // The re-preparation put the agent's `hick:file` into the same pass, so
-    // the woven output carries it without a second run.
-    assert!(
-        result.files.contains_key("greeting.txt"),
-        "outputs: {:?}",
-        result.files.keys().collect::<Vec<_>>()
-    );
-    let summary: Vec<&str> = result
-        .transcripts
-        .iter()
-        .filter(|(c, _)| hick_exec::is_agent_container(c))
-        .flat_map(|(_, e)| e.iter().map(|e| e.output.as_str()))
-        .collect();
-    assert_eq!(summary, ["Wrote greeting.txt through the document."]);
-}
-
-/// A cell that names a model the run is not configured for fails loudly rather
-/// than answering with a different model — the recording is keyed by the
-/// model, so a substitution files the answer under a key nobody asks for.
+/// A model mismatch is refused before launching Python or buying a request.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_cell_naming_another_model_is_refused() {
     let dir = tempfile::tempdir().unwrap();
@@ -140,7 +92,7 @@ async fn a_cell_naming_another_model_is_refused() {
     );
     let runner: Arc<dyn AgentRunner> = Arc::new(LlmAgentRunner::new(
         scripted(),
-        Arc::new(LocalExecutor::new().unwrap()),
+        PathBuf::from("/unused-model-mismatch"),
     ));
 
     let err = match run_with_runner(&doc, Some(runner), None, false).await {
@@ -203,20 +155,20 @@ async fn test_reports_an_agent_cell_with_no_baseline_as_unverifiable() {
 /// the verify pass consumes it with no LLM in sight.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_recorded_agent_cell_verifies_without_a_model() {
+    let Some(python) = std::env::var_os("HICKORY_AGENT_TEST_PYTHON") else {
+        return;
+    };
     let dir = tempfile::tempdir().unwrap();
     let doc = write_doc(dir.path(), &doc_source());
     let cc = cache::CacheConfig::new(dir.path(), cache::CacheMode::Reuse);
-    let runner: Arc<dyn AgentRunner> = Arc::new(LlmAgentRunner::new(
-        scripted(),
-        Arc::new(LocalExecutor::new().unwrap()),
-    ));
+    let runner: Arc<dyn AgentRunner> =
+        Arc::new(LlmAgentRunner::new(scripted(), PathBuf::from(python)));
     run_with_runner(&doc, Some(runner), Some(&cc), false)
         .await
         .unwrap();
     assert!(cc.cache_dir.is_dir());
 
-    // The agent edited the document; freeze the cell so the second pass is a
-    // pure replay, and run it with no runner at all.
+    // Freeze the recorded cell so the second pass is a pure replay without a model.
     let frozen = std::fs::read_to_string(&doc).unwrap().replace(
         "<hick:agent id=\"a1\"",
         "<hick:agent id=\"a1\" freeze=\"true\"",

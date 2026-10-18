@@ -1,5 +1,12 @@
 # A Bring-Your-Own-Key Plan Never Spends The Deployment's Credential
 
+> 2026-10-18 amendment: the built-in loop is Python, not Rust. Branch data and
+> evidence persist through the existing session/UI; Python constructs model
+> context. Hosted completion requires a current accepted changeset and reports
+> runtime checks unrun. Old Rust-runtime evidence below is historical. See
+> [the migration audit](../audits/2026-10-18-python-agent-ownership.md).
+
+
 Given an account whose plan entitlement is `agent: byo_key` (Open and Pro in
 `plans.json`), when it starts an agent session, then the run uses a provider
 key **that account stored**, or it does not run at all — even on a deployment

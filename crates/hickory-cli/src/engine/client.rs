@@ -279,12 +279,7 @@ pub async fn forward_cli(args: &[String]) -> Result<Option<i32>> {
     };
     // Python supervision owns a distinct terminal approval input. A daemon
     // command has piped stdin and cannot collect that independent approval.
-    if verb == "agent"
-        && (args.iter().any(|a| a == "--runtime=python")
-            || args
-                .windows(2)
-                .any(|pair| pair[0] == "--runtime" && pair[1] == "python"))
-    {
+    if verb == "agent" {
         return Ok(None);
     }
     if !matches!(
@@ -294,7 +289,6 @@ pub async fn forward_cli(args: &[String]) -> Result<Option<i32>> {
             | "weave"
             | "ingest"
             | "refresh"
-            | "agent"
             | "init"
             | "doc"
             | "repair"

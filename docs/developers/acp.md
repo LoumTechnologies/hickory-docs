@@ -4,7 +4,7 @@ For engineers changing Hickory's local agent pane or adding an ACP adapter.
 
 ACP lives in `crates/hickory-cli/src/serve/acp`, above the existing agent hub.
 It is independent of `LlmClient`, the language parser, and element registration.
-The built-in agent remains the `builtin` backend.
+The built-in Python agent uses the `python` backend; `builtin` is retired.
 
 `POST /api/docs/:id/agent/acp` launches or loads the selected agent. The existing
 `POST /api/docs/:id/agent` starts turns with a `backend` field. The existing
@@ -36,7 +36,7 @@ Codex's `session/fork` creates an inactive session. **Resume it before prompting
 The fork point is the recorded ACP message id, carried in the adapter's AIR
 metadata. Advertising generic fork support does not establish exact rewind.
 
-Run `just test-acp` for deterministic protocol, MCP, built-in-agent, and UI
+Run `just test-acp` for deterministic protocol, MCP, Python-agent, and UI
 regressions. The Rust ACP fixture is an explicit protocol peer for races,
 permissions, and cancellation; it is never a production login fallback.
 `just clippy-all` checks examples and test targets as CI does.

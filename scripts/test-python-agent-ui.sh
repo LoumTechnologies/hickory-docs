@@ -14,7 +14,7 @@ trap cleanup EXIT
 mkdir "$run_dir/project"
 printf '# Original human input\n' > "$run_dir/project/note.md"
 cargo build -p hickory-cli --example python_agent_ui_fixture
-./target/debug/examples/python_agent_ui_fixture "$run_dir/project" > "$run_dir/api.log" 2> "$run_dir/api-error.log" &
+"${CARGO_TARGET_DIR:-target}/debug/examples/python_agent_ui_fixture" "$run_dir/project" > "$run_dir/api.log" 2> "$run_dir/api-error.log" &
 api_pid=$!
 for _ in $(seq 1 100); do
   [ ! -s "$run_dir/api.log" ] || break

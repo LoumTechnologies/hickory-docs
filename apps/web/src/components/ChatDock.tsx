@@ -306,7 +306,7 @@ export function ChatDock({
   const [model, setModel] = useState("");
 
   const selectedTurn = turns.find(t => t.id === tip);
-  const selectedBackend = selectedTurn?.backend ?? (selectedTurn?.provider.startsWith("acp:") ? selectedTurn.provider.slice(4) : "builtin");
+  const selectedBackend = selectedTurn?.backend ?? (selectedTurn?.provider.startsWith("acp:") ? selectedTurn.provider.slice(4) : "python");
   useEffect(() => { if (selectedTurn && !running) setBackend(selectedBackend); }, [tip, selectedBackend, running]);
   const selectedSession = selectedTurn?.session;
   const acp = useAcp(docId, selectedTurn ? selectedBackend : backend, selectedSession, running, hydrated);
@@ -328,7 +328,7 @@ export function ChatDock({
           // choice being made in the select/input mid-conversation.
           if (!hydratedRef.current) {
             hydratedRef.current = true;
-            setBackend(r.turns.length ? r.backend ?? "builtin" : preferredAgent());
+            setBackend(r.turns.length ? r.backend ?? "python" : preferredAgent());
             setRunning(r.turns.find(t => t.status === "running")?.id ?? null);
             setProvider(r.provider);
             if (r.model !== defaultModelFor(r.provider)) setModel(r.model);
@@ -417,11 +417,11 @@ export function ChatDock({
   const send = async () => {
     const submitted = recovery.snapshot();
     const text = prompt.trim();
-    if (!text || running || sendingRef.current || (backend !== "builtin" && (!acp.state?.ready || acp.busy))) return;
+    if (!text || running || sendingRef.current || (!acp.state?.ready || acp.busy)) return;
     setError(null);
     setNote(null);
-    const slash = backend !== "builtin" && !acp.state?.canRewind && text.startsWith("/rewind") ? null : parseSlash(text);
-    if (backend !== "builtin" && !acp.state?.canRewind && text.startsWith("/rewind")) { setNote("This agent continues from its latest turn. Use New thread to start another conversation."); return; }
+    const slash = backend !== "python" && !acp.state?.canRewind && text.startsWith("/rewind") ? null : parseSlash(text);
+    if (backend !== "python" && !acp.state?.canRewind && text.startsWith("/rewind")) { setNote("This agent continues from its latest turn. Use New thread to start another conversation."); return; }
     if (slash) {
       setPrompt("");
       switch (slash.kind) {
@@ -495,8 +495,8 @@ export function ChatDock({
           error: null,
           created_at: new Date().toISOString(),
           backend,
-          provider: (backend === "builtin" || backend === "python") ? provider || "anthropic" : `acp:${backend}`,
-          model: (backend === "builtin" || backend === "python") ? model.trim() || defaultModelFor(provider) || "claude-sonnet-5" : "",
+          provider: (backend === "python") ? provider || "anthropic" : `acp:${backend}`,
+          model: (backend === "python") ? model.trim() || defaultModelFor(provider) || "claude-sonnet-5" : "",
           usage: null,
           session: tip ? turns.find((t) => t.id === tip)?.session : undefined,
         },
@@ -568,7 +568,7 @@ export function ChatDock({
           </button>
         )}
         {!collapsed && <FeatureSettings label="Agent settings">
-        {(backend === "builtin" || backend === "python") && <span className="chat-model" role="group" aria-label="Model choice">
+        {(backend === "python") && <span className="chat-model" role="group" aria-label="Model choice">
           <select
             aria-label="Provider"
             value={provider}
@@ -630,11 +630,11 @@ export function ChatDock({
               {branch.filter(turn => turn.status === "ok").map(turn => <AgentProject key={turn.id} doc={docId} turn={turn.id} getContext={getContext} applyChange={applyAgentChange} />)}
               <ConversationEditor branch={branch} path={sessionPath} stamp={lensStamp} running={running}
                 showCollapsedLineage={showCollapsedLineage} stream={stream} reasoning={reasoning} draft={prompt} onDraft={setPrompt}
-                onSend={() => void send()} sending={sending} canSend={!running && !sending && (backend === "builtin" || (!!acp.state?.ready && !acp.busy))} />
+                onSend={() => void send()} sending={sending} canSend={!running && !sending && (!!acp.state?.ready && !acp.busy)} />
               {branch.length > 0 && <div className="chat-turn-strip" aria-label="Turns">
                 {branch.map(turn => <span key={turn.id} className="chat-turn-strip__turn">
                   <span className="muted">{turn.prompt.slice(0, 40)}</span>
-                  {(backend === "builtin" || acp.state?.canRewind) && turn.id !== tip &&
+                  {(backend === "python" || acp.state?.canRewind) && turn.id !== tip &&
                     <button className="btn-link chat-rewind" onClick={() => setTip(turn.id)} data-tip={REWIND_TIP}>rewind here</button>}
                 </span>)}
                 {sessionPath && onOpenSession && <button className="btn-link" onClick={() => onOpenSession(sessionPath)}>session</button>}
@@ -663,7 +663,7 @@ export function ChatDock({
         ) : (collapsed || showTree) ? (
           <button
             className="btn btn-primary"
-            disabled={!prompt.trim() || sending || (backend !== "builtin" && (!acp.state?.ready || acp.busy))}
+            disabled={!prompt.trim() || sending || (!acp.state?.ready || acp.busy)}
             onClick={() => void send()}
           >
             {sending ? "Starting…" : "Send"}

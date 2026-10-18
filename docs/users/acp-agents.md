@@ -4,7 +4,7 @@ For engineers who already use Codex or Claude and want the same agent inside
 Hickory's document workspace.
 
 Open a document, then open **Agent** from the Welcome page. Choose **Codex**
-in the Agent selector. **Hickory (built-in)** is Hickory's own agent;
+in the Agent selector. **Hickory Python** is Hickory's own agent;
 **Installed ACP agents** lists adapters detected on this machine. If Codex's
 adapter is missing, choose **Codex — install adapter**, then click **Install Codex
 adapter**. Installation requires Node.js and npm on this machine.
@@ -104,7 +104,7 @@ are removed after the complete assistant message is saved. ACP activity stays
 recorded as evidence; shell commands are never converted into executable cells.
 
 The pane does not estimate ACP subscription spend. Billing and any usage limits
-belong to the agent's provider. The built-in **Hickory** agent continues to use
+belong to the agent's provider. The built-in **Hickory Python** agent continues to use
 Hickory's provider-key settings.
 
 ## Native workspace preview on macOS

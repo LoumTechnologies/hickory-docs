@@ -287,10 +287,6 @@ refresh DOC *ARGS:
 tokens-report:
     cargo run -q -p hickory-agent --bin token_economics -- report
 
-# Run one token-economics experiment (needs ANTHROPIC_API_KEY).
-tokens-run SPEC:
-    cargo run -q -p hickory-agent --bin token_economics -- run {{SPEC}}
-
 # Static token measurement of files via count_tokens (needs ANTHROPIC_API_KEY).
 tokens-count *FILES:
     cargo run -q -p hickory-agent --bin token_economics -- count-tokens {{FILES}}
@@ -548,7 +544,7 @@ test-agent-pane:
 # Durable model-failure evidence, assumptions, review and historical receipts.
 test-agent-audit:
     cargo test -p hickory-cli --lib serve::audit_evidence:: -- --test-threads=1
-    cargo test -p hickory-agent --lib --test tools_edit_session --test stop_button --test turn_budget --test model_failure_audit -- --test-threads=1
+    cargo test -p hickory-agent --lib --test tools_edit_session -- --test-threads=1
     cargo test -p hickory-cli --test transform_tests --test session_lens --test serve_agent -- --test-threads=1
     cd apps/web && npm run typecheck && npm test -- --maxWorkers=2 src/elements/session/evidence.test.tsx src/components/AssumptionAudit.test.tsx src/components/AgentChanges.test.tsx src/views/ConversationEditor.test.tsx src/components/ChatDock.test.tsx
 
@@ -559,8 +555,7 @@ test-agent-audit-web:
 # Full agent implementation, including historical external tool surfaces.
 test-agent-implementation:
     cargo test -p hickory-agent -p hickory-cli --lib -- --test-threads=1
-    cargo test -p hickory-agent --test edits_the_chain -- --test-threads=1
-    cargo test -p hickory-cli --test agent_tools_e2e --test agent_cell_vertex --test session_lens --test transform_tests -- --test-threads=1
+    cargo test -p hickory-cli --test agent_cell_vertex --test session_lens --test transform_tests -- --test-threads=1
 
 # Exercise the locked Python worker and real OS confinement without a model key.
 test-python-agent:

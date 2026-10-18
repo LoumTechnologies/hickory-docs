@@ -1,18 +1,30 @@
-# Completion does not certify verification
+# Completion does not certify runtime verification
 
-Given a built-in turn that edits an executable source closure, when it claims
-completion, then the harness requires a successful `verify` for the current
-closure revision. Edits and scripts invalidate the result; changes during a
-verification refuse a current pass. A model's prose is not an executed result.
-An exhausted budget records **unfinished**, preserving the attempted work and
-handoff. A non-executable or unverified answer records **not-run**.
+Given a built-in Python turn, successful completion requires a current accepted
+literate changeset checked by Hickory against actual captured bytes. A model's
+summary, reasoning, snippet prints or claimed checks do not establish acceptance
+or an executed result. Iteration exhaustion and rejected completion are incomplete.
 
-Native and Hickory MCP `verify` results are recorded independently as passed or
-failed, with their source revision and scope: execution and document expectations.
-They certify no semantic truth or completeness. External adapter command reports
-remain adapter reports; Hickory cannot enforce their final-answer policy.
+The hosted tool surface withholds verify, shell, generic writes and debug
+execution because they can bypass exact edit review. Completion is labeled
+source-output equality only, with runtime checks unrun. Explicit manual/MCP
+verification retains its independent receipts; external ACP reports remain
+adapter declarations unless supported by separately observed evidence.
 
 ---
+
+Last LLM implementation review (2026-10-18): partially verified. Requirement,
+choices, limitations and executable witnesses are in
+[the migration audit](../audits/2026-10-18-python-agent-ownership.md).
+Evidence: Python `core.py`, `runtime.py`, `hosted.py`; Rust `python_agent.rs`,
+`serve/python_agent.rs`, existing changeset verifier and confinement profile.
+Executed checks: see the audit. Human correctness judgment: not recorded.
+
+## Historical evidence for the retired implementation
+
+The following notes predate the migration. Deleted Rust-runtime paths and old
+check results do not verify the current implementation.
+
 
 Last LLM verification:
 

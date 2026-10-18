@@ -37,12 +37,11 @@ export function useAcp(doc: string, backend: string, session: string | undefined
   }, [doc, backend, session]);
   const pythonAvailable = backend === "python" && agents.find(agent => agent.id === "python")?.available;
   useEffect(() => {
-    if (backend === "builtin") { ++version.current; setState(null); setError(null); setBusy(false); return; }
     if (hydrated && !running) void connect();
     // A running turn owns its connection; do not reconnect on optimistic UI updates.
   }, [connect, backend, hydrated, pythonAvailable]);
   useEffect(() => {
-    if (backend !== "builtin" && !running && !state?.ready) return;
+    if (!running && !state?.ready) return;
     const stamp = version.current;
     let live = true;
     const poll = () => { void Promise.resolve(acpApi.state(doc, backend)).then(s => { if (s && live && stamp === version.current) setState(s); }, () => undefined); };
@@ -71,7 +70,6 @@ export function useAcp(doc: string, backend: string, session: string | undefined
 
 type Controls = ReturnType<typeof useAcp>;
 export function AcpControls({ doc, backend, running, control, settingsOpen = true, settingsOnly = false, showTools = true }: { doc: string; backend: string; running: boolean; control: Controls; settingsOpen?: boolean; settingsOnly?: boolean; showTools?: boolean }) {
-  if (backend === "builtin") return null;
   const { state, busy, error, agents } = control;
   if (backend === "python") return <div className="acp-controls" aria-label="Python agent controls">
     {(error || state?.error) && <p role="alert" className="chat-note error">{error || state?.error}</p>}

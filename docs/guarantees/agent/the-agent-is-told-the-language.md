@@ -1,5 +1,12 @@
 # The Built-In Agent Is Told The Document Language, And Where Its Scripts Run
 
+> 2026-10-18 amendment: the built-in loop is Python, not Rust. Branch data and
+> evidence persist through the existing session/UI; Python constructs model
+> context. Hosted completion requires a current accepted changeset and reports
+> runtime checks unrun. Old Rust-runtime evidence below is historical. See
+> [the migration audit](../audits/2026-10-18-python-agent-ownership.md).
+
+
 Given a `hick agent` run with a primary document, when the tool set is
 enabled, then the system prompt carries a reference of the elements a
 document may contain — container, volume, exec with a child expect, file,

@@ -1,24 +1,38 @@
 # Python agent code crosses two explicit boundaries
 
-Given the experimental Python agent in Hickory’s UI or the standalone
-`hickory-agent` CLI with its installed,
-trusted runtime, when a model supplies executable code, then it is Python
-interpreted by Monty without host filesystem mounts. The trusted Python worker
-also runs in Hickory-managed OS confinement. Provider keys and workspace writes
-stay in the Rust supervisor. Unsupported platforms or unavailable confinement
-refuse execution.
+Given the built-in Python agent launched by Hickory, model snippets execute in
+Monty without workspace mounts or CPython/shell fallback. The trusted Python
+orchestrator runs under Seatbelt or Bubblewrap. Unsupported platforms and
+unavailable confinement refuse execution. Standalone development is explicitly
+outside hosted confinement and verification guarantees.
 
-An exposed workspace edit needs an independently approved proposal. Detected
-source changes while awaiting review invalidate that proposal. Requests,
-assumptions, responses, proposals, decisions and failures remain in the `.md`
-session. UI conversation branches survive restart, record their Python backend,
-provider and model, and retain the ancestor prompts and answers actually supplied.
-Python edits always use separate approval, including when a native or ACP
-conversation used auto-accept. Stop cancels a waiting proposal without writing it.
-Rust-observed tool results and worker-reported observations are labeled
-separately. A model completion is reported with checks unrun.
+Python owns its graph, prompts, history, inference requests, actions, retries,
+iteration limit and completion attempts. Hickory provides bounded inference
+transport, allowlisted tools, exact edit review/application and recorded evidence.
+Every exposed workspace mutation requires separate approval and freshness checks.
+Shell, generic filesystem writes, verify and debug execution are unavailable.
+Read/edit weaving stays in memory. Stop cancels inference or review and kills
+the confined process group without approving a pending write.
+
+A current independently accepted changeset is required for successful hosted
+completion. Worker/model claims cannot establish verification. Equality proves
+no runtime behavior, semantic correctness or authorship. Actual tool receipts
+and approvals are recorded separately from worker-reported observations.
 
 ---
+
+Last LLM implementation review (2026-10-18): partially verified. Requirement,
+choices, limitations and executable witnesses are in
+[the migration audit](../audits/2026-10-18-python-agent-ownership.md).
+Evidence: Python `core.py`, `runtime.py`, `hosted.py`; Rust `python_agent.rs`,
+`serve/python_agent.rs`, existing changeset verifier and confinement profile.
+Executed checks: see the audit. Human correctness judgment: not recorded.
+
+## Historical evidence for the retired implementation
+
+The following notes predate the migration. Deleted Rust-runtime paths and old
+check results do not verify the current implementation.
+
 
 Last LLM verification:
 

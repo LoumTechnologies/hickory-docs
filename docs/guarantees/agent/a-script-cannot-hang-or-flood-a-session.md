@@ -1,35 +1,26 @@
-# A Script Cannot Hang or Flood a Session
+# Model snippets cannot hang or flood an agent session indefinitely
 
-Given an agent script that never terminates, when it exceeds the session's
-script timeout, then it is killed inside its own container and the observation
-says so in words. Given a script that writes far more output than an
-observation can carry, when it finishes, then the head and the tail are kept,
-the middle is dropped, and the marker states how many bytes were omitted.
-
-An agent's script is written by a model, so "it terminates" and "it prints a
-reasonable amount" are assumptions. Neither was enforced. A `cargo test` that
-blocks on a prompt held the run forever with no upper bound; one `grep -r`
-over a large repository returned megabytes that were pasted verbatim into the
-next request, buying nothing and crowding out everything else.
-
-Two details are deliberate:
-
-**The kill happens in the container**, via `timeout -k 5`, not by racing an
-outer future against the call. Racing returns control to the loop while the
-runaway process keeps holding the container's CPU and files — the agent
-believes it moved on while the machine underneath it did not. `timeout` ends
-the process; `-k` follows with SIGKILL for anything ignoring SIGTERM. An outer
-`tokio::time::timeout`, set generously above the inner one, remains as a
-backstop for the executor itself hanging (a lost connection to a remote
-microVM never reaches `timeout` in the guest).
-
-**Truncation keeps both ends.** The head shows what the script was doing; the
-tail holds the error and the exit status. Head-only truncation — the obvious
-implementation — discards precisely the part the model needs. The byte count
-in the marker lets the model tell a truncated observation from a complete one
-and narrow its next command rather than concluding it has seen everything.
+Given a model snippet interpreted in Monty, memory, execution duration, callback
+count, recursion, sleep and captured output have explicit bounds. Exceeding a
+bound produces a failed observation that Python can handle within its iteration
+limit. Snippets have no shell or CPython execution fallback. Hosted process
+lifetime, frame size and tool requests are independently bounded by Hickory.
+Output beyond 64 KiB is refused rather than silently treated as complete.
 
 ---
+
+Last LLM implementation review (2026-10-18): partially verified. Requirement,
+choices, limitations and executable witnesses are in
+[the migration audit](../audits/2026-10-18-python-agent-ownership.md).
+Evidence: Python `core.py`, `runtime.py`, `hosted.py`; Rust `python_agent.rs`,
+`serve/python_agent.rs`, existing changeset verifier and confinement profile.
+Executed checks: see the audit. Human correctness judgment: not recorded.
+
+## Historical evidence for the retired implementation
+
+The following notes predate the migration. Deleted Rust-runtime paths and old
+check results do not verify the current implementation.
+
 
 Last LLM verification:
 - Date: 2026-08-06

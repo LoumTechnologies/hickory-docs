@@ -1,5 +1,10 @@
 # Token economics: does the hick approach actually cost less?
 
+> Agent history below predates the 2026-10-18 migration. The Rust loop and
+> experiment runner are removed. Python owns the built-in loop; see
+> [the current runtime](python-agent-runtime.md).
+
+
 The product thesis has a measurable claim inside it: **anchoring agent edits in
 document provenance is cheaper than scripting file edits, and the document
 surface is cheaper to read than a whole repo.** That claim deserves numbers,

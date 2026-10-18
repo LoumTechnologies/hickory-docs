@@ -19,14 +19,14 @@ class Provider(http.server.BaseHTTPRequestHandler):
     def do_POST(self):
         assert self.headers['Authorization'] == 'Bearer fixture-not-a-real-key'
         self.rfile.read(int(self.headers['Content-Length']))
-        body = json.dumps({
-            'choices': [{'message': {'content': json.dumps({'python':
+        body = ('data: ' + json.dumps({
+            'choices': [{'delta': {'content': json.dumps({'python':
                 "tool('create_doc', {'path':'proposal.md', 'input':'Cancelled proposal'})"
             })}}],
             'usage': {'prompt_tokens': 1, 'completion_tokens': 1},
-        }).encode()
+        }) + '\n\ndata: [DONE]\n\n').encode()
         self.send_response(200)
-        self.send_header('Content-Type', 'application/json')
+        self.send_header('Content-Type', 'text/event-stream')
         self.send_header('Content-Length', str(len(body)))
         self.end_headers()
         self.wfile.write(body)

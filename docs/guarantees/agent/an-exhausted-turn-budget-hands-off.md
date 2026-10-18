@@ -1,29 +1,25 @@
-# An Exhausted Turn Budget Hands Off Instead of Failing
+# An exhausted Python iteration budget retains incomplete work
 
-Given an agent run that reaches its turn budget without finishing, when the
-budget is spent, then the run spends one final call asking the model to stop
-and hand off — and returns a successful outcome whose summary is marked
-unfinished and carries what changed, what was verified, what is left, and the
-next step. It does not return an error.
-
-The old behaviour was `bail!("agent did not finish within N turns")`. By the
-time a run hits that line it has usually written files and landed edits: real
-work, on disk, that the caller then discards because all it sees is an `Err`.
-Measured against the Claude Code sessions on this machine, this is the common
-case and not the edge case — the median session used 54 tool-issuing LLM
-rounds against a default budget of 20, and 72% exceeded 20.
-
-A handoff also composes with the conversation tree. The summary becomes a
-`PriorTurn`, so "keep going" is an ordinary next turn replayed into a fresh
-loop rather than a restart from nothing.
-
-The budget itself is still a fixed turn count. A real budget would also bound
-tokens, wall clock, and dollars, since twenty turns of `cat` and twenty turns
-of full test suites are not the same amount of anything. That is not built;
-this guarantee covers only what happens at the edge, not how the edge is
-chosen.
+Given a Python run that spends its configured iteration budget without current
+accepted completion, the Python graph stops and reports an error. Hickory keeps
+actual applied writes, proposals, model calls and tool evidence in the session.
+It does not mark the unverified work successful or make a hidden Rust handoff
+model call. A later turn can use the retained session to continue deliberately.
 
 ---
+
+Last LLM implementation review (2026-10-18): partially verified. Requirement,
+choices, limitations and executable witnesses are in
+[the migration audit](../audits/2026-10-18-python-agent-ownership.md).
+Evidence: Python `core.py`, `runtime.py`, `hosted.py`; Rust `python_agent.rs`,
+`serve/python_agent.rs`, existing changeset verifier and confinement profile.
+Executed checks: see the audit. Human correctness judgment: not recorded.
+
+## Historical evidence for the retired implementation
+
+The following notes predate the migration. Deleted Rust-runtime paths and old
+check results do not verify the current implementation.
+
 
 Last LLM verification:
 - Date: 2026-08-06

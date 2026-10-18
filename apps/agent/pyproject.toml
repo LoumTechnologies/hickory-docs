@@ -1,7 +1,7 @@
 [project]
 name = "hickory-agent-worker"
 version = "0.1.0"
-description = "Confined LangGraph orchestration for the Hickory agent CLI"
+description = "Independent Python agent with a confined Hickory adapter"
 requires-python = ">=3.11"
 dependencies = ["langgraph>=1.0,<2", "pydantic-monty==1.1.0"]
 
@@ -11,3 +11,6 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/hickory_agent_worker"]
+
+[project.scripts]
+hickory-agent-dev = "hickory_agent_worker.cli:main"

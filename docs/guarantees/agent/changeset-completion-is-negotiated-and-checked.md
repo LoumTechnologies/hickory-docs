@@ -1,5 +1,15 @@
 # Changeset completion is negotiated and checked
 
+> 2026-10-18 amendment: the built-in loop is Python, not Rust. Branch data and
+> evidence persist through the existing session/UI; Python constructs model
+> context. Hosted completion requires a current accepted changeset and reports
+> runtime checks unrun. Old Rust-runtime evidence below is historical. See
+> [the migration audit](../audits/2026-10-18-python-agent-ownership.md).
+
+
+The built-in Python agent always uses this contract; Python owns repair and
+completion attempts, and Hickory owns acceptance. ACP negotiation remains as follows.
+
 Given an ACP v1 peer that advertises `hickorydocs.com/changesets` version 1,
 and a turn on a declared project, ordinary workspace, or untitled editors, when work begins, Hickory freezes
 starting output tree A and binds it to that turn's boundary. The peer can inspect

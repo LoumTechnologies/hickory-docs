@@ -439,7 +439,7 @@ pub(crate) fn build_request(
         // An empty content block is a 400 on every provider ("text content
         // blocks must be non-empty"), and it carries nothing, so dropping it
         // is strictly better than failing the request. This is a backstop:
-        // callers should not produce them (see `react_loop`'s malformed
+        // callers should not produce them (see the Python agent's malformed
         // -response path), but one blank turn must never kill a session.
         if m.content.trim().is_empty() {
             continue;

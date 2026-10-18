@@ -1,23 +1,4 @@
-//! Host review policy, independent of the model and optional for headless callers.
-use crate::ToolInvocation;
-
-#[async_trait::async_trait]
-pub trait ToolReview: Send + Sync {
-    /// User-authored revision of the exact preview, after approval.
-    fn replacement(&self) -> Option<String> {
-        None
-    }
-    fn mode(&self) -> &'static str {
-        "review"
-    }
-    fn completed(&self, _ok: bool) {}
-    async fn approve(
-        &self,
-        invocation: &ToolInvocation,
-        preview: &(String, String, String),
-    ) -> anyhow::Result<()>;
-}
-
+//! Guard for complete replacements approved by the shared tool review UI.
 pub(crate) fn whole_edit(
     index: &crate::tools::hashline::LineIndex,
     inv: &crate::ToolInvocation,

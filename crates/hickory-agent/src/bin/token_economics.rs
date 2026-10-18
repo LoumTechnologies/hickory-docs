@@ -1,9 +1,6 @@
-//! Token-economics experiment runner + reporter (`just tokens-report`).
+//! Historical token-economics reporter (`just tokens-report`).
 //!
 //! Subcommands:
-//! - `run <spec.json> [--runs-dir DIR]` — execute every (arm x task) of a
-//!   committed experiment spec against the real API (needs
-//!   `ANTHROPIC_API_KEY`), appending JSONL rows under the runs dir.
 //! - `report [--runs-dir DIR] [--out FILE]` — regenerate the Markdown
 //!   report from the raw JSONL. Fully offline.
 //! - `count-tokens <file...>` — static token measurement of files via
@@ -12,20 +9,17 @@
 //!   woven outputs.
 
 use std::path::PathBuf;
-use std::sync::Arc;
 
-use anyhow::{Context as _, Result, bail};
-use hickory_agent::harness::{ExperimentSpec, generate_report, run_experiment};
-use hickory_agent::{AnthropicClient, Effort, LlmClient, Message, Role};
-use hickory_executor::LocalExecutor;
+use anyhow::Result;
+use hickory_agent::harness::generate_report;
+use hickory_agent::{AnthropicClient, Message, Role};
 
 const DEFAULT_RUNS_DIR: &str = "experiments/token-economics/runs";
 const DEFAULT_REPORT: &str = "experiments/token-economics/report.md";
 
 fn usage() -> ! {
     eprintln!(
-        "usage:\n  token-economics run <spec.json> [--runs-dir DIR]\n  \
-         token-economics report [--runs-dir DIR] [--out FILE]\n  \
+        "usage:\n  token-economics report [--runs-dir DIR] [--out FILE]\n  \
          token-economics count-tokens <file...>"
     );
     std::process::exit(2);
@@ -49,51 +43,6 @@ async fn main() -> Result<()> {
     }
     let cmd = args.remove(0);
     match cmd.as_str() {
-        "run" => {
-            let runs_dir = flag_value(&mut args, "--runs-dir")
-                .map(PathBuf::from)
-                .unwrap_or_else(|| PathBuf::from(DEFAULT_RUNS_DIR));
-            let [spec_path] = args.as_slice() else {
-                usage()
-            };
-            if std::env::var("ANTHROPIC_API_KEY")
-                .unwrap_or_default()
-                .is_empty()
-            {
-                bail!(
-                    "ANTHROPIC_API_KEY is not set — experiment runs hit the real API. \
-                     `report` and the offline tests work without it."
-                );
-            }
-            let spec_path = PathBuf::from(spec_path);
-            let spec = ExperimentSpec::load(&spec_path)?;
-            let spec_dir = spec_path
-                .parent()
-                .map(PathBuf::from)
-                .unwrap_or_else(|| PathBuf::from("."));
-            let work_dir = std::env::temp_dir().join(format!(
-                "hickory-token-economics-{}-{}",
-                std::process::id(),
-                chrono::Utc::now().format("%Y%m%d%H%M%S")
-            ));
-            std::fs::create_dir_all(&work_dir).context("cannot create work dir")?;
-            let executor: Arc<dyn hickory_executor::Executor> = Arc::new(LocalExecutor::new()?);
-            let out_path = runs_dir.join(format!("{}.jsonl", spec.experiment));
-            let factory = |arm: &hickory_agent::harness::ArmSpec| -> Result<Arc<dyn LlmClient>> {
-                let mut client = AnthropicClient::new();
-                if let Some(model) = &arm.model {
-                    client = client.with_model(model.clone());
-                }
-                if let Some(effort) = &arm.effort {
-                    let effort = Effort::parse(effort)
-                        .with_context(|| format!("arm {}: bad effort '{effort}'", arm.name))?;
-                    client = client.with_effort(effort);
-                }
-                Ok(Arc::new(client))
-            };
-            run_experiment(&spec, &spec_dir, &work_dir, &factory, executor, &out_path).await?;
-            println!("recorded runs to {}", out_path.display());
-        }
         "report" => {
             let runs_dir = flag_value(&mut args, "--runs-dir")
                 .map(PathBuf::from)

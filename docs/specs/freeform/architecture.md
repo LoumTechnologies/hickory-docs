@@ -1,5 +1,10 @@
 # Hickory Docs — Architecture
 
+> **Agent amendment (2026-10-18):** The built-in agent is the independent
+> Python/LangGraph runtime. Rust provides process supervision, inference
+> transport, reviewed tools, recording and changeset verification. The Rust
+> ReAct loop and script executor were removed. See `python-agent-runtime.md`.
+
 > **Browser amendment (2026-10-04):** `hick-lang-wasm` now exposes a narrow
 > non-executing literal-file operation with byte lineage. The React embedding
 > boundary and a dedicated JS/TS interpreter worker are shipped in the browser;
@@ -52,7 +57,7 @@ runtime (`hick-container`, `wasm-net`, `native2wasm`, container2wasm images).
 | `hick-store`, `hick-merge` | hick-store | Git-backed version store (`.md/git/` plumbing, separate from user `.git`), three-way merge |
 | `hick-token`, `hick-classify`, `hick-sink`, `hick-secrets` | hick-security | Macaroon capability tokens, data classification, egress sinks, age-encrypted secrets |
 | `hick-grove` (+ server routes) | hick-reactive | Yrs (Yjs) CRDT engine over XML — the shared-state layer |
-| `hick-agent-sdk` | hick-agent | `LlmClient` trait + Anthropic client, ReAct loop, session logging (`SessionLog`/`XmlSessionLog`), conversation tree |
+| `hickory-agent` | hick-agent | Shared provider transports, document tools, session recording and lineage (agent loop is Python) |
 
 Explicitly **not** vendored: `hick-container`, `hick-shell` (wasm binaries),
 `hick-api` (in-wasm gateway), `wasm-net/*`, `native2wasm/*`, `hick-policy`
@@ -141,10 +146,10 @@ docs/  guarantees/  specs/freeform/  users/  developers/
   than reimplemented per host. See `local-collaboration.md` for the trust model
   (capability links, and why a shared session that grants `run` refuses to
   start on the unsandboxed local executor).
-- **AI agent**: `hick-agent-sdk`'s ReAct loop with `LlmClient` (Anthropic,
-  `claude-sonnet-5` default), executing through the same `Executor`. Every
-  session is written as a `hick:session` document; "promote" turns it into a
-  clean pipeline. Agent output is literally literate programming committed to git.
+- **AI agent**: Python owns its LangGraph loop and conversation. Hickory confines
+  the process, provides credentialed inference and document tools, records tool
+  evidence, requires edit approval and verifies the final changeset artifact.
+  See `python-agent-runtime.md` and `docs/developers/python-agent.md`.
 
 ## Delivery
 

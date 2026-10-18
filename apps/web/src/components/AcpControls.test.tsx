@@ -4,7 +4,7 @@ import { act, cleanup, fireEvent, render, renderHook, screen, waitFor } from "@t
 import { AcpControls, useAcp } from "./AcpControls";
 import { acpApi, type AcpState } from "../api/acp";
 vi.mock("../api/acp", () => ({ acpApi: { catalogue: vi.fn(), connect: vi.fn(), state: vi.fn(), authenticate: vi.fn(), configure: vi.fn(), permission: vi.fn(), install: vi.fn() } }));
-afterEach(() => { cleanup(); vi.clearAllMocks(); });
+afterEach(() => { cleanup(); vi.clearAllMocks(); vi.mocked(acpApi.state).mockReset(); });
 function Surface({ running = null, settingsOpen = true }: { running?: string | null; settingsOpen?: boolean }) {
   const control = useAcp("doc", "codex", undefined, running);
   return <AcpControls doc="doc" backend="codex" running={!!running} control={control} settingsOpen={settingsOpen} />;
@@ -20,9 +20,10 @@ describe("ACP controls", () => {
     const pending = new Promise<AcpState>(resolve => { finish = resolve; });
     let operation!: Promise<void>;
     act(() => { operation = hook.result.current.act(() => pending); });
-    hook.rerender({ backend: "builtin" });
+    vi.mocked(acpApi.state).mockResolvedValue({ backend: "python", ready: true });
+    hook.rerender({ backend: "python" });
     await act(async () => { finish(ready); await operation; });
-    expect(hook.result.current.state).toBeNull();
+    await waitFor(() => expect(hook.result.current.state?.backend).toBe("python"));
     expect(hook.result.current.busy).toBe(false);
   });
   it("renders the adapter's model choices and persists a change", async () => {

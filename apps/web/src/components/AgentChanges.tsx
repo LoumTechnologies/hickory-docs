@@ -53,7 +53,7 @@ export function AgentChanges({ doc, state, running, apply, update }: {
         try { update(await acpApi.edits(doc, { mode: e.target.value as "review" | "auto-accept" }, state.backend)); }
         catch (e) { setError(e instanceof Error ? e.message : String(e)); }
       }}><option value="review">Review</option>{state.backend !== "python" && <option value="auto-accept">Auto-accept</option>}</select></label>
-    <p className="muted">Reviews cover Hickory document tools. {state.backend === "python" ? "Every Python agent edit requires approval. Acceptance does not verify the edit or change its authorship. Checks remain unrun." : state.backend === "builtin" ? "Agent scripts follow the chosen executor." : "Native agent commands follow the adapter’s permissions and can bypass this review."}</p>
+    <p className="muted">Reviews cover Hickory document tools. {state.backend === "python" ? "Every Python agent edit requires approval. Acceptance does not verify the edit or change its authorship. Checks remain unrun." : "Native agent commands follow the adapter’s permissions and can bypass this review."}</p>
     {error && <p role="alert">{error}</p>}
     {state.edits.changes.map(change => <div key={change.id} className="agent-change-link">
       <span>{change.status === "pending" ? "Proposed change" : change.status === "applying" ? "Applying change" : `${change.status.charAt(0).toUpperCase()}${change.status.slice(1)} change`} · {change.path ?? change.name}</span>

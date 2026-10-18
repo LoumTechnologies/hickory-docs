@@ -8,7 +8,7 @@
 //! *fresher* than the hosted ones (which serve the last successful run).
 //!
 //! What is deliberately absent: billing and analytics. The agent is real —
-//! see [`super::agent`] — the same ReAct loop `hick agent` runs, wired to the
+//! see [`super::agent`] — the same confined Python agent `hick agent` runs, wired to the
 //! chat dock.
 
 use std::collections::HashMap;

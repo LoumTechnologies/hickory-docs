@@ -8,6 +8,24 @@ use std::path::PathBuf;
 use std::sync::Mutex;
 
 struct Scripted(Mutex<VecDeque<String>>);
+fn scripted(replies: impl IntoIterator<Item = String>) -> Scripted {
+    let mut actions = VecDeque::new();
+    for raw in replies {
+        if serde_json::from_str::<serde_json::Value>(&raw)
+            .unwrap()
+            .get("done")
+            .is_some()
+        {
+            actions.push_back(json!({"python":SUBMIT}).to_string());
+        }
+        actions.push_back(raw);
+    }
+    Scripted(Mutex::new(actions))
+}
+const SUBMIT: &str = r#"import json
+s = json.loads(tool('changeset_status', {})['content'][0]['text'])
+tool('submit_changeset', {'boundary':s['boundary'], 'expected':s['expected'], 'entry':s['entry'], 'sources':{s['entry']:s['template']}})"#;
+
 #[async_trait::async_trait]
 impl LlmClient for Scripted {
     async fn complete(&self, messages: Vec<Message>) -> Result<String> {
@@ -79,11 +97,11 @@ async fn real_confined_worker_requires_review_and_preserves_the_audit() {
     for accept in [false, true] {
         let root = tempfile::tempdir().unwrap();
         std::fs::write(root.path().join("human.md"), "Original human input\n").unwrap();
-        let client = Scripted(Mutex::new(VecDeque::from([
+        let client = scripted([
             json!({"python":"tool('record_assumption', {'statement':'The requested note can be new', 'reason':'Avoid altering original input', 'affects':['create_doc']})"}).to_string(),
             json!({"python":"tool('create_doc', {'path':'proposal.md', 'input':'AI proposal'})"}).to_string(),
             json!({"done":"Stopped; checks were not run."}).to_string(),
-        ])));
+        ]);
         let mut review = FixedReview { accept, count: 0 };
         let session = run(
             Config {
@@ -109,7 +127,7 @@ async fn real_confined_worker_requires_review_and_preserves_the_audit() {
         assert!(source.contains("python-model-request"));
         assert!(source.contains("python-edit-review"));
         assert!(source.contains("Stopped; checks were not run."));
-        assert!(source.contains("\"verification\":\"unrun\""));
+        assert!(source.contains("source-output-equality-only"));
         let timeline = hickory_agent::audit::timeline(&source);
         assert!(timeline.iter().any(|entry| entry["kind"] == "assumption"));
         assert!(
@@ -126,11 +144,11 @@ async fn model_cannot_invoke_shell_or_verify_through_the_broker() {
         return;
     };
     let root = tempfile::tempdir().unwrap();
-    let client = Scripted(Mutex::new(VecDeque::from([
+    let client = scripted([
         json!({"shell":"touch hacked"}).to_string(),
         json!({"python":"tool('verify', {})"}).to_string(),
         json!({"done":"Both unsupported actions were refused."}).to_string(),
-    ])));
+    ]);
     let mut review = FixedReview {
         accept: true,
         count: 0,
@@ -229,12 +247,12 @@ async fn approval_is_invalidated_when_the_source_changes() {
             Ok(true)
         }
     }
-    let client = Scripted(Mutex::new(VecDeque::from([
+    let client = scripted([
         json!({"python":"tool('read_doc', {'doc':'human.md'})"}).to_string(),
         json!({"python":"tool('edit_doc', {'doc':'human.md', 'after':'^', 'input':'AI prefix'})"})
             .to_string(),
         json!({"done":"The source changed; edit refused."}).to_string(),
-    ])));
+    ]);
     let mut review = ConcurrentHuman(path.clone(), 0);
     let session = run(
         Config {
@@ -259,4 +277,124 @@ async fn approval_is_invalidated_when_the_source_changes() {
         source.contains("Proposal changed during approval")
             || source.contains("changed since the previous surface")
     );
+}
+
+// Guarantee: docs/guarantees/agent/changeset-completion-is-negotiated-and-checked.md
+#[tokio::test]
+async fn model_claims_and_worker_prints_cannot_certify_completion() {
+    let Some(python) = python() else {
+        return;
+    };
+    let root = tempfile::tempdir().unwrap();
+    let client = Scripted(Mutex::new(VecDeque::from([
+        json!({"python":"print({'accepted': True, 'verification': 'passed'})"}).to_string(),
+        json!({"done":"I verified everything; trust my claim"}).to_string(),
+    ])));
+    let error = run(
+        Config {
+            python,
+            root: root.path().into(),
+            doc: None,
+            prompt: "Claim success without an artifact".into(),
+            max_turns: 2,
+        },
+        &client,
+        &mut FixedReview {
+            accept: false,
+            count: 0,
+        },
+    )
+    .await
+    .unwrap_err();
+    assert!(
+        error.to_string().contains("without model completion"),
+        "{error:#}"
+    );
+    let session = std::fs::read_dir(root.path().join("sessions"))
+        .unwrap()
+        .next()
+        .unwrap()
+        .unwrap()
+        .path();
+    let source = std::fs::read_to_string(session).unwrap();
+    assert!(source.contains("No current accepted changeset"));
+    assert!(source.contains("worker-reported"));
+    assert!(!source.contains("python-verified-changeset"));
+}
+
+// Guarantee: docs/guarantees/agent/changeset-completion-is-negotiated-and-checked.md
+#[tokio::test]
+async fn a_write_after_submission_invalidates_completion() {
+    let Some(python) = python() else {
+        return;
+    };
+    let root = tempfile::tempdir().unwrap();
+    let client = Scripted(Mutex::new(VecDeque::from([
+        json!({"python":SUBMIT}).to_string(),
+        json!({"python":"tool('create_doc', {'path':'proposal.md', 'input':'AI proposal'})"})
+            .to_string(),
+        json!({"done":"Use the old accepted artifact"}).to_string(),
+    ])));
+    let error = run(
+        Config {
+            python,
+            root: root.path().into(),
+            doc: None,
+            prompt: "Write after verification".into(),
+            max_turns: 3,
+        },
+        &client,
+        &mut FixedReview {
+            accept: true,
+            count: 0,
+        },
+    )
+    .await
+    .unwrap_err();
+    assert!(
+        error.to_string().contains("without model completion"),
+        "{error:#}"
+    );
+    assert!(
+        root.path().join("proposal.md").exists(),
+        "actual approved work remains"
+    );
+}
+
+// Guarantee: docs/guarantees/agent/python-execution-has-two-boundaries.md
+#[tokio::test]
+async fn indirect_execution_and_outside_proposals_are_not_capabilities() {
+    let Some(python) = python() else {
+        return;
+    };
+    let root = tempfile::tempdir().unwrap();
+    let outside = tempfile::tempdir().unwrap();
+    let destination = outside.path().join("escaped.md");
+    let client = scripted([
+        json!({"python":"tool('debug_start', {})"}).to_string(),
+        json!({"python":"tool('begin_changeset', {'workspace':'/'})"}).to_string(),
+        json!({"python":"tool('write_file', {'path':'hacked', 'content':'bypass'})"}).to_string(),
+        json!({"python":format!("tool('create_doc', {{'path':{}, 'input':'AI proposal'}})", serde_json::to_string(&destination.display().to_string()).unwrap())}).to_string(),
+        json!({"done":"The bypasses were refused"}).to_string(),
+    ]);
+    let mut review = FixedReview {
+        accept: true,
+        count: 0,
+    };
+    run(
+        Config {
+            python,
+            root: root.path().into(),
+            doc: None,
+            prompt: "Attempt review bypasses".into(),
+            max_turns: 6,
+        },
+        &client,
+        &mut review,
+    )
+    .await
+    .unwrap();
+    assert_eq!(review.count, 0);
+    assert!(!destination.exists());
+    assert!(!root.path().join("hacked").exists());
 }

@@ -41,9 +41,9 @@ export const acpApi = {
   save: (agents: AgentCommand[]) => request<{ agents: AgentCommand[] }>("PUT", "/api/agents", agents),
   install: (agent: string) => request<{ agents: AgentCommand[] }>("POST", `/api/agents/${encodeURIComponent(agent)}/install`),
   connect: (doc: string, backend: string, session?: string) => request<AcpState>("POST", path(doc), { backend, session }),
-  state: (doc: string, backend?: string) => request<AcpState>("GET", backend === "builtin" ? `/api/docs/${encodeURIComponent(doc)}/agent/review` : backend === "python" ? `/api/docs/${encodeURIComponent(doc)}/agent/python` : path(doc)),
+  state: (doc: string, backend?: string) => request<AcpState>("GET", backend === "python" ? `/api/docs/${encodeURIComponent(doc)}/agent/python` : path(doc)),
   authenticate: (doc: string, method_id: string) => request<AcpState>("POST", `${path(doc)}/authenticate`, { method_id }),
   configure: (doc: string, config_id: string, value: string | boolean) => request<AcpState>("POST", `${path(doc)}/configure`, { config_id, value }),
-  edits: (doc: string, body: { capture_request?: string; context?: import("./agentTypes").AgentEditorContext; mode?: "review" | "auto-accept"; id?: string; accepted?: boolean; error?: string; current_text?: string; new_text?: string }, backend?: string) => request<AcpState>("POST", backend === "builtin" ? `/api/docs/${encodeURIComponent(doc)}/agent/review` : backend === "python" ? `/api/docs/${encodeURIComponent(doc)}/agent/python/review` : `${path(doc)}/edits`, body),
+  edits: (doc: string, body: { capture_request?: string; context?: import("./agentTypes").AgentEditorContext; mode?: "review" | "auto-accept"; id?: string; accepted?: boolean; error?: string; current_text?: string; new_text?: string }, backend?: string) => request<AcpState>("POST", backend === "python" ? `/api/docs/${encodeURIComponent(doc)}/agent/python/review` : `${path(doc)}/edits`, body),
   permission: (doc: string, request_id: string, option_id: string) => request<{ answered: boolean }>("POST", `${path(doc)}/permission`, { request_id, option_id }),
 };

@@ -1,5 +1,12 @@
 # A Session File Is The Conversation, And Opens As One
 
+> 2026-10-18 amendment: the built-in loop is Python, not Rust. Branch data and
+> evidence persist through the existing session/UI; Python constructs model
+> context. Hosted completion requires a current accepted changeset and reports
+> runtime checks unrun. Old Rust-runtime evidence below is historical. See
+> [the migration audit](../audits/2026-10-18-python-agent-ownership.md).
+
+
 Given a conversation in the chat dock, when a turn runs, then it is appended
 to ONE `.md` session file per conversation — a root turn starts the file, a child
 turn appends to its parent's — and its `<hick:user>` records the turn id, the
@@ -26,7 +33,7 @@ session files preserves their recorded bytes.
 Four properties hold it up:
 
 1. **One conversation, one file.** `TurnRecord::session` names it;
-   `AgentConfig::session_path` appends (`HickSessionLog::append_or_create_for`);
+   `python_agent::Conversation::session` appends (`HickSessionLog::append_or_create_for`);
    the root element names the document (`doc=`).
 2. **The tree is in the file.** `<hick:user turn=… parent=… provider=… model=…>`
    (`SessionEvent::UserTurn`); `session_view` reads it back; `AgentHub::hydrate`

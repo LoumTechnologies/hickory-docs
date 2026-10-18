@@ -11,7 +11,7 @@ import { panes, tab } from "../shell/layout";
 import { api } from "../api/client";
 import { registerSearchEditor } from "../lib/workspaceSearch";
 vi.mock("../api/client", () => ({ request: vi.fn().mockResolvedValue({}), api: { responseDraft: vi.fn().mockResolvedValue({ scope: "test", state: null }), saveResponseDraft: vi.fn().mockResolvedValue({ ok: true }), agent: vi.fn(), agentTurns: vi.fn(), file: vi.fn(), executor: vi.fn().mockResolvedValue({}), complete: vi.fn().mockResolvedValue({ suggestions: [] }) } }));
-vi.mock("../api/acp", () => ({ acpApi: { state: vi.fn(async () => ({backend: "builtin", ready: true, edits: {mode: "review", changes: []}})), agents: vi.fn().mockResolvedValue({ agents: [] }) } }));
+vi.mock("../api/acp", () => ({ acpApi: { state: vi.fn(async () => ({backend: "python", ready: true, edits: {mode: "review", changes: []}})), agents: vi.fn().mockResolvedValue({ agents: [] }) } }));
 vi.mock("../api/realtime", async importOriginal => ({ ...await importOriginal<typeof import("../api/realtime")>(), getWorkspaceRealtime: () => ({ onRunEvent: () => () => {} }) }));
 afterEach(() => { cleanup(); vi.clearAllMocks(); localStorage.clear(); });
 // Guarantee: docs/guarantees/agent/the-agent-sees-the-open-editors.md
@@ -32,7 +32,7 @@ it("sends a startup untitled editor without a folder, using fresh text", async (
   act(() => editor.dispatch({ changes: { from: editor.state.field(responseStart), to: editor.state.doc.length, insert: "summarize" }, userEvent: "input.type" }));
   fireEvent.click(screen.getByRole("button", { name: "Send" }));
   await waitFor(() => expect(api.agent).toHaveBeenCalledWith("workspace", "summarize", null,
-    expect.anything(), expect.anything(), "builtin", { live: true, buffers: [{ id: untitled.id, kind: "untitled", provenance_uri: bufferTarget(untitled.id), name: untitled.title ?? untitled.target,
+    expect.anything(), expect.anything(), "python", { live: true, buffers: [{ id: untitled.id, kind: "untitled", provenance_uri: bufferTarget(untitled.id), name: untitled.title ?? untitled.target,
       path: null, content: "latest unsaved text", focused: true }] }));
 });
 // Guarantee: docs/guarantees/agent/the-agent-sees-the-open-editors.md
