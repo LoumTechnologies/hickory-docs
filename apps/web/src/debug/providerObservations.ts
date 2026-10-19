@@ -21,7 +21,8 @@ export function selectProviderReading(owner: symbol, reading: ProviderReading, i
 }
 export function providerObservationContext(path: string, content: string) {
   const normalized = (uri: string) => uri.replace(/^hick:\/\/\//, "");
-  return [...selected.values()].filter(item => normalized(item.reading.source.uri) === normalized(path)).map(({ reading, historical }) => ({
+  const unique = new Map([...selected.values()].map(item => [JSON.stringify([item.reading.source.uri, item.reading.source.revision, item.reading.annotations.map(a => a.evidence)]), item]));
+  return [...unique.values()].filter(item => normalized(item.reading.source.uri) === normalized(path)).map(({ reading, historical }) => ({
     state: reading.source.bytes === null ? "unavailable" : new TextDecoder().decode(new Uint8Array(reading.source.bytes)) !== content ? "changed" : historical ? "historical" : "captured",
     evidence: reading.annotations.map(item => item.evidence), reading: { schema_version: reading.schema_version,
       source: { id: reading.source.id, uri: reading.source.uri, revision: reading.source.revision },

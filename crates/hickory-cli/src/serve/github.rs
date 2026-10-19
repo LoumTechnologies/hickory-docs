@@ -102,7 +102,7 @@ fn said(output: &Output) -> String {
     }
 }
 
-fn gh_json(dir: &Path, args: &[&str]) -> Result<Value, String> {
+pub(super) fn gh_json(dir: &Path, args: &[&str]) -> Result<Value, String> {
     let output = command(dir, "gh", args)?;
     if !output.status.success() {
         return Err(said(&output));
@@ -280,7 +280,7 @@ pub fn github_repository(remote: &str) -> Option<String> {
     valid_repository(path).then(|| path.to_string())
 }
 
-fn valid_repository(repository: &str) -> bool {
+pub(super) fn valid_repository(repository: &str) -> bool {
     let mut parts = repository.split('/');
     let valid = |part: &str| {
         !part.is_empty()

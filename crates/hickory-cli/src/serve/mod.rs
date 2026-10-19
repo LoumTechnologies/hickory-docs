@@ -48,6 +48,7 @@ pub mod formula;
 pub mod git;
 pub mod git_ops;
 pub mod github;
+mod github_reviews;
 pub mod history;
 pub mod install;
 pub mod lsp_bridge;
@@ -708,6 +709,7 @@ pub(crate) fn router(state: LocalState) -> Router {
         // GitHub is reached by the person's own `gh` installation. Hickory
         // never receives or persists its token; a missing or signed-out CLI
         // is provider unavailability, not a broken filesystem tree.
+        .route("/workspace/github/review-threads", get(github_reviews::get))
         .route("/workspace/github", get(github::workspace))
         .route("/workspace/github/pr/{number}", get(github::pull_request))
         .route("/workspace/github/issue/{number}", get(github::issue))

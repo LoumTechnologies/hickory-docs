@@ -1,3 +1,5 @@
+import { GithubReviewThreads } from "./GithubReviewThreads";
+import type { EditorView } from "@codemirror/view";
 import { FILES_CHANGED_EVENT } from "../shell/FolderTreePane";
 import { useEffect, useState, useSyncExternalStore } from "react";
 import { investigationConversations, sendInvestigation } from "../lib/reviewInvestigations";
@@ -7,7 +9,7 @@ import { REVIEW_TARGET, REVIEW_ERROR, reviewSelection, investigationPrompt, type
 import "./ReviewPanel.css";
 interface Investigation { event: string; thread: string; link: { id: string; conversation: string; turn?: string }; state: string; response?: string; session?: string; error?: string }
 interface History { scope?: string; events: ReviewEvent[]; targets: { thread: string; current_state: string }[]; investigations?: Investigation[] }
-export function ReviewPanel() {
+export function ReviewPanel({ document, source, view }: { document?: string; source?: string; view?: EditorView | null } = {}) {
   const [shown, setShown] = useState(false);
   const [target, setTarget] = useState<ReviewTarget | null>(null);
   const [history, setHistory] = useState<History>({ events: [], targets: [] });
@@ -114,6 +116,7 @@ export function ReviewPanel() {
           </article>)}
         </section>}
       </> : <p>Select a claim and choose Comment on selection, or right-click a ribbon or brace. Use Alt+Enter on a focused connection for keyboard access.</p>}
+      <GithubReviewThreads document={document} source={source} view={view} />
       <p className="muted">Stored locally with this workspace. Comments are declarations; passing checks do not resolve them. Original targets and earlier comments remain.</p>
     </section>}
   </div>;

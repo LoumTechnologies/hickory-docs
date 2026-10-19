@@ -576,3 +576,43 @@ test("captured Python profile shares function evidence with inline source and se
   await expect(page.locator(".runtime-inline")).toHaveCount(0);
   expect(unexpected).toEqual([]);
 });
+
+// Guarantee: docs/guarantees/authoring/github-reviews-retain-reviewed-revisions.md
+test("GitHub reviews keep external revisions, selective context, refresh and offline history", async ({ page }) => {
+  await noEngine(page);
+  await page.route("**/api/reviews", route => route.fulfill({ json: { scope: "local", events: [], targets: [] } }));
+  let refreshed = false, offline = false; const requests: string[] = [];
+  const bytes = [...Buffer.from("Human requirement\nAgent claim about total deadline\n")];
+  const revision = (await import("node:crypto")).createHash("sha256").update(Buffer.from(bytes)).digest("hex");
+  const make = () => ({ schema_version: 1, source: { id: "document", uri: "spec.md", revision, bytes }, unsupported: ["outbound synchronization"], annotations: [
+    { evidence: "thread-current", provider: "github-pr-review", provider_version: "graphql-v4", payload_schema: "hick.github-review-thread.v1", origin: { kind: "review", repository: "org/repo", pull_request: 7, thread: "thread-current", base_revision: "base", head_revision: "reviewed-head", side: "RIGHT", author: "reviewer", resolved: refreshed, outdated: false }, location: { id: "revision-bound-location", revision, line: 0, location: { source: "document", bytes: { start: 0, end: bytes.length }, precision: "exact" } }, source_precision: "exact", measurement_semantics: null, uncertainty: "exact_revision_content_mapping", payload: { mapping_state: "exact_revision_content_mapping", reviewed_source: { uri: "https://github.com/org/repo/blob/reviewed-head/spec.md" }, thread: { path: "spec.md", startLine: 1, line: 2, comments: [
+      { id: "comment-1", body: "Check the requirement <script>window.reviewExecuted=true</script>", author: { login: "reviewer" }, createdAt: "2026-10-01", updatedAt: refreshed ? "2026-10-19" : "2026-10-01", url: "https://github.com/org/repo/pull/7#discussion_r1", diffHunk: "@@ -1,2 +1,2 @@\n Human requirement\n Agent claim" },
+      { id: "reply-2", body: refreshed ? "Correction reviewed; externally resolved" : "Please investigate", author: { login: "other" }, createdAt: "2026-10-02", updatedAt: "2026-10-02", url: "https://github.com/org/repo/pull/7#discussion_r2" },
+    ] } } },
+    { evidence: "thread-old-left", provider: "github-pr-review", provider_version: "graphql-v4", payload_schema: "hick.github-review-thread.v1", origin: { kind: "review", repository: "org/repo", pull_request: 7, thread: "thread-old-left", base_revision: "unknown", head_revision: "old-head", side: "LEFT", author: "reviewer", resolved: false, outdated: true }, location: null, source_precision: "unknown", measurement_semantics: null, uncertainty: "outdated", payload: { mapping_state: "outdated", thread: { originalStartLine: 3, originalLine: 4, path: "deleted.py", comments: [{ id: "old-comment", body: "Historical deleted-side objection", url: "https://github.com/org/repo/pull/7#discussion_r3", diffHunk: "@@ -3,2 +3,0 @@\n-deleted" }] } } },
+    { evidence: "pr-conversation", provider: "github-pr-conversation", provider_version: "graphql-v4", payload_schema: "hick.github-pr-conversation.v1", origin: { kind: "review", repository: "org/repo", pull_request: 7, thread: "pr-conversation", base_revision: "base", head_revision: "head", side: "PR_LEVEL", author: "reviewer", resolved: false, outdated: false }, location: null, source_precision: "unknown", measurement_semantics: null, uncertainty: "PR-level comment has no source anchor", payload: { mapping_state: "pr_level", comment: { id: "pr-comment", body: "PR-level discussion remains unanchored", url: "https://github.com/org/repo/pull/7#issuecomment-1" } } },
+  ] });
+  await page.route("**/api/workspace/github/review-threads?*", route => { requests.push(route.request().method()); expect(new URL(route.request().url()).searchParams.get("repository")).toBe("org/repo"); return route.fulfill(offline ? { status: 503, json: { error: "offline or permission denied" } } : { json: make() }); });
+  await page.goto("/embed.html?review"); await page.getByRole("button", { name: "Review threads", exact: true }).click();
+  const provider = page.getByRole("region", { name: "GitHub source review annotations" });
+  await provider.getByLabel("Review repository").fill("org/repo"); await provider.getByLabel("Review PR number").fill("7");
+  await provider.getByRole("button", { name: "Read / refresh selected PR reviews" }).click();
+  await expect(provider.locator(":scope > section > details > summary")).toHaveCount(3);
+  await expect(page.locator(".provider-inline")).toHaveCount(1);
+  await page.getByRole("button", { name: "Inspect selected GitHub context" }).click(); await expect(page.getByLabel("Selected GitHub context")).toHaveText("[]");
+  const current = provider.locator('article[data-evidence="thread-current"]').locator("..");
+  await current.locator("summary").first().click(); await expect(current).toContainText("Please investigate");
+  await expect(current.getByRole("link", { name: /Exact GitHub discussion · comment-1/ })).toHaveAttribute("href", "https://github.com/org/repo/pull/7#discussion_r1");
+  await page.getByRole("button", { name: "Inspect selected GitHub context" }).click();
+  let selected = JSON.parse((await page.getByLabel("Selected GitHub context").textContent())!);
+  expect(selected.map((item: { evidence: string[] }) => item.evidence)).toEqual([["thread-current"]]); expect(selected[0].reading.provider_annotations[0].origin).not.toHaveProperty("run");
+  refreshed = true; await provider.getByRole("button", { name: "Read / refresh selected PR reviews" }).click(); await expect(current).toContainText("Correction reviewed; externally resolved"); await expect(current).toContainText("GitHub state: resolved");
+  const editor = page.getByRole("group", { name: "spec.md", exact: true }).locator(".cm-content");
+  await editor.locator(".cm-line").last().click(); await page.keyboard.press("ControlOrMeta+End"); await page.keyboard.type(" changed after capture");
+  await expect(editor).toContainText("changed after capture");
+  await expect(page.locator(".provider-inline")).toHaveCount(0); await expect(current.locator("summary").first()).toContainText("source changed");
+  await page.getByRole("button", { name: "Inspect selected GitHub context" }).click();
+  selected = JSON.parse((await page.getByLabel("Selected GitHub context").textContent())!); expect(selected[0].state).toBe("changed");
+  offline = true; await provider.getByRole("button", { name: "Read / refresh selected PR reviews" }).click(); await expect(provider.getByRole("alert")).toContainText("Previous capture remains historical"); await expect(page.locator(".provider-inline")).toHaveCount(0);
+  expect(requests).toEqual(["GET", "GET", "GET"]); expect(await page.evaluate(() => (window as unknown as { reviewExecuted?: boolean }).reviewExecuted)).toBeUndefined();
+});

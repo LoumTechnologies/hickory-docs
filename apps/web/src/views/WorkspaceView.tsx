@@ -1684,7 +1684,7 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
   return (
     <div className="doc-page with-chat wide-mode">
       <div className="workspace-review-toolbar">
-        <ReviewPanel />
+        <ReviewPanel document={focused?.doc?.path} source={focused?.liveSource} view={focused?.docEditor} />
         <MeetingImport onOpen={(path, line) => openHit(path, line ?? 1)} onOpenNote={(id) => { ensureDocOpen(id); navigate(`/docs/${id}`); }} />
         <SnapshotExport docId={focused?.docId} />
         <NativeRuntimeHistory path={focused?.doc?.path} source={focused?.liveSource} view={focused?.docEditor} />
