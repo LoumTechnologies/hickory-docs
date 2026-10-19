@@ -1,3 +1,4 @@
+import { MeetingRecording } from "./MeetingRecording";
 import { useRef, useState } from "react";
 import { request } from "../api/client";
 
@@ -33,7 +34,7 @@ export function MeetingImport({ onOpen, onOpenNote }: { onOpen: (path: string, l
     } catch (reason) { if (generation.current === epoch) setError(String(reason)); }
     finally { if (generation.current === epoch) setBusy(false); }
   }
-  return <details open={open} onToggle={(event) => setOpen(event.currentTarget.open)}>
+  return <><MeetingRecording onOpenNote={onOpenNote} /><details open={open} onToggle={(event) => setOpen(event.currentTarget.open)}>
     <summary>Import meeting transcript</summary>
     <p>Import locally without a model. Original bytes and fingerprints are retained.
       Summaries and action items are generated declarations, refreshed separately;
@@ -59,5 +60,5 @@ export function MeetingImport({ onOpen, onOpenNote }: { onOpen: (path: string, l
         <p>Cite this passage: <code>[{utterance.id}]({result.source}#L{utterance.line})</code></p>
       </li>)}</ol>
     </section>}
-  </details>;
+  </details></>;
 }

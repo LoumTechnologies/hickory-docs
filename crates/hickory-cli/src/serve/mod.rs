@@ -58,6 +58,7 @@ mod native_projects;
 pub mod outputs;
 pub mod plain_file;
 mod meeting_import;
+mod meeting_recording;
 mod runtime_runs;
 mod project_comparison;
 mod project_incorporation;
@@ -684,6 +685,7 @@ pub(crate) fn router(state: LocalState) -> Router {
         .route("/file", get(plain_file::get_file).put(plain_file::put_file))
         .route("/scratchpad", post(plain_file::post_scratchpad))
         .route("/meetings/import", post(meeting_import::post))
+        .merge(meeting_recording::routes())
         .route("/runtime/python", post(runtime_runs::python))
         .route("/runtime/runs", get(runtime_runs::list).post(runtime_runs::save))
         .route("/runtime/runs/{id}", axum::routing::delete(runtime_runs::remove).patch(runtime_runs::pin))
