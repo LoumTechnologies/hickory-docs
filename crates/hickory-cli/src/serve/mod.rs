@@ -41,6 +41,7 @@ mod changeset_drafts;
 pub mod commit_reading;
 pub mod dataset;
 pub mod debug_bridge;
+mod engineer_tour;
 pub mod environments;
 pub mod files_ops;
 pub mod find;
@@ -52,19 +53,19 @@ mod github_reviews;
 pub mod history;
 pub mod install;
 pub mod lsp_bridge;
+mod meeting_import;
+mod meeting_recording;
 pub mod merged;
 mod merged_write;
 mod native_projects;
 pub mod outputs;
 pub mod plain_file;
-mod meeting_import;
-mod meeting_recording;
-mod runtime_runs;
 mod project_comparison;
 mod project_incorporation;
 mod project_publish;
 mod python_agent;
 mod revision_projects;
+mod runtime_runs;
 pub use python_agent::bundled_runtime;
 mod launch_profiles;
 pub mod refactor;
@@ -134,6 +135,7 @@ pub struct ServeOptions {
 /// One recorded run, in the shape `GET /api/runs/:id` returns.
 #[derive(Clone)]
 pub struct RunRecord {
+    pub source_hash: Option<String>,
     pub status: String,
     pub started_at: String,
     pub blocks: Value,
@@ -460,6 +462,7 @@ impl LocalState {
         self.runs.lock().unwrap().insert(
             run_id.clone(),
             RunRecord {
+                source_hash: None,
                 status: "running".into(),
                 started_at: started_at.clone(),
                 blocks: json!([]),
@@ -482,7 +485,7 @@ impl LocalState {
             };
             let outcome = crate::run_doc(&path, &state.params, mode, state.executor).await;
 
-            let (status, blocks) = match outcome {
+            let (status, blocks, source_hash) = match outcome {
                 Ok(run) => {
                     // Replay each cell's transcript on the run channel, the
                     // same shape the hosted server publishes.
@@ -514,11 +517,15 @@ impl LocalState {
                     let blocks = crate::block_model_json(&run)
                         .map(|v| v.get("blocks").cloned().unwrap_or(json!([])))
                         .unwrap_or(json!([]));
-                    (if failed { "failed" } else { "ok" }, blocks)
+                    (
+                        if failed { "failed" } else { "ok" },
+                        blocks,
+                        Some(hick_context_protocol::digest(run.source.as_bytes())),
+                    )
                 }
                 Err(e) => {
                     log::warn!("run {run_key} failed: {e:#}");
-                    ("failed", json!([]))
+                    ("failed", json!([]), None)
                 }
             };
 
@@ -539,6 +546,7 @@ impl LocalState {
             }
             if let Some(record) = state.runs.lock().unwrap().get_mut(&run_key) {
                 record.status = status.to_string();
+                record.source_hash = source_hash;
                 record.blocks = blocks;
             }
             state
@@ -684,11 +692,21 @@ pub(crate) fn router(state: LocalState) -> Router {
         .route("/open-file", post(plain_file::open_file))
         .route("/file", get(plain_file::get_file).put(plain_file::put_file))
         .route("/scratchpad", post(plain_file::post_scratchpad))
+        .route(
+            "/tour/practice",
+            axum::routing::get(engineer_tour::status).post(engineer_tour::create),
+        )
         .route("/meetings/import", post(meeting_import::post))
         .merge(meeting_recording::routes())
         .route("/runtime/python", post(runtime_runs::python))
-        .route("/runtime/runs", get(runtime_runs::list).post(runtime_runs::save))
-        .route("/runtime/runs/{id}", axum::routing::delete(runtime_runs::remove).patch(runtime_runs::pin))
+        .route(
+            "/runtime/runs",
+            get(runtime_runs::list).post(runtime_runs::save),
+        )
+        .route(
+            "/runtime/runs/{id}",
+            axum::routing::delete(runtime_runs::remove).patch(runtime_runs::pin),
+        )
         .route("/asset", get(asset::get_asset).post(asset::post_asset))
         .route("/search", get(api::search))
         // What this project calls things — a different question from the

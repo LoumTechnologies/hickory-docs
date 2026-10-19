@@ -1,0 +1,7 @@
+WEBVTT
+
+00:00:00.000 --> 00:00:04.000
+<v Sam>The total request deadline is 100 milliseconds, including retries.
+
+00:00:04.000 --> 00:00:08.000
+<v Alex>Add a test where two attempts would each take 80 milliseconds.

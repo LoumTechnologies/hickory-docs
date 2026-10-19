@@ -1,3 +1,5 @@
+import { lazy, Suspense } from "react";
+const NativeWorkflowTour = lazy(() => import("./NativeWorkflowTour").then(m => ({ default: m.NativeWorkflowTour })));
 import type { EditorView } from "@codemirror/view";
 import { emit } from "../analytics/events";
 import { useEffect, useState } from "react";
@@ -5,7 +7,10 @@ import { DebuggableDocument } from "../embed/DebuggableDocument";
 import { scenarioSource, TOUR_STEPS } from "../tour/scenario";
 import "./WorkflowTour.css";
 const KEY = "hickory.aiEngineerTour";
-export function WorkflowTour({ surface }: { surface: "site" | "app" }) {
+export function WorkflowTour(props: { surface: "site" | "app"; onOpen?: (path: string, line?: number) => void; focused?: { path?: string; source?: string; view?: EditorView | null } }) {
+  return props.surface === "app" ? <Suspense fallback={<p>Loading native workflow…</p>}><NativeWorkflowTour onOpen={props.onOpen} focused={props.focused} /></Suspense> : <BrowserWorkflowTour surface="site" />;
+}
+function BrowserWorkflowTour({ surface }: { surface: "site" | "app" }) {
   const [open, setOpen] = useState(false);
   const [step, setStep] = useState(() => { const saved = Number(localStorage.getItem(KEY)); return Number.isInteger(saved) && saved >= 0 && saved < TOUR_STEPS.length ? saved : 0; });
   const [view, setView] = useState<EditorView | null>(null);
@@ -45,6 +50,7 @@ export function WorkflowTour({ surface }: { surface: "site" | "app" }) {
         onExecutionResult={result => { if (result.revision === "original-example" && result.exitCode !== 0) setFailed(true); if (result.revision === "corrected-example" && result.exitCode === 0) setPassed(true); }} />
       {step === 3 && !failed && <p role="status">Run the original code to observe the counterexample.</p>}
       {step === 4 && !passed && <p role="status">Run the corrected code to verify the checks.</p>}
+      {step === 5 && <p>Complete native workflow: import a transcript, challenge the real claim, explicitly update stale agent context, send a real investigation, inspect source-linked runtime/debug evidence, profile Python and rerun correctness, then resolve the thread yourself. The desktop tour creates a separate practice Git repository. These native actions and actual model calls are not simulated by this homepage. <a href="./snapshot.html?index=publications/index.json">Inspect published verification</a>.</p>}
       {step === 5 && <p>Local verification: <code>hick weave deadline-spec.md</code>, then <code>hick test deadline-spec.md</code> (Node.js required). In the workspace, enable author colors in Lineage settings; use Review threads to retain an objection and its resolution.</p>}
     </section>}
   </div>;

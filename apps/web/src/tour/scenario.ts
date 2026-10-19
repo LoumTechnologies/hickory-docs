@@ -11,3 +11,16 @@ export const TOUR_STEPS = [
   { title: "Inspect and run the correction", text: "The recorded correction subtracts elapsed time from the remaining budget. Run the corrected document. Continue only after the three checks pass." },
   { title: "Review and retain evidence", text: "A passing check supports R1 within the stated model. Review the change and resolve the real thread yourself. Download the executable spec to run locally with hick test." },
 ] as const;
+
+
+export const APP_TOUR_PHASES = [
+  { title: "Import meeting evidence", text: "Import the transparent VTT fixture through the existing deterministic importer and inspect retained utterance citations." },
+  { title: "Challenge the exact provenance claim", text: "Open the actual source and create a persistent review thread on the missed qualification; inspect Git credit and recorded-origin boundaries." },
+  { title: "Observe the real counterexample", text: "Execute the current saved example with the shared browser debugger. A specific 160ms-versus-100ms failure is required. Inspect its actual source-linked output and paused breakpoint marker; expand shared observation handles rather than translating coordinates." },
+  { title: "Update actual agent context", text: "Observe a real source read, edit the requirement, inspect its inline patch and deliver an explicitly selected update at the next safe boundary." },
+  { title: "Investigate through the actual review thread", text: "Send the saved objection to a selected real conversation, then inspect the returned response and proposed correction. A model declaration is not executed verification." },
+  { title: "Review and verify the correction", text: "Review a focused diff, approve the change and run the saved native executable witnesses. Total budget allocation remains separate from real network timing." },
+  { title: "Measure and remeasure a real Python hotspot", text: "Profile saved hotspot.md with cProfile, select source-linked function evidence for agent context, make the optimization, and rerun correctness and profiling on a distinct source revision." },
+  { title: "Resolve through human judgment", text: "Inspect actual receipts and comparisons, then explicitly resolve the original thread using the normal review controls." },
+  { title: "Compare revision-bound publication", text: "Load an actual published verification artifact and compare its source hash with the saved corrected document. A historical pass for different bytes stays stale." },
+] as const;

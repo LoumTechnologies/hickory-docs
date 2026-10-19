@@ -1688,7 +1688,7 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
         <MeetingImport onOpen={(path, line) => openHit(path, line ?? 1)} onOpenNote={(id) => { ensureDocOpen(id); navigate(`/docs/${id}`); }} />
         <SnapshotExport docId={focused?.docId} />
         <NativeRuntimeHistory path={focused?.doc?.path} source={focused?.liveSource} view={focused?.docEditor} />
-        <WorkflowTour surface="app" />
+        <WorkflowTour surface="app" onOpen={(path, line) => openHit(path, line ?? 1)} focused={{ path: focused?.doc?.path, source: focused?.liveSource, view: focused?.docEditor }} />
       </div>
       {/* Plain files' debug sessions, held above their panes so a session
           survives the tab that started it being fronted away. */}

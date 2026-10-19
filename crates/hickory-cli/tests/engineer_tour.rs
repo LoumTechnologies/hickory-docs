@@ -58,3 +58,58 @@ async fn deadline_witness_passes_and_exposes_the_original_bug() {
         Ok(run) => assert!(run.result.expectations.iter().any(|check| !check.passed)),
     }
 }
+
+// Guarantee: docs/guarantees/authoring/the-engineer-tour-distinguishes-replay-from-execution.md
+#[tokio::test]
+async fn native_verification_receipt_names_the_exact_source_that_ran() {
+    use hickory_cli::serve::{ServeOptions, prepare};
+    let temporary = tempfile::tempdir().unwrap();
+    let source = include_str!("../../../examples/ai-engineer-deadline.md");
+    let path = temporary.path().join("deadline-spec.md");
+    std::fs::write(&path, source).unwrap();
+    let woven = run_doc(&path, &[], RunMode::Weave, ExecutorChoice::Local)
+        .await
+        .unwrap();
+    hickory_cli::write_outputs(&woven, None).unwrap();
+    let prepared = prepare(ServeOptions {
+        target: temporary.path().to_path_buf(),
+        port: 0,
+        params: vec![],
+        executor: ExecutorChoice::Local,
+        key_store_path: Some(temporary.path().join("keys.json")),
+        ui_settings_path: Some(temporary.path().join("ui.json")),
+    })
+    .await
+    .unwrap();
+    let id = prepared.state.index.add("deadline-spec.md");
+    let run = prepared.state.start_run(&id, true).await.unwrap();
+    let receipt = tokio::time::timeout(std::time::Duration::from_secs(20), async {
+        loop {
+            let receipt = hickory_cli::serve::api::get_run(
+                axum::extract::State(prepared.state.clone()),
+                axum::extract::Path(run.clone()),
+            )
+            .await
+            .unwrap()
+            .0;
+            if receipt["status"] != "running" {
+                break receipt;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .unwrap();
+    assert_eq!(receipt["status"], "ok");
+    assert_eq!(
+        receipt["source_hash"],
+        hick_context_protocol::digest(source.as_bytes())
+    );
+    assert!(
+        receipt["blocks"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|b| b["kind"] == "exec" && b["status"] == "ok")
+    );
+}

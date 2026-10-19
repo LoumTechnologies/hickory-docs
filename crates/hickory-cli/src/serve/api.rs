@@ -1128,6 +1128,7 @@ pub async fn get_run(
         "id": run_id,
         "status": record.status,
         "started_at": record.started_at,
+        "source_hash": record.source_hash,
         "blocks": record.blocks,
     })))
 }

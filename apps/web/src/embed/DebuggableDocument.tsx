@@ -16,6 +16,7 @@ export interface DebuggableDocumentProps extends DocumentEmbedProps {
   /** Explicit opt-in: start once on mount at this 0-based document breakpoint. */
   startPausedAt?: number;
   onRuntime?: (run: RuntimeRun) => void;
+  onObservation?: (reading: import("../debug/observations").ObservationReading) => void;
   onExecutionResult?: (result: { revision: string; exitCode: number }) => void;
 }
 export function DebuggableDocument(props: DebuggableDocumentProps) {
@@ -57,6 +58,7 @@ export function DebuggableDocument(props: DebuggableDocumentProps) {
     // Never start unexpectedly over a draft typed while assets were loading.
     if (current.current.source === initial.current.source) debug.start();
   }, [backend, view, debug.start]);
+  useEffect(() => { if (debug.reading) current.current.onObservation?.(debug.reading); }, [debug.reading]);
   const debugRef = useRef(debug); debugRef.current = debug;
   const extensions = useMemo(() => debugEditor({
     onToggleBreakpoint: (line) => { if (!staleRef.current) debugRef.current.toggleBreakpoint(line); },
