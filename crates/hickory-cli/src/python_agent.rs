@@ -191,6 +191,8 @@ struct Host<'a> {
     review: &'a mut dyn Review,
     server: Server,
     context_store: hick_context_store::host::Service,
+    deliveries: std::collections::BTreeMap<String, (String, Option<Value>)>,
+    active_delivery: Option<Value>,
     session: PathBuf,
     turns: usize,
     tools: usize,
@@ -403,6 +405,30 @@ impl Host<'_> {
     }
     async fn handle(&mut self, method: &str, params: &Value) -> Result<Value> {
         ensure!(!self.finished, "The model already stopped");
+        if method == "context.references" {
+            let ids: Vec<String> = serde_json::from_value(params["references"].clone())?;
+            ensure!(ids.len() <= 256, "Reference budget exhausted");
+            let mut pending = ids;
+            let mut found = std::collections::BTreeSet::new();
+            while let Some(id) = pending.pop() {
+                if found.insert(id.clone()) {
+                    pending.extend(self.context_store.store.node(&id)?.parents.clone());
+                    for receipt in self
+                        .context_store
+                        .store
+                        .productions()
+                        .iter()
+                        .filter(|p| p.output == id)
+                    {
+                        pending.push(receipt.response.clone());
+                    }
+                }
+            }
+            return Ok(
+                json!({"productions":self.context_store.store.productions().iter().filter(|p| found.contains(&p.output)).collect::<Vec<_>>(),"nodes":self.context_store.store.nodes().iter()
+                .filter(|n| found.contains(&n.id)).collect::<Vec<_>>()}),
+            );
+        }
         if method.starts_with("context.") {
             if matches!(
                 method,
@@ -433,7 +459,51 @@ impl Host<'_> {
                 // Transport/resource limits only. Never add prompts, replay history,
                 // retry a provider request, parse an action, or choose the next step.
                 ensure!(self.turns < 600, "Inference resource budget exhausted");
-                let messages: Vec<Message> = serde_json::from_value(params["messages"].clone())?;
+                let mut manifest = params["manifest"].clone();
+                // Resolve against retained host nodes, never trust worker-supplied
+                // snapshots or fabricated source identity in the manifest.
+                manifest["nodes"] = serde_json::to_value(self.context_store.store.nodes())?;
+                manifest["captures"] = serde_json::to_value(self.context_store.store.captures())?;
+                ensure!(
+                    manifest["deliveries"] == json!([]),
+                    "Worker cannot attest delivery"
+                );
+                manifest["productions"] =
+                    serde_json::to_value(self.context_store.store.productions())?;
+                let bundle = hick_context_protocol::validate_bundle(&manifest)?;
+                let request_value = serde_json::to_value(&bundle.request)?;
+                let fingerprint = hick_context_protocol::assembly_digest(&request_value);
+                if let Some((old, result)) = self.deliveries.get(&bundle.request.id) {
+                    ensure!(old == &fingerprint, "idempotency_conflict");
+                    return result
+                        .clone()
+                        .context("Request already attempted; delivery may be uncertain");
+                }
+                ensure!(
+                    bundle.request.branch == self.turn_id.as_deref().unwrap_or("standalone"),
+                    "Request branch mismatch"
+                );
+                let messages: Vec<Message> = bundle
+                    .request
+                    .parts
+                    .iter()
+                    .enumerate()
+                    .map(|(i, p)| {
+                        ensure!(
+                            p.slot == i.to_string() && p.artifact.is_none(),
+                            "Unsupported request slot"
+                        );
+                        Ok(serde_json::from_value(
+                            json!({"role":p.role,"content":p.text}),
+                        )?)
+                    })
+                    .collect::<Result<_>>()?;
+                self.deliveries
+                    .insert(bundle.request.id.clone(), (fingerprint.clone(), None));
+                let mut delivery = json!({"request":bundle.request.id,"attempt":"1",
+                    "idempotency_key":bundle.request.id,"assembly_digest":fingerprint,"state":"prepared"});
+                metadata(&self.session, "python-context-manifest", &manifest)?;
+                metadata(&self.session, "python-context-delivery", &delivery)?;
                 ensure!(
                     serde_json::to_vec(&messages)?.len() <= 800_000,
                     "Inference request exceeds transport budget"
@@ -477,8 +547,46 @@ impl Host<'_> {
                     }
                     Ok::<_, anyhow::Error>((raw, usage, reasoning))
                 };
-                let (raw, usage, reasoning) =
-                    tokio::time::timeout(Duration::from_secs(180), request).await??;
+                delivery["state"] = json!("transport_started");
+                metadata(&self.session, "python-context-delivery", &delivery)?;
+                self.active_delivery = Some(delivery.clone());
+                let outcome = tokio::time::timeout(Duration::from_secs(180), request).await;
+                let (raw, usage, reasoning) = match outcome {
+                    Ok(Ok(value)) => value,
+                    result => {
+                        delivery["state"] = json!(if result.is_err() {
+                            "cancelled_uncertain"
+                        } else {
+                            "failed"
+                        });
+                        metadata(&self.session, "python-context-delivery", &delivery)?;
+                        self.active_delivery = None;
+                        return match result {
+                            Ok(Err(error)) => Err(error),
+                            Err(error) => Err(error.into()),
+                            _ => unreachable!(),
+                        };
+                    }
+                };
+                // Receipt attests only that this host observed the completed stream;
+                // the adapter exposes no provider-assigned ID or hidden context.
+                let inputs = bundle
+                    .request
+                    .parts
+                    .iter()
+                    .flat_map(|p| p.segments.iter().map(|s| s.node.clone()))
+                    .collect();
+                let response_node =
+                    self.context_store
+                        .store
+                        .model_response(&bundle.request.id, inputs, &raw)?;
+                delivery["state"] = json!("provider_confirmed");
+                delivery["provider_receipt"] =
+                    json!(format!("host-observed-response:{}", response_node.id));
+                metadata(&self.session, "python-context-delivery", &delivery)?;
+                self.active_delivery = None;
+                let result = json!({"text":raw,"reference":response_node.id});
+                self.deliveries.get_mut(&bundle.request.id).unwrap().1 = Some(result.clone());
                 metadata(
                     &self.session,
                     "python-model-response",
@@ -511,12 +619,15 @@ impl Host<'_> {
                     },
                 )?;
                 self.turns += 1;
-                Ok(Value::String(raw))
+                Ok(result)
             }
             "record" => {
                 let kind = params["kind"].as_str().context("Missing record kind")?;
                 ensure!(
-                    matches!(kind, "action" | "observation" | "model-error"),
+                    matches!(
+                        kind,
+                        "action" | "observation" | "model-error" | "context-prepared"
+                    ),
                     "Unknown worker record kind"
                 );
                 metadata(
@@ -775,7 +886,7 @@ pub async fn run_conversation(
     } else {
         server.agent_begin_changeset()?;
     }
-    let bootstrap = json!({
+    let mut bootstrap = json!({
         "prompt":config.prompt,"max_turns":config.max_turns,"context":conversation.context,
         "document":config.doc.as_ref().map(|doc| doc.strip_prefix(&config.root).unwrap_or(doc).display().to_string()),
         "prior_turns":conversation.prior_turns.iter().map(|t| json!({"prompt":t.prompt,"answer":t.answer})).collect::<Vec<_>>(),
@@ -793,6 +904,7 @@ pub async fn run_conversation(
     {
         context_store.saved(locator)?;
     }
+    let mut bootstrap_references = Vec::new();
     if let Some(line) = conversation.context.lines().last()
         && let Ok(value) = serde_json::from_str::<Value>(line)
     {
@@ -807,21 +919,29 @@ pub async fn run_conversation(
                     .map(str::to_owned)
                     .unwrap_or_else(|| format!("snapshot:{}", hick_context_store::fresh_id()));
                 context_store.editor(&identity, &buffer.content)?;
-                context_store.snapshots(
-                    "editor_buffer",
-                    &identity,
-                    &buffer.content,
-                    &hick_context_store::fresh_id(),
-                )?;
+                bootstrap_references.extend(
+                    context_store
+                        .snapshots(
+                            "editor_buffer",
+                            &identity,
+                            &buffer.content,
+                            &hick_context_store::fresh_id(),
+                        )?
+                        .into_iter()
+                        .map(|node| node.id),
+                );
             }
         }
     }
+    bootstrap["context_references"] = json!(bootstrap_references);
     let mut host = Host {
         config: &config,
         client,
         review,
         server,
         context_store,
+        deliveries: Default::default(),
+        active_delivery: None,
         session: session.clone(),
         turns: 0,
         tools: 0,
@@ -919,6 +1039,10 @@ pub async fn run_conversation(
         } => Err(anyhow::anyhow!(hickory_agent::STOPPED_BY_USER)),
     };
     executor.shutdown().await?;
+    if let Some(mut delivery) = host.active_delivery.take() {
+        delivery["state"] = json!("cancelled_uncertain");
+        metadata(&session, "python-context-delivery", &delivery)?;
+    }
     if let Err(error) = &result {
         metadata(
             &session,

@@ -3496,6 +3496,7 @@ dependencies = [
  "graphql-parser",
  "hex",
  "hick-blocks",
+ "hick-context-protocol",
  "hick-context-store",
  "hick-dap",
  "hick-exec",

@@ -22,9 +22,9 @@ changeset verification. A fake client's acceptance is only development data.
 
 | Capability | Python supplies | Rust provides |
 |---|---|---|
-| inference | Complete message list | Credentialed provider transport, streaming and usage |
+| inference | Complete context manifest with ordered message parts | Reference/coverage validation, delivery receipts, credentialed provider transport, streaming and usage |
 | tool | Name and arguments | Allowlist, exact preview, approval, freshness check, application and receipts |
-| record | Declared action/observation/error | Worker-reported session entry |
+| record | Declared action/observation/error/prepared context | Worker-reported session entry |
 | complete | Summary | Independent accepted-artifact freshness check |
 
 Rust sends initial task/history/editor data and tool schemas. Its stored model

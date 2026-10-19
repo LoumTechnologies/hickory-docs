@@ -622,3 +622,38 @@ fn a_unique_current_match_cannot_resolve_original_duplicates() {
     assert!(comparison.mappings.is_empty());
     assert!(!unique_passage("aaa", "aa"));
 }
+
+// Guarantee: docs/guarantees/agent/python-requests-have-validated-context.md
+#[test]
+fn model_response_retains_production_genealogy_after_restart() {
+    let (root, mut service) = service();
+    let input = saved(&mut service, root.path(), "Requirement 📝", "input");
+    assert!(
+        service
+            .store
+            .model_response("bad", vec!["missing".into()], "Invented")
+            .is_err()
+    );
+    let output = service
+        .store
+        .model_response("request-1", vec![input.id.clone()], "Summary")
+        .unwrap();
+    assert_eq!(output.derivation, DerivationKind::ModelOutput);
+    assert_eq!(output.coverage, Coverage::Partial);
+    assert_eq!(output.parents, vec![input.id]);
+    let receipt = service.store.productions()[0].clone();
+    assert_eq!(receipt.output, output.id);
+    assert_eq!(
+        service
+            .store
+            .node(&receipt.response)
+            .unwrap()
+            .text
+            .as_deref(),
+        Some("Summary")
+    );
+    drop(service);
+    let reopened = Service::open(root.path(), &root.path().join("store.json"), "child").unwrap();
+    assert_eq!(reopened.store.node(&output.id).unwrap(), &output);
+    assert_eq!(reopened.store.productions()[0].request, "request-1");
+}

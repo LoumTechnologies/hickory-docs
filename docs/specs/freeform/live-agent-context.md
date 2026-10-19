@@ -1,6 +1,7 @@
 # Live agent context: observations, changes and refresh policies
 
-Status: context v1 contract implemented by #48; runtime/source integration and
+Status: context v1 contract implemented by #48, immutable source storage by #49,
+and built-in Python request manifests/receipts by #50. Update UI, projections and
 refresh experiments remain proposed. See [the wire contract](../../developers/context-protocol.md). Origin: the October 18, 2026 discussion of
 progressive disclosure, execution provenance and stale agent context. The user
 explicitly wants to compare refresh strategies rather than adopt one prematurely.

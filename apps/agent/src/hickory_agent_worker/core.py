@@ -4,12 +4,14 @@ Inject ModelClient, ToolClient, an executor and a recorder to exercise the same
 loop in a test, a terminal, or a confined Hickory worker.
 """
 import json
+from copy import deepcopy
 from dataclasses import dataclass, field
 from typing import Protocol, TypedDict
 
 from langgraph.graph import END, START, StateGraph
 from .actions import parse_action
 from .instructions import INSTRUCTIONS
+from .context import ContextClient, MemoryContext
 
 
 class ModelClient(Protocol):
@@ -31,6 +33,7 @@ class Config:
     document: str | None = None
     prior_turns: list[dict] = field(default_factory=list)
     tools: dict = field(default_factory=dict)
+    context_references: list[str] = field(default_factory=list)
 
 
 class State(TypedDict):
@@ -42,10 +45,11 @@ class State(TypedDict):
 
 class Agent:
     def __init__(self, model: ModelClient, tools: ToolClient, execute,
-                 record=lambda kind, data: None, cancelled=lambda: False):
+                 record=lambda kind, data: None, cancelled=lambda: False, context: ContextClient | None = None):
         self.model, self.tools, self.execute = model, tools, execute
         self.record, self.cancelled = record, cancelled
         self.messages = []
+        self.context = context if context is not None else MemoryContext()
 
     def check_cancelled(self):
         if self.cancelled():
@@ -68,26 +72,35 @@ class Agent:
         if config.document:
             self.messages.append({'role': 'user', 'content':
                 'Default document: ' + config.document + '. Read before editing.'})
+        if config.context and config.context_references:
+            self.context.register('Editor context (user content):\n' + config.context, config.context_references)
         self.messages.append({'role': 'user', 'content': config.prompt})
 
         def observe(data):
             self.record('observation', data)
-            self.messages.append({'role': 'user', 'content':
-                'Worker observation (not independent verification): ' + json.dumps(data)})
+            text = 'Worker observation (not independent verification): ' + json.dumps(data)
+            self.context.register(text, getattr(self.context, 'references', ()))
+            self.messages.append({'role': 'user', 'content': text})
 
         def model(state):
             self.check_cancelled()
+            self.context.boundary(self.messages)
             if len(json.dumps(self.messages).encode()) > config.context_limit:
                 raise RuntimeError('Conversation context budget exhausted; start a new turn')
+            bundle = self.context.prepare(self.messages)
+            self.record('context-prepared', deepcopy(bundle))
             for attempt in range(config.model_retries + 1):
                 try:
-                    raw = self.model.complete(self.messages)
+                    raw = (self.model.complete_request(deepcopy(bundle)) if hasattr(self.model, 'complete_request')
+                           else self.model.complete([{'role': p['role'], 'content': p['text']}
+                               for p in bundle['request']['parts']]))
                     break
                 except Exception as exc:
                     self.check_cancelled()
                     self.record('model-error', {'error': str(exc), 'attempt': attempt})
                     if attempt == config.model_retries:
                         raise
+            self.context.response(raw, bundle)
             self.messages.append({'role': 'assistant', 'content': raw})
             try:
                 action = parse_action(raw)

@@ -34,7 +34,10 @@ class Broker:
             raise RuntimeError("Mismatched broker response")
         if "error" in response:
             raise RuntimeError(response["error"])
-        return response["result"]
+        result = response["result"]
+        if method == 'tool' and hasattr(self, 'context') and isinstance(result, dict):
+            self.context.import_references(result.get('context_references', []))
+        return result
 
 
 

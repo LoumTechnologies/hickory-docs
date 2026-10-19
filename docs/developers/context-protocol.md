@@ -279,3 +279,49 @@ revision. Read adapters retain capture-time uniqueness evidence, including
 overlapping matches. A surviving copy after another original duplicate was
 edited remains ambiguous. Imports without that evidence cannot claim a move from
 a unique current match. This is byte correspondence, not evidence of edit intent.
+
+## Built-in Python request path (#50)
+
+`core.Agent(..., context=...)` accepts a context client independently of model,
+execution and tools. `MemoryContext` is the standalone implementation;
+`HostedContext` registers constructions through the synchronous broker. Refresh
+encoding is injectable through `MemoryContext(policy=...)`; `AppendUpdates` is
+the baseline. Queue replacement passages or notices with `context.queue(text,
+parents)`. Only `boundary(messages)` appends queued material. Retries reuse the
+prepared request, so new edits cannot continually restart inference.
+
+The bootstrap carries references for the editor snapshots actually supplied.
+Read-tool results retain their `context_references`. The hosted-only
+`context.references` lookup takes `{"references":["node-id"]}` and returns
+retained nodes in dependency order plus their production receipts, including
+response roots. It grants no new capture or workspace access; the response must
+fit the existing frame limit. Python constructions use `context.derive`; opaque
+rendering declares known parents without claiming exact source mappings.
+
+Hosted `inference` now takes `{"manifest": Bundle}`. Its ordered request parts
+are the transport messages; there is no separate unchecked messages array.
+Rust substitutes retained nodes, captures and production receipts, validates byte
+coverage, and rejects unsupported artifact/slot/role representations. Requests
+are pinned to their declared branch and exact references. Session context events
+`python-context-manifest` and `python-context-delivery` retain the actual assembly
+and delivery transitions. When validating a session event as a wire bundle,
+remove the logger's top-level `recorded_at` field first.
+
+A completed stream returns `{"text":"...","reference":"model-output-node"}`.
+The host retains its response bytes and a typed production receipt linking the
+output to that request's inputs. The delivery's `provider_receipt` is explicitly
+`host-observed-response:<node-id>`: an observed completed response, not a
+provider-assigned ID, semantic verification, or visibility into hidden prompts.
+Failure, timeout and cancellation have distinct receipts. A replayed successful
+request returns the cached response without new transport; failed/uncertain
+requests with the same ID are refused. Deduplication lasts for the worker;
+there is no crash-resume inference operation.
+
+Hosted freshness polling reads one page at each Python model boundary and appends
+change notices; it does not automatically replace history or editable buffers.
+It monitors at most 256 selected references, while retaining lineage for the rest.
+Python-owned queueing/policy can append explicitly selected replacement passages.
+Supplied prior conversation history currently has no original producer references
+in the bootstrap and is recorded as supplied roots. Provider-internal context and
+opaque rendering remain coverage limits. #51 supplies the update UI; #52 supplies
+expanded-view projections; #53 compares policies.

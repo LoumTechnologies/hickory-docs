@@ -4,14 +4,18 @@ import sys
 from pydantic_monty import Monty
 from .runtime import Broker, execute
 from .core import Agent, Config
+from .context import HostedContext
 
 
 class Model:
     def __init__(self, broker):
         self.broker = broker
 
-    def complete(self, messages):
-        return self.broker.call('inference', {'messages': messages})
+    def complete_request(self, bundle):
+        result = self.broker.call('inference', {'manifest': bundle})
+        self.broker.context.import_references([result['reference']])
+        self.broker.context.preferred[result['text']] = self.broker.context.external[result['reference']]
+        return result['text']
 
 
 class Tools:
@@ -50,7 +54,8 @@ def main():
             with pool.checkout(limits=LIMITS) as session:
                 agent = Agent(Model(broker), Tools(broker),
                     lambda code: execute(session, broker, code),
-                    lambda kind, data: broker.call('record', {'kind': kind, 'data': data}))
+                    lambda kind, data: broker.call('record', {'kind': kind, 'data': data}),
+                    context=HostedContext(broker, bootstrap.get('context_references', [])))
                 agent.run(Config(**bootstrap))
     except Exception as exc:
         broker.send({'method': 'exit', 'params': {'error': str(exc)}})

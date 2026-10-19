@@ -98,6 +98,7 @@ ignore = "0.4"
 # writing a second one would be the only hard thing in an otherwise small
 # feature. MIT/Apache-2.0.
 graphql-parser = "0.4"
+hick-context-protocol = { path = "../hick-context-protocol" }
 hickory-agent = { path = "../hickory-agent" }
 hickory-collab = { path = "../hickory-collab" }
 hickory-executor = { path = "../hickory-executor" }

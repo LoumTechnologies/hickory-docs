@@ -72,6 +72,8 @@ struct Replay {
 struct Data {
     nodes: Vec<Node>,
     captures: Vec<CaptureReceipt>,
+    #[serde(default)]
+    productions: Vec<ProductionReceipt>,
     sources: BTreeMap<String, Source>,
     heads: BTreeMap<String, Head>,
     keys: BTreeMap<String, Replay>,
@@ -81,7 +83,7 @@ struct Data {
 }
 fn validate_retained(data: &Data) -> Result<()> {
     let bundle = json!({"version":1,"nodes":data.nodes,"captures":data.captures,"deliveries":[],
-        "handles":[],"annotations":[],"productions":[],"request":{"id":"validation",
+        "handles":[],"annotations":[],"productions":data.productions,"request":{"id":"validation",
         "branch":"validation","policy":"none","policy_version":"1","observed_cursor":"none",
         "parts":[],"provider_coverage":"host_controlled_only"}});
     validate_bundle(&bundle)?;
@@ -177,6 +179,34 @@ impl Store {
             .iter()
             .find(|n| n.id == reference)
             .context("missing_reference")
+    }
+    pub fn productions(&self) -> &[ProductionReceipt] {
+        &self.data.productions
+    }
+    /// Host-only observation of a completed model response. Genealogy is declared,
+    /// never a byte mapping or evidence that the generated claims are true.
+    pub fn model_response(
+        &mut self,
+        request: &str,
+        inputs: Vec<String>,
+        text: &str,
+    ) -> Result<Node> {
+        let response: Node = serde_json::from_value(json!({"id":fresh_id(),
+            "text":text,"digest":digest(text.as_bytes()),"parents":[],
+            "derivation":"root","coverage":"complete","mappings":[]}))?;
+        let receipt = fresh_id();
+        let output: Node = serde_json::from_value(json!({"id":fresh_id(),
+            "text":text,"digest":response.digest,"parents":inputs,
+            "derivation":"model_output","coverage":"partial","mappings":[],"receipt":receipt}))?;
+        let production: ProductionReceipt = serde_json::from_value(json!({"id":receipt,
+            "kind":"model","request":request,"response":response.id,
+            "inputs":inputs,"output":output.id}))?;
+        let mut next = self.data.clone();
+        next.nodes.extend([response, output.clone()]);
+        next.productions.push(production);
+        validate_retained(&next)?;
+        self.commit(next)?;
+        Ok(output)
     }
     pub fn nodes(&self) -> &[Node] {
         &self.data.nodes
@@ -453,7 +483,7 @@ impl Store {
         Ok(result)
     }
     /// Derivations reuse the protocol's byte/mapping validator. Producer-backed outputs need
-    /// authenticated execution/request storage (#50); they cannot be invented by this API.
+    /// host-authenticated production storage; they cannot be invented by this API.
     pub fn derive(&mut self, request: &DeriveRequest) -> Result<Node> {
         validate(&serde_json::to_value(request)?, "DeriveRequest")?;
         let fingerprint = digest(&serde_json::to_vec(request)?);

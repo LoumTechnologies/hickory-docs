@@ -68,6 +68,9 @@ impl LlmClient for Model {
         messages: Vec<Message>,
     ) -> anyhow::Result<hickory_agent::ChatStream> {
         let (raw, usage) = self.complete_with_usage(messages).await?;
+        if raw == json!({"pending_stream":true}).to_string() {
+            return futures::future::pending().await;
+        }
         Ok(Box::pin(futures::stream::iter([
             Ok(hickory_agent::ChatChunk::reasoning("fixture reasoning")),
             Ok(hickory_agent::ChatChunk::text(raw)),
@@ -158,6 +161,7 @@ impl App {
     async fn pending(&self) -> Value {
         tokio::time::timeout(Duration::from_secs(20), async {
             loop {
+                self.refresh_capture().await;
                 let (_, state) = self
                     .request("GET", &self.route("/python"), Value::Null)
                     .await;
@@ -369,11 +373,51 @@ async fn python_turn_requires_review_streams_receipts_and_rehydrates_its_branch(
                 .iter()
                 .any(|m| m.content.contains("Editor context to retain"))
         );
-        drop(requests);
+        // Keep submitted messages for exact manifest comparison below.
         let path = app.root.join(turn["session"].as_str().unwrap());
         let source = std::fs::read_to_string(&path).unwrap();
         assert!(source.contains("python-edit-review"));
         assert!(source.contains("python-model-response"));
+        // Guarantee: docs/guarantees/agent/python-requests-have-validated-context.md
+        let contexts = |kind: &str| -> Vec<Value> {
+            let prefix = format!("<hick:context kind=\"{kind}\">");
+            source
+                .lines()
+                .filter_map(|line| {
+                    line.strip_prefix(&prefix)
+                        .and_then(|s| s.strip_suffix("</hick:context>"))
+                })
+                .map(|s| serde_json::from_str(s).unwrap())
+                .collect()
+        };
+        let manifests = contexts("python-context-manifest");
+        let deliveries = contexts("python-context-delivery");
+        assert_eq!(manifests.len(), requests.len());
+        for (manifest, submitted) in manifests.iter().zip(&requests) {
+            let mut validated = manifest.clone();
+            validated.as_object_mut().unwrap().remove("recorded_at");
+            hick_context_protocol::validate_bundle(&validated).unwrap();
+            let parts = manifest["request"]["parts"].as_array().unwrap();
+            assert_eq!(parts.len(), submitted.len());
+            for (part, message) in parts.iter().zip(submitted) {
+                assert_eq!(part["text"], message.content);
+                assert_eq!(part["role"], serde_json::to_value(message.role).unwrap());
+            }
+            let states: Vec<_> = deliveries
+                .iter()
+                .filter(|d| d["request"] == manifest["request"]["id"])
+                .map(|d| d["state"].as_str().unwrap())
+                .collect();
+            assert_eq!(
+                states,
+                ["prepared", "transport_started", "provider_confirmed"]
+            );
+        }
+        assert!(
+            manifests
+                .iter()
+                .any(|m| m["productions"].as_array().unwrap().len() > 0)
+        );
         assert!(source.contains("<hick:reasoning>"));
         if !accept {
             assert!(source.contains("Human rejects this summary's premise"));
@@ -497,4 +541,38 @@ async fn accepting_a_stale_proposal_preserves_live_human_typing() {
             .iter()
             .any(|c| c["status"] == "failed")
     );
+}
+
+// Guarantee: docs/guarantees/agent/python-requests-have-validated-context.md
+#[tokio::test(flavor = "multi_thread")]
+async fn cancelling_active_inference_records_uncertain_delivery() {
+    let Some(python) = python() else {
+        return;
+    };
+    let app = App::start().await;
+    app.configure(&python).await;
+    let model = Model::new([json!({"pending_stream":true})]);
+    app.state.agent.set_llm_override(model.clone());
+    let id = app.send("Cancel during transport", None).await;
+    tokio::time::timeout(Duration::from_secs(20), async {
+        loop {
+            app.refresh_capture().await;
+            if !model.requests.lock().unwrap().is_empty() {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(25)).await;
+        }
+    })
+    .await
+    .unwrap();
+    assert_eq!(
+        app.request("POST", &app.route("/stop"), json!({})).await.0,
+        200
+    );
+    let turn = app.wait(&id).await;
+    assert_eq!(turn["status"], "stopped");
+    let source = std::fs::read_to_string(app.root.join(turn["session"].as_str().unwrap())).unwrap();
+    assert!(source.contains("cancelled_uncertain"));
+    assert!(!source.contains("provider_confirmed"));
+    assert_eq!(model.requests.lock().unwrap().len(), 1);
 }
