@@ -143,10 +143,16 @@ fn current_state(root: &Path, target: &ReviewTarget) -> &'static str {
     let Ok(bytes) = std::fs::read(path) else {
         return "unavailable";
     };
-    if format!("{:x}", Sha256::digest(bytes)) == target.source_hash {
+    if format!("{:x}", Sha256::digest(&bytes)) == target.source_hash {
         "unchanged"
+    } else if let Ok(text) = std::str::from_utf8(&bytes) {
+        if text.matches(&target.quote).count() > 1 {
+            "ambiguous"
+        } else {
+            "changed"
+        }
     } else {
-        "changed"
+        "unavailable"
     }
 }
 pub async fn list(State(state): State<LocalState>) -> ApiResult<Json<Value>> {
@@ -154,8 +160,56 @@ pub async fn list(State(state): State<LocalState>) -> ApiResult<Json<Value>> {
     let events = events(&dir)
         .map_err(|e| ApiError::unprocessable(format!("Cannot read review history: {e}")))?;
     let targets: Vec<Value> = events.iter().filter_map(|event| event.target.as_ref().map(|target| json!({"thread":event.thread,"current_state":current_state(state.index.root(),target)}))).collect();
+    // Linkage is a user declaration; response/status come from the actual host
+    // turn, never a pass parsed from model prose. Missing turns stay unavailable.
+    let mut investigations = Vec::new();
+    for event in &events {
+        if event.action != "investigate" {
+            continue;
+        }
+        let Ok(link) = serde_json::from_str::<Value>(&event.body) else {
+            continue;
+        };
+        if link["version"] != 1 {
+            continue;
+        }
+        let conversation = link["conversation"].as_str().unwrap_or("");
+        let turn_id = link["turn"].as_str();
+        let Json(turns) = super::agent::list_turns(
+            State(state.clone()),
+            axum::extract::Path(conversation.to_string()),
+        )
+        .await;
+        let turn = turns["turns"].as_array().and_then(|turns| {
+            turns.iter().find(|turn| {
+                turn_id.is_some() && turn["id"].as_str() == turn_id
+                    || turn_id.is_none()
+                        && link["id"].as_str().is_some_and(|id| {
+                            turn["prompt"].as_str().is_some_and(|prompt| {
+                                prompt.contains(&format!(
+                                    "Review thread: {}; investigation: {id}",
+                                    event.thread
+                                ))
+                            })
+                        })
+            })
+        });
+        let status = match turn {
+            Some(turn) if turn["status"] == "running" => "running",
+            Some(turn) if turn["status"] == "ok" => "responded",
+            Some(turn) if turn["status"] == "stopped" => "cancelled",
+            Some(_) => "failed",
+            None if turn_id.is_some() => "unavailable",
+            None => link["state"].as_str().unwrap_or("uncertain"),
+        };
+        investigations.push(json!({"event":event.id,"thread":event.thread,"link":link,
+            "state":status,"response":turn.and_then(|turn| turn.get("answer")),
+            "session":turn.and_then(|turn| turn.get("session")),
+            "error":turn.and_then(|turn| turn.get("error")).or_else(|| link.get("error")),
+            "verification":"Inspect executed receipts in the linked session; response prose does not establish a pass"}));
+    }
     Ok(Json(
-        json!({"events":events,"targets":targets,"scope":format!("{:x}",Sha256::digest(dir.to_string_lossy().as_bytes()))}),
+        json!({"events":events,"targets":targets,"investigations":investigations,"scope":format!("{:x}",Sha256::digest(dir.to_string_lossy().as_bytes()))}),
     ))
 }
 pub async fn create(

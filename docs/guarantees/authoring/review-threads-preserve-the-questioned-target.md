@@ -10,6 +10,8 @@ saved source is shown rather than silently relocating the original quotation.
 
 The user can prepare and copy an investigation prompt containing the target and
 review history. Preparing a prompt does not send it or record an agent response.
+A separate send action can dispatch to one selected conversation and link observed
+work, as specified in review-investigations-link-observed-agent-work.md.
 Reviews are personal workspace state, not automatically committed or published.
 
 ---

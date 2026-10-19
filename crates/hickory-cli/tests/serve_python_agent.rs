@@ -576,3 +576,90 @@ async fn cancelling_active_inference_records_uncertain_delivery() {
     assert!(!source.contains("provider_confirmed"));
     assert_eq!(model.requests.lock().unwrap().len(), 1);
 }
+
+// Guarantee: docs/guarantees/authoring/review-investigations-link-observed-agent-work.md
+#[tokio::test(flavor = "multi_thread")]
+async fn review_investigation_links_real_response_refused_edits_and_cancellation() {
+    use sha2::{Digest, Sha256};
+    let Some(python) = python() else {
+        return;
+    };
+    let app = App::start().await;
+    app.configure(&python).await;
+    let (_, initial) = app.request("GET", "/api/reviews", Value::Null).await;
+    let scope = initial["scope"].clone();
+    let (status, root) = app
+        .request(
+            "POST",
+            "/api/reviews",
+            json!({"scope":scope,"target":{
+        "kind":"source-relationship","path":"note.md","quote":"Original human input",
+        "source_hash":format!("{:x}",Sha256::digest("Original human input\n")),"lines":[1,1]},
+        "action":"comment","body":"The generated requirement contradicts this source"}),
+        )
+        .await;
+    assert_eq!(status, 200, "{root}");
+    let thread = root["thread"].clone();
+    app.state.agent.set_llm_override(Model::new([
+        json!({"python":"tool('create_doc', {'path':'refused.md','input':'Unapproved correction'})"}),
+        json!({"done":"The proposed edit was refused; human review remains open."}),
+    ]));
+    let id = app.send("Investigate the source objection", None).await;
+    let change = app.pending().await;
+    app.request(
+        "POST",
+        &app.route("/python/review"),
+        json!({"id":change["id"],"accepted":false,"error":"Human refuses this correction"}),
+    )
+    .await;
+    let turn = app.wait(&id).await;
+    assert_eq!(turn["status"], "ok");
+    assert!(!app.root.join("refused.md").exists());
+    let link = json!({"version":1,"id":"investigation-1","conversation":app.doc,"turn":id,"state":"running"});
+    assert_eq!(
+        app.request(
+            "POST",
+            "/api/reviews",
+            json!({"scope":scope,"thread":thread,"action":"investigate","body":link.to_string()})
+        )
+        .await
+        .0,
+        200
+    );
+    let (_, history) = app.request("GET", "/api/reviews", Value::Null).await;
+    assert_eq!(history["investigations"][0]["state"], "responded");
+    assert_eq!(history["investigations"][0]["response"], turn["answer"]);
+    assert_eq!(history["investigations"][0]["session"], turn["session"]);
+    assert!(
+        !history["events"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|event| event["action"] == "resolve")
+    );
+    std::fs::write(
+        app.root.join("note.md"),
+        "Original human input\nOriginal human input\n",
+    )
+    .unwrap();
+    let (_, history) = app.request("GET", "/api/reviews", Value::Null).await;
+    assert_eq!(history["targets"][0]["current_state"], "ambiguous");
+    for action in ["resolve", "reopen"] {
+        assert_eq!(app.request("POST", "/api/reviews", json!({"scope":scope,"thread":thread,"action":action,"body":"Human inspected the recorded evidence"})).await.0, 200);
+    }
+    app.state
+        .agent
+        .set_llm_override(Model::new([json!({"pending_stream":true})]));
+    let cancelled = app.send("Cancelled investigation", Some(&id)).await;
+    let link = json!({"version":1,"id":"investigation-2","conversation":app.doc,"turn":cancelled,"state":"running"});
+    app.request(
+        "POST",
+        "/api/reviews",
+        json!({"scope":scope,"thread":thread,"action":"investigate","body":link.to_string()}),
+    )
+    .await;
+    app.request("POST", &app.route("/stop"), json!({})).await;
+    app.wait(&cancelled).await;
+    let (_, history) = app.request("GET", "/api/reviews", Value::Null).await;
+    assert_eq!(history["investigations"][1]["state"], "cancelled");
+}

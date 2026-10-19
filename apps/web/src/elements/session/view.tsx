@@ -1,3 +1,4 @@
+import { openReview, reviewError } from "../../lib/reviews";
 import { publishReading, openReading } from "../../lib/readingViews";
 import { AcpRecord } from "../../components/AcpRecord";
 // The conversation's elements, drawn as the cards the agent pane has always
@@ -47,6 +48,18 @@ function openTarget(link: SessionLink) {
   openLocation(link.to.path, link.to.lines?.[0] ?? 1);
 }
 
+function reviewSourceChip(link: SessionLink) {
+  const snapshot = link.historical;
+  if (!snapshot?.content || !snapshot.path || !snapshot.sha256 || snapshot.first_line === undefined || snapshot.last_line === undefined || !/^[a-f0-9]{64}$/i.test(snapshot.sha256)) {
+    reviewError("Open the source and select a passage to capture a review target; this chip has no exact historical source snapshot.");
+    return;
+  }
+  openReview({ kind: "source-relationship", path: snapshot.path, quote: snapshot.content,
+    source_hash: snapshot.sha256, lines: [snapshot.first_line, snapshot.last_line],
+    relationship: { family: link.family, claim: snapshot.claim, target: link.to,
+      historical: snapshot, source_span: link.span } });
+}
+
 const VERB: Record<SessionLink["family"], string> = {
   context: "read",
   lineage: "wrote",
@@ -72,7 +85,9 @@ export function SourceChips({ links }: { links: readonly SessionLink[] }) {
           key={i}
           type="button"
           className={`chat-source chat-source--${link.family}`}
-          data-tip={link.title}
+          data-tip={`${link.title} · right-click or Alt+Enter to challenge this source relationship`}
+          onContextMenu={event => { event.preventDefault(); reviewSourceChip(link); }}
+          onKeyDown={event => { if (event.altKey && event.key === "Enter") { event.preventDefault(); reviewSourceChip(link); } }}
           onClick={() => openTarget(link)}
         >
           <span className="chat-source__verb">{link.title.startsWith("ACP-reported") ? "reports" : link.evidence ? "produces" : VERB[link.family]}</span>{" "}

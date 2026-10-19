@@ -1,3 +1,4 @@
+import { registerInvestigationConversation } from "../lib/reviewInvestigations";
 import { AgentProject } from "./AgentProject";
 import { AgentChanges } from "./AgentChanges";
 import { acpApi } from "../api/acp";
@@ -414,10 +415,13 @@ export function ChatDock({
     return () => { live = false; };
   }, [running, captureRequest, docId, backend]);
 
-  const send = async () => {
+  const send = async (investigation?: string) => {
     const submitted = recovery.snapshot();
-    const text = prompt.trim();
-    if (!text || running || sendingRef.current || (!acp.state?.ready || acp.busy)) return;
+    const text = (investigation ?? prompt).trim();
+    if (!text || running || sendingRef.current || (!acp.state?.ready || acp.busy)) {
+      if (investigation) throw new Error("The selected conversation is busy or unavailable.");
+      return;
+    }
     setError(null);
     setNote(null);
     const slash = backend !== "python" && !acp.state?.canRewind && text.startsWith("/rewind") ? null : parseSlash(text);
@@ -482,7 +486,7 @@ export function ChatDock({
       );
       setRunning(session_id);
       runningRef.current = session_id;
-      recovery.accepted(submitted, session_id);
+      recovery.accepted(investigation ? { ...submitted, revision: -1 } : submitted, session_id);
       // Show the new turn immediately rather than waiting for the round trip.
       setTurns((prev) => [
         ...prev,
@@ -506,7 +510,9 @@ export function ChatDock({
         if ("event" in msg) { setStream(prev => appendStream(prev, msg.event)); setReasoning(prev => appendReasoning(prev, msg.event)); }
         else if ("status" in msg) { setRunning(null); void refresh(); onFinishedRef.current(); }
       }
+      return session_id;
     } catch (e) {
+      if (investigation) throw e;
       const message = e instanceof Error ? e.message : String(e);
       // The local server answers the agent route with a 503 whose message
       // starts "agent not available" when no provider key is in the
@@ -517,6 +523,18 @@ export function ChatDock({
       else setError(message);
     } finally { sendingRef.current = false; setSending(false); earlyEvents.current = []; }
   };
+
+  const investigationSend = useRef(send);
+  investigationSend.current = send;
+  useEffect(() => registerInvestigationConversation({
+    id: docId,
+    label: `${contextLabel ?? docId} · ${selectedSession ?? "new conversation"} · branch ${tip ?? "root"}`,
+    send: async (text) => {
+      const turn = await investigationSend.current(text);
+      if (!turn) throw new Error("Investigation was not started.");
+      return turn;
+    },
+  }), [docId, contextLabel, selectedSession, tip]);
 
   return (
     <section
