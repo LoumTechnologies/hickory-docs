@@ -6,6 +6,7 @@ The deterministic witness is a transport/measurement test, not a model ranking.
 import argparse
 from copy import deepcopy
 import json
+import subprocess
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from time import perf_counter
@@ -25,7 +26,7 @@ SCENARIOS = (
 )
 
 
-def replay(encoding, schedule, scenario, repetition):
+def replay(encoding, schedule, scenario, repetition, driver=None):
     name, before, after, state = scenario
     with TemporaryDirectory(prefix='hick-refresh-') as directory:
         path = Path(directory) / 'source.txt'
@@ -36,6 +37,7 @@ def replay(encoding, schedule, scenario, repetition):
                     dict(role='assistant', content='Historical plan: use original requirement')]
         first = context.prepare(original)
         frozen = deepcopy(first)
+        initial = driver(deepcopy(first), path, dict(task=name, phase='plan', budget_usd=0)) if driver else None
         if after is None:
             path.unlink()
         else:
@@ -72,17 +74,34 @@ def replay(encoding, schedule, scenario, repetition):
         if name == 'concurrent_edit':
             policy.queue_update(Update(name, current, 'limit=999', 'revision-3'))
             assert 'limit=999' not in text
+        result = driver(deepcopy(second), path, dict(task=name, phase='act',
+                        unsaved_buffer=buffer, budget_usd=0)) if driver else None
+        # The task witness checks the driver's returned decision, not source
+        # presence. The expected answer is never included in its manifest.
+        observed = result is not None
+        action_success = ('driver_error' not in result and 'answer' in result and result['answer'] == current) if observed else None
+        stale_assumptions = int(result.get('assumed_revision') == 'revision-1') if observed and 'assumed_revision' in result else None
+        stale_attempts = sum(action.get('revision') == 'revision-1' for action in result.get('edit_attempts', [])) if observed and 'edit_attempts' in result else None
         return dict(task=name, repetition=repetition, encoding=encoding,
                     scheduling=schedule, representation='unchanged-source',
                     manifests=[first, second], delivery_point='offline-boundary-2',
                     delivery_coverage='local assembly only; no provider receipt',
-                    behavioral_success=success, stale_assumptions=None,
-                    stale_edit_attempts=None, human_interventions=int(schedule == 'manual'),
-                    supplied_utf8_bytes=len(text.encode()), input_tokens=None,
-                    cached_tokens=None, uncached_tokens=None, output_tokens=None,
-                    tool_calls=tools, latency_seconds=perf_counter() - start,
-                    reported_cost=None, model='deterministic exposure witness',
-                    metric_limitations='No model reasoning, provider usage or user effort measured')
+                    exposure_success=success, behavioral_success=action_success,
+                    driver_observations=[initial, result],
+                    driver_coverage='driver-returned decisions; provider internals opaque' if observed else 'no behavioral driver',
+                    stale_assumptions=stale_assumptions,
+                    stale_edit_attempts=stale_attempts,
+                    human_interventions=result.get('human_interventions') if observed else None,
+                    scheduled_manual_updates=int(schedule == 'manual'),
+                    supplied_utf8_bytes=len(text.encode()), input_tokens=result.get('input_tokens') if observed else None,
+                    cached_tokens=result.get('cached_tokens') if observed else None,
+                    uncached_tokens=result.get('uncached_tokens') if observed else None,
+                    output_tokens=result.get('output_tokens') if observed else None,
+                    tool_calls=result.get('tool_calls') if observed else None,
+                    harness_read_calls=tools, usage_scope='act phase only; driver declared', latency_seconds=perf_counter() - start,
+                    reported_cost=result.get('reported_cost') if observed else None,
+                    model=result.get('model', 'driver unspecified') if observed else 'deterministic exposure witness',
+                    metric_limitations='Driver usage/cost are declarations; local elapsed time is measured; human effort unmeasured')
 
 
 def compare_observations(cases, driver):
@@ -101,23 +120,53 @@ def compare_observations(cases, driver):
             for result in [driver(deepcopy(case), representation)]]
 
 
-def run(repetitions=3):
+def run(repetitions=3, driver=None):
     if repetitions < 2:
         raise ValueError('paired evaluation requires at least two repetitions')
     return dict(version=1, limitations='Offline exposure witnesses do not rank model correctness, '
                 'cost or ease of use. Paid providers require a separately configured driver/budget.',
-                runs=[replay(encoding, schedule, scenario, repetition)
+                runs=[replay(encoding, schedule, scenario, repetition, driver)
                       for repetition in range(repetitions) for scenario in SCENARIOS
                       for schedule in ('manual', 'automatic')
                       for encoding in ('append', 'projection', 'reread')])
+
+
+def command_driver(argv):
+    """Explicit local driver protocol. No provider configuration or credentials added.
+
+    The subprocess receives exactly the candidate manifest and isolated source
+    path. Output is one JSON decision. Nonzero exit and invalid/oversized output
+    are failed evaluations, never success. Timeout bounds each invocation.
+    """
+    if not isinstance(argv, list) or not argv or not all(isinstance(a, str) for a in argv):
+        raise ValueError('driver command must be a nonempty JSON argv array')
+    def invoke(manifest, source, task):
+        request = dict(manifest=manifest, source=str(source), task={**task, 'instructions': 'Report current source bytes as answer (null for deletion), using supplied unsaved_buffer when present. Return assumed_revision and edit_attempts when observable.'},
+                       coverage='Only this supplied manifest is recorded; driver/provider internals opaque')
+        try:
+            result = subprocess.run(argv, input=json.dumps(request), text=True,
+                                    capture_output=True, timeout=60, cwd=source.parent)
+            if result.returncode:
+                return dict(driver_error='nonzero exit', exit_code=result.returncode)
+            if len(result.stdout.encode()) > 1_048_576:
+                return dict(driver_error='oversized response')
+            value = json.loads(result.stdout)
+            if not isinstance(value, dict):
+                raise ValueError('driver response must be an object')
+            return value
+        except (ValueError, subprocess.TimeoutExpired, OSError) as error:
+            return dict(driver_error=str(error))
+    return invoke
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--output', type=Path, required=True)
     parser.add_argument('--repetitions', type=int, default=3)
+    parser.add_argument('--driver-command', help='Explicit local JSON argv; receives manifests on stdin. No paid provider is configured.')
     args = parser.parse_args()
-    args.output.write_text(json.dumps(run(args.repetitions), indent=2) + '\n')
+    driver = command_driver(json.loads(args.driver_command)) if args.driver_command else None
+    args.output.write_text(json.dumps(run(args.repetitions, driver), indent=2) + '\n')
 
 
 if __name__ == '__main__':

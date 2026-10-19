@@ -17,7 +17,8 @@ passed. These results establish harness operation, not model correctness or a
 preferred refresh policy. Cached/uncached/input/output tokens, actual cost,
 stale reasoning/edit attempts and user effort are unavailable and remain null.
 Byte counts are not token counts. Local assembly latency is not model latency.
-Manual scheduling records one simulated intervention, not measured human effort.
+Manual scheduling records one scheduled manual update; measured human interventions
+remain null unless a configured driver reports them.
 
 `RefreshPolicy` is injectable through `MemoryContext(policy=...)` and supports
 `queue_update(Update(...))`. Use `assemble` to project a new candidate while
@@ -36,3 +37,43 @@ Real model comparisons require a separately configured task/model driver and
 explicit spending budget. Preserve its request and delivery evidence, observed
 usage and behavioral task checks alongside these records; do not treat source
 presence as proof that a model followed the changed requirement.
+
+
+The report now separates `exposure_success` from `behavioral_success`. Without a
+driver, behavioral success and stale reasoning/edit counts are null. Fresh source
+bytes in a request cannot establish that an agent used them. The five focused
+harness tests include a deliberately stale driver that fails all 96 behavioral
+witnesses despite successful exposure, and an isolated current-source driver
+that passes all 96. Neither driver is a language model or a usability study.
+
+To attach a local model/task adapter, pass an explicit JSON argv array:
+
+```sh
+PYTHONPATH=apps/agent/src apps/agent/.venv/bin/python \
+  -m hickory_agent_worker.refresh_experiment --repetitions 3 \
+  --driver-command '["/absolute/path/to/local-driver"]' \
+  --output /tmp/hickory-behavioral-results.json
+```
+
+The driver runs in each isolated workspace and receives one JSON stdin record
+containing `manifest`, `source` and `task`. It is invoked once before the edit
+(`phase=plan`) and once after (`phase=act`). Return a JSON object with `answer`
+(current source bytes, or null for deletion), optional `assumed_revision`,
+`edit_attempts` (objects carrying `revision`), model/usage, tool calls, intervention
+counts and reported cost. An absent answer, malformed response, timeout or failed
+process is a failed behavioral witness, including deletion scenarios. The expected
+answer is computed independently from the controlled source and is not supplied
+as a task field. Unsaved content is supplied separately and stays off disk.
+
+Both phase outputs and exact input manifests are retained. Usage/cost cover the
+act phase and are driver declarations; elapsed local time is observed. This
+adapter does not certify the driver's hidden provider requests. The built-in
+harness never configures a paid provider, reads credentials, or sends telemetry.
+Its driver task budget is zero: paid experiments require a separate explicitly
+configured adapter enforcing an approved budget. This command is a local adapter
+interface, not a mechanism for enforcing an arbitrary subprocess's network use.
+
+Observed October 19, 2026: the default three-repetition run produced 144/144
+exposure successes and 144 unavailable behavioral results. No refresh winner is
+selected. Run the command above without `--driver-command` to reproduce that
+coverage; request UUIDs, temporary paths and elapsed times vary.

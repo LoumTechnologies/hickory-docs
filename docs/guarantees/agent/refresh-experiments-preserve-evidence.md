@@ -44,3 +44,18 @@ Last LLM verification:
 - Executed checks: three experiment tests and six context-runtime tests passed;
   CLI generated 144 records. Broad regression checks not run.
 - Human judgment: not recorded.
+
+
+October 19 behavioral-driver extension:
+
+- `refresh_experiment.replay` distinguishes source exposure from independently
+  checked driver decisions. With no driver, behavioral metrics remain null.
+- Explicit subprocess drivers receive paired plan/act phases in isolated
+  workspaces; original manifests and both responses remain in the report.
+- A stale driver fails even when every exposure witness passes. A failed or
+  missing driver answer cannot count as successful handling of a deleted source.
+- Driver-returned usage/cost and intervention counts are declarations; local
+  elapsed time is observed. No paid provider is configured by the harness.
+- Executed checks: five focused harness tests passed. The default 144-record
+  replay passed all exposure witnesses; behavioral results remain unavailable.
+- Human judgment: no policy preference or paid experiment approved.
