@@ -64,11 +64,11 @@ export function linkShapes(container: HTMLElement, sources: readonly RibbonSourc
           { left: targetEdges.left - box.left, right: targetEdges.right - box.left });
         const fromBand = clampBand(band[0] - box.top, band[1] - box.top, pane.top - box.top, pane.bottom - box.top);
         const into = clampBand(targetBand[0] - box.top, targetBand[1] - box.top, targetPane.top - box.top, targetPane.bottom - box.top);
-        const shape: Draft = { key: `${link.family}:${link.key}:text`, family: link.family,
+        const shape: Draft = { key: `${link.family}:${link.key}:text`, family: link.family, review: link.review,
           color: link.family === "context" ? 0 : 1, alwaysVisible: link.alwaysVisible,
           ends: "text", clamped: fromBand.clamped || into.clamped,
           hl: [{ view, from, to }, { view: targetView, ...range }],
-          target: { kind: "path", path: link.to.path, lines: link.to.lines, family: link.family } };
+          target: { kind: "path", path: link.to.path, lines: link.to.lines, family: link.family, linkKey: link.key } };
         if (braces) {
           const dir = forward ? 1 : -1, back = forward ? -1 : 1;
           const a = bracePath(x0, fromBand.yTop, fromBand.yBot, dir, undefined,
@@ -107,6 +107,7 @@ export function linkShapes(container: HTMLElement, sources: readonly RibbonSourc
       );
       const shape: Draft = {
         key: `${link.family}:${link.key}:${terminal.ends}`,
+        review: link.review,
         alwaysVisible: link.alwaysVisible,
         family: link.family,
         color: link.family === "context" ? 0 : 1,
@@ -120,6 +121,7 @@ export function linkShapes(container: HTMLElement, sources: readonly RibbonSourc
           path: link.to.path,
           lines: link.to.lines,
           family: link.family,
+          linkKey: link.key,
         },
       };
       if (braces && attach.link) {

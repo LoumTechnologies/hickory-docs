@@ -1,3 +1,4 @@
+import { RuntimeLog } from "./RuntimeLogView";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { EditorView } from "@codemirror/view";
 import { StateEffect } from "@codemirror/state";
@@ -83,6 +84,7 @@ export function RuntimeHistory({ runs, source, view, onPin, onDelete }: {
     <details><summary>Selected occurrence output · {invocation || "all invocations"}</summary>
       <pre tabIndex={0} style={{ maxHeight: "18rem", overflow: "auto" }}>{runtimeText(run, invocation)}</pre>
     </details>
+    <RuntimeLog key={run.id} run={invocation ? { ...run, events: run.events.filter(event => (event.invocation ?? "unknown") === invocation) } : run} />
     {reading && <ObservationReading key={`${run.id}:${invocation}`} reading={reading} historical={run.id !== latest?.id || run.status !== "running"} changed={stale} />}
     <label>Compare retained run <select value={comparison} onChange={event => setComparison(event.target.value)}>
       <option value="">No comparison</option>{sorted.filter(item => item.id !== run.id).map(item => <option key={item.id} value={item.id}>{item.id} · {item.status}</option>)}

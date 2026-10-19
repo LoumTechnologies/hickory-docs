@@ -509,3 +509,41 @@ test("runtime history selects occurrences, retains pins, marks stale evidence an
   await expect(pane.locator(`[data-evidence="${first.events[0].id}"]`)).toBeVisible();
   expect(unexpected).toEqual([]);
 });
+
+// Guarantee: docs/guarantees/execution/runtime-logs-preserve-contributor-relationships.md
+test("execution logs preserve contributors, exact occurrence navigation and review targets", async ({ page }) => {
+  const unexpected = await noEngine(page);
+  await page.addInitScript(() => window.addEventListener("hickory:review-target", event => Object.assign(globalThis, { runtimeReview: (event as CustomEvent).detail })));
+  await page.goto("/embed.html");
+  await code(page, "function logger() {\n console.write('same');\n console.write(' line\\npartial');\n}\nlogger(); logger();");
+  await page.getByRole("button", { name: "Debug document", exact: true }).click();
+  await expect(page.getByLabel("Runtime evidence")).toContainText('"status":"completed"');
+  const run = JSON.parse((await page.getByLabel("Runtime evidence").textContent())!);
+  await page.getByText(/Execution log and source relationships/).click();
+  const log = page.locator(".runtime-log");
+  await expect(log.getByLabel("Execution line contributors")).toContainText("Log line 1 · LF terminated · 2 contributions");
+  await expect(log.getByLabel("Execution line contributors")).toContainText("Log line 3 · partial");
+  await expect(log.locator(".ribbon-group--execution").first()).toBeVisible();
+  const relationship = log.locator(".ribbon-group--execution").first();
+  await relationship.focus(); await relationship.press("Alt+Enter");
+  await page.waitForFunction(() => !!(globalThis as unknown as { runtimeReview?: unknown }).runtimeReview);
+  const target = await page.evaluate(() => (globalThis as unknown as { runtimeReview: { kind: string; source_hash: string; relationship: { run: string; event: { id: string } } } }).runtimeReview);
+  expect(target.kind).toBe("runtime-relationship"); expect(target.source_hash).toBe(run.sources[0].revision);
+  expect(target.relationship.run).toBe(run.id); expect(run.events.map((event: { id: string }) => event.id)).toContain(target.relationship.event.id);
+  const firstLine = log.getByLabel("Execution line contributors").locator(":scope > li").first();
+  await firstLine.getByRole("button", { name: "Emission · exact", exact: true }).first().click();
+  await expect(page.locator(`.runtime-inline[data-run="${run.id}"][open]`).first()).toBeVisible();
+  await page.getByRole("button", { name: `Show ${run.events[2].id} in execution log`, exact: true }).click();
+  await expect(log.locator(`[data-runtime-event="${run.events[2].id}"]`).first()).toContainText("Selected");
+  await log.getByLabel("Execution connector style").selectOption("bands");
+  await expect(log.locator(".ribbon.ribbon-family-execution").first()).toBeVisible();
+  await code(page, "console.write('new run\\n');");
+  await page.getByRole("button", { name: "Debug document", exact: true }).click();
+  await expect(page.getByLabel("Runtime evidence")).not.toContainText(run.id);
+  await page.getByRole("combobox", { name: "Runtime run", exact: true }).selectOption(run.id);
+  await expect(page.getByText(/historical · source changed/)).toBeVisible();
+  await page.getByText(/Execution log and source relationships/).click();
+  await expect(log.getByLabel("Captured execution log")).toContainText("same line");
+  await expect(log.getByLabel("Captured execution log")).not.toContainText("new run");
+  expect(unexpected).toEqual([]);
+});

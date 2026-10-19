@@ -32,6 +32,14 @@ it.each([false, true])("joins the cited passage in an open editor, braces=%s", b
     [{ ...link, to: { ...link.to, path: "hickory-buffer://u1" } }], () => true, braces, geometry);
   expect(bufferShapes).toHaveLength(1);
   expect(bufferShapes[0].hl[1]).toEqual(shapes[0].hl[1]);
+  // Guarantee: docs/guarantees/execution/runtime-logs-preserve-contributor-relationships.md
+  const runtimeLink: RibbonLink = { ...link, key: "event-one", family: "execution", review: {
+    kind: "runtime-relationship", path: "note.md", quote: "Supporting paragraph", source_hash: "a".repeat(64), lines: [3, 3], relationship: { event: "event-one" },
+  } };
+  const execution = linkShapes(container, sources, [], [runtimeLink, { ...runtimeLink, key: "event-two" }], () => true, braces, geometry);
+  expect(execution).toHaveLength(2);
+  expect(execution[0].review).toEqual(runtimeLink.review);
+  expect(execution.map(shape => shape.target.kind === "path" ? shape.target.linkKey : null)).toEqual(["event-one", "event-two"]);
   expect(shapes[0].ends).toBe("text");
   expect(shapes[0].family).toBe("declared");
   expect(shapes[0].hl[1]).toEqual({ view: target, from: target.state.doc.line(3).from, to: target.state.doc.line(4).to });

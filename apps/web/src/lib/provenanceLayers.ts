@@ -25,13 +25,14 @@
 // the drawing on without the bookkeeping would draw nothing, and turning the
 // bookkeeping on without asking would tax every commit for a feature most
 // people never use.
-export type ProvenanceLayer = "lineage" | "context" | "declared" | "continuity";
+export type ProvenanceLayer = "lineage" | "context" | "declared" | "continuity" | "execution";
 
 export const PROVENANCE_LAYERS: readonly ProvenanceLayer[] = [
   "lineage",
   "context",
   "declared",
   "continuity",
+  "execution",
 ];
 
 export const PROVENANCE_LAYERS_KEY = "hickory.provenanceLayers";
@@ -43,7 +44,8 @@ const isLayer = (value: unknown): value is ProvenanceLayer =>
   value === "lineage" ||
   value === "context" ||
   value === "declared" ||
-  value === "continuity";
+  value === "continuity" ||
+  value === "execution";
 
 /** The persisted set, defaulting to every layer on. */
 export function loadProvenanceLayers(
@@ -100,6 +102,7 @@ export const LAYER_LABEL: Record<ProvenanceLayer, { short: string; tip: string }
     short: "Declared",
     tip: "Declared — what the author says this cites (cites=). An assertion anyone can write; drawn as one.",
   },
+  execution: { short: "Execution", tip: "Execution — observed runtime emission/calling evidence, not byte lineage, supplied context or semantic support." },
   continuity: {
     short: "Continuity",
     tip: "Continuity — what this span was at an earlier commit. Off by default, and the whole feature rides one project switch: no continuity, no journal, no repair. Every link says whether it was recorded or guessed, and how precisely.",

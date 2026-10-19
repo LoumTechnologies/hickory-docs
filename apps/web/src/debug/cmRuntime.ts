@@ -1,3 +1,4 @@
+import { RUNTIME_REVEAL, revealRuntimeEvent } from "./runtimeNavigation";
 import type { RuntimeEvent } from "./runtimeObservations";
 import { StateEffect, StateField } from "@codemirror/state";
 import { Decoration, EditorView, WidgetType, type DecorationSet } from "@codemirror/view";
@@ -9,6 +10,7 @@ export const setRuntimeReading = StateEffect.define<ObservationReading | null>()
 const expanded = new Set<string>();
 class RuntimeWidget extends WidgetType {
   private owner = Symbol("inline-runtime");
+  private removeListener = () => {};
   constructor(private reading: ObservationReading, private location: string) { super(); }
   toDOM() {
     const details = document.createElement("details"); details.className = "runtime-inline";
@@ -27,9 +29,22 @@ class RuntimeWidget extends WidgetType {
     details.open = expanded.has(key);
     const select = () => { if (details.open) expanded.add(key); else expanded.delete(key); selectObservations(reading, details.open, false, this.owner); };
     details.addEventListener("toggle", select); select(); details.append(summary, pre);
+    details.dataset.run = reading.scope.run;
+    details.dataset.events = records.map(item => item.evidence).join(" ");
+    for (const record of records) {
+      const button = document.createElement("button"); button.textContent = `Show ${record.evidence} in execution log`;
+      button.addEventListener("click", () => revealRuntimeEvent(reading.scope.run, record.evidence)); details.append(button);
+    }
+    const reveal = (event: Event) => {
+      const detail = (event as CustomEvent<{ run: string; event: string }>).detail;
+      if (detail.run === reading.scope.run && records.some(item => item.evidence === detail.event)) {
+        details.open = true; details.scrollIntoView({ block: "nearest" }); summary.focus();
+      }
+    };
+    window.addEventListener(RUNTIME_REVEAL, reveal); this.removeListener = () => window.removeEventListener(RUNTIME_REVEAL, reveal);
     return details;
   }
-  destroy() { selectObservations(this.reading, false, false, this.owner); }
+  destroy() { this.removeListener(); selectObservations(this.reading, false, false, this.owner); }
   ignoreEvent() { return true; }
 }
 export const runtimeEditor = StateField.define<DecorationSet>({

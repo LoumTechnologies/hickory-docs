@@ -64,7 +64,7 @@ export function runtimeReading(run: RuntimeRun, invocation?: string): Observatio
   const selected = run.events.filter(event => !invocation || (event.invocation ?? "unknown") === invocation);
   const annotations = selected.map(event => {
     let location: string | null = null;
-    const anchor = event.emission;
+    const anchor = event.observation.kind === "exception" ? event.observation.throwing ?? event.emission : event.emission;
     if (anchor?.source === source.id && anchor.bytes) {
       location = `${source.revision}:byte:${anchor.bytes.start}`;
       if (!locations.some(item => item.id === location)) locations.push({ id: location, revision: source.revision,

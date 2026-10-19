@@ -1,4 +1,4 @@
-import { reviewRelationship, reviewError } from "../lib/reviews";
+import { reviewRelationship, reviewError, openReview, type ReviewTarget } from "../lib/reviews";
 // Provenance ribbons, drawn between panes — and out to files that are not
 // open yet.
 //
@@ -102,7 +102,7 @@ export interface RibbonSource {
  * record; the document's own `cites=`) — and are drawn in their own stroke
  * so no reader can mistake one for another.
  */
-export type RibbonFamily = "lineage" | "context" | "declared";
+export type RibbonFamily = "lineage" | "context" | "declared" | "execution";
 
 /**
  * A connection handed to the overlay ready-made: from a run of lines in a
@@ -121,6 +121,7 @@ export interface RibbonLink {
   };
   title: string;
   anchor?: HTMLElement;
+  review?: ReviewTarget;
   alwaysVisible?: boolean;
 }
 
@@ -144,6 +145,7 @@ export type RibbonTarget =
       path: string;
       lines?: [number, number];
       family: RibbonFamily;
+      linkKey?: string;
     };
 
 /** One side's involved text, for the hovered line-number tint. */
@@ -154,6 +156,7 @@ interface HlSide {
 }
 
 interface Shape {
+  review?: ReviewTarget;
   key: string;
   family: RibbonFamily;
   color: number;
@@ -1129,13 +1132,14 @@ export function RibbonOverlay({
               const side = shape.hl[0];
               if (!side) return;
               event.preventDefault();
-              void reviewRelationship(side.view, [side.from, side.to], { family: shape.family, target: shape.target, key: shape.key }).catch(reviewError);
+              if (shape.review) openReview(shape.review); else void reviewRelationship(side.view, [side.from, side.to], { family: shape.family, target: shape.target, key: shape.key }).catch(reviewError);
             }}
             onKeyDown={event => {
               if (event.key !== "Enter") return;
               event.preventDefault();
               const side = shape.hl[0];
-              if (event.altKey && side) void reviewRelationship(side.view, [side.from, side.to], { family: shape.family, target: shape.target, key: shape.key }).catch(reviewError);
+              if (event.altKey && shape.review) openReview(shape.review);
+              else if (event.altKey && side) void reviewRelationship(side.view, [side.from, side.to], { family: shape.family, target: shape.target, key: shape.key }).catch(reviewError);
               else onNavigate?.(shape.target, ribbonOpenIntent(container, side?.view.dom, shape.target));
             }}
             className={`ribbon-group${hoverOnly && shown ? " ribbon-group--revealed" : ""}${
