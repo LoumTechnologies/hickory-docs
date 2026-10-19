@@ -1,3 +1,4 @@
+import { RuntimeHistory, useBrowserRuns } from "../debug/RuntimeRuns";
 import type { RuntimeRun } from "../debug/runtimeObservations";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { EditorView } from "@codemirror/view";
@@ -18,6 +19,8 @@ export interface DebuggableDocumentProps extends DocumentEmbedProps {
   onExecutionResult?: (result: { revision: string; exitCode: number }) => void;
 }
 export function DebuggableDocument(props: DebuggableDocumentProps) {
+  const runtimeHistory = useBrowserRuns(props.path);
+  const runtimeHistoryRef = useRef(runtimeHistory); runtimeHistoryRef.current = runtimeHistory;
   const capturedRevision = useRef(props.revision);
   const current = useRef(props); current.current = props;
   const [backend, setBackend] = useState<ReturnType<typeof createBrowserDebugger> | null>(null);
@@ -32,7 +35,7 @@ export function DebuggableDocument(props: DebuggableDocumentProps) {
   useEffect(() => {
     const local = createBrowserDebugger({
       readDocument: () => { capturedRevision.current = current.current.revision; setRunSource(current.current.source); return { source: current.current.source, revision: current.current.revision }; },
-      onRuntime: (run) => current.current.onRuntime?.(run),
+      onRuntime: (run) => { runtimeHistoryRef.current.observe(run); current.current.onRuntime?.(run); },
       onOutput: (text) => setOutput((previous) => previous + text),
       onRevision: (revision) => { setRunRevision(revision); setOutput(""); },
     });
@@ -92,6 +95,8 @@ export function DebuggableDocument(props: DebuggableDocumentProps) {
       onJumpHere={() => {}} onAddWatch={() => document.getElementById(`watch-${props.path}`)?.focus()}
       exceptionFilters={debug.exceptionFilters} onToggleExceptionFilter={debug.toggleExceptionFilter} onRemoveWatch={debug.removeWatch} />
     <DocumentEmbed {...props} extensions={extensions} onViewReady={ready} />
+    <RuntimeHistory runs={runtimeHistory.runs} source={props.source} view={view} onPin={runtimeHistory.pin} onDelete={runtimeHistory.remove} />
+    {runtimeHistory.error && <p role="alert">Runtime retention unavailable: {runtimeHistory.error}</p>}
     {debug.status === "paused" && <div className="browser-debug-inspection">
       <p>Paused on line {(debug.pausedLine ?? 0) + 1}{stale ? " of the previous revision" : ""}</p>
       <h3>Variables</h3>

@@ -57,6 +57,7 @@ mod native_projects;
 pub mod outputs;
 pub mod plain_file;
 mod meeting_import;
+mod runtime_runs;
 mod project_comparison;
 mod project_incorporation;
 mod project_publish;
@@ -148,6 +149,7 @@ pub struct LocalState {
     pub index: Arc<DocIndex>,
     pub rooms: Arc<RoomRegistry>,
     pub runs: Arc<Mutex<HashMap<String, RunRecord>>>,
+    pub observations: Arc<std::sync::Mutex<Option<hick_observe::LocalStore>>>,
     pub params: Arc<Vec<(String, String)>>,
     pub executor: ExecutorChoice,
     /// The project search engine, built on first use and reused: reopening
@@ -681,6 +683,8 @@ pub(crate) fn router(state: LocalState) -> Router {
         .route("/file", get(plain_file::get_file).put(plain_file::put_file))
         .route("/scratchpad", post(plain_file::post_scratchpad))
         .route("/meetings/import", post(meeting_import::post))
+        .route("/runtime/runs", get(runtime_runs::list).post(runtime_runs::save))
+        .route("/runtime/runs/{id}", axum::routing::delete(runtime_runs::remove).patch(runtime_runs::pin))
         .route("/asset", get(asset::get_asset).post(asset::post_asset))
         .route("/search", get(api::search))
         // What this project calls things — a different question from the
@@ -890,6 +894,7 @@ async fn prepare_inner(opts: ServeOptions, folder_open: Option<bool>) -> Result<
         index: index.clone(),
         rooms: Arc::new(RoomRegistry::new(store)),
         runs: Arc::new(Mutex::new(HashMap::new())),
+        observations: Arc::new(std::sync::Mutex::new(None)),
         params: Arc::new(opts.params),
         executor: opts.executor,
         search: Arc::new(std::sync::Mutex::new(None)),

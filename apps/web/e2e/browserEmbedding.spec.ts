@@ -474,3 +474,38 @@ for (const language of ["js", "ts"]) {
     expect(unexpected).toEqual([]);
   });
 }
+
+// Guarantee: docs/guarantees/execution/runtime-history-keeps-runs-and-occurrences-separate.md
+test("runtime history selects occurrences, retains pins, marks stale evidence and compares failed runs", async ({ page }) => {
+  const unexpected = await noEngine(page); await page.goto("/embed.html");
+  await code(page, "function emit(n) { console.log(n); }\nemit(1); emit(2);");
+  await page.getByRole("button", { name: "Debug document", exact: true }).click();
+  await expect(page.getByLabel("Runtime evidence")).toContainText('"status":"completed"');
+  const first = JSON.parse((await page.getByLabel("Runtime evidence").textContent())!);
+  const pane = page.getByRole("region", { name: "Runtime run history" });
+  await expect(pane.locator("select").first()).toContainText(first.id);
+  const invocation = pane.getByLabel("Invocation");
+  const firstOccurrence = await invocation.locator("option").nth(1).getAttribute("value");
+  await invocation.selectOption(firstOccurrence!);
+  await expect(pane.getByText(/Selected occurrence output/)).toContainText(firstOccurrence!);
+  const inline = page.locator(".runtime-inline summary").first();
+  await inline.focus(); await inline.press("Enter");
+  await expect(page.locator(".runtime-inline[open] pre").first()).toContainText(first.events[0].id);
+  await pane.getByRole("button", { name: "Pin run", exact: true }).click();
+  await expect(pane.getByRole("button", { name: "Unpin run", exact: true })).toBeVisible();
+  await page.reload();
+  await expect(page.getByRole("button", { name: "Unpin run", exact: true })).toBeVisible();
+  await code(page, "var i; for(i=0;i<40;i++) console.log('long stream ' + i);\nthrow new Error('new failure');");
+  await page.getByRole("button", { name: "Debug document", exact: true }).click();
+  await expect(page.getByLabel("Runtime evidence")).toContainText('"status":"failed"');
+  const second = JSON.parse((await page.getByLabel("Runtime evidence").textContent())!);
+  await expect(pane.getByText(new RegExp(`^Run ${second.id} · failed`))).toBeVisible();
+  await pane.getByRole("combobox", { name: "Runtime run", exact: true }).selectOption(first.id);
+  await expect(pane.getByText(/historical · source changed/)).toBeVisible();
+  await expect(page.locator(".runtime-inline")).toHaveCount(0);
+  await pane.getByLabel("Compare retained run").selectOption(second.id);
+  await expect(pane.getByLabel("Separate run comparison")).toContainText("observations remain separate");
+  await pane.locator(".debug-observations summary").click();
+  await expect(pane.locator(`[data-evidence="${first.events[0].id}"]`)).toBeVisible();
+  expect(unexpected).toEqual([]);
+});

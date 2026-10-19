@@ -1,3 +1,4 @@
+import { NativeRuntimeHistory } from "../debug/RuntimeRuns";
 import { MeetingImport } from "../components/MeetingImport";
 import { SnapshotExport } from "../components/SnapshotExport";
 import { WorkflowTour } from "../components/WorkflowTour";
@@ -1686,6 +1687,7 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
         <ReviewPanel />
         <MeetingImport onOpen={(path, line) => openHit(path, line ?? 1)} onOpenNote={(id) => { ensureDocOpen(id); navigate(`/docs/${id}`); }} />
         <SnapshotExport docId={focused?.docId} />
+        <NativeRuntimeHistory path={focused?.doc?.path} source={focused?.liveSource} view={focused?.docEditor} />
         <WorkflowTour surface="app" />
       </div>
       {/* Plain files' debug sessions, held above their panes so a session
