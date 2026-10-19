@@ -1,3 +1,8 @@
+> 2026-10-18 issue #52 amendment: complete open buffers remain edit snapshots.
+> Workspace model input now uses explicit selected reading scope; full text is
+> not automatically sent. The contract below describes legacy clients without
+> a projection. See [selected reading scope](expanded-reading-projection.md).
+
 # The agent sees the open editors
 
 > 2026-10-18 amendment: the built-in loop is Python, not Rust. Branch data and

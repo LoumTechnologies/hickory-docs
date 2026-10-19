@@ -1,0 +1,4 @@
+.workspace-chat { display: flex; flex-direction: column; min-height: 0; height: 100%; overflow: hidden; }
+.workspace-chat > details { flex: none; max-height: 40%; overflow: auto; padding: 0.5rem; border-bottom: 1px solid var(--border); }
+.workspace-chat > details pre { white-space: pre-wrap; overflow-wrap: anywhere; }
+.workspace-chat > .chat-dock { flex: 1; min-height: 0; }

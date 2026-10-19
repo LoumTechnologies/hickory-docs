@@ -644,7 +644,7 @@ export function ChatDock({
         </div>
       )}
 
-      {contextLabel && <p className="chat-note muted">Context: {contextLabel}. Current editor text is included when you send.</p>}
+      {contextLabel && <p className="chat-note muted">Context: {contextLabel}. Use Next context projection to select editor text.</p>}
       <div className="chat-composer">
         <span className="muted">{!collapsed && !showTree ? <button className="btn-link" onClick={() => focusConversationResponse(logRef.current)}>Write a response</button> : "Type your response at the bottom"} · ⌘/Ctrl+Enter to send</span>
         {running ? (

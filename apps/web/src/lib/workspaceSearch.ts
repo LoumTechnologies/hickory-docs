@@ -1,3 +1,4 @@
+import { rememberReadingState, restoreReadingState } from "./contextProjection";
 // Live open buffers supplement the folder index; their bytes replace stale disk hits.
 import type { EditorView } from "@codemirror/view";
 import type { SearchResponse } from "../api/types";
@@ -8,8 +9,9 @@ export interface SearchFile { path: string; content: string }
 const plainEditors = new Map<EditorView, string>();
 
 export function registerSearchEditor(path: string, view: EditorView): () => void {
+  restoreReadingState(`file:${path}`, view);
   plainEditors.set(view, path);
-  return () => { plainEditors.delete(view); };
+  return () => { rememberReadingState(`file:${path}`, view); plainEditors.delete(view); };
 }
 
 export function openPlainSearchFiles(): SearchFile[] {

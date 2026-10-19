@@ -1,3 +1,4 @@
+import { rememberReadingState, restoreReadingState } from "../lib/contextProjection";
 import { launchWithProfiles } from "../debug/launchProfiles";
 import { documentDebugContext } from "../debug/documentDebugContext";
 import { bindProjectDebugView } from "../debug/projectDebugSurface";
@@ -844,19 +845,25 @@ function useDocumentSession(
     [lsp.client, lsp.uri, openTarget],
   );
 
+  const readingOutputViews = useRef(new Map<string, EditorView>());
   const registerOutputView = useCallback((path: string, view: EditorView | null) => {
+    rememberReadingState(`output:${docId}:${path}`, readingOutputViews.current.get(path));
+    if (view) restoreReadingState(`output:${docId}:${path}`, view);
+    if (view) readingOutputViews.current.set(path, view); else readingOutputViews.current.delete(path);
     setOpenOutputs((current) => {
       const next = new Map(current);
       if (view) next.set(path, view);
       else next.delete(path);
       return next;
     });
-  }, []);
+  }, [docId]);
 
   const onDocViewReady = useCallback((view: EditorView | null) => {
+    rememberReadingState(`doc:${docId}`, editorRef.current);
+    if (view) restoreReadingState(`doc:${docId}`, view);
     editorRef.current = view;
     setDocEditor(view);
-  }, []);
+  }, [docId]);
 
   const clearReferences = useCallback(() => setReferences(null), []);
 

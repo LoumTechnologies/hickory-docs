@@ -21,7 +21,7 @@ export function selectObservations(reading: ObservationReading, expanded: boolea
   selected.set(key, { reading, state: historical ? "historical" : "captured", evidence: reading.annotations.map(a => a.evidence) });
 }
 export function selectedObservations(path: string, content: string): SelectedObservations[] {
-  const unique = new Map([...selected.values()].map(s => [JSON.stringify([s.reading.scope.run, s.reading.scope.stop, s.reading.scope.frame, s.evidence]), s]));
+  const unique = new Map([...selected.values()].map(s => [JSON.stringify([s.reading.source.id, s.reading.source.revision, s.reading.scope.run, s.reading.scope.stop, s.reading.scope.frame, s.evidence]), s]));
   const normalized = (uri: string) => uri.replace(/^hick:\/\/\//, "");
   return [...unique.values()].filter(s => [s.reading.source.uri, ...(s.reading.source_aliases ?? [])].some(uri => normalized(uri) === normalized(path))).map(s => ({ ...s,
     state: new TextDecoder().decode(new Uint8Array(s.reading.source.bytes)) === content ? s.state : "changed" }));

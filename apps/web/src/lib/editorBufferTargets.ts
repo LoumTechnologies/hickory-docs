@@ -1,3 +1,4 @@
+import { rememberReadingState, restoreReadingState } from "./contextProjection";
 // Explicit editor identities for provenance that has no filesystem path.
 import type { EditorView } from "@codemirror/view";
 import type { Dispatch, SetStateAction } from "react";
@@ -11,6 +12,7 @@ const instance = Array.from(crypto.getRandomValues(new Uint8Array(16)), byte => 
 export const bufferTarget = (id: string) => `${BUFFER_PREFIX}${instance}/${id}`;
 export function registerBufferEditor(id: string, view: EditorView): () => void {
   const path = bufferTarget(id);
+  restoreReadingState(path, view);
   const unregister = registerLens({ path, view, source: view.state.doc.toString(), links: [] });
   const reveal = (target: string) => {
     if (target !== path) return;
@@ -22,7 +24,7 @@ export function registerBufferEditor(id: string, view: EditorView): () => void {
   };
   const unlisten = onRevealLine(reveal);
   reveal(path);
-  return () => { unregister(); unlisten(); };
+  return () => { rememberReadingState(path, view); unregister(); unlisten(); };
 }
 
 /** Consume buffer locations before any filesystem-opening path. */

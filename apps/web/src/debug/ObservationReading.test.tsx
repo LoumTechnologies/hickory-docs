@@ -49,3 +49,37 @@ it("keeps independently expanded stops selected when another view closes", () =>
   second.unmount();
   expect(selectedObservations("demo.md", source)).toEqual([]);
 });
+
+// Guarantee: docs/guarantees/agent/expanded-reading-projection.md
+it("pins collapsed observations without changing evidence or precision", async () => {
+  const reading = fixture();
+  const view = render(<ObservationReading reading={reading} historical={false} />);
+  fireEvent.click(screen.getByRole("checkbox", { name: /Pin observations/ }));
+  const { observationContext } = await import("./observations");
+  const context = observationContext("demo.md", source)[0];
+  expect(context.reading.scope).toEqual(reading.scope);
+  expect(context.reading.excerpts[0].location).toEqual(reading.locations[0]);
+  expect(context.reading.annotations).toEqual(reading.annotations);
+  expect(view.container.querySelector("details")!.open).toBe(false);
+  fireEvent.click(screen.getByRole("checkbox", { name: /Pin observations/ }));
+  expect(observationContext("demo.md", source)).toEqual([]);
+});
+
+// Guarantee: docs/guarantees/agent/expanded-reading-projection.md
+it("serializes synthetic output, exception and profile records without losing run or measurement precision", async () => {
+  const reading = fixture();
+  reading.annotations = [
+    { ...reading.annotations[0], evidence: "output", payload: { kind: "output", text: "bounded", truncated: true, omitted_bytes: 120 } },
+    { ...reading.annotations[0], evidence: "exception", payload: { kind: "exception", message: "failure", precision: "block" } },
+    { ...reading.annotations[0], evidence: "profile", payload: { kind: "profile", interval_ns: 1000, aggregation: "sampled", precision: "statistical" } },
+  ];
+  const view = render(<ObservationReading reading={reading} historical />);
+  fireEvent.click(screen.getByRole("checkbox", { name: /Pin observations/ }));
+  const { observationContext } = await import("./observations");
+  const selected = observationContext("demo.md", source)[0];
+  expect(selected.state).toBe("historical");
+  expect(selected.reading.source.revision).toBe(reading.source.revision);
+  expect(selected.reading.annotations).toEqual(reading.annotations);
+  expect(selected.reading.scope).toEqual(reading.scope);
+  view.unmount();
+});

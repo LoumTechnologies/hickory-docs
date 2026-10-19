@@ -1,3 +1,6 @@
+import { codeFolding, foldEffect } from "@codemirror/language";
+// @ts-expect-error Node runtime crypto is available to Vitest without browser Node typings.
+import { webcrypto } from "node:crypto";
 import { bufferTarget } from "../lib/editorBufferTargets";
 import { responseStart } from "../editor/protectedPrefix";
 import { afterEach, expect, it, vi } from "vitest";
@@ -13,6 +16,7 @@ import { registerSearchEditor } from "../lib/workspaceSearch";
 vi.mock("../api/client", () => ({ request: vi.fn().mockResolvedValue({}), api: { responseDraft: vi.fn().mockResolvedValue({ scope: "test", state: null }), saveResponseDraft: vi.fn().mockResolvedValue({ ok: true }), agent: vi.fn(), agentTurns: vi.fn(), file: vi.fn(), executor: vi.fn().mockResolvedValue({}), complete: vi.fn().mockResolvedValue({ suggestions: [] }) } }));
 vi.mock("../api/acp", () => ({ acpApi: { state: vi.fn(async () => ({backend: "python", ready: true, edits: {mode: "review", changes: []}})), agents: vi.fn().mockResolvedValue({ agents: [] }) } }));
 vi.mock("../api/realtime", async importOriginal => ({ ...await importOriginal<typeof import("../api/realtime")>(), getWorkspaceRealtime: () => ({ onRunEvent: () => () => {} }) }));
+vi.stubGlobal("crypto", webcrypto);
 afterEach(() => { cleanup(); vi.clearAllMocks(); localStorage.clear(); });
 // Guarantee: docs/guarantees/agent/the-agent-sees-the-open-editors.md
 it("sends a startup untitled editor without a folder, using fresh text", async () => {
@@ -32,8 +36,8 @@ it("sends a startup untitled editor without a folder, using fresh text", async (
   act(() => editor.dispatch({ changes: { from: editor.state.field(responseStart), to: editor.state.doc.length, insert: "summarize" }, userEvent: "input.type" }));
   fireEvent.click(screen.getByRole("button", { name: "Send" }));
   await waitFor(() => expect(api.agent).toHaveBeenCalledWith("workspace", "summarize", null,
-    expect.anything(), expect.anything(), "python", { live: true, buffers: [{ id: untitled.id, kind: "untitled", provenance_uri: bufferTarget(untitled.id), name: untitled.title ?? untitled.target,
-      path: null, content: "latest unsaved text", focused: true }] }));
+    expect.anything(), expect.anything(), "python", { live: true, projection: { version: 1, documents: [], observations: [], estimate: expect.anything() }, buffers: [{ id: untitled.id, kind: "untitled", provenance_uri: bufferTarget(untitled.id), name: untitled.title ?? untitled.target,
+      path: null, observations: [], content: "latest unsaved text", focused: true }] }));
 });
 // Guarantee: docs/guarantees/agent/the-agent-sees-the-open-editors.md
 it("includes visible unsaved files, inactive tabs, missing files, and untitled text together", async () => {
@@ -89,4 +93,42 @@ it("restores the folderless workspace response across distinct unnamed editor id
   view.rerender(<WorkspaceChat {...props} focusedEditor={unnamed[1].id} />);
   expect(screen.getByRole("textbox", { name: "Agent conversation and response" }).textContent).toContain("Recovered unnamed-editor conversation");
   expect(api.responseDraft).toHaveBeenLastCalledWith("workspace");
+});
+
+// Guarantee: docs/guarantees/agent/expanded-reading-projection.md
+it("previews only explicitly selected unsaved text and lets a user pin it", async () => {
+  vi.mocked(api.agentTurns).mockResolvedValue({ turns: [], provider: "anthropic", model: "", totals: { usd: 0, input: 0, output: 0, cache_read: 0, cache_write: 0 } });
+  const layout = openUntitledTab(initialWorkspace());
+  const draft = panes(layout.root).flatMap(pane => pane.tabs).find(t => t.kind === "untitled")!;
+  render(<WorkspaceChat layout={layout} registry={new SessionRegistry()} untitledSources={{ current: { [draft.id]: "unsaved selected text" } }} plainSources={{ current: new Map() }} folder={null} focusedEditor={draft.id} onOpenSession={() => {}} />);
+  fireEvent.click(screen.getByText("Next context projection"));
+  fireEvent.click(screen.getByRole("checkbox", { name: "Untitled" }));
+  fireEvent.click(screen.getByRole("checkbox", { name: "Pin full text" }));
+  fireEvent.click(screen.getByRole("button", { name: "Refresh preview" }));
+  await waitFor(() => expect(screen.getByLabelText("Context projection preview").textContent).toContain("unsaved selected text"));
+  fireEvent.click(screen.getByRole("checkbox", { name: "Untitled" }));
+  fireEvent.click(screen.getByRole("button", { name: "Refresh preview" }));
+  await waitFor(() => expect(screen.getByLabelText("Context projection preview").textContent).not.toContain("unsaved selected text"));
+});
+
+// Guarantee: docs/guarantees/agent/expanded-reading-projection.md
+it("captures folded and pinned documents independently of focus and scrolling", async () => {
+  const registry = new SessionRegistry();
+  const doc = tab("document", "notes.md"); doc.docId = "doc";
+  const draft = tab("untitled", "Draft");
+  const content = "heading\nhidden\nvisible";
+  const view = new EditorView({ state: EditorState.create({ doc: content, extensions: [codeFolding()] }) });
+  view.dispatch({ effects: foldEffect.of({ from: 7, to: 14 }) });
+  vi.spyOn(registry, "get").mockReturnValue({ docEditor: view, liveSource: "old", openOutputs: new Map() } as unknown as ReturnType<SessionRegistry["get"]>);
+  try {
+    const capture = (focus: string) => editorContext([doc, draft], focus, registry, { [draft.id]: "unsaved pin" }, new Map(), { [doc.id]: "expanded", [draft.id]: "pinned" });
+    const first = await capture(doc.id);
+    view.scrollDOM.dispatchEvent(new Event("scroll"));
+    const next = await capture(draft.id);
+    expect(next.projection).toEqual(first.projection);
+    expect(next.projection!.documents[0].segments.some(s => s.omitted)).toBe(true);
+    expect(next.projection!.documents[0].segments.map(s => s.text).join("")).not.toContain("hidden");
+    expect(next.projection!.documents[1].segments[0].text).toBe("unsaved pin");
+    expect(next.buffers[0].content).toBe(content);
+  } finally { view.destroy(); }
 });

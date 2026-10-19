@@ -47,10 +47,46 @@ pub(crate) fn editor_context(tag: &HickTag, facts: &SessionFacts) -> Vec<Link> {
     let Some(snapshot) = text.lines().rev().find_map(|line| {
         serde_json::from_str::<serde_json::Value>(line)
             .ok()
+            .map(|value| value.get("editors").cloned().unwrap_or(value))
             .filter(|value| value["buffers"].is_array())
     }) else {
         return vec![];
     };
+    if let Some(projection) = snapshot.get("projection").filter(|value| value.is_object()) {
+        let mut links = Vec::new();
+        for document in projection["documents"].as_array().into_iter().flatten() {
+            let Some(buffer) = snapshot["buffers"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .find(|buffer| buffer["id"] == document["id"])
+            else {
+                continue;
+            };
+            let Some(path) = buffer["path"]
+                .as_str()
+                .filter(|path| !path.is_empty())
+                .or_else(|| buffer["provenance_uri"].as_str())
+            else {
+                continue;
+            };
+            for segment in document["segments"].as_array().into_iter().flatten() {
+                if segment["omitted"] != false || segment["text"].as_str().is_none_or(str::is_empty)
+                {
+                    continue;
+                }
+                let (Some(start), Some(end)) =
+                    (segment["line_start"].as_u64(), segment["line_end"].as_u64())
+                else {
+                    continue;
+                };
+                links.push(Link { family: Family::Context, span: span_of(tag),
+                    title: format!("Context — selected source lines at {}. Full edit snapshots and omitted ranges are not model input; this does not establish claim support.", document["revision"].as_str().unwrap_or("unknown revision")),
+                    to: LinkTarget { path: facts.relative(path), lines: Some((start as usize, end as usize)) } });
+            }
+        }
+        return links;
+    }
     snapshot["buffers"].as_array().into_iter().flatten().filter_map(|buffer| {
         let path = buffer["path"].as_str().filter(|path| !path.is_empty())
             .map(str::to_string).or_else(|| buffer["provenance_uri"].as_str()
@@ -124,6 +160,24 @@ mod tests {
     use super::*;
     use crate::session_elements::session_links;
     use std::path::Path;
+
+    // Guarantee: docs/guarantees/agent/expanded-reading-projection.md
+    #[test]
+    fn projected_receipts_never_claim_full_edit_buffer_exposure() {
+        let snapshot = serde_json::json!({"editors":{"buffers":[{"id":"a","path":"a.md","content":"full edit text"},{"id":"b","path":"b.md","content":"unselected"}],
+            "projection":{"documents":[{"id":"a","revision":"rev-a","segments":[
+                {"line_start":3,"line_end":4,"text":"selected","omitted":false},
+                {"line_start":5,"line_end":9,"text":"","omitted":true}]}]}}});
+        let context = serde_json::json!(snapshot.to_string());
+        let source = format!(
+            "<hick:session><hick:context kind=\"editor-buffers\">{context}</hick:context></hick:session>"
+        );
+        let links = session_links(&source, None);
+        assert_eq!(links.len(), 1);
+        assert_eq!(links[0].link.to.path, "a.md");
+        assert_eq!(links[0].link.to.lines, Some((3, 4)));
+        assert!(links[0].link.title.contains("rev-a"));
+    }
 
     // Guarantee: docs/guarantees/agent/an-answer-in-the-agent-pane-has-ribbons.md
     #[test]

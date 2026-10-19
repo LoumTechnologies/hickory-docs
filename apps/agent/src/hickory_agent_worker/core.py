@@ -68,12 +68,12 @@ class Agent:
                                   {'role': 'assistant', 'content': turn['answer']}])
         if config.context:
             self.messages.append({'role': 'user', 'content':
-                'Editor context (user content):\n' + config.context})
+                'Editor context (user content):\n' + reading_context(config.context)})
         if config.document:
             self.messages.append({'role': 'user', 'content':
                 'Default document: ' + config.document + '. Read before editing.'})
         if config.context and config.context_references:
-            self.context.register('Editor context (user content):\n' + config.context, config.context_references)
+            self.context.register('Editor context (user content):\n' + reading_context(config.context), config.context_references)
         self.messages.append({'role': 'user', 'content': config.prompt})
 
         def observe(data):
@@ -139,3 +139,19 @@ class Agent:
         if not result['stopped']:
             raise RuntimeError('Agent iteration limit exhausted without verified completion')
         return result['summary']
+
+
+def reading_context(raw):
+    """Python owns selection of model-visible material; edit snapshots stay intact."""
+    try:
+        value = json.loads(raw)
+    except (ValueError, TypeError):
+        return raw
+    if not isinstance(value, dict):
+        return raw
+    editors = value.get('editors', value)
+    if isinstance(editors, dict) and isinstance(editors.get('projection'), dict):
+        for buffer in editors.get('buffers', []):
+            buffer.pop('content', None)
+            buffer.pop('observations', None)
+    return json.dumps(value, ensure_ascii=False)

@@ -1,6 +1,8 @@
+import "./contextProjection.css";
+import { projectDocument, projectionEstimate, retainedReadingState, type ReadingProjection } from "../lib/contextProjection";
 import { observationContext } from "../debug/observations";
 import { bufferTarget } from "../lib/editorBufferTargets";
-import { useMemo, useRef, type MutableRefObject } from "react";
+import { useMemo, useRef, useState, type MutableRefObject } from "react";
 import { ChatDock } from "../components/ChatDock";
 import { api } from "../api/client";
 import { getWorkspaceRealtime, LocalRealtime } from "../api/realtime";
@@ -22,6 +24,7 @@ export function editorTabs(layout: Layout): Tab[] {
 export async function editorContext(
   tabs: Tab[], focused: string | null, registry: SessionRegistry,
   untitled: Record<string, string>, plain: Map<string, string>,
+  selection?: Record<string, "expanded" | "pinned">,
 ): Promise<AgentEditorContext> {
   const visiblePlain = new Map(openPlainSearchFiles().map(file => [file.path, file.content]));
   const buffers = await Promise.all(tabs.map(async tab => {
@@ -39,7 +42,20 @@ export async function editorContext(
     return { id: tab.id, kind: tab.kind, ...(tab.kind === "untitled" ? { provenance_uri: bufferTarget(tab.id) } : {}), ...(tab.kind === "generated" ? { document: session?.doc?.path ?? tabs.find(t => t.kind === "document" && t.docId === tab.docId)?.target } : {}), name: tab.title ?? tab.target, path: tab.kind === "untitled" ? null : tab.target,
       observations: observationContext(tab.target, content), content, focused: tab.id === focused };
   }));
-  return { live: true, buffers };
+  const documents: ReadingProjection["documents"] = [];
+  for (const buffer of buffers) {
+    if (!selection?.[buffer.id]) continue;
+    const tab = tabs.find(t => t.id === buffer.id)!;
+    const session = registry.get(tab.docId);
+    const view = tab.kind === "untitled" ? bufferEditor(tab.id) : tab.kind === "document" ? session?.docEditor
+      : tab.kind === "generated" ? session?.openOutputs.get(tab.target) : plainSearchEditor(tab.target);
+    const key = tab.kind === "untitled" ? bufferTarget(tab.id) : tab.kind === "document" ? `doc:${tab.docId}`
+      : tab.kind === "generated" ? `output:${tab.docId}:${tab.target}` : `file:${tab.target}`;
+    documents.push(await projectDocument(buffer.id, buffer.content, view ?? retainedReadingState(key), selection[buffer.id] === "pinned"));
+  }
+  const observations = [...new Map(buffers.flatMap(buffer => buffer.observations).map(record => [JSON.stringify(record), record])).values()];
+  const projection: ReadingProjection = { version: 1, documents, observations, estimate: projectionEstimate({ documents, observations }) };
+  return { live: true, buffers, ...(selection ? { projection } : {}) };
 }
 
 /** A conversation belongs to the window, independent of which editor is active. */
@@ -52,13 +68,16 @@ export function WorkspaceChat({ layout, registry, untitledSources, plainSources,
   focusedEditor: string | null;
   onOpenSession: (path: string) => void;
 }) {
+  const [selection, setSelection] = useState<Record<string, "expanded" | "pinned">>({});
+  const [preview, setPreview] = useState<AgentEditorContext | null>(null);
+  const [previewError, setPreviewError] = useState("");
   const tabs = editorTabs(layout);
   const focused = tabs.some(tab => tab.id === focusedEditor) ? focusedEditor : tabs[0]?.id ?? null;
   const realtime = useMemo(() => getWorkspaceRealtime() ?? new LocalRealtime(), []);
   const latest = useRef({ tabs, focused });
   latest.current = { tabs, focused };
   const getContext = async () => editorContext(latest.current.tabs, latest.current.focused,
-    registry, untitledSources.current, plainSources.current);
+    registry, untitledSources.current, plainSources.current, selection);
   const applyAgentChange = (change: AgentChange) => {
     const target = latest.current.tabs.find(tab => tab.id === (change.buffer ?? change.name));
     if (!target) throw new Error("The target editor was closed. Reopen it and ask the agent again.");
@@ -70,11 +89,19 @@ export function WorkspaceChat({ layout, registry, untitledSources, plainSources,
       : plainSearchEditor(target.target);
     applyAgentEdit(view, change);
   };
-  return <ChatDock key={folder ?? "window"} docId="workspace" recoveryWorkspace={folder ?? "window"} applyAgentChange={applyAgentChange} realtime={realtime} getContext={getContext}
+  return <div className="workspace-chat"><details className="chat-note"><summary>Next context projection</summary>
+    <p>Select documents explicitly. Expanded text excludes folds; pin includes the complete document. Unavailable editor fold state omits text until reopened or pinned. Collapsing changes future selection; previous exposure remains in history.</p>
+    {tabs.map(tab => <div key={tab.id}><label><input type="checkbox" checked={!!selection[tab.id]} onChange={event => setSelection(current => { const next = { ...current }; if (event.target.checked) next[tab.id] = "expanded"; else delete next[tab.id]; return next; })} />{tab.title ?? tab.target}</label>
+      <label><input type="checkbox" disabled={!selection[tab.id]} checked={selection[tab.id] === "pinned"} onChange={event => setSelection(current => ({ ...current, [tab.id]: event.target.checked ? "pinned" : "expanded" }))} />Pin full text</label></div>)}
+    <button onClick={() => { setPreviewError(""); void getContext().then(setPreview).catch(error => setPreviewError(String(error))); }}>Refresh preview</button>
+    {previewError && <p role="alert">{previewError}</p>}
+    <p>Preview is a capture, not a delivery receipt. Send captures selection again. Request history, instructions and tools add context; actual requests are recorded in the session.</p>
+    {preview?.projection && <pre aria-label="Context projection preview">{JSON.stringify(preview.projection, null, 2)}</pre>}
+  </details><ChatDock key={folder ?? "window"} docId="workspace" recoveryWorkspace={folder ?? "window"} applyAgentChange={applyAgentChange} realtime={realtime} getContext={getContext}
     contextLabel={[folder, ...tabs.map(tab => `${tab.title ?? tab.target}${tab.kind === "untitled" ? " (unsaved)" : ""}`)].filter(Boolean).join(" · ") || "No open editors or folder"}
     onOpenSession={onOpenSession}
     onAgentFinished={() => {
       registry.all().forEach(session => session.refresh());
       window.dispatchEvent(new Event(FILES_CHANGED_EVENT));
-    }} />;
+    }} /></div>;
 }

@@ -5,12 +5,13 @@ import { selectObservations, type ObservationReading as Reading } from "./observ
 export function ObservationReading({ reading, historical, changed = false }: { reading: Reading; historical: boolean; changed?: boolean }) {
   const owner = useRef(Symbol("observation-reading"));
   const [expanded, setExpanded] = useState(false);
+  const [pinned, setPinned] = useState(false);
   useEffect(() => {
-    selectObservations(reading, expanded, historical || changed, owner.current);
+    selectObservations(reading, expanded || pinned, historical || changed, owner.current);
     return () => selectObservations(reading, false, historical, owner.current);
-  }, [reading, expanded, historical, changed]);
+  }, [reading, expanded, pinned, historical, changed]);
   const source = new TextDecoder().decode(new Uint8Array(reading.source.bytes));
-  return <details className="debug-observations" onToggle={event => setExpanded(event.currentTarget.open)}>
+  return <><label><input type="checkbox" checked={pinned} onChange={event => setPinned(event.target.checked)} />Pin observations · {reading.scope.run} · {reading.scope.stop}</label><details className="debug-observations" onToggle={event => setExpanded(event.currentTarget.open)}>
     <summary>Source observations · {changed ? "source changed" : historical ? "historical capture" : "captured stop"}</summary>
     <p>Revision {reading.source.revision} · session {reading.scope.session ?? "unknown"} · run {reading.scope.run} · stop {reading.scope.stop}. Expanded evidence enters agent context.</p>
     {reading.locations.map(location => <div key={location.id} data-location={location.id}>
@@ -22,5 +23,5 @@ export function ObservationReading({ reading, historical, changed = false }: { r
     </div>)}
     {reading.annotations.filter(a => a.location === null).map(a => <div key={a.evidence}>Unmapped · {a.evidence} · {JSON.stringify(a.payload)}</div>)}
     <p>Unsupported: {reading.unsupported.join(", ")}</p>
-  </details>;
+  </details></>;
 }
