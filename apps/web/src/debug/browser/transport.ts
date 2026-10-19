@@ -1,3 +1,4 @@
+import type { RuntimeRun } from "../runtimeObservations";
 import { DebugClient, CHANNEL_DEBUG } from "../client";
 import type { DebugEvent } from "../client";
 import { loadHickLang, materializeLiteralFiles } from "../../editor/hickLang";
@@ -9,6 +10,7 @@ export interface BrowserDebuggerOptions {
   readDocument: () => { source: string; revision: string };
   onOutput?: (text: string, category: "stdout" | "stderr") => void;
   onRevision?: (revision: string) => void;
+  onRuntime?: (run: RuntimeRun) => void;
 }
 
 /** Instance-scoped transport for the existing product debug client. */
@@ -16,6 +18,7 @@ export function createBrowserDebugger(options: BrowserDebuggerOptions) {
   let worker: Worker | null = null;
   let session: string | null = null;
   let generation = 0;
+  let runtime: RuntimeRun | null = null;
   let disposed = false;
   // Keep the runner bytes in this instance, so terminating a worker on Stop
   // never makes the next run depend on another network request.
@@ -47,11 +50,13 @@ export function createBrowserDebugger(options: BrowserDebuggerOptions) {
     const request = JSON.parse(new TextDecoder().decode(frame.subarray(1))) as Record<string, unknown>;
     if (request.op === "stop") {
       const previous = session;
+      if (runtime?.status === "running") { runtime = { ...runtime, status: "cancelled" }; options.onRuntime?.(runtime); }
       terminate(); session = null;
       if (previous) queueMicrotask(() => emit({ event: "ended", session: previous }));
       return;
     }
     if (request.op !== "start") { worker?.postMessage(request); return; }
+    if (runtime?.status === "running") { runtime = { ...runtime, status: "cancelled" }; options.onRuntime?.(runtime); }
     terminate();
     const current = generation;
     const frozen = options.readDocument();
@@ -72,7 +77,14 @@ export function createBrowserDebugger(options: BrowserDebuggerOptions) {
         worker.onmessage = (message: MessageEvent<BrowserEvent>) => {
           if (current !== generation || disposed) return;
           const event = message.data;
-          if (event.event === "output") options.onOutput?.(event.text, event.category);
+          if (event.event === "runtime") { runtime = event.run; options.onRuntime?.(event.run); }
+          else if (event.event === "runtime_event") {
+            if (runtime?.id === event.session) {
+              runtime = { ...runtime, events: [...runtime.events, event.observation] };
+              options.onRuntime?.(runtime);
+            }
+          }
+          else if (event.event === "output") options.onOutput?.(event.text, event.category);
           else {
             if (event.event === "started") started = true;
             // A constructor/compilation failure is a failed start, not a live session.
@@ -109,6 +121,6 @@ export function createBrowserDebugger(options: BrowserDebuggerOptions) {
   } });
   return { client,
     pause() { if (session) worker?.postMessage({ op: "pause", session }); },
-    dispose() { disposed = true; terminate(); session = null; if (runnerUrl) URL.revokeObjectURL(runnerUrl); runnerUrl = null; runnerBytes = null; dataRunner = null; },
+    dispose() { if (runtime?.status === "running") options.onRuntime?.({ ...runtime, status: "cancelled" }); disposed = true; terminate(); session = null; if (runnerUrl) URL.revokeObjectURL(runnerUrl); runnerUrl = null; runnerBytes = null; dataRunner = null; },
   };
 }

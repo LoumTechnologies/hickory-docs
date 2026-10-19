@@ -9,6 +9,7 @@ export interface CompiledProgram {
   path: string;
   /** Generated JS UTF-16 offset -> frozen document 0-based line. */
   lineAt(offset: number): number | null;
+  sourceByteAt(offset: number): number | null;
 }
 
 /** ES5 and TypeScript type annotations over ES5. No implicit module loader. */
@@ -38,7 +39,7 @@ export function compileProgram(file: LiteralFile, source: string): CompiledProgr
   validate(tree);
   const options: ts.CompilerOptions = { target: ts.ScriptTarget.ES5, module: ts.ModuleKind.None,
     sourceMap: true, strict: true, noEmitOnError: true, noLib: true };
-  const declarations = es5Lib + "\ndeclare var console: { log(...values: unknown[]): void; warn(...values: unknown[]): void; error(...values: unknown[]): void };";
+  const declarations = es5Lib + "\ndeclare var console: { log(...values: unknown[]): void; warn(...values: unknown[]): void; error(...values: unknown[]): void; write(...values: unknown[]): void };";
   let code = "", map = "";
   const host: ts.CompilerHost = {
     getSourceFile: (name) => name === file.path ? tree : name === "browser.d.ts" ? ts.createSourceFile(name, declarations, ts.ScriptTarget.ES5, true) : undefined,
@@ -56,7 +57,7 @@ export function compileProgram(file: LiteralFile, source: string): CompiledProgr
   if (typescript) program.emit(); else code = file.content;
   const emittedTree = ts.createSourceFile("program.js", code, ts.ScriptTarget.ES5);
   const trace = typescript && map ? new TraceMap(map) : null;
-  return { code, path: file.path, lineAt(offset) {
+  const sourceByteAt = (offset: number): number | null => {
     let original = offset;
     if (trace) {
       const pos = emittedTree.getLineAndCharacterOfPosition(offset);
@@ -68,6 +69,10 @@ export function compileProgram(file: LiteralFile, source: string): CompiledProgr
     const segment = file.segments.find((s) => byte >= s.output[0] && byte < s.output[1]);
     if (!segment) return null;
     const sourceByte = segment.source[0] + byte - segment.output[0];
-    return source.slice(0, byteToChar(source, sourceByte)).split("\n").length - 1;
+    return sourceByte;
+  };
+  return { code, path: file.path, sourceByteAt, lineAt(offset) {
+    const byte = sourceByteAt(offset);
+    return byte === null ? null : source.slice(0, byteToChar(source, byte)).split("\n").length - 1;
   } };
 }

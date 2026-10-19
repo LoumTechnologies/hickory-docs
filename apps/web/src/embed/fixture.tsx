@@ -9,6 +9,7 @@ import { browserExample } from "../landing/demos/BrowserDebugDemo";
 
 function Fixture() {
   const [metrics, setMetrics] = useState("");
+  const [runtimeEvidence, setRuntimeEvidence] = useState("");
   useEffect(() => { void measurePortableCore().then((value) => setMetrics(JSON.stringify(value))); }, []);
   const [left, setLeft] = useState("# First note\n\nAn ordinary note.\n\n![asset](images/mark.svg)\n<hick:unknown untouched=\"yes\">🦀 raw</hick:unknown>\n");
   const [right, setRight] = useState("# Second note\n\nIndependent text.\n");
@@ -35,7 +36,8 @@ function Fixture() {
     <button onClick={() => setSecondDebug((value) => !value)}>Add/remove second debugger</button>
     <textarea aria-label="Debug source" style={{ width: "100%", height: 100 }} value={source} onChange={(event) => { setSource(event.target.value); setRevision((r) => r + 1); }} />
     {secondDebug && <DebuggableDocument path="second-debug.md" revision="1" source={'<hick:file path="second.js">console.log(7);</hick:file>'} />}
-    <DebuggableDocument source={source} path="fixture.md" revision={String(revision)} onChange={(change) => { setSource(change.source); setRevision((r) => r + 1); }} />
+    <output aria-label="Runtime evidence" hidden>{runtimeEvidence}</output>
+    <DebuggableDocument onRuntime={(run) => setRuntimeEvidence(JSON.stringify(run))} source={source} path="fixture.md" revision={String(revision)} onChange={(change) => { setSource(change.source); setRevision((r) => r + 1); }} />
   </main>;
 }
 function LocalFixture() {

@@ -112,3 +112,44 @@ it("captures real recursive frame scopes without turning source markers into ann
   expect(() => run.step("back")).toThrow();
   expect(() => run.evaluate("recurse(3)")).toThrow();
 });
+
+// Guarantee: docs/guarantees/execution/browser-output-has-runtime-source-evidence.md
+it.each(["js", "ts"])("attributes %s output to emitting code and distinct recursive invocations", (language) => {
+  const type = language === "ts" ? ": number" : "";
+  const source = `# 🦀\n<hick:file path="main.${language}">\nfunction logger(n${type}) {\n console.write('é');\n console.write('🦀\\r\\nsecond\\n');\n if (n > 0) logger(n-1);\n}\nlogger(2);\nconsole.error('Error: this is text');\ntry { throw new Error('caught'); } catch (e) { console.log('handled'); }\nthrow new Error('unhandled');\n</hick:file>\n`;
+  const events: BrowserEvent[] = [];
+  const run = new BrowserRun({ source, revision: "editor-1", observationRevision: "a".repeat(64), file: materializeLiteralFiles(source)[0] }, "run-output", "example.md", [], e => events.push(e));
+  while (run.pump()) { /* bounded fixture */ }
+  const record = events.filter(e => e.event === "runtime").at(-1);
+  if (record?.event !== "runtime") throw Error("Missing run evidence");
+  expect(record.run.status).toBe("failed");
+  expect(record.run.sources[0].revision).toBe("a".repeat(64));
+  expect(new TextDecoder().decode(new Uint8Array(record.run.sources[0].bytes))).toBe(source);
+  const output = record.run.events.filter(e => e.observation.kind === "output");
+  const partial = output.filter(e => e.observation.kind === "output" && new TextDecoder().decode(new Uint8Array(e.observation.bytes)) === "é");
+  expect(partial).toHaveLength(3);
+  expect(new Set(partial.map(e => e.invocation)).size).toBe(3);
+  expect(new Set(record.run.events.map(e => e.id)).size).toBe(record.run.events.length);
+  for (const event of partial) {
+    expect(event.emission?.precision).toBe("exact");
+    const start = event.emission!.bytes!.start;
+    expect(new TextDecoder().decode(new Uint8Array(record.run.sources[0].bytes).slice(start))).toMatch(/^console.write/);
+    expect(event.callers.length).toBeGreaterThan(0);
+  }
+  const errors = record.run.events.filter(e => e.observation.kind === "exception");
+  expect(errors.some(e => e.observation.kind === "exception" && e.observation.handling === "unhandled")).toBe(true);
+  expect(output.some(e => e.observation.kind === "output" && e.observation.category === "error")).toBe(true);
+});
+
+// Guarantee: docs/guarantees/execution/browser-output-has-runtime-source-evidence.md
+it("bounds evidence independently of empty output chunks", () => {
+  const source = '<hick:file path="main.js">var i; for(i=0;i<4100;i++) console.write(\'\');</hick:file>';
+  const events: BrowserEvent[] = [];
+  const run = new BrowserRun({ source, revision: "1", observationRevision: "a".repeat(64), file: materializeLiteralFiles(source)[0] }, "bounded", "example.md", [], e => { if (e.event === "runtime") events.push(e); });
+  while (run.pump()) { /* bounded empty writes */ }
+  const evidence = events.at(-1);
+  if (evidence?.event !== "runtime") throw Error("missing evidence");
+  expect(evidence.run.truncated).toBe(true);
+  expect(evidence.run.events).toHaveLength(4096);
+  expect(evidence.run.status).toBe("completed");
+});

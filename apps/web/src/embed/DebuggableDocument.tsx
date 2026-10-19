@@ -1,3 +1,4 @@
+import type { RuntimeRun } from "../debug/runtimeObservations";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { EditorView } from "@codemirror/view";
 import { DocumentEmbed } from "./DocumentEmbed";
@@ -13,6 +14,7 @@ import "./debug.css";
 export interface DebuggableDocumentProps extends DocumentEmbedProps {
   /** Explicit opt-in: start once on mount at this 0-based document breakpoint. */
   startPausedAt?: number;
+  onRuntime?: (run: RuntimeRun) => void;
   onExecutionResult?: (result: { revision: string; exitCode: number }) => void;
 }
 export function DebuggableDocument(props: DebuggableDocumentProps) {
@@ -30,6 +32,7 @@ export function DebuggableDocument(props: DebuggableDocumentProps) {
   useEffect(() => {
     const local = createBrowserDebugger({
       readDocument: () => { capturedRevision.current = current.current.revision; setRunSource(current.current.source); return { source: current.current.source, revision: current.current.revision }; },
+      onRuntime: (run) => current.current.onRuntime?.(run),
       onOutput: (text) => setOutput((previous) => previous + text),
       onRevision: (revision) => { setRunRevision(revision); setOutput(""); },
     });

@@ -443,3 +443,34 @@ test("source observations share exact evidence with expanded context and stay hi
   await expect(reading.locator("summary")).toContainText("historical capture");
   await expect(reading).toContainText('"value":"6"');
 });
+
+// Guarantee: docs/guarantees/execution/browser-output-has-runtime-source-evidence.md
+for (const language of ["js", "ts"]) {
+  test(`source-linked ${language} output preserves invocation and frozen revision`, async ({ page }) => {
+    const unexpected = await noEngine(page);
+    await page.goto("/embed.html");
+    const type = language === "ts" ? ": number" : "";
+    await code(page, `function logger(n${type}) {\n console.write('é');\n console.write('🦀\\r\\nsecond\\n');\n if (n > 0) logger(n-1);\n}\nlogger(2);\nconsole.error('Error: plain log text');\nthrow new Error('actual exception');`, language);
+    const frozen = await page.getByLabel("Debug source", { exact: true }).inputValue();
+    await page.getByRole("button", { name: "Debug document", exact: true }).click();
+    const evidence = page.getByLabel("Runtime evidence");
+    await expect(evidence).toContainText('"status":"failed"');
+    const run = JSON.parse((await evidence.textContent())!);
+    const captured = new TextDecoder().decode(new Uint8Array(run.sources[0].bytes));
+    expect(captured).toBe(frozen);
+    expect(run.sources[0].revision).toMatch(/^[a-f0-9]{64}$/);
+    const partial = run.events.filter((event: { observation: { kind: string; bytes: number[] } }) =>
+      event.observation.kind === "output" && new TextDecoder().decode(new Uint8Array(event.observation.bytes)) === "é");
+    expect(partial).toHaveLength(3);
+    expect(new Set(partial.map((event: { invocation: string }) => event.invocation)).size).toBe(3);
+    for (const event of partial) {
+      expect(event.emission.precision).toBe("exact");
+      expect(new TextDecoder().decode(new Uint8Array(run.sources[0].bytes).slice(event.emission.bytes.start))).toMatch(/^console.write/);
+      expect(event.callers.length).toBeGreaterThan(0);
+    }
+    expect(run.events.some((event: { observation: { kind: string; handling: string } }) => event.observation.kind === "exception" && event.observation.handling === "unhandled")).toBe(true);
+    await page.getByLabel("Debug source", { exact: true }).fill(frozen.replace("logger(2)", "logger(0)"));
+    expect(JSON.parse((await evidence.textContent())!).sources[0].revision).toBe(run.sources[0].revision);
+    expect(unexpected).toEqual([]);
+  });
+}

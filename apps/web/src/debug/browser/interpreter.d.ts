@@ -7,6 +7,7 @@ declare module "js-interpreter" {
     value: IValue;
     FUNCTION_PROTO: IObject;
     step(): boolean;
+    throwException(value: IValue, message?: string): void;
     createObjectProto(proto: IObject | null): IObject;
     createNativeFunction(fn: (...args: IValue[]) => IValue): IObject;
     setProperty(object: IObject, name: string, value: IValue): void;

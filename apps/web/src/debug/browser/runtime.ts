@@ -1,3 +1,4 @@
+import type { RuntimeRun, RuntimeEvent, RuntimeLocation } from "../runtimeObservations";
 import type { ObservationReading, ObservationAnnotation } from "../observations";
 import Interpreter from "js-interpreter";
 import type { IState, IScope, INode } from "js-interpreter";
@@ -7,7 +8,7 @@ import type { LiteralFile } from "../../editor/hickLang";
 import { Inspector, preview } from "./inspect";
 
 export interface BrowserInput { observationRevision?: string; source: string; revision: string; file: LiteralFile; }
-export type BrowserEvent = DebugEvent | { event: "output"; session: string; text: string; category: "stdout" | "stderr" };
+export type BrowserEvent = DebugEvent | { event: "runtime_event"; session: string; observation: RuntimeEvent } | { event: "runtime"; session: string; run: RuntimeRun } | { event: "output"; session: string; text: string; category: "stdout" | "stderr" };
 export const BROWSER_CAPABILITIES = {
   frame_locals: true,
   conditional_breakpoints: false, hit_conditional_breakpoints: false, log_points: false,
@@ -21,6 +22,10 @@ const statements = new Set(["VariableDeclaration", "ExpressionStatement", "Retur
 /** Real interpreter state, not a trace or evaluator of the demonstration. */
 export class BrowserRun {
   private reading: ObservationReading | null = null;
+  private runtime: RuntimeRun | null = null;
+  private invocations = new WeakMap<IState, string>();
+  private invocationSequence = 0;
+  private lastThrown: RuntimeEvent | null = null;
   private evidence = 0;
   private stopSequence = 0;
   private interpreter: Interpreter;
@@ -43,13 +48,20 @@ export class BrowserRun {
     breakpoints: DebugBreakpoint[], private emit: (event: BrowserEvent) => void) {
     this.program = compileProgram(input.file, input.source);
     this.breakpoints = breakpoints;
+    if (input.observationRevision) this.runtime = { schema_version: 1, id: session,
+      started_unix_ms: Date.now(), status: "running", pinned: false,
+      sources: [{ id: "document", uri: doc, revision: input.observationRevision,
+        bytes: [...new TextEncoder().encode(input.source)] }], events: [], truncated: false,
+      missing_artifacts: [], detail: "Browser interpreter; receive order only; no external process streams" };
     this.interpreter = new Interpreter(this.program.code, (interpreter, global) => {
       const consoleObject = interpreter.createObjectProto(null);
-      for (const category of ["log", "warn", "error"]) {
+      for (const category of ["log", "warn", "error", "write"]) {
         interpreter.setProperty(consoleObject, category, interpreter.createNativeFunction((...values) => {
-          const text = values.map((value) => typeof value === "string" ? value : preview(value)).join(" ") + "\n";
+          const text = values.map((value) => typeof value === "string" ? value : preview(value)).join(" ") + (category === "write" ? "" : "\n");
           this.outputBytes += new TextEncoder().encode(text).length;
           if (this.outputBytes > 65_536) throw new Error("Browser output limit exceeded (64 KiB)");
+          this.observe({ kind: "output", stream: category === "error" ? "stderr" : "stdout",
+            category, bytes: [...new TextEncoder().encode(text)] });
           this.emit({ event: "output", session, text, category: category === "error" ? "stderr" : "stdout" });
           return undefined;
         }));
@@ -57,6 +69,13 @@ export class BrowserRun {
       interpreter.setProperty(global, "console", consoleObject);
       this.builtins = new Set(Object.keys(global.properties));
     });
+    const throwException = this.interpreter.throwException;
+    this.interpreter.throwException = (value, message) => {
+      this.lastThrown = this.observe({ kind: "exception", type_name: typeof value,
+        message: message ?? preview(value), handling: "throwing", throwing: this.location(this.interpreter.stateStack.at(-1)?.node), catching: null });
+      return throwException.call(this.interpreter, value, message);
+    };
+    this.publishRuntime();
     // Polyfills initialize first; only then remove dynamic-code capabilities.
     for (const name of ["eval", "Function", "setTimeout", "setInterval", "clearTimeout", "clearInterval"]) delete this.interpreter.globalScope.object.properties[name];
     delete this.interpreter.FUNCTION_PROTO.properties["constructor"];
@@ -84,13 +103,14 @@ export class BrowserRun {
     this.depth = this.calls().length;
     this.paused = false;
   }
-  stop() { this.ended = true; }
+  stop() { this.ended = true; if (this.runtime) { this.runtime.status = "cancelled"; this.publishRuntime(); } }
   private calls() { return this.interpreter.stateStack.filter((s) => s.func_?.node && s.doneExec_); }
   /** Returns true while runnable, false while paused/finished. Worker schedules batches. */
   pump(budget = 1500): boolean {
     if (this.paused || this.ended) return false;
     try {
       for (let n = 0; n < budget; n++) {
+        this.lastThrown = null;
         if (++this.steps > 2_000_000) throw new Error("Browser execution limit exceeded (2 million interpreter steps)");
         const top = this.interpreter.stateStack.at(-1);
         if (top) {
@@ -110,6 +130,7 @@ export class BrowserRun {
         }
         if (!this.interpreter.step()) {
           this.ended = true;
+          if (this.runtime) { this.runtime.status = "completed"; this.publishRuntime(); }
           this.emit({ event: "finished", session: this.session, exit_code: 0 });
           return false;
         }
@@ -117,12 +138,51 @@ export class BrowserRun {
     } catch (e) {
       this.ended = true;
       const message = e instanceof Error ? e.message : String(e);
+      const original = this.lastThrown?.observation;
+      this.observe({ kind: "exception", type_name: e instanceof Error ? e.name : "unknown",
+        message, handling: original?.kind === "exception" ? "unhandled" : "unknown",
+        throwing: original?.kind === "exception" ? original.throwing : this.location(this.interpreter.stateStack.at(-1)?.node), catching: null });
+      if (this.runtime) { this.runtime.status = "failed"; this.runtime.truncated ||= message.includes("output limit exceeded"); this.publishRuntime(); }
       this.emit({ event: "output", session: this.session, category: "stderr", text: message + "\n" });
       this.emit({ event: "failed", session: this.session, message });
       this.emit({ event: "finished", session: this.session, exit_code: 1 });
       return false;
     }
     return true;
+  }
+  private location(node?: INode): RuntimeLocation | null {
+    if (!node) return null;
+    const start = this.program.sourceByteAt(node.start);
+    if (start === null) return { source: "document", block: this.input.file.path, bytes: null, precision: "block_only" };
+    // Exact anchor byte, not an invented full statement range across segments.
+    const bytes = new TextEncoder().encode(this.input.source);
+    let end = start + 1;
+    while (end < bytes.length && (bytes[end] & 0xc0) === 0x80) end++;
+    return { source: "document", block: this.input.file.path, bytes: { start, end }, precision: "exact" };
+  }
+  private invocation(state?: IState): string {
+    if (!state) return `${this.session}:program`;
+    let id = this.invocations.get(state);
+    if (!id) { id = `${this.session}:invocation:${++this.invocationSequence}`; this.invocations.set(state, id); }
+    return id;
+  }
+  private publishRuntime() {
+    if (this.runtime) this.emit({ event: "runtime", session: this.session, run: structuredClone(this.runtime) });
+  }
+  private observe(observation: RuntimeEvent["observation"]): RuntimeEvent | null {
+    const run = this.runtime;
+    if (!run) return null;
+    if (run.events.length >= 4096) { run.truncated = true; run.detail = "Observation limit reached (4096 events); later events omitted"; return null; }
+    const calls = this.calls();
+    const event: RuntimeEvent = { id: `${this.session}:event:${run.events.length + 1}`, provider: "browser-interpreter",
+      block: this.input.file.path, invocation: this.invocation(calls.at(-1)),
+      parent_invocation: calls.length ? this.invocation(calls.at(-2)) : null,
+      thread: "browser-worker", task: null, time: { domain: this.session, unit: "ms", value: performance.now() },
+      emission: this.location(this.interpreter.stateStack.at(-1)?.node),
+      callers: calls.slice().reverse().map(call => this.location(call.node)).filter((location): location is RuntimeLocation => location !== null), observation };
+    run.events.push(event);
+    this.emit({ event: "runtime_event", session: this.session, observation: structuredClone(event) });
+    return event;
   }
   report(reason = "frame", selected?: number) {
     if (!this.paused) throw new Error("Frame inspection requires a paused session");
