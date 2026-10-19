@@ -1,3 +1,4 @@
+import { MeetingImport } from "../components/MeetingImport";
 import { SnapshotExport } from "../components/SnapshotExport";
 import { WorkflowTour } from "../components/WorkflowTour";
 import { ReviewPanel } from "../components/ReviewPanel";
@@ -1683,6 +1684,7 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
     <div className="doc-page with-chat wide-mode">
       <div className="workspace-review-toolbar">
         <ReviewPanel />
+        <MeetingImport onOpen={(path, line) => openHit(path, line ?? 1)} onOpenNote={(id) => { ensureDocOpen(id); navigate(`/docs/${id}`); }} />
         <SnapshotExport docId={focused?.docId} />
         <WorkflowTour surface="app" />
       </div>

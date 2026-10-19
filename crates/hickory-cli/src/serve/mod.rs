@@ -56,6 +56,7 @@ mod merged_write;
 mod native_projects;
 pub mod outputs;
 pub mod plain_file;
+mod meeting_import;
 mod project_comparison;
 mod project_incorporation;
 mod project_publish;
@@ -679,6 +680,7 @@ pub(crate) fn router(state: LocalState) -> Router {
         .route("/open-file", post(plain_file::open_file))
         .route("/file", get(plain_file::get_file).put(plain_file::put_file))
         .route("/scratchpad", post(plain_file::post_scratchpad))
+        .route("/meetings/import", post(meeting_import::post))
         .route("/asset", get(asset::get_asset).post(asset::post_asset))
         .route("/search", get(api::search))
         // What this project calls things — a different question from the
