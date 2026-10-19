@@ -172,3 +172,22 @@ Executed focused checks: MeetingImport.test.tsx (2 passed), including Unicode
 retained evidence/navigation and invalid/multibyte oversized input with no host
 write. These component checks mock the host parser and microphone component;
 they are not a native capture or real-provider witness.
+
+### Context projection controls — 2026-10-19
+
+The disclosed projection panel provides current document identities in pages of
+at most 64, off/expanded/pinned selection, capture, and preview reads in JSON UTF-8
+byte pages of at most 8192. Hidden choices unregister. Preview text stays out of
+opaque discovery revisions. Human checkboxes use the same selection command;
+selection changes clear the previous preview and invalidate in-flight captures.
+Closed document identities are rejected. The UI window is captured at context
+assembly entry, before awaiting file reads. Neither selection nor preview is a
+provider delivery attestation, and neither initiates a model call.
+
+Executed focused checks: uiContextProjectionActions.test.tsx (1 passed) and the
+WorkspaceChat explicitly-selected/pinned preview case (1 passed). The first full
+WorkspaceChat file run exposed a stale context-status mock and the disclosure
+click/toggle timing gap; the mock and immediate shared disclosure handler were
+corrected before rerunning that focused case. Targeted strict TypeScript checks
+for WorkspaceChat and the adapter test passed. Native/provider flow remains
+unwitnessed.

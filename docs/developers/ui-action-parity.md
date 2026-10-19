@@ -246,3 +246,11 @@ validate format and the actual UTF-8 byte limit before the same host request.
 Capture, transcription configuration, OS microphone consent and recording
 management remain separate integration work; importing text does not attest to
 human review or authorize remote transcription.
+
+Context projection now exposes disclosure, paged document choices, off/expanded/
+pinned selection, preview capture and bounded JSON UTF-8 preview reads. Human
+checkboxes and the agent use the same selection handler. Selection changes clear
+old previews; a superseded asynchronous capture cannot replace the newer choice.
+The originating UI window is captured before asynchronous buffer reads, rather
+than looking up a possibly different window afterward. A preview remains a
+capture, not a provider delivery receipt, and Send captures context again.

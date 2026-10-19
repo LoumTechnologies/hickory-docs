@@ -1,4 +1,5 @@
 import { providerObservationContext } from "../debug/providerObservations";
+import { useContextProjectionActions } from "./uiContextProjectionActions";
 import { uiWindow } from "../lib/uiActionBridge";
 import "./contextProjection.css";
 import { projectDocument, projectionEstimate, retainedReadingState, type ReadingProjection } from "../lib/contextProjection";
@@ -28,6 +29,7 @@ export async function editorContext(
   untitled: Record<string, string>, plain: Map<string, string>,
   selection?: Record<string, "expanded" | "pinned">,
 ): Promise<AgentEditorContext> {
+  const originatingWindow = uiWindow();
   const visiblePlain = new Map(openPlainSearchFiles().map(file => [file.path, file.content]));
   const buffers = await Promise.all(tabs.map(async tab => {
     const session = registry.get(tab.docId);
@@ -57,7 +59,7 @@ export async function editorContext(
   }
   const observations = [...new Map(buffers.flatMap(buffer => buffer.observations).map(record => [JSON.stringify(record), record])).values()];
   const projection: ReadingProjection = { version: 1, documents, observations, estimate: projectionEstimate({ documents, observations }) };
-  return { live: true, buffers, ...(uiWindow() ? { ui_window: uiWindow() } : {}), ...(selection ? { projection } : {}) };
+  return { live: true, buffers, ...(originatingWindow ? { ui_window: originatingWindow } : {}), ...(selection ? { projection } : {}) };
 }
 
 /** A conversation belongs to the window, independent of which editor is active. */
@@ -70,6 +72,8 @@ export function WorkspaceChat({ layout, registry, untitledSources, plainSources,
   focusedEditor: string | null;
   onOpenSession: (path: string) => void;
 }) {
+  const [projectionOpen, setProjectionOpen] = useState(false);
+  const projectionEpoch = useRef(0);
   const [selection, setSelection] = useState<Record<string, "expanded" | "pinned">>({});
   const [preview, setPreview] = useState<AgentEditorContext | null>(null);
   const [previewError, setPreviewError] = useState("");
@@ -80,6 +84,21 @@ export function WorkspaceChat({ layout, registry, untitledSources, plainSources,
   latest.current = { tabs, focused };
   const getContext = async () => editorContext(latest.current.tabs, latest.current.focused,
     registry, untitledSources.current, plainSources.current, selection);
+  function chooseContext(id: string, mode: "off" | "expanded" | "pinned") {
+    projectionEpoch.current++;
+    setSelection(current => { const next = { ...current }; if (mode === "off") delete next[id]; else next[id] = mode; return next; });
+    setPreview(null); setPreviewError("");
+  }
+  async function refreshProjection() {
+    const epoch = ++projectionEpoch.current;
+    const captureTabs = JSON.stringify(latest.current);
+    setPreview(null); setPreviewError("");
+    try {
+      const captured = await getContext();
+      if (projectionEpoch.current === epoch && captureTabs === JSON.stringify(latest.current)) setPreview(captured);
+    } catch (error) { if (projectionEpoch.current === epoch) setPreviewError(String(error)); }
+  }
+  const projectionActions = useContextProjectionActions({ open: projectionOpen, setOpen: setProjectionOpen, tabs, selection, choose: chooseContext, preview: preview?.projection ?? null, error: previewError, refresh: refreshProjection });
   const applyAgentChange = (change: AgentChange) => {
     const target = latest.current.tabs.find(tab => tab.id === (change.buffer ?? change.name));
     if (!target) throw new Error("The target editor was closed. Reopen it and ask the agent again.");
@@ -91,11 +110,11 @@ export function WorkspaceChat({ layout, registry, untitledSources, plainSources,
       : plainSearchEditor(target.target);
     applyAgentEdit(view, change);
   };
-  return <div className="workspace-chat"><details className="chat-note"><summary>Next context projection</summary>
+  return <div className="workspace-chat"><details className="chat-note" open={projectionOpen} onToggle={event => setProjectionOpen(event.currentTarget.open)}><summary onClick={event => { event.preventDefault(); void projectionActions.invoke("visibility", { open: !projectionOpen }); }}>Next context projection</summary>
     <p>Select documents explicitly. Expanded text excludes folds; pin includes the complete document. Unavailable editor fold state omits text until reopened or pinned. Collapsing changes future selection; previous exposure remains in history.</p>
-    {tabs.map(tab => <div key={tab.id}><label><input type="checkbox" checked={!!selection[tab.id]} onChange={event => setSelection(current => { const next = { ...current }; if (event.target.checked) next[tab.id] = "expanded"; else delete next[tab.id]; return next; })} />{tab.title ?? tab.target}</label>
-      <label><input type="checkbox" disabled={!selection[tab.id]} checked={selection[tab.id] === "pinned"} onChange={event => setSelection(current => ({ ...current, [tab.id]: event.target.checked ? "pinned" : "expanded" }))} />Pin full text</label></div>)}
-    <button onClick={() => { setPreviewError(""); void getContext().then(setPreview).catch(error => setPreviewError(String(error))); }}>Refresh preview</button>
+    {tabs.map(tab => <div key={tab.id}><label><input type="checkbox" checked={!!selection[tab.id]} onChange={event => void projectionActions.invoke("choose", { id: tab.id, mode: event.target.checked ? "expanded" : "off" })} />{tab.title ?? tab.target}</label>
+      <label><input type="checkbox" disabled={!selection[tab.id]} checked={selection[tab.id] === "pinned"} onChange={event => void projectionActions.invoke("choose", { id: tab.id, mode: event.target.checked ? "pinned" : "expanded" })} />Pin full text</label></div>)}
+    <button onClick={() => void projectionActions.invoke("refresh")}>Refresh preview</button>
     {previewError && <p role="alert">{previewError}</p>}
     <p>Preview is a capture, not a delivery receipt. Send captures selection again. Request history, instructions and tools add context; actual requests are recorded in the session.</p>
     {preview?.projection && <pre aria-label="Context projection preview">{JSON.stringify(preview.projection, null, 2)}</pre>}
