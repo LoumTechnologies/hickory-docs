@@ -6,6 +6,7 @@
 // are, because "where does this symbol live" is exactly the question that the
 // document/output split makes confusing.
 
+import { useUiListActions } from "../lib/uiListActions";
 import type { LspLocation } from "../lsp/client";
 
 export interface ReferencesPanelProps {
@@ -29,6 +30,7 @@ function label(uri: string): { where: string; kind: "doc" | "output" | "file" } 
 }
 
 export function ReferencesPanel({ locations, query, onPick, onClose }: ReferencesPanelProps) {
+  const actions = useUiListActions("References", locations, { query }, onPick, onClose);
   return (
     <aside className="refs-panel" role="dialog" aria-label="References">
       <header className="refs-head">
@@ -36,7 +38,7 @@ export function ReferencesPanel({ locations, query, onPick, onClose }: Reference
           {locations.length} reference{locations.length === 1 ? "" : "s"}
           {query ? <> to <code className="mono">{query}</code></> : null}
         </span>
-        <button className="btn-link" aria-label="Close references" onClick={onClose}>
+        <button className="btn-link" aria-label="Close references" onClick={() => void actions.close()}>
           ×
         </button>
       </header>
@@ -51,7 +53,7 @@ export function ReferencesPanel({ locations, query, onPick, onClose }: Reference
             const { where, kind } = label(loc.uri);
             return (
               <li key={i}>
-                <button className="refs-item" onClick={() => onPick(loc)}>
+                <button className="refs-item" onClick={() => void actions.pick(i)}>
                   <span className={`refs-kind refs-kind-${kind}`}>
                     {kind === "doc" ? "document" : kind === "file" ? "file" : "output"}
                   </span>

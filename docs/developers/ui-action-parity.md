@@ -254,3 +254,10 @@ old previews; a superseded asynchronous capture cannot replace the newer choice.
 The originating UI window is captured before asynchronous buffer reads, rather
 than looking up a possibly different window afterward. A preview remains a
 capture, not a provider delivery receipt, and Send captures context again.
+
+Ranked search, references and Problems now register current-list observations,
+bounded JSON UTF-8 byte pages, navigation and close. Search also exposes query
+input and selected-result movement. Query changes clear previous results before
+debounced search; a previous query response cannot replace the new one. Navigation
+handles are bound to the current result list and selection. These are navigation
+observations, not source-edit baselines or proof that an LSP diagnostic is fresh.

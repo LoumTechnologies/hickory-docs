@@ -11,6 +11,7 @@
 // jump. Sorted by severity and then by position, because "which is worst" is
 // the question a list of problems is opened to answer.
 
+import { useUiListActions } from "../lib/uiListActions";
 import type { LspDiagnostic } from "../lsp/client";
 import type { ReactNode } from "react";
 import { SEVERITY_ERROR, SEVERITY_WARNING, severityOf } from "../lib/problems";
@@ -61,6 +62,7 @@ export function ProblemsPanel({
   onClose: () => void;
   environments?: ReactNode;
 }) {
+  const actions = useUiListActions("Problems", rows, { includes: "Errors and warnings; information and hints excluded" }, onPick, onClose);
   return (
     <aside className="refs-panel problems-panel" role="dialog" aria-label="Problems">
       <header className="refs-head">
@@ -69,7 +71,7 @@ export function ProblemsPanel({
             ? environments ? "Problems and project environments" : "Nothing is wrong right now"
             : `${rows.length} problem${rows.length === 1 ? "" : "s"}`}
         </span>
-        <button className="btn-link" aria-label="Close problems" onClick={onClose}>
+        <button className="btn-link" aria-label="Close problems" onClick={() => void actions.close()}>
           ×
         </button>
       </header>
@@ -84,7 +86,7 @@ export function ProblemsPanel({
                 <button
                   type="button"
                   className="refs-item"
-                  onClick={() => onPick(row)}
+                  onClick={() => void actions.pick(index)}
                   data-tip={row.diagnostic.message}
                 >
                   <span

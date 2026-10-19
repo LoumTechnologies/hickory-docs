@@ -191,3 +191,20 @@ click/toggle timing gap; the mock and immediate shared disclosure handler were
 corrected before rerunning that focused case. Targeted strict TypeScript checks
 for WorkspaceChat and the adapter test passed. Native/provider flow remains
 unwitnessed.
+
+### Search, references and Problems — 2026-10-19
+
+Mounted lists expose explicit JSON UTF-8 evidence reads (8192 byte maximum),
+current result indices, shared navigation and close. Private query/diagnostic/
+location bytes remain outside discovery revisions. Changed rows or query state
+invalidate prior handles, so an old index cannot silently select a new row.
+Ranked search exposes the same query and selection handlers as keyboard/pointer
+controls, limits its response to the existing 20 hits, and reports lexical/semantic
+scope. Query input clears the old response immediately; the existing cancellation
+of stale debounce responses remains active. Source freshness beyond the displayed
+LSP/search response is not certified by list navigation.
+
+Executed focused checks: uiResultLists (2), SearchPanel (2), ProblemsPanel (4),
+all passed. Targeted strict TypeScript checking of these panels and the new test
+passed. Tests cover exact human/agent row routing, explicit Unicode evidence,
+changed-result refusal and unregistration; they do not witness native LSP startup.

@@ -2,8 +2,10 @@
 //
 // Picking a hit uses the workspace's existing open-and-reveal routing.
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 
+import { useUiListActions } from "../lib/uiListActions";
+import { useUiCommands, useUiRevision } from "../lib/uiActionBridge";
 import type { SearchHit, SearchResponse } from "../api/types";
 
 export function SearchPanel({
@@ -69,25 +71,34 @@ export function SearchPanel({
     onClose();
   };
 
+  const actions = useUiListActions("File search", hits, { query, error, semantic: result?.semantic ?? false, limit: 20, folder_open: folderOpen, coverage: "Current ranked search response; not exhaustive matches" }, pick, onClose, { index: selected, set: setSelected });
+  const parent = `search-query:${useId()}`;
+  const revision = useUiRevision(() => [query, folderOpen]);
+  const invoke = useUiCommands([{ key: parent, command: {
+    label: "Set ranked file search query", parent, subject: parent,
+    parameters: { query: { type: "string", maxLength: 16384 } }, prerequisites: [],
+    read: () => ({ revision: revision(), enabled: true }),
+    execute: async args => { setQuery(args.query as string); setResult(null); setError(null); setSelected(0); return { status: "completed", value: { search_requested: true, completion: "Observe current search results or error after debounce" } }; },
+  } }]);
   const onKeyDown = (event: React.KeyboardEvent) => {
     if (event.key === "Escape") {
       event.preventDefault();
-      onClose();
+      void actions.close();
       return;
     }
     if (event.key === "ArrowDown") {
       event.preventDefault();
-      setSelected((current) => Math.min(current + 1, Math.max(0, hits.length - 1)));
+      if (hits.length) void actions.select(Math.min(selected + 1, hits.length - 1));
       return;
     }
     if (event.key === "ArrowUp") {
       event.preventDefault();
-      setSelected((current) => Math.max(current - 1, 0));
+      if (hits.length) void actions.select(Math.max(selected - 1, 0));
       return;
     }
     if (event.key === "Enter" && hits[selected]) {
       event.preventDefault();
-      pick(hits[selected]);
+      void actions.pick(selected);
     }
   };
 
@@ -99,7 +110,7 @@ export function SearchPanel({
         type="search"
         placeholder={folderOpen ? "Search open files and this folder" : "Search open files"}
         value={query}
-        onChange={(event) => setQuery(event.target.value)}
+        onChange={(event) => void invoke(parent, { query: event.target.value })}
         aria-label="Search query"
       />
       {folderOpen && result && !result.semantic && (
@@ -126,8 +137,8 @@ export function SearchPanel({
                   className={`search-panel__hit${index === selected ? " on" : ""}`}
                   role="option"
                   aria-selected={index === selected}
-                  onMouseEnter={() => setSelected(index)}
-                  onClick={() => pick(hit)}
+                  onMouseEnter={() => void actions.select(index)}
+                  onClick={() => void actions.pick(index)}
                 >
                   <span className="search-panel__where">
                     <span className="search-panel__path mono">{hit.path}</span>
