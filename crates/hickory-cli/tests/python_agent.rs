@@ -52,6 +52,7 @@ struct FixedReview {
 impl Review for FixedReview {
     async fn approve(&mut self, proposal: &Proposal) -> Result<bool> {
         assert_eq!(proposal.after, "AI proposal\n");
+        assert_eq!(proposal.surface, "proposal.md");
         self.count += 1;
         Ok(self.accept)
     }
@@ -99,7 +100,7 @@ async fn real_confined_worker_requires_review_and_preserves_the_audit() {
         std::fs::write(root.path().join("human.md"), "Original human input\n").unwrap();
         let client = scripted([
             json!({"python":"tool('record_assumption', {'statement':'The requested note can be new', 'reason':'Avoid altering original input', 'affects':['create_doc']})"}).to_string(),
-            json!({"python":"tool('create_doc', {'path':'proposal.md', 'input':'AI proposal'})"}).to_string(),
+            json!({"python":"tool('create_doc', {'path':' proposal.md ', 'input':'AI proposal'})"}).to_string(),
             json!({"done":"Stopped; checks were not run."}).to_string(),
         ]);
         let mut review = FixedReview { accept, count: 0 };
@@ -128,6 +129,19 @@ async fn real_confined_worker_requires_review_and_preserves_the_audit() {
         assert!(source.contains("python-edit-review"));
         assert!(source.contains("Stopped; checks were not run."));
         assert!(source.contains("source-output-equality-only"));
+        if accept {
+            let actual = std::fs::read_to_string(root.path().join("proposal.md")).unwrap();
+            assert_eq!(actual, "AI proposal\n");
+            let writes = hickory_agent::context::derive_from_session("session.md", &source);
+            let receipt = writes
+                .iter()
+                .find(|write| write.file == "proposal.md")
+                .unwrap();
+            assert_eq!(
+                receipt.hashes,
+                hickory_agent::hashline::LineIndex::new(&actual).hashes
+            );
+        }
         let timeline = hickory_agent::audit::timeline(&source);
         assert!(timeline.iter().any(|entry| entry["kind"] == "assumption"));
         assert!(
@@ -397,4 +411,59 @@ async fn indirect_execution_and_outside_proposals_are_not_capabilities() {
     assert_eq!(review.count, 0);
     assert!(!destination.exists());
     assert!(!root.path().join("hacked").exists());
+}
+
+// Guarantee: docs/guarantees/agent/python-execution-has-two-boundaries.md
+#[tokio::test]
+async fn approved_executable_document_content_does_not_execute_during_reads_or_completion() {
+    let Some(python) = python() else {
+        return;
+    };
+    let root = tempfile::tempdir().unwrap();
+    let marker = root.path().join("unreviewed-output");
+    let source = format!(
+        r#"<hick:doc xmlns:hick="http://www.hickorydocs.com/1.0">
+<hick:container name="work" image="host" />
+<hick:exec container="work">touch {}</hick:exec>
+</hick:doc>
+"#,
+        marker.display()
+    );
+    let client = scripted([
+        json!({"python":format!("tool('create_doc', {{'path':'executable.md', 'input':{}}})", serde_json::to_string(&source).unwrap())}).to_string(),
+        json!({"python":"tool('read_doc', {'doc':'executable.md'})"}).to_string(),
+        json!({"python":"tool('verify', {'doc':'executable.md'})"}).to_string(),
+        json!({"done":"Source artifact only; native execution unrun"}).to_string(),
+    ]);
+    struct Approve(usize);
+    #[async_trait::async_trait]
+    impl Review for Approve {
+        async fn approve(&mut self, _: &Proposal) -> Result<bool> {
+            self.0 += 1;
+            Ok(true)
+        }
+    }
+    let mut review = Approve(0);
+    run(
+        Config {
+            python,
+            root: root.path().into(),
+            doc: None,
+            prompt: "Propose executable content without running it".into(),
+            max_turns: 5,
+        },
+        &client,
+        &mut review,
+    )
+    .await
+    .unwrap();
+    assert_eq!(review.0, 1);
+    assert_eq!(
+        std::fs::read_to_string(root.path().join("executable.md")).unwrap(),
+        source
+    );
+    assert!(
+        !marker.exists(),
+        "authored commands must not bypass edit review"
+    );
 }

@@ -579,18 +579,17 @@ pub async fn start_turn(
         };
         match project_capture {
             Ok(Some(mut capture)) => {
-                if outcome.is_ok() {
-                    if let Some(artifact) = task_state
+                if outcome.is_ok()
+                    && let Some(artifact) = task_state
                         .agent
                         .projects
                         .lock()
                         .unwrap()
                         .get(&run_key)
                         .and_then(|c| c.artifact.clone())
-                    {
-                        capture.response = artifact.sources.get(&artifact.entry).cloned();
-                        capture.artifact = Some(artifact);
-                    }
+                {
+                    capture.response = artifact.sources.get(&artifact.entry).cloned();
+                    capture.artifact = Some(artifact);
                 }
                 super::agent_projects::finish(
                     &task_state,

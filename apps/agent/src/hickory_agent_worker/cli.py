@@ -43,6 +43,13 @@ class HttpModel:
 
 class DevelopmentTools:
     """Read-only fixture tools. No real workspace mutation or verification claim."""
+    catalogue = {'tools': [
+        {'name': 'list_docs', 'description': 'List Markdown fixture paths, read-only.',
+         'inputSchema': {'type': 'object', 'properties': {}}},
+        {'name': 'read_doc', 'description': 'Read a fixture document, read-only.',
+         'inputSchema': {'type': 'object', 'properties': {'doc': {'type': 'string'}}, 'required': ['doc']}},
+    ]}
+
     def __init__(self, workspace):
         self.workspace = Path(workspace).resolve()
 
@@ -105,7 +112,7 @@ def main(argv=None):
                     agent = Agent(model, tools, lambda code: execute(session, bridge, code),
                         lambda kind, data: print(json.dumps({'kind': kind, 'data': data}), file=sys.stderr))
                     print(agent.run(Config(prompt=args.prompt, max_turns=args.max_turns,
-                        tools={'tools': [{'name': 'list_docs'}, {'name': 'read_doc'}]})))
+                        tools=getattr(tools, 'catalogue', {}))))
         return 0
     except KeyboardInterrupt:
         print('Agent cancelled', file=sys.stderr)

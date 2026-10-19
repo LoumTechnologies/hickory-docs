@@ -141,7 +141,7 @@ impl App {
             .await
             .unwrap();
         let status = response.status().as_u16();
-        (status, response.json().await.unwrap())
+        (status, response.json().await.unwrap_or(Value::Null))
     }
     async fn configure(&self, python: &str) {
         let (status, value) = self
@@ -265,12 +265,12 @@ async fn python_turn_requires_review_streams_receipts_and_rehydrates_its_branch(
             json!({"done":"Follow-up stopped."}),
         ]);
         app.state.agent.set_llm_override(model.clone());
-        // An earlier native conversation policy must not approve a Python edit.
+        // The retired native review route is not a compatibility endpoint.
         assert_eq!(
             app.request("POST", &app.route("/review"), json!({"mode":"auto-accept"}))
                 .await
                 .0,
-            200
+            404
         );
         let (mut ws, _) = tokio_tungstenite::connect_async(format!(
             "{}/api/ws?doc=doc:{}",

@@ -7,13 +7,12 @@
 > [the migration audit](../audits/2026-10-18-python-agent-ownership.md).
 
 
-Given a `hick agent` run with a primary document, when the tool set is
-enabled, then the system prompt carries a reference of the elements a
-document may contain — container, volume, exec with a child expect, file,
-copy, paste by `#id`/`.class`, upstream, transcript turns, transform, claim —
-and two rules that cost a real run: an exec's output is not a fragment, and
-the agent's scripts run in a scratch workspace that does not see the project,
-so the real inputs are read by `verify`, never recreated.
+Given a built-in Python run, its Python-owned system instructions include the
+Hickory language crib, source/output editing guidance and upstream references.
+Generated snippets run in Monty, and actual inputs are read through tools, never
+recreated when missing. The prompt separates proposed document commands and
+desired expectations from observed runtime results. Native verify/refresh tools
+are withheld by the hosted boundary; checks remain unrun until performed explicitly.
 
 The reason is a recorded session. Asked to analyse a CSV that sat beside the
 document, the agent with no grammar in its prompt invented attributes
@@ -29,7 +28,7 @@ mismatch message now names
 The prompt also names `hick:check` (a transform with the question built in) and
 `read_file`: the agent's window onto project files
 that are not documents, read-only and recorded
-(`context-provenance-is-derived-from-the-session.md`). The scratch workspace
+(`context-provenance-is-derived-from-the-session.md`). The confined interpreter
 still cannot see the project — that is what keeps the document the only write
 path — but the agent no longer has a reason to invent what it cannot find.
 

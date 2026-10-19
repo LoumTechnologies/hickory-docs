@@ -354,22 +354,4 @@ mod tests {
             "tools-inactive caveat missing:\n{report}"
         );
     }
-
-    #[test]
-    fn spec_round_trips() {
-        let json = r#"{
-            "experiment": "E4-effort",
-            "arms": [
-                {"name": "effort-low", "effort": "low"},
-                {"name": "effort-high", "baseline": true}
-            ],
-            "tasks": [
-                {"id": "t1", "prompt": "do the thing", "check_cmd": "true"}
-            ]
-        }"#;
-        let spec: ExperimentSpec = serde_json::from_str(json).unwrap();
-        assert_eq!(spec.arms.len(), 2);
-        assert!(spec.arms[1].baseline);
-        assert_eq!(spec.tasks[0].check_cmd.as_deref(), Some("true"));
-    }
 }

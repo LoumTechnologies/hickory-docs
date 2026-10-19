@@ -61,7 +61,12 @@ impl Server {
         args: &Value,
     ) -> Result<(String, String, String), String> {
         if name == "create_doc" {
-            let path = args["path"].as_str().ok_or("Pass a document path.")?;
+            // Match application normalization before requesting approval.
+            let path = args["path"]
+                .as_str()
+                .map(str::trim)
+                .filter(|path| !path.is_empty())
+                .ok_or("Pass a document path.")?;
             let mut path = PathBuf::from(path);
             if path.extension().is_none_or(|e| e != "md") {
                 path.set_extension("md");

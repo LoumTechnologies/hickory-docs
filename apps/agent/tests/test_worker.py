@@ -62,6 +62,9 @@ class WorkerTests(unittest.TestCase):
         self.assertEqual(agent.run(Config(prompt='Now', context='editor', document='note.md',
             prior_turns=[{'prompt': 'Earlier', 'answer': 'History'}])), 'Independent answer')
         self.assertIn('Monty', model.messages[0]['content'])
+        self.assertIn('<hick:paste select=', model.messages[0]['content'])
+        self.assertIn('read_output with_lineage', model.messages[0]['content'])
+        self.assertIn('never recreate a dataset', model.messages[0]['content'])
         self.assertEqual([m['content'] for m in model.messages[1:3]], ['Earlier', 'History'])
         self.assertEqual(model.messages[-1]['content'], 'Now')
         self.assertEqual(tools.completions, ['Independent answer'])

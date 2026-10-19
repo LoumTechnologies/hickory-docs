@@ -3,7 +3,7 @@
 For contributors developing the agent without starting Hickory, then connecting
 that same agent to the desktop application or CLI.
 
-Python owns the LangGraph loop, system instructions, branch history, context
+Python owns the LangGraph loop, system instructions (`instructions.py`), branch history, context
 selection, model messages, action processing, retries, iteration limit and
 completion attempts. Hickory owns tools, exact edit proposals, approvals,
 application, recording and independent changeset verification. There is one

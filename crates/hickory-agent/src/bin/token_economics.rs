@@ -10,7 +10,7 @@
 
 use std::path::PathBuf;
 
-use anyhow::Result;
+use anyhow::{Context as _, Result, bail};
 use hickory_agent::harness::generate_report;
 use hickory_agent::{AnthropicClient, Message, Role};
 

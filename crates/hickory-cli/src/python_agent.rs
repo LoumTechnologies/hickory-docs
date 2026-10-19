@@ -311,10 +311,8 @@ impl Host<'_> {
             }
             self.unchecked_edits = true;
             if name == "create_doc" {
-                created = Some((
-                    proposal.surface,
-                    args["input"].as_str().unwrap_or(&proposal.after).to_owned(),
-                ));
+                let effective = self.proposal(name, &args).await?;
+                created = Some((effective.surface, effective.after));
             }
         }
         let result = self
@@ -323,8 +321,16 @@ impl Host<'_> {
             .await
             .map_err(|(_, text)| anyhow::anyhow!(text))?;
         if result["isError"] != true
-            && let Some((file, content)) = created
+            && let Some((file, expected)) = created
         {
+            let content = std::fs::read_to_string(contained(
+                &self.config.root,
+                &self.config.root.join(&file),
+            )?)?;
+            ensure!(
+                content == expected,
+                "Created document changed before its write receipt; actual state remains captured"
+            );
             let index = hickory_agent::hashline::LineIndex::new(&content);
             let wrote = hickory_agent::Wrote {
                 file,
