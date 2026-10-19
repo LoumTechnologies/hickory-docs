@@ -35,6 +35,7 @@ mod mcp_catalogue;
 pub mod merge_driver;
 pub mod open_app;
 pub mod output;
+pub mod observation;
 pub mod project_command;
 mod project_documents;
 pub mod project_index;

@@ -6,10 +6,12 @@ import { EditorState } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
 import { createMemoryStorage } from "../embed/storage";
 import { runRepository, runtimeReading } from "./runtimeHistory";
-import { RuntimeHistory } from "./RuntimeRuns";
+import { RuntimeHistory, NativeRuntimeHistory } from "./RuntimeRuns";
 import { observationContext } from "./observations";
 import type { RuntimeRun } from "./runtimeObservations";
-afterEach(cleanup);
+import { request } from "../api/client";
+vi.mock("../api/client", () => ({ request: vi.fn() }));
+afterEach(() => { cleanup(); vi.mocked(request).mockReset(); });
 async function fixture(id = "run-one"): Promise<RuntimeRun> {
   const bytes = [...new TextEncoder().encode("# 🦀\nconsole.log('hello');\n")];
   const revision = [...new Uint8Array(await crypto.subtle.digest("SHA-256", new Uint8Array(bytes)))].map(byte => byte.toString(16).padStart(2, "0")).join("");
@@ -53,4 +55,23 @@ it("selects latest failure separately, preserves source positions, and supplies 
   expect(host.querySelector(".runtime-inline")).toBeNull();
   expect(runtimeReading(first).annotations[0].evidence).toBe(first.events[0].id);
   view.destroy(); host.remove();
+});
+
+// Guarantee: docs/guarantees/execution/python-observations-stay-confined.md
+it("explicit native launch executes the saved path and refreshes retained evidence", async () => {
+  const run = await fixture(); run.sources[0].uri = "example.md";
+  let captured = false;
+  vi.mocked(request).mockImplementation(async (method) => {
+    if (method === "POST") { captured = true; return { run }; }
+    return { runs: captured ? [{ state: "present", run }] : [] };
+  });
+  render(<NativeRuntimeHistory path="example.md" source="unsaved content" />);
+  const details = screen.getByText("Runtime observations").closest("details")!;
+  details.open = true; fireEvent(details, new Event("toggle"));
+  await screen.findByRole("button", { name: "Run saved Python confined" });
+  fireEvent.change(screen.getByLabelText(/Generated Python entry/), { target: { value: "main.py" } });
+  fireEvent.click(screen.getByRole("button", { name: "Run saved Python confined" }));
+  await waitFor(() => expect(request).toHaveBeenCalledWith("POST", "/api/runtime/python", { document: "example.md", program: "main.py", seconds: 10 }));
+  await screen.findByText(/Run run-one · completed/);
+  expect(screen.getByText(/Unsaved edits are not executed/)).toBeTruthy();
 });

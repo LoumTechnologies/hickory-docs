@@ -79,3 +79,59 @@ async fn runtime_history_http_keeps_evidence_immutable_and_pins_explicit() {
     assert!(listing["runs"].as_array().unwrap().is_empty());
     server.abort();
 }
+
+// Guarantee: docs/guarantees/execution/python-observations-stay-confined.md
+#[tokio::test(flavor = "multi_thread")]
+async fn user_python_capture_is_retained_and_refuses_workspace_escape() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().canonicalize().unwrap();
+    std::fs::write(root.join("a.py"), "print('from actual Python')\n").unwrap();
+    let prepared = prepare(ServeOptions {
+        target: root.clone(),
+        port: 0,
+        params: vec![],
+        executor: ExecutorChoice::Local,
+        key_store_path: None,
+        ui_settings_path: None,
+    })
+    .await
+    .unwrap();
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let base = format!("http://{}", listener.local_addr().unwrap());
+    let server = tokio::spawn(async move {
+        axum::serve(listener, prepared.router).await.unwrap();
+    });
+    let client = reqwest::Client::new();
+    let response = client
+        .post(format!("{base}/api/runtime/python"))
+        .json(&json!({"document":"a.py"}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), 200);
+    let result: Value = response.json().await.unwrap();
+    assert_eq!(result["run"]["status"], "completed");
+    assert_eq!(result["run"]["sources"][0]["uri"], "a.py");
+    assert!(!result["run"]["events"].as_array().unwrap().is_empty());
+    let listing: Value = client
+        .get(format!("{base}/api/runtime/runs"))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(listing["runs"][0]["run"]["id"], result["run"]["id"]);
+    let outside = tempfile::NamedTempFile::new().unwrap();
+    assert_eq!(
+        client
+            .post(format!("{base}/api/runtime/python"))
+            .json(&json!({"document":outside.path()}))
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        400
+    );
+    server.abort();
+}

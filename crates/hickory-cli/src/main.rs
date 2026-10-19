@@ -28,6 +28,8 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Command {
+    /// Execute Python with source-linked observations inside the cell sandbox.
+    Observe(hickory_cli::observation::ObserveArgs),
     /// Generate or verify a complete literate project in memory.
     Project(hickory_cli::project_command::ProjectArgs),
     /// Execute documents and write their outputs.
@@ -974,6 +976,7 @@ fn run() -> ExitCode {
         }
         match cli.command {
             Command::Project(args) => hickory_cli::project_command::run(args),
+            Command::Observe(args) => hickory_cli::observation::command(args).await,
             Command::Run(args) => cmd_run(args).await,
             Command::Lint(args) => cmd_lint(args),
             Command::Test(args) => cmd_test(args).await,

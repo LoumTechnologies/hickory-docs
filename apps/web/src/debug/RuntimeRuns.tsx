@@ -96,6 +96,8 @@ export function RuntimeHistory({ runs, source, view, onPin, onDelete }: {
 }
 
 export function NativeRuntimeHistory({ source, view, path }: { path?: string; source?: string; view?: EditorView | null }) {
+  const [running, setRunning] = useState(false);
+  const [program, setProgram] = useState("");
   const [shown, setShown] = useState(false);
   const [runs, setRuns] = useState<RuntimeRun[]>([]);
   const [error, setError] = useState("");
@@ -105,7 +107,11 @@ export function NativeRuntimeHistory({ source, view, path }: { path?: string; so
     setError(result.runs.filter(item => item.state !== "present").map(item => `${item.state}: ${item.error ?? "missing"}`).join("; "));
   }
   useEffect(() => { if (!shown) return; void load().catch(e => setError(String(e))); const timer = setInterval(() => void load().catch(e => setError(String(e))), 2000); return () => clearInterval(timer); }, [shown]);
-  return <details onToggle={event => setShown(event.currentTarget.open)}><summary>Runtime observations</summary>{shown && <RuntimeHistory runs={path ? runs.filter(run => run.sources.some(item => item.uri.replace(/^hick:\/\/\//, "") === path)) : runs} source={source} view={view}
+  return <details onToggle={event => setShown(event.currentTarget.open)}><summary>Runtime observations</summary>{shown && path && <div>
+    <label>Generated Python entry point (literate documents)<input value={program} onChange={event => setProgram(event.target.value)} /></label>
+    <button disabled={running} onClick={async () => { setRunning(true); setError(""); try { await request("POST", "/api/runtime/python", { document: path, program, seconds: 10 }); await load(); } catch (error) { setError(String(error)); } finally { setRunning(false); } }}>Run saved Python confined</button>
+    <p>{running ? "Capturing for at most 10 seconds; hiding this panel does not cancel execution." : "Executes saved application code in the cell sandbox, without network. Unsaved edits are not executed. Descriptor/native writes and catching sites are unsupported."}</p>
+  </div>}{shown && <RuntimeHistory runs={path ? runs.filter(run => run.sources.some(item => item.uri.replace(/^hick:\/\/\//, "") === path)) : runs} source={source} view={view}
     onPin={async run => { await request("PATCH", `/api/runtime/runs/${encodeURIComponent(run.id)}`, { pinned: !run.pinned }); await load(); }}
     onDelete={async run => { await request("DELETE", `/api/runtime/runs/${encodeURIComponent(run.id)}`); await load(); }} />}{error && <p role="alert">{error}</p>}</details>;
 }
