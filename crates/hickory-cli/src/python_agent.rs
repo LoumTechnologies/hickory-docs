@@ -58,6 +58,9 @@ pub struct Proposal {
 #[async_trait::async_trait]
 pub trait Review: Send {
     async fn approve(&mut self, proposal: &Proposal) -> Result<bool>;
+    fn context_inbox(&self) -> Option<Arc<std::sync::Mutex<crate::context_updates::Inbox>>> {
+        None
+    }
     fn replacement(&self) -> Option<String> {
         None
     }
@@ -124,6 +127,41 @@ fn append(path: &Path, event: SessionEvent<'_>) -> Result<()> {
 fn metadata(path: &Path, kind: &str, data: &Value) -> Result<()> {
     append(path, SessionEvent::Context { kind, data })
 }
+fn context_delivery(
+    inbox: Option<Arc<std::sync::Mutex<crate::context_updates::Inbox>>>,
+    request: &hick_context_protocol::Request,
+    delivery: &Value,
+) {
+    if let Some(inbox) = inbox {
+        let mut inbox = inbox.lock().unwrap();
+        let refs: Vec<String> = inbox
+            .0
+            .get(&request.branch)
+            .map(|b| {
+                b.updates
+                    .iter()
+                    .filter(|u| {
+                        request.parts.iter().any(|p| {
+                            p.text.as_ref().is_some_and(|text| {
+                                text.starts_with(&format!("Context update {}:", u.id))
+                            })
+                        })
+                    })
+                    .map(|u| u.id.clone())
+                    .collect()
+            })
+            .unwrap_or_default();
+        inbox.delivery(
+            &request.branch,
+            &request.id,
+            delivery["state"].as_str().unwrap_or("uncertain"),
+            &refs,
+        );
+        if let Err(error) = inbox.save() {
+            eprintln!("Context update status could not persist: {error}");
+        }
+    }
+}
 fn contained(root: &Path, path: &Path) -> Result<PathBuf> {
     let actual = path
         .canonicalize()
@@ -176,6 +214,7 @@ fn allowed(name: &str) -> bool {
 }
 #[derive(serde::Deserialize)]
 struct HostEditorContext {
+    projection: Option<Value>,
     buffers: Vec<HostEditorBuffer>,
 }
 #[derive(serde::Deserialize)]
@@ -405,6 +444,36 @@ impl Host<'_> {
     }
     async fn handle(&mut self, method: &str, params: &Value) -> Result<Value> {
         ensure!(!self.finished, "The model already stopped");
+        if method == "context.updates" {
+            let branch = self.turn_id.as_deref().unwrap_or("standalone");
+            let updates = if let Some(inbox) = self.review.context_inbox() {
+                let mut inbox = inbox.lock().unwrap();
+                let updates = inbox.take(branch);
+                inbox.save()?;
+                updates
+            } else {
+                vec![]
+            };
+            let mut result = vec![];
+            for update in updates {
+                let references = if let Some(text) = &update.text {
+                    self.context_store
+                        .snapshots(
+                            &update.source.kind,
+                            &update.source.locator,
+                            text,
+                            &update.id,
+                        )?
+                        .into_iter()
+                        .map(|n| n.id)
+                        .collect::<Vec<_>>()
+                } else {
+                    vec![update.old.clone()]
+                };
+                result.push(json!({"update":update,"references":references}));
+            }
+            return Ok(json!(result));
+        }
         if method == "context.references" {
             let ids: Vec<String> = serde_json::from_value(params["references"].clone())?;
             ensure!(ids.len() <= 256, "Reference budget exhausted");
@@ -504,6 +573,7 @@ impl Host<'_> {
                     "idempotency_key":bundle.request.id,"assembly_digest":fingerprint,"state":"prepared"});
                 metadata(&self.session, "python-context-manifest", &manifest)?;
                 metadata(&self.session, "python-context-delivery", &delivery)?;
+                context_delivery(self.review.context_inbox(), &bundle.request, &delivery);
                 ensure!(
                     serde_json::to_vec(&messages)?.len() <= 800_000,
                     "Inference request exceeds transport budget"
@@ -549,6 +619,7 @@ impl Host<'_> {
                 };
                 delivery["state"] = json!("transport_started");
                 metadata(&self.session, "python-context-delivery", &delivery)?;
+                context_delivery(self.review.context_inbox(), &bundle.request, &delivery);
                 self.active_delivery = Some(delivery.clone());
                 let outcome = tokio::time::timeout(Duration::from_secs(180), request).await;
                 let (raw, usage, reasoning) = match outcome {
@@ -560,6 +631,7 @@ impl Host<'_> {
                             "failed"
                         });
                         metadata(&self.session, "python-context-delivery", &delivery)?;
+                        context_delivery(self.review.context_inbox(), &bundle.request, &delivery);
                         self.active_delivery = None;
                         return match result {
                             Ok(Err(error)) => Err(error),
@@ -584,6 +656,17 @@ impl Host<'_> {
                 delivery["provider_receipt"] =
                     json!(format!("host-observed-response:{}", response_node.id));
                 metadata(&self.session, "python-context-delivery", &delivery)?;
+                context_delivery(self.review.context_inbox(), &bundle.request, &delivery);
+                if let Some(inbox) = self.review.context_inbox() {
+                    let mut inbox = inbox.lock().unwrap();
+                    let mut exposures = crate::context_updates::exposures(&manifest);
+                    for exposure in &mut exposures {
+                        exposure.unique =
+                            self.context_store.store.unique_anchor(&exposure.reference);
+                    }
+                    inbox.publish(&bundle.request.branch, exposures);
+                    inbox.save()?;
+                }
                 self.active_delivery = None;
                 let result = json!({"text":raw,"reference":response_node.id});
                 self.deliveries.get_mut(&bundle.request.id).unwrap().1 = Some(result.clone());
@@ -919,17 +1002,51 @@ pub async fn run_conversation(
                     .map(str::to_owned)
                     .unwrap_or_else(|| format!("snapshot:{}", hick_context_store::fresh_id()));
                 context_store.editor(&identity, &buffer.content)?;
-                bootstrap_references.extend(
-                    context_store
-                        .snapshots(
-                            "editor_buffer",
-                            &identity,
-                            &buffer.content,
-                            &hick_context_store::fresh_id(),
-                        )?
-                        .into_iter()
-                        .map(|node| node.id),
-                );
+                if let Some(projection) = &editor.projection {
+                    if let Some(documents) = projection["documents"].as_array() {
+                        for document in documents.iter().filter(|d| d["id"] == identity) {
+                            if let Some(segments) = document["segments"].as_array() {
+                                for segment in segments.iter().filter(|s| s["omitted"] == false) {
+                                    let start =
+                                        segment["start"].as_u64().context("projection start")?
+                                            as usize;
+                                    let end =
+                                        segment["end"].as_u64().context("projection end")? as usize;
+                                    let text = buffer
+                                        .content
+                                        .get(start..end)
+                                        .context("invalid projection range")?;
+                                    ensure!(
+                                        segment["text"].as_str() == Some(text),
+                                        "projection bytes differ"
+                                    );
+                                    let source =
+                                        context_store.editor(&identity, &buffer.content)?;
+                                    let nodes = context_store.store.import_chunks_anchored(
+                                        source,
+                                        hick_context_store::span(start, end),
+                                        text,
+                                        &hick_context_store::fresh_id(),
+                                        hick_context_store::unique_passage(&buffer.content, text),
+                                    )?;
+                                    bootstrap_references.extend(nodes.into_iter().map(|n| n.id));
+                                }
+                            }
+                        }
+                    }
+                } else {
+                    bootstrap_references.extend(
+                        context_store
+                            .snapshots(
+                                "editor_buffer",
+                                &identity,
+                                &buffer.content,
+                                &hick_context_store::fresh_id(),
+                            )?
+                            .into_iter()
+                            .map(|node| node.id),
+                    );
+                }
             }
         }
     }
@@ -1042,6 +1159,27 @@ pub async fn run_conversation(
     if let Some(mut delivery) = host.active_delivery.take() {
         delivery["state"] = json!("cancelled_uncertain");
         metadata(&session, "python-context-delivery", &delivery)?;
+        if let Some(inbox) = host.review.context_inbox() {
+            let mut inbox = inbox.lock().unwrap();
+            for branch in inbox.0.values_mut() {
+                for update in &mut branch.updates {
+                    if update.request.as_deref() == delivery["request"].as_str() {
+                        update.state = "cancelled_uncertain".into();
+                    }
+                }
+            }
+        }
+    }
+    if let Some(inbox) = host.review.context_inbox() {
+        let mut inbox = inbox.lock().unwrap();
+        if let Some(branch) = host.turn_id.as_ref().and_then(|id| inbox.0.get_mut(id)) {
+            for update in &mut branch.updates {
+                if matches!(update.state.as_str(), "preparing" | "prepared") {
+                    update.state = "failed".into();
+                }
+            }
+        }
+        inbox.save()?;
     }
     if let Err(error) = &result {
         metadata(

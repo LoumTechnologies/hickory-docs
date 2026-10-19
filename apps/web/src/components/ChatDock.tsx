@@ -1,3 +1,4 @@
+import { ContextUpdates } from "./ContextUpdates";
 import { registerInvestigationConversation } from "../lib/reviewInvestigations";
 import { AgentProject } from "./AgentProject";
 import { AgentChanges } from "./AgentChanges";
@@ -662,6 +663,7 @@ export function ChatDock({
         </div>
       )}
 
+      {backend === "python" && <ContextUpdates key={running ?? tip ?? "root"} doc={docId} branch={running ?? tip} getContext={getContext} />}
       {contextLabel && <p className="chat-note muted">Context: {contextLabel}. Use Next context projection to select editor text.</p>}
       <div className="chat-composer">
         <span className="muted">{!collapsed && !showTree ? <button className="btn-link" onClick={() => focusConversationResponse(logRef.current)}>Write a response</button> : "Type your response at the bottom"} · ⌘/Ctrl+Enter to send</span>

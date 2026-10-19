@@ -110,6 +110,12 @@ class HostedContext(MemoryContext):
     def boundary(self, messages):
         # One bounded poll per model boundary: continuous editing cannot starve
         # inference. Newer changes remain after the returned cursor for next time.
+        # Explicit selected updates enter only this subsequent safe boundary.
+        for item in self.broker.call('context.updates', {}):
+            update = item['update']
+            self.import_references(item['references'])
+            self.queue('Context update ' + update['id'] + ': ' + json.dumps(update) +
+                       '\nPrevious plans based on this source require revalidation.', item['references'])
         references = list(dict.fromkeys(self.references))[:256]
         try:
             page = self.broker.call('context.changes', {'cursor': self.position,

@@ -663,3 +663,123 @@ async fn review_investigation_links_real_response_refused_edits_and_cancellation
     let (_, history) = app.request("GET", "/api/reviews", Value::Null).await;
     assert_eq!(history["investigations"][1]["state"], "cancelled");
 }
+
+// Guarantee: docs/guarantees/agent/explicit-context-updates.md
+#[tokio::test]
+async fn explicit_context_updates_compare_actual_reads_and_deliver_only_on_child_boundary() {
+    let Some(python) = python() else {
+        return;
+    };
+    let app = App::start().await;
+    std::fs::write(app.root.join("AGENTS.md"), "Original instructions\n").unwrap();
+    app.configure(&python).await;
+    let model = Model::new([
+        json!({"python":"tool('read_file', {'path':'AGENTS.md'})"}),
+        json!({"done":"Read source"}),
+        json!({"done":"Continue"}),
+    ]);
+    app.state.agent.set_llm_override(model.clone());
+    let first = app.send("Read instructions", None).await;
+    let outcome = app.wait(&first).await;
+    assert_eq!(outcome["status"], "ok", "{outcome}");
+    std::fs::write(
+        app.root.join("AGENTS.md"),
+        "Changed instructions after pull\n",
+    )
+    .unwrap();
+    let context = json!({"buffers":[{"id":"note-editor","name":"Meeting note","path":"note.md","content":"Unsaved change","focused":true}]});
+    let body = json!({"branch":first,"context":context});
+    let (status, view) = app
+        .request("POST", &app.route("/python/context"), body.clone())
+        .await;
+    assert_eq!(status, 200, "{view}");
+    let items = view["items"].as_array().unwrap();
+    assert!(
+        items
+            .iter()
+            .any(|i| i["path"] == "AGENTS.md" && i["status"] == "changed_observed_passage"),
+        "{view}"
+    );
+    assert!(
+        items
+            .iter()
+            .any(|i| i["path"] == "note-editor" && i["after"] == "Unsaved change")
+    );
+    let selected: Vec<_> = items
+        .iter()
+        .filter(|i| i["eligible"] == true)
+        .map(|i| i["reference"].clone())
+        .collect();
+    let revisions: serde_json::Map<String, Value> = items
+        .iter()
+        .map(|i| {
+            (
+                i["reference"].as_str().unwrap().into(),
+                i["revision"].clone(),
+            )
+        })
+        .collect();
+    let (status, queued) = app
+        .request(
+            "POST",
+            &app.route("/python/context"),
+            json!({"branch":first,"context":context,"selected":selected,"revisions":revisions}),
+        )
+        .await;
+    assert_eq!(status, 200, "{queued}");
+    assert!(
+        queued["updates"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|u| u["state"] == "queued")
+    );
+    assert_eq!(
+        std::fs::read_to_string(app.root.join("note.md")).unwrap(),
+        "Original human input\n"
+    );
+    std::fs::write(app.root.join("AGENTS.md"), "Changed again while queued\n").unwrap();
+    let child = app.send("Continue", Some(&first)).await;
+    let outcome = app.wait(&child).await;
+    assert_eq!(outcome["status"], "ok", "{outcome}");
+    let (_, delivered) = app
+        .request(
+            "POST",
+            &app.route("/python/context"),
+            json!({"branch":child,"context":context}),
+        )
+        .await;
+    assert!(
+        delivered["updates"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|u| u["state"] == "provider_confirmed"),
+        "{delivered}"
+    );
+    let requests = model.requests.lock().unwrap();
+    assert!(
+        requests
+            .last()
+            .unwrap()
+            .iter()
+            .any(|m| m.content.contains("Changed instructions after pull"))
+    );
+    assert!(
+        !requests
+            .last()
+            .unwrap()
+            .iter()
+            .any(|m| m.content.contains("Changed again while queued"))
+    );
+    let (_, parent) = app
+        .request("POST", &app.route("/python/context"), body)
+        .await;
+    assert!(
+        parent["updates"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|u| u["state"] == "queued")
+    );
+}

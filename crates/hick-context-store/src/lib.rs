@@ -548,6 +548,9 @@ impl Store {
         instructions.sort_by_key(|i| i.order);
         Ok(instructions)
     }
+    pub fn unique_anchor(&self, reference: &str) -> bool {
+        self.data.unique_anchors.get(reference) == Some(&true)
+    }
     pub fn compare(&self, request: &CompareRequest) -> Result<Comparison> {
         let old = self.node(&request.old)?;
         let current = self.node(&request.current)?;

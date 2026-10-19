@@ -5,6 +5,7 @@ use std::sync::{Arc, Mutex};
 #[derive(Default)]
 pub struct ReviewQueue {
     pub edits: Arc<Edits>,
+    pub context: Arc<Mutex<crate::context_updates::Inbox>>,
     pub session: Mutex<Option<std::path::PathBuf>>,
 }
 

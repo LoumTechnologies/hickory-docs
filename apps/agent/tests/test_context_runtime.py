@@ -85,6 +85,8 @@ class ContextRuntimeTests(unittest.TestCase):
                 cursor = {'epoch': 'epoch', 'branch': 'branch', 'position': self.polls}
                 if method == 'context.hello':
                     return {'cursor': cursor}
+                if method == 'context.updates':
+                    return []
                 if method == 'context.changes':
                     self.polls += 1
                     cursor['position'] = self.polls

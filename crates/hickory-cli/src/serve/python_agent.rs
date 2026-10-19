@@ -200,6 +200,9 @@ struct Review {
 }
 #[async_trait::async_trait]
 impl crate::python_agent::Review for Review {
+    fn context_inbox(&self) -> Option<Arc<std::sync::Mutex<crate::context_updates::Inbox>>> {
+        Some(self.queue.context.clone())
+    }
     fn replacement(&self) -> Option<String> {
         self.accepted
             .as_deref()
@@ -310,6 +313,12 @@ pub(super) async fn run_turn(
     identity: TurnIdentity,
 ) -> Result<(String, Usage), String> {
     let queue = queue(state, doc);
+    {
+        let mut inbox = queue.context.lock().unwrap();
+        inbox.open(&identity.session).map_err(|e| e.to_string())?;
+        inbox.fork(&identity.turn, identity.parent.as_deref());
+        inbox.save().map_err(|e| e.to_string())?;
+    }
     *queue.session.lock().unwrap() = Some(identity.session.clone());
     *queue.edits.mode.lock().unwrap() = super::acp::edits::Mode::Review;
     if let Ok(value) = serde_json::from_str::<Value>(&identity.context)
@@ -404,9 +413,127 @@ pub(super) async fn run_turn(
         .map_err(|e| format!("{e:#}"))
 }
 
+#[derive(Deserialize)]
+struct ContextRequest {
+    branch: String,
+    #[serde(default)]
+    context: super::agent_context::EditorContext,
+    #[serde(default)]
+    selected: Vec<String>,
+    #[serde(default)]
+    revisions: std::collections::BTreeMap<String, String>,
+}
+async fn context_updates(
+    State(state): State<LocalState>,
+    Path(doc): Path<String>,
+    Json(body): Json<ContextRequest>,
+) -> ApiResult<Json<Value>> {
+    let subject = super::agent_context::subject(&state, &doc)?;
+    state.agent.hydrate(state.index.root(), &doc, &subject);
+    let session = state
+        .agent
+        .turns
+        .lock()
+        .unwrap()
+        .get(&doc)
+        .and_then(|turns| turns.iter().find(|t| t.id == body.branch))
+        .map(|t| state.index.root().join(&t.session));
+    let queue = queue(&state, &doc);
+    let mut inbox = queue.context.lock().unwrap();
+    if let Some(session) = session {
+        inbox
+            .open(&session)
+            .map_err(|e| ApiError::unprocessable(e.to_string()))?;
+    }
+    let Some(original) = inbox.0.get(&body.branch) else {
+        return Ok(Json(
+            json!({"items":[],"updates":[],"coverage":"No confirmed context available for this branch in this server session."}),
+        ));
+    };
+    let mut branch = original.clone();
+    let files = hick_context_store::Files::new(state.index.root(), 8 * 1024 * 1024)
+        .map_err(|e| ApiError::unprocessable(e.to_string()))?;
+    let mut items = vec![];
+    for exposure in &branch.exposures {
+        let mut availability = "unavailable";
+        let current = if exposure.source.kind == "editor_buffer" {
+            body.context
+                .buffers
+                .iter()
+                .find(|b| {
+                    b.id.as_deref()
+                        .or(b.provenance_uri.as_deref())
+                        .or(b.path.as_deref())
+                        == Some(&exposure.source.locator)
+                })
+                .map(|b| b.content.clone())
+        } else if exposure.source.kind == "saved_file" {
+            match files.read(&exposure.source.locator) {
+                Ok(text) => Some(text),
+                Err(e) => {
+                    if e.downcast_ref::<std::io::Error>()
+                        .is_some_and(|e| e.kind() == std::io::ErrorKind::NotFound)
+                    {
+                        availability = "deleted";
+                    }
+                    None
+                }
+            }
+        } else {
+            None
+        };
+        let (mut status, revision) = crate::context_updates::compare(exposure, current.as_deref());
+        if current.is_none() {
+            status = availability;
+        }
+        let eligible = status != "unchanged" && status != "ambiguous" && current.is_some();
+        if body.selected.contains(&exposure.reference) {
+            if !eligible || body.revisions.get(&exposure.reference) != Some(&revision) {
+                return Err(ApiError::conflict(
+                    "Context candidate changed; inspect the patch again.",
+                ));
+            }
+            if !branch.updates.iter().any(|u| {
+                u.old == exposure.reference
+                    && u.source.revision == revision
+                    && matches!(
+                        u.state.as_str(),
+                        "queued" | "preparing" | "transport_started"
+                    )
+            }) {
+                branch.updates.push(crate::context_updates::Update {
+                    id: hick_context_store::fresh_id(),
+                    old: exposure.reference.clone(),
+                    source: hick_context_protocol::Source {
+                        revision: revision.clone(),
+                        ..exposure.source.clone()
+                    },
+                    text: current.clone(),
+                    role: exposure.role.clone(),
+                    scope: exposure.scope.clone(),
+                    state: "queued".into(),
+                    request: None,
+                });
+            }
+        }
+        items.push(json!({"reference":exposure.reference,"path":exposure.source.locator,"before":exposure.text,"after":current,"status":status,"revision":revision,"eligible":eligible,"role":exposure.role,"scope":exposure.scope,"request":exposure.request}));
+    }
+    let updates = branch.updates.clone();
+    if !body.selected.is_empty() {
+        inbox.0.insert(body.branch, branch);
+        inbox
+            .save()
+            .map_err(|e| ApiError::unprocessable(e.to_string()))?;
+    }
+    Ok(Json(
+        json!({"items":items,"updates":updates,"coverage":"Host-visible source ancestry only. Opaque provider context is unavailable; ancestry does not prove semantic use."}),
+    ))
+}
+
 pub(super) fn routes() -> axum::Router<LocalState> {
     use axum::routing::{get, post};
     axum::Router::new()
+        .route("/docs/{id}/agent/python/context", post(context_updates))
         .route("/agents/python", get(settings).put(configure))
         .route("/docs/{id}/agent/python", get(snapshot))
         .route("/docs/{id}/agent/python/review", post(decide))

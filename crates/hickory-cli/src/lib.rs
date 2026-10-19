@@ -41,6 +41,7 @@ mod project_documents;
 pub mod project_index;
 pub mod project_revision;
 pub mod python_agent;
+pub mod context_updates;
 pub mod recipe;
 pub mod replay;
 pub mod scaffold;
