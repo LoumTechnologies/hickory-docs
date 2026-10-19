@@ -261,3 +261,10 @@ input and selected-result movement. Query changes clear previous results before
 debounced search; a previous query response cannot replace the new one. Navigation
 handles are bound to the current result list and selection. These are navigation
 observations, not source-edit baselines or proof that an LSP diagnostic is fresh.
+
+Snapshot export now shares its capture/download handler with registered agent
+controls. A completed handler reports the actual captured JSON byte count and
+SHA-256, a browser download request (without claiming a saved path), and no
+publication request. Explicit pages expose those exact captured bytes. Switching
+documents retires the old artifact read command; saved/recorded snapshot contents
+do not attest to a new verification run or to the current unsaved editor.

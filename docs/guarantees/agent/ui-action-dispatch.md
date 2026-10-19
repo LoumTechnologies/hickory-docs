@@ -208,3 +208,18 @@ Executed focused checks: uiResultLists (2), SearchPanel (2), ProblemsPanel (4),
 all passed. Targeted strict TypeScript checking of these panels and the new test
 passed. Tests cover exact human/agent row routing, explicit Unicode evidence,
 changed-result refusal and unregistration; they do not witness native LSP startup.
+
+### Snapshot export — 2026-10-19
+
+Human and agent export capture the existing host snapshot, hash the exact JSON
+UTF-8 bytes used for the browser download and expose bounded explicit reads of
+that capture. Download requests do not attest that the browser wrote a file.
+No publication or new verification is implied. Changed document identity retires
+the prior artifact read command. Abort observed after capture suppresses the
+browser download; an already requested download cannot be rolled back.
+
+Executed focused checks: SnapshotExport.test.tsx (1 passed), including exact
+Unicode/failed-result bytes, actor routing, truthful download/publication scope
+and document-change retirement; targeted strict TypeScript checking passed.
+The browser download and host snapshot are mocked; actual filesystem save and
+reviewed publication remain separate witnesses.
