@@ -55,7 +55,7 @@ export function RepresentationTools({ file, source, view, onStart, onDiagnostics
   const pausedOffset = debug.pausedLine === null ? null : representationOffset(source, file, { line: debug.pausedLine, character: 0 });
   const pausedLine = pausedOffset === null || !view ? null : view.state.doc.lineAt(pausedOffset).number - 1;
   return <>
-    <DebugStrip editorView={view} pausedLine={pausedLine} status={debug.status} program={file.path} message={debug.message} capabilities={debug.capabilities}
+    <DebugStrip reading={debug.reading} editorView={view} pausedLine={pausedLine} status={debug.status} program={file.path} message={debug.message} capabilities={debug.capabilities}
       offerInstall={debug.offerInstall} onInstall={async offer => { await api.installTool(offer.kind, offer.language); }}
       frames={debug.frames} selectedFrame={debug.selectedFrame} watches={debug.watches} exitCode={debug.exitCode} buildOutput={debug.buildOutput}
       onSelectFrame={debug.selectFrame} onStep={debug.step} onStart={onStart} onStop={debug.stop}

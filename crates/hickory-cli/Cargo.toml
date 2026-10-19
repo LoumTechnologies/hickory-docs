@@ -19,6 +19,7 @@ name = "hickory_cli"
 path = "src/lib.rs"
 
 [dependencies]
+hick-observe = { path = "../hick-observe" }
 anyhow = "1"
 hick-context-store = { path = "../hick-context-store" }
 async-trait = "0.1"

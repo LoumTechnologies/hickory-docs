@@ -1,3 +1,4 @@
+import { observationSourceChanged } from "./observations";
 import { launchWithProfiles } from "./launchProfiles";
 import { useEffect, useMemo, useRef } from "react";
 import { Compartment, StateEffect } from "@codemirror/state";
@@ -69,7 +70,7 @@ export function GeneratedDebugTools({view,file,debug,docPath,source,askText}: {
   };
   return <>
     <DebugLaunchAction view={view} label={`Debug ${file.path}`} onStart={()=>start()} onProfiles={()=>start(true)} disabled={!view || view.state.doc.toString()!==file.content} hint={view?.state.doc.toString()!==file.content?"Waiting for your edits to save before debugging":undefined}/>
-    <DebugStrip {...debug} status={activeHere?debug.status:"idle"} editorView={view} pausedLine={pausedLine} program={file.path}
+    <DebugStrip {...debug} readingChanged={observationSourceChanged(debug.reading, source)} status={activeHere?debug.status:"idle"} editorView={view} pausedLine={pausedLine} program={file.path}
       onStep={debug.step} onStart={()=>start()} onStop={debug.stop} onSelectFrame={debug.selectFrame}
       onJumpHere={()=>{if(view){const line=mapping.get(view.state.doc.lineAt(view.state.selection.main.head).number-1);if(line!==undefined)debug.jumpTo(line);}}}
       onAddWatch={()=>{void askText("Expression to watch:","").then(expression=>{if(expression)debug.addWatch(expression);});}}

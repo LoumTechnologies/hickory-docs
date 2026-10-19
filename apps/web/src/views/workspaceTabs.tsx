@@ -1,3 +1,4 @@
+import { observationSourceChanged } from "../debug/observations";
 import { PaneHeaderContent } from "../shell/PaneHeader";
 import { SurfaceInfo } from "../components/SurfaceInfo";
 import { ActionNotice } from "../components/ActionNotice";
@@ -159,7 +160,7 @@ export function DocTabBody({
       {session.syncState === "failed" && session.banner?.retry?.label !== "Retry Save" && <ActionNotice kind="fail" retry={{ label: "Retry Save", run: () => { void session.menuSave(); } }}>Saving could not be confirmed. Your text is still in this editor.</ActionNotice>}
       {/* The debugger's chrome, on the block being debugged. Nothing while
           idle: the file chip's Debug button is the way in. */}
-      <DebugStrip
+      <DebugStrip reading={debug.reading} readingChanged={observationSourceChanged(debug.reading, session.liveSource)}
         editorView={session.docEditor}
         pausedLine={debug.pausedLine}
         status={debug.status}

@@ -1,3 +1,4 @@
+import { observationSourceChanged } from "../debug/observations";
 import { launchWithProfiles } from "../debug/launchProfiles";
 import { DebugLaunchRail } from "../debug/DebugRail";
 import { RightRail } from "../editor/RightRail";
@@ -792,7 +793,7 @@ export function PlainFilePane({
       )}
       {/* The debugger's chrome, above the file it debugs — nothing while
           idle. The same strip a document's block gets. */}
-      <DebugStrip
+      <DebugStrip reading={debug.reading} readingChanged={observationSourceChanged(debug.reading, railView?.state.doc.toString())}
         editorView={railView}
         pausedLine={debug.pausedLine}
         status={debug.status}

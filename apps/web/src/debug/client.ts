@@ -98,6 +98,7 @@ export interface DebugCapabilities {
 export type BindState = "bound" | "pending" | "refused";
 
 export type DebugEvent =
+  | { event: "reading"; session: string; reading: import("./observations").ObservationReading }
   | {
       event: "started";
       session: string;
@@ -110,6 +111,7 @@ export type DebugEvent =
     }
   | {
       event: "stopped";
+      observation_scope?: import("./observations").ObservationScope | null;
       session: string;
       reason: string;
       frames: Frame[];
@@ -210,6 +212,10 @@ export class DebugClient {
     // Python files has two answers, and picking the first is right only by
     // accident.
     this.send({ op: "start", doc, breakpoints, program, ...(profile ? {profile:{id:profile.id,fingerprint:profile.fingerprint}} : {}), ...(project && project !== "new" ? {project} : {}), ...(sources && Object.keys(sources).length ? {sources} : {}) });
+  }
+
+  located(session: string, location: string, scope: import("./observations").ObservationScope, how: "jump" | "run_to") {
+    this.send({ op: "located", session, location, scope, how });
   }
 
   setBreakpoints(session: string, breakpoints: DebugBreakpoint[]) {

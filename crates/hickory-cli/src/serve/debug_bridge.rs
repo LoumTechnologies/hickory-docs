@@ -58,6 +58,19 @@ pub async fn handle(
     // is the failing one: a build that fails takes `handle_inner` down the
     // error arm, and anything gathered in there would go with it.
     let mut built: Vec<Value> = Vec::new();
+    // Serialize state/evaluation/movement so a receipt cannot cross a resume.
+    let operation_live = match if matches!(request, Request::Stop { .. }) {
+        None
+    } else {
+        request.session_id()
+    } {
+        Some(id) => registry.get(id).await.ok(),
+        None => None,
+    };
+    let _operation = match &operation_live {
+        Some(live) => Some(live.operation.lock().await),
+        None => None,
+    };
     let result = handle_inner(registry, root, request, &mut built).await;
     let mut out = Vec::new();
     if !built.is_empty() {
@@ -117,6 +130,7 @@ fn about_of(request: &Request) -> &'static str {
         Request::Breakpoints { .. } => "breakpoints",
         Request::SourceBreakpoints { .. } => "source_breakpoints",
         Request::State { .. } => "state",
+        Request::Located { .. } => "located",
         Request::Eval { .. } => "eval",
         Request::Step { .. } => "step",
         Request::Jump { .. } => "jump",
@@ -148,6 +162,33 @@ async fn handle_inner(
     built: &mut Vec<Value>,
 ) -> Result<Vec<Response>, Failure> {
     match request {
+        Request::Located {
+            session,
+            location,
+            scope,
+            how,
+        } => {
+            let live = registry
+                .get(&session)
+                .await
+                .map_err(|e| (Some(session.clone()), e))?;
+            let line = live
+                .resolve_location(&location, &scope)
+                .await
+                .map_err(|e| (Some(session.clone()), e))?;
+            *live.reading.lock().await = None;
+            *live.stop_generation.lock().await += 1;
+            let thread = live.thread_id.lock().await.unwrap_or(1);
+            match how {
+                protocol::LocatedAction::RunTo => live.session.run_to(line, thread).await,
+                protocol::LocatedAction::Jump => live.session.jump_to(line, thread).await,
+            }
+            .map_err(|e| (Some(session.clone()), e))?;
+            Ok(match how {
+                protocol::LocatedAction::Jump => settle_in_place(root, &session, &live).await,
+                protocol::LocatedAction::RunTo => settle(registry, root, &session, &live).await,
+            })
+        }
         Request::SourceBreakpoints {
             session,
             source,
@@ -266,13 +307,25 @@ async fn handle_inner(
                 .evaluate(&expression, frame, &context)
                 .await
                 .map_err(|e| (Some(session.clone()), e))?;
-            Ok(vec![Response::Value {
+            let mut out = Vec::new();
+            if let Some(reading) = live
+                .record_expression(&expression, &value.value, frame)
+                .await
+                .map_err(|e| (Some(session.clone()), e))?
+            {
+                out.push(Response::Reading {
+                    session: session.clone(),
+                    reading,
+                });
+            }
+            out.push(Response::Value {
                 session,
                 expression,
                 value: value.value,
                 type_name: value.type_name,
                 reference: value.variables_reference,
-            }])
+            });
+            Ok(out)
         }
 
         Request::Step {
@@ -289,6 +342,8 @@ async fn handle_inner(
                 Some(frame) => Some(frame),
                 None => top_frame(&live).await,
             };
+            *live.reading.lock().await = None;
+            *live.stop_generation.lock().await += 1;
             live.session
                 .step(how, thread, frame)
                 .await
@@ -302,6 +357,8 @@ async fn handle_inner(
                 .await
                 .map_err(|e| (Some(session.clone()), e))?;
             let thread = live.thread_id.lock().await.unwrap_or(1);
+            *live.reading.lock().await = None;
+            *live.stop_generation.lock().await += 1;
             live.session
                 .jump_to(line, thread)
                 .await
@@ -315,6 +372,8 @@ async fn handle_inner(
                 .await
                 .map_err(|e| (Some(session.clone()), e))?;
             let thread = live.thread_id.lock().await.unwrap_or(1);
+            *live.reading.lock().await = None;
+            *live.stop_generation.lock().await += 1;
             live.session
                 .run_to(line, thread)
                 .await
@@ -398,6 +457,7 @@ async fn settle(
     match live.session.wait_for_stop(Duration::from_secs(60)).await {
         Ok(Some(stopped)) => {
             *live.thread_id.lock().await = Some(stopped.thread_id);
+            *live.stopped.lock().await = Some(stopped.clone());
             let mut out = vec![Response::Breakpoints {
                 session: session.to_string(),
                 // Re-read rather than reuse the set-time answer: for a
@@ -446,6 +506,7 @@ async fn settle_in_place(
 ) -> Vec<Response> {
     if let Ok(Some(stopped)) = live.session.wait_for_stop(Duration::from_millis(400)).await {
         *live.thread_id.lock().await = Some(stopped.thread_id);
+        *live.stopped.lock().await = Some(stopped.clone());
         return position_with(root, session, live, &stopped.reason).await;
     }
     position_with(root, session, live, "goto").await
@@ -517,13 +578,35 @@ async fn position_with(
         Some(frame) => live.session.variables(frame.id).await.unwrap_or_default(),
         None => Vec::new(),
     };
-    vec![Response::Stopped {
+    let mut out = Vec::new();
+    if let Ok(Some(reading)) = live
+        .capture_reading(
+            session,
+            reason,
+            &frames,
+            &variables,
+            frames.first().map(|f| f.id),
+        )
+        .await
+    {
+        out.push(Response::Reading {
+            session: session.into(),
+            reading,
+        });
+    }
+    let observation_scope = out.iter().find_map(|r| match r {
+        Response::Reading { reading, .. } => Some(reading.scope.clone()),
+        _ => None,
+    });
+    out.push(Response::Stopped {
+        observation_scope,
         session: session.to_string(),
         reason: reason.to_string(),
         line: frames.first().and_then(|frame| frame.line),
         frames,
         variables,
-    }]
+    });
+    out
 }
 
 async fn top_frame(live: &Arc<crate::debug_sessions::Live>) -> Option<i64> {
@@ -572,11 +655,11 @@ pub fn describe() -> Value {
         "channel": CHANNEL_DEBUG,
         "requests": [
             "start", "breakpoints", "state", "eval", "step", "jump", "run_to",
-            "children", "exception_breakpoints", "set_variable", "stop"
+            "children", "exception_breakpoints", "set_variable", "stop", "located"
         ],
         "responses": [
             "started", "stopped", "breakpoints", "value", "children",
-            "finished", "ended", "failed", "build"
+            "finished", "ended", "failed", "build", "reading"
         ],
     })
 }
@@ -585,6 +668,153 @@ pub fn describe() -> Value {
 mod tests {
     use super::*;
     use hick_dap::Step;
+
+    // Guarantee: docs/guarantees/debugging/source-anchored-observation-reading.md
+    #[test]
+    fn agent_action_fixture_uses_opaque_handles_without_display_line_arithmetic() {
+        let reading: hick_observe::reading::Reading = serde_json::from_str(include_str!(
+            "../../../../apps/web/src/debug/fixtures/reading.json"
+        ))
+        .unwrap();
+        let action = json!({"op":"located", "session":"debug-fixture", "location":reading.locations[0].id, "scope":reading.scope, "how":"jump"});
+        assert!(action.get("line").is_none());
+        let request: Request = serde_json::from_value(action).unwrap();
+        match request {
+            Request::Located {
+                location, scope, ..
+            } => {
+                assert_eq!(
+                    reading
+                        .resolve(&location, &scope, &reading.source.bytes, Some(7))
+                        .unwrap(),
+                    1
+                );
+                let mut stale = scope;
+                stale.stop = "old-stop".into();
+                assert!(
+                    reading
+                        .resolve(&location, &stale, &reading.source.bytes, Some(7))
+                        .is_err()
+                );
+            }
+            _ => panic!("expected located action"),
+        }
+    }
+
+    // Guarantee: docs/guarantees/debugging/source-anchored-observation-reading.md
+    #[cfg(unix)]
+    #[tokio::test(flavor = "multi_thread")]
+    async fn real_adapter_relocation_and_stale_actions_share_the_reading() {
+        use hick_observe::reading::DebugAnnotation as A;
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir(dir.path().join(".git")).unwrap();
+        let cache = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../.hick-cache");
+        if cache.join("adapters/python/bin/python3").exists() {
+            std::os::unix::fs::symlink(cache, dir.path().join(".hick-cache")).unwrap();
+        }
+        if hick_dap::discover("python", dir.path()).is_none() {
+            eprintln!("SKIPPED: install Python adapter with hick dap install python");
+            return;
+        }
+        let source = "# Reading\n<hick:file path=\"main.py\">\nvalue = 1\n\n\ndef count(n):\n    return count(n - 1) if n else n\nprint(count(2))\n</hick:file>\n";
+        let path = dir.path().join("demo.md");
+        std::fs::write(&path, source).unwrap();
+        let registry = Arc::new(Registry::new());
+        let out = handle(
+            &registry,
+            dir.path(),
+            Request::Start {
+                doc: "hick:///demo.md".into(),
+                breakpoints: vec![hick_dap::Breakpoint {
+                    line: 3,
+                    condition: None,
+                    hit_condition: None,
+                    log_message: None,
+                }],
+                program: Some("main.py".into()),
+                project: None,
+                profile: None,
+                sources: Default::default(),
+            },
+        )
+        .await;
+        let (session, reading) = out
+            .iter()
+            .find_map(|r| match r {
+                Response::Reading { session, reading } => Some((session.clone(), reading.clone())),
+                _ => None,
+            })
+            .unwrap_or_else(|| panic!("missing reading: {out:?}"));
+        let requested = reading
+            .annotations
+            .iter()
+            .find(|a| matches!(a.payload, A::BreakpointRequested { .. }))
+            .unwrap();
+        let bound = reading
+            .annotations
+            .iter()
+            .find(|a| matches!(a.payload, A::BreakpointBound { .. }))
+            .unwrap();
+        let paused = reading
+            .annotations
+            .iter()
+            .find(|a| matches!(a.payload, A::Paused { .. }))
+            .unwrap();
+        assert_ne!(requested.location, bound.location);
+        assert_eq!(bound.location, paused.location);
+        assert_eq!(reading.source.bytes, source.as_bytes());
+        let location = paused.location.clone().unwrap();
+        let mut wrong_frame = reading.scope.clone();
+        wrong_frame.frame = Some(-999);
+        assert!(
+            registry
+                .get(&session)
+                .await
+                .unwrap()
+                .resolve_location(&location, &wrong_frame)
+                .await
+                .is_err()
+        );
+        std::fs::write(&path, source.replace("value = 1", "value = 10")).unwrap();
+        let changed = handle(
+            &registry,
+            dir.path(),
+            Request::Located {
+                session: session.clone(),
+                location: location.clone(),
+                scope: reading.scope.clone(),
+                how: protocol::LocatedAction::Jump,
+            },
+        )
+        .await;
+        assert!(changed.iter().any(
+            |r| matches!(r, Response::Failed { message, .. } if message.contains("source changed"))
+        ));
+        std::fs::write(&path, source).unwrap();
+        let _ = handle(
+            &registry,
+            dir.path(),
+            Request::Step {
+                session: session.clone(),
+                how: hick_dap::Step::Over,
+                frame: None,
+            },
+        )
+        .await;
+        let stale = handle(
+            &registry,
+            dir.path(),
+            Request::Located {
+                session: session.clone(),
+                location,
+                scope: reading.scope,
+                how: protocol::LocatedAction::RunTo,
+            },
+        )
+        .await;
+        assert!(stale.iter().any(|r| matches!(r, Response::Failed { .. })));
+        registry.reap(&session).await;
+    }
 
     /// A C# document whose build cannot succeed, and what the client is told.
     ///

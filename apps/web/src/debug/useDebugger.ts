@@ -29,6 +29,7 @@ export interface Watch {
 }
 
 export interface DebugSession {
+  reading?: import("./observations").ObservationReading | null;
   /** A tool this machine can fetch, when a missing one is why the last
    * attempt failed. Null the rest of the time. */
   offerInstall: { kind: string; language: string } | null;
@@ -288,6 +289,7 @@ export function useWorkspaceDebugger(path: string): DebugSession {
 }
 
 export function useDebuggerOver(client: DebugClient | null, docPath: string, initialBreakpoints: readonly number[] = [], projectContext = "new"): DebugSession {
+  const [reading, setReading] = useState<import("./observations").ObservationReading | null>(null);
   const [status, setStatus] = useState<DebugStatus>("idle");
   const [message, setMessage] = useState<string | null>(null);
   // A missing tool this machine can fetch, carried out of the failure so the
@@ -350,12 +352,16 @@ export function useDebuggerOver(client: DebugClient | null, docPath: string, ini
       // still in flight is recognised by the file it named.
       if (!eventIsOurs(event, uri, sessionRef.current)) return;
       switch (event.event) {
+        case "reading":
+          setReading(event.reading);
+          break;
         case "build":
           // Replaces rather than appends: a build belongs to the start that
           // ran it, and the last one is the one on screen.
           setBuildOutput(event.events);
           break;
         case "started": {
+          setReading(null);
           sessionRef.current = event.session;
           setCapabilities(event.capabilities);
           setBreakpoints((current) => followMoves(current, event.breakpoints));
@@ -372,6 +378,7 @@ export function useDebuggerOver(client: DebugClient | null, docPath: string, ini
           break;
         }
         case "stopped":
+          setReading(current => event.observation_scope && current && ["session", "run", "stop", "frame", "invocation"].every(key => current.scope[key as keyof typeof current.scope] === event.observation_scope![key as keyof typeof current.scope]) ? current : null);
           setStatus("paused");
           setPausedLine(event.line);
           setFrames(event.frames);
@@ -753,6 +760,7 @@ export function useDebuggerOver(client: DebugClient | null, docPath: string, ini
   // workspace — on every keystroke of the document beside it.
   return useMemo(
     () => ({
+      reading,
       status,
       message,
       offerInstall,
@@ -787,6 +795,7 @@ export function useDebuggerOver(client: DebugClient | null, docPath: string, ini
       removeWatch,
     }),
     [
+      reading,
       status,
       message,
       offerInstall,

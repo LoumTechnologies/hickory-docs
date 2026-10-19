@@ -416,3 +416,30 @@ test("review selection persists its target and non-Git authorship distinguishes 
   await expect(editor.locator(".cm-origin-human")).toHaveCount(1);
   await expect(editor.locator(".cm-origin-agent")).toHaveCount(0);
 });
+
+// Guarantee: docs/guarantees/debugging/source-anchored-observation-reading.md
+test("source observations share exact evidence with expanded context and stay historical after resume", async ({ page }) => {
+  await noEngine(page); await page.goto("/embed.html");
+  await code(page, 'var n = 4;\nvar result = n + 1;\nconsole.log(result);');
+  const pane = page.getByRole("group", { name: "fixture.md", exact: true });
+  await pane.locator(".cm-lineNumbers .cm-gutterElement").filter({ hasText: /^4$/ }).scrollIntoViewIfNeeded();
+  const number = await pane.locator(".cm-lineNumbers .cm-gutterElement").filter({ hasText: /^4$/ }).boundingBox();
+  const gutter = await pane.locator(".cm-breakpoint-gutter").boundingBox();
+  if (!number || !gutter) throw Error("Missing source gutter");
+  await page.mouse.click(gutter.x + gutter.width / 2, number.y + number.height / 2);
+  await expect(pane.locator(".cm-bp")).toHaveCount(1);
+  await page.getByRole("button", { name: "Debug document", exact: true }).click();
+  const reading = page.locator(".debug-observations");
+  await expect(reading.locator("summary")).toContainText("captured stop");
+  await reading.locator("summary").click();
+  await expect(reading).toContainText("PAUSED HERE");
+  await expect(reading).toContainText("var result = n + 1;");
+  const ids = await reading.locator("[data-evidence]").evaluateAll(elements => elements.map(e => e.getAttribute("data-evidence")));
+  expect(new Set(ids).size).toBe(ids.length);
+  await page.getByLabel("Watch expression").fill("n + 2");
+  await page.getByRole("button", { name: "Watch", exact: true }).click();
+  await expect(reading).toContainText('"value":"6"');
+  await page.getByRole("button", { name: "Continue", exact: true }).click();
+  await expect(reading.locator("summary")).toContainText("historical capture");
+  await expect(reading).toContainText('"value":"6"');
+});

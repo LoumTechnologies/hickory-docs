@@ -58,7 +58,7 @@ export function createBrowserDebugger(options: BrowserDebuggerOptions) {
     const previous = session;
     if (previous) emit({ event: "ended", session: previous });
     session = null;
-    void Promise.all([loadHickLang(), loadRunner()]).then(([, url]) => {
+    void Promise.all([loadHickLang(), loadRunner(), crypto.subtle.digest("SHA-256", new TextEncoder().encode(frozen.source))]).then(([, url, digest]) => {
       if (disposed || current !== generation) return;
       const files = materializeLiteralFiles(frozen.source);
       const file = request.program ? files.find((f) => f.path === request.program) : files.find((f) => /\.(js|ts)$/.test(f.path));
@@ -66,7 +66,7 @@ export function createBrowserDebugger(options: BrowserDebuggerOptions) {
       session = `browser-${crypto.randomUUID()}`;
       options.onRevision?.(frozen.revision);
       let started = false;
-      const startRequest = { ...request, session, input: { ...frozen, file } };
+      const startRequest = { ...request, session, input: { ...frozen, file, observationRevision: [...new Uint8Array(digest)].map(b => b.toString(16).padStart(2, "0")).join("") } };
       function launch(url: string, fallback: boolean) {
         worker = new Worker(url, import.meta.env.DEV ? { type: "module" } : undefined);
         worker.onmessage = (message: MessageEvent<BrowserEvent>) => {

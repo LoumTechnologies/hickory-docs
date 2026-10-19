@@ -26,6 +26,8 @@ use tokio::sync::Mutex;
 
 #[path = "debug_profiles.rs"]
 mod profiles;
+#[path = "debug_reading.rs"]
+mod reading;
 pub(crate) use profiles::safe_cwd;
 pub use profiles::{LaunchContext, ProfileSelection};
 
@@ -34,6 +36,12 @@ pub const IDLE_TIMEOUT: Duration = Duration::from_secs(15 * 60);
 
 /// A started session, plus what a caller needs to keep talking to it.
 pub struct Live {
+    pub source_aliases: Vec<String>,
+    pub operation: Mutex<()>,
+    pub stop_generation: Mutex<u64>,
+    pub stopped: Mutex<Option<hick_dap::Stopped>>,
+    pub observations: Mutex<hick_observe::Run>,
+    pub reading: Mutex<Option<hick_observe::reading::Reading>>,
     pub session: Session,
     /// The scratch directory a DOCUMENT's debuggee runs in. Deleted with
     /// the session. `None` for a plain file, which runs in its own project —
@@ -324,7 +332,35 @@ impl Registry {
         statuses: Vec<BreakpointStatus>,
     ) -> (String, Arc<Live>, Vec<BreakpointStatus>) {
         let id = format!("dbg-{}", self.next_id.fetch_add(1, Ordering::SeqCst));
+        let observations = hick_observe::Run::new(
+            session.observation_source.clone().into_iter().collect(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis() as u64,
+        );
+        let source_aliases = session
+            .observation_source
+            .as_ref()
+            .and_then(|source| {
+                let root = self.host_root.as_ref()?;
+                let path = Path::new(&source.uri).canonicalize().ok()?;
+                let root = root.canonicalize().ok()?;
+                let relative = path
+                    .strip_prefix(root)
+                    .ok()?
+                    .to_string_lossy()
+                    .replace('\\', "/");
+                Some(vec![relative.clone(), format!("hick:///{relative}")])
+            })
+            .unwrap_or_default();
         let live = Arc::new(Live {
+            source_aliases,
+            operation: Mutex::new(()),
+            stop_generation: Mutex::new(1),
+            stopped: Mutex::new(None),
+            observations: Mutex::new(observations),
+            reading: Mutex::new(None),
             session,
             scratch,
             thread_id: Mutex::new(None),

@@ -83,3 +83,32 @@ describe("browser interpreter", () => {
     expect(events.at(-1)).toMatchObject({ event: "finished", exit_code: 1 });
   });
 });
+
+// Guarantee: docs/guarantees/debugging/source-anchored-observation-reading.md
+it("captures real recursive frame scopes without turning source markers into annotations", () => {
+  const source = '<hick:file path="main.js">\n// BREAKPOINT HERE\nfunction recurse(n) {\n  if (n > 0) return recurse(n - 1);\n  return n;\n}\nvar result = recurse(2);\n</hick:file>\n';
+  const events: BrowserEvent[] = [];
+  const run = new BrowserRun({ source, revision: "1", observationRevision: "captured-digest", file: materializeLiteralFiles(source)[0] }, "recursive", "demo.md", [{ line: 4 }], e => events.push(e));
+  while (run.pump()) { /* bounded fixture */ }
+  const reading = events.find(e => e.event === "reading");
+  expect(reading?.event).toBe("reading");
+  if (reading?.event !== "reading") throw Error("missing reading");
+  expect(new TextDecoder().decode(new Uint8Array(reading.reading.source.bytes))).toBe(source);
+  const frames = reading.reading.annotations.filter(a => a.payload.kind === "frame");
+  expect(frames.length).toBeGreaterThan(2);
+  expect(new Set(frames.map(a => a.scope.frame)).size).toBe(frames.length);
+  expect(reading.reading.annotations.filter(a => a.payload.kind === "paused")).toHaveLength(1);
+  expect(reading.reading.unsupported).toContain("reverse execution");
+  run.evaluate("n + 1");
+  const next = events.filter(e => e.event === "reading").at(-1);
+  if (next?.event !== "reading") throw Error("missing expression receipt");
+  expect(next.reading.annotations.at(-1)).toMatchObject({ scope: { stop: reading.reading.scope.stop, frame: 1 }, payload: { kind: "expression", expression: "n + 1", value: "1" } });
+  run.report("frame", 2);
+  const callerReading = events.filter(e => e.event === "reading").at(-1);
+  if (callerReading?.event !== "reading") throw Error("missing caller reading");
+  expect(callerReading.reading.scope).toMatchObject({ stop: reading.reading.scope.stop, frame: 2 });
+  expect(callerReading.reading.annotations.find(a => a.payload.kind === "expression")?.scope.frame).toBe(1);
+  expect(callerReading.reading.annotations.find(a => a.payload.kind === "paused")?.scope.frame).toBe(1);
+  expect(() => run.step("back")).toThrow();
+  expect(() => run.evaluate("recurse(3)")).toThrow();
+});

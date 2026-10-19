@@ -1,3 +1,4 @@
+import { ObservationReading } from "./ObservationReading";
 import { MoreActions } from "../components/MoreActions";
 // The debugger's chrome, dissolved into the block it debugs.
 //
@@ -153,6 +154,8 @@ function IconButton({
 }
 
 export interface DebugStripProps {
+  readingChanged?: boolean;
+  reading?: import("./observations").ObservationReading | null;
   locationActions?: ReactNode;
   editorView?: EditorView | null;
   /** Zero-based line in the displayed editor. */
@@ -437,6 +440,7 @@ export function DebugStrip(props: DebugStripProps) {
     </div>
   );
   return <>
+    {props.reading && <ObservationReading reading={props.reading} changed={props.readingChanged} historical={props.status !== "paused" || props.selectedFrame !== props.reading.scope.frame} />}
     {props.editorView ? <DebugGutterControls view={props.editorView} line={props.pausedLine} program={props.program}>{controls}</DebugGutterControls> : <PaneHeaderContent part="actions">{controls}</PaneHeaderContent>}
     {showBuild && (
       <div className="debug-build" data-testid="debug-build">

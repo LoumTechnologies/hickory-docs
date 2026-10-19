@@ -84,7 +84,9 @@ impl LaunchContext {
     fn mapping(&self, root: &Path) -> Result<Mapping> {
         match &self.identity {
             Identity::Captured(id) => Mapping::captured(&self.tree, root, id, &self.viewed),
-            Identity::Document(path, state, _) => Mapping::for_state(path, state, root),
+            Identity::Document(path, state, raw_source) => {
+                Ok(Mapping::for_state(path, state, root)?.with_observation_source(raw_source))
+            }
             Identity::Plain(path) => Ok(Mapping::identity(path)),
         }
     }

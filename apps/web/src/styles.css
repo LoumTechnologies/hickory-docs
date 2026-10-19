@@ -9002,3 +9002,17 @@ button.status-bar__item:hover { background: var(--bg-sunken); color: var(--fg); 
 .notebook-table th { position: sticky; top: 0; background: var(--bg); }
 .notebook-table th small { display: block; opacity: .65; font-weight: normal; }
 .notebook-outputs img, .cell-figure img { max-width: 100%; }
+
+.debug-observations {
+  margin: .5rem;
+  padding: .5rem;
+  border: 1px solid var(--border, #8886);
+  border-radius: .25rem;
+  overflow: auto;
+  max-height: 24rem;
+}
+.debug-observations summary { cursor: pointer; }
+.debug-observations [data-location] { margin-block: .5rem; }
+.debug-observations [data-evidence] { padding-inline-start: 1rem; }
+.debug-observations code { white-space: pre-wrap; overflow-wrap: anywhere; }
+.debug-observations small { opacity: .7; }

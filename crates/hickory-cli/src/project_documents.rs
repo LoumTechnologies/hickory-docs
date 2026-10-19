@@ -113,7 +113,8 @@ pub(crate) fn debug_state_at(
         "Selected Old project is empty; no executable input exists."
     );
     let files = hick_lsp::write_tree(scratch, tree).map_err(anyhow::Error::msg)?;
-    let mapping = hick_dap::Mapping::for_state(document, &state, scratch)?;
+    let mapping =
+        hick_dap::Mapping::for_state(document, &state, scratch)?.with_observation_source(source);
     let target = match endpoint {
         hick_lsp::ProjectEndpoint::LatestFile { .. }
         | hick_lsp::ProjectEndpoint::LatestCode { .. } => {

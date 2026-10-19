@@ -74,3 +74,11 @@ Last LLM verification:
   `cargo clippy -p hick-observe --all-targets -- -D warnings` passed;
   `git diff --check` passed. Broad regression checks left to the user.
 - Human judgment: not recorded.
+
+Follow-up implementation review (2026-10-18, GitHub #64): `src/reading.rs` adds
+source-adjacent debugger readings and generic provider-envelope projection over
+these same `Run` records. The earlier `src/lib.rs` hash above is historical after
+its module export changed. Store semantics are unchanged by this follow-up;
+`debugging/source-anchored-observation-reading.md` records the new behavior and
+its separate verification limits. Live debugger collection does not automatically
+archive or browse historical runs.

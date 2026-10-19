@@ -6,6 +6,7 @@ use std::{
 
 /// Document <-> generated-file coordinates for the files a cell can stop in.
 pub struct Mapping {
+    observation_source: Option<Vec<u8>>,
     /// Generated file path (as the adapter sees it) -> the document's mapping.
     files: HashMap<PathBuf, hick_lsp::position_map::PositionMap>,
     /// The document's own path, for naming.
@@ -39,6 +40,10 @@ impl Mapping {
             })
             .collect();
         Ok(Self {
+            observation_source: tree
+                .entries()
+                .get(program)
+                .map(|entry| entry.bytes.to_vec()),
             files,
             document: PathBuf::from(format!("hick-project:///{id}/{program}")),
             plain: false,
@@ -54,11 +59,27 @@ impl Mapping {
     /// line in both directions, and no line is outside the file.
     pub fn identity(file: &Path) -> Self {
         Self {
+            observation_source: std::fs::read(file).ok(),
             files: HashMap::new(),
             document: file.to_path_buf(),
             plain: true,
             captured: None,
         }
+    }
+
+    pub fn with_observation_source(mut self, source: &str) -> Self {
+        self.observation_source = Some(source.as_bytes().to_vec());
+        self
+    }
+
+    pub fn observation_source(&self) -> Option<hick_observe::Source> {
+        self.observation_source.clone().map(|bytes| {
+            hick_observe::Source::capture(
+                "document".into(),
+                self.document.to_string_lossy().into_owned(),
+                bytes,
+            )
+        })
     }
 
     /// Whether this maps a plain file to itself.
@@ -71,7 +92,7 @@ impl Mapping {
     pub fn for_document(document: &Path, source: &str, workdir: &Path) -> Result<Self> {
         let state = hick_lsp::document::HickDocumentState::from_source(source)
             .map_err(|e| anyhow::anyhow!("{e}"))?;
-        Self::for_state(document, &state, workdir)
+        Ok(Self::for_state(document, &state, workdir)?.with_observation_source(source))
     }
 
     /// Map only surviving bytes from the selected complete project state.
@@ -82,6 +103,7 @@ impl Mapping {
     ) -> Result<Self> {
         let files = crate::project::document_maps(state, workdir);
         Ok(Self {
+            observation_source: Some(state.doc.source.as_bytes().to_vec()),
             files,
             document: document.to_path_buf(),
             plain: false,
@@ -207,5 +229,25 @@ pub(crate) fn same_file(a: &Path, b: &Path) -> bool {
     match (a.canonicalize(), b.canonicalize()) {
         (Ok(a), Ok(b)) => a == b,
         _ => false,
+    }
+}
+
+#[cfg(test)]
+mod observation_tests {
+    use super::*;
+    // Guarantee: docs/guarantees/debugging/source-anchored-observation-reading.md
+    #[test]
+    fn literate_fragments_keep_original_bytes_after_disk_edits() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("demo.md");
+        let source = "\u{feff}# 🦀\n<hick:file path=\"app.py\">\nvalue = 1\n</hick:file>\n\n<hick:file path=\"app.py\">\nvalue += 2\n</hick:file>\n";
+        std::fs::write(&path, source).unwrap();
+        let mapping = Mapping::for_document(&path, source, dir.path()).unwrap();
+        let captured = mapping.observation_source().unwrap();
+        std::fs::write(&path, "edited").unwrap();
+        assert_eq!(captured.bytes, source.as_bytes());
+        let (generated, line) = mapping.to_generated(6).unwrap();
+        assert_eq!(mapping.to_document(&generated, line), Some(6));
+        assert_eq!(mapping.observation_source().unwrap(), captured);
     }
 }

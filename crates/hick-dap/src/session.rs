@@ -290,6 +290,7 @@ impl Step {
 
 /// One cell, being debugged.
 pub struct Session {
+    pub observation_source: Option<hick_observe::Source>,
     /// The breakpoint statuses as they stand, promoted in place by the
     /// `breakpoint` event. A plain `std` mutex because the event pump is not
     /// async and only ever swaps a small vector.
@@ -592,7 +593,9 @@ impl Session {
         });
 
         let is_supervisor = launch.multi_session && parent.is_none();
+        let observation_source = mapping.observation_source();
         let session = Self {
+            observation_source,
             parent,
             adapter,
             capabilities,

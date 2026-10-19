@@ -34,6 +34,13 @@ pub enum Request {
         source: String,
         breakpoints: Vec<Breakpoint>,
     },
+    /// Revision/stop-bound action; conveys no evaluation permission.
+    Located {
+        session: String,
+        location: String,
+        scope: hick_observe::reading::Scope,
+        how: LocatedAction,
+    },
     /// Where are we, and what is in scope.
     State {
         session: String,
@@ -91,6 +98,33 @@ pub enum Request {
     },
 }
 
+impl Request {
+    pub fn session_id(&self) -> Option<&str> {
+        match self {
+            Self::Start { .. } => None,
+            Self::Located { session, .. }
+            | Self::Breakpoints { session, .. }
+            | Self::SourceBreakpoints { session, .. }
+            | Self::State { session }
+            | Self::Eval { session, .. }
+            | Self::Step { session, .. }
+            | Self::Jump { session, .. }
+            | Self::RunTo { session, .. }
+            | Self::Children { session, .. }
+            | Self::SetExceptionBreakpoints { session, .. }
+            | Self::SetVariable { session, .. }
+            | Self::Stop { session } => Some(session),
+        }
+    }
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum LocatedAction {
+    RunTo,
+    Jump,
+}
+
 fn repl() -> String {
     "repl".to_string()
 }
@@ -99,6 +133,10 @@ fn repl() -> String {
 #[derive(Debug, Serialize)]
 #[serde(tag = "event", rename_all = "snake_case")]
 pub enum Response {
+    Reading {
+        session: String,
+        reading: hick_observe::reading::Reading,
+    },
     Started {
         session: String,
         /// The document (or plain file) this session runs, exactly as the
@@ -112,6 +150,7 @@ pub enum Response {
     /// Where execution is now — the paused line the gutter marks, and the
     /// values the editor shows inline.
     Stopped {
+        observation_scope: Option<hick_observe::reading::Scope>,
         session: String,
         reason: String,
         frames: Vec<hick_dap::Frame>,

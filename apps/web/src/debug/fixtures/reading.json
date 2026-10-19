@@ -1,0 +1,86 @@
+{
+  "schema_version": 1,
+  "source": {
+    "id": "doc",
+    "uri": "/project/demo.md",
+    "revision": "b7ed1fff0d323bb3159a0856927cd9019b99b1008fb13f9d27d52f7dbe10ddda",
+    "bytes": [
+      66,
+      82,
+      69,
+      65,
+      75,
+      80,
+      79,
+      73,
+      78,
+      84,
+      32,
+      72,
+      69,
+      82,
+      69,
+      10,
+      118,
+      97,
+      108,
+      117,
+      101,
+      32,
+      43,
+      61,
+      32,
+      49,
+      59,
+      10
+    ]
+  },
+  "scope": {
+    "run": "fixture-run",
+    "stop": "fixture-stop",
+    "frame": 7,
+    "invocation": null,
+    "session": "fixture-session"
+  },
+  "locations": [
+    {
+      "id": "opaque-L",
+      "revision": "b7ed1fff0d323bb3159a0856927cd9019b99b1008fb13f9d27d52f7dbe10ddda",
+      "line": 1,
+      "location": {
+        "source": "doc",
+        "block": null,
+        "bytes": {
+          "start": 16,
+          "end": 27
+        },
+        "precision": "adapter_reported"
+      }
+    }
+  ],
+  "annotations": [
+    {
+      "evidence": "opaque-E",
+      "provider": "dap",
+      "payload_schema": "hick.debug-annotation.v1",
+      "location": "opaque-L",
+      "scope": {
+        "run": "fixture-run",
+        "stop": "fixture-stop",
+        "frame": 7,
+        "invocation": null,
+        "session": "fixture-session"
+      },
+      "payload": {
+        "kind": "paused",
+        "reason": "breakpoint"
+      }
+    }
+  ],
+  "unsupported": [
+    "reverse execution"
+  ],
+  "source_aliases": [
+    "demo.md"
+  ]
+}

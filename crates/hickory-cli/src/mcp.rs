@@ -164,6 +164,7 @@ impl Server {
                     .map_err(fail)?;
                 if let Some(stopped) = &stopped {
                     *live.thread_id.lock().await = Some(stopped.thread_id);
+                    *live.stopped.lock().await = Some(stopped.clone());
                 }
 
                 let caps = live.session.capabilities();
@@ -218,11 +219,27 @@ impl Server {
                         )
                     }
                 });
+                if let Some(stopped) = &stopped {
+                    let stack = live.session.stack(stopped.thread_id).await.map_err(fail)?;
+                    let frame = stack.first().map(|f| f.id);
+                    let variables = match frame {
+                        Some(frame) => live.session.variables(frame).await.map_err(fail)?,
+                        None => vec![],
+                    };
+                    if let Some(reading) = live
+                        .capture_reading(&id, &stopped.reason, &stack, &variables, frame)
+                        .await
+                        .map_err(fail)?
+                    {
+                        out.push_str(&reading.agent_projection().to_string());
+                    }
+                }
                 Ok(out)
             }
 
             "debug_state" => {
                 let live = self.debuggers.get(&session_id()?).await.map_err(fail)?;
+                let _operation = live.operation.lock().await;
                 let thread = live
                     .thread_id
                     .lock()
@@ -235,35 +252,23 @@ impl Server {
                     .or_else(|| stack.first().map(|f| f.id))
                     .ok_or_else(|| "no frames — the program is not stopped".to_string())?;
 
-                let mut out = String::from("stack (document lines):\n");
-                for frame in &stack {
-                    out.push_str(&match frame.line {
-                        Some(line) => format!("  #{} {} at line {}\n", frame.id, frame.name, line),
-                        None => format!(
-                            "  #{} {} (outside the document: {})\n",
-                            frame.id,
-                            frame.name,
-                            frame.source.as_deref().unwrap_or("unknown")
-                        ),
-                    });
+                let variables = live.session.variables(frame_id).await.map_err(fail)?;
+                let reading = live
+                    .capture_reading(&session_id()?, "state", &stack, &variables, Some(frame_id))
+                    .await
+                    .map_err(fail)?;
+                match reading {
+                    Some(reading) => serde_json::to_string(&reading.agent_projection())
+                        .map_err(|e| fail(e.into())),
+                    None => {
+                        Err("captured source unavailable; source attribution unsupported".into())
+                    }
                 }
-                out.push_str(&format!("\nvariables in frame #{frame_id}:\n"));
-                for variable in live.session.variables(frame_id).await.map_err(fail)? {
-                    out.push_str(&format!(
-                        "  {} = {}{}\n",
-                        variable.name,
-                        variable.value,
-                        variable
-                            .type_name
-                            .map(|t| format!("  ({t})"))
-                            .unwrap_or_default()
-                    ));
-                }
-                Ok(out)
             }
 
             "debug_eval" => {
                 let live = self.debuggers.get(&session_id()?).await.map_err(fail)?;
+                let _operation = live.operation.lock().await;
                 let expression = args
                     .get("expression")
                     .and_then(Value::as_str)
@@ -288,21 +293,50 @@ impl Server {
                     .evaluate(expression, frame, "repl")
                     .await
                     .map_err(fail)?;
-                Ok(match value.type_name {
-                    Some(type_name) => format!("{} = {}  ({type_name})", value.name, value.value),
-                    None => format!("{} = {}", value.name, value.value),
-                })
+                if let Some(reading) = live
+                    .record_expression(expression, &value.value, frame)
+                    .await
+                    .map_err(fail)?
+                {
+                    Ok(reading.agent_projection().to_string())
+                } else {
+                    Ok(format!(
+                        "{} = {} (source/stop attribution unavailable)",
+                        value.name, value.value
+                    ))
+                }
             }
 
             "debug_step" => {
                 let live = self.debuggers.get(&session_id()?).await.map_err(fail)?;
+                let _operation = live.operation.lock().await;
+                let resolved = match (
+                    args.get("location").and_then(Value::as_str),
+                    args.get("scope"),
+                ) {
+                    (Some(location), Some(scope)) => Some(
+                        live.resolve_location(
+                            location,
+                            &serde_json::from_value(scope.clone()).map_err(|e| fail(e.into()))?,
+                        )
+                        .await
+                        .map_err(fail)?,
+                    ),
+                    (None, None) => None,
+                    _ => return Err("location and scope must be supplied together".into()),
+                };
+                *live.reading.lock().await = None;
+                *live.stop_generation.lock().await += 1;
                 let how = args.get("how").and_then(Value::as_str).unwrap_or("over");
                 if how == "jump" {
-                    let line = args.get("line").and_then(Value::as_u64).ok_or_else(|| {
-                        "jumping needs a `line` — the document line to move to, which must \
+                    let line = resolved
+                        .map(u64::from)
+                        .or_else(|| args.get("line").and_then(Value::as_u64))
+                        .ok_or_else(|| {
+                            "jumping needs a `line` — the document line to move to, which must \
                              be in the function you are stopped in"
-                            .to_string()
-                    })? as u32;
+                                .to_string()
+                        })? as u32;
                     let thread = live
                         .thread_id
                         .lock()
@@ -316,6 +350,7 @@ impl Server {
                         .map_err(fail)?;
                     if let Some(stopped) = &stopped {
                         *live.thread_id.lock().await = Some(stopped.thread_id);
+                        *live.stopped.lock().await = Some(stopped.clone());
                     }
                     let stack = live.session.stack(thread).await.map_err(fail)?;
                     return Ok(match stack.first().and_then(|f| f.line) {
@@ -361,6 +396,7 @@ impl Server {
                 {
                     Some(stopped) => {
                         *live.thread_id.lock().await = Some(stopped.thread_id);
+                        *live.stopped.lock().await = Some(stopped.clone());
                         let stack = live.session.stack(stopped.thread_id).await.map_err(fail)?;
                         let top = stack.first();
                         Ok(match top.and_then(|f| f.line) {

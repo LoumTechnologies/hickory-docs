@@ -1,3 +1,4 @@
+import type { ObservationReading, ObservationAnnotation } from "../observations";
 import Interpreter from "js-interpreter";
 import type { IState, IScope, INode } from "js-interpreter";
 import type { DebugBreakpoint, DebugEvent, Frame, Step } from "../client";
@@ -5,7 +6,7 @@ import { compileProgram } from "./compile";
 import type { LiteralFile } from "../../editor/hickLang";
 import { Inspector, preview } from "./inspect";
 
-export interface BrowserInput { source: string; revision: string; file: LiteralFile; }
+export interface BrowserInput { observationRevision?: string; source: string; revision: string; file: LiteralFile; }
 export type BrowserEvent = DebugEvent | { event: "output"; session: string; text: string; category: "stdout" | "stderr" };
 export const BROWSER_CAPABILITIES = {
   frame_locals: true,
@@ -19,6 +20,9 @@ const statements = new Set(["VariableDeclaration", "ExpressionStatement", "Retur
 
 /** Real interpreter state, not a trace or evaluator of the demonstration. */
 export class BrowserRun {
+  private reading: ObservationReading | null = null;
+  private evidence = 0;
+  private stopSequence = 0;
   private interpreter: Interpreter;
   private program: ReturnType<typeof compileProgram>;
   private inspector = new Inspector();
@@ -138,15 +142,64 @@ export class BrowserRun {
       if (call) { scope = call.scope; line = this.program.lineAt(call.node.start); }
     }
     const selectedScope = this.frameScopes.get(selected ?? 1) ?? top.scope;
-    this.emit({ event: "stopped", session: this.session, reason, frames,
+    const variables = this.inspector.locals(selectedScope, this.builtins);
+    this.captureReading(reason, frames, variables.map(v => [v.name, v.value]), selected ?? 1);
+    this.emit({ event: "stopped", observation_scope: this.reading?.scope, session: this.session, reason, frames,
       selected_frame: selected ?? 1,
-      variables: this.inspector.locals(selectedScope, this.builtins), line: frames.find((f) => f.id === selected)?.line ?? frames[0].line });
+      variables, line: frames.find((f) => f.id === selected)?.line ?? frames[0].line });
+  }
+  private addAnnotation(line: number | null, frame: number | null, payload: ObservationAnnotation["payload"]) {
+    const reading = this.reading;
+    if (!reading) return;
+    let location: string | null = null;
+    if (line !== null) {
+      location = `${reading.source.revision}:L${line}`;
+      if (!reading.locations.some(l => l.id === location)) {
+        const lines = this.input.source.split("\n");
+        const start = new TextEncoder().encode(lines.slice(0, line).map(l => l + "\n").join("")).length;
+        reading.locations.push({ id: location, revision: reading.source.revision, line, location: {
+          source: "document", bytes: { start, end: start + new TextEncoder().encode(lines[line] ?? "").length }, precision: "exact" } });
+      }
+    }
+    reading.annotations.push({ evidence: `${this.session}:E${this.evidence++}`, provider: "browser-interpreter", payload_schema: "hick.debug-annotation.v1",
+      location, scope: { ...reading.scope, frame }, payload });
+  }
+  private captureReading(reason: string, frames: Frame[], values: string[][], selected: number) {
+    if (!this.input.observationRevision) return; // Older direct hosts explicitly lack captured evidence.
+    const previous = this.reading;
+    const stop = reason === "frame" && previous ? previous.scope.stop : `${this.session}:S${++this.stopSequence}`;
+    this.reading = { schema_version: 1, source: { id: "document", uri: this.doc, revision: this.input.observationRevision, bytes: [...new TextEncoder().encode(this.input.source)] },
+      scope: { session: this.session, run: this.session, stop, frame: selected, invocation: null }, locations: [], annotations: [],
+      unsupported: ["invocation identity", "reverse execution", "restart frame", "side-effectful evaluation"] };
+    this.bind().forEach((bp, i) => {
+      const breakpoint = `${this.session}:B${i}`;
+      this.addAnnotation(bp.line, null, { kind: "breakpoint_requested", breakpoint, state: bp.state });
+      if (bp.state === "bound") this.addAnnotation(bp.line, null, { kind: "breakpoint_bound", breakpoint });
+    });
+    frames.forEach((f, depth) => this.addAnnotation(f.line, f.id, { kind: "frame", name: f.name, depth }));
+    // Selected caller values must never move the actual paused statement.
+    this.addAnnotation(frames[0]?.line ?? null, frames[0]?.id ?? null, { kind: "paused", reason });
+    this.addAnnotation(frames.find(f => f.id === selected)?.line ?? null, selected, { kind: "values", values });
+    if (previous?.scope.stop === stop) {
+      for (const annotation of previous.annotations.filter(a => a.payload.kind === "expression")) {
+        const location = previous.locations.find(l => l.id === annotation.location);
+        if (location && !this.reading.locations.some(l => l.id === location.id)) this.reading.locations.push(location);
+        this.reading.annotations.push(annotation);
+      }
+    }
+    this.emit({ event: "reading", session: this.session, reading: structuredClone(this.reading) });
   }
   evaluate(expression: string, frame?: number) {
     if (!this.paused) throw new Error("Watch expressions require a paused session");
     const scope = this.frameScopes.get(frame ?? 1);
     if (!scope) throw new Error("Unknown frame");
     const variable = this.inspector.variable(expression, this.inspector.evaluate(expression, scope));
+    if (this.reading && this.reading.scope.frame === (frame ?? 1)) {
+      const frameLocation = this.reading.annotations.find(a => a.payload.kind === "frame" && a.scope.frame === (frame ?? 1))?.location;
+      const line = this.reading.locations.find(l => l.id === frameLocation)?.line ?? null;
+      this.addAnnotation(line, frame ?? 1, { kind: "expression", expression, value: variable.value, receipt: `${this.session}:evaluation:${this.evidence}` });
+      this.emit({ event: "reading", session: this.session, reading: structuredClone(this.reading) });
+    }
     this.emit({ event: "value", session: this.session, expression, value: variable.value, type: variable.type ?? null, reference: variable.variables_reference });
   }
   children(reference: number) {

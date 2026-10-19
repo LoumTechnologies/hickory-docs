@@ -1096,3 +1096,23 @@ pub async fn probe(python: &Path) -> Result<()> {
     );
     Ok(())
 }
+
+#[cfg(test)]
+mod observation_capability_tests {
+    // Guarantee: docs/guarantees/debugging/source-anchored-observation-reading.md
+    #[test]
+    fn receiving_debugger_evidence_does_not_grant_python_debugger_capabilities() {
+        for name in [
+            "debug_start",
+            "debug_state",
+            "debug_eval",
+            "debug_step",
+            "located",
+        ] {
+            assert!(
+                !super::allowed(name),
+                "reading evidence must not authorize {name}"
+            );
+        }
+    }
+}
