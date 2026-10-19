@@ -1,3 +1,4 @@
+import { ProfileEvidence } from "./ProfileEvidence";
 import { RuntimeLog } from "./RuntimeLogView";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { EditorView } from "@codemirror/view";
@@ -84,6 +85,7 @@ export function RuntimeHistory({ runs, source, view, onPin, onDelete }: {
     <details><summary>Selected occurrence output · {invocation || "all invocations"}</summary>
       <pre tabIndex={0} style={{ maxHeight: "18rem", overflow: "auto" }}>{runtimeText(run, invocation)}</pre>
     </details>
+    <ProfileEvidence run={run} view={view} stale={stale} />
     <RuntimeLog key={run.id} run={invocation ? { ...run, events: run.events.filter(event => (event.invocation ?? "unknown") === invocation) } : run} />
     {reading && <ObservationReading key={`${run.id}:${invocation}`} reading={reading} historical={run.id !== latest?.id || run.status !== "running"} changed={stale} />}
     <label>Compare retained run <select value={comparison} onChange={event => setComparison(event.target.value)}>
@@ -98,6 +100,7 @@ export function RuntimeHistory({ runs, source, view, onPin, onDelete }: {
 export function NativeRuntimeHistory({ source, view, path }: { path?: string; source?: string; view?: EditorView | null }) {
   const [running, setRunning] = useState(false);
   const [program, setProgram] = useState("");
+  const [profile, setProfile] = useState(false);
   const [shown, setShown] = useState(false);
   const [runs, setRuns] = useState<RuntimeRun[]>([]);
   const [error, setError] = useState("");
@@ -109,7 +112,8 @@ export function NativeRuntimeHistory({ source, view, path }: { path?: string; so
   useEffect(() => { if (!shown) return; void load().catch(e => setError(String(e))); const timer = setInterval(() => void load().catch(e => setError(String(e))), 2000); return () => clearInterval(timer); }, [shown]);
   return <details onToggle={event => setShown(event.currentTarget.open)}><summary>Runtime observations</summary>{shown && path && <div>
     <label>Generated Python entry point (literate documents)<input value={program} onChange={event => setProgram(event.target.value)} /></label>
-    <button disabled={running} onClick={async () => { setRunning(true); setError(""); try { await request("POST", "/api/runtime/python", { document: path, program, seconds: 10 }); await load(); } catch (error) { setError(String(error)); } finally { setRunning(false); } }}>Run saved Python confined</button>
+    <label><input type="checkbox" checked={profile} onChange={event => setProfile(event.target.checked)} />Profile main-thread functions with cProfile (trace hooks disabled)</label>
+    <button disabled={running} onClick={async () => { setRunning(true); setError(""); try { await request("POST", "/api/runtime/python", { document: path, program, seconds: 10, profile }); await load(); } catch (error) { setError(String(error)); } finally { setRunning(false); } }}>Run saved Python confined</button>
     <p>{running ? "Capturing for at most 10 seconds; hiding this panel does not cancel execution." : "Executes saved application code in the cell sandbox, without network. Unsaved edits are not executed. Descriptor/native writes and catching sites are unsupported."}</p>
   </div>}{shown && <RuntimeHistory runs={path ? runs.filter(run => run.sources.some(item => item.uri.replace(/^hick:\/\/\//, "") === path)) : runs} source={source} view={view}
     onPin={async run => { await request("PATCH", `/api/runtime/runs/${encodeURIComponent(run.id)}`, { pinned: !run.pinned }); await load(); }}

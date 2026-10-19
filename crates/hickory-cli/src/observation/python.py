@@ -1,7 +1,7 @@
 """Reviewed CPython hooks, run only inside the existing cell sandbox.
 Not a security/attestation boundary against code modifying its interpreter.
 """
-import sys, os, json, time, threading, asyncio, traceback, runpy, builtins
+import sys, os, json, time, threading, asyncio, traceback, runpy, builtins, cProfile, pstats, platform
 ROOT = os.getcwd()
 OUT = open("observations.jsonl", "w", encoding="utf-8")
 LOCK = threading.RLock()
@@ -25,10 +25,10 @@ def task_id():
         return str(id(task)) if task else None
     except RuntimeError: return None
 
-def emit(payload, frame=None, category=None):
+def emit(payload, frame=None, category=None, at_location=None):
     global count
     with LOCK:
-        if count >= LIMIT: return
+        if OUT.closed or count >= LIMIT: return
         count += 1
         callers = []
         at = frame.f_back if frame else None
@@ -36,7 +36,7 @@ def emit(payload, frame=None, category=None):
             loc = location(at)
             if loc: callers.append(loc)
             at = at.f_back
-        OUT.write(json.dumps({"payload": payload, "location": location(frame), "callers": callers,
+        OUT.write(json.dumps({"payload": payload, "location": at_location or location(frame), "callers": callers,
             "invocation": frames.get(id(frame)), "parent_invocation": frames.get(id(frame.f_back)) if frame else None, "thread": str(threading.get_ident()), "task": task_id(),
             "time": time.monotonic() - started}) + "\n")
         OUT.flush()
@@ -58,6 +58,7 @@ class Stream:
         emit({"kind": "output", "stream": self.name, "category": "print" if getattr(printing, "frame", None) else "write", "bytes": list(text.encode("utf-8"))}, getattr(printing, "frame", None) or sys._getframe(1))
         return len(text)
     def flush(self):
+        if OUT.closed: return
         emit({"kind": "output", "stream": self.name, "category": "flush", "bytes": []}, getattr(printing, "frame", None) or sys._getframe(1))
     def isatty(self): return False
     def writable(self): return True
@@ -85,8 +86,13 @@ def observed_print(*args, **kwargs):
     finally: printing.frame = previous
 builtins.print = observed_print
 sys.stdout, sys.stderr = Stream("stdout"), Stream("stderr")
-sys.settrace(trace)
-threading.settrace(trace)
+profiling = "--profile" in sys.argv[2:]
+profiler = cProfile.Profile() if profiling else None
+if not profiling and "--control" not in sys.argv[2:]:
+    sys.settrace(trace)
+    threading.settrace(trace)
+profile_started = time.monotonic() - started
+if profiler: profiler.enable()
 status = "completed"
 try:
     runpy.run_path(sys.argv[1], run_name="__main__")
@@ -96,9 +102,21 @@ except BaseException as error:
     while tb and tb.tb_next: tb = tb.tb_next
     emit({"kind": "exception", "type_name": type(error).__name__, "message": str(error), "handling": "unhandled"}, tb.tb_frame if tb else None)
 finally:
+    if profiler:
+        profiler.disable()
+        profile_ended = time.monotonic() - started
+        stats = pstats.Stats(profiler)
+        for (file, line, name), (primitive, total, self_time, cumulative, callers) in stats.stats.items():
+            function = {"name": name, "file": file, "line": max(0, line-1), "primitive_calls": primitive, "total_calls": total}
+            for metric, value in (("self_seconds", self_time), ("cumulative_seconds", cumulative)):
+                emit({"kind": "profile", "metric": metric, "value": value, "unit": "seconds",
+                    "interval": {"start": {"domain": "provider-monotonic", "unit": "seconds", "value": profile_started},
+                        "end": {"domain": "provider-monotonic", "unit": "seconds", "value": profile_ended}, "scope": "main-thread-profile"},
+                    "aggregation": "function aggregate across calls; cumulative costs overlap and must not be summed", "samples": None, "function": function},
+                    at_location={"file": os.path.abspath(file) if not file.startswith(("<", "~")) else file, "line": max(0, line-1)})
     sys.settrace(None)
     threading.settrace(None)
     with LOCK:
         OUT.write(json.dumps({"terminal": status, "truncated": count >= LIMIT, "elapsed": time.monotonic() - started,
-            "python": sys.version, "coverage": "Python text write/flush and trace throwing/unhandled; descriptor/native writes and catching sites unsupported; instrumentation is not tamper-resistant"}) + "\n")
+            "python": sys.version, "provider_version": platform.python_version(), "environment": platform.platform(), "profiling": profiling, "coverage": ("Main-thread cProfile aggregates and output hooks; trace throwing/catching hooks disabled; native function mappings unresolved" if profiling else "Python text write/flush and trace throwing/unhandled; descriptor/native writes and catching sites unsupported; instrumentation is not tamper-resistant")}) + "\n")
         OUT.close()

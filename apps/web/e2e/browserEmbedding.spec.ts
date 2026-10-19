@@ -547,3 +547,32 @@ test("execution logs preserve contributors, exact occurrence navigation and revi
   await expect(log.getByLabel("Captured execution log")).not.toContainText("new run");
   expect(unexpected).toEqual([]);
 });
+
+// Guarantee: docs/guarantees/execution/python-profile-keeps-function-semantics.md
+// Real native capture replay; Python execution is separately checked under confinement.
+test("captured Python profile shares function evidence with inline source and selected context", async ({ page }) => {
+  const unexpected = await noEngine(page); await page.goto("/embed.html?profile");
+  const record = JSON.parse(await readFile(resolve("src/debug/fixtures/python-profile.json"), "utf8"));
+  await page.getByLabel("Retained profile record").setInputFiles({ name: "profile.json", mimeType: "application/json", buffer: Buffer.from(JSON.stringify(record)) });
+  await expect(page.locator(".runtime-inline").first()).toBeVisible();
+  await page.getByRole("button", { name: "Inspect selected profile context" }).click();
+  await expect(page.getByLabel("Selected profile context")).toHaveText("[]");
+  const profile = page.getByRole("region", { name: "Function profile evidence" });
+  // section gets an accessible region from aria-label.
+  await profile.locator("summary").click();
+  await expect(profile).toContainText("subtotal"); await expect(profile).toContainText("500 / 500");
+  await expect(profile).toContainText("10 / 1"); await expect(profile).toContainText("Unresolved/native");
+  await page.getByRole("button", { name: "Inspect selected profile context" }).click();
+  const projected = JSON.parse((await page.getByLabel("Selected profile context").textContent())!);
+  const expected = record.events.filter((event: { observation: { kind: string } }) => event.observation.kind === "profile").map((event: { id: string }) => event.id);
+  expect(projected[0].evidence).toEqual(expected);
+  expect(projected[0].reading.provider_annotations.every((item: { provider_version: string }) => item.provider_version !== "unknown")).toBe(true);
+  const row = profile.locator("tr").filter({ has: page.getByRole("cell", { name: "subtotal", exact: true }) });
+  await row.getByRole("button", { name: /^Source/ }).click();
+  await expect(page.locator(".runtime-inline[open]").first()).toContainText("subtotal");
+  await expect(page.getByRole("table", { name: "Inline function profile" }).filter({ hasText: "subtotal" })).toBeVisible();
+  await page.getByRole("button", { name: "Edit after captured profile" }).click();
+  await expect(profile).toContainText("source changed"); await expect(row.getByRole("button", { name: /^Source/ })).toBeDisabled();
+  await expect(page.locator(".runtime-inline")).toHaveCount(0);
+  expect(unexpected).toEqual([]);
+});

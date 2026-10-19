@@ -160,6 +160,7 @@ fn typed_evidence_preserves_wrapper_caller_and_profile_scope() {
         },
         aggregation: "sum".into(),
         samples: Some(2),
+        function: None,
     };
     r.append(e, 4096).unwrap();
     let mut err = output("stderr", b"Traceback is just text");

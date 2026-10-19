@@ -386,6 +386,7 @@ mod tests {
                 },
                 aggregation: "sample estimate".into(),
                 samples: Some(2),
+                function: None,
             },
         ] {
             let bytes = serde_json::to_vec(&payload).unwrap();
@@ -449,6 +450,15 @@ impl Run {
     /// Adapt every existing provider record to the common envelope, without a second store.
     pub fn provider_annotations(&self) -> Result<Vec<ProviderAnnotation>> {
         self.validate()?;
+        let metadata = self
+            .detail
+            .as_deref()
+            .and_then(|detail| serde_json::from_str::<serde_json::Value>(detail).ok());
+        let version = metadata
+            .as_ref()
+            .and_then(|m| m.get("provider_version"))
+            .and_then(|v| v.as_str())
+            .unwrap_or("unknown");
         self.events
             .iter()
             .map(|event| {
@@ -503,7 +513,7 @@ impl Run {
                 Ok(ProviderAnnotation {
                     evidence: event.id.clone(),
                     provider: event.provider.clone(),
-                    provider_version: "unknown".into(),
+                    provider_version: version.into(),
                     payload_schema: schema.into(),
                     origin,
                     source_precision: event
@@ -513,7 +523,9 @@ impl Run {
                         .unwrap_or(Precision::Unknown),
                     location,
                     measurement_semantics: semantics,
-                    uncertainty: None,
+                    uncertainty: matches!(event.observation, Observation::Profile { .. }).then(
+                        || "Profiler overhead and timing variability are not estimated".into(),
+                    ),
                     payload: serde_json::to_value(&event.observation)?,
                 })
             })

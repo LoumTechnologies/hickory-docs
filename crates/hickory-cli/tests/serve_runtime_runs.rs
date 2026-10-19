@@ -104,13 +104,24 @@ async fn user_python_capture_is_retained_and_refuses_workspace_escape() {
     let client = reqwest::Client::new();
     let response = client
         .post(format!("{base}/api/runtime/python"))
-        .json(&json!({"document":"a.py"}))
+        .json(&json!({"document":"a.py","profile":true}))
         .send()
         .await
         .unwrap();
     assert_eq!(response.status(), 200);
     let result: Value = response.json().await.unwrap();
-    assert_eq!(result["run"]["status"], "completed");
+    assert_eq!(
+        result["run"]["status"], "completed",
+        "{}",
+        result["run"]["detail"]
+    );
+    assert!(
+        result["run"]["events"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|event| event["observation"]["kind"] == "profile")
+    );
     assert_eq!(result["run"]["sources"][0]["uri"], "a.py");
     assert!(!result["run"]["events"].as_array().unwrap().is_empty());
     let listing: Value = client

@@ -17,7 +17,7 @@ export interface RuntimeEvent {
     { kind: "debugger"; reason: string; details: unknown } |
     { kind: "profile"; metric: string; value: number; unit: string;
       interval: { start: { domain: string; unit: string; value: number }; end: { domain: string; unit: string; value: number }; scope: string };
-      aggregation: string; samples: number | null };
+      aggregation: string; samples: number | null; function?: { name: string; file: string; line: number; primitive_calls: number; total_calls: number } | null };
 }
 export interface RuntimeRun {
   schema_version: 1; id: string; started_unix_ms: number;
@@ -31,7 +31,7 @@ export function observationText(observation: RuntimeEvent["observation"]): strin
     case "output": return new TextDecoder().decode(new Uint8Array(observation.bytes));
     case "exception": return `${observation.handling} ${observation.type_name}: ${observation.message}\n`;
     case "log": return `${observation.level}: ${observation.message}\n`;
-    case "profile": return `${observation.metric}: ${observation.value} ${observation.unit} · ${observation.aggregation} · scope ${observation.interval.scope}\n`;
+    case "profile": return `${observation.function?.name ?? "unresolved function"} · calls ${observation.function?.total_calls ?? "unknown"} (primitive ${observation.function?.primitive_calls ?? "unknown"}) · ${observation.metric}: ${observation.value} ${observation.unit} · ${observation.aggregation} · scope ${observation.interval.scope}\n`;
     case "debugger": return `${observation.reason}: ${JSON.stringify(observation.details)}\n`;
   }
 }

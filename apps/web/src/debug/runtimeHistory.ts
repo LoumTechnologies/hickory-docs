@@ -60,6 +60,8 @@ export function runRepository(storage: WorkspaceStorage) {
 
 export function runtimeReading(run: RuntimeRun, invocation?: string): ObservationReading {
   const source = run.sources[0];
+  let providerVersion = "unknown";
+  try { providerVersion = JSON.parse(run.detail ?? "{}").provider_version ?? "unknown"; } catch { /* Legacy plain-text detail. */ }
   const locations: ObservationReading["locations"] = [];
   const selected = run.events.filter(event => !invocation || (event.invocation ?? "unknown") === invocation);
   const annotations = selected.map(event => {
@@ -79,7 +81,7 @@ export function runtimeReading(run: RuntimeRun, invocation?: string): Observatio
     locations, annotations, provider_annotations: selected.map(event => {
       const annotation = annotations.find(item => item.evidence === event.id)!;
       const location = locations.find(item => item.id === annotation.location) ?? null;
-      return { evidence: event.id, provider: event.provider, provider_version: "unknown",
+      return { evidence: event.id, provider: event.provider, provider_version: providerVersion,
         payload_schema: `hick.${event.observation.kind}.v1`,
         origin: { kind: "runtime" as const, session: null, run: run.id, stop: null, frame: null, invocation: event.invocation },
         location, source_precision: location?.location.precision ?? "unknown",

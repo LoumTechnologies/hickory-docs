@@ -71,7 +71,7 @@ it("explicit native launch executes the saved path and refreshes retained eviden
   await screen.findByRole("button", { name: "Run saved Python confined" });
   fireEvent.change(screen.getByLabelText(/Generated Python entry/), { target: { value: "main.py" } });
   fireEvent.click(screen.getByRole("button", { name: "Run saved Python confined" }));
-  await waitFor(() => expect(request).toHaveBeenCalledWith("POST", "/api/runtime/python", { document: "example.md", program: "main.py", seconds: 10 }));
+  await waitFor(() => expect(request).toHaveBeenCalledWith("POST", "/api/runtime/python", { document: "example.md", program: "main.py", seconds: 10, profile: false }));
   await screen.findByText(/Run run-one · completed/);
   expect(screen.getByText(/Unsaved edits are not executed/)).toBeTruthy();
 });

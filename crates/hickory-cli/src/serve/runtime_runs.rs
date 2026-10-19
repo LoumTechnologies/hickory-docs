@@ -103,10 +103,11 @@ pub async fn python(
     if !path.starts_with(&root) {
         return Err(ApiError::bad_request("Document escapes workspace"));
     }
-    let mut run = crate::observation::capture(
+    let mut run = crate::observation::capture_mode(
         &path,
         body["program"].as_str().filter(|s| !s.is_empty()),
         body["seconds"].as_u64().unwrap_or(10),
+        body["profile"].as_bool().unwrap_or(false),
     )
     .await
     .map_err(|e| ApiError::unprocessable(e.to_string()))?;

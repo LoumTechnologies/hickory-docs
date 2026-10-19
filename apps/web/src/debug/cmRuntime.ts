@@ -1,3 +1,4 @@
+import { profileRows } from "./profileRows";
 import { RUNTIME_REVEAL, revealRuntimeEvent } from "./runtimeNavigation";
 import { observationText, type RuntimeEvent } from "./runtimeObservations";
 import { StateEffect, StateField } from "@codemirror/state";
@@ -28,6 +29,14 @@ class RuntimeWidget extends WidgetType {
     details.open = expanded.has(key);
     const select = () => { if (details.open) expanded.add(key); else expanded.delete(key); selectObservations(reading, details.open, false, this.owner); };
     details.addEventListener("toggle", select); select(); details.append(summary, pre);
+    const profiles = profileRows(records.map(item => item.payload.event as RuntimeEvent));
+    if (profiles.length) {
+      const table = document.createElement("table"); table.setAttribute("aria-label", "Inline function profile");
+      const header = table.insertRow();
+      for (const title of ["Function aggregate", "Total / primitive calls", "Self seconds", "Cumulative seconds (overlap)"]) { const th = document.createElement("th"); th.textContent = title; header.append(th); }
+      for (const row of profiles) { const tr = table.insertRow(); for (const value of [row.function.name, `${row.function.total_calls} / ${row.function.primitive_calls}`, row.self ?? "unavailable", row.cumulative ?? "unavailable"]) tr.insertCell().textContent = String(value); }
+      details.append(table);
+    }
     details.dataset.run = reading.scope.run;
     details.dataset.events = records.map(item => item.evidence).join(" ");
     for (const record of records) {

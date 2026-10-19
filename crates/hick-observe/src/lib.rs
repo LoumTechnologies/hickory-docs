@@ -64,6 +64,14 @@ pub enum Handling {
     Unknown,
 }
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct FunctionAggregate {
+    pub name: String,
+    pub file: String,
+    pub line: u32,
+    pub primitive_calls: u64,
+    pub total_calls: u64,
+}
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum Observation {
     Output {
@@ -94,6 +102,8 @@ pub enum Observation {
         interval: Interval,
         aggregation: String,
         samples: Option<u64>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        function: Option<FunctionAggregate>,
     },
 }
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

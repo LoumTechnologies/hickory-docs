@@ -21,10 +21,19 @@ pub struct ObserveArgs {
     /// Maximum execution duration (1–120 seconds).
     #[arg(long, default_value_t = 10)]
     pub seconds: u64,
+    /// Capture stdlib cProfile function aggregates instead of trace hooks.
+    #[arg(long)]
+    pub profile: bool,
 }
 pub async fn command(args: ObserveArgs) -> Result<std::process::ExitCode> {
     let document = args.document.canonicalize()?;
-    let run = capture(&document, args.program.as_deref(), args.seconds).await?;
+    let run = capture_mode(
+        &document,
+        args.program.as_deref(),
+        args.seconds,
+        args.profile,
+    )
+    .await?;
     let store = LocalStore::open(document.parent().context("No document directory")?)?;
     store.save(&run)?;
     println!(
@@ -69,6 +78,29 @@ fn location(value: &Value, mapping: &hick_dap::Mapping, source: &Source) -> Opti
     })
 }
 pub async fn capture(document: &Path, program: Option<&str>, seconds: u64) -> Result<Run> {
+    capture_mode(document, program, seconds, false).await
+}
+pub async fn capture_mode(
+    document: &Path,
+    program: Option<&str>,
+    seconds: u64,
+    profile: bool,
+) -> Result<Run> {
+    capture_variant(
+        document,
+        program,
+        seconds,
+        if profile { "--profile" } else { "" },
+    )
+    .await
+}
+async fn capture_variant(
+    document: &Path,
+    program: Option<&str>,
+    seconds: u64,
+    mode: &str,
+) -> Result<Run> {
+    let profile = mode == "--profile";
     ensure!(
         (1..=120).contains(&seconds),
         "Duration must be 1–120 seconds"
@@ -146,6 +178,11 @@ pub async fn capture(document: &Path, program: Option<&str>, seconds: u64) -> Re
         "exec python3 -I -B observer.py '{}'",
         relative.replace('\'', "'\\''")
     );
+    ensure!(
+        ["", "--profile", "--control"].contains(&mode),
+        "Unknown observation mode"
+    );
+    let command = format!("{command} {mode}");
     let (bin, argv) = wrap(
         Sandbox::detect(),
         &Confinement {
@@ -159,6 +196,7 @@ pub async fn capture(document: &Path, program: Option<&str>, seconds: u64) -> Re
         },
     )
     .context("Confinement unavailable")?;
+    let mut diagnostics = tempfile::tempfile()?;
     let mut child = tokio::process::Command::new(bin);
     child
         .args(argv)
@@ -167,11 +205,12 @@ pub async fn capture(document: &Path, program: Option<&str>, seconds: u64) -> Re
         .env("PATH", "/usr/bin:/bin:/usr/local/bin:/opt/homebrew/bin")
         .env("HOME", &root)
         .stdout(Stdio::null())
-        .stderr(Stdio::null())
+        .stderr(diagnostics.try_clone()?)
         .kill_on_drop(true);
     #[cfg(unix)]
     child.process_group(0);
     let mut child = child.spawn()?;
+    #[cfg(unix)]
     let pid = child.id();
     let outcome = tokio::select! {
         result = child.wait() => Some(result?),
@@ -263,11 +302,17 @@ pub async fn capture(document: &Path, program: Option<&str>, seconds: u64) -> Re
                     throwing: emission.clone(),
                     catching: None,
                 },
+                Some("profile") => serde_json::from_value(payload.clone())?,
                 _ => continue,
             };
             run.events.push(Event {
                 id: format!("{}-E{}", run.id, run.events.len() + 1),
-                provider: "cpython-hooks-v1".into(),
+                provider: if profile {
+                    "cpython-cprofile-v1"
+                } else {
+                    "cpython-hooks-v1"
+                }
+                .into(),
                 block: None,
                 invocation: value["invocation"].as_str().map(str::to_owned),
                 parent_invocation: value["parent_invocation"].as_str().map(str::to_owned),
@@ -291,6 +336,21 @@ pub async fn capture(document: &Path, program: Option<&str>, seconds: u64) -> Re
     } else {
         run.missing_artifacts
             .push("Python observation stream unavailable".into());
+    }
+    use std::io::{Read as _, Seek};
+    diagnostics.rewind()?;
+    let mut stderr = String::new();
+    diagnostics.take(16384).read_to_string(&mut stderr)?;
+    if !stderr.is_empty() {
+        let mut detail: Value = serde_json::from_str(run.detail.as_deref().unwrap_or("{}"))
+            .unwrap_or(serde_json::json!({}));
+        detail["unattributed_process_stderr"] = Value::String(stderr);
+        run.detail = Some(detail.to_string());
+    }
+    if outcome.is_some_and(|status| !status.success()) && run.status == Status::Completed {
+        run.status = Status::Failed;
+        run.missing_artifacts
+            .push("Provider process failed after terminal artifact".into());
     }
     run.validate()?;
     Ok(run)
@@ -390,6 +450,81 @@ mod tests {
             "Observed same-process sandbox hook overhead pairs [untraced,traced] seconds: {:?}; provider {}",
             pairs,
             run.detail.unwrap()
+        );
+    }
+    // Guarantee: docs/guarantees/execution/python-profile-keeps-function-semantics.md
+    #[tokio::test]
+    async fn real_profile_optimize_rerun_preserves_correctness_and_aggregate_scope() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("hotspot.md");
+        let before = include_str!("../../../examples/python-profile/hotspot.md");
+        let after = before.replace(
+            "    total = 0\n    for value in range(n):\n        total += value\n    return total",
+            "    return n * (n - 1) // 2",
+        );
+        let mut timings = vec![];
+        for (name, source) in [("before", before.to_owned()), ("after", after)] {
+            std::fs::write(&path, source).unwrap();
+            let mut pairs = vec![];
+            for repetition in 0..3 {
+                let control = capture_variant(&path, Some("hotspot.py"), 10, "--control")
+                    .await
+                    .unwrap();
+                let run = capture_mode(&path, Some("hotspot.py"), 10, true)
+                    .await
+                    .unwrap();
+                assert_eq!(control.status, Status::Completed);
+                assert_eq!(run.status, Status::Completed);
+                let details: Value = serde_json::from_str(run.detail.as_ref().unwrap()).unwrap();
+                assert!(details["profiling"].as_bool().unwrap());
+                let profiles: Vec<_> = run
+                    .events
+                    .iter()
+                    .filter_map(|event| match &event.observation {
+                        Observation::Profile {
+                            function: Some(function),
+                            metric,
+                            value,
+                            ..
+                        } => Some((event, function, metric, value)),
+                        _ => None,
+                    })
+                    .collect();
+                let subtotal = profiles
+                    .iter()
+                    .find(|(_, f, metric, _)| {
+                        f.name == "subtotal" && metric.as_str() == "self_seconds"
+                    })
+                    .unwrap();
+                assert_eq!(subtotal.1.total_calls, 500);
+                assert_eq!(subtotal.1.primitive_calls, 500);
+                assert!(subtotal.0.emission.is_some());
+                let recursive = profiles
+                    .iter()
+                    .find(|(_, f, _, _)| f.name == "recursive")
+                    .unwrap();
+                assert_eq!(recursive.1.total_calls, 10);
+                assert_eq!(recursive.1.primitive_calls, 1);
+                assert!(profiles.iter().any(|(e, _, _, _)| e.emission.is_none()));
+                let base: Value = serde_json::from_str(control.detail.as_ref().unwrap()).unwrap();
+                pairs.push(serde_json::json!({"control_seconds":base["elapsed"], "profile_seconds":details["elapsed"], "subtotal_self_seconds":subtotal.3, "environment":details["environment"], "python":details["python"]}));
+                if repetition == 0 {
+                    if let Some(output) = std::env::var_os("HICKORY_PROFILE_ARTIFACTS") {
+                        let output = PathBuf::from(output);
+                        std::fs::create_dir_all(&output).unwrap();
+                        std::fs::write(
+                            output.join(format!("{name}.json")),
+                            serde_json::to_vec_pretty(&run).unwrap(),
+                        )
+                        .unwrap();
+                    }
+                }
+            }
+            timings.push(serde_json::json!({"variant":name,"pairs":pairs}));
+        }
+        eprintln!(
+            "Observed profile/control measurements: {}",
+            serde_json::to_string_pretty(&timings).unwrap()
         );
     }
 }
