@@ -16,6 +16,7 @@ members = [
     "crates/hick-lang-wasm",
     "crates/hick-blocks",
     "crates/hick-dap",
+    "crates/hick-observe",
     "crates/hick-lsp",
     "crates/hick-project-env",
     "crates/hick-structure",

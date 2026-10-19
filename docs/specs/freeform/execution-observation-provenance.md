@@ -86,3 +86,13 @@ locations, and prove that inline/log views refer to identical event IDs. Histori
 observations must remain tied to their captured revision after source changes.
 
 No new runtime tracing or run-history implementation was performed for this design.
+
+## Foundation implementation (issue #54, October 18, 2026)
+
+`crates/hick-observe` now defines the versioned evidence model, provider interface,
+lossless output contributors and independent local run store. Its README describes
+lifecycle, retention, pinning, deletion, recovery, coordinate conventions and host
+integration. The executable `local_run` example exercises provider → durable run →
+retrieved output. This is the storage/schema foundation, not language tracing or
+inline/log UI integration; those remain the dependent issues. The historical
+proposal above remains the record of presentation recommendations.

@@ -61,3 +61,6 @@ sessions/
 .hick-journal/
 /apps/agent/.venv/
 **/__pycache__/
+
+# Local runtime evidence is retained independently of transcript caches.
+.hick/runs/

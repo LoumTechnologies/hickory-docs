@@ -3320,6 +3320,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "hick-observe"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "fs2",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "tempfile",
+ "uuid",
+]
+
+[[package]]
 name = "hick-project-env"
 version = "0.1.0"
 dependencies = [
