@@ -1,6 +1,7 @@
 # Live agent context: observations, changes and refresh policies
 
-Status: proposed, not implemented. Origin: the October 18, 2026 discussion of
+Status: context v1 contract implemented by #48; runtime/source integration and
+refresh experiments remain proposed. See [the wire contract](../../developers/context-protocol.md). Origin: the October 18, 2026 discussion of
 progressive disclosure, execution provenance and stale agent context. The user
 explicitly wants to compare refresh strategies rather than adopt one prematurely.
 
@@ -285,6 +286,6 @@ Keep experiment records local by default. No additional telemetry is implied.
 - Each supported policy produces an inspectable request manifest; opaque adapter
   behavior remains an explicit gap.
 
-No implementation, policy comparison, or new runtime tests were performed for
-this proposal. It records the architecture and evaluation questions rather than
-claiming that live context refresh is already available.
+The #48 follow-up adds a shared schema, generated Rust/Python types, offline
+validators and cross-language contract fixtures. It does not install runtime
+handlers, compare policies, or claim that live context refresh is available.

@@ -8,7 +8,7 @@
 #
 # Pass --write to regenerate instead of checking; that is `just codegen`.
 #
-# Two things are generated:
+# Three things are generated:
 #
 # 1. The web app's language table, emitted from `hick-lsp`'s routing table.
 #    It exists because the two were once written down separately and drifted
@@ -25,6 +25,9 @@
 #    the artifact be committed and checked like any other generated file.
 #    Needs the `wasm32-unknown-unknown` target and `wasm-pack`
 #    (docs/developers/developer-environment.md).
+#
+# 3. The context protocol Rust/Python types and packaged schema, from
+#    protocols/context-v1/schema.json. This part needs only Python and rustfmt.
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
@@ -33,6 +36,13 @@ langs=apps/web/src/editor/generated/languages.ts
 wasm_dir=apps/web/src/editor/generated/hick-lang
 write=false
 [ "${1:-}" = "--write" ] && write=true
+
+# Shared context wire schema/types are generated without compiling the workspace.
+if $write; then
+  python3 scripts/generate-context-protocol.py
+else
+  python3 scripts/generate-context-protocol.py --check
+fi
 
 # Build the parser into `dir`, leaving only the four files the app imports.
 build_wasm() {

@@ -38,11 +38,7 @@ test-tool-install:
 
 # Regenerate everything derived from another file in this repo.
 #
-# Today that is one thing: the web app's language table, emitted from
-# `hick-lsp`'s routing table. It exists because the two used to be written
-# down separately and drifted apart in both directions at once — nineteen
-# extensions' worth — which is the same class of bug that has made a language
-# server unreachable here twice before.
+# Includes the language table, editor parser WASM and shared context wire types.
 codegen:
     scripts/check-codegen.sh --write
 
@@ -769,3 +765,9 @@ check-response-recovery:
     cargo fmt --all -- --check
     cargo clippy -p hickory-workspace -p hickory-cli --lib -- -D warnings
     just check-file-length
+
+# Shared Rust/Python context contract only; no provider or broad regression checks.
+test-context-protocol:
+    python3 scripts/generate-context-protocol.py --check
+    cargo test -p hick-context-protocol --test conformance
+    uv run --project apps/agent --locked --no-editable --reinstall-package hickory-agent-worker python -m unittest discover -s apps/agent/tests -p test_context_protocol.py

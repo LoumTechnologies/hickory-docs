@@ -2,6 +2,7 @@
 resolver = "3"
 members = [
     "crates/hick-case",
+    "crates/hick-context-protocol",
     "crates/hick-classify",
     "crates/hick-condition",
     "crates/hick-exec",

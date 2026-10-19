@@ -3,7 +3,7 @@ name = "hickory-agent-worker"
 version = "0.1.0"
 description = "Independent Python agent with a confined Hickory adapter"
 requires-python = ">=3.11"
-dependencies = ["langgraph>=1.0,<2", "pydantic-monty==1.1.0"]
+dependencies = ["langgraph>=1.0,<2", "pydantic-monty==1.1.0", "jsonschema>=4.23,<5"]
 
 [build-system]
 requires = ["hatchling"]
