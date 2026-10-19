@@ -95,6 +95,19 @@ jobs:
       # web-only PR is held to it too.
       - run: scripts/check-file-length.sh
       - run: cargo build --workspace
+      - name: Publish explicitly selected executable-spec results
+        id: published-specs
+        continue-on-error: true
+        run: python3 scripts/publish-spec-results.py --hick target/debug/hick --output /tmp/executable-spec-results
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: executable-spec-results-${{ github.sha }}
+          path: /tmp/executable-spec-results
+          if-no-files-found: warn
+      - name: Check selected publication outcome
+        if: steps.published-specs.outcome == 'failure'
+        run: exit 1
       - run: cargo build -p hickory-cli --example acp_fixture
       # The language-server system tests cover whichever languages this
       # machine can serve, and skip the rest LOUDLY. Without this step CI

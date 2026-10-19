@@ -360,9 +360,16 @@ test("published snapshot reuses document and failed cell views without a backend
   const source = "# Retry deadline\n\nThe budget includes retries.\n";
   const source_hash = await page.evaluate(async text => Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256",new TextEncoder().encode(text))),b=>b.toString(16).padStart(2,"0")).join(""),source);
   const snapshot = {format:"hickory-viewer-snapshot",version:1,path:"spec.md",source,source_hash,captured_at_ms:0,execution:"recorded",cells:[{kind:"exec",id:"deadline-check",container:"shell",command:"node deadline.js",span:[0,1],status:"failed",expect:{match:"exact",body:"100\n"},transcript:[{t:0,kind:"out",data:"160\n"},{t:0,kind:"err",data:"deadline exceeded\n"},{t:1,kind:"exit",code:1}]}]};
+  const verification = {status:"failed",revision:"a".repeat(40),source_hash,dependencies:{"Cargo.lock":"b".repeat(64)},assets:{},environment:{executor:"local"},commands:[{command:["hick","test","spec.md"],exit_code:3,stderr:"expected 100; actual 160"}],requirements:[{id:"R1",text:"Total budget across retries",witnesses:[0,9]}],origin:"executed-command; per-cell replay unavailable",scope:"Deterministic model only"};
+  Object.assign(snapshot,{verification});
   await page.getByLabel("Open exported snapshot").setInputFiles({name:"snapshot.json",mimeType:"application/json",buffer:Buffer.from(JSON.stringify(snapshot))});
   await expect(page.getByText("historical snapshot",{exact:false})).toBeVisible();
   await expect(page.getByText("deadline-check · failed",{exact:true})).toBeVisible();
+  await expect(page.getByRole("heading",{name:"Verification: failed"})).toBeVisible();
+  await expect(page.getByRole("link",{name:/Tested revision/})).toHaveAttribute("href",`https://github.com/LoumTechnologies/hickory-docs/commit/${"a".repeat(40)}`);
+  await expect(page.getByRole("link",{name:"Witness deadline-check"})).toHaveAttribute("href","#witness-0");
+  await expect(page.getByText("Witness 9 unavailable · not verified")).toBeVisible();
+  await expect(page.getByText("expected 100; actual 160",{exact:true})).toBeVisible();
   await expect(page.getByTestId("cell-diff")).toContainText("160");
   await expect(page.getByRole("group",{name:"spec.md",exact:true})).toContainText("Retry deadline");
   await page.screenshot({ path: test.info().outputPath("published-snapshot.png"), fullPage: true });

@@ -15,6 +15,12 @@ on:
     paths:
       - "apps/web/**"
       - "scripts/install.sh"
+      - "scripts/publish-spec-results.py"
+      - "publications/**"
+      - "examples/ai-engineer-deadline.md"
+      - "Cargo.lock"
+      - "crates/hickory-cli/**"
+      - "crates/hick-literate/**"
       - "justfile"
       - "crates/hick-lang/**"
       - "crates/hick-lang-wasm/**"
@@ -67,6 +73,26 @@ jobs:
         run: |
           just install-test-browsers --with-deps
           just test-browser-embedding --grep homepage
+
+      - uses: dtolnay/rust-toolchain@1.96.1
+        if: ${{ !inputs.domains_only }}
+      - uses: Swatinem/rust-cache@v2
+        if: ${{ !inputs.domains_only }}
+      - name: Build the selected-spec runner
+        if: ${{ !inputs.domains_only }}
+        run: cargo build --locked -p hickory-cli --bin hick
+      - name: Generate selected public verification artifacts
+        id: publications
+        if: ${{ !inputs.domains_only }}
+        continue-on-error: true
+        run: python3 scripts/publish-spec-results.py --hick target/debug/hick --output apps/web/public/publications
+      - name: Retain failed and successful specification evidence
+        if: ${{ always() && !inputs.domains_only }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: executable-spec-results-${{ github.sha }}
+          path: apps/web/public/publications
+          if-no-files-found: error
 
       - name: Build the site
         if: ${{ !inputs.domains_only }}
@@ -177,3 +203,9 @@ jobs:
           npx --yes wrangler@3 pages deploy apps/web/dist-site \
             --project-name "$PAGES_PROJECT" \
             --branch master
+
+      - name: Report failed published verification
+        if: ${{ !inputs.domains_only && steps.publications.outcome == 'failure' }}
+        run: |
+          echo "::error::Selected verification failed or was unavailable. Inspect the hosted publication or retained artifact."
+          exit 1

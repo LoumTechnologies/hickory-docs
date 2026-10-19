@@ -1,0 +1,28 @@
+{
+  "version": 1,
+  "documents": [
+    {
+      "path": "examples/ai-engineer-deadline.md",
+      "reviewed_output": true,
+      "dependencies": [
+        "Cargo.lock",
+        "rust-toolchain.toml"
+      ],
+      "assets": [],
+      "requirements": [
+        {
+          "id": "R1",
+          "text": "A request consumes at most its total budget across all attempts.",
+          "witnesses": [
+            0
+          ]
+        }
+      ],
+      "reviewed_inputs": {
+        "examples/ai-engineer-deadline.md": "636ddbd13794d41faa0907e64e96bcf6d213a466f2dfd44423ae2b17a767099a",
+        "Cargo.lock": "8844e87839a560dfff1c2597924ee93bed9498006a4a5ab1d22a89f025e3ac7e",
+        "rust-toolchain.toml": "4d0674575b116a100c7d0ad754308dc6dea178b4808c760afc43136db967c7a6"
+      }
+    }
+  ]
+}

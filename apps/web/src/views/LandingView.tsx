@@ -30,6 +30,7 @@ export function LandingView() {
       <h2>Download Hickory Docs</h2>
       <p>The desktop app works with your own files and tools. No account required.</p>
       <p className="muted">Public downloads coming soon.</p>
+      <p><a href="./snapshot.html?index=publications/index.json">Published executable-spec results</a></p>
       <p><a href="./snapshot.html">Open a document snapshot</a></p>
       {config.sourceRevision && <p className="muted">Build source: <a href={`https://github.com/LoumTechnologies/hickory-docs/tree/${config.sourceRevision}`}>{config.sourceRevision.slice(0, 7)}</a></p>}
     </footer>

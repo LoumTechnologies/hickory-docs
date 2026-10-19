@@ -10,6 +10,7 @@ mod changeset;
 pub mod clap_help;
 pub mod claude_code;
 pub mod code_model;
+pub mod context_updates;
 pub mod continuity;
 pub mod dap_install;
 pub mod debug_sessions;
@@ -33,15 +34,14 @@ pub mod lsp_install;
 pub mod mcp;
 mod mcp_catalogue;
 pub mod merge_driver;
+pub mod observation;
 pub mod open_app;
 pub mod output;
-pub mod observation;
 pub mod project_command;
 mod project_documents;
 pub mod project_index;
 pub mod project_revision;
 pub mod python_agent;
-pub mod context_updates;
 pub mod recipe;
 pub mod replay;
 pub mod scaffold;
@@ -2091,7 +2091,13 @@ pub fn block_action(
 
 /// The block model as the JSON body the server's render endpoint returns.
 pub fn block_model_json(run: &DocRun) -> Result<serde_json::Value> {
-    Ok(serde_json::json!({ "blocks": block_model(run) }))
+    Ok(
+        serde_json::json!({ "blocks": block_model(run), "execution_evidence": {
+            "from_document": run.result.from_document.iter().map(ToString::to_string).collect::<Vec<_>>(),
+            "recording_keys": run.result.keys.iter().map(|(cell,key)| serde_json::json!({"cell":cell.to_string(),"key":key})).collect::<Vec<_>>(),
+            "coverage":"Document replay identities are explicit; other cache origins are not attested by this projection."
+        }}),
+    )
 }
 
 /// A file a CELL wrote into an output volume, rather than one the document
