@@ -1,8 +1,10 @@
+import { UiActionsVisibility, useUiCommands, useUiRevision } from "../lib/uiActionBridge";
+import type { UiCommand, UiField } from "../lib/uiActions";
 import { PRIMARY, dockTile, pruneTiles, tileRects, type DockEdge } from "./spatialTiles";
 import { SPATIAL_RIBBON_OPEN, type SpatialRibbonOpen } from "./spatialNavigation";
 import { PaneHeaderProvider, PaneHeaderSlots } from "./PaneHeader";
 import { openCommandBar } from "./CommandBar";
-import { useCallback, useEffect, useMemo, useRef, useState, type SetStateAction, type PointerEvent } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useId, type SetStateAction, type PointerEvent } from "react";
 import { EditorView } from "@codemirror/view";
 import { bufferTarget } from "../lib/editorBufferTargets";
 import { onRevealLine } from "../lib/revealLine";
@@ -40,6 +42,7 @@ const paneId = (entry: Entry) => `spatial-pane-${entry.tab?.id ?? encodeURICompo
 
 /** Each editor has one stable mount. Centering, pinning and parallax only change its rectangle. */
 export function SpatialShellView(props: Props) {
+  const instance = useId();
   const sides = useSpatialSides();
   const filesParallax = useFilesParallax();
   const filesWindows = useFilesWindows();
@@ -247,6 +250,8 @@ export function SpatialShellView(props: Props) {
       views: { ...current.views, [entry.key]: { ...current.views[entry.key], side, expanded: true, pin: { x: 0, y: 72, w: 320, h: 253 } } } }));
     props.onLayout(focus(layout, next.pane!.id));
   };
+  const toggleDrawerPin = (side: Side) => { setDrawerOpen(current => ({ ...current, [side]: true })); setScene(current => ({ ...current, drawerPins: { ...(current.drawerPins ?? { left: false, right: false }), [side]: !pinned[side] } })); };
+  const setAccordion = (auto: boolean) => setScene(current => ({ ...current, auto }));
   dockHandler.current = (key, target, edge) => {
     const entry = entries.find(item => item.key === key && item.tab);
     if (!entry) return;
@@ -264,6 +269,57 @@ export function SpatialShellView(props: Props) {
     if (slot === target) return;
     setScene(current => ({ ...current, tiles: dockTile(tiles, slot, target, edge), views: { ...current.views, [key]: { ...current.views[key], pin: undefined } } }));
   };
+  const actionParent = `spatial-layout:${instance}`;
+  const revision = useUiRevision(() => [layout, sceneRef.current, drawerOpen, visible, pinned, [...controller.frames]]);
+  const commands: { key: string; command: UiCommand }[] = [];
+  function add(id: string, label: string, parameters: Record<string, UiField>, execute: UiCommand["execute"]) {
+    commands.push({ key: `${actionParent}/${id}`, command: { label, parent: actionParent, subject: actionParent, parameters, prerequisites: ["Current window layout and mounted view identity; dirty-close decisions remain in the normal prompt"], read: () => ({ revision: revision(), enabled: !!root.current && !controller.suppressClick }), execute } });
+  }
+  const requested = () => ({ status: "completed" as const, value: { dispatch: "requested", result: "Observe actual layout, frame or unsaved-close prompt" } });
+  add("read", "Read spatial layout bytes", { offset: { type: "number", minimum: 0, maximum: 100000000, integer: true }, limit: { type: "number", minimum: 1, maximum: 8192, integer: true } }, async args => {
+    const bytes = new TextEncoder().encode(JSON.stringify({ scene: sceneRef.current, center: center?.key ?? null, drawers: { available, visible, pinned, files }, frames: Object.fromEntries(controller.frames), views: entries.map(entry => ({ key: entry.key, path: entry.path, title: entry.tab?.title ?? null, side: entry.side, tab: entry.tab?.id ?? null, pane: entry.pane?.id ?? null, centered: entry.key === center?.key, tiled: tiledKeys.has(entry.key), visible: entry.key === center?.key || tiledKeys.has(entry.key) || (visible[entry.side] && effective.drawers.keys.includes(entry.key)), dirty: !!entry.tab && !!props.dirtyTabIds?.has(entry.tab.id) })) }));
+    const offset = Number(args.offset), end = Math.min(bytes.length, offset + Number(args.limit));
+    if (offset > bytes.length) return { status: "unavailable", reason: "Offset exceeds current layout state" };
+    return { status: "completed", value: { encoding: "JSON encoded as UTF-8 bytes", bytes: [...bytes.slice(offset, end)], span: [offset, end], total_bytes: bytes.length, next: end < bytes.length ? end : null } };
+  });
+  for (const operation of ["center", "pin", "expand", "close"] as const) add(operation, operation === "expand" ? "Toggle spatial view expansion" : operation === "pin" ? "Toggle spatial view pin" : `${operation[0].toUpperCase() + operation.slice(1)} spatial view`, { key: { type: "string", maxLength: 8192 } }, async args => {
+    const entry = entries.find(entry => entry.key === args.key);
+    if (!entry) return { status: "unavailable", reason: "View does not belong to this window's current layout" };
+    if (operation === "center") centerOn(entry);
+    else if (operation === "close") { if (!entry.tab || !entry.pane) return { status: "unavailable", reason: "This reading port has no closeable tab" }; close(entry); }
+    else {
+      if (!controller.frames.has(entry.key)) return { status: "unavailable", reason: "Open this view's drawer before changing its frame" };
+      if (operation === "pin") { if (entry.key === center?.key) pinCentered(entry); else pinView(entry); }
+      else { if (entry.key === center?.key || tiledKeys.has(entry.key)) return { status: "unavailable", reason: "Centered and tiled views already occupy their full frame" }; controller.toggle(entry.key); }
+    }
+    return requested();
+  });
+  add("resize", "Resize spatial view", { key: { type: "string", maxLength: 8192 }, delta: { type: "number", minimum: -2000, maximum: 2000 }, edge: { type: "string", maxLength: 16, choices: ["top", "bottom"] } }, async args => {
+    const key = String(args.key);
+    if (!entries.some(entry => entry.key === key) || !controller.frames.has(key) || key === center?.key || tiledKeys.has(key)) return { status: "unavailable", reason: "Choose a mounted drawer view with an actual frame" };
+    controller.resize(key, Number(args.delta), args.edge as "top" | "bottom"); return requested();
+  });
+  add("dock", "Dock spatial view", { key: { type: "string", maxLength: 8192 }, target: { type: "string", maxLength: 8192 }, edge: { type: "string", maxLength: 16, choices: ["left", "right", "top", "bottom", "center"] } }, async args => {
+    const key = String(args.key), target = String(args.target);
+    if (!entries.some(entry => entry.key === key && entry.tab) || !([PRIMARY, "left", "right"].includes(target) || tiledKeys.has(target))) return { status: "unavailable", reason: "Choose a current tab and actual center/tile/drawer target" };
+    if ((target === "left" || target === "right") && !sides[target]) return { status: "unavailable", reason: "Enable this drawer in settings before docking" };
+    dockHandler.current(key, target, args.edge as DockEdge); return requested();
+  });
+  add("drawer", "Set spatial drawer visibility", { side: { type: "string", maxLength: 8, choices: ["left", "right"] }, open: { type: "boolean" } }, async args => {
+    const side = args.side as Side;
+    if (!available[side]) return { status: "unavailable", reason: "This drawer has no available content" };
+    if (!args.open && pinned[side]) return { status: "unavailable", reason: "Unpin this drawer before closing it" };
+    (args.open ? showDrawer : closeDrawer)(side); return requested();
+  });
+  add("drawer-pin", "Toggle spatial drawer pin", { side: { type: "string", maxLength: 8, choices: ["left", "right"] } }, async args => {
+    const side = args.side as Side;
+    if (!available[side] || !visible[side]) return { status: "unavailable", reason: "Open an available drawer before changing its pin" };
+    toggleDrawerPin(side); return requested();
+  });
+  add("accordion", "Set spatial automatic accordion", { enabled: { type: "boolean" } }, async args => { setAccordion(Boolean(args.enabled)); return requested(); });
+  add("restore", "Restore previous spatial center", {}, async () => { restore(); return requested(); });
+  add("search", "Open command search", {}, async () => { openCommandBar(); return requested(); });
+  useUiCommands(commands);
   return <div ref={root} className="spatial-shell" data-spatial-shell="true"
     onPointerDownCapture={event => { if (!(event.target as HTMLElement).closest("[data-drawer-side]")) setDrawerOpen(current => current.left || current.right ? { left: false, right: false } : current); }}
     onPointerMove={event => { const gesture = columnGesture.current; if (gesture && root.current) { const inner = root.current.clientWidth, delta = (event.clientX - gesture.x) / inner * (gesture.side === "left" ? 1 : -1); setScene(current => ({ ...current, columns: current.columns.map((value, index) => index === (gesture.side === "left" ? 0 : 1) ? Math.max(.16, Math.min(.36, gesture.start + delta)) : value) as [number, number] })); } }}
@@ -276,7 +332,7 @@ export function SpatialShellView(props: Props) {
       <div hidden={!visible[side]} id={`spatial-${side}-drawer`} className="spatial-drawer-backdrop" data-drawer-backdrop={side} />
       <div hidden={!visible[side]} className="spatial-drawer-toolbar" data-drawer-toolbar={side} onPointerDown={event => controller.beginFiles(side, event)}>
         <strong>{files[side] ? "Files" : "Related"}</strong>
-        <button data-tip={`${pinned[side] ? "Unpin" : "Pin"} ${side} drawer`} aria-label={`${pinned[side] ? "Unpin" : "Pin"} ${side} drawer`} aria-pressed={pinned[side]} onClick={() => { setDrawerOpen(current => ({ ...current, [side]: true })); setScene(current => ({ ...current, drawerPins: { ...(current.drawerPins ?? { left: false, right: false }), [side]: !pinned[side] } })); }}><PinIcon /></button>
+        <button data-tip={`${pinned[side] ? "Unpin" : "Pin"} ${side} drawer`} aria-label={`${pinned[side] ? "Unpin" : "Pin"} ${side} drawer`} aria-pressed={pinned[side]} onClick={() => toggleDrawerPin(side)}><PinIcon /></button>
         <button aria-label={`Close ${side} drawer`} disabled={pinned[side]} onClick={() => closeDrawer(side)}>×</button>
       </div>
     </div>)}
@@ -292,7 +348,7 @@ export function SpatialShellView(props: Props) {
           if (entry && !controller.suppressClick) pinView(entry);
         }}
         onDoubleClickCapture={event => { if ((event.target as HTMLElement).closest("[data-tree-path]")) { pendingSide.current = side; props.onLayout(split(layout, pane.id, "row", side === "right")); } }}>
-        <button role="tab" aria-label={side === "left" ? "Files" : "Right file buffer"} aria-selected={layout.focus === pane.id} className="spatial-files-title" onClick={() => props.onLayout(focus(layout, pane.id))}>Files</button><SpatialFileEdges /><div className="shell-pane__body">{props.render(tab, pane)}</div>
+        <button role="tab" aria-label={side === "left" ? "Files" : "Right file buffer"} aria-selected={layout.focus === pane.id} className="spatial-files-title" onClick={() => props.onLayout(focus(layout, pane.id))}>Files</button><SpatialFileEdges /><div className="shell-pane__body"><UiActionsVisibility visible={visible[side] && files[side]}>{props.render(tab, pane)}</UiActionsVisibility></div>
       </section>;
     })}
     {entries.map(entry => { const tab = entry.tab, centered = entry.key === center?.key, tiled = tiledKeys.has(entry.key), central = centered || tiled, name = relative(entry.path, props.folderRoot), title = tab?.title ?? props.ports?.find(port => port.id === entry.key)?.label ?? name;
@@ -321,13 +377,13 @@ export function SpatialShellView(props: Props) {
             data-ribbon-port={entry.port ? entry.key : undefined} onClick={() => click(() => { if (entry.port) openPort(entry); else if (!centered) { if (tab?.kind === "untitled") centerOn(entry); else controller.toggle(entry.key); } })}>{tab && !["document", "generated", "file"].includes(tab.kind) ? title : name || title}{tab && props.dirtyTabIds?.has(tab.id) ? " *" : ""}</button>}
           <PaneHeaderSlots />
           <div className="spatial-window-controls">
-            {centered ? <><button data-tip="Search (Ctrl/Cmd+P)" aria-label="Open search" onClick={() => openCommandBar()}>⌕</button><button data-tip="Restore previous center" aria-label="Restore previous center" onClick={restore}>▣</button>{filesWindows && (sides.left || sides.right) && entries.some(item => item.tab && item.key !== entry.key) && <button data-tip="Pin view in drawer" aria-label="Pin view in drawer" onClick={() => pinCentered(entry)}><PinIcon /></button>}<button data-tip="Automatic accordion" aria-label="Automatic accordion" aria-pressed={scene.auto} onClick={() => setScene(current => ({ ...current, auto: !current.auto }))}>↕</button></>
+            {centered ? <><button data-tip="Search (Ctrl/Cmd+P)" aria-label="Open search" onClick={() => openCommandBar()}>⌕</button><button data-tip="Restore previous center" aria-label="Restore previous center" onClick={restore}>▣</button>{filesWindows && (sides.left || sides.right) && entries.some(item => item.tab && item.key !== entry.key) && <button data-tip="Pin view in drawer" aria-label="Pin view in drawer" onClick={() => pinCentered(entry)}><PinIcon /></button>}<button data-tip="Automatic accordion" aria-label="Automatic accordion" aria-pressed={scene.auto} onClick={() => setAccordion(!scene.auto)}>↕</button></>
               : <><button data-tip={scene.views[entry.key]?.pin ? "Unpin view" : "Pin view"} aria-label={scene.views[entry.key]?.pin ? "Unpin view" : "Pin view"} aria-pressed={!!scene.views[entry.key]?.pin} onClick={() => click(() => { if (tiled) { controller.pin(entry.key); dockHandler.current(entry.key, sides[entry.side] ? entry.side : sides.left ? "left" : "right", "center"); } else pinView(entry); })}><PinIcon /></button>
                 <button data-tip="Center" aria-label="Center" onClick={() => click(() => centerOn(entry))}>□</button>{!tiled && <button data-tip="Minimize" aria-label="Minimize" onClick={() => { if (controller.frames.get(entry.key)?.h !== 36) controller.toggle(entry.key); }}>—</button>}</>}
             {tab && !centered && <button data-tip={`Close ${title}`} aria-label={`Close ${title}`} onClick={() => close(entry)}>×</button>}
           </div>
         </header>
-        <div id={tab ? `spatial-content-${tab.id}` : undefined} className="shell-pane__body spatial-view-body">{tab && entry.pane ? props.render(tab, entry.pane) : <button className="spatial-open" onClick={() => openPort(entry)}>Open {title}</button>}</div>
+        <div id={tab ? `spatial-content-${tab.id}` : undefined} className="shell-pane__body spatial-view-body"><UiActionsVisibility visible={central || (visible[entry.side] && effective.drawers.keys.includes(entry.key) && (scene.views[entry.key]?.pin ? scene.views[entry.key]!.pin!.h > 96 : scene.views[entry.key]?.expanded === true))}>{tab && entry.pane ? props.render(tab, entry.pane) : <button className="spatial-open" onClick={() => openPort(entry)}>Open {title}</button>}</UiActionsVisibility></div>
       </section></PaneHeaderProvider>;
     })}
     {entries.map(entry => <div key={`strip-${entry.key}`} hidden={!visible[entry.side] || !effective.drawers.keys.includes(entry.key)} data-drawer-side={entry.side} className="spatial-header-extension" data-spatial-strip={entry.key} onPointerDown={event => begin(entry, event)}>

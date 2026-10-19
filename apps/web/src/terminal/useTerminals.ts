@@ -14,6 +14,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { api } from "../api/client";
+import { useTerminalActions } from "./uiTerminalActions";
 import type { OpenTerminal, TerminalAnchor, TerminalSession } from "../api/types";
 
 export const POLL_MS = 1000;
@@ -175,7 +176,7 @@ export function useTerminals(): Terminals {
     [refresh],
   );
 
-  return {
+  const controller = {
     sessions,
     attention,
     anchors,
@@ -191,6 +192,8 @@ export function useTerminals(): Terminals {
     resumeAnchor,
     refresh,
   };
+  useTerminalActions(controller);
+  return controller;
 }
 
 /** A session by id, or null. */

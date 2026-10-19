@@ -2,7 +2,8 @@ import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import { navigate, useRoute, newDocument } from "./router";
 import { WorkspaceView, type WorkspaceRoute } from "./views/WorkspaceView";
 import { api } from "./api/client";
-import { insertTarget, onMenuAction } from "./lib/menuBridge";
+import { insertTarget, onMenuAction, type MenuAction } from "./lib/menuBridge";
+import { UiActionsVisibility, useUiCommands } from "./lib/uiActionBridge";
 import { TooltipLayer } from "./components/TooltipLayer";
 import { showTerminalRequest } from "./lib/revealLine";
 import type { ScaffoldStarted } from "./api/types";
@@ -103,8 +104,7 @@ export function App() {
 
   const routeRef = useRef(route);
   routeRef.current = route;
-  useEffect(() => {
-    return onMenuAction((action) => {
+  const handleMenuAction = (action: MenuAction) => {
       // Insert — bare, or naming one element — wants a buffer to write into,
       // which only the workspace has. Handled before the switch because the
       // element-carrying form is a whole family of actions, not one case.
@@ -177,8 +177,23 @@ export function App() {
           }
           return;
       }
-    });
-  }, []);
+  };
+  const menuHandler = useRef(handleMenuAction); menuHandler.current = handleMenuAction;
+  useEffect(() => onMenuAction(action => menuHandler.current(action)), []);
+  useUiCommands([
+    ...([['new', 'Create untitled document'], ['new-project', 'Open new project dialog'], ['files', 'Show workspace Files'], ['show-agent', 'Show workspace agent'], ['settings', 'Open settings']] as const).map(([action, label]) => ({
+      key: `application-navigation/${action}`, command: {
+        label, parent: 'application-navigation', subject: 'application-navigation', parameters: {}, prerequisites: ['An open workspace is required'],
+        read: () => ({ revision: JSON.stringify([route, newProject]), enabled: route.name !== 'blank', reason: route.name === 'blank' ? 'Open a workspace first' : undefined }),
+        execute: async () => { handleMenuAction(action); return { status: 'completed' as const, value: { dispatch: 'requested', result: 'Observe the actual route, pane or dialog' } }; },
+      },
+    })),
+    { key: 'application-navigation/state', command: {
+      label: 'Read application route and notice', parent: 'application-navigation', subject: 'application-navigation', parameters: {}, prerequisites: [],
+      read: () => ({ revision: JSON.stringify([route, notice, newProject]), enabled: true }),
+      execute: async () => ({ status: 'completed', value: JSON.parse(JSON.stringify({ route, notice, new_project_dialog: newProject, retained_workspace: workspace.current?.route ?? null })) }),
+    } },
+  ]);
   useEffect(() => {
     const onOpenPath = (event: Event) => {
       const path = (event as CustomEvent<string>).detail;
@@ -216,7 +231,7 @@ export function App() {
     <div className="app">
       <main className="content">
         {workspace.current && <div data-workspace hidden={!inWorkspace} style={{ display: inWorkspace ? "contents" : "none" }}>
-          <WorkspaceView route={workspace.current.route} />
+          <UiActionsVisibility visible={inWorkspace}><WorkspaceView route={workspace.current.route} /></UiActionsVisibility>
         </div>}
         <Suspense fallback={<div role="status">Opening…</div>}>
           {inWorkspace ? null : route.name === "lineage" ? (

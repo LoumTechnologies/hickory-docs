@@ -1,3 +1,4 @@
+import { useDocumentRunActions } from "./uiDocumentRunActions";
 import { rememberReadingState, restoreReadingState } from "../lib/contextProjection";
 import { launchWithProfiles } from "../debug/launchProfiles";
 import { documentDebugContext } from "../debug/documentDebugContext";
@@ -274,6 +275,7 @@ function useDocumentSession(
   const { prompt, askText, askChoice, settle } = usePrompt();
 
   const checkRunRef = useRef<string | null>(null);
+  const [lastRunId, setLastRunId] = useState<string | null>(null);
   // Fast local runs can finish (and emit their terminal WS message) before
   // the POST /check response delivers the run_id — remember terminals so
   // verify() can resolve the banner after the fact.
@@ -529,8 +531,8 @@ function useDocumentSession(
   const blocksRef = useRef(blocks);
   blocksRef.current = blocks;
 
-  const runAll = useCallback(() => {
-    void (async () => {
+  const runAll = useCallback((expectedSourceHash?: string): Promise<string | null> => {
+    return (async () => {
       setBanner(null);
       startedCellsRef.current = new Set();
       const ids = (blocksRef.current ?? []).filter((b) => b.kind === "exec").map((b) => b.id);
@@ -543,24 +545,28 @@ function useDocumentSession(
       }
       setRunningCells(new Set(ids));
       try {
-        await api.run(docId);
+        const { run_id } = await api.run(docId, undefined, expectedSourceHash);
+        setLastRunId(run_id);
         if (ids.length === 0) {
           setBanner({ kind: "pass", text: "Re-woven. This document has no exec cells to run." });
           scheduleRender();
         }
+        return run_id;
       } catch (e) {
         setRunningCells(new Set());
         setBanner({ kind: "fail", text: `Could not run this document: ${e instanceof Error ? e.message : String(e)}`, retry: { label: "Retry Run", run: runAll } });
+        return null;
       }
     })();
   }, [docId, scheduleRender]);
 
-  const verify = useCallback(() => {
-    void (async () => {
+  const verify = useCallback((expectedSourceHash?: string): Promise<string | null> => {
+    return (async () => {
       setBanner({ kind: "pending", text: "Testing — re-running cells and checking expectations and output drift…" });
       startedCellsRef.current = new Set();
       try {
-        const { run_id } = await api.check(docId);
+        const { run_id } = await api.check(docId, expectedSourceHash);
+        setLastRunId(run_id);
         const already = terminalStatusesRef.current.get(run_id);
         if (already !== undefined) {
           setBanner(
@@ -572,11 +578,15 @@ function useDocumentSession(
         } else {
           checkRunRef.current = run_id;
         }
+        return run_id;
       } catch (e) {
         setBanner({ kind: "fail", text: `Could not test this document: ${e instanceof Error ? e.message : String(e)}`, retry: { label: "Retry Test", run: verify } });
+        return null;
       }
     })();
   }, [docId, scheduleRender]);
+
+  useDocumentRunActions(docId, () => editorRef.current?.state.doc.toString() ?? dirtySource ?? savedSource ?? doc?.source ?? null, lastRunId, runAll, verify);
 
   // Load every output's provenance, so a closed file still gets its stub.
   // Refreshed after a run, because a run is when they change.

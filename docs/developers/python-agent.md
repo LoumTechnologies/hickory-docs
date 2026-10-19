@@ -111,13 +111,22 @@ confinement, not a VM or a native-interpreter security proof.
 
 Model snippets have only Monty's `tool` callback, no workspace mounts, shell,
 network, CPython execution or filesystem-write callback. The host independently
-allowlists reads, searches, audit records, reviewed document edits and changeset
-tools. `verify`, debug execution and generic filesystem writes are withheld.
-Weaving for read/edit tools evaluates in memory; proposed source changes do not
-implicitly run code or publish generated outputs. Every exposed workspace write
-is previewed, separately approved and rechecked before application. Approval does
-not establish human authorship. Arbitrary outside editors can still race the
-final filesystem check/write; cross-file changes are not atomic.
+allowlists reads, searches, audit records, reviewed document edits, changeset
+and attached-window UI tools. Direct shell, generic filesystem-write, verify and
+debug tools remain absent from the confined snippet interface. When attached to
+a window, ui_observe/ui_act expose registered host terminal/setup/run/debug/profile
+and filesystem controls under the same local host policy as their human controls.
+Standalone CLI runs have no window and do not advertise these UI tools.
+
+Document edit tools still preview, independently approve and recheck exact edits.
+Host process/filesystem actions can mutate the workspace without that document
+preview; they retain actual UI receipts and their existing host checks instead.
+Never use them to bypass edit review. Known terminal prompts require actual human
+input, and the host rechecks recognized prompts before agent input. Prompt
+recognition is best effort; this is not a same-user process sandbox. Arbitrary
+outside editors can still race filesystem operations; cross-file changes are not
+atomic. UI dispatch completion and source-output equality do not establish a
+runtime pass; explicitly inspect actual source-bound job receipts.
 
 Python decides when to call `changeset_status`, repair and `submit_changeset`,
 then attempts completion. Hickory freezes A before work, verifies the supplied
@@ -125,7 +134,7 @@ literate artifact against actual B, and rechecks freshness at completion. The UI
 uses its existing workspace/editor capture and shared artifact rendering. A bare
 `done`, a forged observation or a claim of passing tests cannot establish
 acceptance. Equality verification does not execute programs or verify explanation
-accuracy. Runtime checks remain unrun. Python exhausts its configured iterations
+accuracy. Runtime checks are separate from the completion equality gate. Python exhausts its configured iterations
 with an error rather than reporting unverified work as successful completion.
 
 Sessions retain actual tool receipts and approval decisions at the host boundary,

@@ -1,5 +1,46 @@
 //! The downloaded tour is an executable specification, not just browser code.
 use hickory_cli::{ExecutorChoice, RunMode, run_doc};
+
+// Guarantee: docs/guarantees/agent/ui-action-dispatch.md
+#[tokio::test]
+async fn expected_root_source_rejects_changed_bytes_before_parsing_or_execution() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("guarded.md");
+    let original = "# Captured requirement\n";
+    let expected = hick_context_protocol::digest(original.as_bytes());
+    std::fs::write(&path, "<hick:exec>this must never execute</hick:exec>\n").unwrap();
+    let error = hickory_cli::run_doc_expected(
+        &path,
+        &[],
+        RunMode::Execute,
+        ExecutorChoice::Local,
+        &expected,
+    )
+    .await
+    .err()
+    .expect("Changed source must be refused");
+    assert!(
+        error
+            .to_string()
+            .contains("Source revision changed before execution"),
+        "{error:#}"
+    );
+    std::fs::write(&path, original).unwrap();
+    let result = hickory_cli::run_doc_expected(
+        &path,
+        &[],
+        RunMode::Verify,
+        ExecutorChoice::Local,
+        &expected,
+    )
+    .await
+    .unwrap();
+    assert_eq!(result.source, original);
+    assert_eq!(
+        hick_context_protocol::digest(result.source.as_bytes()),
+        expected
+    );
+}
 // Guarantee: docs/guarantees/authoring/the-engineer-tour-distinguishes-replay-from-execution.md
 #[tokio::test]
 async fn deadline_witness_passes_and_exposes_the_original_bug() {

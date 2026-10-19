@@ -1,6 +1,8 @@
 import { ProfileEvidence } from "./ProfileEvidence";
 import { RuntimeLog } from "./RuntimeLogView";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
+import { useRuntimeActions } from "./uiRuntimeActions";
+import { useUiCommands } from "../lib/uiActionBridge";
 import type { EditorView } from "@codemirror/view";
 import { StateEffect } from "@codemirror/state";
 import { ObservationReading } from "./ObservationReading";
@@ -50,6 +52,7 @@ export function RuntimeHistory({ runs, source, view, onPin, onDelete }: {
   const compared = sorted.find(item => item.id === comparison);
   const reading = useMemo(() => run?.sources[0] ? runtimeReading(run, invocation) : null, [run, invocation]);
   const stale = !!run && source !== undefined && new TextDecoder().decode(new Uint8Array(run.sources[0]?.bytes ?? [])) !== source;
+  useRuntimeActions(sorted, run, invocation, comparison, stale, { select: id => { setSelected(id); setInvocation(""); }, occurrence: setInvocation, compare: setComparison, pin: onPin, remove: onDelete });
   useEffect(() => {
     if (!view) return;
     if (!view.state.field(runtimeEditor, false)) view.dispatch({ effects: StateEffect.appendConfig.of(runtimeEditor) });
@@ -98,6 +101,7 @@ export function RuntimeHistory({ runs, source, view, onPin, onDelete }: {
 }
 
 export function NativeRuntimeHistory({ source, view, path }: { path?: string; source?: string; view?: EditorView | null }) {
+  const instance = useId(); const disclosure = useRef<HTMLDetailsElement>(null);
   const [running, setRunning] = useState(false);
   const [program, setProgram] = useState("");
   const [profile, setProfile] = useState(false);
@@ -109,11 +113,35 @@ export function NativeRuntimeHistory({ source, view, path }: { path?: string; so
     setRuns(result.runs.flatMap(item => item.run ? [item.run] : []));
     setError(result.runs.filter(item => item.state !== "present").map(item => `${item.state}: ${item.error ?? "missing"}`).join("; "));
   }
+  async function capture(entry: string, profiling: boolean) {
+    if (!path) throw Error("Open a saved document before executing Python");
+    setRunning(true); setError("");
+    try {
+      const result = await request<{ run: RuntimeRun }>("POST", "/api/runtime/python", { document: path, program: entry, seconds: 10, profile: profiling });
+      await load();
+      return result.run;
+    } catch (reason) { setError(String(reason)); throw reason; }
+    finally { setRunning(false); }
+  }
+  const parent = `native-runtime:${path ?? "workspace"}:${instance}`;
+  useUiCommands([
+    { key: `${parent}/disclose`, command: { label: "Runtime observations", subject: parent, parent: "runtime", parameters: {}, prerequisites: [], read: () => ({ revision: String(shown), enabled: !!disclosure.current, value: shown }), execute: async () => {
+      if (!disclosure.current) return { status: "unavailable", reason: "Runtime view unavailable" };
+      disclosure.current.open = !disclosure.current.open; setShown(disclosure.current.open);
+      if (disclosure.current.open) await load();
+      return { status: "completed", value: { open: disclosure.current.open } };
+    } } },
+    ...(shown && path ? [{ key: `${parent}/capture`, command: { label: "Run saved Python confined", subject: parent, parent, parameters: { program: { type: "string" as const, maxLength: 4096 }, profile: { type: "boolean" as const } }, prerequisites: ["Saved source; confined Python runtime; bounded 10-second capture; no network; cancellation after launch is unsupported"], read: () => ({ revision: `${path}:${running}`, enabled: !running, reason: running ? "A capture is running" : undefined, value: { program, profile, capture_limit_seconds: 10 } }), execute: async (args: Record<string, import("../lib/uiActions").UiValue>) => {
+      setProgram(String(args.program)); setProfile(Boolean(args.profile));
+      const run = await capture(String(args.program), Boolean(args.profile));
+      return { status: "completed" as const, value: { run: run.id, status: run.status, sources: run.sources.map(item => ({ id: item.id, uri: item.uri, revision: item.revision })), events: run.events.length, interpretation: "Inspect actual correctness output and profile metrics; completion alone is not verification" } };
+    } } }] : []),
+  ]);
   useEffect(() => { if (!shown) return; void load().catch(e => setError(String(e))); const timer = setInterval(() => void load().catch(e => setError(String(e))), 2000); return () => clearInterval(timer); }, [shown]);
-  return <details onToggle={event => setShown(event.currentTarget.open)}><summary>Runtime observations</summary>{shown && path && <div>
+  return <details ref={disclosure} onToggle={event => setShown(event.currentTarget.open)}><summary>Runtime observations</summary>{shown && path && <div>
     <label>Generated Python entry point (literate documents)<input value={program} onChange={event => setProgram(event.target.value)} /></label>
     <label><input type="checkbox" checked={profile} onChange={event => setProfile(event.target.checked)} />Profile main-thread functions with cProfile (trace hooks disabled)</label>
-    <button disabled={running} onClick={async () => { setRunning(true); setError(""); try { await request("POST", "/api/runtime/python", { document: path, program, seconds: 10, profile }); await load(); } catch (error) { setError(String(error)); } finally { setRunning(false); } }}>Run saved Python confined</button>
+    <button disabled={running} onClick={() => void capture(program, profile).catch(() => {})}>Run saved Python confined</button>
     <p>{running ? "Capturing for at most 10 seconds; hiding this panel does not cancel execution." : "Executes saved application code in the cell sandbox, without network. Unsaved edits are not executed. Descriptor/native writes and catching sites are unsupported."}</p>
   </div>}{shown && <RuntimeHistory runs={path ? runs.filter(run => run.sources.some(item => item.uri.replace(/^hick:\/\/\//, "") === path)) : runs} source={source} view={view}
     onPin={async run => { await request("PATCH", `/api/runtime/runs/${encodeURIComponent(run.id)}`, { pinned: !run.pinned }); await load(); }}

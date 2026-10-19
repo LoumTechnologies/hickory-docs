@@ -17,7 +17,8 @@
 // is the same rule that keeps two crowded cards apart — so a card's actions
 // read as a group without any second layout pass.
 
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
+import { useUiCommands } from "../lib/uiActionBridge";
 import type { EditorView } from "@codemirror/view";
 
 import { ICON_SIZE, iconVisible, stackIcons } from "../lib/cardRail";
@@ -29,6 +30,7 @@ import type { DocCard } from "./cards";
 export type CardState = "idle" | "running" | "ok" | "failed" | "unknown" | "stale";
 
 export interface CardRailProps {
+  documentId?: string;
   view: EditorView | null;
   cards: DocCard[];
   /** The live state of an exec card; other kinds are always "idle". */
@@ -147,6 +149,7 @@ function title(
 }
 
 export function CardRail({
+  documentId = "editor",
   view,
   cards,
   stateOf,
@@ -156,6 +159,9 @@ export function CardRail({
   replayingAt,
   onAction,
 }: CardRailProps) {
+  const instance = useId();
+  const parent = `document:${documentId}/rail:${instance}`;
+  const [actionError, setActionError] = useState("");
   // One entry per ICON. Every action of a card wants the same top — its
   // card's line — and the stacker turns that into a column.
   const icons = useMemo(
@@ -166,12 +172,38 @@ export function CardRail({
     // `actionsOf` is rebuilt every render by the parent; the CARDS and what
     // they offer are what the list depends on.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [cards],
+    [cards, actionsOf],
   );
   const railRef = useRef<HTMLDivElement | null>(null);
   // Icon tops, shared between the placement effect and the click handler so
   // the popover opens exactly level with the icon that opened it.
   const topsRef = useRef<Map<string, number>>(new Map());
+  const renderedDocument = view?.state.doc;
+  const invoke = useUiCommands(icons.map(({ card, action, key }) => ({
+    key: `${parent}/${key}`,
+    command: {
+      label: `${action === "run" ? "Run" : action === "source" ? "Toggle source" : action === "replay" ? "Toggle transcript" : "Convert to cell"}: ${card.label}`,
+      subject: `${parent}/${card.key}`, parent, parameters: {},
+      prerequisites: action === "run" ? ["Saved cell identity; otherwise Save requires user input"] : [],
+      read: () => {
+        const state = stateOf(card);
+        const settled = view?.state.doc === renderedDocument;
+        return {
+          revision: `${documentRevision(view?.state.doc)}:${state}:${renderedAt.includes(card.at)}:${replayingAt.includes(card.at)}:${openKey}`,
+          enabled: settled && !(action === "run" && state === "running"),
+          reason: !settled ? "Editor parse is updating; observe again" : action === "run" && state === "running" ? "Cell is already running" : undefined,
+          value: { state, source_visible: !renderedAt.includes(card.at), transcript_visible: replayingAt.includes(card.at) },
+        };
+      },
+      execute: async () => {
+        onAction(card, action, topsRef.current.get(key) ?? 0);
+        if (action === "run" && stateOf(card) === "unknown") return { status: "requires_input" as const, reason: "Save this document using the opened Save control, then observe again" };
+        // onAction dispatches the existing UI command. Runtime completion and
+        // verification are established only by the actual run receipt.
+        return { status: "completed" as const, value: { ui_handler_returned: true, runtime_verification: "not established", action } };
+      },
+    },
+  })));
   // The card list changes identity on every keystroke (it is derived from
   // the parse); its CONTENT is what placement depends on.
   const signature = useMemo(
@@ -255,6 +287,7 @@ export function CardRail({
 
   return (
     <div className="cm-card-rail" data-empty={icons.length === 0} role="toolbar" aria-label="Cell and diagram actions" ref={railRef}>
+      {actionError && <span role="alert">{actionError}</span>}
       {icons.map(({ card, action, key }) => {
         const state = stateOf(card);
         const rendered = renderedAt.includes(card.at);
@@ -283,7 +316,7 @@ export function CardRail({
             aria-label={title(card, action, state, rendered, replaying)}
             aria-pressed={pressed}
             data-tip={title(card, action, state, rendered, replaying)}
-            onClick={() => onAction(card, action, topsRef.current.get(key) ?? 0)}
+            onClick={() => { setActionError(""); void invoke(`${parent}/${key}`).catch(error => setActionError(String(error))); }}
           >
             {glyph(card, action, state, rendered)}
           </button>
@@ -291,4 +324,12 @@ export function CardRail({
       })}
     </div>
   );
+}
+
+const documentRevisions = new WeakMap<object, string>();
+function documentRevision(document: object | undefined): string {
+  if (!document) return "unavailable";
+  let revision = documentRevisions.get(document);
+  if (!revision) { revision = crypto.randomUUID(); documentRevisions.set(document, revision); }
+  return revision;
 }

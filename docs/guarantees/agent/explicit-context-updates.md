@@ -52,3 +52,17 @@ Last LLM verification:
   Browser end-to-end coverage and rename discovery remain unverified.
 - Human judgment: audio retention preference approved separately for #60; no
   declaration about context freshness or semantic support.
+
+Issue 72 UI adapter extension (2026-10-19):
+
+- ContextUpdates registers actual panel/patch disclosure, bounded status/patch
+  reads, eligible selection and queue/refresh through the same inspect handler.
+  Selection carries the observed revision. Results report queued states without
+  claiming provider confirmation. Hidden patch content is excluded from both
+  descriptor values and opaque revision tokens.
+- Changing branches clears selected state; an in-flight inspect response cannot
+  replace the newly selected branch's UI. An already dispatched originating-branch
+  operation may have effects and must be inspected there before retrying.
+- Executed checks: both focused component tests passed, including exact queued
+  reference/revision requests and no hidden patch text in discovery. The existing
+  real confined request-boundary integration remains separate evidence.

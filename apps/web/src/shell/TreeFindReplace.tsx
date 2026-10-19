@@ -16,7 +16,9 @@
 //    write use the same matcher on the server (one pattern, built once), so
 //    the list cannot describe a different edit from the one performed.
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useRef, useState } from "react";
+import { useUiCommands, useUiRevision } from "../lib/uiActionBridge";
+import type { UiCommand, UiField } from "../lib/uiActions";
 
 import { api } from "../api/client";
 import type { FindFile, FindOptions, ReplaceResponse } from "../api/types";
@@ -30,6 +32,7 @@ export function TreeFindReplace({
   /** A write happened — the tree and any open buffer should refresh. */
   onReplaced: (result: ReplaceResponse) => void;
 }) {
+  const instance = useId(); const parent = `folder-find:${instance}`;
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [replacement, setReplacement] = useState("");
@@ -38,6 +41,7 @@ export function TreeFindReplace({
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [report, setReport] = useState<ReplaceResponse | null>(null);
+  const [reload, setReload] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -55,6 +59,7 @@ export function TreeFindReplace({
       return;
     }
     let live = true;
+    setResult(null);
     const timer = window.setTimeout(() => {
       api.find(q, options).then(
         (found) => {
@@ -73,7 +78,7 @@ export function TreeFindReplace({
       live = false;
       window.clearTimeout(timer);
     };
-  }, [open, query, options]);
+  }, [open, query, options, reload]);
 
   const writable = (result?.files ?? []).filter((f) => !f.generated_by);
   const total = (result?.files ?? []).reduce(
@@ -81,33 +86,45 @@ export function TreeFindReplace({
     0,
   );
 
-  const runReplace = useCallback(() => {
-    if (!query || writable.length === 0) return;
-    setBusy(true);
-    setReport(null);
-    api
-      .replaceAll(
-        query,
-        replacement,
-        options,
-        writable.map((f) => f.path),
-      )
-      .then(
-        (done) => {
-          setBusy(false);
-          setReport(done);
-          onReplaced(done);
-          // Re-run the find: what is left is what did not change, which is
-          // the honest thing to show next.
-          setResult(null);
-          setQuery((q) => q);
-        },
-        (e: unknown) => {
-          setBusy(false);
-          setError(e instanceof Error ? e.message : String(e));
-        },
-      );
-  }, [query, replacement, options, writable, onReplaced]);
+  const sourceGuardAvailable = writable.length > 0 && writable.every(file => typeof file.source_hash === "string" && /^(sha256:)?[a-f0-9]{64}$/.test(file.source_hash));
+  const runReplace = useCallback(async (requireSource = false) => {
+    if (!query || writable.length === 0 || busy) return { error: "Find writable matches and wait for the current operation" };
+    if (result?.truncated) return { error: "Narrow the query until the search response is complete before replacing" };
+    if (requireSource && !sourceGuardAvailable) return { error: "The current host did not supply source identities. Refresh search with an updated host before replacing" };
+    setBusy(true); setReport(null);
+    try {
+      const done = await api.replaceAll(query, replacement, options, writable.map(file => file.path), sourceGuardAvailable ? Object.fromEntries(writable.map(file => [file.path, file.source_hash!])) : undefined);
+      setReport(done); onReplaced(done); setResult(null); setReload(value => value + 1);
+      return { result: done };
+    } catch (e) { const error = e instanceof Error ? e.message : String(e); setError(error); return { error }; }
+    finally { setBusy(false); }
+  }, [query, replacement, options, writable, onReplaced, busy, sourceGuardAvailable, result?.truncated]);
+  const revision = useUiRevision(() => [open, query, replacement, options, result, error, busy, report]);
+  const commands: { key: string; command: UiCommand }[] = [];
+  function add(id: string, label: string, parameters: Record<string, UiField>, execute: UiCommand["execute"], enabled = true, group = parent, reason?: string) {
+    commands.push({ key: `${parent}/${id}`, command: { label, parent: group, subject: parent, parameters, prerequisites: ["Search matches are retained observations, not complete edit baselines"], read: () => ({ revision: revision(), enabled, reason }), execute } });
+  }
+  add("open", "Set folder find visibility", { open: { type: "boolean" } }, async args => { setOpen(Boolean(args.open)); return { status: "completed", value: { open: Boolean(args.open) } }; }, true, "folder-find-disclosures");
+  if (open) {
+    add("query", "Set folder search query and options", { query: { type: "string", maxLength: 8192 }, case: { type: "boolean" }, whole_word: { type: "boolean" }, regex: { type: "boolean" } }, async args => { setQuery(String(args.query)); setOptions({ case: Boolean(args.case), whole_word: Boolean(args.whole_word), regex: Boolean(args.regex) }); return { status: "completed", value: { dispatch: "search requested", result: "Read the actual asynchronous search response or error" } }; }, !busy);
+    add("replacement", "Set folder replacement draft", { text: { type: "string", maxLength: 32768 } }, async args => { setReplacement(String(args.text)); return { status: "completed", value: { applied: false } }; }, !busy);
+    add("read", "Read folder search state bytes", { offset: { type: "number", minimum: 0, maximum: 100000000, integer: true }, limit: { type: "number", minimum: 1, maximum: 8192, integer: true } }, async args => {
+      const bytes = new TextEncoder().encode(JSON.stringify({ query, replacement, options, result, error, busy, report, edit_baseline: false, interpretation: "A null result has no current search response; inspect errors and truncation" }));
+      const offset = Number(args.offset), end = Math.min(bytes.length, offset + Number(args.limit));
+      if (offset > bytes.length) return { status: "unavailable", reason: "Offset exceeds current search state" };
+      return { status: "completed", value: { encoding: "JSON encoded as UTF-8 bytes", bytes: [...bytes.slice(offset, end)], span: [offset, end], total_bytes: bytes.length, next: end < bytes.length ? end : null } };
+    });
+    add("hit", "Open observed folder search hit", { path: { type: "string", maxLength: 8192 }, line: { type: "number", minimum: 1, maximum: 100000000, integer: true } }, async args => {
+      const file = result?.files.find(file => file.path === args.path);
+      if (!file?.matches.some(match => match.line === args.line)) return { status: "unavailable", reason: "Hit does not belong to this observed search response" };
+      onOpenHit(file.path, Number(args.line)); return { status: "completed", value: { dispatch: "navigation requested", path: file.path, line: args.line } };
+    }, !!result);
+    add("replace", "Replace folder matches", {}, async () => {
+      const outcome = await runReplace(true);
+      return outcome.result ? { status: "completed", value: { replacements: outcome.result.replacements, changed_files: outcome.result.changed.length, skipped_files: outcome.result.skipped.length, result: "Read the actual per-file report; skipped source changes and generated files remain unmodified" } } : { status: "unavailable", reason: outcome.error ?? "Replacement unavailable" };
+    }, !busy && !!query && sourceGuardAvailable && !result?.truncated, parent, "Find complete fresh writable matches with source identities; narrow truncated results");
+  }
+  useUiCommands(commands);
 
   if (!open) {
     return (
@@ -197,8 +214,8 @@ export function TreeFindReplace({
           <button
             type="button"
             className="btn btn-small btn-primary"
-            disabled={busy || writable.length === 0}
-            onClick={runReplace}
+            disabled={busy || writable.length === 0 || result?.truncated}
+            onClick={() => void runReplace()}
             data-tip={
               writable.length === 0
                 ? "Every match is in a generated file — change the document instead"

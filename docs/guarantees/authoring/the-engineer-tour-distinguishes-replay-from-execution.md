@@ -74,3 +74,26 @@ October 19 integrated native workflow extension:
   the entire native-window/provider/deployed flow.
 - Video/recovery procedure: `docs/developers/engineer-tour-video.md`.
 - Human judgment: no launch-readiness declaration recorded.
+
+October 19 agent-first coach revision:
+
+- The native workflow now uses nonmodal anchored popups over normal controls.
+  Investigation/setup precedes the human criterion, reviewed correction, focused
+  verification, explicit resolution and publication comparison. Profile work is
+  optional. The homepage browser example retains its recorded-proposal labels.
+- Reopening reconciles progress against host-retained evidence. A copied task,
+  completed turn alone, arbitrary paused source or saved step cannot establish
+  a gate. Skip preserves an explicitly unestablished step.
+- Successful reviewed edits are correlated with host tool results and hash the
+  effective human replacement bytes when the preview was replaced.
+- Source-guarded run receipts distinguish requested and actually captured root
+  hashes. A failure is not identified from source prose.
+- Executed focused checks: four coach component tests, two scenario tests, five
+  backend coach tests, the expected-source guard test, three recording-loader
+  tests and two landing-page tests passed. These do not establish native visual
+  accessibility, a paid provider, a current release or deployed playback.
+- ACP UI dispatch is connected; the coach's provider-delivery gate currently
+  requires Python's correlated delivery receipt. Universal UI parity and actual
+  native/provider/released/deployed witnesses remain outstanding.
+- The earlier nine-phase description above documents the previous implementation;
+  the current capture procedure is docs/developers/engineer-tour-video.md.

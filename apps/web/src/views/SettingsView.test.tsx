@@ -1,7 +1,9 @@
 import { FILES_WINDOWS_KEY, loadFilesWindows } from "../lib/filesWindows";
 import { FILES_PARALLAX_KEY, loadFilesParallax } from "../lib/filesParallax";
 import { EDITOR_APPEARANCE_KEY, loadEditorAppearance } from "../lib/editorAppearance";
-import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { UiActions } from "../lib/uiActions";
+import { UiActionContext } from "../lib/uiActionBridge";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { installMockHandler } from "../api/client";
@@ -26,6 +28,29 @@ let providers: ProviderKey[];
 let puts: SettingsKeysPatch[];
 let uiSettings: UiSettings;
 let uiPuts: UiSettings[];
+
+// Guarantee: docs/guarantees/agent/ui-action-dispatch.md
+it("shares setting choices while keeping credential drafts out of agent observations", async () => {
+  const registry = new UiActions({ workspace: "practice", window: "one" }, () => true, async () => {});
+  render(<UiActionContext.Provider value={registry}><SettingsView /></UiActionContext.Provider>);
+  await screen.findByLabelText("OpenAI API key");
+  fireEvent.change(screen.getByLabelText("OpenAI API key"), { target: { value: "draft-secret-never-context" } });
+  expect(JSON.stringify(registry.observe("settings"))).not.toContain("draft-secret-never-context");
+  const choice = registry.observe("settings-choices").actions.find(action => action.label === "Set Theme")!;
+  await act(async () => { expect(await registry.act(registry.scope, { id: "python:turn", kind: "agent" }, { handle: choice.handle, arguments: { choice: "light" }, request_id: "theme" })).toMatchObject({ status: "result" }); });
+  expect(loadTheme()).toBe("light");
+  const credential = registry.observe("settings").actions.find(action => action.label === "Request credential change: OpenAI")!;
+  expect(await registry.act(registry.scope, { id: "python:turn", kind: "agent" }, { handle: credential.handle, arguments: {}, request_id: "credential" })).toMatchObject({ status: "result", outcome: { status: "requires_input", request: "settings:credential:openai" } });
+  expect(puts).toEqual([]);
+  const toggle = registry.observe("settings-toggles").actions.find(action => action.label === "Set Right-hand line numbers")!;
+  await act(async () => { await registry.act(registry.scope, { id: "python:turn", kind: "agent" }, { handle: toggle.handle, arguments: { checked: true }, request_id: "right-numbers" }); });
+  expect(loadEditorAppearance().rightLineNumbers).toBe(true);
+  const draft = registry.observe("settings-appearance").actions.find(action => action.label === "Set window title draft")!;
+  await act(async () => { await registry.act(registry.scope, { id: "python:turn", kind: "agent" }, { handle: draft.handle, arguments: { title: "Investigation" }, request_id: "title-draft" }); });
+  const save = registry.observe("settings-appearance").actions.find(action => action.label === "Save custom window title")!;
+  await act(async () => { expect(await registry.act(registry.scope, { id: "python:turn", kind: "agent" }, { handle: save.handle, arguments: {}, request_id: "title-save" })).toMatchObject({ status: "result", outcome: { value: { saved: "Investigation" } } }); });
+  expect(uiPuts).toContainEqual({ window_title: "Investigation" });
+});
 
 beforeEach(() => {
   localStorage.removeItem(FILES_WINDOWS_KEY);

@@ -19,6 +19,29 @@ def digest(data):
     return hashlib.sha256(data).hexdigest()
 
 
+def demonstration(entry, assets):
+    value = entry.get('demonstration')
+    if value is None:
+        return None
+    if not isinstance(value, dict) or value.get('reviewed') is not True:
+        raise ValueError('A demonstration requires explicit review')
+    if value.get('capture_kind') != 'native-provider':
+        raise ValueError('Launch recordings must declare an actual native/provider capture')
+    revision = value.get('captured_revision', '')
+    if not isinstance(revision, str) or len(revision) != 40 or any(c not in '0123456789abcdef' for c in revision):
+        raise ValueError('Recording needs its captured build revision')
+    recording = value.get('recording_asset')
+    if not isinstance(recording, str) or recording not in assets or not recording.endswith(('.mp4', '.webm')):
+        raise ValueError('Recording must be a separately selected and hash-reviewed video asset')
+    session = value.get('session_asset')
+    if session is not None and (not isinstance(session, str) or session not in assets):
+        raise ValueError('A shared session must be an explicitly reviewed public export')
+    notes = value.get('cuts', [])
+    if not isinstance(notes, list) or any(not isinstance(note, str) for note in notes):
+        raise ValueError('Recording cuts must be declared')
+    return {k: value[k] for k in ('capture_kind', 'captured_revision', 'recording_asset', 'session_asset', 'cuts') if k in value}
+
+
 def selected(root, relative):
     if not isinstance(relative, str) or Path(relative).is_absolute() or '..' in Path(relative).parts:
         raise ValueError('Publication inputs must be workspace-relative paths without parent traversal')
@@ -56,6 +79,7 @@ def publish(root, selection, destination, hick, runner=subprocess.run):
             raise ValueError('Selected input changed since publication review; review bytes and update reviewed_inputs before publishing')
         dependencies = {p: digest(inputs[p]) for p in entry.get('dependencies', [])}
         assets = {p: digest(inputs[p]) for p in entry.get('assets', [])}
+        demo = demonstration(entry, assets)
         identity = digest(path.encode())[:16]
         with tempfile.TemporaryDirectory(prefix='hickory-publication-') as temporary:
             scratch = Path(temporary)
@@ -109,6 +133,8 @@ def publish(root, selection, destination, hick, runner=subprocess.run):
                     commands=results, requirements=entry.get('requirements', []),
                     origin='executed-command; per-cell recorded/replayed origin unavailable',
                     scope='Only listed witnesses; deterministic allocation is not real network timing or arbitrary prose verification.'))
+            if demo is not None:
+                snapshot['demonstration'] = demo
             # Asset references remain relative to the original document path.
             # Host an isolated publication subtree and use a matching snapshot path.
             artifact = destination / identity

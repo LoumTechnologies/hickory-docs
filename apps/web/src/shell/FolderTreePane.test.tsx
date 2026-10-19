@@ -1,4 +1,6 @@
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { UiActions } from "../lib/uiActions";
+import { UiActionContext } from "../lib/uiActionBridge";
 import { EditorView } from "@codemirror/view";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -43,6 +45,24 @@ const TREE: FileNode[] = [
 ];
 
 const RESPONSE: FilesResponse = { root: "/home/me/notebook", tree: TREE };
+
+it("discloses immediate folder children and opens through the actual pane callback", async () => {
+  const registry = new UiActions({ workspace: "practice", window: "one" }, () => true, async () => {});
+  const onOpen = vi.fn();
+  render(<UiActionContext.Provider value={registry}><FolderTreePane roots={[RESPONSE]} openable={new Set()} onOpen={onOpen} onNewDocument={() => {}} /></UiActionContext.Provider>);
+  const parent = registry.groups().groups.find(group => group.startsWith("folder-tree:"))!;
+  let n = 0;
+  const invoke = async (label: string, arguments_: Record<string, string | number>) => {
+    const action = registry.observe(parent).actions.find(action => action.label.startsWith(label))!;
+    let result;
+    await act(async () => { result = await registry.act(registry.scope, { id: "python:turn", kind: "agent" }, { handle: action.handle, arguments: arguments_, request_id: String(++n) }); });
+    return result;
+  };
+  expect(await invoke("Read folder entries", { directory: "src", offset: 0, limit: 1 })).toMatchObject({ status: "result", outcome: { value: { directory: "src", total: 2, next: 1, entries: [{ path: "src/gen", children: 1 }] } } });
+  expect(await invoke("Read folder entries", { directory: "missing", offset: 0, limit: 1 })).toMatchObject({ status: "result", outcome: { status: "unavailable" } });
+  await invoke("Open observed workspace file", { path: "paper.md" }); expect(onOpen).toHaveBeenCalledWith({ kind: "doc", id: "d1" });
+  expect(await invoke("Open observed workspace file", { path: "logo.png" })).toMatchObject({ status: "result", outcome: { status: "unavailable" } });
+});
 
 function mockFiles(response: FilesResponse = RESPONSE) {
   installMockHandler(async (method, path) => {

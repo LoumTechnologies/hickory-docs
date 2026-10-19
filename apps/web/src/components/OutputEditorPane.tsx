@@ -1,3 +1,4 @@
+import { useEditorActions } from "../editor/uiEditorActions";
 import { DebugLaunchRail } from "../debug/DebugRail";
 // The generated-output editor, shared by the Output view and the right pane of
 // Split. It is EDITABLE ON ARRIVAL: you type in woven output and the parent
@@ -114,6 +115,7 @@ export function OutputEditorPane({
   // The live view AS STATE, for the right rail: a ref never re-renders, and
   // the rail must mount its sync against the view that actually exists.
   const [railView, setRailView] = useState<EditorView | null>(null);
+  useEditorActions(railView, `output:${file.path}`);
   // Why a test could not be run, from the gutter's click.
   const [testNotice, setTestNotice] = useState<string | null>(null);
   const provRef = useRef<ProvChar[]>([]);

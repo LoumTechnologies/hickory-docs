@@ -1090,6 +1090,8 @@ pub(super) fn language_of(path: &str) -> String {
 #[derive(Deserialize, Default)]
 pub struct RunRequest {
     #[serde(default)]
+    pub expected_source_hash: Option<String>,
+    #[serde(default)]
     pub cells: Option<Vec<String>>,
 }
 
@@ -1098,8 +1100,15 @@ pub struct RunRequest {
 pub async fn run_doc(
     State(state): State<LocalState>,
     Path(id): Path<String>,
+    body: Option<Json<RunRequest>>,
 ) -> ApiResult<(StatusCode, Json<Value>)> {
-    let run_id = state.start_run(&id, false).await?;
+    let run_id = state
+        .start_run_expected(
+            &id,
+            false,
+            body.and_then(|body| body.0.expected_source_hash),
+        )
+        .await?;
     Ok((StatusCode::ACCEPTED, Json(json!({ "run_id": run_id }))))
 }
 
@@ -1107,8 +1116,11 @@ pub async fn run_doc(
 pub async fn check_doc(
     State(state): State<LocalState>,
     Path(id): Path<String>,
+    body: Option<Json<RunRequest>>,
 ) -> ApiResult<(StatusCode, Json<Value>)> {
-    let run_id = state.start_run(&id, true).await?;
+    let run_id = state
+        .start_run_expected(&id, true, body.and_then(|body| body.0.expected_source_hash))
+        .await?;
     Ok((StatusCode::ACCEPTED, Json(json!({ "run_id": run_id }))))
 }
 
@@ -1126,9 +1138,12 @@ pub async fn get_run(
         .ok_or_else(|| ApiError::not_found("no such run in this session"))?;
     Ok(Json(json!({
         "id": run_id,
+        "document": record.document,
         "status": record.status,
         "started_at": record.started_at,
         "source_hash": record.source_hash,
+        "requested_source_hash": record.requested_source_hash,
+        "error": record.error,
         "blocks": record.blocks,
     })))
 }

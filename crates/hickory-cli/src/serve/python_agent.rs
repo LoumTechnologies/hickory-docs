@@ -193,6 +193,9 @@ pub fn session_backend(path: &std::path::Path, provider: &str) -> String {
     }
 }
 struct Review {
+    ui: Arc<super::ui_actions::Hub>,
+    ui_window: Option<String>,
+    actor: String,
     context: super::acp::RoomContext,
     snapshots: std::collections::HashMap<String, super::acp::workspace::Snapshot>,
     queue: Arc<super::agent_review::ReviewQueue>,
@@ -200,6 +203,22 @@ struct Review {
 }
 #[async_trait::async_trait]
 impl crate::python_agent::Review for Review {
+    fn ui_tools(&self) -> Vec<Value> {
+        if self.ui_window.is_some() {
+            super::ui_actions::catalogue()
+        } else {
+            vec![]
+        }
+    }
+    async fn ui_call(&mut self, name: &str, arguments: Value) -> anyhow::Result<Value> {
+        let window = self
+            .ui_window
+            .as_deref()
+            .ok_or_else(|| anyhow::anyhow!("No originating UI window attached"))?;
+        Ok(super::ui_actions::tool_result(
+            self.ui.call(window, &self.actor, name, arguments).await?,
+        ))
+    }
     fn context_inbox(&self) -> Option<Arc<std::sync::Mutex<crate::context_updates::Inbox>>> {
         Some(self.queue.context.clone())
     }
@@ -333,6 +352,11 @@ pub(super) async fn run_turn(
         *queue.edits.buffers.lock().unwrap() = editors.buffers;
     }
     let mut review = Review {
+        ui: state.ui_actions.clone(),
+        ui_window: serde_json::from_str::<Value>(&identity.context)
+            .ok()
+            .and_then(|v| v["editors"]["ui_window"].as_str().map(str::to_owned)),
+        actor: format!("python:{}", identity.turn),
         context: super::acp::RoomContext {
             index: state.index.clone(),
             rooms: state.rooms.clone(),

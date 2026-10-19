@@ -18,7 +18,10 @@ describe("the short homepage", () => {
     expect(header.textContent).toContain("Downloadable software");
     expect(header.textContent).toContain("Runs on your machine");
     expect(screen.getByRole("link", { name: "Get the desktop app" }).getAttribute("href")).toBe("#download");
-    expect(container.querySelectorAll("section")).toHaveLength(1);
+    expect(container.querySelectorAll("section")).toHaveLength(2);
+    expect(screen.getByRole("link", { name: "Inspect the agent workflow" }).getAttribute("href")).toBe("#watch-workflow");
+    expect(screen.getByRole("link", { name: "Current desktop prerelease downloads" }).getAttribute("href")).toContain("/releases/tag/unstable");
+    expect(screen.queryByText("Public downloads coming soon.")).toBeNull();
     expect(screen.queryByText("Three things that should have been one")).toBeNull();
   });
   it("reports the visit once per load", () => {

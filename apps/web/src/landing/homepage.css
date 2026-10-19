@@ -24,6 +24,8 @@
 .landing-demo-limits p { max-width: 42rem; }
 .landing-download { border-top: 1px solid var(--border); padding-top: 1rem; margin-top: 1.5rem; font-size: .9rem; }
 .landing-download h2 { font-size: 1.1rem; margin: 0; }
+.landing-simple #watch-workflow { margin-top: 1.5rem; padding: 1rem; background: var(--bg-elevated); border: 1px solid var(--border); border-radius: 6px; }
+.landing-simple #watch-workflow video { display: block; width: 100%; max-height: 32rem; margin: 1rem 0; }
 @media (max-width: 700px) {
   .landing-demo-heading { align-items: start; flex-direction: column; gap: .6rem; }
   .landing-simple .hickory-browser-debug { grid-template-columns: minmax(0, 1fr); }

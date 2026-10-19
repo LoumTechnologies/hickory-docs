@@ -537,22 +537,25 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
             label: action.label,
             detail: action.hint,
             run: action.run,
+            agentAllowed: true,
           })),
           {
             id: "settings",
+            agentAllowed: true,
             label: "Settings",
             detail: "Appearance and agent settings",
             run: () => navigate("/settings"),
           },
           {
             id: "welcome",
+            agentAllowed: true,
             label: "Welcome page",
             detail: "Start, and what is in this folder",
             run: () => setLayout(openWelcomeTab),
           },
         ];
         if (await hasCommandInstaller()) all.push({
-          id: "install-hick-command", label: "Shell Command: Install hick command in PATH…",
+          id: "install-hick-command", agentAllowed: true, label: "Shell Command: Install hick command in PATH…",
           detail: "Command line settings", run: () => navigate("/settings"),
         });
         const needle = term.toLowerCase();

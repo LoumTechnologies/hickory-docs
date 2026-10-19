@@ -220,6 +220,83 @@ fn python() -> Option<String> {
     value
 }
 
+// Guarantee: docs/guarantees/agent/ui-action-dispatch.md
+// Real confined Python + HTTP broker, scripted provider and UI endpoint.
+// The separate component tests witness the actual shared UI controller.
+#[tokio::test]
+async fn python_agent_uses_originating_window_ui_tools_with_retained_context() {
+    let Some(python) = python() else {
+        return;
+    };
+    let app = App::start().await;
+    app.configure(&python).await;
+    let model = Model::new([
+        json!({"python":"import json\no = json.loads(tool('ui_observe', {'parent':'fixture-rail'})['content'][0]['text'])\nprint(tool('ui_act', {'handle':o['actions'][0]['handle'], 'arguments':{}, 'request_id':'one-run'}))"}),
+        json!({"done":"Requested a run through the shared UI; runtime success is not established."}),
+    ]);
+    app.state.agent.set_llm_override(model.clone());
+    let (status, scope) = app.request("POST", "/api/ui/windows", json!({})).await;
+    assert_eq!(status, 200, "{scope}");
+    let window = scope["window"].as_str().unwrap();
+    let (status, sent) = app.request("POST", &app.route(""), json!({"backend":"python","prompt":"Discover and run the registered cell","context":{"ui_window":window,"buffers":[]}})).await;
+    assert_eq!(status, 202, "{sent}");
+    let turn = sent["session_id"].as_str().unwrap();
+    let poll_route = format!("/api/ui/windows/{window}/requests");
+    let reply_route = format!("/api/ui/windows/{window}/reply");
+    for (method, result) in [
+        (
+            "ui_observe",
+            json!({"actions":[{"label":"Run fixture","handle":"action:fixture-current"}],"coverage":"scripted UI endpoint; component parity tested separately"}),
+        ),
+        (
+            "ui_act",
+            json!({"status":"result","outcome":{"status":"queued","job":"fixture-runtime-job"}}),
+        ),
+    ] {
+        let (status, frame) = app.request("GET", &poll_route, Value::Null).await;
+        assert_eq!(status, 200, "{frame}");
+        let frame = &frame["request"];
+        assert_eq!(frame["method"], method, "{frame}");
+        assert_eq!(
+            frame["actor"],
+            json!({"id":format!("python:{turn}"),"kind":"agent"})
+        );
+        if method == "ui_act" {
+            assert_eq!(
+                frame["arguments"],
+                json!({"handle":"action:fixture-current","arguments":{},"request_id":"one-run"})
+            );
+        }
+        let (status, response) = app
+            .request(
+                "POST",
+                &reply_route,
+                json!({"id":frame["id"],"result":result}),
+            )
+            .await;
+        assert_eq!(status, 200, "{response}");
+    }
+    let outcome = app.wait(turn).await;
+    assert_eq!(outcome["status"], "ok", "{outcome}");
+    let source =
+        std::fs::read_to_string(app.root.join(outcome["session"].as_str().unwrap())).unwrap();
+    assert!(source.contains("python-ui-request"));
+    assert!(source.contains("fixture-runtime-job"));
+    assert!(source.contains("context_references"));
+    let requests = model.requests.lock().unwrap();
+    assert!(
+        requests[0]
+            .iter()
+            .any(|m| m.content.contains("ui_observe") && m.content.contains("ui_act"))
+    );
+    assert!(
+        requests
+            .iter()
+            .flatten()
+            .any(|m| m.content.contains("fixture-runtime-job"))
+    );
+}
+
 #[tokio::test]
 async fn runtime_setup_refuses_invalid_installations_and_reserved_acp_ids() {
     let app = App::start().await;

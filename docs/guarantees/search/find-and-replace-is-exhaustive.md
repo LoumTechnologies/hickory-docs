@@ -94,3 +94,23 @@ Last LLM verification:
   "type a pattern, tick files, press Replace" was exercised by hand. The
   match cap and the 4MB file cap are asserted only by reading the code; no
   test builds a folder large enough to hit either.
+
+Issue 72 guarded shared-controller extension (2026-10-19):
+
+- Find responses include each file's captured source SHA-256. The new panel sends
+  those expected identities with its selected paths. The host refuses malformed
+  coverage, skips detected changed/unavailable sources and rechecks captured
+  source immediately before writing. Actual changed entries retain before/after
+  hashes. Legacy callers omitting expected_sources retain their previous API.
+- Source checks are optimistic. Outside writers can race the final check/write,
+  and a multi-file replace is not an OS transaction. This remains partially
+  verified; the previous blanket wording cannot certify all external races.
+- Truncated responses cannot be replaced through the panel; narrow the query.
+  Query changes clear old matches, and successful replacement triggers a fresh
+  search rather than retaining a stale preview.
+- The registered panel uses the same query/options, hit-navigation and replacement
+  controller as the human controls, with explicit bounded result reads and opaque
+  revision tokens. Unknown hit identities are refused.
+- Executed focused checks: the real HTTP source-drift/fresh-observation test passed;
+  the shared-controller UI test passed, including exact expected-source arguments
+  and retained skipped-file results. Targeted strict TypeScript checking passed.

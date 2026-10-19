@@ -53,7 +53,12 @@ export function useEnvironments() {
       showTerminalRequest(session.id, session.title);
       if (live.current) setStatus((s) => ({ ...s, running: { ...s.running, [finding.project]: session.id } }));
       void refresh();
-    } catch (e) { if (live.current) setError(e instanceof Error ? e.message : String(e)); }
+      return { session };
+    } catch (e) {
+      const error = e instanceof Error ? e.message : String(e);
+      if (live.current) setError(error);
+      return { error };
+    }
     finally { if (live.current) setPending(null); }
   };
   return {
@@ -61,8 +66,8 @@ export function useEnvironments() {
     notices: status.findings.filter((f) => f.state !== "ready" && f.state !== "unknown" && !dismissed.has(f.revision)),
     dismiss: (f: EnvironmentFinding) => setDismissed((s) => new Set([...s, f.revision])),
     choose: async (finding: EnvironmentFinding, choice: string) => {
-      try { await environmentApi.choose(finding, choice); await refresh(true); }
-      catch (e) { if (live.current) setError(e instanceof Error ? e.message : String(e)); }
+      try { await environmentApi.choose(finding, choice); await refresh(true); return { ok: true }; }
+      catch (e) { const error = e instanceof Error ? e.message : String(e); if (live.current) setError(error); return { ok: false, error }; }
     },
   };
 }

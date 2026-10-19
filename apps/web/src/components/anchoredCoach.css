@@ -1,0 +1,6 @@
+.anchored-coach { position: fixed; z-index: 120; width: min(400px, calc(100vw - 24px)); max-height: min(65vh, 620px); overflow: auto; padding: 1rem; border: 1px solid var(--border, #888); border-radius: .5rem; background: var(--bg, #fff); color: var(--fg, #222); box-shadow: 0 8px 28px #0003; }
+.anchored-coach > header { display: flex; align-items: center; justify-content: space-between; gap: .5rem; }
+.anchored-coach .workflow-tour--app { border: 0; padding: 0; margin: 0; }
+.anchored-coach pre { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 12rem; overflow: auto; }
+.anchored-coach .workflow-tour-controls { display: flex; flex-wrap: wrap; gap: .4rem; }
+@media (prefers-reduced-motion: reduce) { .anchored-coach { animation: none; transition: none; scroll-behavior: auto; } }

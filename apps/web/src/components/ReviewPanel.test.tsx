@@ -1,10 +1,33 @@
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { UiActionContext } from "../lib/uiActionBridge";
+import { UiActions } from "../lib/uiActions";
 import { afterEach, expect, it, vi } from "vitest";
 const request = vi.hoisted(() => vi.fn());
 vi.mock("../api/client", () => ({ request }));
 import { ReviewPanel } from "./ReviewPanel";
 import { openReview } from "../lib/reviews";
 afterEach(() => { cleanup(); request.mockReset(); });
+// Guarantee: docs/guarantees/authoring/review-threads-preserve-the-questioned-target.md
+it("attributes an agent comment without granting human resolution", async () => {
+  const target = { kind: "claim", path: "spec.md", quote: "Claim", source_hash: "a".repeat(64), lines: [1, 1] };
+  const original = { id: "original", thread: "thread", target, action: "comment", body: "Human criterion", actor: "user-declared", recorded_at: "1" };
+  request.mockImplementation(async (method: string) => method === "GET" ? { scope: "workspace", events: [original], targets: [] } : { id: "agent-comment", thread: "thread", actor: "agent-declared" });
+  const registry = new UiActions({ workspace: "practice", window: "one" }, () => true, async () => {});
+  render(<UiActionContext.Provider value={registry}><ReviewPanel /></UiActionContext.Provider>);
+  fireEvent.click(screen.getByRole("button", { name: "Review threads" }));
+  fireEvent.click(await screen.findByRole("button", { name: "spec.md: Human criterion" }));
+  let n = 0;
+  const invoke = async (label: string, arguments_ = {}) => {
+    const parent = registry.groups().groups.find(group => group.startsWith("reviews:"))!;
+    const action = registry.observe(parent).actions.find(action => action.label === label)!;
+    let result; await act(async () => { result = await registry.act(registry.scope, { id: "python:turn", kind: "agent" }, { handle: action.handle, arguments: arguments_, request_id: String(++n) }); }); return result;
+  };
+  await invoke("Set review comment or reason", { text: "Actual agent finding" });
+  expect(await invoke("Resolve after human review")).toMatchObject({ status: "result", outcome: { status: "requires_input" } });
+  expect(await invoke("Save review comment")).toMatchObject({ status: "result", outcome: { value: { id: "agent-comment", actor: "agent-declared" } } });
+  expect(request).toHaveBeenCalledWith("POST", "/api/reviews", { scope: "workspace", thread: "thread", target: null, action: "comment", body: "Actual agent finding", agent: true });
+  expect(request.mock.calls.some(call => call[0] === "POST" && call[2].action === "resolve")).toBe(false);
+});
 // Guarantee: docs/guarantees/authoring/review-threads-preserve-the-questioned-target.md
 it("posts the captured target and workspace scope and retains its quotation", async () => {
   request.mockImplementation(async (method: string) => method === "GET" ? { scope:"workspace",events:[],targets:[] } : {thread:"review-1"});

@@ -1,10 +1,33 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { UiActions } from "../lib/uiActions";
+import { UiActionContext } from "../lib/uiActionBridge";
 
 import { CommandBar, modeHint, parseQuery, openCommandBar } from "./CommandBar";
 
 afterEach(() => {
   cleanup();
+});
+// Guarantee: docs/guarantees/agent/ui-action-dispatch.md
+it("discloses actual command candidates and preserves policy before choosing the shared callback", async () => {
+  const safe = vi.fn(), unsafe = vi.fn();
+  const candidates = vi.fn(() => [{ id: "safe", label: "Open view", agentAllowed: true, run: safe }, { id: "unreviewed", label: "Unreviewed callback", run: unsafe }]);
+  const registry = new UiActions({ workspace: "practice", window: "one" }, () => true, async () => {});
+  render(<UiActionContext.Provider value={registry}><CommandBar overlay candidates={candidates} /></UiActionContext.Provider>);
+  expect(registry.groups().groups).toEqual(["command-search-disclosures"]);
+  let n = 0;
+  const invoke = async (parent: string, label: string, args = {}) => {
+    const action = registry.observe(parent).actions.find(action => action.label === label)!;
+    let result; await act(async () => { result = await registry.act(registry.scope, { id: "python:turn", kind: "agent" }, { handle: action.handle, arguments: args, request_id: String(++n) }); }); return result;
+  };
+  await invoke("command-search-disclosures", "Set command search visibility", { open: true, commands: true });
+  await screen.findByRole("option", { name: "Open view" });
+  const parent = registry.groups().groups.find(group => group.startsWith("command-search:"))!;
+  expect(candidates).toHaveBeenCalledWith("command", "");
+  expect(await invoke(parent, "Choose command search candidate", { id: "unreviewed" })).toMatchObject({ outcome: { status: "unavailable" } }); expect(unsafe).not.toHaveBeenCalled();
+  expect(await invoke(parent, "Choose command search candidate", { id: "forged" })).toMatchObject({ outcome: { status: "unavailable" } });
+  expect(await invoke(parent, "Choose command search candidate", { id: "safe" })).toMatchObject({ outcome: { value: { dispatch: "requested", item: "safe" } } });
+  expect(safe).toHaveBeenCalledOnce(); expect(registry.observe(parent).actions).toEqual([]);
 });
 
 describe("one field, four questions", () => {

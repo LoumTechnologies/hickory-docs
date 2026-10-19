@@ -83,6 +83,42 @@ const DOC: &str = r##"<?xml version="1.0" encoding="UTF-8"?>
 </hick:doc>
 "##;
 
+// Guarantee: docs/guarantees/search/find-and-replace-is-exhaustive.md
+#[tokio::test(flavor = "multi_thread")]
+async fn source_guarded_replace_refuses_changed_bytes_and_accepts_a_fresh_observation() {
+    let session = start(&[("source.txt", "old value\n")]).await;
+    let (_, observed) = get(&session, "/api/find?q=old").await;
+    let old_hash = observed["files"][0]["source_hash"].as_str().unwrap();
+    std::fs::write(
+        session.dir.path().join("source.txt"),
+        "old changed independently\n",
+    )
+    .unwrap();
+    let (status, refused) = post(&session, "/api/find/replace", json!({"q":"old","replacement":"new","paths":["source.txt"],"expected_sources":{"source.txt":old_hash}})).await;
+    assert_eq!(status, 200, "{refused}");
+    assert_eq!(refused["changed"], json!([]));
+    assert_eq!(refused["skipped"][0]["reason"], "source_changed");
+    assert_eq!(
+        std::fs::read_to_string(session.dir.path().join("source.txt")).unwrap(),
+        "old changed independently\n"
+    );
+    let (_, fresh) = get(&session, "/api/find?q=old").await;
+    let (status, changed) = post(&session, "/api/find/replace", json!({"q":"old","replacement":"new","paths":["source.txt"],"expected_sources":{"source.txt":fresh["files"][0]["source_hash"]}})).await;
+    assert_eq!(status, 200, "{changed}");
+    assert_eq!(changed["replacements"], 1);
+    assert_eq!(
+        std::fs::read_to_string(session.dir.path().join("source.txt")).unwrap(),
+        "new changed independently\n"
+    );
+    let (status, _) = post(
+        &session,
+        "/api/find/replace",
+        json!({"q":"new","replacement":"other","paths":["source.txt"],"expected_sources":{}}),
+    )
+    .await;
+    assert_eq!(status, 400);
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn find_reports_every_match_in_path_order() {
     // Exhaustive, unlike `/api/search`, which is ranked top-k. A ranked

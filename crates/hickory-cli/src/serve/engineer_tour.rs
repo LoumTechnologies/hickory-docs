@@ -175,6 +175,85 @@ fn delivered_observations(source: &str) -> Vec<Value> {
         .collect()
 }
 fn session_observations(root: &Path) -> Vec<Value> {
+    session_evidence(root, delivered_observations)
+}
+fn confirmed_requests(source: &str) -> Vec<Value> {
+    let mut confirmed = std::collections::BTreeSet::new();
+    let mut requests = vec![];
+    for line in source.lines() {
+        for kind in ["python-context-delivery", "python-context-manifest"] {
+            if let Some(raw) = line
+                .strip_prefix(&format!("<hick:context kind=\"{kind}\">"))
+                .and_then(|s| s.strip_suffix("</hick:context>"))
+                && let Ok(value) = serde_json::from_str::<Value>(raw)
+            {
+                if kind == "python-context-delivery" && value["state"] == "provider_confirmed" {
+                    if let Some(id) = value["request"].as_str() {
+                        confirmed.insert(id.to_owned());
+                    }
+                }
+                if kind == "python-context-manifest" {
+                    requests.push(value["request"].clone());
+                }
+            }
+        }
+    }
+    requests.into_iter().filter_map(|request| confirmed.contains(request["id"].as_str()?).then(|| json!({"request":request["id"],"branch":request["branch"],"state":"provider_confirmed","coverage":"Actual Python request delivery; not evidence of model understanding"}))).collect()
+}
+fn reviewed_edits(source: &str) -> Vec<Value> {
+    let mut branch = Value::Null;
+    let mut approved: Option<Value> = None;
+    let mut edits = vec![];
+    for line in source.lines() {
+        for kind in [
+            "python-context-manifest",
+            "python-edit-review",
+            "python-reviewed-replacement",
+            "python-tool-result",
+        ] {
+            let Some(raw) = line
+                .strip_prefix(&format!("<hick:context kind=\"{kind}\">"))
+                .and_then(|s| s.strip_suffix("</hick:context>"))
+            else {
+                continue;
+            };
+            let Ok(value) = serde_json::from_str::<Value>(raw) else {
+                continue;
+            };
+            match kind {
+                "python-context-manifest" => branch = value["request"]["branch"].clone(),
+                "python-edit-review" => {
+                    approved = (value["approved"] == true)
+                        .then(|| json!({"proposal":value["proposal"],"branch":branch}))
+                }
+                "python-reviewed-replacement" => {
+                    if let Some(review) = approved.as_mut() {
+                        // The human can replace the preview before the host executes it.
+                        // Retain those effective bytes, rather than the model's proposal.
+                        review["proposal"]["after"] = value["arguments"]["input"].clone();
+                    }
+                }
+                "python-tool-result" => {
+                    if let Some(review) = approved.take() {
+                        let proposal = &review["proposal"];
+                        if value["name"] == proposal["tool"]
+                            && matches!(value["name"].as_str(), Some("edit_doc" | "edit_output"))
+                            && value["result"].is_object()
+                            && value["result"]["isError"] != true
+                            && value["error"].is_null()
+                            && let Some(after) = proposal["after"].as_str()
+                        {
+                            edits.push(json!({"surface":proposal["surface"],"tool":proposal["tool"],"branch":review["branch"],"source_hash":hex::encode(Sha256::digest(after.as_bytes())),"scope":"Host-observed successful tool after independent approval; compare current bytes separately"}));
+                        }
+                    }
+                }
+                _ => (),
+            }
+        }
+    }
+    edits
+}
+fn session_evidence(root: &Path, extract: fn(&str) -> Vec<Value>) -> Vec<Value> {
     let mut result = vec![];
     let sessions = root.join("sessions");
     if sessions
@@ -195,7 +274,7 @@ fn session_observations(root: &Path) -> Vec<Value> {
                     .is_ok_and(|m| m.is_file() && m.len() < 8 * 1024 * 1024)
             {
                 if let Ok(text) = std::fs::read_to_string(entry.path()) {
-                    result.extend(delivered_observations(&text));
+                    result.extend(extract(&text));
                 }
             }
         }
@@ -217,13 +296,76 @@ pub async fn status(State(state): State<LocalState>) -> ApiResult<Json<Value>> {
     }
     let source = files.read("deadline-spec.md").map_err(failure)?;
     let profile_source = files.read("hotspot.md").map_err(failure)?;
+    let doc_id = state.index.add("deadline-spec.md");
+    let executions: Vec<_> = state.runs.lock().unwrap().iter().filter(|(_, run)| run.document == doc_id).map(|(id,run)| json!({"id":id,"status":run.status,"source_hash":run.source_hash,"requested_source_hash":run.requested_source_hash,"error":run.error,"started_at":run.started_at,"blocks":run.blocks})).collect();
+    let seed_source = include_str!("../../../../examples/ai-engineer-deadline.md").replace(
+        "var allowed = Math.max(0, budget - total);",
+        "var allowed = budget;",
+    );
+    let seed_source_hash = hex::encode(Sha256::digest(seed_source.as_bytes()));
+    let debug_evidence = super::ui_actions::retained_debug_witnesses(&state, &seed_source_hash);
+    let agent_edits: Vec<_> = session_evidence(&root, reviewed_edits)
+        .into_iter()
+        .filter(|edit| {
+            edit["surface"]
+                .as_str()
+                .is_some_and(|surface| Path::new(surface) == root.join("deadline-spec.md"))
+        })
+        .collect();
     Ok(Json(
-        json!({"active":true,"delivered_observations":session_observations(&root),"id":marker["id"],"path":root,"source":source,"source_hash":hex::encode(Sha256::digest(source.as_bytes())),"profile_source":profile_source,"meeting":MEETING,"doc_id":state.index.add("deadline-spec.md"),"profile_doc_id":state.index.add("hotspot.md"),"seed":marker["seed"]}),
+        json!({"active":true,"agent_requests":session_evidence(&root, confirmed_requests),"agent_edits":agent_edits,"executions":executions,"debug_evidence":debug_evidence,"seed_source_hash":seed_source_hash,"delivered_observations":session_observations(&root),"id":marker["id"],"path":root,"source":source,"source_hash":hex::encode(Sha256::digest(source.as_bytes())),"profile_source":profile_source,"meeting":MEETING,"doc_id":doc_id,"profile_doc_id":state.index.add("hotspot.md"),"seed":marker["seed"]}),
     ))
 }
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn correction_witness_requires_success_and_hashes_the_reviewed_replacement() {
+        let record = |kind: &str, value: Value| {
+            format!("<hick:context kind=\"{kind}\">{value}</hick:context>\n")
+        };
+        let approved = record("python-context-manifest", json!({"request":{"branch":"b"}}))
+            + &record(
+                "python-edit-review",
+                json!({"approved":true,"proposal":{"tool":"edit_doc","surface":"/practice/deadline-spec.md","after":"model bytes"}}),
+            );
+        assert!(reviewed_edits(&approved).is_empty());
+        let replaced = approved
+            + &record(
+                "python-reviewed-replacement",
+                json!({"arguments":{"input":"human replacement"}}),
+            );
+        let failed = replaced.clone()
+            + &record(
+                "python-tool-result",
+                json!({"name":"edit_doc","result":{"isError":true}}),
+            );
+        assert!(reviewed_edits(&failed).is_empty());
+        let successful = replaced
+            + &record(
+                "python-tool-result",
+                json!({"name":"edit_doc","result":{"content":[]}}),
+            );
+        let edits = reviewed_edits(&successful);
+        assert_eq!(edits.len(), 1);
+        assert_eq!(edits[0]["branch"], "b");
+        assert_eq!(
+            edits[0]["source_hash"],
+            hex::encode(Sha256::digest(b"human replacement"))
+        );
+    }
+    #[test]
+    fn coach_delegation_requires_a_correlated_provider_delivery() {
+        let manifest = "<hick:context kind=\"python-context-manifest\">{\"request\":{\"id\":\"request-actual\",\"branch\":\"branch-actual\"}}</hick:context>\n";
+        assert!(confirmed_requests(manifest).is_empty());
+        let wrong = format!(
+            "{manifest}<hick:context kind=\"python-context-delivery\">{{\"request\":\"another\",\"state\":\"provider_confirmed\"}}</hick:context>\n"
+        );
+        assert!(confirmed_requests(&wrong).is_empty());
+        let actual = wrong.replace("another", "request-actual");
+        assert_eq!(confirmed_requests(&actual)[0]["branch"], "branch-actual");
+        assert!(confirmed_requests(&actual.replace("provider_confirmed", "cancelled")).is_empty());
+    }
     // Guarantee: docs/guarantees/authoring/the-engineer-tour-distinguishes-replay-from-execution.md
     #[test]
     fn practice_is_a_separate_git_repository_with_a_transparent_counterexample() {

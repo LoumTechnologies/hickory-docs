@@ -7,6 +7,7 @@ import { applyStoredTheme } from "./lib/theme";
 import { loadHickLang } from "./editor/hickLang";
 import { loadKeymap } from "./lib/keymap";
 import "./styles.css";
+import { UiActionsProvider } from "./lib/uiActionBridge";
 
 // The index.html inline script already themed the first paint; re-applying
 // here keeps any embedding that skips that script (tests, the desktop
@@ -26,7 +27,7 @@ async function boot() {
   }
   createRoot(document.getElementById("root")!).render(
     <StrictMode>
-      <App />
+      <UiActionsProvider><App /></UiActionsProvider>
     </StrictMode>,
   );
 }

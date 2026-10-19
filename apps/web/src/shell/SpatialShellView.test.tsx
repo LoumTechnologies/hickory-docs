@@ -11,6 +11,8 @@ import { saveFilesWindows } from "../lib/filesWindows";
 import { saveSpatialSides } from "../lib/spatialSides";
 import { revealLine } from "../lib/revealLine";
 import { publishReading, forgetReading, openReading } from "../lib/readingViews";
+import { UiActions } from "../lib/uiActions";
+import { UiActionContext, useUiCommands } from "../lib/uiActionBridge";
 
 // Guarantee: docs/guarantees/shell/spatial-views-preserve-the-editor.md
 beforeEach(() => saveFilesWindows(true));
@@ -18,6 +20,7 @@ afterEach(() => { cleanup(); localStorage.clear(); forgetReading("proposal"); })
 const live = new Map<string, EditorView>();
 function Buffer({ entry }: { entry: Tab }) {
   const parent = useRef<HTMLDivElement>(null);
+  useUiCommands([{ key: `probe:${entry.id}`, command: { label: entry.target, parent: "test-visible-editors", subject: entry.id, parameters: {}, prerequisites: [], read: () => ({ revision: "probe", enabled: true }), execute: async () => ({ status: "completed", value: null }) } }]);
   useEffect(() => { const view = new EditorView({ parent: parent.current!, state: EditorState.create({ doc: `${entry.target}\nsecond line`, extensions: [lineNumbers(), history()] }) }); live.set(entry.target, view); return () => { view.destroy(); live.delete(entry.target); }; }, [entry.id]);
   return <div ref={parent} />;
 }
@@ -25,6 +28,26 @@ function Harness({ mixed = false, related = false, files = false }: { mixed?: bo
   const [layout, setLayout] = useState<Layout>(() => { const pane = emptyPane(); return { root: { ...pane, tabs: [tab("document", "main.md"), tab("document", "related.md"), ...(mixed ? [tab("file", "app.py"), tab("chat", "conversation", "Agent")] : []), tab("tree", "folder")], active: 0 }, focus: pane.id }; });
   return <><button onClick={() => { publishReading("proposal", { title: "Review", path: "note.md", before: "old", after: "new", status: "pending" }); setLayout(current => open(current, tab("tool", "reading:proposal", "Review"))); }}>Open review</button><SpatialShellView layout={layout} onLayout={setLayout} sources={[]} files={[]} hasFiles={files} links={related ? [{ key: "related", title: "Related file", family: "declared", from: { path: "main.md", lines: [1, 1] }, to: { path: "related.md" } }] : []} render={entry => <Buffer entry={entry} />} /></>;
 }
+it("uses registered center and restore commands without replacing the editor or accepting old layout handles", async () => {
+  const registry = new UiActions({ workspace: "practice", window: "one" }, () => true, async () => {});
+  const ui = render(<UiActionContext.Provider value={registry}><Harness /></UiActionContext.Provider>);
+  await waitFor(() => expect(live.has("related.md")).toBe(true));
+  const original = live.get("related.md")!;
+  act(() => original.dispatch({ changes: { from: 0, insert: "draft " }, selection: { anchor: 4 } }));
+  expect(registry.observe("test-visible-editors").actions.map(action => action.label)).toEqual(["main.md"]);
+  const parent = registry.groups().groups.find(group => group.startsWith("spatial-layout:"))!;
+  const center = registry.observe(parent).actions.find(action => action.label === "Center spatial view")!;
+  const actor = { id: "python:turn", kind: "agent" as const };
+  await act(async () => { expect(await registry.act(registry.scope, actor, { handle: center.handle, arguments: { key: "document:related.md" }, request_id: "center" })).toMatchObject({ status: "result" }); });
+  await waitFor(() => expect(ui.container.querySelector('[data-spatial-key="document:related.md"]')?.getAttribute("data-spatial-center")).toBe("true"));
+  expect(live.get("related.md")).toBe(original); expect(original.state.selection.main.anchor).toBe(4);
+  expect(registry.observe("test-visible-editors").actions.map(action => action.label)).toEqual(["related.md"]);
+  expect(await registry.act(registry.scope, actor, { handle: center.handle, arguments: { key: "document:main.md" }, request_id: "old-layout" })).toMatchObject({ status: "stale" });
+  const restore = registry.observe(parent).actions.find(action => action.label === "Restore previous spatial center")!;
+  await act(async () => { await registry.act(registry.scope, actor, { handle: restore.handle, arguments: {}, request_id: "restore" }); });
+  await waitFor(() => expect(ui.container.querySelector('[data-spatial-key="document:main.md"]')?.getAttribute("data-spatial-center")).toBe("true"));
+  expect(original.state.doc.toString()).toContain("draft ");
+});
 it("centers and restores the same editor instance with selection and undo state intact", async () => {
   const ui = render(<Harness />);
   await waitFor(() => expect(live.has("related.md")).toBe(true));

@@ -40,3 +40,19 @@ Last LLM verification:
 - Human judgment: not recorded.
 
 - Dependency fingerprint: `crates/hickory-cli/src/serve/reviews.rs` SHA-256 `a5bfe329e2ec272624c1a0faf36084600075fc6faad86226b7a6320180fedb91`; changes to this implementation or its cited integration paths require review.
+
+Issue 72 adapter extension (2026-10-19):
+
+- Review disclosure, bounded registry descriptors, selected thread/target,
+  comment draft, investigation preparation/conversation and submissions use
+  ReviewPanel's existing handlers. Agent submissions carry agent=true and are
+  retained as agent-declared. Human submissions preserve user-declared.
+- Agent-originated resolve/reopen is refused by serve/reviews.rs::append;
+  the registered action returns a human-input request. The coach only counts
+  user-declared criterion and resolution events. This local declaration is not
+  authentication; local HTTP clients and editable storage retain their existing
+  trust model.
+- Executed checks: the focused Rust attribution/refused-resolution test passed;
+  all three ReviewPanel tests passed, including actual adapter request bodies.
+  Strict TypeScript checking of ReviewPanel and NativeWorkflowTour passed.
+- Human judgment: no review or launch-readiness attestation was supplied here.

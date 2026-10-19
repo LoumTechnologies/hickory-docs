@@ -1,6 +1,8 @@
 // Guarantee: docs/guarantees/agent/python-execution-has-two-boundaries.md
 import { afterEach, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { UiActions } from "../lib/uiActions";
+import { UiActionContext } from "../lib/uiActionBridge";
 import { acpApi } from "../api/acp";
 import { AgentSettings } from "./AgentSettings";
 vi.mock("../api/acp", () => ({ acpApi: {
@@ -9,6 +11,23 @@ vi.mock("../api/acp", () => ({ acpApi: {
   savePython: vi.fn(), save: vi.fn(),
 } }));
 afterEach(() => { cleanup(); vi.clearAllMocks(); });
+it("uses the shared runtime check and refuses invalid ACP JSON before saving", async () => {
+  vi.mocked(acpApi.savePython).mockResolvedValue({ python: "/new/venv/bin/python", available: true });
+  const registry = new UiActions({ workspace: "practice", window: "one" }, () => true, async () => {});
+  render(<UiActionContext.Provider value={registry}><AgentSettings /></UiActionContext.Provider>);
+  await waitFor(() => expect((screen.getByLabelText("Python executable") as HTMLInputElement).value).toBe("/old/venv/bin/python"));
+  let n = 0;
+  const invoke = async (label: string, args = {}) => {
+    const action = registry.observe("agent-settings").actions.find(action => action.label === label)!;
+    let result; await act(async () => { result = await registry.act(registry.scope, { id: "python:turn", kind: "agent" }, { handle: action.handle, arguments: args, request_id: String(++n) }); }); return result;
+  };
+  await invoke("Set Python runtime draft", { executable: "/new/venv/bin/python" });
+  expect(await invoke("Save and check Python runtime")).toMatchObject({ status: "result", outcome: { value: { python: "/new/venv/bin/python", available: true } } });
+  expect(acpApi.savePython).toHaveBeenCalledWith("/new/venv/bin/python");
+  await invoke("Set ACP agent commands draft", { json: "invalid JSON" });
+  expect(await invoke("Save ACP agent commands")).toMatchObject({ status: "result", outcome: { status: "unavailable" } });
+  expect(acpApi.save).not.toHaveBeenCalled();
+});
 it("checks and stores the Python runtime separately from ACP commands", async () => {
   vi.mocked(acpApi.savePython).mockResolvedValue({ python: "/new/venv/bin/python", available: true });
   render(<AgentSettings />);

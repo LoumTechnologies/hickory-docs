@@ -435,6 +435,7 @@ pub async fn start_turn(
         .live_context
         .store(body.context.live, std::sync::atomic::Ordering::Relaxed);
     *client.host.edits.buffers.lock().unwrap() = body.context.buffers.clone();
+    *client.host.ui_window.lock().await = body.context.ui_window.clone();
     let context =
         if doc_id == super::agent_context::WORKSPACE_AGENT || !body.context.buffers.is_empty() {
             super::agent_context::describe(&state, &body.context).replace(

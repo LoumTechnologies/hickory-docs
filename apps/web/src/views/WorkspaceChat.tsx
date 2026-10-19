@@ -1,4 +1,5 @@
 import { providerObservationContext } from "../debug/providerObservations";
+import { uiWindow } from "../lib/uiActionBridge";
 import "./contextProjection.css";
 import { projectDocument, projectionEstimate, retainedReadingState, type ReadingProjection } from "../lib/contextProjection";
 import { observationContext } from "../debug/observations";
@@ -56,7 +57,7 @@ export async function editorContext(
   }
   const observations = [...new Map(buffers.flatMap(buffer => buffer.observations).map(record => [JSON.stringify(record), record])).values()];
   const projection: ReadingProjection = { version: 1, documents, observations, estimate: projectionEstimate({ documents, observations }) };
-  return { live: true, buffers, ...(selection ? { projection } : {}) };
+  return { live: true, buffers, ...(uiWindow() ? { ui_window: uiWindow() } : {}), ...(selection ? { projection } : {}) };
 }
 
 /** A conversation belongs to the window, independent of which editor is active. */

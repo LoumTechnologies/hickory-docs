@@ -57,6 +57,12 @@ pub struct Proposal {
 
 #[async_trait::async_trait]
 pub trait Review: Send {
+    fn ui_tools(&self) -> Vec<Value> {
+        vec![]
+    }
+    async fn ui_call(&mut self, _name: &str, _arguments: Value) -> Result<Value> {
+        bail!("No originating UI window is attached to this agent")
+    }
     async fn approve(&mut self, proposal: &Proposal) -> Result<bool>;
     fn context_inbox(&self) -> Option<Arc<std::sync::Mutex<crate::context_updates::Inbox>>> {
         None
@@ -201,6 +207,9 @@ fn allowed(name: &str) -> bool {
     matches!(
         name,
         "read_doc"
+            | "ui_observe"
+            | "ui_act"
+            | "ui_cancel"
             | "read_output"
             | "read_file"
             | "edit_doc"
@@ -302,6 +311,24 @@ impl Host<'_> {
             allowed(name),
             "Tool {name} is not exposed by the Python agent"
         );
+        if matches!(name, "ui_observe" | "ui_act" | "ui_cancel") {
+            let arguments = params.get("arguments").cloned().unwrap_or(json!({}));
+            metadata(
+                &self.session,
+                "python-ui-request",
+                &json!({"actor":"agent","tool":name,"arguments":arguments}),
+            )?;
+            let mut result = self.review.ui_call(name, arguments).await?;
+            let capture = hick_context_store::fresh_id();
+            let references = self
+                .context_store
+                .snapshots("ui_observation", &capture, &result.to_string(), &capture)?
+                .into_iter()
+                .map(|node| node.id)
+                .collect::<Vec<_>>();
+            result["context_references"] = json!(references);
+            return Ok(result);
+        }
         if matches!(name, "changeset_status" | "submit_changeset") {
             self.review.refresh().await?;
         }
@@ -964,6 +991,10 @@ pub async fn run_conversation(
         .as_array_mut()
         .unwrap()
         .retain(|tool| tool["name"].as_str().is_some_and(allowed));
+    catalogue["tools"]
+        .as_array_mut()
+        .unwrap()
+        .extend(review.ui_tools());
     if let Some(contract) = conversation.changeset {
         server.agent_set_changeset(contract);
     } else {

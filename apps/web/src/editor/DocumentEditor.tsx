@@ -70,6 +70,7 @@ import {
 } from "./rendered";
 import { popoverTop } from "../lib/cardRail";
 import { actionsFor, hasReplay } from "../lib/railActions";
+import { useEditorActions } from "./uiEditorActions";
 import type { RailAction } from "../lib/railActions";
 import type { TableLayout } from "../components/TablePanel";
 import { elementViews, slotKindOf, type SlotContext } from "../elements";
@@ -196,6 +197,7 @@ export function DocumentEditor({
   const access = useMemo(() => new Compartment(), []);
   // The live view AS STATE, for the right rail — a ref never re-renders.
   const [railView, setRailView] = useState<EditorView | null>(null);
+  useEditorActions(railView, `document:${docId}`);
   // Read through a ref: the editor is built once per document, and a callback
   // baked in at construction would go stale the moment the debugger's state
   // changed.
@@ -902,6 +904,7 @@ export function DocumentEditor({
         <RightRail view={railView} />
         <DebugLaunchRail view={railView} onStart={onDebugFile} onProfiles={onDebugFile ? (path,at)=>onDebugFile(path,at,true) : undefined} enabled={!readOnly} />
         <CardRail
+          documentId={docId}
           view={railView}
           cards={cards}
           stateOf={cardStateOf}

@@ -9,10 +9,14 @@ outside hosted confinement and verification guarantees.
 Python owns its graph, prompts, history, inference requests, actions, retries,
 iteration limit and completion attempts. Hickory provides bounded inference
 transport, allowlisted tools, exact edit review/application and recorded evidence.
-Every exposed workspace mutation requires separate approval and freshness checks.
-Shell, generic filesystem writes, verify and debug execution are unavailable.
-Read/edit weaving stays in memory. Stop cancels inference or review and kills
-the confined process group without approving a pending write.
+Document edit tools require separate approval and freshness checks. Read/edit
+weaving stays in memory. Direct shell/filesystem/verify/debug tools are absent
+from Monty. Attached-window UI tools expose registered host process, filesystem,
+setup, execution and debugger capabilities under existing local host policy.
+Those host operations can have workspace effects beyond reviewed document edits.
+Standalone CLI runs do not advertise window tools. Stop cancels inference/review
+and kills the confined process group without approving a pending document edit;
+cancelling a completed UI dispatch does not cancel an independently launched job.
 
 A current independently accepted changeset is required for successful hosted
 completion. Worker/model claims cannot establish verification. Equality proves
@@ -111,3 +115,23 @@ Last LLM verification:
   - `crates/hickory-cli/tests/serve_python_agent.rs`: `ab3340cd7af95fec8168cdce2ffbf151cb488a01287053401222b1a9cb277782`
 - Human judgment: not recorded; automated test reviewers are fixtures, not
   evidence of a human's semantic approval.
+
+Issue 72 boundary extension (2026-10-19):
+
+- Origin: the explicit requirement to provide the built-in agent the same real
+  run/debug/profile/setup and broader UI capabilities as a human. This supersedes
+  the former blanket statement that all workspace effects require edit previews.
+  The consequence is intentional host execution authority outside Monty, rather
+  than an unconfined Python fallback. Exact document edit review remains.
+- Consequential limitation: registered terminals and saved programs execute with
+  existing host permissions and may write files. Instructions prohibit evading
+  edit review, but this is not an adversarial same-user security boundary.
+- The UI broker supplies actor/window identity and journals structured intent and
+  results. Known terminal prompts and enabling automatic answers require human
+  input; current recognized host prompts are rechecked before agent bytes. Prompt
+  guessing cannot recognize every external protocol or future output.
+- Executed focused evidence: actual confined Python/window routing with scripted
+  provider/UI, registry/controller tests, source-guarded execution and real PTY
+  prompt refusal tests. These do not establish a paid provider or native release.
+- Review: partial; the issue-72 audit records coverage and remaining work. No
+  human correctness or launch-readiness judgment was supplied.

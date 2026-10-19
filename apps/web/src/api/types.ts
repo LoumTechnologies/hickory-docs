@@ -642,6 +642,7 @@ export interface FindMatch {
 
 export interface FindFile {
   path: string;
+  source_hash?: string;
   matches: FindMatch[];
   /** The document that writes this file, when one does. Replace refuses it,
    * and the UI greys it out before the button is pressed. */

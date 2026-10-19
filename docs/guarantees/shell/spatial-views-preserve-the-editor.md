@@ -407,3 +407,17 @@ historical):
 - `apps/web/e2e/spatialWorkspace.spec.ts`: `b8c3bf22c8849478fddde369962752230e22f449ce319f035a068661edf1e54f`.
 - `apps/web/e2e/spatialWalkthrough.spec.ts`: `0dbdad775fca3107c343a205bb8b005202bbd42b97a6ae4c4b2f7239dce31132`.
 - `scripts/test-spatial-ui.sh`: `349c0895b8720dfe1aaed087db5d67a15e6cc9f8518d7b15b8c94bac5bd1eb91`.
+
+Issue 72 adapter extension (2026-10-19):
+
+- Spatial layout state is explicitly paged. Center/restore, view pin/expansion,
+  dock/resize/close, drawer visibility/pins, accordion and search call the existing
+  layout/controller handlers. A close request may open the existing dirty-work
+  prompt; dispatch never claims that the tab closed or that drafts were discarded.
+- Hidden/collapsed body controllers retire while their editors remain mounted.
+  A focused real CodeMirror test confirms agent center/restore preserves the same
+  editor, draft and selection, exposes only the central test surface, and refuses
+  a stale layout handle. It and the affected existing preservation test passed.
+- Transient hover previews and remaining pointer/minimap gestures still require
+  adapters and native visual evidence. These tests do not establish complete layout
+  parity or native geometry/accessibility correctness.

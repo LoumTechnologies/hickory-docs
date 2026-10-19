@@ -54,3 +54,22 @@ parity, delete confirmation and target, adoption, document/generated-file
 restrictions, and center/drawer right-click forwarding. Shared handlers and
 prompts are in `apps/web/src/shell/fileMenuActions.tsx`; tab resolution is in
 `apps/web/src/views/useFileTabMenu.tsx`.
+
+Issue 72 adapter extension (2026-10-19):
+
+- useDired registers marks, operation preparation, current prompt/error, explicit
+  confirmation/value submission and cancellation through its shared controller.
+  Preparation does not execute a filesystem write. Submission awaits the actual
+  controller result and retains host refusal text.
+- TreeRenameEditor exposes its actual CodeMirror column, shared validation/apply
+  handler and per-node outcomes. Successful nodes are retained across partial
+  retries. Concurrent batch submission is refused.
+- FolderRoot discloses immediate children in pages of at most 64 and opens a
+  listed file through the same onOpen callback. File content is not implicitly
+  included. Arbitrary/missing paths and unsupported binary views are refused.
+- Executed checks: two focused dired adapter tests, two rename component tests
+  and one folder disclosure/navigation test passed. These use injected host
+  operations; no native filesystem or platform witness is inferred. Focused
+  strict TypeScript checks passed for these controllers.
+- Remaining scope: editable Files-buffer reconciliation, context menus, provider
+  nodes and remaining tree gestures still need complete registered parity.

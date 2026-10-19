@@ -1,114 +1,141 @@
-import { useEffect, useState } from "react";
+import { useEffect, useId, useState } from "react";
 import type { EditorView } from "@codemirror/view";
 import { request } from "../api/client";
-import { DebuggableDocument } from "../embed/DebuggableDocument";
 import { PublishedSnapshot, decodeSnapshot, type ViewerSnapshot } from "../embed/PublishedSnapshot";
-import { NativeRuntimeHistory } from "../debug/RuntimeRuns";
-import type { RuntimeRun } from "../debug/runtimeObservations";
-import { runtimeText } from "../debug/runtimeHistory";
-import { APP_TOUR_PHASES } from "../tour/scenario";
+import { useUiCommands } from "../lib/uiActionBridge";
+import type { UiCommand, UiValue } from "../lib/uiActions";
+import { capturedDebugReadings, onDebugReading } from "../debug/readingCapture";
 import type { ReviewEvent } from "../lib/reviews";
+import { AnchoredCoach } from "./AnchoredCoach";
+import { COACH_STEPS, INVESTIGATION_TASK, CORRECTION_TASK, reconciledCoachStep } from "../tour/scenario";
 
-type ObservationDelivery = { request: string; branch: string; evidence: string[] };
-type Practice = { delivered_observations?: ObservationDelivery[]; active: boolean; id: string; path: string; source: string; source_hash: string; profile_source: string; meeting: string; doc_id: string; seed: string };
-type History = { events: ReviewEvent[]; investigations?: { thread: string; state: string }[] };
-type RunResult = { id: string; status: string; source_hash: string | null; blocks: { kind: string; status?: string; transcript?: unknown[] }[] };
-export function NativeWorkflowTour({ onOpen, focused }: { onOpen?: (path: string, line?: number) => void; focused?: { path?: string; source?: string; view?: EditorView | null } }) {
+type Execution = { id: string; status: string; started_at?: string; source_hash: string | null; error?: string | null; blocks: { kind: string; status?: string; transcript?: unknown[] }[] };
+type Practice = { active: boolean; id: string; path: string; source: string; source_hash: string; seed_source_hash: string; seed: string; agent_requests?: { request: string; branch: string; state: string }[]; agent_edits?: { source_hash: string; branch: string }[]; executions?: Execution[]; debug_evidence?: Pause[] };
+type Turn = { id: string; parent_id?: string | null; status: string };
+type Pause = { run: string; stop: string; evidence: string[] };
+const key = (id: string) => `hickory.aiEngineerCoach.v2:${id}`;
+const counterexample = (run: Execution, hash: string) => run.status === "failed" && run.source_hash?.replace(/^sha256:/, "") === hash && `${run.error ?? ""}${JSON.stringify(run.blocks.map(block => block.transcript ?? []))}`.includes("R1 failed: expected 100, got 160");
+export function NativeWorkflowTour({ onOpen }: { onOpen?: (path: string, line?: number) => void; focused?: { path?: string; source?: string; view?: EditorView | null } }) {
+  const instance = useId(); const parent = `coach:${instance}`;
   const [open, setOpen] = useState(false);
   const [info, setInfo] = useState<Practice | null>(null);
   const [created, setCreated] = useState<{ path: string; opened: boolean; open_error?: string } | null>(null);
   const [phase, setPhase] = useState(0);
-  const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
-  const [meeting, setMeeting] = useState<{ path: string; source: string; source_sha256: string; utterances?: { id: string; line: number }[] } | null>(null);
-  const [history, setHistory] = useState<History>({ events: [] });
-  const [ancestry, setAncestry] = useState<string[]>([]);
-  const [pauseIds, setPauseIds] = useState<string[]>([]);
-  const [pauseEvidence, setPauseEvidence] = useState("");
-  const [counterexample, setCounterexample] = useState("");
-  const [updated, setUpdated] = useState(false);
-  const [runs, setRuns] = useState<RuntimeRun[]>([]);
-  const [verified, setVerified] = useState<RunResult | null>(null);
+  const [error, setError] = useState("");
+  const [events, setEvents] = useState<ReviewEvent[]>([]);
+  const [turns, setTurns] = useState<Turn[]>([]);
+  const [pause, setPause] = useState<Pause | null>(null);
   const [publication, setPublication] = useState<ViewerSnapshot | null>(null);
-  const key = info?.active ? `hickory.aiEngineerTour.native:${info.id}` : null;
-  useEffect(() => { if (key) localStorage.setItem(key, String(phase)); }, [key, phase]);
-  async function refresh(initial = false) {
-    const practice = await request<Practice>("GET", "/api/tour/practice");
-    setInfo(practice);
-    if (!practice.active) return;
-    if (initial) { const saved = Number(localStorage.getItem(`hickory.aiEngineerTour.native:${practice.id}`)); setPhase(Number.isInteger(saved) && saved >= 0 && saved < APP_TOUR_PHASES.length ? saved : 0); }
-    const review = await request<History>("GET", "/api/reviews"); setHistory(review);
-    const captured = await request<{ runs: { state: string; run?: RuntimeRun }[] }>("GET", "/api/runtime/runs");
-    setRuns(captured.runs.flatMap(r => r.state === "present" && r.run ? [r.run] : []));
-    const turns = await request<{ turns: { id: string; parent_id?: string | null }[] }>("GET", "/api/docs/workspace/agent/turns");
-    const branch = turns.turns.at(-1)?.id;
-    const ancestors: string[] = []; let cursor = branch;
-    while (cursor && !ancestors.includes(cursor)) { ancestors.push(cursor); cursor = turns.turns.find(t => t.id === cursor)?.parent_id ?? undefined; }
-    setAncestry(ancestors);
-    if (branch) {
-      const context = await request<{ updates: { state: string }[] }>("POST", "/api/docs/workspace/agent/python/context", { branch });
-      setUpdated(context.updates.some(u => u.state === "provider_confirmed"));
-    }
-  }
-  async function act(action: () => Promise<void>) { setBusy(true); setError(""); try { await action(); } catch (e) { setError(String(e)); } finally { setBusy(false); } }
-  const thread = [...history.events].reverse().find(e => e.target && (e.target.path === "deadline-spec.md" || e.target.path.endsWith("/deadline-spec.md")) && e.target.quote.includes("The deadline bounds"))?.thread;
-  const resolved = [...history.events].reverse().find(e => e.thread === thread && (e.action === "resolve" || e.action === "reopen"))?.action === "resolve";
-  const investigated = history.investigations?.some(i => i.thread === thread && i.state === "responded");
-  const profiles = runs.filter(r => r.status === "completed" && r.sources.some(s => s.uri.replace(/^hick:\/\/\//, "") === "hotspot.md") && r.events.some(e => e.observation.kind === "profile") && runtimeText(r).includes("correctness: 15998000000"));
-  const profileRevisions = profiles.flatMap(r => r.sources.filter(s => s.uri.replace(/^hick:\/\/\//, "") === "hotspot.md").map(s => s.revision));
-  const profiledTwice = profiles.length >= 2 && new Set(profileRevisions).size >= 2;
-  const supplied = new Set((info?.delivered_observations ?? []).filter(d => ancestry.includes(d.branch)).flatMap(d => d.evidence));
-  const debugDelivered = pauseIds.some(id => supplied.has(id));
-  const profileDelivered = profiles.some(r => r.events.some(e => e.observation.kind === "profile" && supplied.has(e.id)));
-  const nativePassed = verified?.status === "ok" && verified.source_hash?.replace(/^sha256:/, "") === info?.source_hash && verified.blocks.some(b => b.kind === "exec") && verified.blocks.filter(b => b.kind === "exec").every(b => b.status === "ok");
+  const [skipped, setSkipped] = useState<number[]>([]);
+  const [task, setTask] = useState("");
+  const thread = [...events].reverse().find(event => event.actor === "user-declared" && event.target && event.target.path.endsWith("deadline-spec.md") && event.target.quote.includes("The deadline bounds"))?.thread;
+  const resolved = [...events].reverse().find(event => event.actor === "user-declared" && event.thread === thread && ["resolve", "reopen"].includes(event.action))?.action === "resolve";
+  const branch = turns.at(-1)?.id;
+  const ancestors = new Set<string>(); let cursor = branch;
+  while (cursor && !ancestors.has(cursor)) { ancestors.add(cursor); cursor = turns.find(turn => turn.id === cursor)?.parent_id ?? undefined; }
+  const delegated = !!info?.agent_requests?.some(receipt => receipt.state === "provider_confirmed" && ancestors.has(receipt.branch) && turns.some(turn => turn.id === receipt.branch && turn.status === "ok"));
+  const failed = info?.executions?.find(run => counterexample(run, info.seed_source_hash));
+  const corrected = !!info?.agent_edits?.some(edit => edit.source_hash === info.source_hash && ancestors.has(edit.branch));
+  const verified = info?.executions?.filter(run => run.source_hash?.replace(/^sha256:/, "") === info.source_hash).sort((a,b) => (a.started_at ?? "").localeCompare(b.started_at ?? "")).at(-1);
+  const passed = verified?.status === "ok" && verified.blocks.some(block => block.kind === "exec") && verified.blocks.filter(block => block.kind === "exec").every(block => block.status === "ok");
   const published = publication?.verification?.status === "passed" && publication.source_hash === info?.source_hash;
-  const gates = [!!meeting, !!thread, !!counterexample && !!pauseEvidence, updated && debugDelivered, !!investigated, !!nativePassed, profiledTwice && profileDelivered, !!resolved && !!nativePassed, !!published];
-  async function runNative() {
-    if (!info?.active) throw Error("Open the isolated practice repository first");
-    const started = await request<{ run_id: string }>("POST", `/api/docs/${info.doc_id}/check`, {});
-    for (let n = 0; n < 120; n++) {
-      const result = await request<RunResult>("GET", `/api/runs/${started.run_id}`);
-      if (result.status !== "running") { setVerified(result); await refresh(); return; }
-      await new Promise(resolve => setTimeout(resolve, 500));
+  const gates = [delegated, !!failed && !!pause, !!thread, !!passed && corrected && info?.source_hash !== info?.seed_source_hash, !!resolved && !!passed, !!published];
+  useEffect(() => { if (info?.active) localStorage.setItem(key(info.id), String(phase)); }, [info?.id, info?.active, phase]);
+  useEffect(() => {
+    function observe() {
+      if (!info?.active) return;
+      const reading = capturedDebugReadings().find(reading => reading.source.uri.replace(/^hick:\/\/\//, "") === "deadline-spec.md" && reading.source.revision.replace(/^sha256:/, "") === info.seed_source_hash && reading.annotations.some(item => item.payload.kind === "paused") && reading.annotations.some(item => item.payload.kind === "breakpoint_bound"));
+      if (reading) setPause({ run: reading.scope.run, stop: reading.scope.stop, evidence: reading.annotations.filter(item => ["paused", "breakpoint_bound"].includes(item.payload.kind)).map(item => item.evidence) });
     }
-    throw Error("Verification is still running; inspect the normal run panel. No success is assumed.");
+    observe(); return onDebugReading(observe);
+  }, [info?.id, info?.seed_source_hash, info?.active]);
+  async function refresh(resume = false) {
+    const practice = await request<Practice>("GET", "/api/tour/practice");
+    if (!practice.active) { setInfo(practice); return; }
+    const saved = Number(localStorage.getItem(key(practice.id)));
+    const [review, conversation] = await Promise.all([
+      request<{ events: ReviewEvent[] }>("GET", "/api/reviews"),
+      request<{ turns: Turn[] }>("GET", "/api/docs/workspace/agent/turns"),
+    ]);
+    setInfo(practice); setEvents(review.events); setTurns(conversation.turns);
+    if (!resume) setPause(previous => practice.debug_evidence?.find(item => item.run && item.stop && item.evidence?.length) ?? previous);
+    if (resume) {
+      // Reload never turns a saved step number into evidence. Reconcile the
+      // provider gate now; later steps remain gated by current receipts.
+      const lineage = new Set<string>(); let current = conversation.turns.at(-1)?.id;
+      while (current && !lineage.has(current)) { lineage.add(current); current = conversation.turns.find(turn => turn.id === current)?.parent_id ?? undefined; }
+      const confirmed = !!practice.agent_requests?.some(receipt => receipt.state === "provider_confirmed" && lineage.has(receipt.branch) && conversation.turns.some(turn => turn.id === receipt.branch && turn.status === "ok"));
+      const failure = practice.executions?.some(run => counterexample(run, practice.seed_source_hash));
+      const observedPause = practice.debug_evidence?.find(item => item.run && item.stop && item.evidence?.length);
+      const observedThread = [...review.events].reverse().find(event => event.actor === "user-declared" && event.target?.path.endsWith("deadline-spec.md") && event.target.quote.includes("The deadline bounds"))?.thread;
+      const observedResolution = [...review.events].reverse().find(event => event.actor === "user-declared" && event.thread === observedThread && ["resolve", "reopen"].includes(event.action))?.action === "resolve";
+      const last = practice.executions?.filter(run => run.source_hash?.replace(/^sha256:/, "") === practice.source_hash).sort((a,b) => (a.started_at ?? "").localeCompare(b.started_at ?? "")).at(-1);
+      const pass = last?.status === "ok" && last.blocks.some(block => block.kind === "exec") && last.blocks.filter(block => block.kind === "exec").every(block => block.status === "ok");
+      const correction = !!practice.agent_edits?.some(edit => edit.source_hash === practice.source_hash && lineage.has(edit.branch));
+      setPhase(reconciledCoachStep(saved, [confirmed, !!failure && !!observedPause, !!observedThread, !!pass && correction && practice.source_hash !== practice.seed_source_hash, !!pass && observedResolution, false]));
+      setPause(observedPause ?? null); setPublication(null); setSkipped([]);
+    }
   }
+  async function perform(action: () => Promise<UiValue>): Promise<import("../lib/uiActions").UiOutcome> {
+    setBusy(true); setError("");
+    try { return { status: "completed", value: await action() }; }
+    catch (reason) { setError(String(reason)); throw reason; }
+    finally { setBusy(false); }
+  }
+  async function loadPublication(text: string) {
+    const snapshot = await decodeSnapshot(JSON.parse(text)); setPublication(snapshot);
+    return { source_hash: snapshot.source_hash, reported_status: snapshot.verification?.status ?? "not_run", revision: snapshot.verification?.revision ?? null, interpretation: "Loaded artifact declaration; inspect its reviewed publication origin and matching source" };
+  }
+  const revision = `${info?.id}:${info?.source_hash}:${phase}:${busy}:${gates.map(Boolean).join(":")}`;
+  const commands: { key: string; command: UiCommand }[] = [];
+  function add(id: string, label: string, enabled: boolean, execute: UiCommand["execute"], parameters: UiCommand["parameters"] = {}) {
+    commands.push({ key: `${parent}/${id}`, command: { label, subject: parent, parent, parameters, prerequisites: [], read: () => ({ revision, enabled: enabled && !busy, reason: busy ? "Coach is refreshing" : !enabled ? "Required product evidence is not established" : undefined, value: { open, step: phase + 1, total: COACH_STEPS.length, evidence: !!gates[phase], skipped, source_hash: info?.source_hash ?? null } }), execute } });
+  }
+  add("toggle", open ? "Close AI engineer tour" : "AI engineer tour", true, async () => perform(async () => { if (!open) await refresh(true); setOpen(!open); return { open: !open }; }));
+  add("refresh", "Refresh observed product evidence", !!info?.active, async () => perform(async () => { await refresh(); return { refreshed: true, verification: "See actual receipts; refresh is not execution" }; }));
+  add("create", "Create and open an isolated practice repository", !info?.active, async () => perform(async () => { const result = await request<{ path: string; opened: boolean; open_error?: string }>("POST", "/api/tour/practice", {}); setCreated(result); return JSON.parse(JSON.stringify(result)); }));
+  add("back", "Back", phase > 0, async () => { setPhase(phase - 1); return { status: "completed", value: { step: phase } }; });
+  add("next", "Continue", !!gates[phase] && phase < COACH_STEPS.length - 1, async () => { setPhase(phase + 1); return { status: "completed", value: { step: phase + 2, completed_operation: false } }; });
+  add("skip", "Skip this step", phase < COACH_STEPS.length - 1, async () => { setSkipped([...new Set([...skipped, phase])]); setPhase(phase + 1); return { status: "completed", value: { skipped: phase + 1, evidence_established: false } }; });
+  add("restart", "Restart guidance", !!info?.active, async () => { setPhase(0); setSkipped([]); setPause(null); setPublication(null); return { status: "completed", value: { step: 1, retained_history: true, repository_reset: false } }; });
+  add("task", phase < 3 ? "Copy investigation task" : "Copy correction and verification task", !!info?.active, async (_args, actor) => {
+    const text = phase < 3 ? INVESTIGATION_TASK : CORRECTION_TASK; setTask(text);
+    if (actor.kind === "human" && navigator.clipboard) await navigator.clipboard.writeText(text);
+    return { status: "completed", value: { text, provider_request_sent: false } };
+  });
+  add("publication", "Compare reviewed published JSON", !!info?.active, async args => perform(async () => loadPublication(String(args.json))), { json: { type: "string", maxLength: 262144 } });
+  const invoke = useUiCommands(commands);
+  const click = (id: string, args: Record<string, UiValue> = {}) => { void invoke(`${parent}/${id}`, args).catch(reason => setError(String(reason))); };
+  const target = phase === 0 || phase === 3 ? '[data-coach-target="agent"]' : phase === 2 || phase === 4 ? '[data-coach-target="review"]' : '.cm-card-rail';
   return <div className="workflow-tour-launcher">
-    <button className="btn" onClick={() => { setOpen(!open); if (!open) void act(() => refresh(true)); }}>{open ? "Close AI engineer tour" : "AI engineer tour"}</button>
-    <section hidden={!open} className="workflow-tour workflow-tour--app" aria-label="AI engineer tour">
-      <h2>Meeting → reviewed and verified change</h2>
-      <p>Native practice uses a separate Git repository. Seeded meeting/proposal text is labelled; imports, review threads, model calls, context deliveries, runtime captures and checks use the product's real controls. Model calls require your configured provider and an explicit Send action.</p>
-      {error && <p role="alert">{error}</p>}
-      {!info?.active ? <>
-        <button disabled={busy} onClick={() => void act(async () => setCreated(await request("POST", "/api/tour/practice", {})))}>Create and open an isolated practice repository</button>
-        {created && <p>Created <code>{created.path}</code>. {created.opened ? "Opened in a separate native window." : `Open this folder in another Hickory window. ${created.open_error ?? ""}`}</p>}
-      </> : <>
-        <p>{info.seed} · repository <code>{info.path}</code></p>
-        <p>Phase {phase + 1} of {APP_TOUR_PHASES.length}. Close the tour to use the main editor/review/agent controls; reopening resumes this phase. Refresh observations after acting. Reloaded execution steps require renewed evidence.</p>
-        <h3>{APP_TOUR_PHASES[phase].title}</h3><p>{APP_TOUR_PHASES[phase].text}</p>
-        <button disabled={busy} onClick={() => void act(() => refresh())}>Refresh observed product evidence</button>
-        <button onClick={() => onOpen?.("deadline-spec.md", 13)}>Open the actual requirement and claim</button>
-        {phase === 0 && <><pre>{info.meeting}</pre><button disabled={busy} onClick={() => void act(async () => setMeeting(await request("POST", "/api/meetings/import", { name: "deadline-meeting.vtt", text: info.meeting })))}>Import the seeded meeting through the real importer</button>{meeting && <p>Retained source <button onClick={() => onOpen?.(meeting.source, 1)}>{meeting.source}</button> · SHA-256 {meeting.source_sha256}. Use its utterance citation when linking R1. {meeting.utterances?.map(u => <button key={u.id} onClick={() => onOpen?.(meeting.source, u.line)}>{u.id} · source line {u.line}</button>)}</p>}</>}
-        {phase === 1 && <p>Enable author colors in Lineage settings. The initial Git author is the fixture generator, not an authenticated human. Select the actual claim and use Comment on selection; retain the missed “including retries” qualification in the objection. Thread: {thread ?? "not yet observed"}.</p>}
-        <div hidden={phase !== 2}><p>Bind a breakpoint and inspect an actual paused marker before continuing to the counterexample failure. Expanded/pinned observations use the same stable handles supplied to agent context. Reverse execution and restart-frame are unsupported here; retained-history browsing does not reverse execution.</p><DebuggableDocument path="deadline-spec.md" source={info.source} revision={info.source_hash} readOnly onObservation={reading => {
-          if (reading.annotations.some(a => a.payload.kind === "paused") && reading.annotations.some(a => a.payload.kind === "breakpoint_bound") && new TextDecoder().decode(new Uint8Array(reading.source.bytes)) === info.source) { setPauseEvidence(reading.scope.stop); setPauseIds(reading.annotations.filter(a => a.payload.kind === "paused" || a.payload.kind === "breakpoint_bound").map(a => a.evidence)); }
-        }} onRuntime={run => {
-          if (run.status !== "running") {
-            if (run.status === "failed" && runtimeText(run).includes("R1 failed: expected 100, got 160") && new TextDecoder().decode(new Uint8Array(run.sources[0]?.bytes ?? [])) === info.source) setCounterexample(run.id);
-            void request("POST", "/api/runtime/runs", run).catch(e => setError(String(e)));
-          }
-        }} /></div>
-        {phase === 3 && <p><button onClick={() => onOpen?.("AGENTS.md", 1)}>Open actual instruction source</button> In the workspace agent, ask it to read the requirement. Open AGENTS.md and add the missing “including retries” instruction, inspect Changed agent context, and queue that exact patch. Send a subsequent message to observe delivery. The gate reads a confirmed update receipt; it does not infer understanding. Confirmed update: {updated ? "observed" : "unavailable"}; exact paused/breakpoint evidence supplied on this branch: {debugDelivered ? "observed" : "unavailable"}. Pin source observations before sending.</p>}
-        {phase === 4 && <p>Use the saved review thread's investigation selector to send to the workspace conversation. Inspect its actual response/session, proposed diff and edit approval. This uses your provider; the tour never silently calls a model or substitutes a recorded response. Response: {investigated ? "observed" : "unavailable"}.</p>}
-        {phase === 5 && <><button disabled={busy} onClick={() => void act(runNative)}>Verify the saved corrected specification natively</button>{verified && <p>Actual run {verified.id}: {verified.status} · source {verified.source_hash ?? "unavailable"}. {nativePassed ? "Execution-cell witnesses passed for current source." : "Current-source pass not established."}</p>}<p>Inspect the agent pane's actual focused diff and approve it before running this check. A passing run does not resolve the human review thread.</p></>}
-        {phase === 6 && <><button onClick={() => onOpen?.("hotspot.md", 11)}>Open the real profiling source</button><NativeRuntimeHistory path="hotspot.md" source={info.profile_source} view={focused?.path === "hotspot.md" ? focused.view : undefined} /><p>Completed profile source revisions with the correctness output: {new Set(profileRevisions).size}. Expand subtotal, pin selected evidence in next context, replace its loop with the arithmetic formula, then rerun correctness and profiling. Timing includes profiler overhead; no fixed speedup is promised. Exact profile evidence supplied on this conversation branch: {profileDelivered ? "observed" : "unavailable"}.</p></>}
-        {phase === 7 && <p>Inspect the corrected source, exact revision check, log/emitter evidence and profiling comparison. Resolve the actual thread yourself in Review threads. Latest human action: {resolved ? "resolve" : "open/unavailable"}. The tour never resolves it automatically.</p>}
-        {phase === 8 && <><a href="https://hickorydocs.com/snapshot.html?index=publications/index.json" target="_blank" rel="noreferrer">Open published verification</a><label>Load a reviewed published result JSON<input type="file" accept=".json" onChange={e => { const file = e.target.files?.[0]; if (file) void act(async () => { const value = JSON.parse(await file.text()); setPublication(await decodeSnapshot(value)); }); }} /></label>{publication && <><p>{published ? "Published pass matches the actual saved source hash." : "Publication is stale, failed, missing verification, or for different source bytes."}</p><PublishedSnapshot snapshot={publication} /></>}</>}
-        <p role="status">Phase evidence: {gates[phase] ? "observed within the stated scope" : "not established"}. Human judgment and semantic correctness remain separate.</p>
-        <div className="workflow-tour-controls"><button disabled={phase === 0} onClick={() => setPhase(p => p - 1)}>Back</button>{phase < APP_TOUR_PHASES.length - 1 && <button disabled={!gates[phase]} onClick={() => setPhase(p => p + 1)}>Continue</button>}<button onClick={() => { setPhase(0); setPauseEvidence(""); setCounterexample(""); setVerified(null); setMeeting(null); setPublication(null); }}>Restart walkthrough in this repository</button></div>
-        {phase === APP_TOUR_PHASES.length - 1 && <p>Local evidence and the loaded publication are reviewable. Launch readiness is not established until the full native path and the deployed homepage build revision are independently witnessed. Preserve unavailable steps instead of calling them passed.</p>}
-      </>}
-      <button onClick={() => setOpen(false)}>Skip / close</button>
-    </section>
+    <button className="btn" disabled={busy} onClick={() => click("toggle")}>{open ? "Close AI engineer tour" : "AI engineer tour"}</button>
+    {open && <AnchoredCoach target={target} title="AI engineer tour" onDismiss={() => setOpen(false)}>
+      <section className="workflow-tour workflow-tour--app" aria-label="Agent-first practice">
+        <p><strong>Customer brief:</strong> A client retries outbound requests. Two 80ms attempts must share a 100ms total deadline, while short attempts and an empty sequence retain their behavior. The missed qualification is “including retries.” This deterministic model does not test network or OS timing.</p>
+        {error && <p role="alert">{error}</p>}
+        {!info?.active ? <>
+          <p>Start in a separate Git repository. Meeting text and the original mistake are labelled fixtures; subsequent provider calls, debugging, edits and checks must be real.</p>
+          <button disabled={busy} onClick={() => click("create")}>Create and open an isolated practice repository</button>
+          {created && <p>Created <code>{created.path}</code>. {created.opened ? "Opened in a separate native window." : `Open this folder in another Hickory window. ${created.open_error ?? ""}`}</p>}
+        </> : <>
+          <p>{info.seed} · <code>{info.path}</code></p>
+          <p>Step {phase + 1} of {COACH_STEPS.length}. Dismiss to use the workspace; reopening reconciles actual receipts. Missing witnesses stay unestablished.</p>
+          <h3>{COACH_STEPS[phase].title}</h3><p>{COACH_STEPS[phase].text}</p>
+          {phase === 0 && <><button onClick={() => click("task")}>Copy investigation task</button><p>Paste into the actual workspace agent, inspect the provider, then Send. No model request is sent by the coach. Confirmed request and completed response: {delegated ? "observed" : "not established"}.</p></>}
+          {phase === 1 && <><button onClick={() => onOpen?.("deadline-spec.md", 13)}>Open actual source and debugger</button><p>Source-bound failure: {failed?.id ?? "not established"}. Bound paused evidence: {pause ? `${pause.run} / ${pause.stop}` : "not established"}. Ask the agent to use the registered debugger controls and inspect the actual paused marker. Historical browsing is not reverse execution.</p></>}
+          {phase === 2 && <p>Decide whether the deadline includes retries. Select the actual “The deadline bounds…” claim and record the missed qualification with the existing Comment on selection control. Saved review thread: {thread ?? "not established"}. The coach does not create or resolve a human review for you.</p>}
+          {phase === 3 && <><button onClick={() => click("task")}>Copy correction and verification task</button><p>Review the agent's actual preview before accepting it. Delegate Verify saved document through its shared action handle. Receipt: {verified?.id ?? "not established"} · {verified?.status ?? "unavailable"}; current-root pass: {passed ? "observed" : "not established"}. A model completion is not a check.</p></>}
+          {phase === 4 && <p>Inspect the focused diff, actual source/run identity and independent checks, then resolve the real review thread yourself. Current resolution: {resolved ? "resolved" : "open/unavailable"}. Profiling is optional when it helps this customer problem, using the normal runtime controls.</p>}
+          {phase === 5 && <><a href="https://hickorydocs.com/snapshot.html?index=publications/index.json" target="_blank" rel="noreferrer">Inspect reviewed published verification</a><label>Load reviewed publication JSON<input type="file" accept=".json" onChange={event => { const file = event.target.files?.[0]; if (file) void file.text().then(json => click("publication", { json })).catch(reason => setError(String(reason))); }} /></label>{publication && <><p>{published ? "Loaded published pass matches saved source bytes; inspect its origin and tested revision." : "Publication is stale, failed, unavailable or for different source bytes."}</p><PublishedSnapshot snapshot={publication} /></>}</>}
+          {task && <details open><summary>Delegation text — review before sending</summary><pre>{task}</pre></details>}
+          <p role="status">Step evidence: {gates[phase] ? "observed within the stated scope" : "not established"}.{skipped.length > 0 && ` Skipped steps: ${skipped.map(step => step + 1).join(", ")}; these are not passed.`}</p>
+          <button disabled={busy} onClick={() => click("refresh")}>Refresh observed product evidence</button>
+          <div className="workflow-tour-controls"><button disabled={phase === 0 || busy} onClick={() => click("back")}>Back</button>{phase < COACH_STEPS.length - 1 && <><button disabled={!gates[phase] || busy} onClick={() => click("next")}>Continue</button><button disabled={busy} onClick={() => click("skip")}>Skip this step</button></>}<button disabled={busy} onClick={() => click("restart")}>Restart guidance</button></div>
+          <p>Retained history is not reset. Reload requires missing paused/publication evidence to be re-established. Recording, native/provider execution and deployed revision still need their actual witnesses; the coach never declares launch readiness.</p>
+        </>}
+        <button onClick={() => setOpen(false)}>Skip / close</button>
+      </section>
+    </AnchoredCoach>}
   </div>;
 }

@@ -10,6 +10,13 @@ publisher = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(publisher)
 
 class PublicationTests(unittest.TestCase):
+    def test_recordings_reuse_selected_reviewed_assets_without_implicit_sessions(self):
+        video = 'examples/public-demo.webm'
+        demo = dict(reviewed=True, capture_kind='native-provider', captured_revision='a'*40, recording_asset=video, cuts=['One declared cut'])
+        self.assertEqual(publisher.demonstration(dict(demonstration=demo), {video:'b'*64})['recording_asset'], video)
+        for change in (dict(reviewed=False), dict(capture_kind='browser-replay'), dict(recording_asset='sessions/private.webm'), dict(session_asset='sessions/private.md'), dict(captured_revision=123), dict(recording_asset=[])):
+            with self.assertRaises(ValueError): publisher.demonstration(dict(demonstration={**demo, **change}), {video:'b'*64})
+        self.assertIsNone(publisher.demonstration({}, {}))
     # Guarantee: docs/guarantees/embedding/publication-is-bound-to-reviewed-inputs.md
     def test_failed_run_publishes_details_hashes_and_missing_witness(self):
         with tempfile.TemporaryDirectory() as directory:

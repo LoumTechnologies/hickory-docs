@@ -541,6 +541,7 @@ export function ChatDock({
     <section
       className={`chat-dock${collapsed ? " collapsed" : ""}${onToggleCollapsed ? "" : " chat-dock--pane"}`}
       aria-label="Agent chat"
+      data-coach-target="agent"
     >
       <header className="chat-head">
         {onToggleCollapsed ? (

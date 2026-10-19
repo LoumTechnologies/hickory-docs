@@ -1,3 +1,4 @@
+import { useEditorActions } from "../editor/uiEditorActions";
 import { observationSourceChanged } from "../debug/observations";
 import { launchWithProfiles } from "../debug/launchProfiles";
 import { DebugLaunchRail } from "../debug/DebugRail";
@@ -108,6 +109,7 @@ export function PlainFilePane({
   // The live view AS STATE: a ref never re-renders, and the blame column has
   // to mount its fetch against the view that actually exists.
   const [railView, setRailView] = useState<EditorView | null>(null);
+  useEditorActions(railView, `file:${path}`);
   const [file, setFile] = useState<PlainFile | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [saveState, setSaveState] = useState<PlainSaveState>({ kind: "idle" });

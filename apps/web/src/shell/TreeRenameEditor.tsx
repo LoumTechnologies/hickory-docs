@@ -6,7 +6,8 @@
 // capability per node: a filesystem and a future provider share no transaction,
 // so every result is reported separately.
 
-import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from "react";
+import { useEffect, useId, useLayoutEffect, useRef, useState, type CSSProperties } from "react";
+import { useUiCommands, useUiRevision } from "../lib/uiActionBridge";
 import { defaultKeymap, history, historyKeymap } from "@codemirror/commands";
 import { EditorState } from "@codemirror/state";
 import { EditorView, keymap, lineNumbers } from "@codemirror/view";
@@ -66,7 +67,10 @@ export function TreeRenameEditor({
   /** A single filesystem rename occupies the row it edits. */
   inlinePath?: string;
 }) {
+  const instance = useId();
   const shell = useRef<HTMLElement>(null);
+  const editor = useRef<EditorView | null>(null);
+  const running = useRef(false);
   const host = useRef<HTMLDivElement>(null);
   const submitRef = useRef<() => void>(() => undefined);
   const text = useRef(items.map((item) => item.value).join("\n"));
@@ -120,28 +124,30 @@ export function TreeRenameEditor({
         selection: compact ? { anchor: 0, head: text.current.length } : undefined,
       }),
     });
+    editor.current = view;
     view.focus();
-    return () => view.destroy();
+    return () => { editor.current = null; view.destroy(); };
   }, [compact]);
 
   const submit = async () => {
+    if (running.current) return { error: "Rename is already running" };
     setError(null);
     setOutcomes([]);
     const parsed = renameValues(text.current, items.length);
     if (!parsed.values) {
       setError(parsed.error ?? "The rename column is invalid.");
-      return;
+      return { error: parsed.error ?? "The rename column is invalid." };
     }
     for (let index = 0; index < items.length; index += 1) {
       if (completed.current.has(items[index].key)) continue;
       const refusal = validate?.(parsed.values[index], items[index]);
       if (refusal) {
         setError(`Line ${index + 1}: ${refusal}`);
-        return;
+        return { error: `Line ${index + 1}: ${refusal}` };
       }
     }
 
-    setBusy(true);
+    running.current = true; setBusy(true);
     const completedBefore = new Set(completed.current.keys());
     const results = await Promise.all(
       items.map(async (item, index): Promise<SemanticRenameOutcome> => {
@@ -164,7 +170,7 @@ export function TreeRenameEditor({
     for (const result of results) {
       if (result.ok && !result.skipped) completed.current.set(result.key, result);
     }
-    setBusy(false);
+    running.current = false; setBusy(false);
     setOutcomes(results);
     const didChange = results.some(
       (result) => result.ok && !result.skipped && !completedBefore.has(result.key),
@@ -174,8 +180,26 @@ export function TreeRenameEditor({
       onApplied?.(true);
     }
     if (compact && results.every((result) => result.ok)) onClose(didChange || changed);
+    return { results };
   };
   submitRef.current = () => { if (!busy) void submit(); };
+  const parent = `rename-editor:${instance}`;
+  const revision = useUiRevision(() => [items, text.current, outcomes, error, running.current]);
+  const read = () => ({ revision: revision(), enabled: !running.current, reason: running.current ? "Wait for the current batch" : undefined });
+  useUiCommands([
+    { key: `${parent}/read`, command: { label: "Read rename column and per-node results", parent, subject: parent, parameters: {}, prerequisites: [], read: () => ({ ...read(), enabled: true }), execute: async () => ({ status: "completed", value: JSON.parse(JSON.stringify({ items, text: text.current, outcomes, error, busy: running.current })) }) } },
+    { key: `${parent}/input`, command: { label: "Set rename column", parent, subject: parent, parameters: { text: { type: "string", maxLength: 32768 } }, prerequisites: ["Exactly one name per selected node; Apply validates names before writes"], read, execute: async args => {
+      const view = editor.current;
+      if (!view) return { status: "unavailable", reason: "Rename editor is not mounted" };
+      view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: String(args.text) } });
+      return { status: "completed", value: { applied: false, result: "Observe and apply the actual rename column" } };
+    } } },
+    { key: `${parent}/apply`, command: { label: "Apply rename column", parent, subject: parent, parameters: {}, prerequisites: ["Existing per-node host/provider policy applies; partial batches retain individual results"], read, execute: async () => {
+      const result = await submit();
+      return result.results ? { status: "completed", value: JSON.parse(JSON.stringify({ results: result.results, all_ok: result.results.every(item => item.ok) })) } : { status: "unavailable", reason: result.error ?? "Rename unavailable" };
+    } } },
+    { key: `${parent}/close`, command: { label: "Close rename editor", parent, subject: parent, parameters: {}, prerequisites: [], read, execute: async () => { onClose(changed); return { status: "completed", value: null }; } } },
+  ]);
 
   return (
     <section

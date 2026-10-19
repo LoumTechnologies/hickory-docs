@@ -50,3 +50,20 @@ Last LLM verification:
   TypeScript compilation passed. New CI deployment was not monitored.
 - Human judgment: no new public material beyond the explicit selected fixture;
   no live deployment acceptance recorded in this session.
+
+Issue 72 reviewed recording extension (2026-10-19):
+
+- Optional demonstration metadata names a separately selected, hash-reviewed
+  .mp4/.webm, exact captured build revision, declared cuts and optional selected
+  public session export. Raw sessions remain excluded by the existing publisher.
+- WorkflowRecording loads only on request, correlates index/snapshot identity,
+  and verifies selected media bytes before playback. Missing footage, failed
+  verification and differing capture/test revisions remain visible.
+- Asset resolution rejects absolute/scheme/query/fragment paths and encoded
+  traversal before fetching. Changed media fails SHA-256 comparison before any
+  object URL is created. Retrying clears prior video/publication state.
+- Executed checks: three publisher tests, three recording-loader tests and the
+  selected-byte/tampered-byte/encoded-escape asset test passed. Test media is
+  synthetic test bytes, not native/provider footage or playable-video evidence.
+- No video has been selected or published; native/provider/deployed playback
+  remains unverified. No deployment or regression status was monitored.

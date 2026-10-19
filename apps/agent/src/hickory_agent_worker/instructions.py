@@ -4,9 +4,14 @@ INSTRUCTIONS = '''You are Hickory's Python agent. Reply with ONLY one JSON objec
 {"python":"Python snippet"} or {"done":"summary with limitations"}.
 Snippets run in Monty, not CPython: no filesystem, shell, network or CPython
 execution. Call tool(name, arguments) to request a tool using its supplied schema.
+When ui_observe is advertised, discover registered Hickory controls with parent
+root, then read a returned group and invoke ui_act with its exact current handle.
+Use a fresh request_id for an intentional operation; reuse it for transport retries.
+UI handler completion does not certify runtime success. Inspect actual source-bound
+run/job evidence. Report unregistered capabilities and required user input explicitly.
 Read a surface before editing and carry its snapshot and SHA-256 anchors.
-Project artifacts may use the team's own language. Every hosted edit requires
-independent approval of its exact preview. Approval does not establish authorship.
+Project artifacts may use the team's own language. Document edit tools require
+independent approval of their exact preview. Approval does not establish authorship.
 Record consequential assumptions and decisions before relying on them. Use
 record_assumption and record_decision with evidence, alternatives, affected work
 and a falsifier. Corrections use supersedes; never erase the original. Use
@@ -26,7 +31,11 @@ using [source](path#Lstart-Lend), or the buffer's exact provenance_uri for an
 untitled editor. Cite only lines actually supplied or read, and label inferences.
 If the source does not support a claim, say so. No open folder means the engine
 execution base is not an implicitly authorized workspace to explore.
-No shell, debugger or verify tool is available: they can bypass edit review.
+Direct shell, debugger and verify tools are absent. When advertised, registered
+UI actions expose actual host terminal, setup, run, debug and profile controls.
+Use those only for the authorized task under existing host policy. Never use a
+terminal to evade document edit review or answer an approval/credential prompt.
+Observe bounded detail pages and actual job receipts; a dispatch is not a pass.
 When supplied, use changeset_status and submit_changeset with the boundary,
 expected fingerprint, entry and sources from status before completing. Repair
 until accepted. Without these capabilities, give a development summary without
@@ -66,7 +75,8 @@ project conventions and read actual source before adding elements or attributes.
   </hick:exec>
   The expect is a child of exec. match is exact or regex-lines; show is output
   or none. Mounted paths are relative (project/data.csv). These commands are
-  proposed document content, never commands the agent may execute through tools.
+  proposed document content, not authority to execute it. Run saved document
+  checks through registered controls only when the user's task authorizes them.
   State desired expectations as such; never call invented output observed.
 - <hick:file path="out/x.py">CONTENT</hick:file> defines generated file bytes.
 - <hick:copy id="name" class="kind">TEXT</hick:copy> defines a fragment.
@@ -77,8 +87,9 @@ project conventions and read actual source before adding elements or attributes.
 - <hick:transform select="#a,.b" instruct="..." from=""></hick:transform>
   leaves its passage empty for the explicit hick refresh workflow to generate.
 - <hick:check claim="#m1" against=".finding,.said" from=""></hick:check>
-  leaves its verdict empty for that same explicit workflow. This agent cannot
-  run refresh or verification through its confined tool interface.
+  leaves its verdict empty for that same explicit workflow. The confined snippet
+  cannot execute it directly; inspect advertised host UI capabilities and report
+  missing operations rather than inventing a result.
 - <hick:claim by="who" standing="expert|judgment|report|assumption" scope="...">
   TEXT</hick:claim> is an attributed assertion, not verified truth.
 - <hick:diagram renderer="mermaid" asserts="#x">BODY</hick:diagram> references

@@ -1,7 +1,9 @@
 // The pane's half of dired: the marks, the prompt a verb asks through, and
 // running the verb against the server. See shell/dired.ts for what the keys
 // mean and docs/guarantees/authoring/the-tree-is-a-dired.md.
-import { useCallback, useState } from "react";
+import { useCallback, useId, useState } from "react";
+import { useUiCommands, useUiRevision } from "../lib/uiActionBridge";
+import type { UiCommand, UiField, UiValue } from "../lib/uiActions";
 import type { KeyboardEvent } from "react";
 
 import { api } from "../api/client";
@@ -31,7 +33,7 @@ export interface Dired {
   prompt: DiredPrompt | null;
   promptError: string | null;
   busy: boolean;
-  answer: (value: string | null) => void;
+  answer: (value: string | null) => Promise<boolean>;
   cancel: () => void;
 }
 
@@ -39,6 +41,7 @@ const said = (e: unknown) => (e instanceof Error ? e.message : String(e));
 const many = (paths: string[]) => (paths.length === 1 ? paths[0] : `${paths.length} items`);
 
 export function useDired(onNotice: (text: string | null) => void): Dired {
+  const instance = useId();
   const [marked, setMarked] = useState<ReadonlySet<string>>(() => new Set());
   const [prompt, setPrompt] = useState<DiredPrompt | null>(null);
   const [renamePaths, setRenamePaths] = useState<readonly string[] | null>(null);
@@ -114,21 +117,14 @@ export function useDired(onNotice: (text: string | null) => void): Dired {
   );
 
   const answer = useCallback(
-    (value: string | null) => {
-      if (!prompt) return;
+    async (value: string | null) => {
+      if (!prompt || busy) return false;
       setBusy(true);
-      prompt.run(value).then(
-        () => {
-          setBusy(false);
-          done();
-        },
-        (e: unknown) => {
-          setBusy(false);
-          setPromptError(said(e));
-        },
-      );
+      try { await prompt.run(value); done(); return true; }
+      catch (e) { setPromptError(said(e)); return false; }
+      finally { setBusy(false); }
     },
-    [prompt, done],
+    [prompt, done, busy],
   );
 
   const onKey = useCallback(
@@ -143,7 +139,7 @@ export function useDired(onNotice: (text: string | null) => void): Dired {
     [marked, run],
   );
 
-  return {
+  const controller: Dired = {
     marked,
     toggle: (path) => setMarked((current) => toggleMark(current, path)),
     replaceMarks: (paths) => setMarked(new Set(paths)),
@@ -171,4 +167,33 @@ export function useDired(onNotice: (text: string | null) => void): Dired {
       setPromptError(null);
     },
   };
+  const parent = `file-operations:${instance}`;
+  const revision = useUiRevision(() => [[...marked], prompt?.label, prompt?.initial, renamePaths, promptError, busy]);
+  const commands: { key: string; command: UiCommand }[] = [];
+  const text: UiField = { type: "string", maxLength: 8192 };
+  const paths: UiField = { type: "array", maxItems: 128, items: text };
+  function add(key: string, label: string, parameters: Record<string, UiField>, execute: UiCommand["execute"], enabled = !busy) {
+    commands.push({ key: `${parent}/${key}`, command: { label, parent, subject: parent, parameters, prerequisites: ["Paths are relative to this workspace; existing host filesystem checks apply"], read: () => ({ revision: revision(), enabled, reason: enabled ? undefined : "Wait for the current filesystem operation" }), execute } });
+  }
+  const doneUi = (value: UiValue = { result: "Observe current file-operation state" }) => ({ status: "completed" as const, value });
+  add("read", "Read file-operation marks and prompt", {}, async () => doneUi({ marked: [...marked], rename_paths: renamePaths ? [...renamePaths] : null, prompt: prompt ? { label: prompt.label, verb: prompt.verb, initial: prompt.initial ?? null, confirmation: prompt.initial === undefined } : null, error: promptError, busy }), true);
+  add("marks", "Set marked files", { paths }, async args => { controller.replaceMarks(args.paths as string[]); return doneUi(); });
+  for (const kind of ["copy", "move", "delete", "rename"] as const) {
+    add(kind, `Prepare file ${kind}`, { paths }, async args => {
+      const targets = args.paths as string[];
+      if (!targets.length || targets.some(path => !path.trim())) return { status: "unavailable", reason: "Choose at least one workspace-relative file path" };
+      run({ kind, paths: targets }); return doneUi({ dispatch: "prepared", operation: kind, paths: targets, result: "Read the actual prompt or rename editor before applying" });
+    });
+  }
+  for (const kind of ["create", "mkdir"] as const) add(kind, `Prepare file ${kind}`, { directory: text }, async args => { run({ kind, dir: String(args.directory) }); return doneUi(); });
+  if (prompt) {
+    add("answer", `Submit file prompt: ${prompt.verb}`, prompt.initial === undefined ? { confirm: { type: "boolean" } } : { value: text }, async args => {
+      if (prompt.initial === undefined && args.confirm !== true) return { status: "unavailable", reason: "Confirmation was not supplied; use Cancel to dismiss" };
+      if (prompt.initial !== undefined && !String(args.value).trim()) return { status: "unavailable", reason: "Enter a nonempty name or destination" };
+      return await answer(prompt.initial === undefined ? null : String(args.value)) ? doneUi({ operation: prompt.verb, result: "Host filesystem operation completed" }) : { status: "unavailable", reason: "Operation failed or was busy; read the retained prompt error before retrying" };
+    });
+    add("cancel", "Cancel file prompt", {}, async () => { controller.cancel(); return doneUi(); });
+  }
+  useUiCommands(commands);
+  return controller;
 }

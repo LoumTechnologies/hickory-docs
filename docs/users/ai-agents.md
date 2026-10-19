@@ -36,8 +36,22 @@ select the provider and model. Missing credentials or confinement stop execution
 
 Python owns the agent loop. Model snippets run in Monty, inside a separately
 confined process, and call Hickory tools. They cannot execute a shell, write
-workspace files directly or run verification commands. `HICKORY_EXECUTOR=local`
+workspace files directly or invoke unrestricted verification commands. `HICKORY_EXECUTOR=local`
 does not disable this confinement. Hosted Windows support remains unavailable.
+
+In an attached application window, Python and ACP agents can also discover
+registered controls with `ui_observe` and invoke their current `ui_act` handles.
+Current coverage includes cell Run/source/transcript controls, menu disclosure,
+environment setup, debugger state/stepping/breakpoints, runtime/profile reads,
+terminal supervision and bounded output/input, editor reads/selections/folds,
+source-guarded saved-document execution, review reading and coach controls.
+Setup and execution return actual job IDs; inspect their receipts before judging
+a result. Editor reads are bounded observations, not edit baselines. Terminal
+prompts and human review resolution require actual human input. Agent comments
+and investigations retain agent-declared origin. Other
+UI capabilities are still being connected. Required Save input and unavailable
+controls are reported explicitly. CLI runs without an attached window have no
+UI controls. Human-only edit approvals remain separate.
 
 The agent reads documents and woven outputs, then proposes hash-anchored
 `edit_doc`, `edit_output` or `create_doc` changes. Hickory requires approval of
@@ -54,8 +68,9 @@ explicitly when needed. A model claim is not verification evidence.
 
 Claude Code, Codex, Grok CLI — any agent that can run a command gets the
 shared document tools, including explicit verification. External agents retain
-their own command permissions; the built-in Python agent withholds execution
-tools to preserve exact edit review.
+their own command permissions. The built-in Python agent uses confined snippets
+and registered host controls; direct shell access remains unavailable and exact
+edit review remains required.
 
 `hick init` sets this up:
 

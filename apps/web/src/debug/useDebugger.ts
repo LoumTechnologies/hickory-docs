@@ -6,6 +6,8 @@
 // `continue` takes as long as the program does.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useDebugActions } from "./uiDebugActions";
+import { retainDebugReading } from "./readingCapture";
 import { getWorkspaceRealtime, type Realtime } from "../api/realtime";
 import type { TranscriptEvent } from "../api/types";
 import { DebugClient } from "./client";
@@ -289,6 +291,9 @@ export function useWorkspaceDebugger(path: string): DebugSession {
 }
 
 export function useDebuggerOver(client: DebugClient | null, docPath: string, initialBreakpoints: readonly number[] = [], projectContext = "new"): DebugSession {
+  const eventEpoch = useRef(0);
+  const readingOwner = useRef(Symbol("debugger-capture"));
+  const [, renderEventEpoch] = useState(0);
   const [reading, setReading] = useState<import("./observations").ObservationReading | null>(null);
   const [status, setStatus] = useState<DebugStatus>("idle");
   const [message, setMessage] = useState<string | null>(null);
@@ -343,6 +348,7 @@ export function useDebuggerOver(client: DebugClient | null, docPath: string, ini
   statusRef.current = status;
 
   const uri = useMemo(() => docPath.startsWith("hick-project:///") ? docPath : `hick:///${docPath.replace(/^\/+/, "")}`, [docPath]);
+  useEffect(() => { retainDebugReading(readingOwner.current, reading); return () => retainDebugReading(readingOwner.current, null); }, [reading]);
 
   useEffect(() => {
     if (!client) return;
@@ -351,6 +357,8 @@ export function useDebuggerOver(client: DebugClient | null, docPath: string, ini
       // Before `started` there is no session to match, so a start that is
       // still in flight is recognised by the file it named.
       if (!eventIsOurs(event, uri, sessionRef.current)) return;
+      eventEpoch.current++;
+      renderEventEpoch(eventEpoch.current);
       switch (event.event) {
         case "reading":
           setReading(event.reading);
@@ -758,7 +766,7 @@ export function useDebuggerOver(client: DebugClient | null, docPath: string, ini
   // carries this as a field and is published by identity, so a fresh object
   // on every render would re-publish the session — and re-render the whole
   // workspace — on every keystroke of the document beside it.
-  return useMemo(
+  const controller = useMemo(
     () => ({
       reading,
       status,
@@ -829,4 +837,6 @@ export function useDebuggerOver(client: DebugClient | null, docPath: string, ini
       removeWatch,
     ],
   );
+  useDebugActions(docPath, controller, () => eventEpoch.current, !!client);
+  return controller;
 }

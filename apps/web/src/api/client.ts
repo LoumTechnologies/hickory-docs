@@ -437,15 +437,15 @@ export const api = {
       `/api/docs/${docId}/blocks/${at}/${encodeURIComponent(action)}`,
       body ?? {},
     ),
-  run: (docId: string, cells?: string[]) =>
+  run: (docId: string, cells?: string[], expectedSourceHash?: string) =>
     request<{ run_id: string }>(
       "POST",
       `/api/docs/${docId}/run`,
-      cells ? { cells } : {},
+      { ...(cells ? { cells } : {}), ...(expectedSourceHash ? { expected_source_hash: expectedSourceHash } : {}) },
     ),
   runStatus: (runId: string) => request<Run>("GET", `/api/runs/${runId}`),
-  check: (docId: string) =>
-    request<{ run_id: string }>("POST", `/api/docs/${docId}/check`),
+  check: (docId: string, expectedSourceHash?: string) =>
+    request<{ run_id: string }>("POST", `/api/docs/${docId}/check`, expectedSourceHash ? { expected_source_hash: expectedSourceHash } : undefined),
 
   executor: () => request<ExecutorInfo>("GET", "/api/executor"),
 
@@ -700,12 +700,14 @@ export const api = {
     replacement: string,
     options: FindOptions = {},
     paths?: string[],
+    expectedSources?: Record<string, string>,
   ) =>
     request<ReplaceResponse>("POST", "/api/find/replace", {
       q,
       replacement,
       ...options,
       ...(paths ? { paths } : {}),
+      ...(expectedSources ? { expected_sources: expectedSources } : {}),
     }),
 
   /** Ranked project-wide search over documents and generated files. */
@@ -761,8 +763,8 @@ export const api = {
     request<void>("DELETE", `/api/terminals/${id}`),
   /** Type into a session. The pane's own keystrokes go over the socket
    * instead; this is for everything else (menus, the card's input line). */
-  terminalInput: (id: string, data: string) =>
-    request<void>("POST", `/api/terminals/${id}/input`, { data }),
+  terminalInput: (id: string, data: string, agent = false) =>
+    request<void>("POST", `/api/terminals/${id}/input`, { data, ...(agent ? { agent: true } : {}) }),
   terminalResize: (id: string, rows: number, cols: number) =>
     request<void>("POST", `/api/terminals/${id}/resize`, { rows, cols }),
   interruptTerminal: (id: string) =>

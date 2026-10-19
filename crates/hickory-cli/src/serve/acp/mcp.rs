@@ -9,6 +9,7 @@ use tokio::sync::Mutex;
 
 #[derive(Clone)]
 struct Bridge {
+    ui_window: Arc<Mutex<Option<String>>>,
     state: LocalState,
     context: super::client::RoomContext,
     server: Arc<Mutex<crate::mcp::Server>>,
@@ -19,6 +20,7 @@ struct Bridge {
 }
 
 pub struct Host {
+    pub ui_window: Arc<Mutex<Option<String>>>,
     pub url: String,
     pub edits: Arc<super::edits::Edits>,
     pub changeset: Arc<Mutex<Option<crate::changeset::Contract>>>,
@@ -52,7 +54,9 @@ impl Host {
             *edits.mode.lock().unwrap() = mode;
         }
         let changeset = Arc::new(Mutex::new(None));
+        let ui_window = Arc::new(Mutex::new(None));
         let bridge = Bridge {
+            ui_window: ui_window.clone(),
             state: state.clone(),
             context: super::client::RoomContext {
                 index: state.index.clone(),
@@ -78,6 +82,7 @@ impl Host {
             let _ = axum::serve(listener, router).await;
         });
         Ok(Self {
+            ui_window,
             url,
             edits,
             task,
@@ -96,6 +101,27 @@ async fn exchange(State(bridge): State<Bridge>, Json(message): Json<Value>) -> i
     let params = message.get("params").cloned().unwrap_or(json!({}));
     let name = params["name"].as_str().unwrap_or("");
     let args = &params["arguments"];
+    if method == "tools/call" && matches!(name, "ui_observe" | "ui_act" | "ui_cancel") {
+        let window = bridge.ui_window.lock().await.clone();
+        let session = bridge.record.lock().await.path.clone();
+        let actor = format!("acp:{}", session.display());
+        let outcome = async {
+            let window = window.ok_or_else(|| anyhow::anyhow!("No originating UI window attached to this turn"))?;
+            bridge.record.lock().await.context("ui-tool-request", &json!({"actor":actor,"tool":name,"arguments":args}))?;
+            let result = bridge.state.ui_actions.call(&window, &actor, name, args.clone()).await;
+            bridge.record.lock().await.context("ui-tool-result", &json!({"actor":actor,"tool":name,"arguments":args,"result":result.as_ref().ok(),"error":result.as_ref().err().map(|e|format!("{e:#}"))}))?;
+            result
+        }.await;
+        return match outcome {
+            Ok(value) => (
+                StatusCode::OK,
+                Json(
+                    json!({"jsonrpc":"2.0","id":id,"result":super::super::ui_actions::tool_result(value)}),
+                ),
+            ),
+            Err(error) => tool_error(id, &format!("{error:#}")),
+        };
+    }
     if method == "tools/call"
         && matches!(
             name,
@@ -276,6 +302,7 @@ async fn exchange(State(bridge): State<Bridge>, Json(message): Json<Value>) -> i
         tools.retain(|tool| tool["name"] != "begin_changeset");
         tools.extend(super::super::representation_tools::catalogue());
         tools.extend(super::edits::catalogue());
+        tools.extend(super::super::ui_actions::catalogue());
     }
     if let Err(e) = super::workspace::finish(&bridge.context, snapshots).await {
         result = Err((

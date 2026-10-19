@@ -19,6 +19,8 @@
 import { isAction } from "../lib/keymap";
 import "./commandPalette.css";
 import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useUiCommands, useUiRevision } from "../lib/uiActionBridge";
+import type { UiCommand, UiField } from "../lib/uiActions";
 
 const OPEN_COMMAND_BAR = "hickory-open-command-bar";
 export function openCommandBar(commands = false) {
@@ -34,6 +36,8 @@ export interface CommandItem {
   /** The dim second line — a path, a match, a keyboard shortcut. */
   detail?: string;
   run: () => void;
+  /** Command-mode callbacks need explicit policy review; navigation is separate. */
+  agentAllowed?: boolean;
 }
 
 /** The mode a raw query is in, and the query with its prefix removed. */
@@ -81,15 +85,14 @@ export function CommandBar({
   const previousFocus = useRef<HTMLElement | null>(null);
   const openRef = useRef(open); openRef.current = open;
   const { mode, term } = useMemo(() => parseQuery(raw), [raw]);
-
-  useEffect(() => {
-    const reveal = (commands: boolean) => {
+  const reveal = (commands: boolean) => {
       if (!openRef.current) previousFocus.current = document.activeElement as HTMLElement | null;
       setRaw(commands ? ">" : "");
       setOpen(true);
       inputRef.current?.focus();
       inputRef.current?.select();
-    };
+  };
+  useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       if (inputRef.current?.closest("[hidden]:not(.command-palette)")) return;
       const commands = isAction(event, "search.commands");
@@ -145,8 +148,32 @@ export function CommandBar({
   const choose = (item: CommandItem | undefined) => {
     if (!item) return;
     dismiss();
-    item.run();
+    return item.run();
   };
+  const parent = `command-search:${listId}`;
+  const revision = useUiRevision(() => [raw, open, selected, results?.raw, items.map(item => [item.id, item.label, item.detail, item.agentAllowed])]);
+  const commands: { key: string; command: UiCommand }[] = [];
+  function add(id: string, label: string, parameters: Record<string, UiField>, execute: UiCommand["execute"], enabled = true, group = parent) {
+    commands.push({ key: `${parent}/${id}`, command: { label, parent: group, subject: parent, parameters, prerequisites: ["Current query and returned candidate identity; command-mode policy applies"], read: () => ({ revision: revision(), enabled, reason: enabled ? undefined : "Wait for the current search response" }), execute } });
+  }
+  add("visibility", "Set command search visibility", { open: { type: "boolean" }, commands: { type: "boolean" } }, async args => { if (args.open) reveal(Boolean(args.commands)); else dismiss(); return { status: "completed", value: { open: Boolean(args.open) } }; }, true, "command-search-disclosures");
+  if (open) {
+    add("input", "Set command search query", { query: { type: "string", maxLength: 8192 } }, async args => { setRaw(String(args.query)); return { status: "completed", value: { dispatch: "query requested", result: "Observe the current candidates before choosing" } }; });
+    add("read", "Read command search bytes", { offset: { type: "number", minimum: 0, maximum: 100000000, integer: true }, limit: { type: "number", minimum: 1, maximum: 8192, integer: true } }, async args => {
+      const bytes = new TextEncoder().encode(JSON.stringify({ query: raw, mode, loading, selected, items: items.map(item => ({ id: item.id, label: item.label, detail: item.detail, agent_allowed: mode !== "command" || item.agentAllowed === true })) }));
+      const offset = Number(args.offset), end = Math.min(bytes.length, offset + Number(args.limit));
+      if (offset > bytes.length) return { status: "unavailable", reason: "Offset exceeds current command search" };
+      return { status: "completed", value: { encoding: "JSON encoded as UTF-8 bytes", bytes: [...bytes.slice(offset, end)], span: [offset, end], total_bytes: bytes.length, next: end < bytes.length ? end : null } };
+    });
+    add("select", "Select command search candidate", { index: { type: "number", minimum: 0, maximum: 1000000, integer: true } }, async args => { if (!items[Number(args.index)]) return { status: "unavailable", reason: "Index does not belong to this query's results" }; setSelected(Number(args.index)); return { status: "completed", value: { selected: args.index } }; }, !loading);
+    add("choose", "Choose command search candidate", { id: { type: "string", maxLength: 8192 } }, async (args, actor) => {
+      const item = items.find(item => item.id === args.id);
+      if (!item) return { status: "unavailable", reason: "Candidate does not belong to this query's current result" };
+      if (actor.kind === "agent" && mode === "command" && item.agentAllowed !== true) return { status: "unavailable", reason: "This palette callback has no agent policy adapter. For document runs use the source-bound Run/Verify saved document controls; other command adapters remain integration work" };
+      await choose(item); return { status: "completed", value: { dispatch: "requested", item: item.id, result: "Observe the actual route, dialog or source-bound job receipt" } };
+    }, !loading);
+  }
+  useUiCommands(commands);
 
   return (
     <div className={overlay ? "command-palette" : "command-bar"} hidden={overlay && !open} role="search"

@@ -152,6 +152,83 @@ async fn a_terminal_runs_a_command_and_the_socket_carries_what_it_printed() {
     assert!(seen.contains("hello from the pty"), "socket said: {seen:?}");
 }
 
+// Guarantee: docs/guarantees/agent/ui-action-dispatch.md
+#[cfg(unix)]
+#[tokio::test(flavor = "multi_thread")]
+async fn agent_input_checks_the_current_host_prompt_before_sending_bytes() {
+    let session = start().await;
+    let (status, opened) = post(&session, "/api/terminals", json!({"title":"decision","argv":["/bin/sh","-c","printf 'Proceed? [y/N]'; read response; printf '\\nANSWER:%s\\n' \"$response\""]})).await;
+    assert_eq!(status, 200, "{opened}");
+    let id = opened["id"].as_str().unwrap();
+    read_until(&session, id, "Proceed? [y/N]").await;
+    let (status, error) = post(
+        &session,
+        &format!("/api/terminals/{id}/input"),
+        json!({"agent":true,"data":"yes\n"}),
+    )
+    .await;
+    assert_eq!(status, 409, "{error}");
+    let (status, error) = post(
+        &session,
+        &format!("/api/terminals/{id}/input"),
+        json!({"agent":true,"data":"x".repeat(16385)}),
+    )
+    .await;
+    assert_eq!(status, 400, "{error}");
+    let (status, result) = post(
+        &session,
+        &format!("/api/terminals/{id}/input"),
+        json!({"data":"yes\n"}),
+    )
+    .await;
+    assert_eq!(status, 200, "{result}");
+    assert!(
+        read_until(&session, id, "ANSWER:yes")
+            .await
+            .contains("ANSWER:yes")
+    );
+}
+
+// Guarantee: docs/guarantees/agent/ui-action-dispatch.md
+#[tokio::test(flavor = "multi_thread")]
+async fn terminal_output_reads_are_bounded_and_revision_bound() {
+    let session = start().await;
+    let (status, opened) = post(
+        &session,
+        "/api/terminals",
+        json!({"argv":prints("bounded terminal witness")}),
+    )
+    .await;
+    assert_eq!(status, 200, "{opened}");
+    let id = opened["id"].as_str().unwrap();
+    let _ = read_until(&session, id, "bounded terminal witness").await;
+    let route = format!("/api/terminals/{id}/output?view=screen&offset=0&limit=16384");
+    let (status, captured) = get(&session, &route).await;
+    assert_eq!(status, 200, "{captured}");
+    let bytes: Vec<u8> = serde_json::from_value(captured["bytes"].clone()).unwrap();
+    assert!(
+        String::from_utf8(bytes)
+            .unwrap()
+            .contains("bounded terminal witness")
+    );
+    assert_eq!(captured["span"]["start"], 0);
+    let (status, _) = get(&session, &format!("{route}&revision=forged")).await;
+    assert_eq!(status, 409);
+    let (status, _) = get(
+        &session,
+        &format!("/api/terminals/{id}/output?view=screen&offset=0&limit=16385"),
+    )
+    .await;
+    assert_eq!(status, 400);
+    let offset = captured["total"].as_u64().unwrap() + 1;
+    let (status, _) = get(
+        &session,
+        &format!("/api/terminals/{id}/output?view=screen&offset={offset}&limit=1"),
+    )
+    .await;
+    assert_eq!(status, 400);
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn a_client_that_arrives_after_the_output_still_sees_it() {
     // The pane-close case: the bytes were produced while nobody was attached.

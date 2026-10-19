@@ -174,6 +174,7 @@ pub async fn find(
             }
             out.push(json!({
                 "path": rel,
+                "source_hash": hick_context_protocol::digest(text.as_bytes()),
                 "matches": hits,
                 // Named here so the UI can grey out what replace will refuse
                 // BEFORE anyone presses the button.
@@ -198,6 +199,9 @@ pub struct ReplaceBody {
     /// is expressed. Absent means every file that matches.
     #[serde(default)]
     pub paths: Option<Vec<String>>,
+    /// Guard the exact files returned by a previous find response.
+    #[serde(default)]
+    pub expected_sources: Option<HashMap<String, String>>,
 }
 
 /// `POST /api/find/replace` — rewrite every match, and say what was skipped.
@@ -205,12 +209,37 @@ pub async fn replace(
     State(state): State<LocalState>,
     Json(body): Json<ReplaceBody>,
 ) -> ApiResult<Json<Value>> {
+    if let Some(expected) = &body.expected_sources {
+        let paths: std::collections::HashSet<_> = body
+            .paths
+            .as_ref()
+            .ok_or_else(|| {
+                ApiError::bad_request("Source-guarded replacement requires explicit paths")
+            })?
+            .iter()
+            .collect();
+        if paths.len() != expected.len()
+            || expected.iter().any(|(path, hash)| {
+                !paths.contains(path)
+                    || hash.trim_start_matches("sha256:").len() != 64
+                    || !hash
+                        .trim_start_matches("sha256:")
+                        .bytes()
+                        .all(|b| b.is_ascii_hexdigit())
+            })
+        {
+            return Err(ApiError::bad_request(
+                "Each selected path needs its observed source SHA-256",
+            ));
+        }
+    }
     let regex = matcher(&body.find)?;
     let root = state.index.root().to_path_buf();
     let generated = generated_map(&state);
     let only: Option<std::collections::HashSet<String>> =
         body.paths.map(|list| list.into_iter().collect());
     let replacement = body.replacement.clone();
+    let expected = body.expected_sources;
 
     let find = body.find.q.clone();
     let result = tokio::task::spawn_blocking(move || -> Result<Value, String> {
@@ -223,8 +252,16 @@ pub async fn replace(
         // by hand. Recording per file as we went would produce forty acts and
         // make the undo useless.
         let mut writes: Vec<(std::path::PathBuf, Vec<u8>)> = Vec::new();
+        let mut planned = Vec::new();
+        let mut seen = std::collections::HashSet::new();
         for (rel, absolute, text) in walk_text_files(&root) {
             if only.as_ref().is_some_and(|set| !set.contains(&rel)) {
+                continue;
+            }
+            seen.insert(rel.clone());
+            let source_hash = hick_context_protocol::digest(text.as_bytes());
+            if expected.as_ref().is_some_and(|expected| !expected.get(&rel).is_some_and(|hash| hash.trim_start_matches("sha256:").eq_ignore_ascii_case(source_hash.trim_start_matches("sha256:")))) {
+                skipped.push(json!({"path":rel,"matches":0,"reason":"source_changed","observed_source_hash":source_hash}));
                 continue;
             }
             let count = regex.find_iter(&text).filter(|m| !m.is_empty()).count();
@@ -246,9 +283,13 @@ pub async fn replace(
             if next == text {
                 continue;
             }
-            writes.push((absolute, next.into_bytes()));
-            total += count;
-            changed.push(json!({ "path": rel, "matches": count }));
+            writes.push((absolute.clone(), next.into_bytes()));
+            planned.push((rel, absolute, source_hash, count));
+        }
+        if let Some(expected) = &expected {
+            for path in expected.keys().filter(|path| !seen.contains(*path)) {
+                skipped.push(json!({"path":path,"matches":0,"reason":"source_unavailable"}));
+            }
         }
 
         // One act for the whole replace, recorded before any of it lands.
@@ -260,9 +301,15 @@ pub async fn replace(
             Some(format!("{find} → {replacement}")),
             &writes,
         );
-        for (absolute, bytes) in &writes {
+        for ((absolute, bytes), (relative, _, source_hash, count)) in writes.iter().zip(planned) {
+            if expected.is_some() && !std::fs::read(absolute).is_ok_and(|current| hick_context_protocol::digest(&current) == source_hash) {
+                skipped.push(json!({"path":relative,"matches":count,"reason":"source_changed_before_write"}));
+                continue;
+            }
             super::store::write_atomic(absolute, bytes)
                 .map_err(|e| format!("could not write {}: {e:#}", absolute.display()))?;
+            total += count;
+            changed.push(json!({"path":relative,"matches":count,"before_source_hash":source_hash,"after_source_hash":hick_context_protocol::digest(bytes)}));
         }
         Ok(json!({ "changed": changed, "skipped": skipped, "replacements": total }))
     })

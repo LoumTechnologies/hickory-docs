@@ -9,6 +9,8 @@ pub const WORKSPACE_AGENT: &str = "workspace";
 
 #[derive(Default, Deserialize, Serialize)]
 pub struct EditorContext {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ui_window: Option<String>,
     #[serde(default)]
     pub live: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]

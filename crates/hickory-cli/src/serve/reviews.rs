@@ -23,6 +23,9 @@ pub struct ReviewTarget {
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct NewEvent {
+    /// Declared origin, not authentication. UI agent adapters always set this.
+    #[serde(default)]
+    pub agent: bool,
     pub scope: Option<String>,
     pub thread: Option<String>,
     pub target: Option<ReviewTarget>,
@@ -60,6 +63,10 @@ fn events(dir: &Path) -> anyhow::Result<Vec<ReviewEvent>> {
     Ok(out)
 }
 fn append(dir: &Path, body: NewEvent) -> anyhow::Result<ReviewEvent> {
+    anyhow::ensure!(
+        !body.agent || !matches!(body.action.as_str(), "resolve" | "reopen"),
+        "Agent-originated events cannot declare human resolution"
+    );
     anyhow::ensure!(
         !body.body.trim().is_empty(),
         "Write a comment or explain the review action"
@@ -117,7 +124,12 @@ fn append(dir: &Path, body: NewEvent) -> anyhow::Result<ReviewEvent> {
         target: body.target,
         action: body.action,
         body: body.body,
-        actor: "user-declared".into(),
+        actor: if body.agent {
+            "agent-declared"
+        } else {
+            "user-declared"
+        }
+        .into(),
         recorded_at: std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)?
             .as_nanos()
@@ -232,6 +244,33 @@ mod tests {
     use super::*;
     // Guarantee: docs/guarantees/authoring/review-threads-preserve-the-questioned-target.md
     #[test]
+    fn agent_comments_are_attributed_and_cannot_declare_human_resolution() {
+        let dir = tempfile::tempdir().unwrap();
+        let input = |action: &str, thread: Option<String>, target: Option<ReviewTarget>| NewEvent {
+            agent: true,
+            scope: None,
+            thread,
+            target,
+            action: action.into(),
+            body: "Agent observation".into(),
+        };
+        let target = ReviewTarget {
+            kind: "claim".into(),
+            path: "spec.md".into(),
+            quote: "claim".into(),
+            source_hash: "a".repeat(64),
+            lines: [1, 1],
+            relationship: None,
+        };
+        let event = append(dir.path(), input("comment", None, Some(target))).unwrap();
+        assert_eq!(event.actor, "agent-declared");
+        for action in ["resolve", "reopen"] {
+            assert!(append(dir.path(), input(action, Some(event.thread.clone()), None)).is_err());
+        }
+        assert_eq!(events(dir.path()).unwrap().len(), 1);
+    }
+    // Guarantee: docs/guarantees/authoring/review-threads-preserve-the-questioned-target.md
+    #[test]
     fn correction_retains_target_and_cannot_retarget_a_reply() {
         let dir = tempfile::tempdir().unwrap();
         let source = "The deadline covers all retries.";
@@ -246,6 +285,7 @@ mod tests {
         let first = append(
             dir.path(),
             NewEvent {
+                agent: false,
                 scope: None,
                 thread: None,
                 target: Some(target.clone()),
@@ -258,6 +298,7 @@ mod tests {
             append(
                 dir.path(),
                 NewEvent {
+                    agent: false,
                     scope: None,
                     thread: Some(first.thread.clone()),
                     target: Some(target),
@@ -270,6 +311,7 @@ mod tests {
         append(
             dir.path(),
             NewEvent {
+                agent: false,
                 scope: None,
                 thread: Some(first.thread.clone()),
                 target: None,

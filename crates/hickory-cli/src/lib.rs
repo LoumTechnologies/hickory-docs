@@ -930,6 +930,57 @@ pub async fn run_doc(
     run_doc_cached(doc_path, params, mode, executor_choice, CacheMode::Off).await
 }
 
+/// Execute exactly the root source bytes whose revision was disclosed.
+/// Upstream inputs retain their existing engine validation; this binds the root.
+#[derive(Debug)]
+pub struct CapturedRootError {
+    pub source_hash: String,
+    error: anyhow::Error,
+}
+impl std::fmt::Display for CapturedRootError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(formatter, "{}", self.error)
+    }
+}
+impl std::error::Error for CapturedRootError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        Some(self.error.as_ref())
+    }
+}
+pub async fn run_doc_expected(
+    doc_path: &Path,
+    params: &[(String, String)],
+    mode: RunMode,
+    executor_choice: ExecutorChoice,
+    expected: &str,
+) -> Result<DocRun> {
+    let source = std::fs::read_to_string(doc_path)
+        .with_context(|| format!("failed to read {}", doc_path.display()))?;
+    let actual = hick_context_protocol::digest(source.as_bytes());
+    if actual.trim_start_matches("sha256:") != expected.trim_start_matches("sha256:") {
+        bail!(
+            "Source revision changed before execution; expected {expected}, observed {actual}. No root document operation ran."
+        );
+    }
+    run_source(
+        doc_path,
+        params,
+        mode,
+        executor_choice,
+        CacheMode::Off,
+        None,
+        source,
+    )
+    .await
+    .map_err(|error| {
+        CapturedRootError {
+            source_hash: actual,
+            error,
+        }
+        .into()
+    })
+}
+
 /// Check document structure without executing code or writing outputs.
 ///
 /// This is the fast gate for pre-commit hooks and CI: it catches a spelling
@@ -1006,6 +1057,27 @@ pub async fn run_doc_subset(
 ) -> Result<DocRun> {
     let source = std::fs::read_to_string(doc_path)
         .with_context(|| format!("failed to read {}", doc_path.display()))?;
+    run_source(
+        doc_path,
+        params,
+        mode,
+        executor_choice,
+        cache_mode,
+        subset,
+        source,
+    )
+    .await
+}
+
+async fn run_source(
+    doc_path: &Path,
+    params: &[(String, String)],
+    mode: RunMode,
+    executor_choice: ExecutorChoice,
+    cache_mode: CacheMode,
+    subset: Option<std::collections::HashSet<hick_exec::dag::ExecId>>,
+    source: String,
+) -> Result<DocRun> {
     let mut doc = hick_lang::parse(&source)
         .map_err(|e| anyhow::anyhow!("parse error in {}: {e}", doc_path.display()))?;
     if let Some(error) = hick_blocks::attribute_errors(&source, &doc)

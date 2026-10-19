@@ -1,3 +1,4 @@
+import { UiCheckbox } from "../components/UiCheckbox";
 import { loadEditorAppearance, saveEditorAppearance } from "../lib/editorAppearance";
 import { CommandPathSettings } from "./CommandPathSettings";
 // Settings ("#/settings"): LLM API keys, plus Appearance.
@@ -14,7 +15,8 @@ import { CommandPathSettings } from "./CommandPathSettings";
 // (persisted server-side as ui.json so the desktop shell can read it at
 // launch). Settings leaves open editor buffers mounted while it is shown.
 
-import { useEffect, useState } from "react";
+import { useEffect, useId, useState } from "react";
+import { useUiCommands } from "../lib/uiActionBridge";
 
 import { api } from "../api/client";
 import { setFormatOnSave } from "../lib/formatOnSave";
@@ -121,6 +123,16 @@ function ChoiceRow<T extends string | number>({
   value: T;
   onPick: (value: T) => void;
 }) {
+  const instance = useId();
+  useUiCommands([{ key: `settings-choice:${instance}`, command: {
+    label: `Set ${label}`, parent: "settings-choices", subject: `settings-choice:${instance}`, parameters: { choice: { type: "string", maxLength: 128, choices: choices.map(item => String(item.value)) } }, prerequisites: [],
+    read: () => ({ revision: JSON.stringify([value, choices]), enabled: true, value: { selected: value, choices: choices.map(item => ({ value: String(item.value), label: item.label, meaning: item.title })) } }),
+    execute: async args => {
+      const selected = choices.find(item => String(item.value) === args.choice);
+      if (!selected) return { status: "unavailable", reason: "This setting choice is no longer available" };
+      onPick(selected.value); return { status: "completed", value: { selected: selected.value } };
+    },
+  } }]);
   return (
     <div className="settings-row settings-row--appearance">
       <div className="settings-row__who">
@@ -181,16 +193,27 @@ function AppearanceSection() {
     };
   }, []);
 
-  const applyTitle = (value: string | null) => {
+  const applyTitle = async (value: string | null) => {
     setTitleError(null);
-    api.saveSettingsUi({ window_title: value }).then(
-      (ui) => {
-        setSavedTitle(ui.window_title);
-        setTitleDraft(ui.window_title ?? "");
-      },
-      (e) => setTitleError(e instanceof Error ? e.message : String(e)),
-    );
+    try {
+      const ui = await api.saveSettingsUi({ window_title: value });
+      setSavedTitle(ui.window_title); setTitleDraft(ui.window_title ?? "");
+      return { saved: ui.window_title };
+    } catch (e) {
+      const error = e instanceof Error ? e.message : String(e); setTitleError(error); return { error };
+    }
   };
+  const titleRead = () => ({ revision: JSON.stringify([savedTitle, titleDraft, titleError]), enabled: true, value: { saved: savedTitle, draft: titleDraft, error: titleError } });
+  useUiCommands([
+    { key: "settings/title-input", command: { label: "Set window title draft", parent: "settings-appearance", subject: "settings-window-title", parameters: { title: { type: "string", maxLength: 4096 } }, prerequisites: [], read: titleRead, execute: async args => { setTitleDraft(String(args.title)); return { status: "completed", value: { saved: false } }; } } },
+    ...([false, true].map(clear => ({ key: `settings/title-${clear ? "clear" : "save"}`, command: {
+      label: clear ? "Clear custom window title" : "Save custom window title", parent: "settings-appearance", subject: "settings-window-title", parameters: {}, prerequisites: [], read: titleRead,
+      execute: async () => {
+        const result = await applyTitle(clear ? null : titleDraft.trim() || null);
+        return result.error ? { status: "unavailable" as const, reason: result.error } : { status: "completed" as const, value: { saved: result.saved ?? null } };
+      },
+    } }))),
+  ]);
 
   return (
     <section className="settings__appearance" aria-label="Appearance">
@@ -265,15 +288,15 @@ function AppearanceSection() {
         />
         <div className="settings-row settings-row--appearance">
           <div className="settings-row__who"><label className="settings-row__label" htmlFor="touch-file-rows">Large Files touch targets</label></div>
-          <div className="settings-row__actions"><input id="touch-file-rows" type="checkbox" checked={editorAppearance.touchTargets} onChange={event => {
-            const next = { ...editorAppearance, touchTargets: event.target.checked };
+          <div className="settings-row__actions"><UiCheckbox label="Large Files touch targets" id="touch-file-rows" checked={editorAppearance.touchTargets} onCheckedChange={enabled => {
+            const next = { ...editorAppearance, touchTargets: enabled };
             setEditorAppearance(next); saveEditorAppearance(next);
           }} /></div>
         </div>
         <div className="settings-row settings-row--appearance">
           <div className="settings-row__who"><label className="settings-row__label" htmlFor="right-line-numbers">Right-hand line numbers</label></div>
-          <div className="settings-row__actions"><input id="right-line-numbers" type="checkbox" checked={editorAppearance.rightLineNumbers} onChange={event => {
-            const next = { ...editorAppearance, rightLineNumbers: event.target.checked };
+          <div className="settings-row__actions"><UiCheckbox label="Right-hand line numbers" id="right-line-numbers" checked={editorAppearance.rightLineNumbers} onCheckedChange={enabled => {
+            const next = { ...editorAppearance, rightLineNumbers: enabled };
             setEditorAppearance(next); saveEditorAppearance(next);
           }} /></div>
         </div>
@@ -308,7 +331,7 @@ function AppearanceSection() {
         />
         {(["left", "right"] as const).map(side => <div key={side} className="settings-row settings-row--appearance">
           <div className="settings-row__who"><label className="settings-row__label" htmlFor={`spatial-${side}`}>{side === "left" ? "Left" : "Right"} drawer</label></div>
-          <div className="settings-row__actions"><input id={`spatial-${side}`} type="checkbox" checked={spatialSides[side]} onChange={event => saveSpatialSides({ ...spatialSides, [side]: event.target.checked })} /></div>
+          <div className="settings-row__actions"><UiCheckbox label={`${side} drawer`} id={`spatial-${side}`} checked={spatialSides[side]} onCheckedChange={enabled => saveSpatialSides({ ...spatialSides, [side]: enabled })} /></div>
         </div>)}
         <p className="muted">Drawers appear only when they have content and start collapsed. Opening overlays the editor; pinning makes space beside it.</p>
         <form
@@ -365,14 +388,14 @@ function ExperimentsSection() {
         <div className="settings-row settings-row--appearance">
           <div className="settings-row__who"><label className="settings-row__label" htmlFor="files-windows">Show windows in Files pane</label></div>
           <div className="settings-row__actions">
-            <input id="files-windows" type="checkbox" checked={filesWindows} onChange={event => saveFilesWindows(event.target.checked)} />
+            <UiCheckbox label="Show windows in Files pane" id="files-windows" checked={filesWindows} onCheckedChange={saveFilesWindows} />
             <span className="muted">Show related and pinned preview windows alongside the file list. Off by default.</span>
           </div>
         </div>
         <div className="settings-row settings-row--appearance">
           <div className="settings-row__who"><label className="settings-row__label" htmlFor="files-parallax">Files pane parallax</label></div>
           <div className="settings-row__actions">
-            <input id="files-parallax" type="checkbox" checked={filesParallax} onChange={event => saveFilesParallax(event.target.checked)} />
+            <UiCheckbox label="Files parallax" id="files-parallax" checked={filesParallax} onCheckedChange={saveFilesParallax} />
             <span className="muted">Move Files previews at a different rate while scrolling the editor. Off by default.</span>
           </div>
         </div>
@@ -398,6 +421,7 @@ function EditingSection() {
   const [formatSave, setFormatSave] = useState(false);
   const [retainSavedDrafts, setRetainSavedDrafts] = useState(false);
   const [formatError, setFormatError] = useState<string | null>(null);
+  const [loaded, setLoaded] = useState(false);
   useEffect(() => {
     let live = true;
     api.settingsUi().then(
@@ -406,6 +430,7 @@ function EditingSection() {
         setFormatSave(ui.format_on_save === true);
         setRetainSavedDrafts(ui.retain_unsaved_saved_files === true);
         setFormatOnSave(ui.format_on_save === true);
+        setLoaded(true);
       },
       (e) => {
         if (live) setFormatError(e instanceof Error ? e.message : String(e));
@@ -451,6 +476,11 @@ function EditingSection() {
       },
     );
   };
+  useUiCommands([{ key: "settings/editing-state", command: {
+    label: "Read editing preference state and errors", parent: "settings", subject: "settings-editing", parameters: {}, prerequisites: [],
+    read: () => ({ revision: JSON.stringify([unwrap, wordMotion, formatSave, retainSavedDrafts, formatError, loaded]), enabled: true }),
+    execute: async () => ({ status: "completed", value: { unwrap, word_motion: wordMotion, displayed_format_on_save: formatSave, displayed_retain_saved_drafts: retainSavedDrafts, initial_host_read_completed: loaded, error: formatError, scope: "Current displayed preferences; asynchronous saves can still be pending" } }),
+  } }]);
 
   return (
     <section className="settings__appearance" aria-label="Editing">
@@ -463,13 +493,13 @@ function EditingSection() {
             </label>
           </div>
           <div className="settings-row__actions">
-            <input
+            <UiCheckbox
+              label="Unwrap Markdown paragraphs"
               id="unwrap-paragraphs"
-              type="checkbox"
               checked={unwrap}
-              onChange={(event) => {
-                setUnwrap(event.target.checked);
-                saveUnwrapParagraphs(event.target.checked);
+              onCheckedChange={(enabled) => {
+                setUnwrap(enabled);
+                saveUnwrapParagraphs(enabled);
               }}
             />
             <span className="muted">
@@ -507,11 +537,11 @@ function EditingSection() {
             </label>
           </div>
           <div className="settings-row__actions">
-            <input
+            <UiCheckbox
+              label="Format on save"
               id="format-on-save"
-              type="checkbox"
               checked={formatSave}
-              onChange={(event) => applyFormatSave(event.target.checked)}
+              onCheckedChange={applyFormatSave}
             />
             <span className="muted">
               Run the file’s formatter — rustfmt, black, prettier, whichever its
@@ -532,11 +562,11 @@ function EditingSection() {
             </label>
           </div>
           <div className="settings-row__actions">
-            <input
+            <UiCheckbox
+              label="Retain saved-file recovery drafts"
               id="retain-unsaved-saved-files"
-              type="checkbox"
               checked={retainSavedDrafts}
-              onChange={(event) => applyRetainSavedDrafts(event.target.checked)}
+              onCheckedChange={applyRetainSavedDrafts}
             />
             <span className="muted">
               Recover unsaved changes after an unexpected interruption.
@@ -610,6 +640,17 @@ export function SettingsView({ onBack = () => navigate("/") }: { onBack?: () => 
   }, [onBack]);
 
   const configured = (providers ?? []).filter((p) => p.configured);
+  const settingsRevision = JSON.stringify([providers, error, busy, saved]);
+  useUiCommands([
+    { key: "settings/state", command: { label: "Read provider configuration status", parent: "settings", subject: "settings", parameters: {}, prerequisites: ["Only the host's masked status is available; secrets and unsaved key drafts are excluded"], read: () => ({ revision: settingsRevision, enabled: true }), execute: async () => ({ status: "completed", value: JSON.parse(JSON.stringify({ providers, error, busy, saved })) }) } },
+    { key: "settings/refresh", command: { label: "Refresh provider configuration status", parent: "settings", subject: "settings", parameters: {}, prerequisites: [], read: () => ({ revision: settingsRevision, enabled: !busy }), execute: async () => { await reload(); return { status: "completed", value: { result: "Observe host configuration status or error" } }; } } },
+    { key: "settings/back", command: { label: "Return from settings", parent: "settings", subject: "settings", parameters: {}, prerequisites: [], read: () => ({ revision: settingsRevision, enabled: true }), execute: async () => { onBack(); return { status: "completed", value: null }; } } },
+    ...((providers ?? []).map(provider => ({ key: `settings/credential/${provider.id}`, command: {
+      label: `Request credential change: ${provider.label}`, parent: "settings", subject: `credential:${provider.id}`, parameters: {}, prerequisites: ["Actual human credential input; never include a key in model context or action receipts"],
+      read: () => ({ revision: settingsRevision, enabled: !busy, value: { configured: provider.configured, masked: provider.masked ?? null } }),
+      execute: async () => ({ status: "requires_input" as const, request: `settings:credential:${provider.id}`, reason: `Use the ${provider.label} key row to enter or clear a credential. Then refresh provider configuration status to inspect the actual host result; no credential change has run.` }),
+    } }))),
+  ]);
 
   return (
     <div className="start settings">

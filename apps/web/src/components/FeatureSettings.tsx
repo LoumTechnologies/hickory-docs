@@ -1,5 +1,6 @@
 import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
+import { useUiCommands } from "../lib/uiActionBridge";
 import "./FeatureSettings.css";
 
 /** Settings stay beside the feature they control, outside pane clipping. */
@@ -9,6 +10,19 @@ export function FeatureSettings({ label, children }: { label: string; children: 
   const root = useRef<HTMLSpanElement>(null);
   const panel = useRef<HTMLDivElement>(null);
   const close = () => setPosition(null);
+  const open = () => {
+    if (!root.current) return;
+    const rect = root.current.getBoundingClientRect();
+    const right = Math.max(8, Math.min(window.innerWidth - rect.right, window.innerWidth - Math.min(352, window.innerWidth * .8) - 8));
+    setPosition(root.current.closest(".status-bar")
+      ? { right, bottom: window.innerHeight - rect.top }
+      : { right, top: rect.bottom });
+  };
+  useUiCommands([{ key: `feature-settings:${id}`, command: {
+    label: `Set ${label} visibility`, parent: "feature-settings", subject: `feature-settings:${id}`, parameters: { open: { type: "boolean" } }, prerequisites: [],
+    read: () => ({ revision: String(!!position), enabled: !!root.current, value: { open: !!position, disclosure: "Children mount only while this settings panel is open" } }),
+    execute: async args => { if (args.open) open(); else close(); return { status: "completed", value: { open: Boolean(args.open), result: "Observe disclosed setting controls" } }; },
+  } }]);
   useEffect(() => {
     if (!position) return;
     const dismiss = (event: PointerEvent) => {
@@ -24,11 +38,7 @@ export function FeatureSettings({ label, children }: { label: string; children: 
     <button type="button" className="feature-settings__gear" aria-label={label} aria-expanded={!!position} aria-controls={id}
       data-tip={label} onClick={() => {
         if (position) return close();
-        const rect = root.current!.getBoundingClientRect();
-        const right = Math.max(8, Math.min(window.innerWidth - rect.right, window.innerWidth - Math.min(352, window.innerWidth * .8) - 8));
-        setPosition(root.current!.closest(".status-bar")
-          ? { right, bottom: window.innerHeight - rect.top }
-          : { right, top: rect.bottom });
+        open();
       }}><span aria-hidden="true">⚙</span></button>
     {position && createPortal(<div ref={panel} id={id} style={position} className="feature-settings__panel" role="region" aria-label={label} onKeyDown={escape}>
       <strong>{label}</strong>{children}

@@ -12,6 +12,7 @@ export interface Verification {
   requirements: { id: string; text: string; witnesses: number[] }[]; origin: string; scope: string;
 }
 export interface ViewerSnapshot {
+  demonstration?: { capture_kind: "native-provider"; captured_revision: string; recording_asset: string; session_asset?: string; cuts?: string[] };
   format: "hickory-viewer-snapshot"; version: 1; path: string; source: string;
   verification?: Verification;
   source_hash: string; captured_at_ms: number; execution: string; cells: ExecBlock[];
@@ -22,6 +23,10 @@ export async function decodeSnapshot(value: unknown): Promise<ViewerSnapshot> {
   const v = value as ViewerSnapshot;
   if (v.format !== "hickory-viewer-snapshot" || v.version !== 1 || typeof v.source !== "string" || typeof v.path !== "string" || typeof v.execution !== "string" || !Number.isFinite(v.captured_at_ms) || !Array.isArray(v.cells)) throw new Error("Unsupported viewer snapshot");
   if (await sha256(v.source) !== v.source_hash) throw new Error("Snapshot source hash does not match");
+  if (v.demonstration) {
+    const demo = v.demonstration;
+    if (demo.capture_kind !== "native-provider" || !/^[a-f0-9]{40}$/.test(demo.captured_revision) || typeof demo.recording_asset !== "string" || !/\.(mp4|webm)$/.test(demo.recording_asset) || !v.verification?.assets?.[demo.recording_asset] || demo.session_asset !== undefined && !v.verification?.assets?.[demo.session_asset] || demo.cuts !== undefined && (!Array.isArray(demo.cuts) || demo.cuts.some(note => typeof note !== "string"))) throw Error("Invalid reviewed demonstration assets");
+  }
   if (v.verification) {
     const check = v.verification;
     if (!["passed", "failed", "not_run", "unavailable", "stale"].includes(check.status) || !/^[a-f0-9]{40}$/.test(check.revision) || check.source_hash !== v.source_hash || !Array.isArray(check.commands) || !Array.isArray(check.requirements) || typeof check.origin !== "string" || typeof check.scope !== "string" || !check.dependencies || !check.environment) throw new Error("Invalid revision-bound verification");
@@ -35,6 +40,23 @@ export async function decodeSnapshot(value: unknown): Promise<ViewerSnapshot> {
   }
   return v;
 }
+/** Shared by the snapshot renderer and homepage; publication selection owns assets. */
+export async function verifiedPublicationAsset(snapshot: ViewerSnapshot, artifactUrl: string, key: string, signal?: AbortSignal): Promise<string> {
+  const expected = snapshot.verification?.assets?.[key];
+  const unsafe = !key || /^[a-z][a-z\d+.-]*:/i.test(key) || /[\\?#]/.test(key) || key.startsWith("/") || key.split("/").some(part => {
+    try { const decoded = decodeURIComponent(part); return decoded === "." || decoded === ".." || /[\\/]/.test(decoded); } catch { return true; }
+  });
+  if (!expected || !/^[a-f0-9]{64}$/.test(expected) || unsafe) throw Error("Asset not selected for publication");
+  const base = new URL("./", artifactUrl);
+  const url = new URL(key, base);
+  if (url.origin !== location.origin || !url.pathname.startsWith(base.pathname)) throw Error("External asset origin refused");
+  const response = await fetch(url, { signal });
+  if (!response.ok) throw Error("Published asset unavailable");
+  const bytes = await response.arrayBuffer();
+  const hash = Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", bytes)), b => b.toString(16).padStart(2, "0")).join("");
+  if (hash !== expected) throw Error("Published asset hash mismatch");
+  return URL.createObjectURL(new Blob([bytes], { type: response.headers.get("Content-Type") ?? "application/octet-stream" }));
+}
 export function PublishedSnapshot({ snapshot, artifactUrl }: { snapshot: ViewerSnapshot; artifactUrl?: string }) {
   const assetUrls = useRef(new Set<string>());
   useEffect(() => () => { for (const url of assetUrls.current) URL.revokeObjectURL(url); assetUrls.current.clear(); }, [snapshot, artifactUrl]);
@@ -44,16 +66,7 @@ export function PublishedSnapshot({ snapshot, artifactUrl }: { snapshot: ViewerS
     const relative = new URL(path, sourcePath);
     if (relative.origin !== sourcePath.origin) throw Error("External assets are not approved");
     const key = decodeURIComponent(relative.pathname.slice(1));
-    const expected = snapshot.verification.assets?.[key];
-    if (!expected) throw Error("Asset not selected for publication");
-    const url = new URL(key, artifactUrl);
-    if (url.origin !== location.origin) throw Error("External asset origin refused");
-    const response = await fetch(url, { signal });
-    if (!response.ok) throw Error("Published asset unavailable");
-    const bytes = await response.arrayBuffer();
-    const hash = Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", bytes)), b => b.toString(16).padStart(2, "0")).join("");
-    if (hash !== expected) throw Error("Published asset hash mismatch");
-    const immutable = URL.createObjectURL(new Blob([bytes], { type: response.headers.get("Content-Type") ?? "application/octet-stream" }));
+    const immutable = await verifiedPublicationAsset(snapshot, artifactUrl, key, signal);
     assetUrls.current.add(immutable);
     return immutable;
   } }), [snapshot, artifactUrl]);

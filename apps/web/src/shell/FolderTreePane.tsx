@@ -9,7 +9,8 @@
 // reports clicks. What opening a file MEANS (a route, a generated pane,
 // nothing) is the mounting view's decision, expressed through `fileAction`.
 
-import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent } from "react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState, type MouseEvent } from "react";
+import { useUiCommands, useUiRevision } from "../lib/uiActionBridge";
 
 import { api } from "../api/client";
 import type { FileNode, FilesResponse } from "../api/types";
@@ -492,6 +493,7 @@ function FolderRoot({
   onNewWorktree?: (path: string) => void;
   onCloseTerminal?: (id: string) => void;
 }) {
+  const instance = useId();
   const placement = useMemo(
     () => placeSessions(sessions, folder.root, directoryPaths(folder.tree)),
     [sessions, folder.root, folder.tree],
@@ -604,6 +606,30 @@ function FolderRoot({
   }, [onNewTerminal, onNewWorktree, onCloseTerminal, onOpen, dired]);
 
   const name = folder.root.replace(/\/+$/, "").split("/").pop() || folder.root;
+  const actionParent = `folder-tree:${instance}`;
+  const treeRevision = useUiRevision(() => [folder, [...dirtyPaths], [...openable], notice]);
+  const actionRead = () => ({ revision: treeRevision(), enabled: true });
+  useUiCommands([
+    { key: `${actionParent}/read`, command: { label: `Read folder entries: ${name}`, parent: actionParent, subject: actionParent, parameters: {
+      directory: { type: "string", maxLength: 8192 }, offset: { type: "number", minimum: 0, maximum: 1000000, integer: true }, limit: { type: "number", minimum: 1, maximum: 64, integer: true },
+    }, prerequisites: ["Explicit directory disclosure; returns only immediate children and no file content"], read: actionRead, execute: async args => {
+      const directory = String(args.directory);
+      const node = directory ? fileNodeAt(folder.tree, directory) : null;
+      if (directory && (!node || !node.dir)) return { status: "unavailable", reason: "Directory is absent from the observed folder tree" };
+      const nodes = directory ? node!.children ?? [] : folder.tree;
+      const offset = Number(args.offset), limit = Number(args.limit);
+      if (offset > nodes.length) return { status: "unavailable", reason: "Offset exceeds this directory's entry count" };
+      return { status: "completed", value: { root: folder.root, directory, total: nodes.length, next: offset + limit < nodes.length ? offset + limit : null, notice, entries: nodes.slice(offset, offset + limit).map(item => ({ path: item.path, name: item.name, directory: item.dir, document: item.doc_id ?? null, generated_by: item.generated_by ?? null, dirty: dirtyPaths.has(item.path), children: item.children?.length ?? 0 })) } };
+    } } },
+    { key: `${actionParent}/open`, command: { label: "Open observed workspace file", parent: actionParent, subject: actionParent, parameters: { path: { type: "string", maxLength: 8192 } }, prerequisites: ["File must belong to the current observed folder tree"], read: actionRead, execute: async args => {
+      const node = fileNodeAt(folder.tree, String(args.path));
+      if (!node || node.dir) return { status: "unavailable", reason: "Choose an existing file from this tree" };
+      const action = fileAction(node, openable);
+      if (action.kind === "inert") return { status: "unavailable", reason: "This file type has no in-app text view; use its existing external-open control" };
+      onOpen(action); return { status: "completed", value: { dispatch: "open requested", path: node.path, result: "Observe the actual pane or loading error" } };
+    } } },
+    { key: `${actionParent}/new`, command: { label: "Create untitled document", parent: actionParent, subject: actionParent, parameters: {}, prerequisites: [], read: actionRead, execute: async () => { onNewDocument(); return { status: "completed", value: { dispatch: "requested", saved: false } }; } } },
+  ]);
   return (
     <section className="folder-tree__root">
       <header className="folder-tree__header">

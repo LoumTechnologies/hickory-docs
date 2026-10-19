@@ -43,6 +43,15 @@ timestamps and hashes.
 
 ## Run it
 
+To assess the agent workflow before installing, use the
+[retry-budget demonstration](https://hickorydocs.com/#watch-workflow) and its
+[review brief](docs/developers/agent-first-demo.md). Browser execution and recorded
+proposals are labelled separately from actual native/provider execution.
+[Desktop prereleases](https://github.com/LoumTechnologies/hickory-docs/releases/tag/unstable)
+are available; check the artifact revision because published packages may predate
+the current development workflow. See [desktop source setup](apps/desktop/README.md)
+and [recording prerequisites](docs/developers/engineer-tour-video.md).
+
 Hickory is a program you download. The `hick` CLI (in `crates/hickory-cli`)
 runs on your machine, edits files in your repository, and executes on your
 hardware — no server, no account, no telemetry, and every command except the

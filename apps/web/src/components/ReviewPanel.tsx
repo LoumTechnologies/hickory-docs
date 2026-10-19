@@ -1,7 +1,9 @@
 import { GithubReviewThreads } from "./GithubReviewThreads";
 import type { EditorView } from "@codemirror/view";
 import { FILES_CHANGED_EVENT } from "../shell/FolderTreePane";
-import { useEffect, useState, useSyncExternalStore } from "react";
+import { useEffect, useId, useState, useSyncExternalStore } from "react";
+import { useUiCommands, useUiRevision } from "../lib/uiActionBridge";
+import type { UiCommand, UiField, UiValue } from "../lib/uiActions";
 import { investigationConversations, sendInvestigation } from "../lib/reviewInvestigations";
 import { request } from "../api/client";
 import { openLocation } from "../lib/revealLine";
@@ -10,6 +12,7 @@ import "./ReviewPanel.css";
 interface Investigation { event: string; thread: string; link: { id: string; conversation: string; turn?: string }; state: string; response?: string; session?: string; error?: string }
 interface History { scope?: string; events: ReviewEvent[]; targets: { thread: string; current_state: string }[]; investigations?: Investigation[] }
 export function ReviewPanel({ document, source, view }: { document?: string; source?: string; view?: EditorView | null } = {}) {
+  const instance = useId();
   const [shown, setShown] = useState(false);
   const [target, setTarget] = useState<ReviewTarget | null>(null);
   const [history, setHistory] = useState<History>({ events: [], targets: [] });
@@ -46,14 +49,14 @@ export function ReviewPanel({ document, source, view }: { document?: string; sou
     const timer = setInterval(() => void load().catch(e => setError(String(e))), 1000);
     return () => clearInterval(timer);
   }, [shown, pending]);
-  const investigate = async () => {
-    if (!thread || !root || !conversation || busy) return;
+  const investigate = async (agent = false) => {
+    if (!thread || !root || !conversation || busy) return { error: "Select a thread and conversation; wait for the current operation" };
     setBusy(true); setError("");
     const scope = history.scope;
     const selectedThread = thread;
     const id = crypto.randomUUID();
     const record = async (state: string, turn?: string, error?: string) => request("POST", "/api/reviews", {
-      scope, thread: selectedThread, target: null, action: "investigate",
+      scope, thread: selectedThread, target: null, action: "investigate", ...(agent ? { agent: true } : {}),
       body: JSON.stringify({ version: 1, id, conversation, state, turn, error }),
     });
     try {
@@ -63,23 +66,75 @@ export function ReviewPanel({ document, source, view }: { document?: string; sou
       const turn = await sendInvestigation(conversation, text);
       await record("running", turn);
       await load();
+      return { turn };
     } catch (e) {
       setError(String(e));
       await record("failed", undefined, String(e)).catch(() => undefined);
       await load().catch(() => undefined);
+      return { error: String(e) };
     } finally { setBusy(false); }
   };
-  const save = async (action: ReviewEvent["action"]) => {
+  const save = async (action: ReviewEvent["action"], agent = false) => {
     setBusy(true); setError("");
     try {
-      const event = await request<ReviewEvent>("POST", "/api/reviews", { scope: history.scope, thread, target: thread ? null : target, action, body });
+      const event = await request<ReviewEvent>("POST", "/api/reviews", { scope: history.scope, thread, target: thread ? null : target, action, body, ...(agent ? { agent: true } : {}) });
       setThread(event.thread); setTarget(null); setBody(""); await load();
-    } catch (e) { setError(String(e)); } finally { setBusy(false); }
+      return { event };
+    } catch (e) { setError(String(e)); return { error: String(e) }; } finally { setBusy(false); }
   };
+  const parent = `reviews:${instance}`;
+  const revision = useUiRevision(() => [shown, target, history, thread, body, error, busy, prompt, conversation, conversations]);
+  const commands: { key: string; command: UiCommand }[] = [];
+  const done = (value: UiValue = null) => ({ status: "completed" as const, value });
+  function register(id: string, label: string, execute: UiCommand["execute"], parameters: Record<string, UiField> = {}, enabled = true, reason?: string) {
+    commands.push({ key: `${parent}/${id}`, command: { label, parent: id === "disclosure" ? "workspace-reviews" : parent, subject: parent, parameters, prerequisites: [], read: () => ({ revision: revision(), enabled, reason }), execute } });
+  }
+  register("disclosure", "Set review threads visibility", async args => { setShown(Boolean(args.open)); return done({ open: Boolean(args.open) }); }, { open: { type: "boolean" } });
+  if (shown) {
+    register("read", "Read review threads and selected target", async args => {
+      const collections = { threads: { scope: history.scope, targets: history.targets, roots: history.events.filter(event => event.target).map(event => ({ id: event.id, thread: event.thread, path: event.target?.path, actor: event.actor })) }, target: root, events: entries, investigations, conversations: { selected: conversation, available: conversations }, draft: { body, prompt, thread, resolved, busy, error } };
+      const collection = String(args.collection) as keyof typeof collections;
+      const bytes = new TextEncoder().encode(JSON.stringify(collections[collection] ?? null));
+      const offset = Number(args.offset), end = Math.min(bytes.length, offset + Number(args.limit));
+      if (offset > bytes.length) return { status: "unavailable", reason: "Offset exceeds this review collection; observe current thread state" };
+      return done({ collection, encoding: "JSON encoded as UTF-8 bytes", bytes: [...bytes.slice(offset, end)], span: [offset, end], total_bytes: bytes.length, next: end < bytes.length ? end : null });
+    }, { collection: { type: "string", maxLength: 32, choices: ["threads", "target", "events", "investigations", "conversations", "draft"] }, offset: { type: "number", minimum: 0, maximum: 100000000, integer: true }, limit: { type: "number", minimum: 1, maximum: 8192, integer: true } });
+    register("refresh", "Refresh review threads", async () => { await load(); return done({ dispatch: "loaded", result: "Observe current review state" }); });
+    register("select", "Select saved review thread", async args => {
+      const id = String(args.thread);
+      if (!history.events.some(event => event.thread === id && event.target)) return { status: "unavailable", reason: "Thread is not in the observed workspace history" };
+      setThread(id); setTarget(null); setPrompt(""); return done();
+    }, { thread: { type: "string", maxLength: 256 } });
+    register("comment-text", "Set review comment or reason", async args => { setBody(String(args.text)); return done(); }, { text: { type: "string", maxLength: 32768 } }, !busy, "Wait for the current review operation");
+    if (root) {
+      register("source", "Open selected review source", async () => { openLocation(root.path, root.lines[0]); return done(); });
+      register("prepare", "Prepare selected review investigation", async () => { const text = investigationPrompt(root, entries); setPrompt(text); return done({ text, sent: false }); }, {}, !!thread, "Save the original review thread first");
+      register("conversation", "Select investigation conversation", async args => {
+        const id = String(args.conversation);
+        if (!conversations.some(item => item.id === id)) return { status: "unavailable", reason: "Choose a currently open conversation" };
+        setConversation(id); return done();
+      }, { conversation: { type: "string", maxLength: 256 } }, !busy);
+      register("investigate", "Send investigation to selected conversation", async (_args, actor) => {
+        const result = await investigate(actor.kind === "agent");
+        return result.turn ? { status: "queued", job: result.turn, value: { conversation, thread, result: "Observe the actual investigation state; model response is not verification" } }
+          : { status: "unavailable", reason: result.error ?? "Investigation was not accepted" };
+      }, {}, !!thread && !busy && conversations.some(item => item.id === conversation), "Select a saved thread and open conversation; this makes a real provider request");
+      register("save", "Save review comment", async (_args, actor) => {
+        const result = await save("comment", actor.kind === "agent");
+        return result.event ? done(JSON.parse(JSON.stringify(result.event))) : { status: "unavailable", reason: result.error ?? "Comment was not saved" };
+      }, {}, !busy && !!body.trim(), "Enter a comment and wait for any current operation");
+      register("resolve", resolved ? "Reopen reviewed thread" : "Resolve after human review", async (_args, actor) => {
+        if (actor.kind === "agent") return { status: "requires_input", reason: "Resolution is a human judgment. Use the actual review form and inspect its retained resolve/reopen event" };
+        const result = await save(resolved ? "reopen" : "resolve");
+        return result.event ? done(JSON.parse(JSON.stringify(result.event))) : { status: "unavailable", reason: result.error ?? "Review action was not saved" };
+      }, {}, !!thread && !busy && !!body.trim(), "Select a saved thread and enter the review reason");
+    }
+  }
+  useUiCommands(commands);
   return <div className="review-tools">
     <button className="btn-link" onMouseDown={event => event.preventDefault()} onClick={() => void reviewSelection().catch(e => { setError(String(e)); setShown(true); })}>Comment on selection</button>
     <button className="btn-link" onClick={() => setShown(!shown)}>Review threads</button>
-    {shown && <section className="review-panel" role="region" aria-label="Review threads">
+    {shown && <section className="review-panel" role="region" aria-label="Review threads" data-coach-target="review">
       <header><strong>Review threads</strong><button onClick={() => setShown(false)} aria-label="Close review threads">Close</button></header>
       {error && <p role="alert">{error}</p>}
       <nav aria-label="Saved review threads">{history.events.filter(event => event.target).map(event => <button key={event.id} onClick={() => { setThread(event.thread); setTarget(null); setPrompt(""); }}>

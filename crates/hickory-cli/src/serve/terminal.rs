@@ -30,6 +30,7 @@ use futures::{SinkExt as _, StreamExt as _};
 use hick_term::{Session, SessionSpec};
 use serde::Deserialize;
 use serde_json::{Value, json};
+use sha2::{Digest, Sha256};
 
 use super::LocalState;
 use super::api::{ApiError, ApiResult};
@@ -109,6 +110,53 @@ pub async fn close(
 #[derive(Deserialize)]
 pub struct InputBody {
     pub data: String,
+    #[serde(default)]
+    pub agent: bool,
+}
+
+#[derive(Deserialize)]
+pub struct OutputQuery {
+    pub view: String,
+    pub offset: usize,
+    pub limit: usize,
+    #[serde(default)]
+    pub revision: String,
+}
+/// The same screen/retained replay a human terminal can display, explicitly paged.
+pub async fn output(
+    State(state): State<LocalState>,
+    UrlPath(id): UrlPath<String>,
+    Query(query): Query<OutputQuery>,
+) -> ApiResult<Json<Value>> {
+    if query.limit == 0 || query.limit > 16_384 {
+        return Err(ApiError::bad_request(
+            "Terminal output pages must contain 1..16384 bytes",
+        ));
+    }
+    let session = state
+        .terminals
+        .get(&id)
+        .ok_or_else(|| ApiError::not_found("Terminal no longer exists"))?;
+    let bytes = match query.view.as_str() {
+        "screen" => session.screen_text().into_bytes(),
+        "replay" => session.attach().0,
+        _ => return Err(ApiError::bad_request("Choose screen or replay")),
+    };
+    let revision = format!("{:x}", Sha256::digest(&bytes));
+    if !query.revision.is_empty() && query.revision != revision {
+        return Err(ApiError::conflict(
+            "Terminal output changed; restart observation at offset 0",
+        ));
+    }
+    if query.offset > bytes.len() {
+        return Err(ApiError::bad_request(
+            "Output offset is outside retained data",
+        ));
+    }
+    let end = query.offset.saturating_add(query.limit).min(bytes.len());
+    Ok(Json(
+        json!({"session":id,"representation":query.view,"revision":revision,"span":{"start":query.offset,"end":end},"bytes":bytes[query.offset..end],"total":bytes.len(),"next":if end < bytes.len() { Some(end) } else { None },"coverage":"Current screen or retained replay only; older evicted scrollback is unavailable","verification":"Terminal output is evidence, not an independently certified check"}),
+    ))
 }
 
 /// `POST /api/terminals/{id}/input` — type into a session.
@@ -118,6 +166,18 @@ pub async fn input(
     Json(body): Json<InputBody>,
 ) -> ApiResult<Json<Value>> {
     let session = session_of(&state, &id)?;
+    if body.agent {
+        if body.data.len() > 16_384 {
+            return Err(ApiError::bad_request(
+                "Agent terminal input exceeds 16384 UTF-8 bytes",
+            ));
+        }
+        if session.prompt().is_some() {
+            return Err(ApiError::conflict(
+                "Terminal currently asks for a decision. A human must answer the attention card; no agent bytes were sent.",
+            ));
+        }
+    }
     session
         .write(body.data.as_bytes())
         .map_err(|e| ApiError::unprocessable(format!("{e:#}")))?;

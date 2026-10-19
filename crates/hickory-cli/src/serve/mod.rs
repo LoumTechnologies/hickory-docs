@@ -66,6 +66,7 @@ mod project_publish;
 mod python_agent;
 mod revision_projects;
 mod runtime_runs;
+pub(crate) mod ui_actions;
 pub use python_agent::bundled_runtime;
 mod launch_profiles;
 pub mod refactor;
@@ -135,6 +136,9 @@ pub struct ServeOptions {
 /// One recorded run, in the shape `GET /api/runs/:id` returns.
 #[derive(Clone)]
 pub struct RunRecord {
+    pub document: String,
+    pub requested_source_hash: Option<String>,
+    pub error: Option<String>,
     pub source_hash: Option<String>,
     pub status: String,
     pub started_at: String,
@@ -144,6 +148,7 @@ pub struct RunRecord {
 /// Everything a request handler needs.
 #[derive(Clone)]
 pub struct LocalState {
+    pub(crate) ui_actions: Arc<ui_actions::Hub>,
     /// Text files explicitly opened outside the workspace.
     pub opened_files: Arc<std::sync::RwLock<std::collections::HashSet<PathBuf>>>,
     pub representations: representation::Representations,
@@ -452,6 +457,15 @@ impl LocalState {
     /// Execute a document, publishing transcript events and the final status
     /// on the run channel. Returns the run id immediately.
     pub async fn start_run(&self, id: &str, check_only: bool) -> ApiResult<String> {
+        self.start_run_expected(id, check_only, None).await
+    }
+
+    pub async fn start_run_expected(
+        &self,
+        id: &str,
+        check_only: bool,
+        expected: Option<String>,
+    ) -> ApiResult<String> {
         let path = self
             .index
             .absolute(id)
@@ -462,6 +476,9 @@ impl LocalState {
         self.runs.lock().unwrap().insert(
             run_id.clone(),
             RunRecord {
+                document: id.to_string(),
+                requested_source_hash: expected.clone(),
+                error: None,
                 source_hash: None,
                 status: "running".into(),
                 started_at: started_at.clone(),
@@ -483,8 +500,20 @@ impl LocalState {
                 Some(woven) => Some(woven.lock().await.snapshot()),
                 None => None,
             };
-            let outcome = crate::run_doc(&path, &state.params, mode, state.executor).await;
+            let outcome = match expected {
+                Some(expected) => {
+                    crate::run_doc_expected(&path, &state.params, mode, state.executor, &expected)
+                        .await
+                }
+                None => crate::run_doc(&path, &state.params, mode, state.executor).await,
+            };
 
+            let failure = outcome.as_ref().err().map(|e| format!("{e:#}"));
+            let failed_source = outcome
+                .as_ref()
+                .err()
+                .and_then(|error| error.downcast_ref::<crate::CapturedRootError>())
+                .map(|error| error.source_hash.clone());
             let (status, blocks, source_hash) = match outcome {
                 Ok(run) => {
                     // Replay each cell's transcript on the run channel, the
@@ -525,7 +554,7 @@ impl LocalState {
                 }
                 Err(e) => {
                     log::warn!("run {run_key} failed: {e:#}");
-                    ("failed", json!([]), None)
+                    ("failed", json!([]), failed_source)
                 }
             };
 
@@ -547,6 +576,7 @@ impl LocalState {
             if let Some(record) = state.runs.lock().unwrap().get_mut(&run_key) {
                 record.status = status.to_string();
                 record.source_hash = source_hash;
+                record.error = failure;
                 record.blocks = blocks;
             }
             state
@@ -575,6 +605,7 @@ impl LocalState {
 /// them on load. It is not shared any more.
 pub(crate) fn router(state: LocalState) -> Router {
     let api = Router::new()
+        .merge(ui_actions::routes())
         .route("/projects", get(api::projects))
         .route(
             "/projects/{id}/docs",
@@ -826,6 +857,7 @@ pub(crate) fn router(state: LocalState) -> Router {
         .route("/terminals/ws", get(terminal::ws_handler))
         .route("/terminals/{id}", delete(terminal::close))
         .route("/terminals/{id}/input", post(terminal::input))
+        .route("/terminals/{id}/output", get(terminal::output))
         .route("/terminals/{id}/resize", post(terminal::resize))
         .route("/terminals/{id}/interrupt", post(terminal::interrupt))
         .route("/terminals/{id}/answer", post(terminal::answer))
@@ -909,6 +941,7 @@ async fn prepare_inner(opts: ServeOptions, folder_open: Option<bool>) -> Result<
 
     let store = FileDocStore::new(index.clone());
     let state = LocalState {
+        ui_actions: Arc::new(ui_actions::Hub::default()),
         opened_files: Arc::new(std::sync::RwLock::new(std::collections::HashSet::new())),
         representations: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
         bisects: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
