@@ -698,6 +698,16 @@ impl Client {
                     &json!({"buffer":buffer,"request":params,"content":content}),
                 )?;
                 if let Some(read) = receipt {
+                    super::read_receipt::persist(
+                        &record,
+                        "editor_buffer",
+                        buffer
+                            .id
+                            .as_deref()
+                            .or(buffer.provenance_uri.as_deref())
+                            .unwrap_or(&buffer.name),
+                        &read,
+                    )?;
                     record.event(SessionEvent::Read { read: &read })?;
                 }
                 return Ok(json!({"content":content}));
@@ -754,22 +764,21 @@ impl Client {
             .to_string();
         let id = self.context.index.id_for_path(&rel);
         if method == "fs/read_text_file" {
-            let text = if let Some(room) = self.context.rooms.get(&id).await {
+            let (text, kind) = if let Some(room) = self.context.rooms.get(&id).await {
                 let snapshot = room.snapshot().await;
                 self.file_reads
                     .lock()
                     .unwrap()
                     .insert(rel.clone(), snapshot.clone());
-                snapshot.0
+                (snapshot.0, "editor_buffer")
             } else {
-                std::fs::read_to_string(&path)?
+                (std::fs::read_to_string(&path)?, "saved_file")
             };
             let (content, receipt) = super::read_receipt::read(&rel, &text, params);
             if let Some(read) = receipt {
-                self.record
-                    .lock()
-                    .await
-                    .event(SessionEvent::Read { read: &read })?;
+                let record = self.record.lock().await;
+                super::read_receipt::persist(&record, kind, &rel, &read)?;
+                record.event(SessionEvent::Read { read: &read })?;
             }
             return Ok(json!({"content":content}));
         }

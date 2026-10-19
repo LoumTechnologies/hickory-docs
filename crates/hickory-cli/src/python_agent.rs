@@ -64,11 +64,19 @@ pub trait Review: Send {
     async fn refresh(&mut self) -> Result<()> {
         Ok(())
     }
+    /// Current host editor observations, separate from model inclusion and edit snapshots.
+    async fn editor_heads(&mut self) -> Result<Option<Vec<EditorHead>>> {
+        Ok(None)
+    }
     async fn completed(&mut self, _ok: bool) -> Result<()> {
         Ok(())
     }
 }
 
+pub struct EditorHead {
+    pub identity: String,
+    pub content: String,
+}
 pub struct TerminalReview;
 #[async_trait::async_trait]
 impl Review for TerminalReview {
@@ -166,11 +174,23 @@ fn allowed(name: &str) -> bool {
             | "submit_changeset"
     ) || hickory_agent::audit::is_tool(name)
 }
+#[derive(serde::Deserialize)]
+struct HostEditorContext {
+    buffers: Vec<HostEditorBuffer>,
+}
+#[derive(serde::Deserialize)]
+struct HostEditorBuffer {
+    id: Option<String>,
+    provenance_uri: Option<String>,
+    path: Option<String>,
+    content: String,
+}
 struct Host<'a> {
     config: &'a Config,
     client: &'a dyn LlmClient,
     review: &'a mut dyn Review,
     server: Server,
+    context_store: hick_context_store::host::Service,
     session: PathBuf,
     turns: usize,
     tools: usize,
@@ -315,11 +335,45 @@ impl Host<'_> {
                 created = Some((effective.surface, effective.after));
             }
         }
-        let result = self
+        let mut result = self
             .server
             .handle("tools/call", &json!({"name":name,"arguments":args}))
             .await
             .map_err(|(_, text)| anyhow::anyhow!(text))?;
+        {
+            let mut references = Vec::new();
+            for read in self.server.take_context_reads() {
+                let text = &read.content;
+                let path = read
+                    .source_path
+                    .as_deref()
+                    .unwrap_or_else(|| Path::new(&read.path));
+                let absolute = if path.is_absolute() {
+                    path.to_path_buf()
+                } else {
+                    self.config.root.join(path)
+                };
+                let locator = absolute.strip_prefix(&self.config.root)?.to_string_lossy();
+                let kind = if name == "read_output" {
+                    "generated_output"
+                } else {
+                    "saved_file"
+                };
+                let mut source = self.context_store.store.register(kind, &locator)?;
+                source.revision = read.sha256;
+                let start = read.byte_span.0;
+                let end = read.byte_span.1;
+                let nodes = self.context_store.store.import_chunks_anchored(
+                    source,
+                    hick_context_store::span(start, end),
+                    text,
+                    &hick_context_store::fresh_id(),
+                    read.unique,
+                )?;
+                references.extend(nodes.into_iter().map(|node| node.id));
+            }
+            result["context_references"] = json!(references);
+        }
         if result["isError"] != true
             && let Some((file, expected)) = created
         {
@@ -349,6 +403,31 @@ impl Host<'_> {
     }
     async fn handle(&mut self, method: &str, params: &Value) -> Result<Value> {
         ensure!(!self.finished, "The model already stopped");
+        if method.starts_with("context.") {
+            if matches!(
+                method,
+                "context.hello" | "context.capture" | "context.changes" | "context.reconcile"
+            ) {
+                self.context_store.editors.0.clear();
+                // A missing/timed-out editor feed cannot certify unchanged. File heads
+                // remain independently checkable, and old editor captures remain intact.
+                if let Ok(Some(heads)) = self.review.editor_heads().await {
+                    let sources = self.context_store.store.sources();
+                    for head in heads {
+                        if let Some(source) = sources
+                            .iter()
+                            .find(|s| s.kind == "editor_buffer" && s.locator == head.identity)
+                        {
+                            self.context_store
+                                .editors
+                                .0
+                                .insert(source.id.clone(), head.content);
+                        }
+                    }
+                }
+            }
+            return self.context_store.call(method, params);
+        }
         match method {
             "inference" => {
                 // Transport/resource limits only. Never add prompts, replay history,
@@ -702,11 +781,47 @@ pub async fn run_conversation(
         "prior_turns":conversation.prior_turns.iter().map(|t| json!({"prompt":t.prompt,"answer":t.answer})).collect::<Vec<_>>(),
         "tools":catalogue
     });
+    // A session owns its references, separately from the append-only agent narrative.
+    let mut context_store = hick_context_store::host::Service::open(
+        &config.root,
+        &session.with_extension("context.json"),
+        conversation.turn.as_deref().unwrap_or("standalone"),
+    )?;
+    if let Some(doc) = &config.doc
+        && let Ok(locator) = doc.strip_prefix(&config.root)
+        && let Some(locator) = locator.to_str()
+    {
+        context_store.saved(locator)?;
+    }
+    if let Some(line) = conversation.context.lines().last()
+        && let Ok(value) = serde_json::from_str::<Value>(line)
+    {
+        let value = value.get("editors").unwrap_or(&value);
+        if let Ok(editor) = serde_json::from_value::<HostEditorContext>(value.clone()) {
+            for buffer in editor.buffers {
+                let identity = buffer
+                    .id
+                    .as_deref()
+                    .or(buffer.provenance_uri.as_deref())
+                    .or(buffer.path.as_deref())
+                    .map(str::to_owned)
+                    .unwrap_or_else(|| format!("snapshot:{}", hick_context_store::fresh_id()));
+                context_store.editor(&identity, &buffer.content)?;
+                context_store.snapshots(
+                    "editor_buffer",
+                    &identity,
+                    &buffer.content,
+                    &hick_context_store::fresh_id(),
+                )?;
+            }
+        }
+    }
     let mut host = Host {
         config: &config,
         client,
         review,
         server,
+        context_store,
         session: session.clone(),
         turns: 0,
         tools: 0,
@@ -775,7 +890,11 @@ pub async fn run_conversation(
                         "python-rpc-refusal",
                         &json!({"sequence":sequence,"error":format!("{error:#}")}),
                     )?;
-                    json!({"id":sequence,"error":format!("{error:#}")})
+                    if method.starts_with("context.") {
+                        json!({"id":sequence,"error":hick_context_store::host::protocol_error(&error)})
+                    } else {
+                        json!({"id":sequence,"error":format!("{error:#}")})
+                    }
                 }
             };
             initial.check()?;

@@ -20,6 +20,7 @@ path = "src/lib.rs"
 
 [dependencies]
 anyhow = "1"
+hick-context-store = { path = "../hick-context-store" }
 async-trait = "0.1"
 axum = { version = "0.8", features = ["ws", "macros"] }
 clap = { version = "4", features = ["derive"] }

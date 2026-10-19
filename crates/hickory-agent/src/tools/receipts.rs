@@ -9,6 +9,9 @@ pub struct ContextRead {
     /// primary, the upstream's path, an output's path, or the path given to
     /// `read_file` resolved relative to the primary document.
     pub path: String,
+    /// Exact host-resolved source path when available. `path` above remains the
+    /// historical citation locator and may be relative to a different tool root.
+    pub source_path: Option<std::path::PathBuf>,
     /// `git rev-parse HEAD` of the repository containing the file, if any.
     /// The working tree may differ from HEAD; `sha256` is the truth about
     /// the bytes, `commit` is where to look for them later.
@@ -21,6 +24,10 @@ pub struct ContextRead {
     pub last_line: usize,
     /// Exact returned source bytes, retained for historical inspection.
     pub content: String,
+    /// Half-open UTF-8 byte range in the exact snapshot hashed above.
+    pub byte_span: (usize, usize),
+    /// Uniqueness witnessed in the original full snapshot, including overlapping matches.
+    pub unique: bool,
 }
 
 /// The lines an edit left in a file, 1-based inclusive, with their content
@@ -104,4 +111,22 @@ pub(super) fn changed_lines(old: &str, new: &str, file: &str) -> Option<Wrote> {
             .map(|l| hashline::line_hash(l))
             .collect(),
     })
+}
+
+impl super::EditSession {
+    /// A context record for showing the whole of `source`, known as `path`.
+    pub(super) fn read_of(&self, path: &std::path::Path, name: &str, source: &str) -> ContextRead {
+        let lines = source.lines().count().max(1);
+        ContextRead {
+            path: name.to_string(),
+            source_path: Some(path.to_path_buf()),
+            commit: super::head_commit_for(path),
+            sha256: super::sha256_hex(source.as_bytes()),
+            first_line: 1,
+            last_line: lines,
+            content: source.to_string(),
+            byte_span: (0, source.len()),
+            unique: !source.is_empty(),
+        }
+    }
 }

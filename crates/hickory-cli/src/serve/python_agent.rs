@@ -253,6 +253,36 @@ impl crate::python_agent::Review for Review {
         }
         Ok(())
     }
+    async fn editor_heads(
+        &mut self,
+    ) -> anyhow::Result<Option<Vec<crate::python_agent::EditorHead>>> {
+        if !self
+            .queue
+            .edits
+            .live_context
+            .load(std::sync::atomic::Ordering::Relaxed)
+        {
+            return Ok(None);
+        }
+        self.queue.edits.refresh().await?;
+        let buffers = self.queue.edits.buffers.lock().unwrap();
+        Ok(Some(
+            buffers
+                .iter()
+                .filter_map(|buffer| {
+                    let identity = buffer
+                        .id
+                        .as_ref()
+                        .or(buffer.provenance_uri.as_ref())
+                        .or(buffer.path.as_ref())?;
+                    Some(crate::python_agent::EditorHead {
+                        identity: identity.clone(),
+                        content: buffer.content.clone(),
+                    })
+                })
+                .collect(),
+        ))
+    }
     async fn completed(&mut self, ok: bool) -> anyhow::Result<()> {
         let result =
             super::acp::workspace::finish(&self.context, std::mem::take(&mut self.snapshots)).await;
@@ -282,6 +312,17 @@ pub(super) async fn run_turn(
     let queue = queue(state, doc);
     *queue.session.lock().unwrap() = Some(identity.session.clone());
     *queue.edits.mode.lock().unwrap() = super::acp::edits::Mode::Review;
+    if let Ok(value) = serde_json::from_str::<Value>(&identity.context)
+        && let Some(editors) = value.get("editors")
+        && let Ok(editors) =
+            serde_json::from_value::<super::agent_context::EditorContext>(editors.clone())
+    {
+        queue
+            .edits
+            .live_context
+            .store(editors.live, std::sync::atomic::Ordering::Relaxed);
+        *queue.edits.buffers.lock().unwrap() = editors.buffers;
+    }
     let mut review = Review {
         context: super::acp::RoomContext {
             index: state.index.clone(),

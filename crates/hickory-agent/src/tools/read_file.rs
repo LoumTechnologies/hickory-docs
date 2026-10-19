@@ -101,21 +101,36 @@ pub(crate) fn read_file(root: &Path, base: &Path, inv: &ToolInvocation) -> ToolO
         return ToolOutcome::err(NAME, format!("to={last} is before from={first}"));
     }
     let shown = index.render_range(first - 1, last - 1);
+    let excerpt: String = text
+        .split_inclusive('\n')
+        .skip(first - 1)
+        .take(last - first + 1)
+        .collect();
+    let unique = !excerpt.is_empty()
+        && text.find(&excerpt).is_some_and(|first| {
+            let next = first + text[first..].chars().next().unwrap().len_utf8();
+            !text[next..].contains(&excerpt)
+        });
     let read = ContextRead {
         path: canonical
             .strip_prefix(&root)
             .unwrap_or(&canonical)
             .to_string_lossy()
             .replace('\\', "/"),
+        source_path: Some(canonical.clone()),
         commit: head_commit_for(&canonical),
         sha256: sha256_hex(&bytes),
         first_line: first,
         last_line: last,
-        content: text
-            .split_inclusive('\n')
-            .skip(first - 1)
-            .take(last - first + 1)
-            .collect(),
+        byte_span: (
+            text.split_inclusive('\n')
+                .take(first - 1)
+                .map(str::len)
+                .sum(),
+            text.split_inclusive('\n').take(last).map(str::len).sum(),
+        ),
+        content: excerpt,
+        unique,
     };
     let header = if first == 1 && last == total {
         format!("file: {rel} ({total} lines)\n")
@@ -150,6 +165,9 @@ mod tests {
         let outcome = read_file(root, &base, &inv);
         assert!(outcome.ok, "{}", outcome.text);
         assert_eq!(outcome.reads[0].path, "source.txt");
+        // Guarantee: docs/guarantees/agent/immutable-context-lineage.md
+        assert_eq!(outcome.reads[0].byte_span, (6, 13));
+        assert_eq!(outcome.reads[0].content, "second\n");
         assert_eq!(
             (outcome.reads[0].first_line, outcome.reads[0].last_line),
             (2, 2)

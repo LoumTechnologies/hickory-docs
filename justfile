@@ -771,3 +771,9 @@ test-context-protocol:
     python3 scripts/generate-context-protocol.py --check
     cargo test -p hick-context-protocol --test conformance
     uv run --project apps/agent --locked --no-editable --reinstall-package hickory-agent-worker python -m unittest discover -s apps/agent/tests -p test_context_protocol.py
+
+# Immutable context storage and real filesystem/editor adapter witnesses (#49).
+test-context-store:
+    cargo test -p hick-context-store --test lineage
+    cargo test -p hickory-agent --lib tools::read_file::tests
+    cargo test -p hickory-cli --lib serve::acp::read_receipt::

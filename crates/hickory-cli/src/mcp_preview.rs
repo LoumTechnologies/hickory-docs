@@ -17,6 +17,7 @@ impl Server {
             default_doc: doc,
             session_log: Some(session),
             debuggers: crate::debug_sessions::Registry::new(),
+            context_reads: Vec::new(),
         }
     }
     pub(crate) fn agent_set_changeset(&mut self, contract: crate::changeset::Contract) {

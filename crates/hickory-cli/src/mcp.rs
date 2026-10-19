@@ -57,9 +57,14 @@ pub(crate) struct Server {
     session_log: Option<PathBuf>,
     /// Live debug sessions, by id. Bounded: see `debug_sessions`.
     debuggers: crate::debug_sessions::Registry,
+    context_reads: Vec<hickory_agent::ContextRead>,
 }
 
 impl Server {
+    pub(crate) fn take_context_reads(&mut self) -> Vec<hickory_agent::ContextRead> {
+        std::mem::take(&mut self.context_reads)
+    }
+
     pub(crate) fn embedded(
         root: PathBuf,
         doc: PathBuf,
@@ -75,6 +80,7 @@ impl Server {
             default_doc: Some(doc),
             session_log: Some(session),
             debuggers: crate::debug_sessions::Registry::new(),
+            context_reads: Vec::new(),
         }
     }
 
@@ -565,6 +571,7 @@ impl Server {
         // A refused tool is `isError: true` so the harness shows it as a
         // failed call — but the text still comes through, because a lineage
         // refusal's message is the instruction for what to do next.
+        self.context_reads = outcome.reads;
         text_result(&outcome.text, !outcome.ok)
     }
 

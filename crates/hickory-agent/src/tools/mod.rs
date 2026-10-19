@@ -154,19 +154,6 @@ impl EditSession {
         })
     }
 
-    /// A context record for showing the whole of `source`, known as `path`.
-    fn read_of(&self, path: &Path, name: &str, source: &str) -> ContextRead {
-        let lines = source.lines().count().max(1);
-        ContextRead {
-            path: name.to_string(),
-            commit: head_commit_for(path),
-            sha256: sha256_hex(source.as_bytes()),
-            first_line: 1,
-            last_line: lines,
-            content: source.to_string(),
-        }
-    }
-
     /// The session's primary document path.
     pub fn doc_path(&self) -> &Path {
         &self.doc_path
@@ -410,11 +397,14 @@ impl EditSession {
                 .join(path)
                 .display()
                 .to_string(),
+            source_path: Some(self.doc_path.parent().unwrap_or(Path::new(".")).join(path)),
             commit: None, // an output is derived; its document's commit is the record
             sha256: sha256_hex(content.as_bytes()),
             first_line: 1,
             last_line: lines,
             content: content.clone(),
+            byte_span: (0, content.len()),
+            unique: !content.is_empty(),
         })
     }
 

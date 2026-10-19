@@ -383,6 +383,16 @@ async fn buffer_call(
             &json!({}),
         );
         if let Some(read) = receipt {
+            super::read_receipt::persist(
+                &record,
+                "editor_buffer",
+                buffer
+                    .id
+                    .as_deref()
+                    .or(buffer.provenance_uri.as_deref())
+                    .unwrap_or(&buffer.name),
+                &read,
+            )?;
             record.event(hickory_agent::SessionEvent::Read { read: &read })?;
         }
         return Ok(format!(

@@ -49,6 +49,7 @@ pub async fn serve(default_doc: Option<PathBuf>, params: Vec<(String, String)>) 
         default_doc,
         session_log: crate::doc_tools::session_from(None).or_else(default_session_log),
         debuggers: crate::debug_sessions::Registry::new(),
+        context_reads: Vec::new(),
     };
 
     let options = crate::engine::mcp::Options {
@@ -128,5 +129,6 @@ pub(crate) async fn engine_server(options: crate::engine::mcp::Options) -> Resul
         default_doc: options.doc,
         session_log: options.session,
         debuggers: crate::debug_sessions::Registry::new(),
+        context_reads: Vec::new(),
     })
 }

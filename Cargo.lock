@@ -3116,6 +3116,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "hick-context-store"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "fs2",
+ "hick-context-protocol",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "uuid",
+]
+
+[[package]]
 name = "hick-dap"
 version = "0.1.0"
 dependencies = [
@@ -3483,6 +3496,7 @@ dependencies = [
  "graphql-parser",
  "hex",
  "hick-blocks",
+ "hick-context-store",
  "hick-dap",
  "hick-exec",
  "hick-flow",

@@ -1,7 +1,8 @@
 # Context lineage protocol v1
 
-Issue #48 defines this contract before source adapters (#49) and Python agent
-integration (#50). The running agent does **not** advertise context v1 yet.
+Issue #48 defines this contract. Issue #49 installs host source storage and
+capability handlers; Python request/delivery integration remains #50. The current
+Python worker does not negotiate or choose refresh policies automatically.
 `protocols/context-v1/schema.json` is the wire source of truth. Run
 `python3 scripts/generate-context-protocol.py` after changing it; `--check` checks
 Rust types, Python types and the wheel's bundled schema for drift. Rust exposes
@@ -46,7 +47,11 @@ constructing Config. No host refresh may rewrite Python's history.
 | `context.resolve` | `ResolveRequest` | `Handle`, resolved by Rust |
 | `inference` (negotiated extension) | `Bundle` containing Python's exact `Request` | response reference plus `DeliveryReceipt` history |
 
-These are DTOs and validators, not installed RPC handlers. Each requested method
+The Rust host installs capture/derive/changes/compare handlers, reached after an
+explicit `context.hello` with a `Hello` offer. The response contains `negotiated`,
+registered `sources` (up to the negotiated page limit), `source_count`, and a
+branch-bound `cursor`. The host advertises only these
+four operations; resolve and tracked inference remain unavailable. Each requested method
 must be in the negotiated intersection; negotiation never creates a capability.
 Capture bounds and pagination are applied before serializing a response. Large
 artifacts travel by immutable descriptor, not oversized/base64 stdio payloads.
@@ -218,3 +223,59 @@ They exercise contract assembly/validation without a model, browser or capture
 adapter. Real capture, durability, provider transport, UI usability and refresh
 policies remain separate integration work; passing these witnesses certifies
 none of those paths.
+
+## Host storage and recovery (#49)
+
+`hick-context-store` owns an exclusively locked, atomic session sidecar at
+`<session-stem>.context.json`. The Python host discovers its primary saved file,
+registers explicitly supplied editor buffers, and imports the existing native
+read receipts. Tool responses include `context_references`; this means captured
+bytes returned by a tool, not a validated provider request. ACP reads also retain
+nodes in the sidecar; their provider delivery remains opaque. No source is marked
+exposed merely because a document is open.
+
+`context.capture` selects a registered host source identity and exact expected
+revision, with an optional byte span and an explicit byte budget. Discover identities
+from the handshake or a read's returned references; workers cannot invent source
+adapters. A changed expected revision fails rather than silently selecting a new
+head. `context.derive` verifies exact selection, concatenation and normalization
+through the shared validator and refuses source attestations and unauthenticated
+production receipts. Only host adapters can register source-backed roots.
+
+Every `context.changes` call rehashes saved files and checks available editor heads
+before paging. File edits from external tools or a pull need no Git integration.
+A `cursor_expired` error requires `context.reconcile` (under the negotiated changes
+capability) with `{"references":["retained-node-id"]}`. It returns a new cursor,
+source heads and per-reference currentness; request at most the negotiated page
+limit of references in each batch. An empty batch still reconciles hashes and
+returns a new cursor without enumerating history.
+Re-handshaking also polls heads but does not by itself report all historical node
+states. Reconciliation never captures new model context or chooses a refresh.
+Restart rotates the cursor epoch while retained nodes and idempotency keys survive.
+
+`Store::relocate` accepts a host-observed rename; it retains source identity and
+leaves old captures untouched. There is no heuristic rename inference. Unknown
+editor heads cannot fall back to saved files. Provider-specific source adapters
+can implement `SourceAdapter`; generated output and opaque external adapters have
+no fabricated freshness. Instruction role/order/directory metadata is registered
+explicitly and applicability is recomputed for the task path independently of
+file edits. It records captured instructions without deciding model inclusion.
+
+Runtime storage rejects additions above 64 MiB; it never evicts retained references
+to satisfy a new capture. Events have a 1,024-entry window and pages have at most
+256 entries. Capture responses also obey the negotiated serialized frame limit.
+Large host receipts/editor imports are chunked at UTF-8 boundaries with their
+original whole-source hash and byte spans. There is no automatic session expiry
+or hidden garbage collection. Delete the complete session sidecar only when its
+history is deliberately no longer needed.
+
+`just test-context-store` runs the focused storage and adapter witnesses. They
+exercise the synchronous host capability path and filesystem changes without a
+model. Python provider assembly/delivery, automatic policy and the browser refresh
+interface remain #50/#51, not consequences of passing these tests.
+
+Passage comparison requires unique correspondence in both the original and current
+revision. Read adapters retain capture-time uniqueness evidence, including
+overlapping matches. A surviving copy after another original duplicate was
+edited remains ambiguous. Imports without that evidence cannot claim a move from
+a unique current match. This is byte correspondence, not evidence of edit intent.
