@@ -238,3 +238,11 @@ Later integration details:
   previews, minimap and remaining layout interactions still need complete parity.
 - Private controller state is compared inside useUiRevision and represented by
   opaque tokens. Full serialized state is not a revision token or implicit context.
+
+Meeting transcript import now has an explicit disclosure, typed transcript text
+input equivalent to the file chooser, shared local ingest, bounded exact UTF-8
+JSON evidence pages, and note/original/utterance navigation. Both input routes
+validate format and the actual UTF-8 byte limit before the same host request.
+Capture, transcription configuration, OS microphone consent and recording
+management remain separate integration work; importing text does not attest to
+human review or authorize remote transcription.

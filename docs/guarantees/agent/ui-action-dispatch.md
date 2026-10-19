@@ -155,3 +155,20 @@ Private revision and prompt correction (2026-10-19):
   selected setting/title tests passed. Command-search callback/policy and selected
   existing behavior tests passed (three); source-guarded folder replacement and
   spatial navigation tests passed. Broader regressions remain unrun.
+
+### Meeting import adapter — 2026-10-19
+
+The disclosed importer accepts transcript name/text through the same ingest
+controller used by the selected local file. No chooser impersonation is needed.
+Both routes enforce extension, UTF-8 decoding and a 1 MiB byte limit before host
+submission. A synchronous in-flight guard prevents overlapping imports. Abort
+before submission prevents upload; later cancellation does not roll back retained
+evidence. Discovery contains opaque revisions, not transcript text. Evidence is
+read explicitly in JSON UTF-8 byte pages of at most 8192 bytes; navigation uses
+current retained utterance identities. This does not grant microphone consent or
+remote transcription authorization.
+
+Executed focused checks: MeetingImport.test.tsx (2 passed), including Unicode
+retained evidence/navigation and invalid/multibyte oversized input with no host
+write. These component checks mock the host parser and microphone component;
+they are not a native capture or real-provider witness.
