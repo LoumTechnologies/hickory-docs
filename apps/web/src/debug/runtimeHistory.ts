@@ -1,4 +1,4 @@
-import type { RuntimeRun } from "./runtimeObservations";
+import { observationText, type RuntimeRun } from "./runtimeObservations";
 import type { WorkspaceStorage } from "../embed/storage";
 import type { ObservationReading } from "./observations";
 
@@ -76,13 +76,22 @@ export function runtimeReading(run: RuntimeRun, invocation?: string): Observatio
       payload: { kind: event.observation.kind, event, run_status: run.status, truncated: run.truncated } };
   });
   return { schema_version: 1, source, scope: { session: run.id, run: run.id, stop: "runtime", frame: null, invocation: invocation ?? null },
-    locations, annotations, unsupported: ["model semantic support", ...(run.truncated ? ["complete event coverage (truncated)"] : [])] };
+    locations, annotations, provider_annotations: selected.map(event => {
+      const annotation = annotations.find(item => item.evidence === event.id)!;
+      const location = locations.find(item => item.id === annotation.location) ?? null;
+      return { evidence: event.id, provider: event.provider, provider_version: "unknown",
+        payload_schema: `hick.${event.observation.kind}.v1`,
+        origin: { kind: "runtime" as const, session: null, run: run.id, stop: null, frame: null, invocation: event.invocation },
+        location, source_precision: location?.location.precision ?? "unknown",
+        measurement_semantics: event.observation.kind === "profile" ? event.observation.aggregation : null,
+        uncertainty: event.observation.kind === "profile" ? "Profiler overhead and timing variability are not estimated" : null,
+        payload: event.observation };
+    }), unsupported: ["model semantic support", ...(run.truncated ? ["complete event coverage (truncated)"] : [])] };
 }
 
 export function runtimeText(run: RuntimeRun, invocation?: string) {
   return run.events.filter(event => !invocation || (event.invocation ?? "unknown") === invocation).map(event =>
     `${event.id} · invocation ${event.invocation ?? "unknown"} · ${event.emission?.precision ?? "unknown location"}\n` +
-    (event.observation.kind === "output" ? new TextDecoder().decode(new Uint8Array(event.observation.bytes)) :
-      `${event.observation.handling} ${event.observation.type_name}: ${event.observation.message}\n`)).join("")
+    observationText(event.observation)).join("")
     .replaceAll("\r", "\\r").replaceAll("\u001b", "\\x1b");
 }

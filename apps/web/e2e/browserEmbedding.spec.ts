@@ -429,7 +429,7 @@ test("source observations share exact evidence with expanded context and stay hi
   await page.mouse.click(gutter.x + gutter.width / 2, number.y + number.height / 2);
   await expect(pane.locator(".cm-bp")).toHaveCount(1);
   await page.getByRole("button", { name: "Debug document", exact: true }).click();
-  const reading = page.locator(".debug-observations");
+  const reading = page.locator('.debug-observations[data-observation-kind="debugger"]');
   await expect(reading.locator("summary")).toContainText("captured stop");
   await reading.locator("summary").click();
   await expect(reading).toContainText("PAUSED HERE");

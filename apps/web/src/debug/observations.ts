@@ -1,3 +1,4 @@
+import { readingProviderAnnotations, type ProviderAnnotation } from "./providerObservations";
 /** Tool-produced evidence, never parsed from source text or display labels. */
 export interface ObservationScope { session?: string | null; run: string; stop: string; frame: number | null; invocation: string | null }
 export interface ObservationAnnotation {
@@ -5,6 +6,7 @@ export interface ObservationAnnotation {
   scope: ObservationScope; payload: { kind: string; [key: string]: unknown };
 }
 export interface ObservationReading {
+  provider_annotations?: ProviderAnnotation[];
   source_aliases?: string[];
   schema_version: number;
   source: { id: string; uri: string; revision: string; bytes: number[] };
@@ -34,7 +36,7 @@ export function observationContext(path: string, content: string) {
     return { state: selected.state, evidence: selected.evidence, reading: {
       schema_version: reading.schema_version,
       source: { id: reading.source.id, uri: reading.source.uri, revision: reading.source.revision },
-      scope: reading.scope, annotations: reading.annotations, unsupported: reading.unsupported,
+      scope: reading.scope, annotations: reading.annotations, provider_annotations: readingProviderAnnotations(reading).filter(item => selected.evidence.includes(item.evidence)), unsupported: reading.unsupported,
       excerpts: reading.locations.map(location => ({ location, text: location.location.bytes ?
         new TextDecoder().decode(new Uint8Array(reading.source.bytes.slice(location.location.bytes.start, location.location.bytes.end))) : null })),
     } };

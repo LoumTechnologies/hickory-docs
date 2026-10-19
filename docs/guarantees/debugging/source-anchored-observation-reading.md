@@ -114,3 +114,26 @@ Inspected implementation content hashes (SHA-256; stale on change):
 - `apps/web/src/debug/observations.ts`: `ecfaac8be5e2effd4de381ceca98c0ba2c09663bae4dbdce61a14d583cc616b7`
 - `apps/web/src/debug/browser/runtime.ts`: `3f0c070cae57064f055772b2aff7728332cb0120ffbe4ad91f8adf66c5c343d7`
 - `apps/web/src/debug/fixtures/reading.json`: `6b82f85eda88e3984aa2e3f10b3437343a7b694934981e836b023eef1ffa551d`
+
+### Runtime and external-provider integration, 2026-10-19
+
+The browser runtime history and debugger reading share provider evidence IDs with
+selected context. Runtime output/log/exception/profile/debugger payloads retain
+their native typed payloads. Nondebugger envelopes have no invented stop/frame;
+source precision remains independent of profile aggregation and uncertainty.
+Unknown provider versions remain unknown. External provider readings retain
+repository/PR/thread/base/head/side identity without inventing runtime scope.
+Expanded or pinned readings select context; receiving them grants no actions.
+Authored bytes and debugger location resolution are unchanged.
+
+The general provider view and context serializer support unavailable source,
+unmapped evidence, historical and changed-source states. The runtime compatibility
+view labels a runtime batch separately from a captured debugger stop. The
+legacy debugger scope remains solely for revision-bound debugger actions.
+
+Executed focused checks for this integration: five Rust reading/handle/provider
+contract tests; real local debugpy relocated-breakpoint and stale-action test;
+two frontend runtime-history tests and one external-review context contract test.
+TypeScript passed. Browser interaction results are recorded in the issue handoff.
+No human usability or paid model benchmark is claimed; #53 owns measurements.
+The preceding implementation hashes are historical, not hashes of this update.

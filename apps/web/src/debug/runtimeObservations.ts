@@ -12,11 +12,26 @@ export interface RuntimeEvent {
   observation: { kind: "output"; stream: string; category: string; bytes: number[] } |
     { kind: "exception"; type_name: string; message: string;
       handling: "throwing" | "caught" | "unhandled" | "unknown";
-      throwing: RuntimeLocation | null; catching: RuntimeLocation | null };
+      throwing: RuntimeLocation | null; catching: RuntimeLocation | null } |
+    { kind: "log"; level: string; message: string; fields: Record<string, unknown> } |
+    { kind: "debugger"; reason: string; details: unknown } |
+    { kind: "profile"; metric: string; value: number; unit: string;
+      interval: { start: { domain: string; unit: string; value: number }; end: { domain: string; unit: string; value: number }; scope: string };
+      aggregation: string; samples: number | null };
 }
 export interface RuntimeRun {
   schema_version: 1; id: string; started_unix_ms: number;
   status: "running" | "completed" | "failed" | "partial" | "cancelled";
   pinned: boolean; sources: { id: string; uri: string; revision: string; bytes: number[] }[];
   events: RuntimeEvent[]; truncated: boolean; missing_artifacts: string[]; detail: string | null;
+}
+
+export function observationText(observation: RuntimeEvent["observation"]): string {
+  switch (observation.kind) {
+    case "output": return new TextDecoder().decode(new Uint8Array(observation.bytes));
+    case "exception": return `${observation.handling} ${observation.type_name}: ${observation.message}\n`;
+    case "log": return `${observation.level}: ${observation.message}\n`;
+    case "profile": return `${observation.metric}: ${observation.value} ${observation.unit} · ${observation.aggregation} · scope ${observation.interval.scope}\n`;
+    case "debugger": return `${observation.reason}: ${JSON.stringify(observation.details)}\n`;
+  }
 }

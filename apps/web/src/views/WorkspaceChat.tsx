@@ -1,3 +1,4 @@
+import { providerObservationContext } from "../debug/providerObservations";
 import "./contextProjection.css";
 import { projectDocument, projectionEstimate, retainedReadingState, type ReadingProjection } from "../lib/contextProjection";
 import { observationContext } from "../debug/observations";
@@ -40,7 +41,7 @@ export async function editorContext(
         ?? session?.outputs.get(tab.target)?.content ?? (await api.file(tab.target)).content;
     }
     return { id: tab.id, kind: tab.kind, ...(tab.kind === "untitled" ? { provenance_uri: bufferTarget(tab.id) } : {}), ...(tab.kind === "generated" ? { document: session?.doc?.path ?? tabs.find(t => t.kind === "document" && t.docId === tab.docId)?.target } : {}), name: tab.title ?? tab.target, path: tab.kind === "untitled" ? null : tab.target,
-      observations: observationContext(tab.target, content), content, focused: tab.id === focused };
+      observations: [...observationContext(tab.target, content), ...providerObservationContext(tab.target, content)], content, focused: tab.id === focused };
   }));
   const documents: ReadingProjection["documents"] = [];
   for (const buffer of buffers) {

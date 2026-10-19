@@ -1,5 +1,5 @@
 import { RUNTIME_REVEAL, revealRuntimeEvent } from "./runtimeNavigation";
-import type { RuntimeEvent } from "./runtimeObservations";
+import { observationText, type RuntimeEvent } from "./runtimeObservations";
 import { StateEffect, StateField } from "@codemirror/state";
 import { Decoration, EditorView, WidgetType, type DecorationSet } from "@codemirror/view";
 import type { ObservationReading } from "./observations";
@@ -21,8 +21,7 @@ class RuntimeWidget extends WidgetType {
     const pre = document.createElement("pre"); pre.tabIndex = 0; pre.style.maxHeight = "12rem"; pre.style.overflow = "auto";
     pre.textContent = records.map(item => {
       const event = item.payload.event as RuntimeEvent;
-      const body = event.observation.kind === "output" ? new TextDecoder().decode(new Uint8Array(event.observation.bytes)) :
-        `${event.observation.handling} ${event.observation.type_name}: ${event.observation.message}`;
+      const body = observationText(event.observation);
       return `${item.evidence} · invocation ${item.scope.invocation ?? "unknown"}\n${body.replaceAll("\r", "\\r").replaceAll("\u001b", "\\x1b")}`;
     }).join("\n");
     const reading = { ...this.reading, annotations: records, locations: this.reading.locations.filter(item => item.id === this.location) };
