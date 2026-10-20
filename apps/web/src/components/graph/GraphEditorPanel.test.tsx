@@ -40,6 +40,7 @@ vi.mock("@xyflow/react", () => ({
 }));
 
 import { GraphEditorPanel, moveEdgeEnd } from "./GraphEditorPanel";
+import { parseSceneSource } from "./scene";
 
 afterEach(cleanup);
 beforeEach(() => {
@@ -528,4 +529,47 @@ describe("moving a line by its end", () => {
     );
     expect(commit).not.toHaveBeenCalled();
   });
+});
+
+it("shares graph node mutations and refuses derived topology while retaining layout controls", async () => {
+  const { UiActions } = await import("../../lib/uiActions");
+  const { UiActionContext } = await import("../../lib/uiActionBridge");
+  const registry = new UiActions({ workspace: "p", window: "w" }, () => true, async () => {});
+  const onCommit = vi.fn();
+  const view = render(<UiActionContext.Provider value={registry}><GraphEditorPanel source={HAND_DRAWN} onCommit={onCommit} /></UiActionContext.Provider>);
+  const actions = () => registry.groups().groups.flatMap(group => registry.observe(group).actions);
+  let id = 0;
+  const run = async (label: string, args = {}) => {
+    let result: unknown;
+    await act(async () => { result = await registry.act(registry.scope, { id: "python:turn", kind: "agent" }, {
+      handle: actions().find(a => a.label === label)!.handle, arguments: args, request_id: String(++id),
+    }); });
+    return result;
+  };
+  await waitFor(() => expect(actions().some(a => a.label === "Rename graph node api")).toBe(true));
+  expect(await run("Rename graph node api", { label: "Service" })).toMatchObject({ status: "result", outcome: { value: { commit_callback_requested: true, saved: false } } });
+  expect(onCommit.mock.lastCall![0]).toContain('"label": "Service"');
+  await run("Resize graph node api", { x: 19, y: 35, w: 100, h: 50 });
+  expect(parseSceneSource(onCommit.mock.lastCall![0])).toMatchObject({ ok: true, scene: { layout: { api: { x: 16, y: 32, w: 96, h: 48 } } } });
+  await run("Move graph node api", { x: 40.2, y: 22.8 });
+  expect(parseSceneSource(onCommit.mock.lastCall![0])).toMatchObject({ ok: true, scene: { layout: { api: { x: 40, y: 23, w: 96, h: 48 } } } });
+  const stale = actions().find(a => a.label === "Rename graph node api")!.handle;
+  view.rerender(<UiActionContext.Provider value={registry}><GraphEditorPanel source={DERIVED} resolved={RESOLVED} onCommit={onCommit} /></UiActionContext.Provider>);
+  await waitFor(() => expect(actions().find(a => a.label === "Add graph node")?.enabled).toBe(false));
+  expect(await registry.act(registry.scope, { id: "acp:turn", kind: "agent" }, { handle: stale, arguments: { label: "stale" }, request_id: "stale" })).not.toMatchObject({ status: "result" });
+  expect(await run("Rename graph node api", { label: "forbidden" })).toMatchObject({ status: "disabled" });
+  await run("Move graph node api", { x: 80, y: 96 });
+  expect(onCommit.mock.lastCall![0]).toContain('<hick:paste select="#arch" />');
+  expect(onCommit.mock.lastCall![0]).not.toContain('"nodes"');
+  view.unmount();
+  expect(actions()).toHaveLength(0);
+});
+
+it("reloads changed derived topology when authored source is unchanged", async () => {
+  const onCommit = vi.fn();
+  const view = render(<GraphEditorPanel source={DERIVED} resolved={RESOLVED} onCommit={onCommit} />);
+  await waitFor(() => expect((flowProps.nodes as { id: string }[]).map(n => n.id)).toEqual(["api", "db"]));
+  view.rerender(<GraphEditorPanel source={DERIVED} resolved='{"nodes":[{"id":"new"}],"edges":[]}' onCommit={onCommit} />);
+  await waitFor(() => expect((flowProps.nodes as { id: string }[]).map(n => n.id)).toEqual(["new"]));
+  expect(onCommit).not.toHaveBeenCalled();
 });

@@ -38,6 +38,7 @@ import type { SceneNodeData } from "./SceneNodeView";
 import { SceneEdgeView } from "./SceneEdgeView";
 import { FILLS, SHAPES, STROKES } from "./palette";
 import { autoLayout } from "./layout";
+import { useGraphActions } from "./useGraphActions";
 import {
   DEFAULT_H,
   DEFAULT_W,
@@ -200,6 +201,14 @@ function GraphEditor({ source, resolved, assertions, onCommit }: GraphEditorPane
   // edit — undo, a collaborator, the agent — and the document wins.
   const lastCommitted = useRef<string | null>(null);
   const sceneRef = useRef<Scene | null>(null);
+  const currentInput = useRef({ source, resolved });
+  currentInput.current = { source, resolved };
+  const loadedInput = useRef<{ source: string; resolved: string | null | undefined } | null>(null);
+  const sourceCurrent = () => {
+    const loaded = loadedInput.current, live = currentInput.current;
+    return !!loaded && live.resolved === loaded.resolved &&
+      (live.source === loaded.source || live.source === lastCommitted.current);
+  };
   const [parseError, setParseError] = useState<string | null>(null);
   const [refusal, setRefusal] = useState<string | null>(null);
   const [nodes, setNodes] = useNodesState<Node>([]);
@@ -227,13 +236,17 @@ function GraphEditor({ source, resolved, assertions, onCommit }: GraphEditorPane
 
   const commitScene = useCallback(
     (committed: Scene) => {
+      if (!sourceCurrent()) {
+        setRefusal("The document changed; wait for the current scene before editing.");
+        return false;
+      }
       let scene = committed;
       const bad = uncommittableText(scene);
       if (bad !== null) {
         // The one string the no-escaping invariant cannot hold: written into
         // the body it would close the diagram from inside its own JSON.
         setRefusal(bad);
-        return;
+        return false;
       }
       setRefusal(null);
       // Keep every side's slots contiguous 0..k-1 whatever was dropped,
@@ -258,6 +271,7 @@ function GraphEditor({ source, resolved, assertions, onCommit }: GraphEditorPane
         return flowEdges(scene).map((e) => (kept.has(e.id) ? { ...e, selected: true } : e));
       });
       onCommit(text);
+      return true;
     },
     [onCommit, setNodes, setEdges],
   );
@@ -266,7 +280,7 @@ function GraphEditor({ source, resolved, assertions, onCommit }: GraphEditorPane
     (id: string, label: string) => {
       const scene = sceneRef.current;
       if (!scene || scene.paste) return;
-      commitScene({
+      return commitScene({
         ...scene,
         nodes: scene.nodes.map((n) => (n.id === id ? { ...n, label } : n)),
       });
@@ -288,7 +302,7 @@ function GraphEditor({ source, resolved, assertions, onCommit }: GraphEditorPane
         w: Math.max(GRID * 6, snap(at.w)),
         h: Math.max(GRID * 3, snap(at.h)),
       };
-      commitScene({ ...scene, layout: { ...scene.layout, [id]: snapped } });
+      return commitScene({ ...scene, layout: { ...scene.layout, [id]: snapped } });
     },
     [commitScene],
   );
@@ -301,7 +315,9 @@ function GraphEditor({ source, resolved, assertions, onCommit }: GraphEditorPane
   // Load from the document — on open, and whenever the document changed under
   // us in a way we did not write.
   useEffect(() => {
-    if (source === lastCommitted.current) return;
+    const previous = loadedInput.current;
+    loadedInput.current = { source, resolved };
+    if (source === lastCommitted.current && previous?.resolved === resolved) return;
     const parsed = parseSceneSource(source);
     if (!parsed.ok) {
       setParseError(parsed.error);
@@ -329,25 +345,27 @@ function GraphEditor({ source, resolved, assertions, onCommit }: GraphEditorPane
     [setEdges],
   );
 
-  const onNodeDragStop = useCallback(
-    (_event: unknown, node: Node) => {
+  const moveNode = useCallback(
+    (id: string, position: { x: number; y: number }) => {
       const scene = sceneRef.current;
       if (!scene) return;
-      const before = scene.layout[node.id];
-      commitScene({
+      const before = scene.layout[id];
+      return commitScene({
         ...scene,
         layout: {
           ...scene.layout,
-          [node.id]: {
+          [id]: {
             ...before,
-            x: Math.round(node.position.x),
-            y: Math.round(node.position.y),
+            x: Math.round(position.x),
+            y: Math.round(position.y),
           },
         },
       });
     },
     [commitScene],
   );
+
+  const onNodeDragStop = useCallback((_event: unknown, node: Node) => moveNode(node.id, node.position), [moveNode]);
 
   // A drag that starts on an OCCUPIED connector moves that line rather than
   // drawing a second one from the same spot.
@@ -505,7 +523,7 @@ function GraphEditor({ source, resolved, assertions, onCommit }: GraphEditorPane
     let n = scene.nodes.length + 1;
     while (scene.nodes.some((node) => node.id === `node-${n}`)) n += 1;
     const id = `node-${n}`;
-    commitScene({
+    return commitScene({
       ...scene,
       nodes: [...scene.nodes, { id, label: id }],
     });
@@ -514,7 +532,7 @@ function GraphEditor({ source, resolved, assertions, onCommit }: GraphEditorPane
   const applyAutoLayout = useCallback(() => {
     const scene = sceneRef.current;
     if (!scene) return;
-    commitScene({ ...scene, layout: autoLayout(scene) });
+    return commitScene({ ...scene, layout: autoLayout(scene) });
   }, [commitScene]);
 
   // Restyle every selected node. Styling lives on the node — topology — so a
@@ -599,6 +617,12 @@ function GraphEditor({ source, resolved, assertions, onCommit }: GraphEditorPane
     });
   }, []);
 
+  const invokeGraph = useGraphActions({
+    scene: sceneRef.current, current: sourceCurrent, source, resolved, selection,
+    assertions, error: parseError ?? refusal, active, commit: commitScene,
+    rename, resize, move: moveNode, add: addNode, layout: applyAutoLayout, fit: () => fitView({ padding: 0.15, duration: 200 }),
+  });
+
   if (parseError) {
     // Same posture as a mermaid diagram that does not parse: say why there is
     // no picture, and never touch the author's text.
@@ -655,17 +679,17 @@ function GraphEditor({ source, resolved, assertions, onCommit }: GraphEditorPane
     >
       <div className="graph-editor__toolbar">
         {!derived && (
-          <button type="button" onClick={addNode}>
+          <button type="button" onClick={() => invokeGraph("add")}>
             Add node
           </button>
         )}
-        <button type="button" onClick={applyAutoLayout}>
+        <button type="button" onClick={() => invokeGraph("layout")}>
           Auto-layout
         </button>
         <button
           type="button"
           data-tip="Bring the whole scene into view"
-          onClick={() => void fitView({ padding: 0.15, duration: 200 })}
+          onClick={() => invokeGraph("fit")}
         >
           Zoom to fit
         </button>
@@ -677,8 +701,7 @@ function GraphEditor({ source, resolved, assertions, onCommit }: GraphEditorPane
         )}
         {refusal !== null && (
           <span className="graph-editor__refusal" role="status">
-            Not saved: a diagram may not contain the text “&lt;/hick:” — it
-            would end the element from inside it.
+            Not saved: {refusal}
           </span>
         )}
       </div>

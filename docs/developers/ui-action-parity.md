@@ -518,3 +518,19 @@ The history story lens now shares earlier-card disclosure, per-commit diff/detai
 Picture panels now expose explicit displayed-pixel capture through their own loaded image element. The bounded PNG is optional/downscaled at the requested maximum dimension, digest-bound and source/window-lifetime checked. Status metadata omits inline image bytes and URL query credentials. Python retains immutable artifacts and selects them as whole user-material request parts; Rust resolves only host-retained descriptors, never worker paths or remote URLs. Anthropic and OpenAI-compatible adapters emit native image content; ACP receives MCP image blocks. Text-only/unsupported models can still reject image requests explicitly. Browser canvas/CORS/secure-context failures return an addressable input request and visible retry guidance; oversized captures require a smaller explicit dimension. This covers picture panels, not every graph/canvas/media renderer.
 
 Focused evidence for images: real Chrome pixel/digest capture, retained artifact reload/tamper/forged descriptor refusal, worker artifact assembly, real confined Python and HTTP broker with a scripted model/UI endpoint, MCP image validation and quoted-prose refusal, two provider wire-format checks, and the existing text-only worker transport case. No paid-model interpretation, native package or released/deployed recording is asserted.
+
+### Graph controller checkpoint (2026-10-20)
+
+Graph scenes now expose explicit byte-paged controller reading (nodes, edges,
+layout, selection, reported assertions and focus ownership), shared toolbar
+add/layout/fit commands, and per-node rename/move/resize handles. Native drag,
+resize and rename use the same mutation callbacks. Derived topology remains
+read-only while layout stays editable. Receipts report a requested document
+commit, never a confirmed disk save. Commands bind the current authored and
+resolved inputs; changing only the resolved topology reloads the scene.
+Focused tests cover both actor paths, snap/round semantics, stale handle refusal,
+derived topology protection, teardown and resolved-input replacement.
+
+This checkpoint does not certify graph selection/inspector styling, connector
+reconnection, inline label drafts, viewport navigation or rendered pixel capture.
+Those remain part of the issue's incomplete capability audit.
