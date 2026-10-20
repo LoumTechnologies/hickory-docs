@@ -9,6 +9,7 @@ import { useState } from "react";
 
 let flowProps: Record<string, unknown> = {};
 const fitViewMock = vi.fn();
+const setViewportMock = vi.fn().mockResolvedValue(true);
 vi.mock("@xyflow/react", () => ({
   ReactFlow: (props: Record<string, unknown>) => {
     flowProps = props;
@@ -35,7 +36,8 @@ vi.mock("@xyflow/react", () => ({
     }),
   applyEdgeChanges: (_c: unknown, es: unknown) => es,
   useNodesState: (init: unknown) => useState(init),
-  useReactFlow: () => ({ fitView: fitViewMock }),
+  useReactFlow: () => ({ fitView: fitViewMock, setViewport: setViewportMock }),
+  useViewport: () => ({ x: 0, y: 0, zoom: 1 }),
   useEdgesState: (init: unknown) => useState(init),
 }));
 
@@ -46,6 +48,7 @@ afterEach(cleanup);
 beforeEach(() => {
   flowProps = {};
   fitViewMock.mockReset();
+  setViewportMock.mockClear();
 });
 
 const HAND_DRAWN = `{
@@ -589,6 +592,8 @@ it("shares graph selection, finite inspector palettes and validated connection l
     }); }); return result;
   };
   await waitFor(() => expect(actions().some(a => a.label === "Select graph objects")).toBe(true));
+  expect(await run("Set graph viewport", { x: 120, y: -20, zoom: 1.5 })).toMatchObject({ status: "result", outcome: { value: { viewport_changed: true } } });
+  expect(setViewportMock).toHaveBeenCalledWith({ x: 120, y: -20, zoom: 1.5 }, { duration: 0 });
   await run("Select graph objects", { nodes: ["api"], edges: [] });
   expect(screen.getByTestId("node-inspector")).toBeTruthy();
   expect((flowProps.nodes as { id: string; selected: boolean }[]).find(n => n.id === "api")?.selected).toBe(true);

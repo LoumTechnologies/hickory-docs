@@ -70,3 +70,36 @@ describe("a node's connection bubbles", () => {
     );
   });
 });
+
+it("shares the visible label draft and refuses to overwrite a changed label", async () => {
+  const { act, fireEvent, screen } = await import("@testing-library/react");
+  const { UiActions } = await import("../../lib/uiActions");
+  const { UiActionContext } = await import("../../lib/uiActionBridge");
+  const registry = new UiActions({ workspace: "p", window: "w" }, () => true, async () => {});
+  const rename = vi.fn();
+  const props = (label: string) => ({ data: { node: { id: "api", label }, derived: false, slots: {}, onRename: rename, onResize: () => {} } }) as unknown as Parameters<typeof SceneNodeView>[0];
+  const mount = (label: string) => <UiActionContext.Provider value={registry}><SceneNodeView {...props(label)} /></UiActionContext.Provider>;
+  const view = render(mount("Before"));
+  const actions = () => registry.groups().groups.flatMap(group => registry.observe(group, 64).actions);
+  let id = 0;
+  const run = async (label: string, args = {}) => {
+    let result: unknown;
+    await act(async () => { result = await registry.act(registry.scope, { id: "python:turn", kind: "agent" }, {
+      handle: actions().find(a => a.label === label)!.handle, arguments: args, request_id: String(++id),
+    }); }); return result;
+  };
+  await run("Open graph label node:api");
+  await run("Set graph label draft node:api", { value: "Proposed" });
+  expect((screen.getByRole("textbox") as HTMLInputElement).value).toBe("Proposed");
+  view.rerender(mount("Changed externally"));
+  expect(await run("Commit graph label draft node:api")).toMatchObject({ status: "result", outcome: { status: "requires_input" } });
+  expect(rename).not.toHaveBeenCalled();
+  expect((screen.getByRole("textbox") as HTMLInputElement).value).toBe("Proposed");
+  await run("Cancel graph label draft node:api");
+  fireEvent.doubleClick(screen.getByTestId("graph-node-api"));
+  await act(async () => {});
+  expect((screen.getByRole("textbox") as HTMLInputElement).value).toBe("Changed externally");
+  fireEvent.change(screen.getByRole("textbox"), { target: { value: "Native draft" } });
+  await run("Commit graph label draft node:api");
+  expect(rename).toHaveBeenCalledExactlyOnceWith("api", "Native draft");
+});

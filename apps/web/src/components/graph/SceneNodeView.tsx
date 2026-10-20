@@ -6,10 +6,11 @@
 // re-run. The panel's banner says where to change it instead. Resizing is
 // allowed on BOTH kinds — a size is layout, the person's half.
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef } from "react";
 import { Handle, NodeResizer, Position, useConnection } from "@xyflow/react";
 import type { NodeProps, ResizeParams } from "@xyflow/react";
 
+import { useGraphLabelDraft } from "./useGraphLabelDraft";
 import { sideHandles } from "./scene";
 import type { SceneNode, Side } from "./scene";
 
@@ -29,22 +30,10 @@ export function SceneNodeView({ data, selected }: NodeProps) {
   // Whether ANY connection drag is live on the canvas: the moment the extra
   // bubbles earn their ink (see below).
   const connecting = useConnection((c) => c.inProgress);
-  const [editing, setEditing] = useState(false);
-  const [draft, setDraft] = useState(node.label ?? node.id);
+  const label = useGraphLabelDraft({ identity: `node:${node.id}`, value: node.label ?? node.id,
+    disabled: derived, nonempty: true, commit: value => onRename(node.id, value) });
   const inputRef = useRef<HTMLInputElement>(null);
-
-  useEffect(() => {
-    if (editing) inputRef.current?.select();
-  }, [editing]);
-
-  const finish = (keep: boolean) => {
-    setEditing(false);
-    if (keep && draft.trim() && draft !== (node.label ?? node.id)) {
-      onRename(node.id, draft.trim());
-    } else {
-      setDraft(node.label ?? node.id);
-    }
-  };
+  useEffect(() => { if (label.editing) inputRef.current?.select(); }, [label.editing]);
 
   const shape = node.shape ?? "rect";
   return (
@@ -62,9 +51,7 @@ export function SceneNodeView({ data, selected }: NodeProps) {
           ...(node.text ? { color: node.text } : {}),
         } as React.CSSProperties
       }
-      onDoubleClick={() => {
-        if (!derived) setEditing(true);
-      }}
+      onDoubleClick={label.open}
       data-testid={`graph-node-${node.id}`}
     >
       {/* Resize is a layout act, so it is never locked — a derived node may
@@ -112,16 +99,17 @@ export function SceneNodeView({ data, selected }: NodeProps) {
           );
         }),
       )}
-      {editing ? (
+      {label.error && <span role="alert">{label.error}</span>}
+      {label.editing ? (
         <input
           ref={inputRef}
           className="graph-node__rename"
-          value={draft}
-          onChange={(e) => setDraft(e.target.value)}
-          onBlur={() => finish(true)}
+          value={label.value}
+          onChange={(e) => label.change(e.target.value)}
+          onBlur={() => label.finish(true)}
           onKeyDown={(e) => {
-            if (e.key === "Enter") finish(true);
-            if (e.key === "Escape") finish(false);
+            if (e.key === "Enter") label.finish(true);
+            if (e.key === "Escape") label.finish(false);
           }}
         />
       ) : (

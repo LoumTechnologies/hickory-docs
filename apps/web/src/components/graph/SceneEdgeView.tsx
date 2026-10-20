@@ -11,6 +11,7 @@ import { useEffect, useRef } from "react";
 import { BaseEdge, EdgeLabelRenderer, getSmoothStepPath, getStraightPath } from "@xyflow/react";
 import type { EdgeProps } from "@xyflow/react";
 
+import { useGraphLabelDraft } from "./useGraphLabelDraft";
 import { straightConnector } from "./scene";
 import type { SceneEdge } from "./scene";
 
@@ -108,6 +109,7 @@ export function SceneEdgeView(props: EdgeProps) {
           {/* The editor sits ON the line, where the words will live —
               not in a toolbar the eye has to travel to. */}
           <LabelInput
+            identity={`edge:${id}`}
             x={labelX}
             y={labelY}
             initial={edge?.label ?? ""}
@@ -130,23 +132,29 @@ const LABEL_GAP_WIDTH = 136;
 const LABEL_GAP_HEIGHT = 24;
 
 function LabelInput({
+  identity,
   x,
   y,
   initial,
   onLabel,
   onCancel,
 }: {
+  identity: string;
   x: number;
   y: number;
   initial: string;
   onLabel?: (label: string) => void;
   onCancel?: () => void;
 }) {
+  const label = useGraphLabelDraft({ identity, value: initial, initiallyOpen: true,
+    commit: value => onLabel?.(value), close: onCancel });
   const ref = useRef<HTMLInputElement>(null);
   useEffect(() => {
     ref.current?.select();
   }, []);
   return (
+    <>
+    {label.error && <span role="alert">{label.error}</span>}
     <input
       ref={ref}
       className="graph-edge__label-input nodrag nopan"
@@ -157,16 +165,18 @@ function LabelInput({
       }}
       aria-label="Line label"
       placeholder="label…"
-      defaultValue={initial}
+      value={label.value}
+      onChange={e => label.change(e.target.value)}
       autoFocus
-      onBlur={(e) => onLabel?.(e.target.value)}
+      onBlur={() => label.finish(true)}
       onKeyDown={(e) => {
         if (e.key === "Enter") (e.target as HTMLInputElement).blur();
         if (e.key === "Escape") {
           e.stopPropagation();
-          onCancel?.();
+          label.finish(false);
         }
       }}
     />
+    </>
   );
 }

@@ -14,12 +14,15 @@ export type GraphControls = {
   select: (selection: { nodes: string[]; edges: string[] }) => void;
   connect: (connection: Connection) => boolean | undefined;
   reconnect: (id: string, connection: Connection) => boolean | undefined;
+  openEdgeLabel: (id: string) => void;
 };
 
 /** Controller-owned scene data and the same toolbar callbacks as native input. */
 export function useGraphActions(input: GraphControls & {
   scene: Scene | null; current: () => boolean; source: string; resolved?: string | null;
   selection: { nodes: string[]; edges: string[] }; assertions: unknown; error: string | null;
+  viewport: { x: number; y: number; zoom: number };
+  setViewport: (value: { x: number; y: number; zoom: number }, options?: { duration: number }) => Promise<boolean>;
   active: boolean; commit: (scene: Scene) => boolean;
   rename: (id: string, label: string) => boolean | undefined;
   resize: (id: string, at: { x: number; y: number; w: number; h: number }) => boolean | undefined;
@@ -27,14 +30,14 @@ export function useGraphActions(input: GraphControls & {
   add: () => boolean | undefined; layout: () => boolean | undefined; fit: () => Promise<boolean>;
 }) {
   const parent = `graph:${useId()}`;
-  const revision = useUiRevision(() => [input.source, input.resolved, input.scene, input.selection, input.error, input.active]);
+  const revision = useUiRevision(() => [input.source, input.resolved, input.scene, input.selection, input.error, input.active, input.viewport]);
   const slots = occupiedSlots(input.scene?.edges ?? []);
   useUiReading("graph scene", {
     connectors: (input.scene?.nodes ?? []).map(node => ({ id: node.id,
       handles: (["top", "right", "bottom", "left"] as const).flatMap(side => sideHandles(side, slots[node.id]?.[side] ?? [])),
     })),
     scene: input.scene, selection: input.selection, assertions: input.assertions ?? [],
-    error: input.error, canvas_owns_wheel: input.active,
+    viewport: input.viewport, error: input.error, canvas_owns_wheel: input.active,
     topology_read_only: input.scene?.paste != null,
     evidence: "Controller scene and reported assertions; no execution or save acknowledgement",
   }, [input.source, input.resolved]);
@@ -51,6 +54,11 @@ export function useGraphActions(input: GraphControls & {
     { id: "layout", label: "Auto-layout graph", execute: async () => {
       return input.layout() ? { status: "completed", value: { commit_callback_requested: true, saved: false } } : { status: "unavailable", reason: "Scene refused the layout; read current graph status" };
     } },
+    { id: "viewport", label: "Set graph viewport", parameters: {
+      x: coordinate, y: coordinate, zoom: { type: "number", minimum: 0.5, maximum: 2 },
+    }, execute: async args => ({ status: "completed", value: { viewport_changed: await input.setViewport({
+      x: args.x as number, y: args.y as number, zoom: args.zoom as number,
+    }, { duration: 0 }) } }) },
     { id: "fit", label: "Zoom graph to fit", execute: async () => ({ status: "completed", value: { viewport_changed: await input.fit() } }) },
   ];
   for (const node of input.scene?.nodes ?? []) {

@@ -79,3 +79,24 @@ describe("a line being labelled", () => {
     expect(container.querySelector("[data-testid=edge-path]")?.getAttribute("mask")).toBeNull();
   });
 });
+
+it("preserves an inline edge draft when its committed label changes", async () => {
+  const { act, fireEvent, screen } = await import("@testing-library/react");
+  const { UiActions } = await import("../../lib/uiActions");
+  const { UiActionContext } = await import("../../lib/uiActionBridge");
+  const registry = new UiActions({ workspace: "p", window: "w" }, () => true, async () => {});
+  const onLabel = vi.fn();
+  const mount = (label: string) => <UiActionContext.Provider value={registry}><svg><SceneEdgeView {...props(true)}
+    data={{ edge: { from: "api", to: "db", label }, editing: true, onLabel }} /></svg></UiActionContext.Provider>;
+  const view = render(mount("writes"));
+  fireEvent.change(screen.getByRole("textbox"), { target: { value: "draft" } });
+  view.rerender(mount("external"));
+  const actions = () => registry.groups().groups.flatMap(group => registry.observe(group, 64).actions);
+  let result: unknown;
+  await act(async () => { result = await registry.act(registry.scope, { id: "acp:turn", kind: "agent" }, {
+    handle: actions().find(a => a.label === "Commit graph label draft edge:api->db")!.handle, arguments: {}, request_id: "commit",
+  }); });
+  expect(result).toMatchObject({ status: "result", outcome: { status: "requires_input" } });
+  expect((screen.getByRole("textbox") as HTMLInputElement).value).toBe("draft");
+  expect(onLabel).not.toHaveBeenCalled();
+});

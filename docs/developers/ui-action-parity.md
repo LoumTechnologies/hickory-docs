@@ -542,3 +542,13 @@ from the actual side/slot model and validated before edits; parallel edges keep
 separate identities. Focused tests exercise an ACP-labelled actor followed by a
 native inspector edit, invalid inputs without writes, connection/reconnection,
 and incident-edge removal. Inline draft and viewport/pixel coverage remains open.
+
+Graph inline node and edge label drafts now have open/read/change/commit/cancel
+controls shared with native typing. A changed committed label requires explicit
+recovery and retains the draft; cancellation/reopening starts from the current
+label. The inspector's label input is bound to its edge identity rather than a
+later selection. Viewport reading and bounded pan/zoom setting use React Flow's
+own controller. Focused tests cover mixed native/agent drafting, stale node and
+edge label refusal, viewport arguments and existing native inspector behavior.
+This still does not establish rendered graph/diagram pixel capture or exhaustive
+browser gesture parity.

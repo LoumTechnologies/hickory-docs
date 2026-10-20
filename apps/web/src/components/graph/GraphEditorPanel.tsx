@@ -27,6 +27,7 @@ import {
   useEdgesState,
   useNodesState,
   useReactFlow,
+  useViewport,
 } from "@xyflow/react";
 import type { Connection, Edge, EdgeChange, Node, NodeChange, OnSelectionChangeParams } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
@@ -38,6 +39,7 @@ import type { SceneNodeData } from "./SceneNodeView";
 import { SceneEdgeView } from "./SceneEdgeView";
 import { FILLS, SHAPES, STROKES } from "./palette";
 import { autoLayout } from "./layout";
+import { GraphInspectorLabel } from "./GraphInspectorLabel";
 import { useGraphActions } from "./useGraphActions";
 import {
   DEFAULT_H,
@@ -213,7 +215,8 @@ function GraphEditor({ source, resolved, assertions, onCommit }: GraphEditorPane
   const [refusal, setRefusal] = useState<string | null>(null);
   const [nodes, setNodes] = useNodesState<Node>([]);
   const [edges, setEdges] = useEdgesState<Edge>([]);
-  const { fitView } = useReactFlow();
+  const { fitView, setViewport } = useReactFlow();
+  const viewport = useViewport();
   // The line whose label is being edited, right on the line (double-click).
   const [editingEdge, setEditingEdge] = useState<string | null>(null);
   // Node data closures are built when the scene loads; they read the live
@@ -632,9 +635,9 @@ function GraphEditor({ source, resolved, assertions, onCommit }: GraphEditorPane
 
   const invokeGraph = useGraphActions({
     scene: sceneRef.current, current: sourceCurrent, source, resolved, selection,
-    assertions, error: parseError ?? refusal, active, commit: commitScene,
+    assertions, error: parseError ?? refusal, active, viewport, setViewport, commit: commitScene,
     rename, resize, move: moveNode, patchNodes, patchEdges, deleteNodes, deleteEdges,
-    connect: connectNodes, reconnect: reconnectEdge,
+    connect: connectNodes, reconnect: reconnectEdge, openEdgeLabel: setEditingEdge,
     select: (chosen) => {
       setSelection(chosen);
       setNodes(current => current.map(node => ({ ...node, selected: chosen.nodes.includes(node.id) })));
@@ -779,17 +782,9 @@ function GraphEditor({ source, resolved, assertions, onCommit }: GraphEditorPane
             >
               {selectedEdge.style ?? "solid"}
             </button>
-            <input
-              aria-label="Line label"
-              className="graph-inspector__label"
-              placeholder="label…"
-              key={edgeKey(selectedEdge)}
-              defaultValue={selectedEdge.label ?? ""}
-              onBlur={(e) => styleEdges({ label: e.target.value.trim() || undefined })}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") (e.target as HTMLInputElement).blur();
-              }}
-            />
+            <GraphInspectorLabel key={edgeKey(selectedEdge)} identity={edgeKey(selectedEdge)}
+              value={selectedEdge.label ?? ""}
+              commit={label => patchEdges([edgeKey(selectedEdge)], { label: label || undefined })} />
           </span>
         ) : (
           <span className="graph-inspector__hint muted">

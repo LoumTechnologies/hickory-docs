@@ -32,6 +32,8 @@ export function graphInspectorActions(scene: Scene | null, controls: GraphContro
       execute: async () => receipt(controls.deleteNodes([node.id])) });
   }
   for (const { key } of edges) {
+    actions.push({ id: `label-edge:${key}`, label: `Open graph edge label ${key}`, topology: true,
+      execute: async () => { controls.openEdgeLabel(key); return { status: "completed", value: { editing_requested: true } }; } });
     for (const [field, choices] of Object.entries({ color: ["", ...STROKES.map(c => c.value)],
       arrow: ["end", "both", "start", "none"], style: ["solid", "dashed", "dotted"] })) {
       actions.push({ id: `edge:${key}:${field}`, label: `Set graph edge ${key} ${field}`, topology: true,
