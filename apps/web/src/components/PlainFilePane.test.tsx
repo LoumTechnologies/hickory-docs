@@ -1,3 +1,5 @@
+import { UiActions } from "../lib/uiActions";
+import { UiActionContext } from "../lib/uiActionBridge";
 import { EditorView } from "@codemirror/view";
 // Unsaved work coming back, and what happens when the file moved on while the
 // app was closed.
@@ -410,4 +412,26 @@ it("keeps newer buffer edits when an explicit disk reload returns late", async (
   await act(async () => { finish({ path: "notes.md", language: "markdown", content: "new disk", hash: "new-disk-hash" }); });
   await screen.findByText(/new edits were kept/);
   expect(editor.state.doc.toString()).toBe("NEWER EDIT");
+});
+
+// Guarantee: docs/guarantees/agent/ui-action-dispatch.md
+it("retains actual adoption success if opening its created document fails", async () => {
+  serve({ content: ON_DISK, drafts: [] });
+  const adopted = { doc_id: "created-doc", doc_path: "notes.literate.md", file_path: "notes.md", output_path: "notes.md", created: true };
+  const adopt = vi.spyOn(api, "adopt").mockResolvedValue(adopted);
+  const onAdopted = vi.fn(() => { throw new Error("navigation refused"); });
+  const registry = new UiActions({ workspace: "p", window: "w" }, () => true, async () => {});
+  render(<UiActionContext.Provider value={registry}><PlainFilePane path="notes.md" onAdopted={onAdopted} /></UiActionContext.Provider>);
+  await waitFor(() => expect(document.querySelector(".cm-content")?.textContent).toContain("two"));
+  await act(async () => { fireEvent.click(screen.getByLabelText("More actions for notes.md")); });
+  const actions = () => registry.groups().groups.flatMap(group => registry.observe(group).actions);
+  const handle = actions().find(a => a.label === "Make current file literate")!.handle;
+  let result: unknown;
+  await act(async () => { result = await registry.act(registry.scope, { id: "python:turn", kind: "agent" }, { handle, arguments: {}, request_id: "adopt" }); });
+  expect(result).toMatchObject({ status: "result", outcome: { status: "completed", value: { owner_reply: JSON.stringify({ ...adopted, navigation_error: "navigation refused" }) } } });
+  expect(adopt).toHaveBeenCalledWith("notes.md");
+  expect(onAdopted).toHaveBeenCalledWith(adopted);
+  expect(screen.getByText(/Created notes.literate.md, but could not open it/)).toBeTruthy();
+  expect(screen.getByText(/already literate/)).toBeTruthy();
+  expect(actions().some(a => a.label === "Make current file literate")).toBe(false);
 });

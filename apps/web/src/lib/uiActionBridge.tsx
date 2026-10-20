@@ -144,3 +144,9 @@ export function useUiCommands(commands: { key: string; command: UiCommand }[]) {
 
 /** Test/embedding injection uses the same registry and controllers. */
 export const UiActionContext = Context;
+
+/** Snapshot only local human requests; menu dismissal must not retire a click before intent persistence. */
+export function useUiPendingHumanActions() {
+  const registry = useContext(Context);
+  return () => registry?.pending({ id: "local-user", kind: "human" }) ?? [];
+}

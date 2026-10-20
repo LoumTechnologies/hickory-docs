@@ -1,3 +1,5 @@
+import { PlainFileActions } from "./PlainFileActions";
+import { useUiReading } from "../lib/uiReading";
 import type { usePrompt } from "./PromptPanel";
 import { useEditorActions } from "../editor/uiEditorActions";
 import { observationSourceChanged } from "../debug/observations";
@@ -8,7 +10,6 @@ import { PaneHeaderContent } from "../shell/PaneHeader";
 import { MoreActions } from "./MoreActions";
 import { SurfaceInfo } from "./SurfaceInfo";
 import { registerSearchEditor } from "../lib/workspaceSearch";
-import { openLiterate } from "../lib/openRepresentation";
 // A plain file, in a pane: any text file in the folder that is neither a
 // document nor a woven output. CodeMirror over `GET /api/file`, saved whole
 // as you type through lib/plainFileSave.ts — debounced, serialized, and
@@ -654,19 +655,15 @@ export function PlainFilePane({
   // document weaves these exact bytes before writing anything, so a success
   // changes ownership and not one byte of content; a refusal (binary,
   // hick:-looking text, a taken document name) lands in the banner.
-  const adopt = useCallback(() => {
-    setAdopting(true);
-    setAdoptError(null);
-    api.adopt(path).then(
-      (adopted) => {
-        setAdopting(false);
-        onAdoptedRef.current?.(adopted);
-      },
-      (e) => {
-        setAdopting(false);
-        setAdoptError(e instanceof Error ? e.message : String(e));
-      },
-    );
+  const adopt = useCallback(async () => {
+    setAdopting(true); setAdoptError(null);
+    try {
+      const adopted = await api.adopt(path);
+      setGeneratedBy(adopted.doc_id);
+      try { onAdoptedRef.current?.(adopted); return adopted; }
+      catch (e) { const navigation_error = e instanceof Error ? e.message : String(e); setNotice(`Created ${adopted.doc_path}, but could not open it: ${navigation_error}`); return { ...adopted, navigation_error }; }
+    } catch (e) { setAdoptError(e instanceof Error ? e.message : String(e)); throw e; }
+    finally { setAdopting(false); }
   }, [path]);
 
   const overwrite = useCallback(() => saver.resolve("overwrite"), [saver]);
@@ -725,6 +722,7 @@ export function PlainFilePane({
     await launchWithProfiles({uri:`hick:///${path}`,expected_source:source},
       profile=>debug.start(undefined,{},undefined,profile),{choose,isCurrent:()=>viewRef.current?.state.doc.toString()===source});
   };
+  useUiReading("plain file status", { path, loaded: !!file, loaded_hash: file?.hash ?? null, generated_by: generatedBy, save: saveState, adopting, adoption_error: adoptError, notice, merge_open: !!merge, error: loadError, scope: "Last loaded file metadata plus current UI/save state; loaded_hash may predate later saves. Read editor source separately. Not an edit approval or verification." }, path);
   if (loadError) {
     return (
       <div className="plain-file-pane">
@@ -738,28 +736,9 @@ export function PlainFilePane({
     <div className="plain-file-pane">
       <SurfaceInfo name={`File · ${path}`} editable destination="Edits save automatically to this file on disk." />
       <PaneHeaderContent part="actions"><div className="doc-tab-toolbar" role="toolbar" aria-label={`Actions for ${path}`}>
-        <MoreActions label="More actions for this file">
-        {!generatedBy && <button className="btn" disabled={!file || !["idle", "saved"].includes(saveState.kind)} onClick={() => void openLiterate({ kind: "files", paths: [path] }).catch(e => setNotice(e instanceof Error ? e.message : String(e)))} data-tip="Open an editable arrangement; Save writes code back to these source files.">Open literate view</button>}
-        {!generatedBy && <button className="btn" disabled={!file || !["idle", "saved"].includes(saveState.kind)} onClick={() => void openLiterate({ kind: "files", paths: [path] }, "HEAD").catch(e => setNotice(e instanceof Error ? e.message : String(e)))}>Review changes</button>}
-        {generatedBy ? (
-          // Not a disabled button: there is nothing to enable. This file is
-          // already the output of a literate document, and saying which one
-          // is more useful than a greyed-out verb.
-          <span className="muted plain-file__generated" role="status">
-            Written by a literate document — it is already literate.
-          </span>
-        ) : (
-        <button
-          className="btn"
-          // Not while a save is in flight or parked on a conflict: the
-          // server adopts the DISK bytes, and those must be this buffer's.
-          disabled={adopting || !file || saveState.kind === "saving" || saveState.kind === "conflict"}
-          onClick={adopt}
-          data-tip="Create a .md document that owns this file’s bytes. Future edits to this generated file write back to that document."
-        >
-          {adopting ? "Adopting…" : "Make literate"}
-        </button>
-        )}
+        <MoreActions label={`More actions for ${path}`}>
+        <PlainFileActions path={path} loaded={!!file} generatedBy={generatedBy} saveKind={saveState.kind} adopting={adopting}
+          sourceRevision={() => [fileRef.current?.hash, viewRef.current?.state.doc.toString()]} adopt={adopt} onError={setNotice} />
         </MoreActions>
         {notice && (
           <span className="muted plain-file__notice" role="status">

@@ -164,6 +164,11 @@ export class UiActions {
     return result;
   }
 
+  /** Trusted UI chrome may retain its controller until a click's journaled actions settle. */
+  pending(actor: UiActor): { id: string; result: Promise<UiResult> }[] {
+    return [...this.requests].filter(([, request]) => !request.settled && request.actor.id === actor.id && request.actor.kind === actor.kind).map(([id, request]) => ({ id, result: request.result }));
+  }
+
   cancel(scope: UiScope, actor: UiActor, request_id: string): boolean {
     if (scope.workspace !== this.scope.workspace || scope.window !== this.scope.window) return false;
     const pending = this.requests.get(request_id);
