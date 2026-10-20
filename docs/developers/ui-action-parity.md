@@ -276,3 +276,26 @@ practice state kept behind opaque revision tokens. Source navigation and popup
 Locate/Dismiss share the actual handlers; Locate reports absent/hidden targets
 rather than claiming it opened a pane or started a debugger. Dismiss preserves
 retained history and never certifies skipped work.
+
+## Native declaration review ownership
+
+The generated inventory also records every Rust source in the desktop host,
+FSKit Swift source, and the host `shell.rs`/`reveal.rs` boundaries. It indexes
+function declarations, host callback fields, route/menu declarations and compile
+guards with source hashes. Web rows now list action adapter hook calls as well as
+control declarations. A hook call does not certify its surrounding controls.
+
+| Native declaration → semantic boundary | Parameters, observation and current ownership |
+| --- | --- |
+| `serve/shell.rs::Shell::{open_folder,pick_folder,save_file,close_window}` → desktop-injected closures | Folder/name/window and `OpenWhere`; pick/save return actual path or cancellation, close/open return dispatch result. #74 owns addressable requests, #75 actual capability adapters and lifecycle results. |
+| `serve/shell.rs::{save_file_dialog,pick_folder,close_window}` | Existing HTTP handlers, host availability guards and errors are the authority; a browser-only host cannot claim native dialogs. #75 owns equivalent scoped input/request-result registration. |
+| `serve/reveal.rs::{reveal,open_external}` | Host-validated target and process launch result; launching is not proof another app opened or consumed it. #75 owns agent adapter and retained result. |
+| `desktop/src-tauri/src/command_path.rs::{status,install,remove}` | Actual current PATH/install status and command request; user profile/filesystem mutations use the existing host API, not a synthetic settings click. #74/#75 own configuration action disclosure and execution adapter. |
+| `desktop/src-tauri/src/folder_session.rs::attach_folder` and `file_open.rs` | Native process/window/folder lifecycle and open-document routing; results must identify originating/replacement windows and retained unsaved-buffer decisions. #75 owns cross-window request/result handling. |
+| `desktop/src-tauri/src/lib.rs` menu/close/open callbacks | Menu IDs and compile guards are indexed. Shared navigation is implemented; scoped edit/save/print/new-project and close lifecycle remain #74/#75 work. Native callback presence does not certify agent parity. |
+| `desktop/fskit/{WorkspaceExtension,WorkspaceVolume}.swift` | Every function and platform guard is indexed. Mount/extension/device consent remains an OS-owned macOS boundary with explicit availability/request/result requirements in #75; no unsupported platform support is inferred. |
+
+Review each generated native declaration against these owned families. Private
+helpers and tests may appear; they are not independently exposed capabilities.
+Canvas/drag interactions and rendered values remain manual review work in #73;
+this broader source index intentionally does not mark them complete.
