@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { useUiCommands, useUiRevision, UiActionsVisibility } from "../lib/uiActionBridge";
-import type { UiOutcome } from "../lib/uiActions";
+import type { UiCommand, UiOutcome } from "../lib/uiActions";
 import { DiffView } from "./DiffView";
 import { unifiedDiff } from "../lib/diff";
 import { acpApi, type AcpState, type AcpUpdate, type AgentCommand, type ConfigOption, type AcpPermission } from "../api/acp";
@@ -30,11 +30,11 @@ export function useAcp(doc: string, backend: string, session: string | undefined
     window.addEventListener("focus", focus);
     return () => window.removeEventListener("focus", focus);
   }, [refreshAgents]);
-  const connect = useCallback(async () => {
+  const connect = useCallback(async (): Promise<Operation> => {
     const stamp = ++version.current;
     setBusy(true); setError(null); setState(null);
-    try { const next = await (backend === "python" ? acpApi.state(doc, backend) : acpApi.connect(doc, backend, session)); if (stamp === version.current) setState(next); }
-    catch (e) { if (stamp === version.current) setError(e instanceof Error ? e.message : String(e)); }
+    try { const next = await (backend === "python" ? acpApi.state(doc, backend) : acpApi.connect(doc, backend, session)); if (stamp === version.current) setState(next); return { state: next, superseded: stamp !== version.current }; }
+    catch (e) { const error = e instanceof Error ? e.message : String(e); if (stamp === version.current) setError(error); return { error, superseded: stamp !== version.current }; }
     finally { if (stamp === version.current) setBusy(false); }
   }, [doc, backend, session]);
   const pythonAvailable = backend === "python" && agents.find(agent => agent.id === "python")?.available;
@@ -50,53 +50,89 @@ export function useAcp(doc: string, backend: string, session: string | undefined
     poll(); const timer = setInterval(poll, running ? 500 : 1500);
     return () => { live = false; clearInterval(timer); };
   }, [running, backend, doc, state?.ready]);
-  const act = async (operation: () => Promise<AcpState>) => {
+  const act = async (operation: () => Promise<AcpState>): Promise<Operation> => {
     const stamp = ++version.current;
     setBusy(true); setError(null);
-    try { const next = await operation(); if (stamp === version.current) setState(next); }
-    catch (e) { if (stamp === version.current) setError(e instanceof Error ? e.message : String(e)); }
+    try { const next = await operation(); if (stamp === version.current) setState(next); return { state: next, superseded: stamp !== version.current }; }
+    catch (e) { const error = e instanceof Error ? e.message : String(e); if (stamp === version.current) setError(error); return { error, superseded: stamp !== version.current }; }
     finally { if (stamp === version.current) setBusy(false); }
   };
-  const install = async () => {
+  const install = async (): Promise<Operation> => {
     const stamp = ++version.current;
     setBusy(true); setError(null);
     try {
       setAgents((await acpApi.install(backend)).agents);
-      if (stamp === version.current) await connect();
+      if (stamp === version.current) return await connect();
+      return { superseded: true };
     }
-    catch (e) { if (stamp === version.current) setError(e instanceof Error ? e.message : String(e)); }
+    catch (e) { const error = e instanceof Error ? e.message : String(e); if (stamp === version.current) setError(error); return { error, superseded: stamp !== version.current }; }
     finally { if (stamp === version.current) setBusy(false); }
   };
   return { agents, state, busy, error, connect, install, act, setState, setError, refreshAgents, detecting, catalogueError };
 }
 
 type Controls = ReturnType<typeof useAcp>;
+type Operation = { state?: AcpState; error?: string; superseded?: boolean };
+function operationOutcome(result: Operation): UiOutcome {
+  if (result.error) return { status: "unavailable", reason: result.error };
+  if (result.superseded) return { status: "unavailable", reason: "The selected connection changed during this host operation; inspect the originating adapter before retrying because it may have completed" };
+  return { status: "completed", value: { backend: result.state?.backend ?? null, ready: result.state?.ready ?? false, error: result.state?.error ?? null, session: result.state?.session ?? null, scope: "Returned host state; no provider turn or tool completion certified" } };
+}
 export function AcpControls({ doc, backend, running, control, settingsOpen = true, settingsOnly = false, showTools = true }: { doc: string; backend: string; running: boolean; control: Controls; settingsOpen?: boolean; settingsOnly?: boolean; showTools?: boolean }) {
   const { state, busy, error, agents } = control;
+  const parent = `adapter-connection:${useId()}`;
+  const [commandsOpen, setCommandsOpen] = useState(false);
+  const revision = useUiRevision(() => [doc, backend, running, state, busy, error, agents, settingsOpen, settingsOnly, showTools, commandsOpen]);
+  const availableAgent = agents.find(a => a.id === backend);
+  const commands: { key: string; command: UiCommand }[] = [];
+  const add = (key: string, label: string, parameters: UiCommand["parameters"], enabled: boolean, execute: UiCommand["execute"]) => commands.push({ key: `${parent}:${key}`, command: { label, parent, subject: parent, parameters, prerequisites: [], read: () => ({ revision: revision(), enabled }), execute } });
+  add("read", "Read adapter connection bytes", { offset: { type: "number", minimum: 0, maximum: 1000000000, integer: true }, limit: { type: "number", minimum: 1, maximum: 8192, integer: true } }, true, async args => {
+    const bytes = new TextEncoder().encode(JSON.stringify({ doc, backend, running, busy, error, ready: state?.ready ?? false, adapter_error: state?.error ?? null, settings: settingsOpen ? { agent: availableAgent ?? null, modes: state?.modes ?? null, config: state?.configOptions ?? [], auth_methods: state?.authMethods ?? [], commands: commandsOpen ? state?.commands ?? [] : "Expand Agent commands first" } : null, permission_count: !settingsOnly ? state?.permissions?.length ?? 0 : null, tool_count: !settingsOnly && showTools && running ? state?.tools?.length ?? 0 : null }));
+    const offset = args.offset as number, end = Math.min(offset + (args.limit as number), bytes.length);
+    if (offset > bytes.length) return { status: "unavailable", reason: "Offset outside connection state" };
+    return { status: "completed", value: { bytes: Array.from(bytes.slice(offset, end)), encoding: "JSON UTF-8", offset, total_bytes: bytes.length, next_offset: end < bytes.length ? end : null } };
+  });
+  if (settingsOpen) {
+    if (backend === "python" ? !state?.ready : !running) add("connect", backend === "python" ? "Check conversation Python runtime" : "Reconnect conversation adapter", {}, !busy, async () => operationOutcome(await control.connect()));
+    if (backend !== "python") {
+      if (!state?.ready && availableAgent?.installable && !availableAgent.available) add("install", `Install conversation adapter: ${availableAgent.name.slice(0, 256)}`, {}, !busy, async () => operationOutcome(await control.install()));
+      if (!state?.ready) for (const method of state?.authMethods?.filter(m => !m.type || m.type === "agent") ?? []) add(`auth:${method.id}`, `Authenticate conversation adapter: ${method.name.slice(0, 256)}`, {}, !busy, async (_args, actor) => {
+        if (actor.kind === "agent") return { status: "requires_input", request: `adapter-auth:${doc}:${backend}:${method.id}`, reason: "A human completes the adapter's sign-in and consent; read actual readiness afterward" };
+        return operationOutcome(await control.act(() => acpApi.authenticate(doc, method.id)));
+      });
+      if (!state?.configOptions?.length && state?.modes) add("mode", "Set adapter session mode", { mode: { type: "string", maxLength: 4096, choices: state.modes.availableModes.map(m => m.id) } }, !busy && !running, async (args, actor) => {
+        if (actor.kind === "agent") return { status: "requires_input", request: `adapter-mode:${doc}:${backend}`, reason: "A human chooses the adapter execution mode; inspect its actual returned state" };
+        return operationOutcome(await control.act(() => acpApi.configure(doc, "__mode", args.mode as string)));
+      });
+      if (state?.commands?.length) add("commands", "Set adapter commands visibility", { open: { type: "boolean" } }, true, async args => { setCommandsOpen(args.open as boolean); return { status: "completed", value: args.open }; });
+    }
+  }
+  const invoke = useUiCommands(commands);
+  const click = (key: string, args: Parameters<typeof invoke>[1] = {}) => { void invoke(`${parent}:${key}`, args).catch(reason => control.setError(String(reason))); };
   if (backend === "python") return <div className="acp-controls" aria-label="Python agent controls">
     {(error || state?.error) && <p role="alert" className="chat-note error">{error || state?.error}</p>}
-    {settingsOpen && !state?.ready && <p>Set the Python runtime in <a href="#/settings">Settings → Agents</a>, then <button className="btn-link" disabled={busy} onClick={() => void control.connect()}>Check runtime</button>.</p>}
+    {settingsOpen && !state?.ready && <p>Set the Python runtime in <a href="#/settings">Settings → Agents</a>, then <button className="btn-link" disabled={busy} onClick={() => click("connect")}>Check runtime</button>.</p>}
   </div>;
   const agent = agents.find(a => a.id === backend);
   return <div className="acp-controls" aria-label="Agent controls">
     {settingsOpen && <div className="acp-settings">
       {!state?.configOptions?.length && state?.modes && <label>Mode<select aria-label="Mode" value={state.modes.currentModeId} disabled={busy || running}
-        onChange={e => void control.act(() => acpApi.configure(doc, "__mode", e.target.value))}>
+        onChange={e => click("mode", { mode: e.target.value })}>
         {state.modes.availableModes.map(mode => <option key={mode.id} value={mode.id}>{mode.name}</option>)}
       </select></label>}
-      {state?.configOptions?.map(option => <ConfigControl key={option.id} option={option} disabled={busy || running}
-        onChange={value => void control.act(() => acpApi.configure(doc, option.id, value))} />)}
+      {state?.configOptions?.map(option => <ConfigControl key={option.id} scope={`${doc}:${backend}:${state.session ?? "new"}`} option={option} disabled={busy || running}
+        onChange={value => control.act(() => acpApi.configure(doc, option.id, value))} />)}
       {!state?.ready && !busy && agent?.installable && !agent.available &&
-        <button className="btn" onClick={() => void control.install()}>Install {agent.name} adapter</button>}
+        <button className="btn" onClick={() => click("install")}>Install {agent.name} adapter</button>}
       {!state?.ready && !busy && state?.authMethods?.filter(m => !m.type || m.type === "agent").map(m =>
-        <button className="btn" key={m.id} data-tip={m.description} onClick={() => void control.act(() => acpApi.authenticate(doc, m.id))}>{m.name}</button>)}
-      {!running && <button className="btn-link" disabled={busy} onClick={() => void control.connect()}>{busy ? "Connecting…" : "Reconnect"}</button>}
+        <button className="btn" key={m.id} data-tip={m.description} onClick={() => click(`auth:${m.id}`)}>{m.name}</button>)}
+      {!running && <button className="btn-link" disabled={busy} onClick={() => click("connect")}>{busy ? "Connecting…" : "Reconnect"}</button>}
     </div>}
     {!settingsOnly && busy && <p className="muted" role="status">Connecting to {agent?.name ?? backend}… Sign-in may open in your browser.</p>}
     {!settingsOnly && (error || state?.error) && <p role="alert" className="chat-note error">{error || state?.error}</p>}
     {settingsOpen && !busy && agent?.available === false && <p className="muted">{agent.cli_available ? `${agent.name} CLI was found, but its ACP adapter is still needed. ` : ""}{agent.installable ? "Install the adapter above to connect." : "Install Node.js and npm to install a known adapter, or set its executable in Settings → Agents."}</p>}
     {settingsOpen && !busy && !state?.ready && <p className="muted">Use your agent’s own account or API key. Agent commands follow that agent’s permissions and sandbox.</p>}
-    {settingsOpen && state?.commands?.length ? <details className="acp-commands"><summary>Agent commands</summary>
+    {settingsOpen && state?.commands?.length ? <details className="acp-commands" open={commandsOpen} onToggle={event => setCommandsOpen(event.currentTarget.open)}><summary>Agent commands</summary>
       {state.commands.map(c => <p key={c.name}><code>/{c.name}</code> — {c.description}</p>)}</details> : null}
     {!settingsOnly && state?.permissions?.map(permission => <PermissionControl key={permission.id} doc={doc} backend={backend} permission={permission} control={control} />)}
     {!settingsOnly && showTools && running && state?.tools?.map(tool => <AdapterTool key={tool.toolCallId} tool={tool} />)}
@@ -149,9 +185,21 @@ function AdapterTool({ tool }: { tool: AcpUpdate }) {
   return <details className="acp-tool" open={open} onToggle={event => setOpen(event.currentTarget.open)}><summary>{tool.title ?? tool.kind ?? "Agent tool"} <span className="muted">{tool.status}</span></summary><UiActionsVisibility visible={open}><ToolDetails tool={tool} /></UiActionsVisibility></details>;
 }
 
-function ConfigControl({ option, disabled, onChange }: { option: ConfigOption; disabled: boolean; onChange: (value: string | boolean) => void }) {
-  if (option.type === "boolean") return <label data-tip={option.description}><input type="checkbox" checked={option.currentValue === true} disabled={disabled} onChange={e => onChange(e.target.checked)} />{option.name}</label>;
-  return <label data-tip={option.description}>{option.name}<select aria-label={option.name} value={String(option.currentValue)} disabled={disabled} onChange={e => onChange(e.target.value)}>
+function ConfigControl({ scope, option, disabled, onChange }: { scope: string; option: ConfigOption; disabled: boolean; onChange: (value: string | boolean) => Promise<Operation> }) {
+  const subject = `adapter-config:${useId()}`;
+  const revision = useUiRevision(() => [scope, option, disabled]);
+  const values = option.options?.flatMap(o => "value" in o ? [o.value] : o.options.map(v => v.value)) ?? [];
+  useUiCommands([{ key: subject, command: {
+    label: `Set adapter configuration: ${option.name.slice(0, 256)}`, parent: subject, subject,
+    parameters: { value: option.type === "boolean" ? { type: "boolean" } : { type: "string", maxLength: 16384, choices: values } }, prerequisites: [],
+    read: () => ({ revision: revision(), enabled: !disabled, value: option.currentValue }),
+    execute: async (args, actor) => {
+      if (actor.kind === "agent" && /permission|sandbox|approval|(?:^|_)mode(?:$|_)/i.test(`${option.category ?? ""}_${option.id}`)) return { status: "requires_input", request: `adapter-config:${scope}:${option.id}`, reason: "A human must choose adapter permission/execution policy; observe the actual configuration afterward" };
+      return operationOutcome(await onChange(args.value as string | boolean));
+    },
+  } }]);
+  if (option.type === "boolean") return <label data-tip={option.description}><input type="checkbox" checked={option.currentValue === true} disabled={disabled} onChange={e => void onChange(e.target.checked)} />{option.name}</label>;
+  return <label data-tip={option.description}>{option.name}<select aria-label={option.name} value={String(option.currentValue)} disabled={disabled} onChange={e => void onChange(e.target.value)}>
     {option.options?.map(o => "value" in o ? <option key={o.value} value={o.value}>{o.name}</option> : <optgroup key={o.group} label={o.name}>{o.options.map(v => <option key={v.value} value={v.value}>{v.name}</option>)}</optgroup>)}
   </select></label>;
 }

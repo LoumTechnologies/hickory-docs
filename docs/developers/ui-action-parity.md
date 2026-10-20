@@ -341,3 +341,15 @@ refused answer stays visible with an error. Adapter tool details have explicit
 open/close disclosure and bounded byte reads; closed details unregister their
 reading commands. Permission and provider authority remain owned by the actual
 adapter/host, not by a rendered action reference.
+
+Adapter connection/configuration reads now expose only the current disclosed
+settings and counts for separate permission/tool cards. Runtime checking,
+reconnect, adapter installation and typed model/configuration choices share the
+existing host controller and report its actual ready/error/session result.
+Superseded async results report that the originating operation may have completed.
+Sign-in and adapter session mode changes expose explicit human request paths.
+Known permission/sandbox/approval/mode configuration fields also require human
+input; other opaque adapter configuration semantics retain the adapter's own
+permission model. Agent command help requires its actual disclosure before bytes
+are included in connection reads. Configuration revisions include document,
+backend and adapter session, not just the displayed value.

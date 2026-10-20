@@ -318,3 +318,21 @@ host refusal staying visible, and hidden tool-reading retirement. The host-false
 case first exposed missing inline error feedback in the hostless adapter; that
 feedback was fixed before rerun. Strict targeted AcpControls checking passed.
 Endpoints are mocked; real adapter permission/provider behavior remains unwitnessed.
+
+### Adapter setup and configuration — 2026-10-19
+
+Connection controllers now return actual host state/error, including whether an
+async result was superseded, rather than only swallowing errors into UI state.
+Registered runtime check, reconnect, install and typed configuration use these
+controllers. Connection reads are bounded and exclude undisclosed command help
+and separate tool/permission payloads. Configuration revisions include document,
+backend and adapter session. Sign-in/session-mode changes require human input;
+known permission/sandbox/approval/mode fields are also guarded. Opaque external
+configuration names are not an authentication or sandbox boundary: the external
+adapter retains its independent authority and may have unknown semantics.
+
+Executed focused checks: AcpControls (11 passed), then four selected configuration,
+failed-operation, sign-in and superseded-result cases passed after adding the
+scope guard. Strict targeted AcpControls, its test and ChatDock checking passed.
+Actual APIs are mocked; no adapter package was installed and no login/provider
+call was made by these tests.

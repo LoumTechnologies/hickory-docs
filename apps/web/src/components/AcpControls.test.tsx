@@ -18,7 +18,7 @@ describe("ACP controls", () => {
     await waitFor(() => expect(hook.result.current.state?.backend).toBe("codex"));
     let finish!: (state: AcpState) => void;
     const pending = new Promise<AcpState>(resolve => { finish = resolve; });
-    let operation!: Promise<void>;
+    let operation!: ReturnType<typeof hook.result.current.act>;
     act(() => { operation = hook.result.current.act(() => pending); });
     vi.mocked(acpApi.state).mockResolvedValue({ backend: "python", ready: true });
     hook.rerender({ backend: "python" });
@@ -119,4 +119,51 @@ it("discloses completed adapter tool bytes only after opening its actual details
   const close = registry.observe(parent).actions[0];
   await act(async () => { await registry.act(registry.scope, { id: "acp:session", kind: "agent" }, { handle: close.handle, arguments: { open: false }, request_id: "close" }); });
   expect(registry.groups().groups.some(g => g.startsWith("adapter-tool-reading:"))).toBe(false);
+});
+
+// Guarantee: docs/guarantees/agent/ui-action-dispatch.md
+it("configures an observed model through the real controller and refuses stale choices", async () => {
+  const { UiActions } = await import("../lib/uiActions");
+  const { UiActionContext } = await import("../lib/uiActionBridge");
+  const registry = new UiActions({ workspace: "p", window: "w" }, () => true, async () => {});
+  vi.mocked(acpApi.catalogue).mockResolvedValue({ agents: [] });
+  vi.mocked(acpApi.connect).mockResolvedValue(ready);
+  vi.mocked(acpApi.configure).mockResolvedValue({ ...ready, configOptions: [{ ...ready.configOptions![0], currentValue: "careful" }] });
+  render(<UiActionContext.Provider value={registry}><Surface /></UiActionContext.Provider>);
+  await screen.findByRole("combobox", { name: "Model" });
+  const parent = registry.groups().groups.find(g => g.startsWith("adapter-config:"))!;
+  const action = registry.observe(parent).actions[0];
+  await act(async () => { expect(await registry.act(registry.scope, { id: "acp:session", kind: "agent" }, { handle: action.handle, arguments: { value: "careful" }, request_id: "model" })).toMatchObject({ outcome: { status: "completed", value: { backend: "codex", ready: true } } }); });
+  expect(acpApi.configure).toHaveBeenCalledWith("doc", "model", "careful");
+  expect((screen.getByLabelText("Model") as HTMLSelectElement).value).toBe("careful");
+  expect(await registry.act(registry.scope, { id: "acp:session", kind: "agent" }, { handle: action.handle, arguments: { value: "fast" }, request_id: "stale" })).toMatchObject({ status: "stale" });
+});
+it("exposes adapter sign-in as a human input request without calling authentication", async () => {
+  const { UiActions } = await import("../lib/uiActions");
+  const { UiActionContext } = await import("../lib/uiActionBridge");
+  const registry = new UiActions({ workspace: "p", window: "w" }, () => true, async () => {});
+  vi.mocked(acpApi.catalogue).mockResolvedValue({ agents: [] });
+  vi.mocked(acpApi.connect).mockResolvedValue({ backend: "codex", ready: false, authMethods: [{ id: "login", name: "Sign in" }] });
+  render(<UiActionContext.Provider value={registry}><Surface /></UiActionContext.Provider>);
+  await screen.findByText("Sign in");
+  const parent = registry.groups().groups.find(g => g.startsWith("adapter-connection:"))!;
+  const action = registry.observe(parent).actions.find(a => a.label === "Authenticate conversation adapter: Sign in")!;
+  expect(await registry.act(registry.scope, { id: "acp:session", kind: "agent" }, { handle: action.handle, arguments: {}, request_id: "login" })).toMatchObject({ outcome: { status: "requires_input", request: "adapter-auth:doc:codex:login" } });
+  expect(acpApi.authenticate).not.toHaveBeenCalled();
+});
+
+it("reports a failed configuration operation as an error result", async () => {
+  const { UiActions } = await import("../lib/uiActions");
+  const { UiActionContext } = await import("../lib/uiActionBridge");
+  const registry = new UiActions({ workspace: "p", window: "w" }, () => true, async () => {});
+  vi.mocked(acpApi.catalogue).mockResolvedValue({ agents: [] });
+  vi.mocked(acpApi.connect).mockResolvedValue(ready);
+  vi.mocked(acpApi.configure).mockRejectedValue(Error("adapter refused configuration"));
+  render(<UiActionContext.Provider value={registry}><Surface /></UiActionContext.Provider>);
+  await screen.findByRole("combobox", { name: "Model" });
+  const parent = registry.groups().groups.find(g => g.startsWith("adapter-config:"))!;
+  const action = registry.observe(parent).actions[0];
+  await act(async () => { expect(await registry.act(registry.scope, { id: "acp:session", kind: "agent" }, { handle: action.handle, arguments: { value: "careful" }, request_id: "model" })).toMatchObject({ outcome: { status: "unavailable", reason: "adapter refused configuration" } }); });
+  expect(screen.getByRole("alert").textContent).toContain("adapter refused configuration");
+  expect((screen.getByLabelText("Model") as HTMLSelectElement).value).toBe("fast");
 });
