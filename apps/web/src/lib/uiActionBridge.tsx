@@ -45,7 +45,8 @@ export async function dispatchUiFrame(registry: UiActions, frame: Frame): Promis
     }
     case "ui_act": {
       if (Object.keys(args).some(k => !["handle", "arguments", "request_id"].includes(k))) throw Error("Invalid UI invocation arguments");
-      return registry.act(registry.scope, frame.actor, args as unknown as UiInvocation);
+      const result = await registry.act(registry.scope, frame.actor, args as unknown as UiInvocation);
+      return { ...result, result_bytes: new TextEncoder().encode(JSON.stringify(result)).length, token_cost: "Provider-specific; not measured here" };
     }
     case "ui_cancel": {
       if (typeof args.request_id !== "string" || Object.keys(args).length !== 1) throw Error("Invalid cancellation arguments");

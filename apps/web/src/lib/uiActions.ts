@@ -56,6 +56,19 @@ function canonical(value: unknown): string {
   return `{${Object.keys(value).sort().map(key => `${JSON.stringify(key)}:${canonical((value as Record<string, unknown>)[key])}`).join(",")}}`;
 }
 
+function freezeTree<T>(value: T): T {
+  const pending: unknown[] = [value];
+  while (pending.length) {
+    const item = pending.pop();
+    if (!item || typeof item !== "object" || Object.isFrozen(item)) continue;
+    Object.freeze(item);
+    for (const child of Object.values(item)) if (child && typeof child === "object") pending.push(child);
+  }
+  return value;
+}
+/** Capture exactly the JSON representation retained/delivered by the protocol. */
+function snapshot<T>(value: T): T { return freezeTree(JSON.parse(JSON.stringify(value)) as T); }
+
 function valid(args: Record<string, UiValue>, fields: Record<string, UiField>): boolean {
   if (!args || Array.isArray(args) || typeof args !== "object") return false;
   if (Object.keys(args).length !== Object.keys(fields).length) return false;
@@ -125,7 +138,7 @@ export class UiActions {
     if (!previous || previous.revision !== state.revision || previous.enabled !== state.enabled || previous.reason !== state.reason || canonical(previous.value) !== canonical(state.value)) {
       if (previous) this.handles.delete(previous.handle);
       const handle = `action:${this.namespace}:${(++this.sequence).toString(36)}`;
-      entry.descriptor = { handle, label: entry.command.label, subject: entry.command.subject, parent: entry.command.parent, parameters: entry.command.parameters, prerequisites: entry.command.prerequisites, ...state };
+      entry.descriptor = snapshot({ handle, label: entry.command.label, subject: entry.command.subject, parent: entry.command.parent, parameters: entry.command.parameters, prerequisites: entry.command.prerequisites, ...state });
       this.handles.set(handle, { entry, revision: state.revision });
     }
     return structuredClone(entry.descriptor!);
@@ -157,9 +170,9 @@ export class UiActions {
     if (this.requests.size >= this.maxRequests) return Promise.resolve({ status: "unavailable", reason: "Window request journal is full; retain receipts and establish a new session" });
     const controller = new AbortController();
     // Defer execution until the request is journaled, including synchronous callbacks.
-    const captured = structuredClone(invocation);
-    const capturedActor = { ...actor };
-    const result = Promise.resolve().then(() => this.execute(capturedActor, captured, controller.signal)).catch((error): UiResult => ({ status: "error", reason: String(error) })).finally(() => { this.requests.get(captured.request_id)!.settled = true; });
+    const captured = freezeTree(structuredClone(invocation));
+    const capturedActor = Object.freeze({ ...actor });
+    const result = Promise.resolve().then(() => this.execute(capturedActor, captured, controller.signal)).then(result => Object.isFrozen(result) ? result : snapshot(result)).catch((error): UiResult => Object.freeze({ status: "error", reason: String(error) })).finally(() => { this.requests.get(captured.request_id)!.settled = true; });
     this.requests.set(invocation.request_id, { actor: capturedActor, settled: false, signature, result, controller });
     return result;
   }
@@ -212,6 +225,8 @@ export class UiActions {
     } catch (error) {
       result = { status: "error", reason: String(error) };
     }
+    try { result = snapshot(result); }
+    catch { result = Object.freeze({ status: "error", reason: "Could not capture the JSON action result; side effects may have occurred. Inspect current state before a new request." }); }
     try {
       await this.record({ stage: "result", request_id: invocation.request_id, actor, scope: this.scope, action, arguments: invocation.arguments, result });
     } catch {

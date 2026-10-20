@@ -93,3 +93,12 @@ describe("registered human UI and structured agent transport", () => {
     await expect(dispatchUiFrame(actions, { id: "1", actor: agent, method: "ui_observe", arguments: { limit: 100000 } })).rejects.toThrow("bounds");
   });
 });
+
+// Guarantee: docs/guarantees/agent/ui-action-dispatch.md
+it("reports the known UTF-8 result payload size separately from provider token cost", async () => {
+  const { actions } = registry();
+  actions.register("unicode", { parent: "reading", subject: "reading", label: "Read Unicode", parameters: {}, prerequisites: [], read: () => ({ revision: "one", enabled: true }), execute: async () => ({ status: "completed", value: { text: "λ😀" } }) });
+  const handle = actions.observe("reading").actions[0].handle;
+  const result = await dispatchUiFrame(actions, { id: "unicode", actor: agent, method: "ui_act", arguments: { handle, arguments: {}, request_id: "unicode" } });
+  expect(result).toMatchObject({ status: "result", result_bytes: 78, token_cost: "Provider-specific; not measured here", outcome: { value: { text: "λ😀" } } });
+});

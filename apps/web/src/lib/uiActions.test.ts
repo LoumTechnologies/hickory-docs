@@ -187,3 +187,38 @@ describe("explicit UI command dispatch", () => {
     expect(f.execute).not.toHaveBeenCalled();
   });
 });
+
+// Guarantee: docs/guarantees/agent/ui-action-dispatch.md
+it("snapshots mutable outcome data before retention and prevents caller tampering with retries", async () => {
+  const f = fixture(), live = { items: [{ state: "before" }] };
+  f.execute.mockResolvedValue({ status: "completed", value: live });
+  const pending = f.act();
+  const result = await pending;
+  live.items[0].state = "after";
+  expect(result).toMatchObject({ status: "result", outcome: { value: { items: [{ state: "before" }] } } });
+  if (result.status !== "result" || result.outcome.status !== "completed") throw Error("Expected completed snapshot");
+  const delivered = result.outcome.value as typeof live;
+  expect(() => { delivered.items[0].state = "spoofed"; }).toThrow(TypeError);
+  expect(f.act()).toBe(pending);
+  expect(await f.act()).toEqual(result);
+  expect(f.receipts[1].result).toEqual(result);
+  expect(f.execute).toHaveBeenCalledOnce();
+});
+
+it("refuses a known handle when mutable disclosed metadata changed without a manual revision bump", async () => {
+  const f = fixture(), value = { count: 1 };
+  f.state({ value });
+  const handle = f.registry.observe("editor").actions[0].handle;
+  value.count = 2;
+  expect(await f.registry.act(scope, actor, { handle, arguments: {}, request_id: "changed-metadata" })).toMatchObject({ status: "stale", observation: { value: { count: 2 } } });
+  expect(f.execute).not.toHaveBeenCalled();
+});
+
+it("retains an uncertain result and refuses to repeat side effects when an executor returns non-serializable data", async () => {
+  const f = fixture(), value: Record<string, UiValue> = {}; value.self = value;
+  f.execute.mockResolvedValue({ status: "completed", value });
+  expect(await f.act()).toMatchObject({ status: "error", reason: expect.stringContaining("side effects may have occurred") });
+  expect(await f.act()).toMatchObject({ status: "error" });
+  expect(f.execute).toHaveBeenCalledOnce();
+  expect(f.receipts.map(r => r.stage)).toEqual(["requested", "result"]);
+});
