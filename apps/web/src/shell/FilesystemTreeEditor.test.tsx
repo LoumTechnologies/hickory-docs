@@ -261,3 +261,86 @@ it("routes an edited associated-object title through its semantic capability", a
   await vi.waitFor(() => expect(changed).toHaveBeenCalledOnce());
   expect(apply).toHaveBeenCalledWith("New title");
 });
+
+it("shares Files draft editing, dry run and exact apply receipts with an agent", async () => {
+  const { act } = await import("@testing-library/react");
+  const { UiActions } = await import("../lib/uiActions");
+  const { UiActionContext } = await import("../lib/uiActionBridge");
+  const registry = new UiActions({ workspace: "p", window: "w" }, () => true, async () => {});
+  const operations: unknown[] = [];
+  installMockHandler(async (_method, _path, body) => { operations.push(body); return { op: "rename", from: "one.txt", to: "renamed.txt" }; });
+  render(<UiActionContext.Provider value={registry}><FilesystemTreeEditor nodes={[{ name: "one.txt", path: "one.txt", dir: false }]}
+    onChanged={() => {}} onOpenPath={() => {}} onContextPath={() => {}} /></UiActionContext.Provider>);
+  const actions = () => registry.groups().groups.flatMap(group => registry.observe(group, 64).actions);
+  let id = 0;
+  const run = async (label: string, args = {}) => { let result: unknown; await act(async () => { result = await registry.act(registry.scope,
+    { id: "python:turn", kind: "agent" }, { handle: actions().find(action => action.label === label)!.handle, arguments: args, request_id: String(++id) }); }); return result; };
+  await run("Replace Files draft range", { from: 0, to: 7, text: "renamed.txt" });
+  expect(editor().state.doc.toString()).toBe("renamed.txt");
+  await run("Dry run Files draft");
+  expect(screen.getByLabelText("Files dry run").textContent).toContain("one.txt → renamed.txt");
+  expect(operations).toEqual([]);
+  expect(await run("Apply Files draft")).toMatchObject({ status: "result", outcome: { value: {
+    all_completed: true, completed: 1, atomic: false, rollback: false,
+    results: [{ status: "completed", result: { op: "rename", from: "one.txt", to: "renamed.txt" } }],
+  } } });
+  expect(operations).toEqual([{ op: "rename", path: "one.txt", to: "renamed.txt" }]);
+});
+
+it("stops a Files batch after cancellation and blocks duplicate apply and native edits while pending", async () => {
+  const { act } = await import("@testing-library/react");
+  const { UiActions } = await import("../lib/uiActions");
+  const { UiActionContext } = await import("../lib/uiActionBridge");
+  const registry = new UiActions({ workspace: "p", window: "w" }, () => true, async () => {});
+  const operations: unknown[] = [];
+  let complete!: (value: unknown) => void;
+  installMockHandler(async (_method, _path, body) => { operations.push(body); return new Promise(done => { complete = done; }); });
+  render(<UiActionContext.Provider value={registry}><FilesystemTreeEditor nodes={[
+    { name: "one.txt", path: "one.txt", dir: false }, { name: "two.txt", path: "two.txt", dir: false },
+  ]} onChanged={() => {}} onOpenPath={() => {}} onContextPath={() => {}} /></UiActionContext.Provider>);
+  const actions = () => registry.groups().groups.flatMap(group => registry.observe(group, 64).actions);
+  await act(async () => { editor().dispatch({ changes: { from: 0, to: editor().state.doc.length, insert: "new-one.txt\nnew-two.txt" } }); });
+  let pending!: ReturnType<typeof registry.act>;
+  const actor = { id: "acp:turn", kind: "agent" as const };
+  await act(async () => { pending = registry.act(registry.scope, actor, { handle: actions().find(a => a.label === "Apply Files draft")!.handle, arguments: {}, request_id: "apply" }); });
+  await vi.waitFor(() => expect(operations).toHaveLength(1));
+  expect(await registry.act(registry.scope, { id: "python:other", kind: "agent" }, { handle: actions().find(a => a.label === "Apply Files draft")!.handle, arguments: {}, request_id: "other" })).toMatchObject({ status: "disabled" });
+  const before = editor().state.doc.toString();
+  editor().dispatch({ changes: { from: 0, insert: "oops" } });
+  expect(editor().state.doc.toString()).toBe(before);
+  expect(registry.cancel(registry.scope, actor, "apply")).toBe(true);
+  let result: unknown;
+  await act(async () => { complete({ op: "rename", from: "one.txt", to: "new-one.txt" }); result = await pending; });
+  expect(result).toMatchObject({ status: "result", outcome: { value: { all_completed: false, completed: 1, requested: 2,
+    results: [{ status: "completed" }, { status: "not_started" }], rollback: false } } });
+  expect(operations).toHaveLength(1);
+});
+
+it("invalidates a Files deletion confirmation when its draft changes", async () => {
+  const operations: unknown[] = [];
+  installMockHandler(async (_method, _path, body) => { operations.push(body); return {}; });
+  render(<FilesystemTreeEditor nodes={[{ name: "one.txt", path: "one.txt", dir: false }, { name: "two.txt", path: "two.txt", dir: false }]}
+    onChanged={() => {}} onOpenPath={() => {}} onContextPath={() => {}} />);
+  editor().dispatch({ changes: { from: 0, to: 8, insert: "" } });
+  fireEvent.click(await screen.findByRole("button", { name: "Apply" }));
+  expect(screen.getByRole("button", { name: "Delete" })).toBeTruthy();
+  editor().dispatch({ changes: { from: 0, insert: "one.txt\n" } });
+  await vi.waitFor(() => expect(screen.queryByRole("button", { name: "Delete" })).toBeNull());
+  expect(operations).toEqual([]);
+});
+
+it("reports partial Files failure and never starts later operations", async () => {
+  const operations: unknown[] = [];
+  installMockHandler(async (_method, _path, body) => {
+    operations.push(body);
+    if (operations.length === 2) throw Error("Host refused the second rename");
+    return { op: "rename", from: "one.txt", to: "new-one.txt" };
+  });
+  render(<FilesystemTreeEditor nodes={["one", "two", "three"].map(name => ({ name: `${name}.txt`, path: `${name}.txt`, dir: false }))}
+    onChanged={() => {}} onOpenPath={() => {}} onContextPath={() => {}} />);
+  editor().dispatch({ changes: { from: 0, to: editor().state.doc.length, insert: "new-one.txt\nnew-two.txt\nnew-three.txt" } });
+  fireEvent.click(await screen.findByRole("button", { name: "Apply" }));
+  await screen.findByText(/Filesystem edits stopped/);
+  expect(operations).toEqual([{ op: "rename", path: "one.txt", to: "new-one.txt" }, { op: "rename", path: "two.txt", to: "new-two.txt" }]);
+  expect(editor().state.doc.toString()).toBe("new-one.txt\nnew-two.txt\nnew-three.txt");
+});

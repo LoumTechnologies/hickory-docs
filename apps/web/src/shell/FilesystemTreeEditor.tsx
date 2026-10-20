@@ -1,3 +1,10 @@
+import { useId } from "react";
+import { useUiCommands, useUiRevision } from "../lib/uiActionBridge";
+import { useUiReading } from "../lib/uiReading";
+import type { UiCommand, UiOutcome, UiValue } from "../lib/uiActions";
+import { useEditorActions } from "../editor/uiEditorActions";
+import { useEditorEditing } from "../editor/useEditorEditing";
+import { prepareEditorChanges } from "../editor/textInput";
 import { ChangePreview } from "../components/ChangePreview";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { defaultKeymap, history, historyKeymap, indentWithTab } from "@codemirror/commands";
@@ -82,13 +89,18 @@ export function FilesystemTreeEditor({
 }) {
   const host = useRef<HTMLDivElement>(null);
   const view = useRef<EditorView>();
+  const [actionView, setActionView] = useState<EditorView | null>(null);
+  const pending = useRef(false);
+  const owner = useRef<string | null>(null);
   const entries = useMemo(() => filesystemTextEntries(nodes), [nodes]);
   const projection = useMemo(() => projectedLines(nodes, extras), [nodes, extras]);
   const version = projection.map((line) => "filesystem" in line ? line.filesystem.path : `${line.extra.key}:${line.text}`).join("\n");
+  const liveVersion = useRef(version); liveVersion.current = version;
   const base = useRef(projection);
   const [dirty, setDirty] = useState(false);
   const [busy, setBusy] = useState(false);
-  const [pendingDeletes, setPendingDeletes] = useState<string[] | null>(null);
+  const [pendingDeletes, setPendingDeletes] = useState<{ paths: string[]; source: string; version: string; plan: PreparedPlan } | null>(null);
+  const [receipt, setReceipt] = useState<UiValue>(null);
   const [dryRun, setDryRun] = useState<{ lines?: string[]; error?: string } | null>(null);
   const [message, setMessage] = useState("Edit names or indentation. Changes stay here until Apply.");
   const save = useRef<() => void>(() => undefined);
@@ -96,12 +108,20 @@ export function FilesystemTreeEditor({
   useEffect(() => {
     if (!host.current) return;
     base.current = projection;
+    const generation = crypto.randomUUID(); owner.current = generation;
     const editor = new EditorView({
       parent: host.current,
       state: EditorState.create({
         doc: projection.map((line) => line.text).join("\n"),
         extensions: [
           editorChrome("code"),
+          EditorState.transactionFilter.of(transaction => {
+            if (!transaction.docChanged) return transaction;
+            if (pending.current) return [];
+            const changes: { from: number; to: number; insert: string }[] = [];
+            transaction.changes.iterChanges((from, to, _fromB, _toB, text) => changes.push({ from, to, insert: text.toString() }));
+            return "reason" in prepareEditorChanges(transaction.startState.doc.toString(), changes) ? [] : transaction;
+          }),
           lineNumbers(),
           history(),
           multipleCursors(),
@@ -145,6 +165,7 @@ export function FilesystemTreeEditor({
           EditorView.updateListener.of((update) => {
             if (update.docChanged) {
               setDryRun(null);
+              setPendingDeletes(null);
               const reorderedOnly = extras.length === 0 && (() => {
                 const reconciliation = reconcileFilesystemTreeText(
                   update.state.doc.toString(),
@@ -220,10 +241,11 @@ export function FilesystemTreeEditor({
       }),
     });
     view.current = editor;
+    setActionView(editor);
     setDirty(false);
     setPendingDeletes(null);
     setDryRun(null);
-    return () => { view.current = undefined; editor.destroy(); };
+    return () => { if (owner.current === generation) owner.current = null; view.current = undefined; setActionView(null); editor.destroy(); };
   }, [version]);
 
   const prepare = (): { plan?: PreparedPlan; error?: string } => {
@@ -267,40 +289,63 @@ export function FilesystemTreeEditor({
     return { plan: { filesystem: reconciliation, remote } };
   };
 
-  save.current = () => {
-    if (busy) return;
-    setPendingDeletes(null);
-    setDryRun(null);
+  type Operation = { summary: string; run: () => Promise<unknown> };
+  const execute = async (operations: Operation[], renames: readonly { path: string; to: string }[] | undefined,
+    signal: AbortSignal): Promise<UiOutcome> => {
+    if (pending.current) return { status: "unavailable", reason: "A Files operation is already pending" };
+    const editor = view.current, capturedOwner = owner.current, capturedVersion = liveVersion.current;
+    if (!editor || !capturedOwner) return { status: "unavailable", reason: "Files editor closed" };
+    pending.current = true; setBusy(true);
+    const results: { operation: string; status: string; result?: UiValue; reason?: string }[] = [];
+    let failed = false;
+    try {
+      for (const operation of operations) {
+        if (signal.aborted || owner.current !== capturedOwner || liveVersion.current !== capturedVersion || view.current !== editor) {
+          failed = true; results.push({ operation: operation.summary, status: "not_started", reason: "Cancelled or Files owner changed; preceding effects are not rolled back" }); break;
+        }
+        try {
+          const result = await operation.run();
+          results.push({ operation: operation.summary, status: "completed", result: result === undefined ? null : result as UiValue });
+        } catch (error) {
+          failed = true; results.push({ operation: operation.summary, status: "failed", reason: said(error) }); break;
+        }
+      }
+      const value = { results, requested: operations.length, completed: results.filter(result => result.status === "completed").length,
+        all_completed: !failed && results.length === operations.length, atomic: false, rollback: false, failed_operation_effects: "Not asserted; a failed request may have applied effects" };
+      if (owner.current === capturedOwner) {
+        setReceipt(value); setDirty(failed); setMessage(failed
+          ? "Filesystem edits stopped. Inspect the operation results before preparing another plan; completed effects remain."
+          : `Applied ${operations.length} filesystem ${operations.length === 1 ? "edit" : "edits"}.`);
+        onChanged(failed ? undefined : renames);
+      }
+      return { status: "completed", value };
+    } finally { pending.current = false; setBusy(false); }
+  };
+
+  const operationsFor = ({ filesystem, remote }: PreparedPlan): Operation[] => {
+    return [
+      ...filesystem.creates.filter(creation => creation.dir).map(creation => ({ summary: `Create folder ${creation.path}`, run: () => api.fileOp({ op: "mkdir", path: creation.path }) })),
+      ...filesystem.renames.map(operation => ({ summary: `Rename ${operation.path} → ${operation.to}`, run: () => api.fileOp({ op: "rename", path: operation.path, to: operation.to }) })),
+      ...filesystem.creates.filter(creation => !creation.dir).map(creation => ({ summary: `Create file ${creation.path}`, run: () => api.fileOp({ op: "create", path: creation.path }) })),
+      ...remote.map(edit => ({ summary: edit.summary, run: () => edit.apply(edit.value) })),
+      ...filesystem.deletes.map(path => ({ summary: `Delete ${path}`, run: () => api.fileOp({ op: "delete", path }) })),
+    ];
+  };
+
+  const apply = async (signal: AbortSignal): Promise<UiOutcome> => {
+    if (pending.current) return { status: "unavailable", reason: "Wait for the pending Files operation" };
+    setPendingDeletes(null); setDryRun(null);
     const prepared = prepare();
-    if (!prepared.plan) { setMessage(prepared.error ?? "The Files buffer is invalid."); return; }
-    const { filesystem, remote } = prepared.plan;
+    if (!prepared.plan) { const reason = prepared.error ?? "The Files buffer is invalid."; setMessage(reason); return { status: "unavailable", reason }; }
+    const { filesystem } = prepared.plan;
     if (filesystem.deletes.length > 0) {
-      setPendingDeletes(filesystem.deletes);
+      setPendingDeletes({ paths: filesystem.deletes, source: view.current!.state.doc.toString(), version, plan: prepared.plan });
       setMessage(`Delete ${filesystem.deletes.length === 1 ? filesystem.deletes[0] : `${filesystem.deletes.length} entries`}? There is no trash.`);
-      return;
+      return { status: "requires_input", reason: "Read and explicitly confirm the current deletion plan; there is no trash", request: `${parent}:deletion-confirmation` };
     }
-    const count = filesystem.renames.length + filesystem.creates.length + remote.length;
-    if (count === 0) { setDirty(false); setMessage("No filesystem changes."); return; }
-    setBusy(true);
-    setMessage(`Applying ${count} filesystem ${count === 1 ? "edit" : "edits"}…`);
-    void (async () => {
-      for (const creation of filesystem.creates.filter((creation) => creation.dir)) await api.fileOp({ op: "mkdir", path: creation.path });
-      for (const operation of filesystem.renames) await api.fileOp({ op: "rename", path: operation.path, to: operation.to });
-      for (const creation of filesystem.creates.filter((creation) => !creation.dir)) await api.fileOp({ op: "create", path: creation.path });
-      for (const edit of remote) await edit.apply(edit.value);
-    })().then(
-      () => {
-        setBusy(false);
-        setDirty(false);
-        setMessage(`Applied ${count} filesystem ${count === 1 ? "edit" : "edits"}.`);
-        onChanged(filesystem.renames);
-      },
-      (error) => {
-        setBusy(false);
-        setMessage(`Filesystem edit refused: ${said(error)}`);
-        onChanged();
-      },
-    );
+    const operations = operationsFor(prepared.plan);
+    if (!operations.length) { setDirty(false); setMessage("No filesystem changes."); return { status: "completed", value: { completed: 0 } }; }
+    return execute(operations, filesystem.renames, signal);
   };
 
   const preview = () => {
@@ -313,32 +358,37 @@ export function FilesystemTreeEditor({
     setDryRun({ lines: lines.length > 0 ? lines : ["No changes."] });
   };
 
-  const confirmDeletes = () => {
-    if (busy || !pendingDeletes) return;
-    const paths = pendingDeletes;
-    setBusy(true);
+  const confirmDeletes = async (signal: AbortSignal): Promise<UiOutcome> => {
+    const plan = pendingDeletes;
+    if (!plan || pending.current || plan.version !== liveVersion.current || plan.source !== view.current?.state.doc.toString())
+      return { status: "unavailable", reason: "Deletion plan changed. Apply the current Files draft and review its deletion request again." };
     setPendingDeletes(null);
-    setMessage(`Deleting ${paths.length === 1 ? paths[0] : `${paths.length} entries`}…`);
-    void (async () => {
-      for (const path of paths) await api.fileOp({ op: "delete", path });
-    })().then(
-      () => {
-        setBusy(false);
-        setDirty(false);
-        setMessage(`Deleted ${paths.length === 1 ? paths[0] : `${paths.length} entries`}.`);
-        onChanged();
-      },
-      (error) => {
-        setBusy(false);
-        setMessage(`Filesystem delete refused: ${said(error)}`);
-        onChanged();
-      },
-    );
+    const result = await execute(operationsFor(plan.plan), plan.plan.filesystem.renames, signal);
+    return result;
   };
+  const cancelDeletes = () => { setPendingDeletes(null); setMessage("Deletion cancelled; the buffer still differs from disk."); };
+  const parent = `filesystem-editor:${useId()}`;
+  const revision = useUiRevision(() => [version, owner.current, view.current?.state.doc.toString(), dirty, pending.current, pendingDeletes, dryRun, receipt]);
+  useEditorActions(actionView, parent);
+  useEditorEditing(actionView, { source: parent, label: "Files draft", localOnly: true,
+    current: () => !pending.current && !!owner.current && version === liveVersion.current,
+    identity: () => [version, owner.current, pending.current] });
+  useUiReading("Files reconciliation status", { dirty, busy, message, dry_run: dryRun, pending_deletion: pendingDeletes?.paths ?? null,
+    deletion_request: pendingDeletes ? `${parent}:deletion-confirmation` : null, receipt, atomic: false });
+  const commands: { key: string; command: UiCommand }[] = [
+    { key: "preview", label: "Dry run Files draft", enabled: dirty, execute: async () => { preview(); return { status: "completed", value: { preview_requested: true, writes: false } }; } },
+    { key: "apply", label: "Apply Files draft", enabled: dirty, execute: async (_args: unknown, _actor: unknown, signal: AbortSignal) => apply(signal) },
+    { key: "delete", label: "Confirm Files deletions", enabled: !!pendingDeletes, execute: async (_args: unknown, _actor: unknown, signal: AbortSignal) => confirmDeletes(signal) },
+    { key: "cancel", label: "Cancel Files deletions", enabled: !!pendingDeletes, execute: async () => { cancelDeletes(); return { status: "completed", value: { cancelled: true, writes: false } }; } },
+  ].map(action => ({ key: `${parent}:${action.key}`, command: { parent, subject: parent, label: action.label, parameters: {}, prerequisites: [],
+    read: () => ({ revision: revision(), enabled: action.enabled && !pending.current && !!owner.current && version === liveVersion.current }), execute: action.execute as UiCommand["execute"] } }));
+  const invoke = useUiCommands(commands);
+  const invokeHuman = (id: string) => void invoke(`${parent}:${id}`, {}).catch(error => setMessage(said(error)));
+  save.current = () => invokeHuman("apply");
 
   return <section className={`filesystem-editor${dirty ? " dirty" : ""}`} aria-label="Filesystem text buffer">
     {dirty && <div className="filesystem-editor__toolbar" role="toolbar" aria-label="Unsaved Files changes">
-      <button type="button" onClick={preview} disabled={busy}>Dry Run</button>
+      <button type="button" onClick={() => invokeHuman("preview")} disabled={busy}>Dry Run</button>
       <button type="button" className="primary" onClick={() => save.current()} disabled={busy}>Apply</button>
     </div>}
     {dryRun && <aside className={`filesystem-editor__dry-run${dryRun.error ? " error" : ""}`} aria-label="Files dry run" aria-live="polite">
@@ -352,8 +402,8 @@ export function FilesystemTreeEditor({
     <footer className="filesystem-editor__status" aria-live="polite">
       <span>{busy ? "Working — " : ""}{message}</span>
       {pendingDeletes && <span className="filesystem-editor__confirm">
-        <button type="button" onClick={confirmDeletes}>Delete</button>
-        <button type="button" onClick={() => { setPendingDeletes(null); setMessage("Deletion cancelled; the buffer still differs from disk."); }}>Cancel</button>
+        <button type="button" onClick={() => invokeHuman("delete")}>Delete</button>
+        <button type="button" onClick={() => invokeHuman("cancel")}>Cancel</button>
       </span>}
     </footer>
   </section>;

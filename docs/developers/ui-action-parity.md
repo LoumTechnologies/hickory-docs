@@ -552,3 +552,15 @@ own controller. Focused tests cover mixed native/agent drafting, stale node and
 edge label refusal, viewport arguments and existing native inspector behavior.
 This still does not establish rendered graph/diagram pixel capture or exhaustive
 browser gesture parity.
+
+### Files buffer reconciliation checkpoint (2026-10-20)
+
+`FilesystemTreeEditor` now opts into the shared editor reading/editing/history/
+selection/fold controllers and registers its Dry Run, Apply, deletion confirmation
+and cancellation handlers. Paged status includes the actual operation receipts
+and required deletion request. Draft changes invalidate deletion confirmation;
+pending writes exclude duplicate Apply and native document edits. Cancellation,
+owner replacement and failures stop subsequent batch operations while reporting
+completed responses and uncertain failed effects without claiming rollback.
+Focused tests use real CodeMirror with mocked filesystem/provider replies.
+Filesystem activation and context-menu mapping still need their own audit.

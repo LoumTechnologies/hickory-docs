@@ -86,3 +86,29 @@ Last LLM verification:
   `apps/web/e2e/files-editor.spec.ts`, which verifies Dry Run leaves the live
   filesystem unchanged before applying real rename, create, and confirmed
   delete operations against `just dev`
+
+## Shared Files reconciliation controls (2026-10-20)
+
+The Files buffer opts into the same bounded editor source, selection, fold,
+input and undo/redo controllers as document editors. Its own Dry Run, Apply,
+confirm deletion and cancel deletion commands share the native handlers; status,
+preview, required deletion request and operation receipts have explicit paged
+reading. Associated-object title writes retain their existing semantic callback.
+
+A deletion confirmation binds the current buffer bytes and projection version;
+changing the draft invalidates it. Apply is serialized by an immediate controller
+lock and refuses native document changes while pending. Each operation boundary
+checks the captured editor generation, projection version and cancellation signal.
+Cancellation cannot roll back an already dispatched filesystem/provider request.
+Actual completed responses and the stopped/failed operation are reported; later
+operations do not start after refusal/cancellation/owner replacement. A failed
+request can itself have uncertain effects. This is not an atomic filesystem batch,
+external-edit CAS, or proof that a remote title changed beyond its callback reply.
+
+Focused evidence: `FilesystemTreeEditor.test.tsx` covers scripted Python/ACP actor
+paths, native input during a pending request, duplicate submission refusal,
+non-mutating preview, exact host replies, invalidated deletion confirmation,
+cancellation after the first request, partial failure, existing native deletion
+and semantic provider title application. Six selected cases passed together;
+strict focused TypeScript, inventory, file-length and diff checks also passed.
+These are mocked host replies with real CodeMirror, not a native/provider witness.
