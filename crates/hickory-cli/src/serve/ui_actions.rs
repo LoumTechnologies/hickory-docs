@@ -37,6 +37,9 @@ pub struct Hub {
     receipts: Mutex<()>,
 }
 impl Hub {
+    pub(crate) fn ensure_window(&self, id: &str) -> anyhow::Result<()> {
+        self.window(id).map(|_| ())
+    }
     fn window(&self, id: &str) -> anyhow::Result<Arc<Window>> {
         let window = self
             .windows
@@ -264,6 +267,7 @@ async fn close(State(state): State<LocalState>, Path(id): Path<String>) -> Json<
             let _ = sender.send(json!({"status":"unavailable","reason":"Originating window closed; side effects may have occurred"}));
         }
     }
+    state.fleet_pairings.close_window(&id);
     Json(json!({"closed":true}))
 }
 pub fn routes() -> Router<LocalState> {

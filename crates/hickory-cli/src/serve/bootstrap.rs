@@ -68,6 +68,7 @@ async fn prepare_inner(opts: ServeOptions, folder_open: Option<bool>) -> Result<
     let store = FileDocStore::new(index.clone());
     let state = LocalState {
         ui_actions: Arc::new(ui_actions::Hub::default()),
+        fleet_pairings: Arc::new(fleet_pairings::Pairings::default()),
         opened_files: Arc::new(std::sync::RwLock::new(std::collections::HashSet::new())),
         representations: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
         bisects: Arc::new(tokio::sync::Mutex::new(HashMap::new())),

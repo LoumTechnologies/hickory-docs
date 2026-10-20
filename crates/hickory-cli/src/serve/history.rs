@@ -375,7 +375,7 @@ pub async fn fleet(State(_state): State<LocalState>) -> ApiResult<Json<Value>> {
 }
 
 /// Open this machine's identity and fleet, or say why not.
-fn fleet_of() -> Result<(hickory_fleet::Identity, hickory_fleet::Fleet), ApiError> {
+pub(super) fn fleet_of() -> Result<(hickory_fleet::Identity, hickory_fleet::Fleet), ApiError> {
     let base = hickory_workspace::state_root().map_err(|e| ApiError::internal(format!("{e:#}")))?;
     let name = hickory_fleet::default_machine_name();
     let identity = hickory_fleet::Identity::load_or_create(&base, &name)

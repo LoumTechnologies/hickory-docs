@@ -90,6 +90,7 @@ fn required(method: &str, path: &str) -> Option<Grant> {
     // one of them — which is exactly what `/api/fleet/invite` did when
     // `/api/fleet` was only a readable prefix.
     if path.starts_with("/api/settings")
+        || path.starts_with("/api/v1/fleet/")
         || (path.starts_with("/api/fleet/")
             || (path == "/api/fleet" && !matches!(method.as_str(), "GET" | "HEAD")))
     {
@@ -299,6 +300,11 @@ mod tests {
             ("POST", "/api/fleet/grant"),
             ("DELETE", "/api/fleet/machine"),
             ("GET", "/api/fleet/invite"),
+            ("PUT", "/api/v1/fleet/grant"),
+            ("POST", "/api/v1/fleet/remove"),
+            ("GET", "/api/v1/fleet/pairings"),
+            ("POST", "/api/v1/fleet/pairings"),
+            ("POST", "/api/v1/fleet/pairings/job/cancel"),
         ] {
             let denied = permitted(method, path, &all(), "laptop").unwrap_err();
             assert_eq!(denied.needs, None, "{method} {path}");

@@ -653,3 +653,9 @@ HTTP refusal and no client downgrade. This resolves the cooperating-writer
 identity gap noted above; arbitrary noncooperating file editors and legacy
 unscoped callers are outside that precondition contract. Pairing cancellation
 still needs its actual host request/result/cancel implementation.
+
+Window-owned versioned fleet pairing jobs now expose start/list/status/cancel/
+forget with live-window checks, exact-argument idempotency, bounded retention,
+actual cancellation outcomes and close cleanup. Peer transport refuses these
+local authority routes. Four focused fixture-worker tests pass; this backend
+checkpoint does not claim UI adoption or a native/provider witness.

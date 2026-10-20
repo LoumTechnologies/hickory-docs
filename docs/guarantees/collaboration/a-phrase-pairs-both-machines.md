@@ -98,3 +98,21 @@ and rosters were temporary fixtures, with `Reach::Direct`, no relay and no chang
 to the user's fleet. File-length and diff checks passed. This is the peer-library
 foundation; the shared UI's window-scoped job start/read/cancel wiring is still
 required and is not established by these tests.
+
+### Window-owned host requests (issue #72)
+
+Versioned local pairing jobs bind to a live UI window. An exact request retry
+returns the same host job; changing its arguments conflicts. Each window can
+have one active request and eight retained results, with 64 total host slots.
+Status, cancellation and forgetting require the originating live window. Pending
+work cannot be forgotten; cancellation requests report the actual eventual
+result without asserting rollback. Closing a window requests cancellation and
+releases its records once work settles. IDs/results are in memory and do not
+survive restart. Peer transport explicitly refuses this local authority surface.
+
+Four focused host-state tests use deterministic fixture workers: idempotency and
+window isolation, completed enrollment winning over cancellation, closed-window
+cleanup, and bounded inspectable failures. They do not exercise native UI,
+providers, actual fleet identities, or network pairing. The separate peer tests
+above cover the real temporary-fixture network cancellation boundary. UI job
+adoption remains the next integration step.

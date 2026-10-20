@@ -70,6 +70,7 @@ mod runtime_runs;
 pub(crate) mod ui_actions;
 pub(crate) mod ui_images;
 pub use python_agent::bundled_runtime;
+mod fleet_pairings;
 mod launch_profiles;
 pub mod refactor;
 pub mod representation;
@@ -151,6 +152,7 @@ pub struct RunRecord {
 #[derive(Clone)]
 pub struct LocalState {
     pub(crate) ui_actions: Arc<ui_actions::Hub>,
+    pub(crate) fleet_pairings: Arc<fleet_pairings::Pairings>,
     /// Text files explicitly opened outside the workspace.
     pub opened_files: Arc<std::sync::RwLock<std::collections::HashSet<PathBuf>>>,
     pub representations: representation::Representations,
@@ -608,6 +610,7 @@ impl LocalState {
 pub(crate) fn router(state: LocalState) -> Router {
     let api = Router::new()
         .merge(ui_actions::routes())
+        .merge(fleet_pairings::routes())
         .route("/projects", get(api::projects))
         .route(
             "/projects/{id}/docs",
