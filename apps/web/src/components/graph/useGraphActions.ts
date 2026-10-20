@@ -2,10 +2,22 @@ import { useId } from "react";
 import { useUiCommands, useUiRevision } from "../../lib/uiActionBridge";
 import { useUiReading } from "../../lib/uiReading";
 import type { UiField, UiCommand, UiOutcome } from "../../lib/uiActions";
-import type { Scene } from "./scene";
+import { occupiedSlots, sideHandles, type Scene, type SceneNode, type SceneEdge } from "./scene";
+import type { Connection } from "@xyflow/react";
+import { graphInspectorActions } from "./graphInspectorActions";
+export type GraphAction = { id: string; label: string; topology?: boolean; parameters?: UiCommand["parameters"]; execute: UiCommand["execute"] };
+export type GraphControls = {
+  patchNodes: (ids: string[], patch: Partial<SceneNode>) => boolean | undefined;
+  patchEdges: (ids: string[], patch: Partial<SceneEdge>) => boolean | undefined;
+  deleteNodes: (ids: string[]) => boolean | undefined;
+  deleteEdges: (ids: string[]) => boolean | undefined;
+  select: (selection: { nodes: string[]; edges: string[] }) => void;
+  connect: (connection: Connection) => boolean | undefined;
+  reconnect: (id: string, connection: Connection) => boolean | undefined;
+};
 
 /** Controller-owned scene data and the same toolbar callbacks as native input. */
-export function useGraphActions(input: {
+export function useGraphActions(input: GraphControls & {
   scene: Scene | null; current: () => boolean; source: string; resolved?: string | null;
   selection: { nodes: string[]; edges: string[] }; assertions: unknown; error: string | null;
   active: boolean; commit: (scene: Scene) => boolean;
@@ -16,7 +28,11 @@ export function useGraphActions(input: {
 }) {
   const parent = `graph:${useId()}`;
   const revision = useUiRevision(() => [input.source, input.resolved, input.scene, input.selection, input.error, input.active]);
+  const slots = occupiedSlots(input.scene?.edges ?? []);
   useUiReading("graph scene", {
+    connectors: (input.scene?.nodes ?? []).map(node => ({ id: node.id,
+      handles: (["top", "right", "bottom", "left"] as const).flatMap(side => sideHandles(side, slots[node.id]?.[side] ?? [])),
+    })),
     scene: input.scene, selection: input.selection, assertions: input.assertions ?? [],
     error: input.error, canvas_owns_wheel: input.active,
     topology_read_only: input.scene?.paste != null,
@@ -28,7 +44,7 @@ export function useGraphActions(input: {
   const receipt = (committed: boolean | undefined): UiOutcome => committed
     ? { status: "completed", value: { commit_callback_requested: true, saved: false } }
     : { status: "unavailable", reason: "Scene refused the edit; read current graph status" };
-  const actions: { id: string; label: string; topology?: boolean; parameters?: UiCommand["parameters"]; execute: UiCommand["execute"] }[] = [
+  const actions: GraphAction[] = [
     { id: "add", label: "Add graph node", topology: true, execute: async () => {
       return input.add() ? { status: "completed", value: { commit_callback_requested: true, saved: false } } : { status: "unavailable", reason: "Scene refused the edit; read current graph status" };
     } },
@@ -56,6 +72,7 @@ export function useGraphActions(input: {
         })) },
     );
   }
+  actions.push(...graphInspectorActions(input.scene, input, receipt));
   const invoke = useUiCommands(actions.map(action => ({ key: `${parent}:${action.id}`, command: {
     parent, subject: parent, label: action.label, parameters: action.parameters ?? {}, prerequisites: [],
     read: () => ({ revision: revision(), enabled: available() && !(action.topology && input.scene?.paste),

@@ -537,7 +537,7 @@ it("shares graph node mutations and refuses derived topology while retaining lay
   const registry = new UiActions({ workspace: "p", window: "w" }, () => true, async () => {});
   const onCommit = vi.fn();
   const view = render(<UiActionContext.Provider value={registry}><GraphEditorPanel source={HAND_DRAWN} onCommit={onCommit} /></UiActionContext.Provider>);
-  const actions = () => registry.groups().groups.flatMap(group => registry.observe(group).actions);
+  const actions = () => registry.groups().groups.flatMap(group => registry.observe(group, 64).actions);
   let id = 0;
   const run = async (label: string, args = {}) => {
     let result: unknown;
@@ -572,4 +572,39 @@ it("reloads changed derived topology when authored source is unchanged", async (
   view.rerender(<GraphEditorPanel source={DERIVED} resolved='{"nodes":[{"id":"new"}],"edges":[]}' onCommit={onCommit} />);
   await waitFor(() => expect((flowProps.nodes as { id: string }[]).map(n => n.id)).toEqual(["new"]));
   expect(onCommit).not.toHaveBeenCalled();
+});
+
+it("shares graph selection, finite inspector palettes and validated connection lifecycle", async () => {
+  const { UiActions } = await import("../../lib/uiActions");
+  const { UiActionContext } = await import("../../lib/uiActionBridge");
+  const registry = new UiActions({ workspace: "p", window: "w" }, () => true, async () => {});
+  const onCommit = vi.fn();
+  render(<UiActionContext.Provider value={registry}><GraphEditorPanel source={HAND_DRAWN} onCommit={onCommit} /></UiActionContext.Provider>);
+  const actions = () => registry.groups().groups.flatMap(group => registry.observe(group, 64).actions);
+  let id = 0;
+  const run = async (label: string, args = {}) => {
+    let result: unknown;
+    await act(async () => { result = await registry.act(registry.scope, { id: "acp:turn", kind: "agent" }, {
+      handle: actions().find(a => a.label === label)!.handle, arguments: args, request_id: String(++id),
+    }); }); return result;
+  };
+  await waitFor(() => expect(actions().some(a => a.label === "Select graph objects")).toBe(true));
+  await run("Select graph objects", { nodes: ["api"], edges: [] });
+  expect(screen.getByTestId("node-inspector")).toBeTruthy();
+  expect((flowProps.nodes as { id: string; selected: boolean }[]).find(n => n.id === "api")?.selected).toBe(true);
+  await run("Set graph node api shape", { value: "diamond" });
+  expect((screen.getByRole("combobox", { name: "Shape" }) as HTMLSelectElement).value).toBe("diamond");
+  fireEvent.change(screen.getByRole("combobox", { name: "Shape" }), { target: { value: "circle" } });
+  expect(parseSceneSource(onCommit.mock.lastCall![0])).toMatchObject({ ok: true, scene: { nodes: [{ id: "api", shape: "circle" }, { id: "db" }] } });
+  const count = onCommit.mock.calls.length;
+  expect(await run("Set graph node api fill", { value: "url(unsafe)" })).toMatchObject({ status: "invalid" });
+  expect(await run("Connect graph nodes", { from: "api", to: "db", from_handle: "not-a-side", to_handle: "" })).toMatchObject({ status: "result", outcome: { status: "unavailable" } });
+  expect(onCommit).toHaveBeenCalledTimes(count);
+  await run("Connect graph nodes", { from: "api", to: "db", from_handle: "", to_handle: "" });
+  expect(parseSceneSource(onCommit.mock.lastCall![0])).toMatchObject({ ok: true, scene: { edges: [{ from: "api", to: "db" }, { id: "api->db#2" }] } });
+  await run("Reconnect graph edge api->db#2", { from: "db", to: "api", from_handle: "", to_handle: "" });
+  await run("Set graph edge api->db#2 label", { label: "response" });
+  expect(parseSceneSource(onCommit.mock.lastCall![0])).toMatchObject({ ok: true, scene: { edges: [{ from: "api", to: "db" }, { id: "api->db#2", from: "db", to: "api", label: "response" }] } });
+  await run("Delete graph node api");
+  expect(parseSceneSource(onCommit.mock.lastCall![0])).toMatchObject({ ok: true, scene: { nodes: [{ id: "db" }], edges: [] } });
 });

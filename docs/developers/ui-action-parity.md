@@ -534,3 +534,11 @@ derived topology protection, teardown and resolved-input replacement.
 This checkpoint does not certify graph selection/inspector styling, connector
 reconnection, inline label drafts, viewport navigation or rendered pixel capture.
 Those remain part of the issue's incomplete capability audit.
+
+The next graph checkpoint adds native selection synchronization, per-object
+finite palette/style/label controls, node/edge deletion and node connection/
+edge reconnection through shared semantic handlers. Connector names are read
+from the actual side/slot model and validated before edits; parallel edges keep
+separate identities. Focused tests exercise an ACP-labelled actor followed by a
+native inspector edit, invalid inputs without writes, connection/reconnection,
+and incident-edge removal. Inline draft and viewport/pixel coverage remains open.
