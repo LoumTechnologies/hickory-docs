@@ -110,7 +110,6 @@ export function PlainFilePane({
   // The live view AS STATE: a ref never re-renders, and the blame column has
   // to mount its fetch against the view that actually exists.
   const [railView, setRailView] = useState<EditorView | null>(null);
-  useEditorActions(railView, `file:${path}`);
   const [file, setFile] = useState<PlainFile | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [saveState, setSaveState] = useState<PlainSaveState>({ kind: "idle" });
@@ -137,7 +136,10 @@ export function PlainFilePane({
     theirs: string;
     oursLabel: string;
     theirsLabel: string;
+    bufferAtOpen: string;
   } | null>(null);
+  const mergeRef = useRef(merge); mergeRef.current = merge;
+  useEditorActions(merge ? null : railView, `file:${path}`);
   const onAdoptedRef = useRef(onAdopted);
   onAdoptedRef.current = onAdopted;
   const onReferencesRef = useRef(onReferences);
@@ -297,6 +299,7 @@ export function PlainFilePane({
               return;
             }
             setMerge({
+              bufferAtOpen: loaded.content,
               base: next.base,
               ours: next.ours,
               theirs: next.theirs,
@@ -679,6 +682,7 @@ export function PlainFilePane({
     void api.file(path).then(
       (fresh) =>
         setMerge({
+          bufferAtOpen: ours,
           base,
           ours,
           theirs: fresh.content,
@@ -692,16 +696,21 @@ export function PlainFilePane({
   /** The merged text becomes the buffer, and the file is reloaded first so
    * the save that follows rides on the hash the disk actually has. */
   const acceptMerge = useCallback(
-    (text: string) => {
-      setMerge(null);
+    async (text: string) => {
+      const pending = mergeRef.current, view = viewRef.current;
+      if (!pending || !view?.dom.isConnected || view.state.doc.toString() !== pending.bufferAtOpen) throw new Error("The merge buffer changed. Reopen the merge before accepting.");
+      const captured = view.state.doc;
+      const fresh = await api.file(path);
+      if (mergeRef.current !== pending || viewRef.current !== view || !view.dom.isConnected || view.state.doc !== captured) throw new Error("The merge owner changed while checking the disk. No merge was applied.");
+      if (fresh.content !== pending.theirs) {
+        setMerge({ ...pending, theirs: fresh.content });
+        throw new Error("The file changed again on disk. Review the new merge before accepting.");
+      }
       saver.resolve("reload");
-      void api.file(path).then(
-        (fresh) => {
-          adoptDiskCopy(fresh);
-          putInBuffer(text);
-        },
-        (e) => setSaveState({ kind: "error", message: e instanceof Error ? e.message : String(e) }),
-      );
+      adoptDiskCopy(fresh);
+      putInBuffer(text);
+      setMerge(null);
+      return true;
     },
     [saver, path, adoptDiskCopy, putInBuffer],
   );
@@ -843,6 +852,7 @@ export function PlainFilePane({
           theirs={merge.theirs}
           oursLabel={merge.oursLabel}
           theirsLabel={merge.theirsLabel}
+          sourceCurrent={() => !!viewRef.current?.dom.isConnected && viewRef.current.state.doc.toString() === merge.bufferAtOpen}
           onAccept={acceptMerge}
           onCancel={() => setMerge(null)}
         />

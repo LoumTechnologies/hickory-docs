@@ -1,3 +1,5 @@
+import { useUiCommands, useUiRevision } from "../lib/uiActionBridge";
+import type { UiCommand } from "../lib/uiActions";
 // The merge, as something to read and answer.
 //
 // It opens whenever two versions of one file both have changes worth keeping:
@@ -24,7 +26,7 @@
 // conflicts read as OUR text (see `mergedText`), so the reader's own unsaved
 // work never disappears off the screen while they think.
 
-import { useMemo, useState } from "react";
+import { useId, useMemo, useRef, useState } from "react";
 
 import {
   conflictCount,
@@ -49,7 +51,8 @@ export interface MergeViewProps {
   oursLabel?: string;
   theirsLabel?: string;
   /** Take the merged text. */
-  onAccept: (text: string) => void;
+  onAccept: (text: string) => void | boolean | Promise<void | boolean>;
+  sourceCurrent?: () => boolean;
   /** Walk away and keep `ours` untouched. */
   onCancel: () => void;
 }
@@ -61,7 +64,11 @@ const CHOICES: { value: Resolution; label: string; hint: string }[] = [
   { value: "base", label: "Keep neither", hint: "Go back to what was there before" },
 ];
 
-export function MergeView({
+export function MergeView(props: MergeViewProps) {
+  return <MergeController key={JSON.stringify([props.path, props.base, props.ours, props.theirs])} {...props} />;
+}
+
+function MergeController({
   path,
   base,
   ours,
@@ -70,6 +77,7 @@ export function MergeView({
   theirsLabel = "The file on disk",
   onAccept,
   onCancel,
+  sourceCurrent,
 }: MergeViewProps) {
   // A base of "" is genuinely "no common ancestor", not "the ancestor was an
   // empty file" — a draft with no file behind it stores it that way. The
@@ -98,6 +106,32 @@ export function MergeView({
     });
   };
 
+  const parent = `merge:${useId()}`;
+  const [busy, setBusy] = useState(false), [error, setError] = useState("");
+  const inFlight = useRef(false);
+  const current = () => sourceCurrent?.() ?? true;
+  const revision = useUiRevision(() => [path, base, ours, theirs, [...answers], busy, error, current()]);
+  const commands: { key: string; command: UiCommand }[] = [];
+  const add = (key: string, label: string, parameters: UiCommand["parameters"], execute: UiCommand["execute"]) => commands.push({ key: `${parent}:${key}`, command: { parent, subject: parent, label, parameters, prerequisites: [], read: () => ({ revision: revision(), enabled: !busy && current(), reason: busy ? "Merge acceptance pending" : !current() ? "Merge owner changed or closed" : undefined }), execute } });
+  add("read", "Read merge regions and preview bytes", { offset: { type: "number", minimum: 0, maximum: 1000000000, integer: true }, limit: { type: "number", minimum: 1, maximum: 8192, integer: true } }, async args => {
+    const bytes = new TextEncoder().encode(JSON.stringify({ path, three_way: threeWay, ours_label: oursLabel, theirs_label: theirsLabel, regions, answers: [...answers], preview: text, conflicts: total, answered, auto, error: error || null, scope: "Current merge preview; undecided conflicts keep ours. Acceptance is not independent verification or named proposal approval." }));
+    const offset = args.offset as number, end = Math.min(offset + (args.limit as number), bytes.length);
+    return offset > bytes.length ? { status: "unavailable", reason: "Offset outside current merge" } : { status: "completed", value: { bytes: Array.from(bytes.slice(offset, end)), encoding: "JSON UTF-8", offset, total_bytes: bytes.length, next_offset: end < bytes.length ? end : null } };
+  });
+  add("answer", "Choose merge conflict resolution", { index: { type: "number", minimum: 0, maximum: 1000000, integer: true }, choice: { type: "string", maxLength: 16, choices: threeWay ? ["ours", "theirs", "both", "base"] : ["ours", "theirs", "both"] } }, async args => {
+    if ((args.index as number) >= total) return { status: "unavailable", reason: "Conflict outside current merge" };
+    answer(args.index as number, args.choice as Resolution); return { status: "completed", value: { preview_changed: true, source_written: false } };
+  });
+  add("cancel", "Cancel merge", {}, async () => { onCancel(); return { status: "completed", value: { cancelled: true, source_written: false } }; });
+  add("accept", "Accept merge preview", {}, async () => {
+    if (inFlight.current || !current()) return { status: "unavailable", reason: "Merge owner changed or an acceptance is pending" };
+    inFlight.current = true; setBusy(true); setError("");
+    try { const accepted = await onAccept(text); if (accepted === false) throw new Error("Merge owner refused stale input; inspect the current merge or save error"); return { status: "completed", value: { handler_returned: true, saved: "Not established by this merge controller", approved: false, verified: false } }; }
+    catch (e) { const reason = e instanceof Error ? e.message : String(e); setError(reason); return { status: "unavailable", reason }; }
+    finally { inFlight.current = false; setBusy(false); }
+  });
+  const invoke = useUiCommands(commands);
+  const human = (key: string, args: Parameters<typeof invoke>[1] = {}) => void invoke(`${parent}:${key}`, args).catch(() => undefined);
   let conflictIndex = -1;
 
   return (
@@ -134,20 +168,23 @@ export function MergeView({
               threeWay={threeWay}
               oursLabel={oursLabel}
               theirsLabel={theirsLabel}
-              onAnswer={answer}
+              onAnswer={(index, choice) => human("answer", { index, choice })}
+              disabled={busy || !current()}
             />
           );
         })}
       </div>
 
+      {error && <p role="alert">{error}</p>}
       <footer className="merge-view__actions">
-        <button type="button" className="btn" onClick={onCancel}>
+        <button type="button" className="btn" disabled={busy} onClick={() => human("cancel")}>
           Cancel
         </button>
         <button
           type="button"
           className="btn btn-primary"
-          onClick={() => onAccept(text)}
+          disabled={busy || !current()}
+          onClick={() => human("accept")}
           // Deliberately NOT disabled while conflicts are unanswered. An
           // unanswered conflict already reads as our text, which is what the
           // buffer holds right now — accepting is a real, meaningful choice
@@ -175,6 +212,7 @@ function MergeRegionRow({
   oursLabel,
   theirsLabel,
   onAnswer,
+  disabled,
 }: {
   region: MergeRegion;
   conflictIndex: number;
@@ -183,6 +221,7 @@ function MergeRegionRow({
   oursLabel: string;
   theirsLabel: string;
   onAnswer: (index: number, choice: Resolution) => void;
+  disabled: boolean;
 }) {
   if (region.kind === "stable") {
     if (!region.text) return null;
@@ -243,6 +282,7 @@ function MergeRegionRow({
             key={choice.value}
             type="button"
             className={`btn btn-small${chosen === choice.value ? " btn-primary" : ""}`}
+            disabled={disabled}
             aria-pressed={chosen === choice.value}
             data-tip={choice.hint}
             onClick={() => onAnswer(conflictIndex, choice.value)}

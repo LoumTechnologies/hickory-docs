@@ -1,5 +1,7 @@
+import { UiActions } from "../lib/uiActions";
+import { UiActionContext } from "../lib/uiActionBridge";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 
 import { MergeView } from "./MergeView";
 
@@ -107,4 +109,33 @@ describe("with no common ancestor", () => {
     view({ base: "" });
     expect(screen.queryByRole("button", { name: "Keep neither" })).toBeNull();
   });
+});
+
+// Guarantee: docs/guarantees/agent/ui-action-dispatch.md
+it("shares merge preview choices and refuses a live changed owner without fabricating approval", async () => {
+  const registry = new UiActions({ workspace: "p", window: "w" }, () => true, async () => {});
+  let current = true;
+  const accept = vi.fn(async () => true);
+  render(<UiActionContext.Provider value={registry}><MergeView path="x" base="base" ours="PRIVATE OURS" theirs="theirs" sourceCurrent={() => current} onAccept={accept} onCancel={vi.fn()} /></UiActionContext.Provider>);
+  const actions = () => registry.groups().groups.flatMap(g => registry.observe(g).actions);
+  expect(JSON.stringify(actions())).not.toContain("PRIVATE OURS");
+  let id = 0;
+  const run = async (label: string, args = {}) => { let result: unknown; await act(async () => { result = await registry.act(registry.scope, { id: "python:turn", kind: "agent" }, { handle: actions().find(a => a.label === label)!.handle, arguments: args, request_id: String(++id) }); }); return result; };
+  await run("Choose merge conflict resolution", { index: 0, choice: "theirs" });
+  const old = actions().find(a => a.label === "Accept merge preview")!;
+  current = false;
+  expect(await registry.act(registry.scope, { id: "python:turn", kind: "agent" }, { handle: old.handle, arguments: {}, request_id: "changed" })).toMatchObject({ status: "stale" });
+  expect(accept).not.toHaveBeenCalled();
+  current = true;
+  expect(await run("Accept merge preview")).toMatchObject({ status: "result", outcome: { status: "completed", value: { approved: false, verified: false } } });
+  expect(accept).toHaveBeenCalledWith("theirs");
+});
+
+it("retires old answers when the merge inputs are replaced", () => {
+  const accept = vi.fn();
+  const mounted = view({ onAccept: accept });
+  fireEvent.click(screen.getByRole("button", { name: "Keep theirs" }));
+  mounted.rerender(<MergeView path="notes.md" base="base" ours="new ours" theirs="new theirs" onAccept={accept} onCancel={vi.fn()} />);
+  fireEvent.click(screen.getByRole("button", { name: /accept, keeping mine/i }));
+  expect(accept).toHaveBeenCalledWith("new ours");
 });

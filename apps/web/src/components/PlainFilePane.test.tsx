@@ -8,7 +8,7 @@
 // made from what those two requests answer.
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 
 import { PlainFilePane } from "./PlainFilePane";
 import { api } from "../api/client";
@@ -368,4 +368,27 @@ describe("a plain file and the debugger", () => {
     expect(screen.getByRole("button", { name: "Debug tools/app.py" })).toBeDefined();
     expect(screen.getByRole("button", { name: "Step over" })).toBeDefined();
   });
+});
+
+// Guarantee: docs/guarantees/agent/ui-action-dispatch.md
+it("reopens the merge against newer disk text instead of applying an old decision", async () => {
+  serve({ content: "one\nTHEIRS\nthree\n", drafts: [draft()] });
+  render(<PlainFilePane path="notes.md" retainUnsaved />);
+  await screen.findByTestId("merge-view");
+  await waitFor(() => expect((screen.getByRole("button", { name: /accept, keeping mine/i }) as HTMLButtonElement).disabled).toBe(false));
+  vi.mocked(api.file).mockResolvedValue({ path: "notes.md", language: "markdown", content: "one\nNEW DISK\nthree\n", hash: "new-disk" });
+  fireEvent.click(screen.getByRole("button", { name: /accept, keeping mine/i }));
+  await waitFor(() => expect(screen.getByTestId("merge-view").textContent).toContain("NEW DISK"));
+  expect(api.saveFile).not.toHaveBeenCalled();
+  expect(api.discardDraft).not.toHaveBeenCalled();
+});
+
+it("applies a reviewed merge draft only after the observed disk side still matches", async () => {
+  serve({ content: "one\nTHEIRS\nthree\n", drafts: [draft()] });
+  render(<PlainFilePane path="notes.md" retainUnsaved />);
+  await screen.findByTestId("merge-view");
+  await waitFor(() => expect((screen.getByRole("button", { name: /accept, keeping mine/i }) as HTMLButtonElement).disabled).toBe(false));
+  fireEvent.click(screen.getByRole("button", { name: /accept, keeping mine/i }));
+  await waitFor(() => expect(screen.queryByTestId("merge-view")).toBeNull());
+  expect(document.querySelector(".cm-content")?.textContent).toContain("MINE");
 });

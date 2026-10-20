@@ -266,12 +266,9 @@ export function GeneratedFileView({
           theirs={diverged.theirs}
           oursLabel="What is on disk"
           theirsLabel="What the document produces"
-          onAccept={(text) => {
-            setMerging(false);
-            void api.resolveOutput(path, text).then(
-              () => setWayError(null),
-              (e) => setWayError(e instanceof Error ? e.message : String(e)),
-            );
+          onAccept={async (text) => {
+            try { await api.resolveOutput(path, text); setWayError(null); setMerging(false); return true; }
+            catch (e) { setWayError(e instanceof Error ? e.message : String(e)); throw e; }
           }}
           onCancel={() => setMerging(false)}
         />
