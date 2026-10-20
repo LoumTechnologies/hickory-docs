@@ -82,7 +82,7 @@ describe("where column zero is", () => {
     live.requestMeasure = (<T,>(request: {
       read: (v: EditorView) => T;
       write?: (measure: T, v: EditorView) => void;
-    }) => request.write?.(request.read(live), live)) as typeof live.requestMeasure;
+    }) => request?.write?.(request.read(live), live)) as typeof live.requestMeasure;
 
     fireEvent(window, new Event("resize"));
 
@@ -131,4 +131,43 @@ describe("what the ruler says it is measuring", () => {
     // this pins is that the unit label is a PROSE thing and goes with it.
     expect(document.querySelector(".editor-ruler__band")).toBeNull();
   });
+});
+it("shares the ruler measure and refuses same-valued handles from another document", async () => {
+  const { act } = await import("@testing-library/react");
+  const { UiActions } = await import("../lib/uiActions");
+  const { UiActionContext } = await import("../lib/uiActionBridge");
+  const registry = new UiActions({ workspace: "p", window: "w" }, () => true, async () => {});
+  const change = vi.fn();
+  const renderRuler = (owner: string) => <UiActionContext.Provider value={registry}><EditorRuler view={null} owner={owner} column={72} onColumn={change} /></UiActionContext.Provider>;
+  const rendered = render(renderRuler("first.md"));
+  const actions = () => registry.groups().groups.flatMap(group => registry.observe(group, 64).actions);
+  const handle = () => actions().find(action => action.label === "Set prose wrapping measure")!.handle;
+  const run = async (target: string, column: number) => {
+    let result: unknown;
+    await act(async () => { result = await registry.act(registry.scope, { id: "python:fixture", kind: "agent" }, { handle: target, arguments: { column }, request_id: crypto.randomUUID() }); });
+    return result;
+  };
+  expect(await run(handle(), 64)).toMatchObject({ status: "result", outcome: { value: { measure_requested: 64, source_changed: false, persisted: false } } });
+  expect(change).toHaveBeenLastCalledWith(64);
+  fireEvent.keyDown(screen.getByRole("slider"), { key: "ArrowRight" });
+  expect(change).toHaveBeenLastCalledWith(73);
+  const stale = handle();
+  rendered.rerender(renderRuler("second.md"));
+  change.mockClear();
+  expect(await run(stale, 64)).not.toMatchObject({ status: "result" });
+  expect(await run(handle(), WRAP_MAX + 1)).toMatchObject({ status: "invalid" });
+  expect(change).not.toHaveBeenCalled();
+});
+it("discards a cancelled pointer drag instead of persisting its last position", () => {
+  const live = view(), change = vi.fn();
+  live.contentDOM.getBoundingClientRect = () => ({ left: 0, width: 800 }) as DOMRect;
+  Object.defineProperty(live, "defaultCharacterWidth", { value: 8, configurable: true });
+  live.requestMeasure = (<T,>(request: { read: (v: EditorView) => T; write?: (measure: T, v: EditorView) => void }) => request?.write?.(request.read(live), live)) as typeof live.requestMeasure;
+  const rendered = render(<EditorRuler view={live} column={72} onColumn={change} />);
+  const marker = screen.getByRole("slider");
+  fireEvent(marker, new MouseEvent("pointerdown", { clientX: 640, bubbles: true }));
+  fireEvent(marker, new MouseEvent("pointercancel", { clientX: 640, bubbles: true }));
+  expect(change).not.toHaveBeenCalled();
+  expect(marker.getAttribute("aria-valuenow")).toBe("72");
+  rendered.unmount(); live.destroy();
 });

@@ -60,7 +60,9 @@
 // the element that has the real geometry, is the same discipline the prose
 // measure follows.
 
-import { memo, useCallback, useEffect, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
+import { useUiCommands, useUiRevision } from "../lib/uiActionBridge";
+import { useUiReading } from "../lib/uiReading";
 import type { EditorView } from "@codemirror/view";
 
 import {
@@ -107,8 +109,10 @@ export const EditorRuler = memo(function EditorRuler({
   column,
   onColumn,
   tableEl = null,
+  owner,
 }: {
   view: EditorView | null;
+  owner?: string | null;
   /** The measure, in columns. Owned by the tab so it can be persisted. */
   column: number;
   onColumn: (next: number) => void;
@@ -116,6 +120,8 @@ export const EditorRuler = memo(function EditorRuler({
    * names that table's columns instead of measuring prose. */
   tableEl?: HTMLElement | null;
 }) {
+  const lifetime = useMemo(() => crypto.randomUUID(), [view, owner, onColumn]);
+  const currentLifetime = useRef(lifetime); currentLifetime.current = lifetime;
   const rulerRef = useRef<HTMLDivElement | null>(null);
   const [metrics, setMetrics] = useState<Metrics | null>(null);
   const [bands, setBands] = useState<ColumnBand[]>([]);
@@ -141,6 +147,7 @@ export const EditorRuler = memo(function EditorRuler({
         };
       },
       write: (next: Metrics) => {
+        if (currentLifetime.current !== lifetime) return;
         setMetrics((current) =>
           current &&
           current.originX === next.originX &&
@@ -151,7 +158,7 @@ export const EditorRuler = memo(function EditorRuler({
         );
       },
     });
-  }, [view]);
+  }, [view, lifetime]);
 
   useEffect(() => {
     if (!view) return;
@@ -218,7 +225,9 @@ export const EditorRuler = memo(function EditorRuler({
     }
   }, [view, column]);
 
+  useEffect(() => { setDragColumn(null); }, [lifetime, tableEl]);
   const shown = clampWrapColumn(dragColumn ?? column);
+  const changeColumn = (next: number) => { setDragColumn(null); onColumn(clampWrapColumn(next)); };
 
   const columnAt = (clientX: number): number => {
     const ruler = rulerRef.current;
@@ -244,7 +253,7 @@ export const EditorRuler = memo(function EditorRuler({
     setDragColumn(null);
     // Reported once, at the end: a tab that persisted its measure on every
     // pointermove would write a hundred times per drag.
-    if (next !== column) onColumn(next);
+    if (next !== column) changeColumn(next);
   };
 
   const ticks: { column: number; x: number; label: boolean }[] = [];
@@ -271,6 +280,19 @@ export const EditorRuler = memo(function EditorRuler({
     : null;
 
   const naming = bands.length > 0;
+  const parent = `ruler:${useId()}`;
+  const revision = useUiRevision(() => [lifetime, column, shown, naming, bands, metrics]);
+  useUiReading("editor ruler", naming ? { owner: owner ?? null, mode: "table columns", columns: bands } : {
+    owner: owner ?? null, mode: "prose measure", average_characters_per_line: shown, comfortable_range: [READABLE_MIN, READABLE_MAX],
+    minimum: WRAP_MIN, maximum: WRAP_MAX, metrics, scope: "Average characters of the current proportional face, not physical inches. Code does not wrap. This is presentation state." });
+  useUiCommands(naming ? [] : [{ key: `${parent}:measure`, command: {
+    label: "Set prose wrapping measure", parent, subject: parent,
+    parameters: { column: { type: "number", minimum: WRAP_MIN, maximum: WRAP_MAX, integer: true } }, prerequisites: [],
+    read: () => ({ revision: revision(), enabled: true }), execute: async args => {
+      changeColumn(args.column as number);
+      return { status: "completed", value: { measure_requested: args.column, source_changed: false, persisted: false } };
+    },
+  } }]);
 
   return (
     <div
@@ -340,15 +362,15 @@ export const EditorRuler = memo(function EditorRuler({
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
         onPointerUp={endDrag}
-        onPointerCancel={endDrag}
+        onPointerCancel={() => setDragColumn(null)}
         onKeyDown={(event) => {
           const step = event.shiftKey ? 10 : 1;
           if (event.key === "ArrowLeft") {
             event.preventDefault();
-            onColumn(clampWrapColumn(column - step));
+            changeColumn(column - step);
           } else if (event.key === "ArrowRight") {
             event.preventDefault();
-            onColumn(clampWrapColumn(column + step));
+            changeColumn(column + step);
           }
         }}
       >

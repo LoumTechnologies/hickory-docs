@@ -902,7 +902,7 @@ export function DocumentEditor({
           </button>
         </div>
       )}
-      <EditorRuler
+      <EditorRuler owner={path}
         view={railView}
         column={wrapColumn}
         onColumn={onWrapColumnStable}

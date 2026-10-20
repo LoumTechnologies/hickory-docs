@@ -803,3 +803,14 @@ A returned selection request does not claim process startup/debugger success.
 Seven focused mocked-launch cases pass, including a mixed ACP-registry selection,
 disabled Debug refusal and same-label picker replacement. Targeted TypeScript
 checking passes; these cases do not start real processes or providers.
+
+EditorRuler now shares native keyboard/drag and model wrapping-measure changes,
+with bounds and owner/view/callback-bound handles. Paged reading reports the
+shown proportional-font measure or rendered table-column bands. A hidden prose
+marker has no model measure command. The document supplies its path owner;
+queued measurements from a replaced view are ignored and pointer cancellation
+discards the draft. A measure request does not claim source edits or persistence.
+
+Ten existing ruler presentation cases and two new mixed-registry/stale-owner
+and cancelled-pointer cases pass. Real CodeMirror is used with fixture geometry; targeted TypeScript
+checking includes the containing document editor. This is not a native witness.
