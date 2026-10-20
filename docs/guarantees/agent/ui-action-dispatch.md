@@ -619,3 +619,20 @@ readers on close. Two focused controller tests passed for mixed actor recovery,
 callback replacement and real disclosure/teardown, alongside strict focused
 TypeScript, declaration inventory, file-length and diff checks. This does not
 certify every preview child or establish a native/provider witness.
+
+### Context-menu controller checkpoint (issue #72)
+
+The shared context menu registers only the items its owner actually supplies
+while mounted. Native picks and model actions call the same guarded callback;
+disabled/ambiguous items and duplicate pending picks are refused. Subject,
+labels, enabled state and callback identity bind the opaque revision, so a new
+target with an identical label does not inherit an old handle. Menu metadata is
+read in bounded pages; closed/undisclosed menus retire their controls. Closing a
+menu reports dismissal, not cancellation of an already-started operation.
+Callback replies report callback completion only; durable effects/results belong
+to the owning operation. Callback failures remain visible.
+
+Two focused mocked-callback tests cover mixed native/model picks, disabled
+items, same-label callback replacement, unmount retirement, duplicate async
+picks and actual callback failure. They establish this shared menu boundary,
+not all caller-specific operations, real provider behavior or native releases.

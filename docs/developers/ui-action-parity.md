@@ -668,3 +668,9 @@ claims confirmed stopping. Closed controllers refuse late adoption. Focused
 mocked-host/native-control/agent-action and versioned-API tests pass; the earlier
 UI host-cancellation code gap is resolved for this request surface. This does
 not establish universal native/provider/release parity.
+
+Shared ContextMenu now owns revision-bound item/dismiss actions and paged
+metadata while open. Same-label callback replacement retires old authority;
+async picks exclude duplicates and report actual callback failure. Dismissal
+never claims operation cancellation. Two focused callback-fixture tests pass;
+caller-specific write/result contracts remain owned by their controllers.

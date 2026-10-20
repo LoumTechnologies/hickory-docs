@@ -12,7 +12,11 @@
 // It never traps focus. A menu you cannot escape is worse than one you have
 // to aim at twice.
 
-import { useEffect, useRef } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
+
+import { useUiCommands, useUiRevision } from "../lib/uiActionBridge";
+import { useUiReading } from "../lib/uiReading";
+import type { UiOutcome } from "../lib/uiActions";
 
 export interface ContextMenuItem {
   /** Stable across renders and platforms; what a test clicks by. */
@@ -36,8 +40,8 @@ export interface ContextMenuProps {
   items: readonly ContextMenuItem[];
   /** What is being acted on, as a heading. */
   subject: string;
-  onPick: (id: string) => void;
-  onClose: () => void;
+  onPick: (id: string) => unknown | Promise<unknown>;
+  onClose: () => unknown | Promise<unknown>;
   /** Extra class on the box, for a caller with its own look. */
   className?: string;
 }
@@ -70,6 +74,36 @@ export function ContextMenu({
   className,
 }: ContextMenuProps) {
   const box = useRef<HTMLDivElement | null>(null);
+  const parent = `context-menu:${useId()}`;
+  const callbackRevision = useMemo(() => crypto.randomUUID(), [onPick, onClose]);
+  const [error, setError] = useState<string | null>(null);
+  const [pending, setPending] = useState(false);
+  const lock = useRef(false), mounted = useRef(true);
+  useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
+  const revision = useUiRevision(() => [subject, items, callbackRevision, pending]);
+  const pick = async (id: string): Promise<UiOutcome> => {
+    const item = items.find(entry => entry.id === id);
+    if (lock.current || !mounted.current || (!item || item.disabled || items.filter(entry => entry.id === id).length !== 1))
+      return { status: "unavailable", reason: "Menu item is closed, busy, ambiguous or disabled" };
+    lock.current = true; setPending(true); setError(null);
+    try {
+      await onPick(id);
+      return { status: "completed", value: { callback_requested: true, item: id, scope: "Menu callback completed; inspect its owning operation for effects" } };
+    } catch (cause) {
+      if (mounted.current) setError(String(cause));
+      return { status: "unavailable", reason: String(cause) };
+    } finally { lock.current = false; if (mounted.current) setPending(false); }
+  };
+  useUiCommands([
+    { key: `${parent}:close`, command: { parent, subject: parent, label: `Close menu for ${subject}`, parameters: {}, prerequisites: [],
+      read: () => ({ revision: revision(), enabled: true }), execute: async () => {
+        await onClose();
+        return { status: "completed", value: { dismissal_requested: true, operation_cancelled: false } };
+      } } },
+    ...items.map(item => ({ key: `${parent}:pick:${item.id}`, command: { parent, subject: parent, label: item.label, parameters: {},
+      prerequisites: item.tip ? [item.tip] : [], read: () => ({ revision: revision(), enabled: !lock.current && !item.disabled }), execute: () => pick(item.id) } })),
+  ]);
+  useUiReading(`menu for ${subject}`, { subject, items, pending, error });
 
   useEffect(() => {
     box.current?.querySelector<HTMLButtonElement>("button:not([disabled])")?.focus();
@@ -115,13 +149,14 @@ export function ContextMenu({
       <p className="tree-menu__title mono" data-tip={subject}>
         {subject}
       </p>
+      {error && <p role="alert">{error}</p>}
       {items.map((item) => (
         <button
           key={item.id}
           type="button"
           role="menuitem"
           data-menu-item={item.id}
-          disabled={item.disabled}
+          disabled={item.disabled || pending}
           data-tip={item.tip}
           className={`tree-menu__item${item.group ? " tree-menu__item--group" : ""}${
             item.danger ? " tree-menu__item--danger" : ""
@@ -129,7 +164,7 @@ export function ContextMenu({
           // The grid takes its selection on mousedown; a press on a menu item
           // must not move it out from under the action about to run.
           onMouseDown={(event) => event.preventDefault()}
-          onClick={() => onPick(item.id)}
+          onClick={() => void pick(item.id)}
         >
           {item.label}
         </button>
