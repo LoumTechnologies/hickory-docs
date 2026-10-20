@@ -263,3 +263,23 @@ settings-disclosure cases (5 passed); strict targeted ChatDock checking passed.
 The new case drives registered settings opening, model and ACP selection, observes
 the existing connection handler, closes settings and checks commands retire,
 without any model call. Actual login/provider behavior is mocked.
+
+### Conversation proposal review — 2026-10-19
+
+Proposal state, original/proposed bytes and actual returned statuses have explicit
+bounded JSON UTF-8 reads. Review navigation validates current proposal identity.
+An agent decision returns a retained requires_input request keyed by document,
+backend and proposal, with no edit or host decision call. Enabling auto-accept is
+also human-only; selecting review mode can reduce that authority. Human decisions
+share the actual apply-before-acknowledge controller; failure after local apply
+reports that effects may already have occurred. Changed proposal state invalidates
+old handles. A host accepted/applied status is not a verification result. This
+registry policy does not sandbox an external ACP process or replace host approval
+checks; independent local HTTP clients retain the existing trust model.
+
+Executed focused checks: AgentChanges.test.tsx (9 passed), covering existing
+accept/reject, stale-buffer feedback, revised bytes, authorized ACP auto-apply,
+Python human review and the new structured read/request/actor guard/stale handle
+path. Targeted strict AgentChanges checking passed. Host APIs and editor actions
+are mocked in the new request-path case; actual native/provider approval remains
+a separate witness.

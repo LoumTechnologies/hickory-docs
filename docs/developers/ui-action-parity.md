@@ -318,3 +318,11 @@ Provider/model updates configure the next turn, without claiming a login or
 sending a request. Closing settings retires these commands; switching to ACP
 retires Python-only model controls. Permissions and edit acceptance remain
 separate actor-policy work.
+
+Conversation edit proposals now expose bounded current-state reads, existing
+change-review navigation and an addressable human decision request. Agents cannot
+accept/reject a pending proposal on the human's behalf or enable auto-accept;
+requests retain the proposal identity and later reads show the actual host status.
+Human decisions use the same apply-before-acknowledge controller, including stale
+editor errors and revised bytes. Existing externally authorized ACP auto-apply
+behavior remains separate; Python still requires each approval.

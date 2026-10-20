@@ -86,3 +86,31 @@ it("accepts revised New bytes directly from the Agent pane", async () => {
   await waitFor(() => expect(apply).toHaveBeenCalledWith({ ...change, newText: "My revised proposal\n" }));
   expect(acpApi.edits).toHaveBeenCalledWith("workspace", { id: "change", accepted: true, error: undefined, new_text: "My revised proposal\n" }, "codex");
 });
+
+// Guarantee: docs/guarantees/agent/ui-action-dispatch.md
+it("discloses exact proposals but requires the human decision and cannot self-enable auto-accept", async () => {
+  const { UiActions } = await import("../lib/uiActions");
+  const { UiActionContext } = await import("../lib/uiActionBridge");
+  const { act } = await import("@testing-library/react");
+  const { useState } = await import("react");
+  const registry = new UiActions({ workspace: "p", window: "w" }, () => true, async () => {});
+  const apply = vi.fn();
+  vi.mocked(acpApi.edits).mockResolvedValue({ ...state, edits: { mode: "review", changes: [{ ...change, status: "accepted" }] } });
+  function Harness() { const [current, setCurrent] = useState(state); return <AgentChanges doc="workspace" state={current} running={false} apply={apply} update={setCurrent} />; }
+  render(<UiActionContext.Provider value={registry}><Harness /></UiActionContext.Provider>);
+  const parent = registry.groups().groups.find(g => g.startsWith("agent-changes:"))!;
+  expect(JSON.stringify(registry.observe(parent))).not.toContain("# New");
+  const reader = registry.observe(parent).actions.find(a => a.label === "Read conversation edit review bytes")!;
+  const reading = await registry.act(registry.scope, { id: "python:turn", kind: "agent" }, { handle: reader.handle, arguments: { offset: 0, limit: 8192 }, request_id: "read" });
+  if (reading.status !== "result" || reading.outcome.status !== "completed") throw Error("Expected reading");
+  expect(new TextDecoder().decode(new Uint8Array((reading.outcome.value as { bytes: number[] }).bytes))).toContain("# New 📝");
+  const decision = registry.observe(parent).actions.find(a => a.label === "Decide conversation change")!;
+  await act(async () => { expect(await registry.act(registry.scope, { id: "python:turn", kind: "agent" }, { handle: decision.handle, arguments: { id: "change", accepted: true }, request_id: "ask-human" })).toMatchObject({ outcome: { status: "requires_input", request: "edit-review:workspace:codex:change" } }); });
+  const mode = registry.observe(parent).actions.find(a => a.label === "Set conversation edit review mode")!;
+  expect(await registry.act(registry.scope, { id: "python:turn", kind: "agent" }, { handle: mode.handle, arguments: { mode: "auto-accept" }, request_id: "no-self-approve" })).toMatchObject({ outcome: { status: "requires_input" } });
+  expect(apply).not.toHaveBeenCalled(); expect(acpApi.edits).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole("button", { name: "Accept change" }));
+  await waitFor(() => expect(apply).toHaveBeenCalledWith(change));
+  await waitFor(() => expect(screen.queryByRole("button", { name: "Accept change" })).toBeNull());
+  expect(await registry.act(registry.scope, { id: "python:turn", kind: "agent" }, { handle: decision.handle, arguments: { id: "change", accepted: true }, request_id: "old-proposal" })).toMatchObject({ status: "stale" });
+});
