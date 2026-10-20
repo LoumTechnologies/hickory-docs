@@ -204,3 +204,24 @@ Previous verification:
   - **Nothing was watched in a browser.** The `AnchorBar` is unit-tested and
     mounted, but no human or automated pass has looked at an anchored
     terminal in the running app.
+
+
+### Shared recording strip and monitor dock (issue #72)
+
+The visible recording strip exposes its status/notes through paged reading and
+shares resume/stop callbacks with agent actions. Resume exists only while the
+actual displayed anchor is suspended; an absent anchor retires both actions.
+The monitor dock shares current session navigation and stop callbacks, with
+paged visible title/state/preview reading. Replacing an anchor/session/callback
+retires old revision handles, including identical labels. Pending callbacks
+exclude duplicates. Host refusal stays visible; completion distinguishes an
+actual host-request reply from a void navigation callback and never asserts
+process exit or completed recording. Late errors cannot enter a different
+current target. The workspace preserves the terminal controller's boolean
+host-request result rather than discarding its promise.
+
+Two new focused callback-fixture tests pass for mixed native/model reading and
+actions, replacement/absence retirement and actual callback refusal; six existing
+recording-strip presentation cases pass. Strict TypeScript, file-length and diff
+checks pass. This UI boundary is not a host compare-and-swap guarantee for
+concurrent anchor changes, a real PTY/provider test or native-release witness.

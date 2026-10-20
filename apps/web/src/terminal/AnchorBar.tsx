@@ -11,6 +11,7 @@
 // any pane and know which of the three bindings they are typing into without
 // remembering what they clicked.
 
+import { useTerminalChromeActions } from "./useTerminalChromeActions";
 import type { TerminalAnchor } from "../api/types";
 
 export function AnchorBar({
@@ -26,9 +27,13 @@ export function AnchorBar({
   anchor: TerminalAnchor | null;
   /** The document's name as the tree shows it, when the window knows it. */
   docName?: string;
-  onResume: () => void;
-  onUnanchor: () => void;
+  onResume: () => boolean | void | Promise<boolean | void>;
+  onUnanchor: () => boolean | void | Promise<boolean | void>;
 }) {
+  const controls = useTerminalChromeActions("terminal recording strip", anchor ? { ...anchor, document_name: docName ?? anchor.doc } : null, anchor ? [
+    ...(anchor.suspended ? [{ id: "resume", label: "Resume terminal recording", run: onResume }] : []),
+    { id: "unanchor", label: "Stop terminal writing to document", run: onUnanchor },
+  ] : []);
   if (!anchor) return null;
   // A suspension outranks a foreign program: one needs a person to resume it
   // and the other resolves itself, so if both are true the one with a verb
@@ -66,13 +71,14 @@ export function AnchorBar({
           {anchor.recorded} {anchor.recorded === 1 ? "line" : "lines"}
         </span>
       )}
+      {controls.error && <span role="alert">{controls.error}</span>}
       <span className="anchor-bar-actions">
         {suspended && (
-          <button type="button" onClick={onResume} data-tip="starts a new cell">
+          <button type="button" disabled={!!controls.pending} onClick={() => controls.human("resume")} data-tip="starts a new cell">
             Resume
           </button>
         )}
-        <button type="button" onClick={onUnanchor}>
+        <button type="button" disabled={!!controls.pending} onClick={() => controls.human("unanchor")}>
           Stop writing
         </button>
       </span>

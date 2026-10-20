@@ -1546,8 +1546,8 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
               the screen, so it is never a toast. */}
           <AnchorBar
             anchor={terminals.anchors[tab.target] ?? null}
-            onResume={() => void terminals.resumeAnchor(tab.target)}
-            onUnanchor={() => void terminals.unanchor(tab.target)}
+            onResume={() => terminals.resumeAnchor(tab.target)}
+            onUnanchor={() => terminals.unanchor(tab.target)}
           />
           <Suspense fallback={null}>
             <TerminalPane
@@ -1834,7 +1834,7 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
       <MonitorDock
         sessions={terminals.sessions}
         onOpen={showTerminal}
-        onClose={(id) => void terminals.close(id)}
+        onClose={(id) => terminals.close(id)}
       />
       {/* The top of the queue, brought to you. Answering it costs you
           nothing: the pane you were in keeps the focus. */}

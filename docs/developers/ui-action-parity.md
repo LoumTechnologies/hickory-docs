@@ -695,3 +695,10 @@ operation error or adopt an older supervision reply, closed controllers refuse
 new writes, and automatic-answer state comes from the host. Seven focused
 fixture/controller tests pass. The existing prompt-human-authority policy is
 unchanged and is not claimed as an OS exception or full prompt-answer parity.
+
+Recording-strip and monitor-dock status/actions now share explicit controllers.
+Visible metadata is paged; current target/callback replacement retires handles,
+pending callbacks exclude duplicates, and actual host refusal is reported.
+Navigation callbacks do not certify process state. Two focused mocked-callback
+cases and six recording-strip presentation cases pass. No concurrent host-anchor
+CAS, real PTY/provider or native-release claim is added by this checkpoint.
