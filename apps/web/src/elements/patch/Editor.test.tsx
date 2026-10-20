@@ -1,5 +1,5 @@
-import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
-import { EditorState } from "@codemirror/state";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { EditorState, StateEffect } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
 import { afterEach, expect, it, vi } from "vitest";
 import { request } from "../../api/client";
@@ -7,6 +7,8 @@ import { parseHickDoc } from "../../editor/hickDoc";
 import { materializeProject } from "../../editor/hickLang";
 import type { RenderedSlot } from "../../editor/rendered";
 import type { SlotContext } from "../types";
+import { UiActions } from "../../lib/uiActions";
+import { UiActionContext } from "../../lib/uiActionBridge";
 import { PatchEditor } from "./Editor";
 
 vi.mock("../../api/client", () => ({ request: vi.fn() }));
@@ -21,15 +23,15 @@ const source = `<hick:project/><hick:file id="base" path="app.py">old\n</hick:fi
 -old
 +new
 </hick:patch>`;
-function mount(text = source, readOnly = false) {
+function mount(text = source, readOnly = false, registry?: UiActions) {
   const view = new EditorView({ state: EditorState.create({ doc: text, extensions: [EditorState.readOnly.of(readOnly)] }) }); views.push(view);
   const block = parseHickDoc(text).blocks.find(block => block.name === "patch")!;
   const slot: RenderedSlot = { key: "patch-0", el: document.createElement("div"), kind: "patch", index: 0,
     at: block.from, span: [block.from, block.to], text: text.slice(block.contentFrom, block.contentTo), renderer: "", asserts: [] };
   const cx: SlotContext = { view, path: "project.md", docId: "untitled", execBlocks: [], diagramBlocks: [], runningCells: new Set(), replaying: [], replaceBlockContent: vi.fn() };
-  const ui = render(<PatchEditor slot={slot} cx={cx} />);
+  const ui = render(registry ? <UiActionContext.Provider value={registry}><PatchEditor slot={slot} cx={cx} /></UiActionContext.Provider> : <PatchEditor slot={slot} cx={cx} />);
   const inner = () => EditorView.findFromDOM(ui.container.querySelector<HTMLElement>(".comparison-side:last-child .cm-editor")!)!;
-  return { ui, view, inner };
+  return { ui, view, inner, slot, cx };
 }
 
 // Guarantee: docs/guarantees/literate-projects/patch-edits-revalidate-downstream-construction.md
@@ -77,4 +79,42 @@ it("respects an immutable owning document", async () => {
   const { ui } = mount(source, true);
   await waitFor(() => expect(ui.container.querySelector(".comparison-side .cm-editor")).not.toBeNull());
   expect(ui.container.querySelector(".comparison-side .cm-content")?.getAttribute("contenteditable")).toBe("false");
+});
+
+it("discloses patch choices and preserves agent edit markers through regeneration", async () => {
+  const registry = new UiActions({ workspace: "p", window: "w" }, () => true, async () => {});
+  const { ui, view } = mount(source, false, registry);
+  await waitFor(() => expect(ui.container.querySelector(".comparison-side .cm-editor")).not.toBeNull());
+  const markers: string[] = [];
+  view.dispatch({ effects: StateEffect.appendConfig.of(EditorView.updateListener.of(update => {
+    for (const transaction of update.transactions) if (transaction.isUserEvent("input.uiAgentProjectPatch")) markers.push("agent");
+  })) });
+  const actions = () => registry.groups().groups.flatMap(group => registry.observe(group, 64).actions);
+  const run = async (label: string, args: Record<string, string | number | boolean>) => {
+    const action = actions().find(action => action.label === label && action.enabled)!;
+    let result: unknown;
+    await act(async () => { result = await registry.act(registry.scope, { id: "python:fixture", kind: "agent" }, { handle: action.handle, arguments: args, request_id: crypto.randomUUID() }); });
+    return result;
+  };
+  expect(actions().some(action => action.label === "Select constructed patch file")).toBe(false);
+  await run("Set Patch options visibility", { open: true });
+  expect(await run("Select constructed patch editable side", { side: "old" })).toMatchObject({ status: "result" });
+  expect((screen.getByLabelText("Editable side") as HTMLSelectElement).value).toBe("old");
+  fireEvent.change(screen.getByLabelText("Editable side"), { target: { value: "new" } });
+  expect(await run("Replace comparison draft range", { from: 0, to: 3, text: "agent code" })).toMatchObject({ status: "result", outcome: { value: { draft_changed: true, saved: false } } });
+  await waitFor(() => expect(view.state.doc.toString()).toContain("+agent code"));
+  expect(markers).toEqual(["agent"]);
+  await run("Set Patch options visibility", { open: false });
+  expect(actions().some(action => action.label === "Select constructed patch file")).toBe(false);
+});
+it("does not adopt an inspection error from a retired document owner", async () => {
+  const { ui, slot, cx } = mount();
+  let reject!: (error: Error) => void;
+  vi.mocked(request).mockImplementation(async (_method, path) => path.includes("first") ? new Promise((_resolve, fail) => { reject = fail; }) : { entry: "project.md", sources: { "project.md": source } });
+  ui.rerender(<PatchEditor slot={slot} cx={{ ...cx, docId: "first" }} />);
+  await waitFor(() => expect(reject).toBeTruthy());
+  ui.rerender(<PatchEditor slot={slot} cx={{ ...cx, docId: "second" }} />);
+  await screen.findByText("app.py · Up to date");
+  await act(async () => { reject(Error("retired inspection failed")); });
+  expect(screen.queryByText("retired inspection failed")).toBeNull();
 });

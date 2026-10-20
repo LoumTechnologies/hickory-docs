@@ -843,3 +843,18 @@ Two focused recorded-profile cases pass with a real CodeMirror fixture: mixed
 native/model disclosure/pinning, exact aggregate reading, old-run handle refusal,
 context-selection cleanup and unrelated-buffer navigation safety. Targeted
 TypeScript checking passes. No real profiling execution/provider is asserted.
+
+PatchEditor now shares file/side selectors only inside the existing Patch options
+disclosure, plus fallback source opening, status reading and error reload. Owner
+replacement retires inspection state; retired async saves do not adopt into the
+replacement editor. Captured-project identity changes freeze comparison edits
+until reinspection and refuse an old draft save. ComparisonEditor forwards its
+agent input marker through patch regeneration into editable document transactions;
+this is a local transaction marker, not a durable authorship certification.
+
+Four existing patch behavior/safety cases and two new focused mixed-registry and
+retired-inspection cases pass. The mixed case opens actual options, selects the
+Old side, switches natively to New, edits the real CodeMirror draft through the
+agent registry and checks the regenerated source/agent marker. Targeted TypeScript
+checking passes. These cases do not certify cross-process project-apply races,
+external captured-project persistence, provider execution or native packaging.

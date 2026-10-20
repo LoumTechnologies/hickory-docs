@@ -18,7 +18,7 @@ import { DiffView } from "./DiffView";
 import { MarginActions } from "./MarginActions";
 
 export function CodeEditor({ path, item, base, presentation, editable, onChange, compact }: {
-  path: string; item: ComparisonSource; base?: string; presentation?: ComparisonState["presentation"]; editable: boolean; onChange: (source: string) => void; compact?: boolean;
+  path: string; item: ComparisonSource; base?: string; presentation?: ComparisonState["presentation"]; editable: boolean; onChange: (source: string, assisted?: boolean) => void; compact?: boolean;
 }) {
   const {label,text:source} = item;
   const [mounted,setMounted] = useState<EditorView|null>(null);
@@ -35,7 +35,7 @@ export function CodeEditor({ path, item, base, presentation, editable, onChange,
       ...(language ? languageExtensions(language) : []), comparisonField, completions({}),
       access.current.of([EditorState.readOnly.of(!editable), EditorView.editable.of(editable)]),
       EditorView.contentAttributes.of({ "aria-label": label }),
-      EditorView.updateListener.of(update => { if (update.docChanged && !synchronizing.current) changed.current(update.state.doc.toString()); }),
+      EditorView.updateListener.of(update => { if (update.docChanged && !synchronizing.current) changed.current(update.state.doc.toString(), update.transactions.some(transaction => transaction.isUserEvent("input.uiAgentSource"))); }),
     ] }) });
     view.current = editor; setMounted(editor);
     return () => { editor.destroy(); view.current = null; };
@@ -60,11 +60,11 @@ export function CodeEditor({ path, item, base, presentation, editable, onChange,
 
 /** One N-source model; two chosen endpoints, with independent storage and evidence. */
 export function ComparisonEditor({ path, model, onChange, allowFork = false, compact = false, options }: {
-  path: string; model: ComparisonModel; onChange?: (model: ComparisonModel) => void; allowFork?: boolean; compact?: boolean; options?: ReactNode;
+  path: string; model: ComparisonModel; onChange?: (model: ComparisonModel, assisted?: boolean) => void; allowFork?: boolean; compact?: boolean; options?: ReactNode;
 }) {
   const [layout, setLayout] = useState("side-by-side");
   const old = model.sources.find(s => s.id === model.old)!, next = model.sources.find(s => s.id === model.new)!;
-  const change = (side: "old" | "new", text: string) => onChange?.(editComparison(model, side, text));
+  const change = (side: "old" | "new", text: string, assisted?: boolean) => onChange?.(editComparison(model, side, text), assisted);
   const controls = <ComparisonControls path={path} model={model} layout={layout} setLayout={setLayout} onChange={onChange} allowFork={allowFork} compact={compact} options={options} />;
   return <section className={`comparison-editor${compact ? " comparison-editor--compact" : ""}`} aria-label={`Comparison of ${path}`}>
     {compact ? <MarginActions label="Patch options" glyph="⋯">{controls}</MarginActions> : <header className="doc-tab-toolbar">{controls}</header>}
@@ -83,9 +83,9 @@ export function ComparisonEditor({ path, model, onChange, allowFork = false, com
     }</ComparisonTools>
       : <div className={`comparison-panes comparison-panes--${layout}`}>
         {(layout === "side-by-side" || canEdit(model, "old")) && <CodeEditor path={old.path ?? path} item={old} compact={compact} base={layout === "side-by-side" ? next.text : undefined} presentation="old"
-          editable={!!onChange && canEdit(model, "old")} onChange={text => change("old", text)} />}
+          editable={!!onChange && canEdit(model, "old")} onChange={(text, assisted) => change("old", text, assisted)} />}
         <CodeEditor path={next.path ?? path} item={next} compact={compact} base={old.text} presentation={layout === "side-by-side" ? "new" : "inline"}
-          editable={!!onChange && canEdit(model, "new")} onChange={text => change("new", text)} />
+          editable={!!onChange && canEdit(model, "new")} onChange={(text, assisted) => change("new", text, assisted)} />
       </div>}
   </section>;
 }
