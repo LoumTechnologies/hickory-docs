@@ -1,3 +1,4 @@
+import { useUiReading } from "../lib/uiReading";
 import "./DiffView.css";
 import type { ReactNode } from "react";
 
@@ -50,6 +51,7 @@ export function DiffView({
   label?: string;
   gutter?: (side: "old" | "new", line: number) => ReactNode;
 }) {
+  useUiReading("rendered diff", { path, label: label ?? (staged ? "staged" : "unstaged"), binary, diff: binary ? null : diff, scope: "Displayed unified diff; no binary contents or file edit baseline" }, [path, diff, binary, staged, label]);
   const lines = diff.replace(/\n$/, "").split("\n");
   let oldLine = 0, newLine = 0;
   return (

@@ -1,3 +1,6 @@
+import { ComparisonControls } from "./ComparisonControls";
+import { useComparisonDraftActions } from "./useComparisonDraftActions";
+import { useEditorActions } from "../editor/uiEditorActions";
 import { isDebuggable } from "../debug/languages";
 import { DebugLaunchRail, DebugLaunchAction } from "../debug/DebugRail";
 import { RightRail } from "../editor/RightRail";
@@ -9,7 +12,7 @@ import { languageExtensions, languageFromPath } from "../editor/languages";
 import { completions } from "../lsp/completion";
 import { comparisonField, setComparison, type ComparisonState } from "../editor/comparison";
 import { editorChrome } from "../editor/chrome";
-import { canEdit, comparisonDiff, editComparison, forkComparison, type ComparisonModel, type ComparisonSource } from "../lib/projectComparison";
+import { canEdit, comparisonDiff, editComparison, type ComparisonModel, type ComparisonSource } from "../lib/projectComparison";
 import { ComparisonTools } from "./ComparisonTools";
 import { DiffView } from "./DiffView";
 import { MarginActions } from "./MarginActions";
@@ -20,6 +23,8 @@ export function CodeEditor({ path, item, base, presentation, editable, onChange,
   const {label,text:source} = item;
   const [mounted,setMounted] = useState<EditorView|null>(null);
   const host = useRef<HTMLDivElement>(null), view = useRef<EditorView | null>(null);
+  useEditorActions(mounted, `comparison:${item.id}:${path}`);
+  useComparisonDraftActions(mounted, editable, JSON.stringify({ id: item.id, path, kind: item.kind, target: item.target, code_uri: item.codeUri }));
   const changed = useRef(onChange); changed.current = onChange;
   const access = useRef(new Compartment());
   const synchronizing = useRef(false);
@@ -60,17 +65,7 @@ export function ComparisonEditor({ path, model, onChange, allowFork = false, com
   const [layout, setLayout] = useState("side-by-side");
   const old = model.sources.find(s => s.id === model.old)!, next = model.sources.find(s => s.id === model.new)!;
   const change = (side: "old" | "new", text: string) => onChange?.(editComparison(model, side, text));
-  const controls = <>
-      {!compact && <span>{old.label} → {next.label} · {model.evidence === "verified" ? "output equality verified" : "unverified"}</span>}
-      <label>Layout <select aria-label="Comparison layout" value={layout} onChange={e => setLayout(e.target.value)}>
-        <option value="inline">Inline</option><option value="side-by-side">Side by side</option><option value="patch">Patch</option>
-      </select></label>
-      {allowFork && model.policy === "neither" && <button className="btn" onClick={() => onChange?.(forkComparison(model))}>Fork editable comparison</button>}
-      {model.sources.length > 2 && <label>New source <select value={model.new} onChange={e => onChange?.({ ...model, new: e.target.value, policy: "neither", evidence: "unverified" })}>
-        {model.sources.filter(s => s.id !== model.old).map(s => <option key={s.id} value={s.id}>{s.label}</option>)}
-      </select></label>}
-      {options}
-    </>;
+  const controls = <ComparisonControls path={path} model={model} layout={layout} setLayout={setLayout} onChange={onChange} allowFork={allowFork} compact={compact} options={options} />;
   return <section className={`comparison-editor${compact ? " comparison-editor--compact" : ""}`} aria-label={`Comparison of ${path}`}>
     {compact ? <MarginActions label="Patch options" glyph="⋯">{controls}</MarginActions> : <header className="doc-tab-toolbar">{controls}</header>}
     {layout === "patch" ? <ComparisonTools path={old.path ?? path} source={old} view={null}>{oldDebug =>
