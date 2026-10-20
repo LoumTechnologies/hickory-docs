@@ -1,3 +1,4 @@
+import { prepareEditorInput } from "./textInput";
 import { useId } from "react";
 import type { EditorView } from "@codemirror/view";
 import { undo, redo, undoDepth, redoDepth } from "@codemirror/commands";
@@ -22,19 +23,18 @@ export function useEditorEditing(view: EditorView | null, owner: {
     if (!writable() || !view) return { status: "unavailable", reason: "Editor is not writable" };
     const from = args.from as number, to = args.to as number, text = args.text as string;
     if (from > to || to > view.state.doc.length) return { status: "unavailable", reason: "Range outside current editor" };
-    const before = view.state.doc.toString(), expected = before.slice(0, from) + text + before.slice(to);
+    const before = view.state.doc.toString(), prepared = prepareEditorInput(before, [{ from, to }], text);
+    if ("reason" in prepared) return { status: "unavailable", reason: prepared.reason };
     view.dispatch({ changes: { from, to, insert: text }, userEvent: actor.kind === "agent" ? "input.uiAgentSource" : "input" });
-    return changed(before, view.state.doc.toString() === expected);
+    return changed(before, view.state.doc.toString() === prepared.expected);
   });
   add("replace-selections", `Replace ${owner.label} selections`, { text: { type: "string", maxLength: 1048576 } }, () => true, async (args, actor) => {
     if (!writable() || !view) return { status: "unavailable", reason: "Editor is not writable" };
     const before = view.state.doc.toString(), text = args.text as string;
-    if (new TextEncoder().encode(text).length * view.state.selection.ranges.length > 1048576) return { status: "unavailable", reason: "Selection replacement exceeds the 1 MiB insertion budget; reduce text or select a smaller group" };
-    let expected = "", cursor = 0;
-    for (const range of view.state.selection.ranges) { expected += before.slice(cursor, range.from) + text; cursor = range.to; }
-    expected += before.slice(cursor);
+    const prepared = prepareEditorInput(before, view.state.selection.ranges, text);
+    if ("reason" in prepared) return { status: "unavailable", reason: prepared.reason };
     view.dispatch({ ...view.state.replaceSelection(text), userEvent: actor.kind === "agent" ? "input.uiAgentSource" : "input" });
-    return changed(before, view.state.doc.toString() === expected);
+    return changed(before, view.state.doc.toString() === prepared.expected);
   });
   for (const [key, command, depth] of [["undo", undo, undoDepth], ["redo", redo, redoDepth]] as const) add(key, `${key === "undo" ? "Undo" : "Redo"} ${owner.label} edit`, {}, () => !!view && depth(view.state) > 0, async () => {
     if (!writable() || !view) return { status: "unavailable", reason: "Editor is not writable" };
