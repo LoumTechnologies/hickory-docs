@@ -74,3 +74,36 @@ it("writes an owned CSV table through real CodeMirror and retires its original s
     expect(registry.observe(parent).actions.find(a => a.label === "Write table cell contents")!.enabled).toBe(false);
   } finally { editor.destroy(); editor.dom.remove(); }
 });
+
+it("links nested format/size/settings controls to the owning table and guards resize submission", async () => {
+  const { registry, invoke } = tools(); const writes = vi.fn(); let current = true;
+  function Harness() {
+    const [source, setSource] = useState("price\n123.456\n"), [formats, setFormats] = useState("");
+    return <TablePanel source={source} formats={formats} sourceCurrent={() => current} onChange={(text, nextFormats = "", actor) => { writes(text, nextFormats, actor); setSource(text); setFormats(nextFormats); }} />;
+  }
+  render(<UiActionContext.Provider value={registry}><Harness /></UiActionContext.Provider>);
+  const parent = registry.groups().groups.find(g => g.startsWith("table:"))!;
+  await invoke(parent, "Select table cell or range", { row: 1, column: 0, extend: false });
+  const format = registry.groups().groups.find(g => g.startsWith("table-format:"))!;
+  expect(registry.observe(format).actions[0].value).toMatchObject({ owner: parent });
+  await invoke(format, "Set table number format", { format: "USD" });
+  expect(writes.mock.calls.at(-1)).toEqual(["price\n123.456\n", "A2:USD", { id: "python:turn", kind: "agent" }]);
+  expect(registry.observe(parent).actions.some(a => a.label.includes("prose wrapping"))).toBe(false);
+  const gear = registry.observe("feature-settings").actions.find(a => a.label === "Set Table settings visibility")!;
+  expect(gear.value).toMatchObject({ owner: parent });
+  await act(async () => { await registry.act(registry.scope, { id: "python:turn", kind: "agent" }, { handle: gear.handle, arguments: { open: true }, request_id: "gear" }); });
+  await invoke(`${parent}/settings`, "Set table prose wrapping", { checked: true });
+  await invoke(parent, "Set table size dialog visibility", { open: true });
+  const size = registry.groups().groups.find(g => g.startsWith("table-size:"))!;
+  await invoke(size, "Set table size draft", { rows: "3", columns: "1" });
+  const old = registry.observe(size).actions.find(a => a.label === "Apply table size")!;
+  expect(old.value).toMatchObject({ owner: parent });
+  current = false;
+  expect(await registry.act(registry.scope, { id: "python:turn", kind: "agent" }, { handle: old.handle, arguments: {}, request_id: "old-size" })).toMatchObject({ status: "stale" });
+  expect(writes).toHaveBeenCalledOnce();
+  current = true;
+  await invoke(size, "Apply table size", {});
+  expect(writes.mock.calls.at(-1)![0]).toBe("price\n123.456\n\n");
+  expect(writes.mock.calls.at(-1)![2]).toEqual({ id: "python:turn", kind: "agent" });
+  expect(registry.observe(size).actions).toEqual([]);
+});

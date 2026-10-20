@@ -4,7 +4,7 @@ import { useUiCommands } from "../lib/uiActionBridge";
 import "./FeatureSettings.css";
 
 /** Settings stay beside the feature they control, outside pane clipping. */
-export function FeatureSettings({ label, children }: { label: string; children: ReactNode }) {
+export function FeatureSettings({ label, children, owner }: { label: string; children: ReactNode; owner?: string }) {
   const [position, setPosition] = useState<{ right: number; top?: number; bottom?: number } | null>(null);
   const id = useId();
   const root = useRef<HTMLSpanElement>(null);
@@ -20,7 +20,7 @@ export function FeatureSettings({ label, children }: { label: string; children: 
   };
   useUiCommands([{ key: `feature-settings:${id}`, command: {
     label: `Set ${label} visibility`, parent: "feature-settings", subject: `feature-settings:${id}`, parameters: { open: { type: "boolean" } }, prerequisites: [],
-    read: () => ({ revision: String(!!position), enabled: !!root.current, value: { open: !!position, disclosure: "Children mount only while this settings panel is open" } }),
+    read: () => ({ revision: String(!!position), enabled: !!root.current, value: { open: !!position, owner: owner ?? null, disclosure: "Children mount only while this settings panel is open" } }),
     execute: async args => { if (args.open) open(); else close(); return { status: "completed", value: { open: Boolean(args.open), result: "Observe disclosed setting controls" } }; },
   } }]);
   useEffect(() => {

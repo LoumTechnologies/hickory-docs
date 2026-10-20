@@ -15,7 +15,9 @@
 // what is about to go is simply on screen next to the button, while the
 // number is still being typed.
 
-import { useState } from "react";
+import { useUiCommands, useUiRevision } from "../lib/uiActionBridge";
+import type { UiActor, UiCommand, UiOutcome } from "../lib/uiActions";
+import { useId, useState } from "react";
 
 /**
  * The most cells a table may be set to.
@@ -34,7 +36,9 @@ export interface TableSizeDialogProps {
    * can say what it is about to take rather than only how much. */
   filledRows: number;
   filledColumns: number;
-  onApply: (rows: number, columns: number) => void;
+  onApply: (rows: number, columns: number, actor?: UiActor) => void | boolean;
+  sourceCurrent?: () => boolean;
+  owner?: string;
   onCancel: () => void;
 }
 
@@ -44,6 +48,8 @@ export function TableSizeDialog({
   filledRows,
   filledColumns,
   onApply,
+  sourceCurrent,
+  owner,
   onCancel,
 }: TableSizeDialogProps) {
   // Held as text, not as numbers: a number input that snaps an empty field
@@ -60,6 +66,23 @@ export function TableSizeDialog({
   const losingRows = valid ? Math.max(0, filledRows - asked.rows) : 0;
   const losingColumns = valid ? Math.max(0, filledColumns - asked.columns) : 0;
 
+  const parent = `table-size:${useId()}`;
+  const [error, setError] = useState("");
+  const current = () => sourceCurrent?.() ?? true;
+  const revision = useUiRevision(() => [rows, columns, filledRows, filledColumns, wantRows, wantColumns, current(), error]);
+  const submit = (actor: UiActor): UiOutcome => {
+    if (!valid || tooBig || !current()) return { status: "unavailable", reason: "Choose valid dimensions for the current source (at most 20000 cells)" };
+    const result = onApply(asked.rows, asked.columns, actor);
+    return result === false ? { status: "unavailable", reason: "Owning table refused the resize; inspect current source" } : { status: "completed", value: { resize_handler_returned: true, source_write: result === true ? "dispatched" : "unconfirmed; inspect source", saved: "not established" } };
+  };
+  const commands: { key: string; command: UiCommand }[] = [
+    { key: `${parent}:draft`, command: { label: "Set table size draft", parent, subject: parent, parameters: { rows: { type: "string", maxLength: 32 }, columns: { type: "string", maxLength: 32 } }, prerequisites: [], read: () => ({ revision: revision(), value: { owner: owner ?? null }, enabled: true }), execute: async args => { setWantRows(args.rows as string); setWantColumns(args.columns as string); return { status: "completed", value: { draft_changed: true, resized: false } }; } } },
+    { key: `${parent}:apply`, command: { label: "Apply table size", parent, subject: parent, parameters: {}, prerequisites: [], read: () => ({ revision: revision(), value: { owner: owner ?? null }, enabled: valid && !tooBig && current(), reason: !current() ? "Owning source changed/closed/read-only" : !valid || tooBig ? "Use positive whole dimensions and at most 20000 cells" : undefined }), execute: async (_args, actor) => submit(actor) } },
+    { key: `${parent}:cancel`, command: { label: "Cancel table size dialog", parent, subject: parent, parameters: {}, prerequisites: [], read: () => ({ revision: revision(), value: { owner: owner ?? null }, enabled: true }), execute: async () => { onCancel(); return { status: "completed", value: { close_requested: true } }; } } },
+    { key: `${parent}:read`, command: { label: "Read table size state", parent, subject: parent, parameters: {}, prerequisites: [], read: () => ({ revision: revision(), value: { owner: owner ?? null }, enabled: true }), execute: async () => ({ status: "completed", value: { owner: owner ?? null, rows, columns, draft_rows: wantRows, draft_columns: wantColumns, valid, too_big: tooBig, losing_rows: losingRows, losing_columns: losingColumns, write_scope_current: current(), error } }) } },
+  ];
+  const invoke = useUiCommands(commands);
+  const click = (key: string) => { void invoke(`${parent}:${key}`).catch(reason => setError(String(reason))); };
   return (
     <div
       className="table-size"
@@ -68,16 +91,17 @@ export function TableSizeDialog({
       onKeyDown={(event) => {
         if (event.key === "Escape") {
           event.preventDefault();
-          onCancel();
+          click("cancel");
         }
       }}
     >
+      {error && <p role="alert">{error}</p>}
       <form
         className="table-size__form"
         onSubmit={(event) => {
           event.preventDefault();
           if (!valid || tooBig) return;
-          onApply(asked.rows, asked.columns);
+          click("apply");
         }}
       >
         <label className="table-size__field">
@@ -107,10 +131,10 @@ export function TableSizeDialog({
             onChange={(event) => setWantColumns(event.target.value)}
           />
         </label>
-        <button type="submit" className="btn btn-small" disabled={!valid || tooBig}>
+        <button type="submit" className="btn btn-small" disabled={!valid || tooBig || !current()}>
           Apply
         </button>
-        <button type="button" className="btn btn-small" onClick={onCancel}>
+        <button type="button" className="btn btn-small" onClick={() => click("cancel")}>
           Cancel
         </button>
       </form>

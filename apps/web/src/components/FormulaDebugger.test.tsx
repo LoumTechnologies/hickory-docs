@@ -208,3 +208,29 @@ describe("stepping through the formulas", () => {
     await waitFor(() => expect(trace).toHaveBeenCalledTimes(2));
   });
 });
+
+// Guarantee: docs/guarantees/agent/ui-action-dispatch.md
+it("drives captured trace navigation/read and rejects a prior trace after source changes", async () => {
+  const { UiActions } = await import("../lib/uiActions");
+  const { UiActionContext } = await import("../lib/uiActionBridge");
+  const { act } = await import("@testing-library/react");
+  const registry = new UiActions({ workspace: "p", window: "w" }, () => true, async () => {});
+  vi.spyOn(api, "traceFormulas").mockResolvedValueOnce({ steps: STEPS, values: {}, errors: {} }).mockImplementation(() => new Promise(() => {}));
+  const onStep = vi.fn();
+  const content = (revision: string) => <UiActionContext.Provider value={registry}><FormulaDebugger owner="table-owner" language="python" rows={[["10", "=A1*2"]]} revision={revision} onStep={onStep} onClose={() => {}} /></UiActionContext.Provider>;
+  const view = render(content("first"));
+  await waitFor(() => expect(where()).toContain("Step 1 of 2"));
+  const parent = registry.groups().groups.find(g => g.startsWith("formula-trace:"))!;
+  const next = registry.observe(parent).actions.find(a => a.label === "Next formula trace step")!;
+  expect(next.value).toMatchObject({ owner: "table-owner" });
+  await act(async () => { await registry.act(registry.scope, { id: "python:turn", kind: "agent" }, { handle: next.handle, arguments: {}, request_id: "next" }); });
+  expect(where()).toContain("Step 2 of 2");
+  const read = registry.observe(parent).actions.find(a => a.label === "Read formula trace step bytes")!;
+  const reading = await registry.act(registry.scope, { id: "python:turn", kind: "agent" }, { handle: read.handle, arguments: { offset: 0, limit: 8192 }, request_id: "read" });
+  if (reading.status !== "result" || reading.outcome.status !== "completed") throw Error("Expected bytes");
+  expect(JSON.parse(new TextDecoder().decode(new Uint8Array((reading.outcome.value as { bytes: number[] }).bytes)))).toMatchObject({ index: 1, step: { cell: "A2", value: "25" } });
+  view.rerender(content("changed"));
+  expect(where()).toContain("Working out the order");
+  expect(await registry.act(registry.scope, { id: "python:turn", kind: "agent" }, { handle: read.handle, arguments: { offset: 0, limit: 8192 }, request_id: "old" })).toMatchObject({ status: "stale" });
+  expect(onStep).toHaveBeenLastCalledWith(null);
+});

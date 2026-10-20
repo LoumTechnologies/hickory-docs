@@ -45,6 +45,7 @@ import { ContextMenu } from "./ContextMenu";
 import { FormulaDebugger } from "./FormulaDebugger";
 import { TableSizeDialog } from "./TableSizeDialog";
 import { TableCell } from "./TableCell";
+import { UiCheckbox } from "./UiCheckbox";
 import { FeatureSettings } from "./FeatureSettings";
 import { useTableLayout } from "./useTableLayout";
 
@@ -359,7 +360,7 @@ export function TablePanel({
       // lands in the undo history, which is how pressing Delete on already
       // empty cells ends up as a commit somebody has to explain.
       if (text !== source || (formats !== undefined && nextFormats !== formats)) {
-        if (actor) onChange?.(text, formats === undefined ? undefined : nextFormats, actor);
+        if (actor?.kind === "agent") onChange?.(text, formats === undefined ? undefined : nextFormats, actor);
         else if (formats === undefined) onChange?.(text);
         else onChange?.(text, nextFormats);
       }
@@ -980,11 +981,11 @@ export function TablePanel({
     }, true);
     add("size", "Set table size dialog visibility", { open: { type: "boolean" } }, !editing, async args => { setSizing(args.open as boolean); return { status: "completed", value: args.open }; });
   }
-  if (language) {
+  if (editable && language) {
     add("formulas", "Set table formula visibility", { show: { type: "boolean" } }, true, async args => { setShowFormulas(args.show as boolean); return { status: "completed", value: args.show }; });
     if (hasFormulas) add("debug", "Set formula debugger visibility", { open: { type: "boolean" } }, true, async args => { setDebugging(args.open as boolean); return { status: "completed", value: args.open }; });
   }
-  add("fit", "Set table prose wrapping", { enabled: { type: "boolean" } }, true, async args => { setFitProse(args.enabled as boolean); return { status: "completed", value: args.enabled }; });
+
   add("column-width", "Resize table column", { column: index, pixels: { type: "number", minimum: MIN_COLUMN_WIDTH, maximum: MAX_COLUMN_WIDTH } }, true, async args => { if ((args.column as number) >= width) return { status: "unavailable", reason: "Column outside table" }; widen(args.column as number, args.pixels as number); return { status: "completed", value: { layout_change_requested: true } }; });
   add("row-height", "Resize table row", { row: index, pixels: { type: "number", minimum: MIN_ROW_HEIGHT, maximum: 2000 } }, true, async args => { if ((args.row as number) >= height) return { status: "unavailable", reason: "Row outside table" }; heighten(args.row as number, args.pixels as number); return { status: "completed", value: { layout_change_requested: true } }; });
   add("fit-column", "Fit table column to rendered contents", { column: index }, true, async args => { if ((args.column as number) >= width) return { status: "unavailable", reason: "Column outside table" }; fitColumn(args.column as number); return { status: "completed", value: { layout_measurement_requested: true } }; });
@@ -1148,9 +1149,9 @@ export function TablePanel({
             }
           }}
         />
-        <FeatureSettings label="Table settings">
-          <label><input type="checkbox" checked={fitProse}
-            onChange={event => setFitProse(event.target.checked)} />Wrap to prose width</label>
+        <FeatureSettings label="Table settings" owner={parent}>
+          <label><UiCheckbox label="table prose wrapping" owner={parent} checked={fitProse}
+            onCheckedChange={setFitProse} />Wrap to prose width</label>
         </FeatureSettings>
       </div>
 
@@ -1505,9 +1506,10 @@ export function TablePanel({
               ? `− ${selectedColumns.length} Columns`
               : "− Column"}
           </button>
-          {formats !== undefined && <TableFormatControl table={table} selection={selection}
+          {formats !== undefined && <TableFormatControl owner={parent} table={table} selection={selection}
             draft={editing && active ? { ...active, value: draft } : null}
-            onChange={next => { apply(next, false); setEditing(false); }} />}
+            sourceCurrent={sourceIsCurrent}
+            onChange={(next, actor) => { const ok = apply(next, false, actor); if (ok) setEditing(false); return ok; }} />}
           {language && (
             <button
               type="button"
@@ -1566,17 +1568,20 @@ export function TablePanel({
 
       {sizing && editable && (
         <TableSizeDialog
+          owner={parent}
           rows={height}
           columns={width}
           filledRows={filledSize(table).rows}
           filledColumns={filledSize(table).columns}
+          sourceCurrent={sourceIsCurrent}
           onCancel={() => setSizing(false)}
-          onApply={(rows, columns) => {
-            apply(resizeTable(table, rows, columns));
+          onApply={(rows, columns, actor) => {
+            if (!apply(resizeTable(table, rows, columns), true, actor)) return false;
             setSizing(false);
             // The old selection may name a cell that is no longer there.
             setSelection(null);
             setEditing(false);
+            return true;
           }}
         />
       )}
@@ -1586,6 +1591,7 @@ export function TablePanel({
           a person cannot see by looking at the grid. */}
       {debugging && language && (
         <FormulaDebugger
+          owner={parent}
           language={language}
           rows={table.rows}
           revision={source}

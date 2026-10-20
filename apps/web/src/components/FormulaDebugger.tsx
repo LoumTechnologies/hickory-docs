@@ -17,8 +17,10 @@
 // The steps come from the same host call that computes the grid, so the
 // panel and the values beside it can never disagree about what happened.
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useId, useMemo, useState } from "react";
 
+import { useUiCommands, useUiRevision } from "../lib/uiActionBridge";
+import type { UiCommand } from "../lib/uiActions";
 import { api } from "../api/client";
 import type { FormulaStep } from "../api/types";
 
@@ -35,6 +37,7 @@ export interface FormulaDebuggerProps {
    * Null while nothing is loaded, or when there is nothing to step through. */
   onStep: (step: FormulaStep | null) => void;
   onClose: () => void;
+  owner?: string;
 }
 
 export function FormulaDebugger({
@@ -43,9 +46,14 @@ export function FormulaDebugger({
   revision,
   onStep,
   onClose,
+  owner,
 }: FormulaDebuggerProps) {
-  const [steps, setSteps] = useState<FormulaStep[] | null>(null);
-  const [trouble, setTrouble] = useState<string | null>(null);
+  const traceKey = JSON.stringify([language, revision]);
+  const [loadedFor, setLoadedFor] = useState<string | null>(null);
+  const [storedSteps, setSteps] = useState<FormulaStep[] | null>(null);
+  const [storedTrouble, setTrouble] = useState<string | null>(null);
+  const steps = loadedFor === traceKey ? storedSteps : null;
+  const trouble = loadedFor === traceKey ? storedTrouble : null;
   /** Which step is showing. Zero is the first cell's turn — there is no
    * "before the start" state, because a table has no line to be paused on. */
   const [at, setAt] = useState(0);
@@ -57,7 +65,7 @@ export function FormulaDebugger({
     api.traceFormulas(language, rows).then(
       (trace) => {
         if (!live) return;
-        setSteps(trace.steps);
+        setLoadedFor(traceKey); setSteps(trace.steps);
         setAt(0);
         // A cycle answers with no steps and the circle in `errors`, which
         // the grid is already reporting on the cells themselves.
@@ -69,11 +77,11 @@ export function FormulaDebugger({
       },
       (error: unknown) => {
         if (!live) return;
-        setSteps([]);
+        setLoadedFor(traceKey); setSteps([]);
         setTrouble(error instanceof Error ? error.message : String(error));
       },
     );
-    return () => {
+      return () => {
       live = false;
     };
     // `revision` stands in for the rows, which are rebuilt on every render.
@@ -99,6 +107,27 @@ export function FormulaDebugger({
   const first = at <= 0;
   const last = at >= total - 1;
 
+  const parent = `formula-trace:${useId()}`;
+  const currentRevision = useUiRevision(() => [traceKey, steps, trouble, at]);
+  const choose = (index: number) => setAt(index);
+  const commands: { key: string; command: UiCommand }[] = [];
+  const add = (key: string, label: string, enabled: boolean, execute: UiCommand["execute"], parameters: UiCommand["parameters"] = {}) => commands.push({ key: `${parent}:${key}`, command: { label, parent, subject: parent, parameters, prerequisites: ["Current captured formula evaluation order; navigation is replay, not reverse execution"], read: () => ({ revision: currentRevision(), enabled, reason: !enabled ? "Wait for a current trace and choose an available step" : undefined, value: { owner: owner ?? null, index: total ? at : null, total } }), execute } });
+  for (const [key, label, index, enabled] of [
+    ["first", "First formula trace step", 0, !first && total > 0],
+    ["previous", "Previous formula trace step", at - 1, !first && total > 0],
+    ["next", "Next formula trace step", at + 1, !last && total > 0],
+    ["last", "Last formula trace step", total - 1, !last && total > 0],
+  ] as const) add(key, label, enabled, async () => { choose(index); return { status: "completed", value: { selected_index: index, scope: "Replay of captured cell evaluation order only" } }; });
+  add("select", "Select formula trace step", total > 0, async args => { const index = args.index as number; if (index >= total) return { status: "unavailable", reason: "Step outside current trace" }; choose(index); return { status: "completed", value: { selected_index: index, scope: "Captured order only" } }; }, { index: { type: "number", minimum: 0, maximum: 1000000, integer: true } });
+  add("close", "Close formula trace", true, async () => { onClose(); return { status: "completed", value: { close_requested: true } }; });
+  add("read", "Read formula trace step bytes", true, async args => {
+    const bytes = new TextEncoder().encode(JSON.stringify({ owner: owner ?? null, language, pending: steps === null, total, index: total ? at : null, batches, step, error: trouble, scope: "Actual host trace for the captured table revision supplied to this controller; evaluation order replay does not step inside an expression, reverse a process or independently verify correctness" }));
+    const offset = args.offset as number, end = Math.min(offset + (args.limit as number), bytes.length);
+    if (offset > bytes.length) return { status: "unavailable", reason: "Offset outside current formula step" };
+    return { status: "completed", value: { bytes: Array.from(bytes.slice(offset, end)), encoding: "JSON UTF-8", offset, total_bytes: bytes.length, next_offset: end < bytes.length ? end : null } };
+  }, { offset: { type: "number", minimum: 0, maximum: 1000000000, integer: true }, limit: { type: "number", minimum: 1, maximum: 8192, integer: true } });
+  const invoke = useUiCommands(commands);
+  const click = (key: string) => { void invoke(`${parent}:${key}`).catch(reason => setTrouble(String(reason))); };
   return (
     <div className="formula-debug" data-testid="formula-debug">
       <div className="formula-debug__bar" role="toolbar" aria-label="Step through the formulas">
@@ -107,7 +136,7 @@ export function FormulaDebugger({
           className="btn btn-small"
           disabled={first || total === 0}
           onMouseDown={(event) => event.preventDefault()}
-          onClick={() => setAt(0)}
+          onClick={() => click("first")}
           data-tip="Back to the first cell that ran"
         >
           ⏮
@@ -117,7 +146,7 @@ export function FormulaDebugger({
           className="btn btn-small"
           disabled={first || total === 0}
           onMouseDown={(event) => event.preventDefault()}
-          onClick={() => setAt((n) => Math.max(0, n - 1))}
+          onClick={() => click("previous")}
           data-tip="The cell that ran before this one"
         >
           ◀ Back
@@ -127,7 +156,7 @@ export function FormulaDebugger({
           className="btn btn-small"
           disabled={last || total === 0}
           onMouseDown={(event) => event.preventDefault()}
-          onClick={() => setAt((n) => Math.min(total - 1, n + 1))}
+          onClick={() => click("next")}
           data-tip="The next cell to run"
         >
           Step ▶
@@ -137,7 +166,7 @@ export function FormulaDebugger({
           className="btn btn-small"
           disabled={last || total === 0}
           onMouseDown={(event) => event.preventDefault()}
-          onClick={() => setAt(Math.max(0, total - 1))}
+          onClick={() => click("last")}
           data-tip="Straight to the last cell"
         >
           ⏭
@@ -155,7 +184,7 @@ export function FormulaDebugger({
           type="button"
           className="btn btn-small"
           onMouseDown={(event) => event.preventDefault()}
-          onClick={onClose}
+          onClick={() => click("close")}
           data-tip="Stop stepping"
         >
           Close

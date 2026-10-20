@@ -441,3 +441,13 @@ from routine registered host UI operations, including source changes. UI receipt
 record agent actors and do not count as proposal approval or independent correctness.
 The confined worker still has no direct filesystem/process access. Human-only
 review/attestation, credentials and OS input remain actual human requests.
+
+Nested table size/number-format/formula-trace controls are now registered with an
+explicit owner link to the table. Resize drafts use the actual validation/loss
+calculation and guard the source before Apply; formats preserve numeric raw values
+and use the shared writer. Prose wrap lives behind the actual settings gear rather
+than an always-available hidden-setting action. Formula trace navigation/read uses
+the actual captured host trace, expires prior-source handles and drops old trace
+content immediately when a new supplied revision is pending. Replay is cell order,
+not expression stepping or reverse execution. Remaining clipboard/formula-pointing,
+scroll/engagement and drag edge cases still require inventory review.

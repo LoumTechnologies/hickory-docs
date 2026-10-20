@@ -515,3 +515,26 @@ CSV write-through, Markdown callback/actor routing, stale owner before rerender,
 cell write/fill/menu, existing CSV normalization and formula result/failure cases.
 These checks do not witness native pointer geometry, a real formula interpreter,
 provider behavior or whole-table UI parity.
+
+### Nested table controls and trace replay — 2026-10-19
+
+Size drafts, validation/destructive-loss state, apply/cancel, numeric formats and
+formula-trace navigation/read now share the actual nested controllers. Owner IDs
+associate duplicate labels with their table. Resize/format source writes retain
+the owning source guard and actor. Human callback arity remains compatible with
+existing CSV/Markdown writers. Prose-wrap input mounts only through its real
+settings disclosure. Known source changes invalidate old nested action handles.
+
+Formula traces are keyed to their supplied language/table revision before any
+read/navigation: a prior trace cannot be displayed as the new one while awaiting
+its host response. Bounded current-step reads retain expressions, bindings,
+errors, index/total and the captured-order-only scope. Navigation is replay and
+never claims DAP reverse execution, inner-expression stepping or verification.
+
+Executed focused checks: 8 selected table/format/trace/new-adapter cases passed;
+strict targeted checking passed. The preceding selected run caught extra actor
+arguments on an ordinary human resize callback; normal human arity was restored
+and the affected cases rerun. Trace source-key/type checking also caught adapter
+hooks placed in the effect cleanup scope; they were moved to component scope
+before any passing execution was claimed. The tests mock the formula host and do
+not establish native pointer geometry, interpreter execution or provider evidence.
