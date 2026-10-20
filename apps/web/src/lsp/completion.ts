@@ -1,3 +1,4 @@
+import { completionActions, completionReading } from "./completionActions";
 // Two kinds of suggestion, in one list, saying which is which.
 //
 // The two sources answer genuinely different questions, and that is the whole
@@ -83,7 +84,7 @@ export function wordBefore(
 
 /** Turn one project suggestion into a CodeMirror completion. */
 export function projectCompletion(suggestion: ProjectSuggestion): Completion {
-  return {
+  return completionReading({
     label: suggestion.text,
     detail: suggestion.detail,
     type: "text",
@@ -97,7 +98,7 @@ export function projectCompletion(suggestion: ProjectSuggestion): Completion {
       el.textContent = originLabel("project", suggestion.semantic);
       return el;
     },
-  };
+  }, originLabel("project", suggestion.semantic));
 }
 
 /** Turn one LSP item into a CodeMirror completion. */
@@ -194,7 +195,7 @@ export function completions(options: {
   };
   project?: (prefix: string, context: string) => Promise<ProjectSuggestion[]>;
 }): Extension {
-  return autocompletion({
+  return [completionActions(), autocompletion({
     override: [async context => {
       const results = (await Promise.all([completionSource(options)(context), ...context.state.facet(completionSources).map(source => source(context))])).filter((r): r is CompletionResult => r !== null);
       if (!results.length) return null;
@@ -227,5 +228,5 @@ export function completions(options: {
         position: 15,
       },
     ],
-  });
+  })];
 }

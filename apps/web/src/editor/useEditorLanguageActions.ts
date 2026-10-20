@@ -26,7 +26,7 @@ export function useEditorLanguageActions(view: EditorView | null, subject: strin
   useUiCommands(view ? actions.map(action => ({ key: `${parent}:${action.id}`, command: {
     parent, subject: parent, label: action.label, parameters: action.parameters,
     prerequisites: ["Current editor source, selection and installed language provider; mapped-source positions only"],
-    read: () => ({ revision: `${identity(view.state)}:${JSON.stringify(action.revision?.(view))}`, enabled: view.dom.isConnected && view.state.facet(editorLanguageActions).includes(action) && action.enabled(view), reason: "Language provider must be installed and the selected position mapped to current source" }),
+    read: () => ({ revision: `${identity(view.state)}:${JSON.stringify(action.revision?.(view))}`, value: action.value?.(view), enabled: view.dom.isConnected && view.state.facet(editorLanguageActions).includes(action) && action.enabled(view), reason: "Language provider must be installed and the selected position mapped to current source" }),
     execute: async (args, _actor, signal) => {
       if (!view.dom.isConnected || !view.state.facet(editorLanguageActions).includes(action) || !action.enabled(view)) return { status: "unavailable", reason: "Language action or source position is no longer available" };
       const controller = new AbortController();
