@@ -792,3 +792,14 @@ Twelve focused column cases pass, including real native gutter gestures, mixed
 model fold/reveal and native/model file switching, stale capture handles and
 unfinished-gesture cleanup. Targeted TypeScript checking passes. These are
 in-process model/DOM fixtures, not actual native/provider or release evidence.
+
+LaunchProfiles now shares the currently open picker's Run/Debug selection and
+close handlers. Its paged reading includes displayed profile names, origins,
+program/command, eligibility, context and errors; hidden environment/configuration
+payloads are not copied into the reading. Replacing or closing the picker retires
+selection handles, and command-only targets retain their actual Debug refusal.
+A returned selection request does not claim process startup/debugger success.
+
+Seven focused mocked-launch cases pass, including a mixed ACP-registry selection,
+disabled Debug refusal and same-label picker replacement. Targeted TypeScript
+checking passes; these cases do not start real processes or providers.

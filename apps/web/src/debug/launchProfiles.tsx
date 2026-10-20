@@ -1,5 +1,7 @@
-import { useEffect, useRef, useSyncExternalStore } from "react";
+import { useEffect, useMemo, useRef, useSyncExternalStore } from "react";
 import { createPortal } from "react-dom";
+import { useUiCommands, useUiRevision } from "../lib/uiActionBridge";
+import { useUiReading } from "../lib/uiReading";
 import { request } from "../api/client";
 import { showTerminalRequest } from "../lib/revealLine";
 
@@ -62,6 +64,22 @@ export function LaunchProfiles() {
   const panel=useRef<HTMLDivElement>(null);
   useEffect(()=>{ if(state)panel.current?.querySelector<HTMLButtonElement>("button")?.focus(); },[state]);
   useEffect(()=>()=>{picker?.settle(null);},[]);
+  const capture = useMemo(() => crypto.randomUUID(), [state]);
+  const revision = useUiRevision(() => capture);
+  useUiReading("launch profile picker", state ? { notice: state.notice ?? null, error: state.error ?? null,
+    viewed: state.catalog?.viewed ?? null, context: state.contextLabel ?? "Latest compatible project", configuration: state.catalog?.configuration ?? null,
+    profiles: state.catalog?.profiles.map(profile => ({ id: profile.id, name: profile.name, origin: profile.origin, default: profile.default,
+      displayed_command: profile.program ?? profile.command.join(" "), can_debug: profile.can_debug })) ?? [],
+    scope: "Displayed picker metadata only. Selecting a profile requests launch; it does not attest process startup or debugging success." } : { open: false });
+  useUiCommands(state ? [
+    { key: "launch-picker:close", command: { label: "Close launch profiles", parent: "launch-profiles", subject: "launch-profiles:visibility", parameters: {}, prerequisites: [],
+      read: () => ({ revision: revision(), enabled: true }), execute: async () => { state.settle(null); return { status: "completed", value: { dismissal_requested: true, launched: false } }; } } },
+    ...(state.catalog?.profiles.flatMap(profile => (["run", "debug"] as const).map(mode => ({ key: `launch-picker:${profile.id}:${mode}`, command: {
+      label: `${mode === "run" ? "Run" : "Debug"} ${profile.name}`, parent: "launch-profiles", subject: "launch-profiles:selection", parameters: {}, prerequisites: ["Launch resolves against the captured project and profile fingerprint"],
+      read: () => ({ revision: revision(), enabled: mode === "run" || profile.can_debug, ...(!profile.can_debug && mode === "debug" ? { reason: "This command profile supports Run; choose an application profile to debug." } : {}) }),
+      execute: async () => { state.settle({ profile, mode }); return { status: "completed" as const, value: { selection_requested: true, mode, profile: profile.id, launch_completed: false } }; },
+    } }))) ?? []),
+  ] : []);
   if(!state)return null;
   const left=Math.max(8,Math.min((state.anchor?.right ?? window.innerWidth)-400,window.innerWidth-416));
   const top=Math.max(8,Math.min(state.anchor?.top ?? 80,window.innerHeight-300));

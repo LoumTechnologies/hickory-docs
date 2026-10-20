@@ -68,3 +68,30 @@ it("explains discovery/configuration failures without starting anything",async()
   fireEvent.click(screen.getByRole("button",{name:"Close launch profiles"}));await pending;
   expect(start).not.toHaveBeenCalled();
 });
+it("shares captured profile selection and retires it when the picker is replaced", async () => {
+  const { UiActions } = await import("../lib/uiActions");
+  const { UiActionContext } = await import("../lib/uiActionBridge");
+  const registry = new UiActions({ workspace: "p", window: "w" }, () => true, async () => {});
+  vi.mocked(request).mockResolvedValue(catalog([profile("tests", false), profile("app")]));
+  render(<UiActionContext.Provider value={registry}><LaunchProfiles /></UiActionContext.Provider>);
+  const start = vi.fn(); let first!: Promise<void>, second!: Promise<void>;
+  await act(async () => { first = launchWithProfiles({ uri: "hick:///first.py" }, start, { choose: true }); });
+  const actions = () => registry.groups().groups.flatMap(group => registry.observe(group, 64).actions);
+  const handle = (label: string) => actions().find(action => action.label === label)!.handle;
+  const run = async (target: string) => {
+    let result: unknown;
+    await act(async () => { result = await registry.act(registry.scope, { id: "acp:fixture", kind: "agent" }, { handle: target, arguments: {}, request_id: crypto.randomUUID() }); });
+    return result;
+  };
+  expect(await run(handle("Debug tests"))).toMatchObject({ status: "disabled" });
+  expect(start).not.toHaveBeenCalled();
+  const stale = handle("Debug app");
+  await act(async () => { second = launchWithProfiles({ uri: "hick:///second.py" }, start, { choose: true }); });
+  await first;
+  expect(await run(stale)).not.toMatchObject({ status: "result" });
+  expect(start).not.toHaveBeenCalled();
+  expect(await run(handle("Debug app"))).toMatchObject({ status: "result", outcome: { value: { selection_requested: true, launch_completed: false } } });
+  await second;
+  expect(start).toHaveBeenCalledExactlyOnceWith({ id: "app", fingerprint: "one", name: "app" });
+  expect(actions().some(action => action.label === "Debug app")).toBe(false);
+});
