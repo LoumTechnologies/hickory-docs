@@ -326,3 +326,10 @@ requests retain the proposal identity and later reads show the actual host statu
 Human decisions use the same apply-before-acknowledge controller, including stale
 editor errors and revised bytes. Existing externally authorized ACP auto-apply
 behavior remains separate; Python still requires each approval.
+
+Context assembly now awaits its originating UI handshake for at most three
+seconds before reading buffers. A pending/failed attached connection prevents
+submission with a retry/reopen reason; it no longer silently drops UI tools.
+Closing that origin rejects its capture even if a replacement connects. A
+hostless embedding with no UiActionsProvider still captures without a window.
+An established capture remains bound to its original window; it never reattaches.

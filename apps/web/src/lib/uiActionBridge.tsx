@@ -4,7 +4,21 @@ import { UiActions, type UiActor, type UiCommand, type UiInvocation, type UiValu
 
 const Context = createContext<UiActions | null>(null);
 let activeWindow: string | undefined;
+type WindowConnection = { ready: Promise<string | undefined>; closed: boolean; failed?: string };
+let windowConnection: WindowConnection | undefined;
 export function uiWindow(): string | undefined { return activeWindow; }
+/** Capture this connection once; never wait on or adopt a replacement window. */
+export async function captureUiWindow(timeoutMs = 3000): Promise<string | undefined> {
+  const connection = windowConnection;
+  if (!connection) return activeWindow;
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  try {
+    const window = await Promise.race([connection.ready, new Promise<never>((_resolve, reject) => { timeout = setTimeout(() => reject(Error("UI connection is still initializing. Retry Send after it connects; no request was submitted.")), timeoutMs); })]);
+    if (connection.closed) throw Error("The originating UI window closed during context capture. Start a new request in the current window.");
+    if (connection.failed) throw Error(`UI connection unavailable: ${connection.failed}. Reopen the window before retrying Send; no request was submitted.`);
+    return window;
+  } finally { if (timeout !== undefined) clearTimeout(timeout); }
+}
 /** Compare private controller state without serializing it into model-visible tokens. */
 export function useUiRevision(read: () => unknown): () => string {
   const previous = useRef<{ signature: string | undefined; token: string } | null>(null);
@@ -45,6 +59,9 @@ export function UiActionsProvider({ children }: { children: ReactNode }) {
   const [registry, setRegistry] = useState<UiActions | null>(null);
   useEffect(() => {
     let stopped = false;
+    let settle!: (window: string | undefined) => void;
+    const origin: WindowConnection = { ready: new Promise(resolve => { settle = resolve; }), closed: false };
+    windowConnection = origin;
     let window: string | undefined;
     let connection: UiActions | undefined;
     async function connect() {
@@ -57,6 +74,7 @@ export function UiActionsProvider({ children }: { children: ReactNode }) {
         () => true,
         receipt => request("POST", `/api/ui/windows/${scope.window}/receipts`, receipt).then(() => {}));
       activeWindow = scope.window;
+      settle(scope.window);
       connection = actions;
       setRegistry(actions);
       while (!stopped) {
@@ -75,9 +93,12 @@ export function UiActionsProvider({ children }: { children: ReactNode }) {
         }
       }
     }
-    void connect().catch(() => { /* Old/hostless browser builds retain normal UI. */ });
+    void connect().catch(error => { origin.failed = String(error); settle(undefined); /* Ordinary UI stays available; Send reports this connection failure. */ });
     return () => {
       stopped = true;
+      origin.closed = true;
+      settle(undefined);
+      if (windowConnection === origin) windowConnection = undefined;
       connection?.dispose();
       if (activeWindow === window) activeWindow = undefined;
       if (window) void request("DELETE", `/api/ui/windows/${window}`).catch(() => {});

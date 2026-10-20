@@ -1,6 +1,6 @@
 import { providerObservationContext } from "../debug/providerObservations";
 import { useContextProjectionActions } from "./uiContextProjectionActions";
-import { uiWindow } from "../lib/uiActionBridge";
+import { captureUiWindow } from "../lib/uiActionBridge";
 import "./contextProjection.css";
 import { projectDocument, projectionEstimate, retainedReadingState, type ReadingProjection } from "../lib/contextProjection";
 import { observationContext } from "../debug/observations";
@@ -29,7 +29,7 @@ export async function editorContext(
   untitled: Record<string, string>, plain: Map<string, string>,
   selection?: Record<string, "expanded" | "pinned">,
 ): Promise<AgentEditorContext> {
-  const originatingWindow = uiWindow();
+  const originatingWindow = await captureUiWindow();
   const visiblePlain = new Map(openPlainSearchFiles().map(file => [file.path, file.content]));
   const buffers = await Promise.all(tabs.map(async tab => {
     const session = registry.get(tab.docId);

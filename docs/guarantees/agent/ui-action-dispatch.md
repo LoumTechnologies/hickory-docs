@@ -283,3 +283,19 @@ Python human review and the new structured read/request/actor guard/stale handle
 path. Targeted strict AgentChanges checking passed. Host APIs and editor actions
 are mocked in the new request-path case; actual native/provider approval remains
 a separate witness.
+
+### UI handshake before context capture — 2026-10-19
+
+Context capture snapshots the current connection and awaits its host-minted window
+identity before buffer reads. Pending startup is bounded to three seconds; timeout
+or failed attached connection prevents this submission, preserving response
+recovery. A closed origin rejects capture rather than adopting a new connection.
+No provider/host call to start a turn occurs during this wait. Hostless embedding
+without a UI provider retains the prior no-window context behavior. Successful
+capture does not guarantee the window remains connected through a later provider
+call; the host broker still rejects stale/deleted windows.
+
+Executed focused checks: uiActionConnection (4 passed), selected WorkspaceChat
+startup/preview cases (2 passed), strict targeted bridge/context checking passed.
+The connection tests exercise pending, timeout, closed/replacement and failed
+handshakes with mocked host endpoints; native startup remains a separate witness.
