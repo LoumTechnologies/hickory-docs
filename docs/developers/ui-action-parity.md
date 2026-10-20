@@ -395,3 +395,12 @@ state and stages async rendering so an obsolete completion cannot overwrite a
 new equation. The shared reader emits no DOM scrape or edit baseline. Image bytes,
 visual model delivery, editable table/graph gestures and remaining renderers still
 need their own complete adapters.
+
+Shared in-app prompts now expose bounded current text/choice reads, draft input,
+apply/choose/cancel and caller-owned actor policy. Rename/code-action and Save a
+copy prompts explicitly enable agent input with live source guards; debugger watch
+text enables ordinary input. Unclassified prompts, including unsaved-work choices,
+retain human decision authority. Prompt IDs prevent identical titles from
+retargeting an old handle. Replacing/unmounting settles pending promises as
+cancelled. Settling a prompt resumes its caller; it does not certify that a later
+save/refactor/debug operation succeeded. Native OS choosers remain separate work.

@@ -1,3 +1,4 @@
+import type { usePrompt } from "./PromptPanel";
 import { useEditorActions } from "../editor/uiEditorActions";
 import { observationSourceChanged } from "../debug/observations";
 import { launchWithProfiles } from "../debug/launchProfiles";
@@ -90,9 +91,9 @@ export function PlainFilePane({
   /** Find References asked from this file: the workspace shows the list. */
   onReferences?: (references: { locations: LspLocation[]; query: string }) => void;
   /** The window's prompt, for a rename's new name. */
-  askText?: (title: string, initial: string) => Promise<string | null>;
+  askText?: ReturnType<typeof usePrompt>["askText"];
   /** The window's prompt, for choosing a code action. */
-  askChoice?: <T>(title: string, options: { label: string; value: T }[]) => Promise<T | null>;
+  askChoice?: ReturnType<typeof usePrompt>["askChoice"];
   /** Keep a recovery draft for this already-named file. */
   retainUnsaved?: boolean;
   onUnsaved?: (
@@ -436,13 +437,14 @@ export function PlainFilePane({
             inlayHints: true,
             onRename: (current) =>
               askTextRef.current
-                ? askTextRef.current(`Rename "${current}" to:`, current)
+                ? askTextRef.current(`Rename "${current}" to:`, current, { agent: true, currentRevision: () => viewRef.current?.state.doc })
                 : null,
             onCodeActions: (actions: CodeAction[]) =>
               askChoiceRef.current
                 ? askChoiceRef.current(
                     "Code actions",
                     actions.map((action) => ({ label: action.title, value: action })),
+                    { agent: true, currentRevision: () => viewRef.current?.state.doc },
                   )
                 : null,
             onMessage: setNotice,
@@ -820,7 +822,7 @@ export function PlainFilePane({
         onStart={() => {void launchProfile();}}
         onStop={debug.stop}
         onAddWatch={() => {
-          void askTextRef.current?.("Expression to watch:", "").then((expression) => {
+          void askTextRef.current?.("Expression to watch:", "", { agent: true }).then((expression) => {
             if (expression) debug.addWatch(expression);
           });
         }}

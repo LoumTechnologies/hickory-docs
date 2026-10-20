@@ -173,7 +173,7 @@ export function ComparisonTools({path,source,view,children}: {path:string;source
         else if (view && frame?.line !== null && frame?.line !== undefined) revealLine(view,frame.line);
       }} onStep={debug.step} onStart={()=>launch()} onStop={debug.stop}
       onJumpHere={()=> {if(view && exact) debug.jumpTo(view.state.doc.lineAt(view.state.selection.main.head).number-1);}}
-      onAddWatch={()=>{void prompt.askText("Expression to watch:", "").then(expression=>{if(expression)debug.addWatch(expression);});}}
+      onAddWatch={()=>{void prompt.askText("Expression to watch:", "", { agent: true }).then(expression=>{if(expression)debug.addWatch(expression);});}}
       onToggleExceptionFilter={debug.toggleExceptionFilter} onRemoveWatch={debug.removeWatch}
       onInstall={async offer=> {await api.installTool(offer.kind,offer.language);}} />
     {selection?.error && <div className="comparison-tools"><p role="alert">{selection.error}</p></div>}

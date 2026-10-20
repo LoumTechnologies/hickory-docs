@@ -441,3 +441,24 @@ Current rendered-reading evidence fingerprints (SHA-256; the declaration invento
 - `apps/web/src/lib/uiReading.ts`: `cc37d833882855bcaf17e8fecbc04830f8304a048efbaebbd7e949b43af0acc0`
 - `apps/web/src/components/MathPanel.test.tsx`: `966bf2b6d29c52c98308815d7af30abd2b4e0910969cda83d59ba71d41652fb5`
 - `apps/web/src/components/CellPanel.test.tsx`: `51bec8f7426917ef4b6e287195a3beab45450428c2bb9961143d79d9bd894b9e`
+
+### Shared in-app prompt controller — 2026-10-19
+
+Each code-owned prompt has a unique ID, typed draft/option-index input, bounded
+JSON UTF-8 reads and cancellation. Prompt settlement uses that expected identity;
+identical titles cannot retarget old actions. Caller policy defaults to a human
+request. Ordinary rename/code-action/Save a copy/watch callers explicitly enable
+agent input; source-sensitive callers provide a captured live revision getter.
+Changed source disables input/settlement until a new action is requested. Choice
+labels are data; invocation selects only an existing code-owned option value.
+Replacing or unmounting a prompt resolves its old promise as cancelled rather
+than leaving an operation awaiting forever. Prompt settlement is not an operation
+success or human attestation.
+
+Executed focused checks: PromptPanel (4 passed), including draft/resolver routing,
+human-only choice, changed-source refusal and identical-title replacement/unmount.
+The first run had an ambiguous test label query (dialog and input); the query was
+corrected and all cases rerun. Strict targeted WorkspaceView/prompt checking passed
+with the repository's existing js-interpreter declaration explicitly included;
+the initial ad-hoc command omitted that declaration and failed on library types.
+These tests do not execute an actual LSP refactor, native chooser or file copy.

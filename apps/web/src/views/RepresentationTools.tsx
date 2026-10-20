@@ -38,8 +38,8 @@ export function RepresentationTools({ file, source, view, onStart, onDiagnostics
       }, runtimeValue: word => live.current.debug.valueAt(word) }),
       ...lspFeatures({ client: lsp.client, uri: lsp.uri, positionAt, offsetAt,
         rangeAt: range => view.state.doc.toString() === live.current.source ? representationRange(live.current.source,live.current.file,range):null,
-        onRename: current => askText(`Rename ${current} to:`, current),
-        onCodeActions: actions => askChoice("Code actions", actions.map(action=>({label:action.title,value:action}))),
+        onRename: current => askText(`Rename ${current} to:`, current, { agent: true, currentRevision: () => view.state.doc }),
+        onCodeActions: actions => askChoice("Code actions", actions.map(action=>({label:action.title,value:action})), { agent: true, currentRevision: () => view.state.doc }),
         onMessage,
       }),
       completionSources.of(completionSource({ lsp: lsp.client ? { client: lsp.client, uri: lsp.uri, positionAt } : undefined })),
@@ -60,7 +60,7 @@ export function RepresentationTools({ file, source, view, onStart, onDiagnostics
       frames={debug.frames} selectedFrame={debug.selectedFrame} watches={debug.watches} exitCode={debug.exitCode} buildOutput={debug.buildOutput}
       onSelectFrame={debug.selectFrame} onStep={debug.step} onStart={onStart} onStop={debug.stop}
       onJumpHere={() => { if (!view) return; const p = filePosition(source, file, view.state.selection.main.head); if (p) debug.jumpTo(p.line); }}
-      onAddWatch={() => { void askText("Expression to watch:", "").then(expression=> { if (expression) debug.addWatch(expression); }); }}
+      onAddWatch={() => { void askText("Expression to watch:", "", { agent: true }).then(expression=> { if (expression) debug.addWatch(expression); }); }}
       exceptionFilters={debug.exceptionFilters} onToggleExceptionFilter={debug.toggleExceptionFilter} onRemoveWatch={debug.removeWatch} />
   </>;
 }

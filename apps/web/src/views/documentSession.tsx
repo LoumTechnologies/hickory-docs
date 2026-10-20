@@ -675,7 +675,7 @@ function useDocumentSession(
     if (!doc) return;
     const source = dirtySource ?? doc.source;
     void (async () => {
-      const path = await askText("Save a copy as (relative path):", doc.path);
+      const path = await askText("Save a copy as (relative path):", doc.path, { agent: true, currentRevision: () => `${menuStateRef.current.doc?.id}:${menuStateRef.current.dirtySource ?? menuStateRef.current.doc?.source}` });
       if (!path) return;
       try {
         const project = (await api.projects())[0];
@@ -823,11 +823,12 @@ function useDocumentSession(
         positionAt: (offset, view) => offsetToPosition(view.state.doc, offset),
         offsetAt: (position, view) => positionToOffset(view.state.doc, position),
         inlayHints: true,
-        onRename: (current) => askText(`Rename "${current}" to:`, current),
+        onRename: (current) => askText(`Rename "${current}" to:`, current, { agent: true, currentRevision: () => editorRef.current?.state.doc }),
         onCodeActions: (actions) =>
           askChoice(
             "Code actions",
             actions.map((action) => ({ label: action.title, value: action })),
+            { agent: true, currentRevision: () => editorRef.current?.state.doc },
           ),
         onMessage: (message) => setBanner({ kind: "pending", text: message }),
       }),

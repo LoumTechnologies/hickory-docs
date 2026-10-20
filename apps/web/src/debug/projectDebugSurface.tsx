@@ -114,7 +114,7 @@ export function ProjectDebugSurface({owner, debug}: {owner:string; debug:DebugSe
     <DebugStrip {...debug} locationActions={<ProjectDebugLinks owner={owner} debug={debug}/>} capabilities={debug.capabilities ? {...debug.capabilities, goto_targets:false} : null} editorView={surface.view} pausedLine={null}
       onSelectFrame={id => {debug.selectFrame(id); const frame=debug.frames.find(f=>f.id===id); if(frame)revealPreferredDebugLocation(owner,frame);}}
       onStep={debug.step} onStart={() => debug.start()} onStop={debug.stop} onJumpHere={() => {}}
-      onAddWatch={() => { void prompt.askText("Expression to watch:", "").then(expression => { if(expression) debug.addWatch(expression); }); }} onToggleExceptionFilter={debug.toggleExceptionFilter} onRemoveWatch={debug.removeWatch} />
+      onAddWatch={() => { void prompt.askText("Expression to watch:", "", { agent: true }).then(expression => { if(expression) debug.addWatch(expression); }); }} onToggleExceptionFilter={debug.toggleExceptionFilter} onRemoveWatch={debug.removeWatch} />
     <PromptPanel prompt={prompt.prompt} onSettle={prompt.settle}/>
   </>;
 }
