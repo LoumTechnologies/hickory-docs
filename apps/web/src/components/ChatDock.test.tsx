@@ -519,3 +519,37 @@ it("dispatches registered draft and Send through the actual Python conversation 
     expect(screen.getByRole("button", { name: "Stop the agent" })).toBeTruthy();
   } finally { view.unmount(); }
 });
+
+// Guarantee: docs/guarantees/agent/ui-action-dispatch.md
+it("discloses actual agent settings before registered model and backend selection", async () => {
+  const { UiActions } = await import("../lib/uiActions");
+  const { UiActionContext } = await import("../lib/uiActionBridge");
+  const registry = new UiActions({ workspace: "p", window: "w" }, () => true, async () => {});
+  vi.mocked(acpApi.catalogue).mockResolvedValue({ agents: [{ id: "python", name: "Python", command: "python", args: [], available: true }, { id: "codex", name: "Codex", command: "codex-acp", args: [], available: true }] });
+  vi.mocked(acpApi.state).mockResolvedValue({ backend: "python", ready: true, canRewind: true });
+  vi.mocked(acpApi.connect).mockClear().mockResolvedValue({ backend: "codex", ready: true });
+  vi.mocked(api.agentTurns).mockResolvedValue({ turns: [], provider: "anthropic", model: "claude-sonnet-5", totals: { usd: 0, input: 0, output: 0, cache_read: 0, cache_write: 0 } });
+  vi.mocked(api.agent).mockClear();
+  const view = render(<UiActionContext.Provider value={registry}><ChatDock docId="d1" realtime={{ onRunEvent: () => () => undefined } as unknown as Realtime} onAgentFinished={() => {}} /></UiActionContext.Provider>);
+  let n = 0;
+  async function invoke(parent: string, label: string, args: Record<string, string | boolean>) {
+    const action = registry.observe(parent).actions.find(a => a.label === label)!;
+    await act(async () => { await registry.act(registry.scope, { id: "python:parent", kind: "agent" }, { handle: action.handle, arguments: args, request_id: String(++n) }); });
+  }
+  try {
+    expect(registry.groups().groups.some(g => g.startsWith("conversation-model:"))).toBe(false);
+    await invoke("feature-settings", "Set Agent settings visibility", { open: true });
+    await screen.findByRole("option", { name: "Codex (ACP)" });
+    const model = registry.groups().groups.find(g => g.startsWith("conversation-model:"))!;
+    await invoke(model, "Set conversation model", { model: "chosen-model" });
+    expect((screen.getByLabelText("Model") as HTMLInputElement).value).toBe("chosen-model");
+    const picker = registry.groups().groups.find(g => g.startsWith("agent-picker:"))!;
+    await invoke(picker, "Select conversation agent", { backend: "codex" });
+    await waitFor(() => expect(acpApi.connect).toHaveBeenCalledWith("d1", "codex", undefined));
+    expect(localStorage.getItem("hickory.agent")).toBe("codex");
+    expect(registry.observe(model).actions).toEqual([]);
+    await invoke("feature-settings", "Set Agent settings visibility", { open: false });
+    expect(registry.observe(picker).actions).toEqual([]);
+    expect(api.agent).not.toHaveBeenCalled();
+  } finally { view.unmount(); }
+});

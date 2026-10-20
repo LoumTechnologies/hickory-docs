@@ -247,3 +247,19 @@ handler and checks its queued host ID. Strict targeted TypeScript checks passed.
 Provider responses and host APIs are mocked; these are not real provider/native
 witnesses. The initial focused ChatDock runs exposed missing items/updates in
 test mocks; those failures are not counted as passing checks.
+
+### Conversation settings disclosure — 2026-10-19
+
+Agent selection, catalogue refresh/read, provider/model input and collapsed-lineage
+preferences mount only with the actual settings panel. Selection accepts current
+catalogue IDs and uses the same backend/preference/new-thread handler as the human
+select. Availability is not a configured login; current connection status remains
+a separate host result. Catalogue evidence reads are bounded JSON UTF-8 pages.
+Provider/model controls use their existing local setters and describe next-turn
+configuration only. Running/starting conversations disable agent/model selection.
+
+Executed focused checks: selected ChatDock provider/Python/ACP/registered-Send/
+settings-disclosure cases (5 passed); strict targeted ChatDock checking passed.
+The new case drives registered settings opening, model and ACP selection, observes
+the existing connection handler, closes settings and checks commands retire,
+without any model call. Actual login/provider behavior is mocked.

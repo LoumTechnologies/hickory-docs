@@ -1,4 +1,6 @@
 import { useConversationActions } from "./uiConversationActions";
+import { ConversationModelChoice } from "./ConversationModelChoice";
+import { UiCheckbox } from "./UiCheckbox";
 import { ContextUpdates } from "./ContextUpdates";
 import { registerInvestigationConversation } from "../lib/reviewInvestigations";
 import { AgentProject } from "./AgentProject";
@@ -592,39 +594,14 @@ export function ChatDock({
           </button>
         )}
         {!collapsed && <FeatureSettings label="Agent settings">
-        {(backend === "python") && <span className="chat-model" role="group" aria-label="Model choice">
-          <select
-            aria-label="Provider"
-            value={provider}
-            disabled={running !== null}
-            onChange={(e) => setProvider(e.target.value)}
-          >
-            {provider === "" && <option value="">provider…</option>}
-            {provider !== "" && !PROVIDERS.some((p) => p.id === provider) && (
-              <option value={provider}>{provider}</option>
-            )}
-            {PROVIDERS.map((p) => (
-              <option key={p.id} value={p.id}>
-                {p.label}
-              </option>
-            ))}
-          </select>
-          <input
-            aria-label="Model"
-            value={model}
-            disabled={running !== null}
-            placeholder={defaultModelFor(provider) || "default model"}
-            data-tip="Model id for the next turn — leave empty for the provider's default"
-            onChange={(e) => setModel(e.target.value)}
-          />
-        </span>}
+        {backend === "python" && <ConversationModelChoice provider={provider} model={model} disabled={running !== null || sending} providers={PROVIDERS} defaultModel={defaultModelFor(provider)} onProvider={setProvider} onModel={setModel} />}
       <AgentPicker backend={backend} agents={acp.agents} disabled={running !== null || sending} detecting={acp.detecting} error={acp.catalogueError}
-        onRefresh={() => void acp.refreshAgents()} onChange={next => {
+        onRefresh={() => acp.refreshAgents()} onChange={next => {
           rememberAgent(next); setBackend(next); setTip(null); setUnavailable(false); setError(null); setNote(null);
         }} />
         <AcpControls doc={docId} backend={backend} running={running !== null} control={acp} settingsOnly />
-        <label><input type="checkbox" checked={showCollapsedLineage} onChange={event => {
-          setShowCollapsedLineage(event.target.checked); saveCollapsedLineage(event.target.checked);
+        <label><UiCheckbox label="conversation collapsed lineage" checked={showCollapsedLineage} onCheckedChange={checked => {
+          setShowCollapsedLineage(checked); saveCollapsedLineage(checked);
         }} />Show lineage for collapsed conversation items</label>
         </FeatureSettings>}
       </header>

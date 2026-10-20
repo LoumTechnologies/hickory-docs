@@ -309,3 +309,12 @@ the registry result. Response typing and agent draft input share the recovery ed
 handler; ordinary keystrokes remain immediate. Provider/model/backend settings,
 permissions/edit review and history/project lens controls still need their own
 complete disclosure and actor-aware adapters.
+
+Conversation agent/provider/model and collapsed-lineage controls now register
+inside the actual feature settings panel. Backend choices use the observed agent
+catalogue and the same preference/new-thread callback; actual connection remains
+the existing ACP/Python flow. Catalogue reads are explicit bounded byte pages.
+Provider/model updates configure the next turn, without claiming a login or
+sending a request. Closing settings retires these commands; switching to ACP
+retires Python-only model controls. Permissions and edit acceptance remain
+separate actor-policy work.
