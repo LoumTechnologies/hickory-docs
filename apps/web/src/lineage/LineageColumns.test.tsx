@@ -1,3 +1,4 @@
+// Guarantee: docs/guarantees/agent/scoped-reading-surfaces-share-native-actions.md
 // @vitest-environment jsdom
 import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";

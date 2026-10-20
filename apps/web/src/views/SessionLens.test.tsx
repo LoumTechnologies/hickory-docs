@@ -1,3 +1,4 @@
+// Guarantee: docs/guarantees/agent/scoped-reading-surfaces-share-native-actions.md
 // docs/guarantees/agent/an-answer-in-the-agent-pane-has-ribbons.md: the
 // agent pane's history is the session document, drawn as cards with line
 // numbers, and its links reach the overlay through the lens store.

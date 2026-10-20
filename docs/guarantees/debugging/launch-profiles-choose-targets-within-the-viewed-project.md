@@ -99,3 +99,11 @@ extracting debug wire types was corrected with an explicit `Breakpoint` import.
 Native witnesses passed: 19 project cases, seven exact-source/atomic-selection
 cases, six launch-profile cases (including independent provider/manual override),
 and four existing test-gutter command cases.
+
+## Shared UI continuation — 2026-10-20
+
+The additive shared-controller and captured-owner behavior, focused check results,
+source fingerprints and remaining gaps are recorded in
+[the scoped reading-surface contract](../agent/scoped-reading-surfaces-share-native-actions.md).
+Earlier verification above is historical; it does not establish current universal
+UI parity or native/provider/release acceptance.

@@ -1,3 +1,4 @@
+// Guarantee: docs/guarantees/agent/scoped-reading-surfaces-share-native-actions.md
 // Guarantee: docs/guarantees/agent/historical-evidence-stays-historical.md
 import { afterEach, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";

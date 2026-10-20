@@ -123,3 +123,11 @@ Verified 2026-10-06: left alignment in the document and card styles; generated
 session tag spacing in `session::tests`. `ConversationEditor.test.tsx` checks
 inline submission and scroll following. The Chromium ACP browser flow checks both speakers' computed alignment and
 inline Send; `/tmp/hickory-agent-inline-send.png` was visually reviewed.
+
+## Shared UI continuation — 2026-10-20
+
+The additive shared-controller and captured-owner behavior, focused check results,
+source fingerprints and remaining gaps are recorded in
+[the scoped reading-surface contract](../agent/scoped-reading-surfaces-share-native-actions.md).
+Earlier verification above is historical; it does not establish current universal
+UI parity or native/provider/release acceptance.

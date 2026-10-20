@@ -1,3 +1,4 @@
+// Guarantee: docs/guarantees/agent/scoped-reading-surfaces-share-native-actions.md
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, expect, it, vi } from "vitest";
 import { api } from "../api/client";

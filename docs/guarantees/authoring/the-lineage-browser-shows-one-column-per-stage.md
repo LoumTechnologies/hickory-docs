@@ -79,3 +79,11 @@ Last LLM verification:
 - Test coverage: `apps/web/src/lineage/*.test.ts{,x}` (26 tests), plus
   `src/router.test.ts` for the project-scoped route and
   `src/landing/demos/demos.test.tsx` for the home page demo.
+
+## Shared UI continuation — 2026-10-20
+
+The additive shared-controller and captured-owner behavior, focused check results,
+source fingerprints and remaining gaps are recorded in
+[the scoped reading-surface contract](../agent/scoped-reading-surfaces-share-native-actions.md).
+Earlier verification above is historical; it does not establish current universal
+UI parity or native/provider/release acceptance.

@@ -68,3 +68,11 @@ The owning accepted document stays read-only; only New code can be revised.
 source, and a later patch refusing an incompatible early edit. Unchecked edits
 disable explicit application and lose native project context until construction
 succeeds. See the final-revision guarantee for publication and recovery limits.
+
+## Shared UI continuation — 2026-10-20
+
+The additive shared-controller and captured-owner behavior, focused check results,
+source fingerprints and remaining gaps are recorded in
+[the scoped reading-surface contract](../agent/scoped-reading-surfaces-share-native-actions.md).
+Earlier verification above is historical; it does not establish current universal
+UI parity or native/provider/release acceptance.

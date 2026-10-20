@@ -69,3 +69,11 @@ Last LLM verification:
   with no cache. On a large repository a slider drag is several archives. The
   cost has not been measured against a repository with real history, and a
   per-commit cache is the obvious answer if it bites.
+
+## Shared UI continuation — 2026-10-20
+
+The additive shared-controller and captured-owner behavior, focused check results,
+source fingerprints and remaining gaps are recorded in
+[the scoped reading-surface contract](../agent/scoped-reading-surfaces-share-native-actions.md).
+Earlier verification above is historical; it does not establish current universal
+UI parity or native/provider/release acceptance.

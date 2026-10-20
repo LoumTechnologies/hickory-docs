@@ -59,3 +59,11 @@ closure. A failed provider process now prevents a completed claim even if a
 terminal artifact exists. Bounded unattributed process stderr remains separate
 from source-linked evidence. Interpreter-shutdown/late-background writes after
 the program's captured runpy scope are unsupported.
+
+## Shared UI continuation — 2026-10-20
+
+The additive shared-controller and captured-owner behavior, focused check results,
+source fingerprints and remaining gaps are recorded in
+[the scoped reading-surface contract](../agent/scoped-reading-surfaces-share-native-actions.md).
+Earlier verification above is historical; it does not establish current universal
+UI parity or native/provider/release acceptance.
