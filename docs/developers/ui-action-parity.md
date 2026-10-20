@@ -725,3 +725,9 @@ actual record/event source and refuses replaced/closed captures; queued source
 jumps also bind their source record. Two focused fixture UI cases with real
 read-only editors and a mocked review opener pass. Ribbons outside this owned
 runtime-log path and actual provider/release/deployed witnesses remain separate.
+
+A focused registry-level review found and fixed operation-lock interference:
+menu dismissal and pending fleet-start cancellation now have separate subjects
+from the callbacks they control. Two focused tests hold the original registered
+action pending while invoking the escape command, then settle the actual result.
+This corrects the earlier direct-hook coverage gap without claiming rollback.

@@ -43,3 +43,22 @@ it("excludes duplicate async menu picks and surfaces the callback's actual failu
   expect(screen.getByRole("alert").textContent).toContain("actual refusal");
   expect((screen.getByRole("menuitem", { name: "Write" }) as HTMLButtonElement).disabled).toBe(false);
 });
+it("keeps dismissal addressable while an item callback is pending without claiming cancellation", async () => {
+  const registry = new UiActions({ workspace: "p", window: "w" }, () => true, async () => {});
+  let finish!: () => void;
+  const pick = vi.fn(() => new Promise<void>(resolve => { finish = resolve; }));
+  const close = vi.fn();
+  render(<UiActionContext.Provider value={registry}><ContextMenu x={0} y={0} items={[{ id: "write", label: "Write" }]} subject="draft" onPick={pick} onClose={close} /></UiActionContext.Provider>);
+  const actions = () => registry.groups().groups.flatMap(group => registry.observe(group, 64).actions);
+  let pending!: ReturnType<typeof registry.act>;
+  await act(async () => { pending = registry.act(registry.scope, { id: "python:fixture", kind: "agent" }, {
+    handle: actions().find(action => action.label === "Write")!.handle, arguments: {}, request_id: "pending-item",
+  }); });
+  let closed: unknown;
+  await act(async () => { closed = await registry.act(registry.scope, { id: "python:fixture", kind: "agent" }, {
+    handle: actions().find(action => action.label === "Close menu for draft")!.handle, arguments: {}, request_id: "close-pending",
+  }); });
+  expect(closed).toMatchObject({ status: "result", outcome: { value: { dismissal_requested: true, operation_cancelled: false } } });
+  expect(close).toHaveBeenCalledTimes(1);
+  await act(async () => { finish(); expect(await pending).toMatchObject({ status: "result", outcome: { value: { callback_requested: true } } }); });
+});

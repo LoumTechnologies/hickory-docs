@@ -656,3 +656,16 @@ files, including actual refused-operation propagation, persistent error reading,
 stale supervision response refusal, closed-controller refusal and no optimistic
 automatic-answer enablement. No real PTY/provider/native release is exercised by
 these new tests; existing real PTY evidence has its separately recorded scope.
+
+### Pending-operation escape controls (issue #72)
+
+Dismissal and pairing cancellation use independent dispatcher subjects from the
+work they control. A pending menu callback therefore cannot lock out its close
+command, and a pairing start waiting for a host identity cannot lock out the
+pending-start cancellation request. Dismissal still asserts no cancellation;
+pairing cancellation remains pending until it can forward the actual job ID.
+The normal operation locks remain in place. Two focused registry-level tests
+pass by holding the original action pending, invoking its escape control through
+the same registry, then observing the original actual result. Earlier direct-hook
+cases did not exercise this dispatcher-lock interaction. No host/network or
+provider/native-release witness is claimed here.

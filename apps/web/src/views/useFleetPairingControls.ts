@@ -135,7 +135,7 @@ export function useFleetPairingControls(parent: string, onPaired: () => void) {
     } });
   }
   const invoke = useUiCommands(commands.map(command => ({ key: `${parent}:pairing:${command.id}`, command: {
-    parent, subject: parent, label: command.label, parameters: {}, prerequisites: ["Actual requests owned by this local UI window"],
+    parent, subject: `${parent}:pairing:${command.id}`, label: command.label, parameters: {}, prerequisites: ["Actual requests owned by this local UI window"],
     read: () => ({ revision: revision(), enabled: !!owner && command.enabled }), execute: command.execute,
   } })));
   useUiReading("Fleet pairing request status", { connected: !!owner, pending, uncertain_start: uncertain, error,

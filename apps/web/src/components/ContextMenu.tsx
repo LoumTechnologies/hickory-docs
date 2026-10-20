@@ -95,7 +95,7 @@ export function ContextMenu({
     } finally { lock.current = false; if (mounted.current) setPending(false); }
   };
   useUiCommands([
-    { key: `${parent}:close`, command: { parent, subject: parent, label: `Close menu for ${subject}`, parameters: {}, prerequisites: [],
+    { key: `${parent}:close`, command: { parent, subject: `${parent}:visibility`, label: `Close menu for ${subject}`, parameters: {}, prerequisites: [],
       read: () => ({ revision: revision(), enabled: true }), execute: async () => {
         await onClose();
         return { status: "completed", value: { dismissal_requested: true, operation_cancelled: false } };

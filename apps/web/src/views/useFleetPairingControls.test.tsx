@@ -3,7 +3,7 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import type { ReactNode } from "react";
 import { api } from "../api/client";
 import type { FleetPairingJob } from "../api/fleetPairings";
-import { UiActionContext } from "../lib/uiActionBridge";
+import { UiActionContext, useUiCommands } from "../lib/uiActionBridge";
 import { UiActions } from "../lib/uiActions";
 import { useFleetPairingControls } from "./useFleetPairingControls";
 const job = (status: FleetPairingJob["status"] = "running"): FleetPairingJob => ({
@@ -18,7 +18,13 @@ afterEach(cleanup);
 function harness() {
   const registry = new UiActions({ workspace: "p", window: "w" }, () => true, async () => {});
   const paired = vi.fn();
-  const hook = renderHook(() => useFleetPairingControls("fleet-fixture", paired), {
+  const hook = renderHook(() => {
+    const controls = useFleetPairingControls("fleet-fixture", paired);
+    useUiCommands([{ key: "fixture-start", command: { parent: "fleet-fixture", subject: "fleet-fixture", label: "Start fixture pairing through UI registry", parameters: {}, prerequisites: [],
+      read: () => ({ revision: "fixture", enabled: true }), execute: (_args, _actor, signal) => controls.start("host", "fixture", signal),
+    } }]);
+    return controls;
+  }, {
     wrapper: ({ children }: { children: ReactNode }) => <UiActionContext.Provider value={registry}>{children}</UiActionContext.Provider>,
   });
   const actions = () => registry.groups().groups.flatMap(group => registry.observe(group, 64).actions);
@@ -85,4 +91,16 @@ it("requests cancellation before the host identity arrives and reports the actua
   expect(hook.result.current.active).toBe(true);
   await waitFor(() => expect(hook.result.current.jobs[0]).toMatchObject({ status: "cancelled", phase: "closed" }), { timeout: 1800 });
   expect(hook.result.current.active).toBe(false);
+});
+it("keeps pending-start cancellation addressable while the start action holds its registry lock", async () => {
+  let complete!: (reply: { started: boolean; job: FleetPairingJob }) => void;
+  vi.spyOn(api, "startFleetPairing").mockImplementation(() => new Promise(resolve => { complete = resolve; }));
+  const hook = harness();
+  const action = hook.registry.observe("fleet-fixture", 64).actions.find(item => item.label === "Start fixture pairing through UI registry")!;
+  let pending!: ReturnType<typeof hook.registry.act>;
+  await act(async () => { pending = hook.registry.act(hook.registry.scope, { id: "python:fixture", kind: "agent" }, { handle: action.handle, arguments: {}, request_id: "start-lock" }); });
+  expect(await hook.run("Request cancellation of pending fleet pairing start")).toMatchObject({ status: "result", outcome: { value: { cancellation_requested: true, rollback: false } } });
+  expect(api.cancelFleetPairing).not.toHaveBeenCalled();
+  await act(async () => { complete({ started: true, job: job() }); expect(await pending).toMatchObject({ status: "result", outcome: { status: "running", job: "actual-job" } }); });
+  expect(api.cancelFleetPairing).toHaveBeenCalledWith("w", "actual-job");
 });
