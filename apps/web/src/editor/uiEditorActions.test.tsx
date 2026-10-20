@@ -1,7 +1,9 @@
+import { codeFolding, foldEffect } from "@codemirror/language";
+import { useEditorEditing } from "./useEditorEditing";
 import { act, cleanup, renderHook } from "@testing-library/react";
 import { afterEach, expect, it } from "vitest";
 import type { ReactNode } from "react";
-import { EditorState } from "@codemirror/state";
+import { EditorSelection, EditorState } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
 import { UiActions } from "../lib/uiActions";
 import { UiActionContext } from "../lib/uiActionBridge";
@@ -24,5 +26,57 @@ it("reads bounded Unicode lines and uses real editor selection without editing s
   expect(view.state.selection.main.head).toBe(5);
   expect(view.state.doc.toString()).toBe(source);
   expect(await registry.act(registry.scope, actor, { handle: read.handle, arguments: { first: 1, count: 1 }, request_id: "old-state" })).toMatchObject({ status: "stale" });
+  hook.unmount(); view.destroy(); host.remove();
+});
+
+// Guarantee: docs/guarantees/agent/ui-action-dispatch.md
+it("reads long Unicode source and large fold sets through explicit bounded pages", async () => {
+  const host = document.createElement("div"); document.body.append(host);
+  const source = "λ😀".repeat(3000);
+  const view = new EditorView({ parent: host, state: EditorState.create({ doc: source, extensions: [codeFolding()] }) });
+  const registry = new UiActions({ workspace: "p", window: "w" }, () => true, async () => {});
+  const wrapper = ({ children }: { children: ReactNode }) => <UiActionContext.Provider value={registry}>{children}</UiActionContext.Provider>;
+  const hook = renderHook(() => useEditorActions(view, "long.txt"), { wrapper });
+  let id = 0;
+  const action = (label: string) => registry.groups().groups.flatMap(g => registry.observe(g).actions).find(a => a.label === label)!;
+  const run = async (label: string, args = {}) => registry.act(registry.scope, { id: "python:turn", kind: "agent" }, { handle: action(label).handle, arguments: args, request_id: String(++id) });
+  expect(await run("Read editor lines", { first: 1, count: 1 })).toMatchObject({ status: "error", reason: expect.stringContaining("8192 UTF-8 bytes") });
+  let offset: number | null = 0; const bytes: number[] = [];
+  while (offset !== null) {
+    const result = await run("Read editor UTF-8 bytes", { offset, limit: 8192 }) as unknown as { outcome: { value: { bytes: number[]; next_offset: number | null } } };
+    expect(result.outcome.value.bytes.length).toBeLessThanOrEqual(8192);
+    bytes.push(...result.outcome.value.bytes); offset = result.outcome.value.next_offset;
+  }
+  expect(new TextDecoder().decode(new Uint8Array(bytes))).toBe(source);
+  act(() => { view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: "x\n".repeat(70) }, selection: EditorSelection.cursor(140) }); });
+  act(() => { view.dispatch({ effects: Array.from({ length: 70 }, (_, i) => foldEffect.of({ from: i * 2, to: i * 2 + 1 })) }); });
+  expect(await run("Read editor folds")).toMatchObject({ status: "error", reason: expect.stringContaining("More than 64 folds") });
+  expect(await run("Read editor fold page", { first: 64, count: 64 })).toMatchObject({ status: "result", outcome: { value: { total: 70, next: null, folds: expect.any(Array) } } });
+  const folds = await run("Read editor fold page", { first: 0, count: 64 }) as unknown as { outcome: { value: { folds: unknown[]; next: number } } };
+  expect(folds.outcome.value.folds).toHaveLength(64); expect(folds.outcome.value.next).toBe(64);
+  const beforeUnfold = view.state.doc.toString();
+  await run("Expand or collapse all editor sections", { expanded: true });
+  expect(await run("Read editor fold page", { first: 0, count: 64 })).toMatchObject({ status: "result", outcome: { value: { total: 0, folds: [] } } });
+  expect(view.state.doc.toString()).toBe(beforeUnfold);
+  hook.unmount(); view.destroy(); host.remove();
+});
+
+it("selects and reads normalized multiple ranges and replaces them through the actual input command", async () => {
+  const host = document.createElement("div"); document.body.append(host);
+  const view = new EditorView({ parent: host, state: EditorState.create({ doc: "aa bb cc", extensions: [EditorState.allowMultipleSelections.of(true)] }) });
+  const registry = new UiActions({ workspace: "p", window: "w" }, () => true, async () => {});
+  const wrapper = ({ children }: { children: ReactNode }) => <UiActionContext.Provider value={registry}>{children}</UiActionContext.Provider>;
+  const hook = renderHook(() => { useEditorActions(view, "multi.txt"); useEditorEditing(view, { source: "multi.txt", label: "owned editor", identity: () => "multi.txt", current: () => true }); }, { wrapper });
+  let id = 0;
+  const run = async (label: string, args = {}) => { let result: unknown; await act(async () => { const action = registry.groups().groups.flatMap(g => registry.observe(g).actions).find(a => a.label === label)!; result = await registry.act(registry.scope, { id: "python:turn", kind: "agent" }, { handle: action.handle, arguments: args, request_id: String(++id) }); }); return result; };
+  await run("Select editor ranges", { anchors: [0, 6], heads: [2, 8], main: 1 });
+  expect(await run("Read editor selection page", { first: 0, count: 1 })).toMatchObject({ status: "result", outcome: { value: { total: 2, main_index: 1, next: 1, ranges: [{ index: 0, anchor: 0, head: 2 }] } } });
+  await run("Make editor range primary", { index: 0 });
+  expect(view.state.selection.mainIndex).toBe(0);
+  expect(await run("Replace owned editor selections", { text: "λ".repeat(300000) })).toMatchObject({ status: "result", outcome: { status: "unavailable", reason: expect.stringContaining("1 MiB insertion budget") } });
+  expect(view.state.doc.toString()).toBe("aa bb cc");
+  expect(await run("Replace owned editor selections", { text: "X" })).toMatchObject({ status: "result", outcome: { value: { requested_applied: true, source_changed: true, approved: false } } });
+  expect(view.state.doc.toString()).toBe("X bb X");
+  expect(view.state.selection.ranges).toHaveLength(2);
   hook.unmount(); view.destroy(); host.remove();
 });

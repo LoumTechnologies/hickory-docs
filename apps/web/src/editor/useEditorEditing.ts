@@ -26,6 +26,16 @@ export function useEditorEditing(view: EditorView | null, owner: {
     view.dispatch({ changes: { from, to, insert: text }, userEvent: actor.kind === "agent" ? "input.uiAgentSource" : "input" });
     return changed(before, view.state.doc.toString() === expected);
   });
+  add("replace-selections", `Replace ${owner.label} selections`, { text: { type: "string", maxLength: 1048576 } }, () => true, async (args, actor) => {
+    if (!writable() || !view) return { status: "unavailable", reason: "Editor is not writable" };
+    const before = view.state.doc.toString(), text = args.text as string;
+    if (new TextEncoder().encode(text).length * view.state.selection.ranges.length > 1048576) return { status: "unavailable", reason: "Selection replacement exceeds the 1 MiB insertion budget; reduce text or select a smaller group" };
+    let expected = "", cursor = 0;
+    for (const range of view.state.selection.ranges) { expected += before.slice(cursor, range.from) + text; cursor = range.to; }
+    expected += before.slice(cursor);
+    view.dispatch({ ...view.state.replaceSelection(text), userEvent: actor.kind === "agent" ? "input.uiAgentSource" : "input" });
+    return changed(before, view.state.doc.toString() === expected);
+  });
   for (const [key, command, depth] of [["undo", undo, undoDepth], ["redo", redo, redoDepth]] as const) add(key, `${key === "undo" ? "Undo" : "Redo"} ${owner.label} edit`, {}, () => !!view && depth(view.state) > 0, async () => {
     if (!writable() || !view) return { status: "unavailable", reason: "Editor is not writable" };
     const before = view.state.doc.toString(); return changed(before, command(view));
