@@ -1,3 +1,4 @@
+import { codeActionController } from "./codeActionController";
 import { editorLanguageActions } from "../editor/languageActions";
 import { prepareEditorChanges } from "../editor/textInput";
 import type { UiOutcome } from "../lib/uiActions";
@@ -206,8 +207,10 @@ export function lspFeatures(opts: LspFeatureOptions): Extension[] {
   const { client } = opts;
   const fields = [semanticTokenField, highlightField, inlayHintField];
   if (!client) return fields;
+  const codeActions = codeActionController(opts, applyEdit);
 
   return [
+    ...codeActions.extensions,
     ...fields,
     refreshPlugin(opts),
     signatureHelpTooltip(opts),
@@ -217,7 +220,7 @@ export function lspFeatures(opts: LspFeatureOptions): Extension[] {
     keymap.of(
       [
         { key: cmKeyOf("editor.rename"), run: (view: EditorView) => renameAt(view, opts) },
-        { key: cmKeyOf("editor.codeAction"), run: (view: EditorView) => codeActionAt(view, opts) },
+        { key: cmKeyOf("editor.codeAction"), run: (view: EditorView) => codeActions.human(view) },
         {
           key: cmKeyOf("editor.format"),
           run: (view: EditorView) => {
@@ -521,29 +524,6 @@ export async function renameSymbol(view: EditorView, opts: LspFeatureOptions, as
     const changed = applyEdit(view, edit, opts);
     return { status: "completed", value: { source_changed: changed, other_documents: urisInEdit(edit).filter(other => other !== uri), scope: "Current editor only; other document edits are reported, not applied", saved: false, verified: false } };
   } catch (e) { return refuse(e instanceof Error ? e.message : String(e)); }
-}
-
-function codeActionAt(view: EditorView, opts: LspFeatureOptions): boolean {
-  if (!opts.client || !opts.onCodeActions || view.state.readOnly || !view.state.facet(EditorView.editable) || !opts.positionAt(view.state.selection.main.from, view)) return false;
-  const original=view.state.doc;
-  void (async () => {
-    const { client, uri, positionAt, onCodeActions, onMessage } = opts;
-    if (!client || !onCodeActions) return;
-    const selection = view.state.selection.main;
-    const start = positionAt(selection.from, view);
-    const end = positionAt(selection.to, view) ?? start;
-    if (!start || !end) return;
-    const actions = await client.codeActions(uri, { start, end }).catch(() => []);
-    if (actions.length === 0) {
-      onMessage?.("No code actions here.");
-      return;
-    }
-    const chosen = await onCodeActions(actions);
-    if (view.state.doc !== original) { onMessage?.("The buffer changed. Request code actions again."); return; }
-    if (chosen?.edit) applyEdit(view, chosen.edit, opts);
-    else if (chosen?.command) onMessage?.(`"${chosen.title}" needs a command this editor cannot run yet.`);
-  })();
-  return true;
 }
 
 // --- formatting -------------------------------------------------------------
