@@ -1,3 +1,4 @@
+import { useEditorEditing } from "../editor/useEditorEditing";
 import { useEditorActions } from "../editor/uiEditorActions";
 import { DebugLaunchRail } from "../debug/DebugRail";
 // The generated-output editor, shared by the Output view and the right pane of
@@ -13,7 +14,7 @@ import { DebugLaunchRail } from "../debug/DebugRail";
 // instead of drifting a character per keystroke.
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ChangeDesc, EditorState, StateEffect, StateField, RangeSetBuilder } from "@codemirror/state";
+import { ChangeDesc, Compartment, Transaction, EditorState, StateEffect, StateField, RangeSetBuilder } from "@codemirror/state";
 import type { Extension } from "@codemirror/state";
 import { Decoration, EditorView, keymap, lineNumbers } from "@codemirror/view";
 import type { DecorationSet } from "@codemirror/view";
@@ -95,8 +96,8 @@ export interface OutputEditorPaneProps {
   /**
    * Edits a person typed, reported for whoever knows how to resolve them
    * back into the document (GeneratedFileView's debounced POST
-   * /outputs/edit). Absent means the buffer is read-only in effect: edits
-   * stay in the pane and go nowhere.
+   * /outputs/edit). Absent means a read-only reading; programmatic refreshes
+   * from its owning source remain allowed.
    */
   onLocalEdit?: (next: string) => void;
 }
@@ -115,7 +116,10 @@ export function OutputEditorPane({
   // The live view AS STATE, for the right rail: a ref never re-renders, and
   // the rail must mount its sync against the view that actually exists.
   const [railView, setRailView] = useState<EditorView | null>(null);
+  const access = useRef(new Compartment());
+  const canEdit = !!onLocalEdit;
   useEditorActions(railView, `output:${file.path}`);
+  useEditorEditing(railView, { source: `output:${file.path}`, label: "output editor", current: () => canEdit, identity: () => [file.path, file.provenance, !!onLocalEdit], localOnly: !onLocalEdit });
   // Why a test could not be run, from the gutter's click.
   const [testNotice, setTestNotice] = useState<string | null>(null);
   const provRef = useRef<ProvChar[]>([]);
@@ -187,6 +191,8 @@ export function OutputEditorPane({
           // `hick:file` body has inside a document, so opening the file and
           // reading the block that writes it are not two different programs.
           editorChrome("code"),
+          access.current.of([EditorState.readOnly.of(!canEdit), EditorView.editable.of(canEdit)]),
+          EditorState.transactionFilter.of(tr => !onLocalEditRef.current && tr.docChanged && tr.annotation(Transaction.userEvent) ? [] : tr),
           highlightField,
           // The fading mark on text a re-weave just changed.
           changeFlashField,
@@ -308,6 +314,10 @@ export function OutputEditorPane({
     // away the user's cursor and undo history mid-edit.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [updateLineage]);
+
+  useEffect(() => {
+    viewRef.current?.dispatch({ effects: access.current.reconfigure([EditorState.readOnly.of(!canEdit), EditorView.editable.of(canEdit)]) });
+  }, [canEdit]);
 
   // A NEW file prop on a live view is the server's copy after a re-weave:
   // reconcile the buffer to it with minimal edits and flash what changed.

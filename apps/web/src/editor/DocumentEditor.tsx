@@ -1,3 +1,4 @@
+import { useEditorEditing } from "./useEditorEditing";
 import { DebugLaunchRail } from "../debug/DebugRail";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
@@ -198,6 +199,7 @@ export function DocumentEditor({
   // The live view AS STATE, for the right rail — a ref never re-renders.
   const [railView, setRailView] = useState<EditorView | null>(null);
   useEditorActions(railView, `document:${docId}`);
+  useEditorEditing(railView, { source: `document:${docId}`, label: "document editor", current: () => !readOnly, identity: () => [docId, readOnly] });
   // Read through a ref: the editor is built once per document, and a callback
   // baked in at construction would go stale the moment the debugger's state
   // changed.

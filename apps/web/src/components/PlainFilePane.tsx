@@ -1,3 +1,4 @@
+import { useEditorEditing } from "../editor/useEditorEditing";
 import { PlainFileActions } from "./PlainFileActions";
 import { useUiReading } from "../lib/uiReading";
 import type { usePrompt } from "./PromptPanel";
@@ -141,6 +142,7 @@ export function PlainFilePane({
   } | null>(null);
   const mergeRef = useRef(merge); mergeRef.current = merge;
   useEditorActions(merge ? null : railView, `file:${path}`);
+  useEditorEditing(merge ? null : railView, { source: `file:${path}`, label: "file editor", current: () => !merge, identity: () => [path, file?.hash, generatedBy] });
   const onAdoptedRef = useRef(onAdopted);
   onAdoptedRef.current = onAdopted;
   const onReferencesRef = useRef(onReferences);

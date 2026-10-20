@@ -435,3 +435,18 @@ it("retains actual adoption success if opening its created document fails", asyn
   expect(screen.getByText(/already literate/)).toBeTruthy();
   expect(actions().some(a => a.label === "Make current file literate")).toBe(false);
 });
+
+// Guarantee: docs/guarantees/agent/ui-action-dispatch.md
+it("agent editor input uses the existing guarded plain-file autosave pipeline", async () => {
+  serve({ content: ON_DISK, drafts: [] });
+  const registry = new UiActions({ workspace: "p", window: "w" }, () => true, async () => {});
+  render(<UiActionContext.Provider value={registry}><PlainFilePane path="notes.md" /></UiActionContext.Provider>);
+  await waitFor(() => expect(document.querySelector(".cm-content")?.textContent).toContain("two"));
+  const actions = () => registry.groups().groups.flatMap(g => registry.observe(g).actions);
+  const replace = actions().find(a => a.label === "Replace file editor range")!;
+  let result: unknown;
+  await act(async () => { result = await registry.act(registry.scope, { id: "python:turn", kind: "agent" }, { handle: replace.handle, arguments: { from: 4, to: 7, text: "AGENT" }, request_id: "input" }); });
+  expect(result).toMatchObject({ status: "result", outcome: { value: { source_changed: true, approved: false, verified: false } } });
+  await waitFor(() => expect(api.saveFile).toHaveBeenCalledWith("notes.md", "one\nAGENT\nthree\n", `h:${ON_DISK}`, false));
+  expect(screen.getByText("Saved")).toBeTruthy();
+});

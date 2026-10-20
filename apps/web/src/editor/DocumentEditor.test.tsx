@@ -1,3 +1,5 @@
+import { UiActions } from "../lib/uiActions";
+import { UiActionContext } from "../lib/uiActionBridge";
 // @vitest-environment jsdom
 import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -763,4 +765,27 @@ describe("an ingested scaffold, mounted", () => {
     expect(view.state.doc.toString()).toBe(SOURCE);
     realtime.close();
   });
+});
+
+// Guarantee: docs/guarantees/agent/ui-action-dispatch.md
+it("agent document input shares the live room callback and respects a later read-only owner", async () => {
+  const realtime = new LocalRealtime();
+  const registry = new UiActions({ workspace: "p", window: "w" }, () => true, async () => {});
+  const source = "# Title\n\nfirst\n", onChange = vi.fn();
+  let view: EditorViewType | null = null;
+  const element = (readOnly: boolean) => <UiActionContext.Provider value={registry}><DocumentEditor docId="ui-source-edit" initialSource={source} realtime={realtime} readOnly={readOnly} preserveBytes execBlocks={[]} runningCells={new Set()} onRunCell={vi.fn()} onChange={onChange} onViewReady={next => { view = next; }} /></UiActionContext.Provider>;
+  const mounted = render(element(false));
+  try {
+    await waitFor(() => expect(view?.state.doc.toString()).toBe(source));
+    const action = () => registry.groups().groups.flatMap(g => registry.observe(g).actions).find(a => a.label === "Replace document editor range")!;
+    let result: unknown;
+    await act(async () => { result = await registry.act(registry.scope, { id: "python:turn", kind: "agent" }, { handle: action().handle, arguments: { from: 9, to: 14, text: "changed" }, request_id: "edit" }); });
+    expect(result).toMatchObject({ status: "result", outcome: { value: { requested_applied: true, approved: false, verified: false } } });
+    expect(onChange).toHaveBeenCalledWith("# Title\n\nchanged\n");
+    mounted.rerender(element(true));
+    expect(action().enabled).toBe(false);
+    expect(await registry.act(registry.scope, { id: "python:turn", kind: "agent" }, { handle: action().handle, arguments: { from: 9, to: 16, text: "wrong" }, request_id: "readonly" })).toMatchObject({ status: "disabled" });
+    act(() => { view!.dispatch({ changes: { from: 9, to: 16, insert: "wrong" }, userEvent: "input" }); });
+    expect(view!.state.doc.toString()).toBe("# Title\n\nchanged\n");
+  } finally { mounted.unmount(); realtime.close(); }
 });
