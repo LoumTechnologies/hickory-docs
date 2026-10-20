@@ -602,3 +602,20 @@ Focused history evidence: new `HistoryLens.test.tsx` cases drive model disclosur
 Picture reading now captures actual browser pixels, not a filename description. The explicit reader produces a source-bound, digest-checked bounded PNG. The host validates MCP image content; prose containing an image-shaped object never creates an image block. Python retains bytes outside its snippet process, selects artifact descriptors in its own request assembly and receives native provider images only for those retained descriptors. ACP uses the same capture as an MCP image result.
 
 Focused evidence: `uiPicture.spec.ts` uses real Chrome to compare actual decoded captured pixels and SHA-256, with no engine/API request; the artifact store reopens exact bytes and refuses forged/tampered data and worker-minted artifacts; one Python artifact assembly test; one real confined worker/UI-broker image delivery test; two native provider wire-format tests; one MCP validation/quoted-prose test; and one existing text-only worker transport check. Strict consuming-entry-point TypeScript passed. All model/provider interactions in these checks are scripted, so paid-model interpretation and real native/released/deployed workflow witnesses remain absent.
+
+### Recovery notices and previews (2026-10-20)
+
+Shared action notices expose their actual literal message and retry/dismiss
+callbacks. Callback identity participates in the revision: an old handle cannot
+invoke a replacement callback merely because its label is unchanged. The receipt
+reports a recovery callback request, not save success or verification. Promise
+rejections remain actual failures. Child React components are not evaluated for
+reading; unresolved components are counted and require their own readers.
+
+Change previews expose owned literal text and their effect explanation through
+paged reading. Collapsible previews share evidence disclosure and keep child
+components unmounted until opening, preserving lazy work and retiring child
+readers on close. Two focused controller tests passed for mixed actor recovery,
+callback replacement and real disclosure/teardown, alongside strict focused
+TypeScript, declaration inventory, file-length and diff checks. This does not
+certify every preview child or establish a native/provider witness.

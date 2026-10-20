@@ -624,3 +624,11 @@ exclude another save and native edits; refusals preserve text. Focused testing
 also exposed and fixed legacy `.hick` output and a concurrent filename race:
 new notes are `.md` and use exclusive creation. Tests include real engine
 parse/weave, a real loopback HTTP route, and mocked-host mixed UI actor cases.
+
+Shared `ActionNotice` recovery callbacks and visible literal feedback now have
+registered reading/action controls, bound to actual callback identity. A recovery
+request does not report a successful save. `ChangePreview` uses shared disclosure
+and bounded reading; collapsed children stay unmounted. Custom child components
+are counted as unresolved in literal-text projection and keep their own reading
+responsibility. Focused tests cover native/agent retry, stale callback refusal,
+preview mounting and child-reader retirement.
