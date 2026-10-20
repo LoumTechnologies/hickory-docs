@@ -139,13 +139,25 @@ retain their independent permissions; this broker does not sandbox those process
 
 The companion [declaration index](ui-control-inventory.json) enumerates every
 non-test TS/TSX file under `apps/web/src`, including files without controls. It
-records source hashes, JSX controls and callback expressions, event listeners,
+records source hashes, conservative HTML-entry import reachability, JSX controls and callback expressions, event listeners,
 imperative DOM creation/dispatch and keymap declarations. Regenerate with
 `node scripts/inventory-ui-actions.mjs`; use `--check` to detect drift. It is a
 review aid, not an assertion that arbitrary callbacks are safe semantic commands.
 The generated index records current file and declaration counts. Declarations can render many instances; these are not capability counts.
 Spreads, dynamically constructed controls, canvas gestures, native menus and
 rendered values need the manual mapping below and further adapter review.
+
+Version 3 adds `possible_entrypoints` for each web module. It follows literal
+imports/re-exports, lazy imports, type references and worker/raw-query imports
+from every top-level web HTML script; conditional branches remain potential
+paths. This is a conservative import graph, not proof of rendered visibility,
+runtime reachability or semantic parity. Review Vite input changes, external
+injection and the recorded unresolved paths before excluding a file. In the
+current graph, `OutputTree`, `SessionTurns` and several old demo modules have no
+HTML-entry caller; they are review candidates rather than missing live controls.
+The generated `hick_lang.js` wrapper is explicitly unresolved by this TS/TSX
+index. Neither an unimported module nor unresolved generated code is an OS
+limitation or an automatic exemption from #72.
 
 Every family still has **remaining shared-interface integration**; the registered
 commands above implement portions of the listed families. Some have

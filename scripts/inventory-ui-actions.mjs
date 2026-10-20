@@ -2,8 +2,9 @@
 // An auditable index of control declarations, not proof of semantic parity.
 import { execFileSync } from "node:child_process";
 import { createRequire } from "node:module";
-import { readFileSync, writeFileSync } from "node:fs";
+import { readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
+import { uiReachability } from "./ui-reachability.mjs";
 import { createHash } from "node:crypto";
 
 const root = fileURLToPath(new URL("../", import.meta.url));
@@ -14,8 +15,10 @@ const files = allFiles.filter(path => path.startsWith("apps/web/src/"))
   .filter(path => /\.tsx?$/.test(path) && !/\.(test|spec)\./.test(path)).sort();
 const native = new Set(["button", "input", "select", "textarea", "summary", "details", "a", "form", "dialog"]);
 const rows = [];
+const moduleSources = {};
 for (const path of files) {
   const text = readFileSync(new URL(`../${path}`, import.meta.url), "utf8");
+  moduleSources[path] = text;
   const source = ts.createSourceFile(path, text, ts.ScriptTarget.Latest, true, path.endsWith("tsx") ? ts.ScriptKind.TSX : ts.ScriptKind.TS);
   const controls = [];
   const imperative = [];
@@ -58,7 +61,16 @@ const nativeRows = allFiles.filter(path => /\.(rs|swift)$/.test(path)).map(path 
   }
   return { path, sha256: createHash("sha256").update(text).digest("hex"), follow_up: [74, 75], declarations };
 });
-const header = { version: 2, generator: "scripts/inventory-ui-actions.mjs", coverage: "All non-test web TS/TSX; desktop Rust/FSKit Swift; host shell/reveal Rust. Declarations, adapter hook calls and compile guards are review aids, not proof of registration, reachability, parity or platform support. Rendered values and dynamic controls still require the companion manual inventory." };
+const entrypoints = {};
+for (const filename of readdirSync(new URL("../apps/web/", import.meta.url)).filter(name => name.endsWith(".html")).sort()) {
+  const html = readFileSync(new URL(`../apps/web/${filename}`, import.meta.url), "utf8");
+  entrypoints[filename] = [...html.matchAll(/<script\b[^>]*\bsrc=["']([^"']+)["'][^>]*>/g)].map(match => match[1])
+    .filter(src => /^(?:\.\/|\/)src\//.test(src)).map(src => `apps/web/${src.replace(/^(?:\.\/|\/)/, "").split("?")[0]}`);
+}
+const reachability = uiReachability(moduleSources, entrypoints);
+for (const row of rows) row.possible_entrypoints = reachability.roots[row.path];
+const header = { version: 3, generator: "scripts/inventory-ui-actions.mjs", coverage: "All non-test web TS/TSX; desktop Rust/FSKit Swift; host shell/reveal Rust. Declarations, adapter hook calls and compile guards are review aids, not proof of registration, reachability, parity or platform support. Rendered values and dynamic controls still require the companion manual inventory." };
+header.reachability = { scope: "Conservative local module graph from every top-level web HTML script, including type-only, lazy, worker/raw-query imports and re-exports. Presence is potential import reachability, not rendered visibility; absence is not a proof of dead code or exemption from parity. Review unresolved paths and runtime injection before excluding anything.", entrypoints, unresolved: reachability.unresolved };
 const result = JSON.stringify(header, null, 2).slice(0, -2) + ',\n  "files": [\n' + rows.map(row => `    ${JSON.stringify(row)}`).join(",\n") + "\n  ],\n  \"native_files\": [\n" + nativeRows.map(row => `    ${JSON.stringify(row)}`).join(",\n") + "\n  ]\n}\n";
 const target = new URL("../docs/developers/ui-control-inventory.json", import.meta.url);
 if (process.argv.includes("--check")) {

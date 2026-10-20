@@ -669,3 +669,21 @@ pass by holding the original action pending, invoking its escape control through
 the same registry, then observing the original actual result. Earlier direct-hook
 cases did not exercise this dispatcher-lock interaction. No host/network or
 provider/native-release witness is claimed here.
+
+### Conservative entrypoint reachability review aid (issue #72)
+
+The declaration index now records potential HTML entrypoint imports per web
+module, following static/lazy imports, re-exports, type references and local
+worker/raw-query imports. Nonliteral imports, globs, missing entries and
+unresolved local imports remain explicit review items. It includes conditional
+and type-only paths conservatively and does not claim rendered visibility,
+semantic coverage, dead-code proof or OS exceptions. The current generated WASM
+JavaScript wrapper remains outside this TS/TSX graph and is recorded unresolved.
+Native declarations still require their independent manual mapping.
+
+Two focused synthetic-module-graph tests pass via
+`node scripts/ui-reachability.test.mjs`: cycles/shared entrypoints and conservative
+edge forms; and unresolved/nonliteral/glob/missing-entry reporting. These are
+static analyzer fixtures, not runtime UI or launch witnesses. This index helps
+avoid adding adapters to an unused renderer while leaving actual reachable gaps
+visible; it does not close the per-command semantic coverage requirement.
