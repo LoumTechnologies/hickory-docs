@@ -44,7 +44,7 @@ async fn output_resolution_http_waits_for_the_applied_or_refused_loop_reply() {
     *prepared.state.up_commands.lock().unwrap() = Some(sender);
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let url = format!(
-        "http://{}/api/outputs/resolve",
+        "http://{}/api/v1/outputs/resolve",
         listener.local_addr().unwrap()
     );
     let server = tokio::spawn(async move {
@@ -118,5 +118,30 @@ async fn output_resolution_http_waits_for_the_applied_or_refused_loop_reply() {
     assert_eq!(std::fs::read_to_string(&path).unwrap(), "produced");
     assert!(std::fs::metadata(&path).unwrap().permissions().readonly());
     set_read_only(&path, false).unwrap();
+    let windows = url.replace("/outputs/resolve", "/ui/windows");
+    assert_eq!(
+        client
+            .post(&windows.replace("/api/v1/", "/api/"))
+            .json(&json!({}))
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        404
+    );
+    let response = client.post(&windows).json(&json!({})).send().await.unwrap();
+    assert_eq!(response.status(), 200);
+    let scope: Value = response.json().await.unwrap();
+    assert_eq!(scope["window"].as_str().unwrap().len(), 32);
+    assert_eq!(scope["workspace"].as_str().unwrap().len(), 64);
+    assert_eq!(
+        client
+            .delete(format!("{windows}/{}", scope["window"].as_str().unwrap()))
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        200
+    );
     server.abort();
 }

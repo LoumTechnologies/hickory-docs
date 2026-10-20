@@ -268,11 +268,11 @@ async fn close(State(state): State<LocalState>, Path(id): Path<String>) -> Json<
 }
 pub fn routes() -> Router<LocalState> {
     Router::new()
-        .route("/ui/windows", post(open))
-        .route("/ui/windows/{id}", axum::routing::delete(close))
-        .route("/ui/windows/{id}/requests", get(poll))
-        .route("/ui/windows/{id}/reply", post(reply))
-        .route("/ui/windows/{id}/receipts", post(receipt))
+        .route("/v1/ui/windows", post(open))
+        .route("/v1/ui/windows/{id}", axum::routing::delete(close))
+        .route("/v1/ui/windows/{id}/requests", get(poll))
+        .route("/v1/ui/windows/{id}/reply", post(reply))
+        .route("/v1/ui/windows/{id}/receipts", post(receipt))
 }
 
 pub fn catalogue() -> Vec<Value> {

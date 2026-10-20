@@ -235,14 +235,14 @@ async fn python_agent_uses_originating_window_ui_tools_with_retained_context() {
         json!({"done":"Requested a run through the shared UI; runtime success is not established."}),
     ]);
     app.state.agent.set_llm_override(model.clone());
-    let (status, scope) = app.request("POST", "/api/ui/windows", json!({})).await;
+    let (status, scope) = app.request("POST", "/api/v1/ui/windows", json!({})).await;
     assert_eq!(status, 200, "{scope}");
     let window = scope["window"].as_str().unwrap();
     let (status, sent) = app.request("POST", &app.route(""), json!({"backend":"python","prompt":"Discover and run the registered cell","context":{"ui_window":window,"buffers":[]}})).await;
     assert_eq!(status, 202, "{sent}");
     let turn = sent["session_id"].as_str().unwrap();
-    let poll_route = format!("/api/ui/windows/{window}/requests");
-    let reply_route = format!("/api/ui/windows/{window}/reply");
+    let poll_route = format!("/api/v1/ui/windows/{window}/requests");
+    let reply_route = format!("/api/v1/ui/windows/{window}/reply");
     for (method, result) in [
         (
             "ui_observe",

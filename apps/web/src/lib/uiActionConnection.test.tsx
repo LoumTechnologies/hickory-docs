@@ -37,11 +37,26 @@ it("fails a bounded pending capture without submitting a turn and preserves host
   vi.mocked(request).mockImplementation(async method => method === "POST" || method === "GET" ? never : {});
   render(<UiActionsProvider><span>Connecting</span></UiActionsProvider>);
   await expect(captureUiWindow(1)).rejects.toThrow("Retry Send");
-  expect(vi.mocked(request).mock.calls.every(([, path]) => path === "/api/ui/windows")).toBe(true);
+  expect(vi.mocked(request).mock.calls.every(([, path]) => path === "/api/v1/ui/windows")).toBe(true);
 });
 
 it("reports a failed attached handshake instead of silently omitting tools", async () => {
   vi.mocked(request).mockRejectedValue(Error("host offline"));
   await act(async () => { render(<UiActionsProvider><span>Workspace</span></UiActionsProvider>); });
   await expect(captureUiWindow()).rejects.toThrow("UI connection unavailable: Error: host offline");
+});
+
+it("rejects an unsupported engine protocol without falling back to a legacy window route", async () => {
+  vi.mocked(request).mockRejectedValue(Object.assign(new Error("not found"), { status: 404 }));
+  await act(async () => { render(<UiActionsProvider><span>Workspace</span></UiActionsProvider>); });
+  await expect(captureUiWindow()).rejects.toThrow("Shared UI protocol v1 is unavailable; update both the app and engine");
+  expect(vi.mocked(request).mock.calls).toHaveLength(1);
+  expect(vi.mocked(request).mock.calls[0][1]).toBe("/api/v1/ui/windows");
+});
+it("rejects a malformed protocol scope before making it the active originating window", async () => {
+  vi.mocked(request).mockResolvedValue({ workspace: "p", window: "../not-a-window" });
+  await act(async () => { render(<UiActionsProvider><span>Workspace</span></UiActionsProvider>); });
+  await expect(captureUiWindow()).rejects.toThrow("Invalid shared UI protocol v1 scope");
+  expect(uiWindow()).toBeUndefined();
+  expect(vi.mocked(request).mock.calls).toHaveLength(1);
 });

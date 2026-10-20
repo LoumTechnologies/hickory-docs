@@ -776,6 +776,8 @@ pub(crate) fn router(state: LocalState) -> Router {
         .route("/outputs/diverged", get(api::diverged_outputs))
         .route("/outputs/regenerate", post(api::regenerate_output))
         .route("/outputs/resolve", post(api::resolve_output))
+        .route("/v1/outputs/resolve", post(api::resolve_output))
+        .route("/v1/outputs/regenerate", post(api::regenerate_output))
         .route("/git/changes", get(git_ops::changes))
         .route("/git/diff", get(git_ops::diff))
         .route("/git/stage", post(git_ops::stage))

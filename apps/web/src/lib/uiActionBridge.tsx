@@ -65,27 +65,28 @@ export function UiActionsProvider({ children }: { children: ReactNode }) {
     let window: string | undefined;
     let connection: UiActions | undefined;
     async function connect() {
-      const scope = await request<{ workspace: string; window: string }>("POST", "/api/ui/windows", {});
+      const scope = await request<{ workspace: string; window: string }>("POST", "/api/v1/ui/windows", {});
+      if (typeof scope?.workspace !== "string" || !scope.workspace.length || scope.workspace.length > 512 || typeof scope?.window !== "string" || !/^[A-Za-z0-9_-]{1,128}$/.test(scope.window)) throw Error("Invalid shared UI protocol v1 scope; update both the app and engine before sending an attached task");
       window = scope.window;
-      if (stopped) { void request("DELETE", `/api/ui/windows/${scope.window}`).catch(() => {}); return; }
+      if (stopped) { void request("DELETE", `/api/v1/ui/windows/${scope.window}`).catch(() => {}); return; }
       const actions = new UiActions(scope,
         // Only explicit controllers register. Each controller preserves actual
         // actor policy and returns required human input for privileged decisions.
         () => true,
-        receipt => request("POST", `/api/ui/windows/${scope.window}/receipts`, receipt).then(() => {}));
+        receipt => request("POST", `/api/v1/ui/windows/${scope.window}/receipts`, receipt).then(() => {}));
       activeWindow = scope.window;
       settle(scope.window);
       connection = actions;
       setRegistry(actions);
       while (!stopped) {
         try {
-          const { request: frame } = await request<{ request: Frame | null }>("GET", `/api/ui/windows/${scope.window}/requests`);
+          const { request: frame } = await request<{ request: Frame | null }>("GET", `/api/v1/ui/windows/${scope.window}/requests`);
           if (stopped) break;
           if (frame) {
             // Run independently so the poll can accept cancellation while a
             // command is awaiting its real executor. Host queue bounds apply.
             void dispatchUiFrame(actions, frame).catch(error => ({ status: "error", reason: String(error) }))
-              .then(result => frame.id ? request("POST", `/api/ui/windows/${scope.window}/reply`, { id: frame.id, result }) : undefined).catch(() => {});
+              .then(result => frame.id ? request("POST", `/api/v1/ui/windows/${scope.window}/reply`, { id: frame.id, result }) : undefined).catch(() => {});
           }
         } catch {
           // No re-registration: old turns must not silently attach a new window.
@@ -93,7 +94,7 @@ export function UiActionsProvider({ children }: { children: ReactNode }) {
         }
       }
     }
-    void connect().catch(error => { origin.failed = String(error); settle(undefined); /* Ordinary UI stays available; Send reports this connection failure. */ });
+    void connect().catch(error => { origin.failed = (error as { status?: number })?.status === 404 ? "Shared UI protocol v1 is unavailable; update both the app and engine before sending an attached task" : String(error); settle(undefined); /* Ordinary UI stays available; Send reports this connection failure. */ });
     return () => {
       stopped = true;
       origin.closed = true;
@@ -101,7 +102,7 @@ export function UiActionsProvider({ children }: { children: ReactNode }) {
       if (windowConnection === origin) windowConnection = undefined;
       connection?.dispose();
       if (activeWindow === window) activeWindow = undefined;
-      if (window) void request("DELETE", `/api/ui/windows/${window}`).catch(() => {});
+      if (window) void request("DELETE", `/api/v1/ui/windows/${window}`).catch(() => {});
     };
   }, []);
   return <Context.Provider value={registry}>{children}</Context.Provider>;

@@ -36,8 +36,8 @@ only when asked by name.
 > mine**, **take theirs**, **merge**. The tree says *diverged*. The server
 > publishes each diverged file with its `kind`, its reason, the last agreed
 > `base` and the document's current `theirs` (`GET /api/outputs/diverged`);
-> *take theirs* is `POST /api/outputs/regenerate`, and a merge's result goes
-> through `POST /api/outputs/resolve`, after which the loop treats the bytes
+> *take theirs* is `POST /api/v1/outputs/regenerate`, and a merge's result goes
+> through `POST /api/v1/outputs/resolve`, after which the loop treats the bytes
 > as an ordinary save. A kept file has no *theirs* yet, and the banner says
 > what would make one.
 
@@ -54,7 +54,7 @@ Last LLM verification:
   `refusal_reason`; `crates/hickory-cli/src/serve/watch.rs` publishes the
   held set to `LocalState.held` and answers regenerate requests;
   `crates/hickory-cli/src/serve/api.rs` stamps `held` on tree nodes and
-  serves `POST /api/outputs/regenerate`; `apps/web/src/shell/FolderTreePane.tsx`
+  serves `POST /api/v1/outputs/regenerate`; `apps/web/src/shell/FolderTreePane.tsx`
   and `apps/web/src/components/OutputEditorPane.tsx` show it.
 - Test coverage: `crates/hickory-cli/tests/up_loop.rs`
   (`a_fully_generated_file_is_read_only_and_a_forced_edit_is_held_not_undone`,
@@ -67,3 +67,5 @@ Last LLM verification:
 > Generated files offer “Leave disk unchanged” and “Regenerate from document”;
 > plain buffers offer “Overwrite disk with this buffer” and “Reload from disk”.
 > Dismissal is not resolution. See `conflict-actions-name-the-write.md`.
+
+Scoped update, October 20, 2026: explicit resolution/regeneration now requires the observed disk and produced sides and awaits the loop's actual application/refusal. `WovenState::resolve_output` and `serve/output_resolution.rs` replace the historical unguarded `restore_output` path named in the September evidence. A refusal preserves the hold; success retires it only after writing, and regeneration restores generated-output permissions. Applied output bytes do not establish later source propagation. Focused state/HTTP checks are `up/state/resolution_tests.rs` and `tests/serve_output_resolution.rs`; they include stale-side, symlink-retarget, permission and protocol acknowledgement behavior. The broader historical up-loop/round-trip checks were not rerun in this continuation. External writers can race comparison/rename; timeout and partial I/O failure are not rollback guarantees.

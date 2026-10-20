@@ -535,10 +535,10 @@ export const api = {
   divergedOutputs: () => request<DivergedOutputs>("GET", "/api/outputs/diverged"),
   /** Overwrite a diverged file with what its document produces. */
   regenerateOutput: (path: string, expected_current: string, expected_produced: string) =>
-    request<{ ok: boolean; path: string; applied: boolean; carried_back: boolean }>("POST", "/api/outputs/regenerate", { path, expected_current, expected_produced }),
+    request<{ ok: boolean; path: string; applied: boolean; carried_back: boolean }>("POST", "/api/v1/outputs/regenerate", { path, expected_current, expected_produced }),
   /** Write the bytes a person chose — a merge's result — over a diverged file. */
   resolveOutput: (path: string, content: string, expected_current: string, expected_produced: string) =>
-    request<{ ok: boolean; path: string; applied: boolean; carried_back: boolean }>("POST", "/api/outputs/resolve", { path, content, expected_current, expected_produced }),
+    request<{ ok: boolean; path: string; applied: boolean; carried_back: boolean }>("POST", "/api/v1/outputs/resolve", { path, content, expected_current, expected_produced }),
   gitReading: (sha: string) => request<CommitReadingData>("GET", `/api/git/reading?${new URLSearchParams({ sha })}`),
   gitChanges: () => request<GitChanges>("GET", "/api/git/changes"),
   gitDiff: (path: string, staged = false) =>
