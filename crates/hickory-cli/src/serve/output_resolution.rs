@@ -2,6 +2,7 @@ use super::{
     LocalState,
     api::{ApiError, ApiResult},
 };
+use crate::up::state::ResolutionMode;
 use axum::{Json, extract::State};
 use serde_json::{Value, json};
 
@@ -17,6 +18,38 @@ pub struct ResolveBody {
 pub async fn resolve_output(
     State(state): State<LocalState>,
     Json(body): Json<ResolveBody>,
+) -> ApiResult<Json<Value>> {
+    apply(state, body, ResolutionMode::Merge).await
+}
+
+#[derive(serde::Deserialize)]
+pub struct RegenerateBody {
+    pub path: String,
+    pub expected_current: String,
+    pub expected_produced: String,
+}
+
+pub async fn regenerate_output(
+    State(state): State<LocalState>,
+    Json(body): Json<RegenerateBody>,
+) -> ApiResult<Json<Value>> {
+    apply(
+        state,
+        ResolveBody {
+            path: body.path,
+            content: body.expected_produced.clone(),
+            expected_current: body.expected_current,
+            expected_produced: body.expected_produced,
+        },
+        ResolutionMode::Regenerate,
+    )
+    .await
+}
+
+async fn apply(
+    state: LocalState,
+    body: ResolveBody,
+    mode: ResolutionMode,
 ) -> ApiResult<Json<Value>> {
     let relative = std::path::Path::new(&body.path);
     if relative
@@ -48,6 +81,7 @@ pub async fn resolve_output(
                 content: body.content,
                 expected_current: body.expected_current,
                 expected_produced: body.expected_produced,
+                mode,
             },
             reply,
         })

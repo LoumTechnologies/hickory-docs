@@ -13,6 +13,12 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context, Result};
 use hickory_lineage::Provenance;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ResolutionMode {
+    Merge,
+    Regenerate,
+}
+
 /// Exact observed sides of a requested held-output merge.
 #[derive(Debug)]
 pub struct OutputResolution {
@@ -21,6 +27,7 @@ pub struct OutputResolution {
     pub content: String,
     pub expected_current: String,
     pub expected_produced: String,
+    pub mode: ResolutionMode,
 }
 
 /// One woven output file, as we last wrote it.
@@ -288,6 +295,7 @@ impl WovenState {
             content,
             expected_current,
             expected_produced,
+            mode,
         } = request;
         let root = root.canonicalize()?;
         let actual = path.canonicalize()?;
@@ -303,9 +311,18 @@ impl WovenState {
             held.kind == DivergedKind::Held && held.theirs == *expected_produced,
             "Produced output changed; refresh the merge before resolving"
         );
+        let output = self
+            .outputs
+            .get(path)
+            .ok_or_else(|| anyhow::anyhow!("Resolution target is not a tracked output"))?;
         anyhow::ensure!(
-            self.outputs.contains_key(path),
-            "Resolution target is not a tracked output"
+            output.content == *expected_produced,
+            "Tracked produced output changed; refresh before resolving"
+        );
+        let readonly = !output.editable();
+        anyhow::ensure!(
+            *mode != ResolutionMode::Regenerate || content == expected_produced,
+            "Regeneration must use the observed produced bytes"
         );
         let disk = std::fs::read(path)?;
         anyhow::ensure!(
@@ -314,24 +331,10 @@ impl WovenState {
         );
         set_read_only(path, false)?;
         write_atomic(path, content)?;
+        if *mode == ResolutionMode::Regenerate {
+            set_read_only(path, readonly)?;
+        }
         self.held.remove(path);
-        Ok(())
-    }
-
-    /// Put an output file back to the bytes the document produces — the
-    /// explicit way out of a hold, asked for by name, never done on the
-    /// loop's own initiative. The recorded content is unchanged, so the
-    /// write this causes is recognised as an echo and consumes itself.
-    pub fn restore_output(&mut self, path: &Path) -> Result<()> {
-        self.held.remove(path);
-        let Some(state) = self.outputs.get(path) else {
-            return Ok(());
-        };
-        // Clear read-only first: a fully-generated file is 0444 on disk, and
-        // the restore has to be able to write through that.
-        set_read_only(path, false)?;
-        write_atomic(path, &state.content)?;
-        set_read_only(path, !state.editable())?;
         Ok(())
     }
 

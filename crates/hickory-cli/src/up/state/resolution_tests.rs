@@ -21,6 +21,7 @@ fn held(root: &Path) -> (WovenState, OutputResolution) {
         content: "merged".into(),
         expected_current: "disk side".into(),
         expected_produced: "produced side".into(),
+        mode: ResolutionMode::Merge,
     };
     (state, request)
 }
@@ -51,6 +52,7 @@ fn output_resolution_checks_both_observed_sides_and_preserves_holds_on_refusal()
     );
     assert!(state.held.contains_key(&request.path));
     request.expected_produced = "new produced".into();
+    state.outputs.get_mut(&request.path).unwrap().content = "new produced".into();
     state.resolve_output(&request).unwrap();
     assert_eq!(std::fs::read_to_string(&request.path).unwrap(), "merged");
     assert!(!state.held.contains_key(&request.path));
@@ -77,4 +79,34 @@ fn output_resolution_refuses_a_symlink_retarget_outside_the_folder() {
     );
     assert_eq!(std::fs::read_to_string(target).unwrap(), "disk side");
     assert!(state.held.contains_key(&request.path));
+}
+
+#[test]
+fn output_regeneration_checks_observed_bytes_and_restores_read_only_generated_output() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().canonicalize().unwrap();
+    let (mut state, mut request) = held(&root);
+    request.mode = ResolutionMode::Regenerate;
+    assert!(
+        state
+            .resolve_output(&request)
+            .unwrap_err()
+            .to_string()
+            .contains("must use the observed")
+    );
+    assert_eq!(std::fs::read_to_string(&request.path).unwrap(), "disk side");
+    request.content = request.expected_produced.clone();
+    state.resolve_output(&request).unwrap();
+    assert_eq!(
+        std::fs::read_to_string(&request.path).unwrap(),
+        "produced side"
+    );
+    assert!(!state.held.contains_key(&request.path));
+    assert!(
+        std::fs::metadata(&request.path)
+            .unwrap()
+            .permissions()
+            .readonly()
+    );
+    set_read_only(&request.path, false).unwrap();
 }

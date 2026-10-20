@@ -805,57 +805,7 @@ pub async fn diverged_outputs(State(state): State<LocalState>) -> Json<Value> {
     Json(json!({ "diverged": held }))
 }
 
-pub use super::output_resolution::resolve_output;
-
-#[derive(serde::Deserialize)]
-pub struct RegenerateBody {
-    pub path: String,
-}
-
-/// `POST /api/outputs/regenerate` — overwrite a held file with what its
-/// document produces. The one write over held bytes, taken only when asked.
-pub async fn regenerate_output(
-    State(state): State<LocalState>,
-    Json(body): Json<RegenerateBody>,
-) -> ApiResult<Json<Value>> {
-    if body.path.is_empty()
-        || std::path::Path::new(&body.path).is_absolute()
-        || body.path.split('/').any(|p| p == "..")
-    {
-        return Err(ApiError::bad_request(format!(
-            "{:?} is not a path inside the open folder",
-            body.path
-        )));
-    }
-    let held = state
-        .held
-        .lock()
-        .expect("held outputs")
-        .contains_key(&body.path);
-    if !held {
-        return Err(ApiError::unprocessable(format!(
-            "{} is not held: the document and the disk already agree, so there is nothing to \
-             regenerate",
-            body.path
-        )));
-    }
-    let root = state
-        .index
-        .root()
-        .canonicalize()
-        .unwrap_or_else(|_| state.index.root().to_path_buf());
-    let sender = state.up_commands.lock().expect("up command inbox").clone();
-    let Some(sender) = sender else {
-        return Err(ApiError::unavailable(
-            "the folder is not being watched, so nothing can regenerate the file; run \
-             `hick weave` on the document instead",
-        ));
-    };
-    sender
-        .send(crate::up::UpCommand::Regenerate(root.join(&body.path)))
-        .map_err(|_| ApiError::unavailable("the watch loop has stopped"))?;
-    Ok(Json(json!({ "ok": true, "path": body.path })))
-}
+pub use super::output_resolution::{regenerate_output, resolve_output};
 
 /// Stamp `generated_by` onto every node whose path a document writes.
 fn mark_generated(nodes: &mut [TreeNode], generated: &HashMap<String, String>) {

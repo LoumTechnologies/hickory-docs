@@ -147,11 +147,6 @@ async fn run_loop(
             },
             command = commands.recv() => {
                 match command {
-                    Some(UpCommand::Regenerate(path)) => {
-                        if let Err(e) = woven.restore_output(&path) {
-                            log::warn!("could not regenerate {}: {e:#}", path.display());
-                        }
-                    }
                     Some(UpCommand::Resolve { request, reply }) => {
                         if !reply.is_closed() {
                             let result = woven.resolve_output(&request).map_err(|e| format!("{e:#}"));

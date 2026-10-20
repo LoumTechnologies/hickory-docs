@@ -244,16 +244,16 @@ export function GeneratedFileView({
           keepLabel="Leave disk unchanged" keepEffect="Dismisses this warning; the document and disk still differ."
           takeLabel="Regenerate from document" takeEffect="Replaces disk contents with the document’s output."
           onTakeTheirs={
-            diverged.kind === "held"
+            diverged.kind === "held" && file
               ? () =>
-                  api.regenerateOutput(path).then(
-                    reply => { setWayError(null); return { ...reply, scope: "Regeneration queued; inspect actual output before claiming application" }; },
+                  api.regenerateOutput(path, file.content, diverged.theirs).then(
+                    reply => { setWayError(null); return { ...reply, scope: "Actual output-file application reply; not source verification" }; },
                     (e) => { setWayError(e instanceof Error ? e.message : String(e)); throw e; },
                   )
               : undefined
           }
           takeTheirsHint={
-            diverged.kind === "kept" ? "Run the document to have a version to take." : undefined
+            diverged.kind === "kept" ? "Run the document to have a version to take." : !file ? "Loading the disk version before regeneration." : undefined
           }
           onMerge={diverged.kind === "held" ? () => setMerging(true) : undefined}
           error={wayError}

@@ -534,8 +534,8 @@ export const api = {
   /** Produced files whose disk bytes are not the document's, and why. */
   divergedOutputs: () => request<DivergedOutputs>("GET", "/api/outputs/diverged"),
   /** Overwrite a diverged file with what its document produces. */
-  regenerateOutput: (path: string) =>
-    request<{ ok: boolean; path: string }>("POST", "/api/outputs/regenerate", { path }),
+  regenerateOutput: (path: string, expected_current: string, expected_produced: string) =>
+    request<{ ok: boolean; path: string; applied: boolean; carried_back: boolean }>("POST", "/api/outputs/regenerate", { path, expected_current, expected_produced }),
   /** Write the bytes a person chose — a merge's result — over a diverged file. */
   resolveOutput: (path: string, content: string, expected_current: string, expected_produced: string) =>
     request<{ ok: boolean; path: string; applied: boolean; carried_back: boolean }>("POST", "/api/outputs/resolve", { path, content, expected_current, expected_produced }),

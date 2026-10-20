@@ -111,8 +111,7 @@ impl Coordinator {
                     Some(command) = command_rx.recv() => {
                         let _write = writes.lock().await;
                         let mut woven = history.lock().await;
-                        let result = match command {
-                            UpCommand::Regenerate(path) => woven.restore_output(&path),
+                        let result: anyhow::Result<()> = match command {
                             UpCommand::Resolve { request, reply } => {
                                 if !reply.is_closed() {
                                     let result = woven.resolve_output(&request).map_err(|e| format!("{e:#}"));

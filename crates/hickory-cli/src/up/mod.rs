@@ -47,10 +47,7 @@ use state::{OutputState, WovenState};
 /// What a window can ask a running loop to do, besides react to files.
 #[derive(Debug)]
 pub enum UpCommand {
-    /// Overwrite a held output with what its document produces — the one
-    /// path that writes over held bytes, taken only when asked by name.
-    Regenerate(PathBuf),
-    /// Write bytes a person chose (a merge's result) over a diverged file.
+    /// Apply selected merge/regeneration bytes with exact observed-side guards.
     Resolve {
         request: state::OutputResolution,
         reply: tokio::sync::oneshot::Sender<std::result::Result<(), String>>,

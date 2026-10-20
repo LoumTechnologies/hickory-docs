@@ -90,5 +90,33 @@ async fn output_resolution_http_waits_for_the_applied_or_refused_loop_reply() {
     }
     assert_eq!(client.post(&url).json(&json!({ "path": "../escape", "content": "x", "expected_current": "", "expected_produced": "" })).send().await.unwrap().status(), 400);
     assert!(commands.try_recv().is_err());
+    woven.hold_output(&path, "Merged bytes are still different".into());
+    let endpoint = url.replace("/resolve", "/regenerate");
+    let regeneration = tokio::spawn(async move {
+        reqwest::Client::new().post(endpoint).json(&json!({ "path": "out.txt", "expected_current": "merged", "expected_produced": "produced" })).send().await.unwrap()
+    });
+    let command = tokio::time::timeout(std::time::Duration::from_secs(5), commands.recv())
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(!regeneration.is_finished());
+    match command {
+        UpCommand::Resolve { request, reply } => {
+            assert_eq!(
+                request.mode,
+                hickory_cli::up::state::ResolutionMode::Regenerate
+            );
+            let outcome = woven.resolve_output(&request).map_err(|e| e.to_string());
+            reply.send(outcome).unwrap();
+        }
+        _ => panic!("Wrong regeneration command"),
+    }
+    let response = regeneration.await.unwrap();
+    assert_eq!(response.status(), 200);
+    let body: Value = response.json().await.unwrap();
+    assert_eq!(body["applied"], true);
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), "produced");
+    assert!(std::fs::metadata(&path).unwrap().permissions().readonly());
+    set_read_only(&path, false).unwrap();
     server.abort();
 }
