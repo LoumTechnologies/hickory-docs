@@ -3,13 +3,13 @@ import { useCallback, useEffect, useState, type KeyboardEvent } from "react";
 import { api } from "../api/client";
 import type {
   GithubCheck,
-  GithubComment,
   GithubIssue,
   GithubPullRequest,
   GithubWorkspace,
 } from "../api/github";
 import { workspaceNodeKey } from "../lib/workspaceTree";
 import { isAction } from "../lib/keymap";
+import { GithubBodyAndComment as BodyAndComment } from "./GithubBodyAndComment";
 import { TreeRenameEditor } from "./TreeRenameEditor";
 
 const githubKey = (id: string) => workspaceNodeKey({ provider: "github", id });
@@ -95,71 +95,6 @@ function RenameTitle({
       apply={async (_item, value) => { await api.editGithubObject(kind, repository, number, "title", value); }}
       onClose={onDone}
     />
-  );
-}
-
-function BodyAndComment({
-  kind,
-  repository,
-  number,
-  body,
-  comments,
-  onChanged,
-}: {
-  kind: "pr" | "issue";
-  repository: string;
-  number: number;
-  body: string;
-  comments: GithubComment[];
-  onChanged: () => void;
-}) {
-  const [bodyText, setBodyText] = useState(body);
-  const [comment, setComment] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [notice, setNotice] = useState<string | null>(null);
-  useEffect(() => setBodyText(body), [body]);
-
-  const saveBody = () => {
-    setBusy(true);
-    setNotice(null);
-    void api.editGithubObject(kind, repository, number, "body", bodyText).then(
-      () => { setBusy(false); setNotice("Body saved."); onChanged(); },
-      (cause) => { setBusy(false); setNotice(textOf(cause)); },
-    );
-  };
-  const addComment = () => {
-    if (!comment.trim()) return;
-    setBusy(true);
-    setNotice(null);
-    void api.commentOnGithubObject(kind, repository, number, comment).then(
-      () => { setBusy(false); setComment(""); setNotice("Comment added."); onChanged(); },
-      (cause) => { setBusy(false); setNotice(textOf(cause)); },
-    );
-  };
-
-  return (
-    <>
-      <li role="treeitem" className="github-tree__field">
-        <label>Body<textarea value={bodyText} disabled={busy} onChange={(event) => setBodyText(event.target.value)} /></label>
-        <button type="button" disabled={busy || bodyText === body} onClick={saveBody}>Save body</button>
-      </li>
-      <li role="treeitem" className="github-tree__section">
-        <span>Comments ({comments.length})</span>
-        <ul role="group" className="github-tree__comments">
-          {comments.map((item, index) => (
-            <li role="treeitem" key={item.id ?? item.url ?? index}>
-              <span className="github-tree__byline">{item.author?.login ?? "unknown"}</span>
-              <p>{item.body}</p>
-            </li>
-          ))}
-          <li role="treeitem" className="github-tree__new-comment">
-            <label>New comment<textarea value={comment} disabled={busy} onChange={(event) => setComment(event.target.value)} /></label>
-            <button type="button" disabled={busy || !comment.trim()} onClick={addComment}>Add comment</button>
-          </li>
-        </ul>
-      </li>
-      {notice && <li role="treeitem" className="github-tree__notice">{notice}</li>}
-    </>
   );
 }
 

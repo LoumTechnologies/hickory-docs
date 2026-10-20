@@ -569,3 +569,15 @@ Files row activation and context menus now use shared line-target resolution,
 including presentation-only reorders and associated-object activation callbacks.
 The model's menu request supplies a controller-owned anchor point; native mouse
 events use that same semantic menu boundary. No synthetic DOM event is dispatched.
+
+### GitHub work-item draft checkpoint (2026-10-20)
+
+Expanded GitHub issue/PR bodies and comments now have explicit paged reading,
+separate draft setters and shared submit controls. A provider body that changes
+while locally edited preserves that draft and requires an explicit reset/review;
+there is no implicit overwrite. Pending submission excludes another submission,
+failed comments retain their drafts, and actual provider replies are returned
+without claiming independent verification or cross-client compare-and-swap.
+Focused tests use mocked provider replies; no GitHub content was posted. The
+collapsed work-item rows, provider status, lazy checks and outbound links still
+need disclosure/read/action registration.

@@ -120,3 +120,11 @@ associated rows retain their own optional activation callback. Menu requests pas
 an explicit anchor point to the owning menu controller, never a synthetic DOM
 mouse event. An absent capability is reported as unavailable. The focused
 reordered-row test covers both actor paths and the selected line/menu identity.
+
+Expanded GitHub body/comment fields now expose typed draft and submit commands
+through their existing semantic provider APIs. Reading and changing a draft does
+not send it. An incoming changed body preserves a dirty draft and requires
+explicit recovery. A pending submit excludes another submit; failed comment
+requests retain text and report uncertain effects. Focused mixed native/agent
+and failure tests in `GithubBodyAndComment.test.tsx` passed with mocked replies,
+alongside the existing semantic title/body/comment case. No live post was made.
