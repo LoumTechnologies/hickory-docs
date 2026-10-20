@@ -362,7 +362,10 @@ struct AnthropicMessage {
 struct TextBlock {
     #[serde(rename = "type")]
     kind: &'static str,
+    #[serde(skip_serializing_if = "String::is_empty")]
     text: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    source: Option<serde_json::Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
     cache_control: Option<CacheControl>,
 }
@@ -372,6 +375,7 @@ impl TextBlock {
         Self {
             kind: "text",
             text,
+            source: None,
             cache_control: None,
         }
     }
@@ -441,7 +445,7 @@ pub(crate) fn build_request(
         // is strictly better than failing the request. This is a backstop:
         // callers should not produce them (see the Python agent's malformed
         // -response path), but one blank turn must never kill a session.
-        if m.content.trim().is_empty() {
+        if m.content.trim().is_empty() && m.images.is_empty() {
             continue;
         }
         match m.role {
@@ -454,7 +458,12 @@ pub(crate) fn build_request(
                 };
                 api_messages.push(AnthropicMessage {
                     role: role.into(),
-                    content: vec![TextBlock::new(m.content.clone())],
+                    content: {
+                        let mut blocks = vec![];
+                        if !m.content.trim().is_empty() { blocks.push(TextBlock::new(m.content.clone())); }
+                        for image in &m.images { blocks.push(TextBlock { kind: "image", text: String::new(), source: Some(serde_json::json!({"type":"base64","media_type":image.media_type,"data":image.data})), cache_control: None }); }
+                        blocks
+                    },
                 });
             }
         }
@@ -927,5 +936,24 @@ mod tests {
             assert_eq!(Effort::parse(s), Some(e));
         }
         assert_eq!(Effort::parse("ultra"), None);
+    }
+    #[test]
+    fn selected_images_are_native_anthropic_blocks() {
+        let message = Message {
+            role: Role::User,
+            content: String::new(),
+            images: vec![crate::Image {
+                media_type: "image/png".into(),
+                data: "CAPTURED_BYTES".into(),
+            }],
+        };
+        let request = build_request("fixture", 100, None, false, &[message], false);
+        let value = serde_json::to_value(request).unwrap();
+        assert_eq!(value["messages"][0]["content"][0]["type"], "image");
+        assert_eq!(
+            value["messages"][0]["content"][0]["source"],
+            serde_json::json!({"type":"base64","media_type":"image/png","data":"CAPTURED_BYTES"})
+        );
+        assert!(value["messages"][0]["content"][0].get("text").is_none());
     }
 }

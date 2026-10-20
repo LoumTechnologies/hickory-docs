@@ -1,3 +1,4 @@
+import { PictureFixture } from "./PictureFixture";
 import { ProfileFixture } from "./ProfileFixture";
 import { ReviewFixture } from "./ReviewFixture";
 // An external host: imports only the supported embedding entry, no App/site entry.
@@ -64,4 +65,4 @@ function LocalFixture() {
   }, []);
   return storage ? <BrowserWorkspace storage={storage} /> : <p>{error || "Loading local storage…"}</p>;
 }
-createRoot(document.getElementById("root")!).render(location.search.includes("profile") ? <ProfileFixture /> : location.search.includes("review") ? <ReviewFixture /> : location.search.includes("workspace") ? <LocalFixture /> : <Fixture />);
+createRoot(document.getElementById("root")!).render(location.search.includes("picture") ? <PictureFixture /> : location.search.includes("profile") ? <ProfileFixture /> : location.search.includes("review") ? <ReviewFixture /> : location.search.includes("workspace") ? <LocalFixture /> : <Fixture />);

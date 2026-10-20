@@ -7,6 +7,24 @@ from hickory_agent_worker.core import Agent, Config
 
 
 class ContextRuntimeTests(unittest.TestCase):
+    def test_explicit_host_artifacts_are_selected_as_whole_non_text_parts(self):
+        context = MemoryContext('images')
+        node = dict(id='captured-image', digest='a' * 64, artifact=dict(digest='a' * 64,
+            media_type='image/png', byte_length=70, locator='retained:' + 'a' * 64),
+            parents=[], derivation='root', coverage='complete', mappings=[])
+        context.external[node['id']] = node
+        bundle = context.prepare([{'role': 'user', 'content': 'Inspect this captured image'}])
+        part = bundle['request']['parts'][1]
+        self.assertEqual(part['role'], 'user')
+        self.assertEqual(part['scope'], 'captured-ui-image')
+        self.assertNotIn('text', part)
+        self.assertEqual(part['artifact'], node['artifact'])
+        self.assertEqual(part['segments'][0]['node'], node['id'])
+        changed = deepcopy(bundle)
+        changed['request']['parts'][1]['artifact']['locator'] = '/etc/passwd'
+        with self.assertRaises(ProtocolFailure):
+            validate_bundle(changed)
+
     def test_custom_policy_identity_is_recorded(self):
         class CustomPolicy(AppendUpdates):
             name = 'experimental'

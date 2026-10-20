@@ -35,10 +35,10 @@ pub use llm::ChatChunk;
 pub use llm::ChatStream;
 /// Trait for LLM chat completion clients.
 pub use llm::LlmClient;
-/// A chat message with a role and content string.
-pub use llm::Message;
 /// Chat message role.
 pub use llm::Role;
+/// A chat message with a role and content string.
+pub use llm::{Image, Message};
 /// Anthropic Messages API client (streaming + non-streaming).
 pub use llm_anthropic::AnthropicClient;
 /// Default Anthropic model id (current Sonnet-class alias).

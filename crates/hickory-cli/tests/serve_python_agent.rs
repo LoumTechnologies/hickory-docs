@@ -185,7 +185,9 @@ impl App {
             .await;
         if let Some(id) = snapshot["edits"]["captureRequest"].as_str() {
             if let Some(lens) = self.doc.strip_prefix("lens:") {
-                let (_, view) = self.request("GET", &format!("/api/representations/{lens}"), Value::Null).await;
+                let (_, view) = self
+                    .request("GET", &format!("/api/representations/{lens}"), Value::Null)
+                    .await;
                 self.request("POST", &self.route("/python/review"), json!({"capture_request":id,"context":{"live":true,"buffers":[{
                     "id":self.doc,"name":"Literate fixture","path":null,"content":view["source"],"focused":true
                 }]}})).await;
@@ -232,15 +234,20 @@ fn python() -> Option<String> {
 // The separate component tests witness the actual shared UI controller.
 #[tokio::test]
 async fn python_agent_uses_originating_window_ui_tools_with_retained_context() {
-    ui_transport_case(false).await;
+    ui_transport_case(false, false).await;
 }
 
 #[tokio::test]
 async fn python_literate_view_uses_ui_without_creating_a_synthetic_document() {
-    ui_transport_case(true).await;
+    ui_transport_case(true, false).await;
 }
 
-async fn ui_transport_case(lens: bool) {
+#[tokio::test]
+async fn python_agent_delivers_captured_ui_images_as_selected_provider_content() {
+    ui_transport_case(false, true).await;
+}
+
+async fn ui_transport_case(lens: bool, image: bool) {
     let Some(python) = python() else {
         return;
     };
@@ -248,7 +255,13 @@ async fn ui_transport_case(lens: bool) {
     let mut buffers = json!([]);
     if lens {
         std::fs::write(app.root.join("code.py"), "print(42)\n").unwrap();
-        let (status, view) = app.request("POST", "/api/representations", json!({"backing":{"kind":"files","paths":["code.py"]}})).await;
+        let (status, view) = app
+            .request(
+                "POST",
+                "/api/representations",
+                json!({"backing":{"kind":"files","paths":["code.py"]}}),
+            )
+            .await;
         assert_eq!(status, 200, "{view}");
         app.doc = format!("lens:{}", view["id"].as_str().unwrap());
         buffers = json!([{"id":app.doc,"name":"Literate fixture","path":null,"content":view["source"],"focused":true}]);
@@ -267,15 +280,22 @@ async fn ui_transport_case(lens: bool) {
     let turn = sent["session_id"].as_str().unwrap();
     let poll_route = format!("/api/v1/ui/windows/{window}/requests");
     let reply_route = format!("/api/v1/ui/windows/{window}/reply");
+    const PNG: &str = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z8DwHwAFAAH/iZk9HQAAAABJRU5ErkJggg==";
+    use base64::Engine;
+    let pixels = base64::engine::general_purpose::STANDARD
+        .decode(PNG)
+        .unwrap();
+    let action_reply = if image {
+        json!({"status":"result","outcome":{"status":"completed","value":{"path":"fixture.png","ui_image":{"media_type":"image/png","data":PNG,"digest":hick_context_protocol::digest(&pixels),"byte_length":pixels.len()}}}})
+    } else {
+        json!({"status":"result","outcome":{"status":"queued","job":"fixture-runtime-job"}})
+    };
     for (method, result) in [
         (
             "ui_observe",
             json!({"actions":[{"label":"Run fixture","handle":"action:fixture-current"}],"coverage":"scripted UI endpoint; component parity tested separately"}),
         ),
-        (
-            "ui_act",
-            json!({"status":"result","outcome":{"status":"queued","job":"fixture-runtime-job"}}),
-        ),
+        ("ui_act", action_reply),
     ] {
         let poll = app.request("GET", &poll_route, Value::Null);
         tokio::pin!(poll);
@@ -314,13 +334,28 @@ async fn ui_transport_case(lens: bool) {
     assert_eq!(outcome["status"], "ok", "{outcome}");
     let session = app.root.join(outcome["session"].as_str().unwrap());
     if lens {
-        assert!(!session.starts_with(&app.root), "lens sessions belong to workspace storage");
-        assert!(!app.root.join(format!(".hick-lens-{}", app.doc.strip_prefix("lens:").unwrap())).exists());
+        assert!(
+            !session.starts_with(&app.root),
+            "lens sessions belong to workspace storage"
+        );
+        assert!(
+            !app.root
+                .join(format!(
+                    ".hick-lens-{}",
+                    app.doc.strip_prefix("lens:").unwrap()
+                ))
+                .exists()
+        );
         assert!(!app.root.join("sessions").exists());
     }
     let source = std::fs::read_to_string(session).unwrap();
     assert!(source.contains("python-ui-request"));
-    assert!(source.contains("fixture-runtime-job"));
+    if !image {
+        assert!(source.contains("fixture-runtime-job"));
+    } else {
+        assert!(source.contains("captured-ui-image"));
+        assert!(source.contains("artifact"));
+    }
     assert!(source.contains("context_references"));
     let requests = model.requests.lock().unwrap();
     assert!(
@@ -328,12 +363,24 @@ async fn ui_transport_case(lens: bool) {
             .iter()
             .any(|m| m.content.contains("ui_observe") && m.content.contains("ui_act"))
     );
-    assert!(
-        requests
-            .iter()
-            .flatten()
-            .any(|m| m.content.contains("fixture-runtime-job"))
-    );
+    if image {
+        assert!(requests.iter().skip(1).flatten().any(|m| {
+            m.images
+                .iter()
+                .any(|i| i.media_type == "image/png" && i.data == PNG)
+        }));
+        assert!(
+            !requests[0].iter().any(|m| !m.images.is_empty()),
+            "image is selected only after the explicit UI read"
+        );
+    } else {
+        assert!(
+            requests
+                .iter()
+                .flatten()
+                .any(|m| m.content.contains("fixture-runtime-job"))
+        );
+    }
 }
 
 #[tokio::test]

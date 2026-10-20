@@ -10,11 +10,20 @@ use serde::{Deserialize, Serialize};
 
 use crate::usage::Usage;
 
-/// A chat message with a role and content string.
+/// A chat message with text and explicitly selected host-validated images.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Message {
     pub role: Role,
     pub content: String,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub images: Vec<Image>,
+}
+
+/// Host-validated image bytes encoded for a provider request, never a remote URL.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Image {
+    pub media_type: String,
+    pub data: String,
 }
 
 impl Message {
@@ -23,6 +32,7 @@ impl Message {
         Self {
             role,
             content: content.into(),
+            images: vec![],
         }
     }
 }

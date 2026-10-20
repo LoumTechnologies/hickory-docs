@@ -84,6 +84,15 @@ class MemoryContext:
             parts.append(dict(slot=str(index), role=message['role'], scope='conversation',
                 text=message['content'], segments=[dict(span=span(message['content']),
                     node=node['id'], node_span=span(node['text']))]))
+        # The Python append policy selects artifacts returned by explicit host
+        # reads. Rust validates/resolves only these selected immutable descriptors.
+        for node in self.external.values():
+            if 'artifact' not in node:
+                continue
+            artifact = node['artifact']
+            whole = {'start': 0, 'end': artifact['byte_length'], 'unit': 'utf8_bytes'}
+            parts.append(dict(slot=str(len(parts)), role='user', scope='captured-ui-image',
+                artifact=deepcopy(artifact), segments=[dict(span=whole, node=node['id'], node_span=whole)]))
         nodes = list(self.external.values()) + [n for n in self.nodes.values()
                                                  if n['id'] not in self.external]
         bundle = dict(version=1, nodes=nodes, captures=[], deliveries=[],

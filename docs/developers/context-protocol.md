@@ -301,7 +301,7 @@ rendering declares known parents without claiming exact source mappings.
 Hosted `inference` now takes `{"manifest": Bundle}`. Its ordered request parts
 are the transport messages; there is no separate unchecked messages array.
 Rust substitutes retained nodes, captures and production receipts, validates byte
-coverage, and rejects unsupported artifact/slot/role representations. Requests
+coverage, and rejects unsupported slot/role representations and unretained or unsupported image artifacts. Requests
 are pinned to their declared branch and exact references. Session context events
 `python-context-manifest` and `python-context-delivery` retain the actual assembly
 and delivery transitions. When validating a session event as a wire bundle,
@@ -325,3 +325,9 @@ Supplied prior conversation history currently has no original producer reference
 in the bootstrap and is recorded as supplied roots. Provider-internal context and
 opaque rendering remain coverage limits. #51 supplies the update UI; #52 supplies
 expanded-view projections; #53 compares policies.
+
+### Captured image material
+
+An explicit picture read captures actual rendered pixels as a PNG of at most 384 KiB and 2048 pixels per dimension. The UI receipt binds its digest and size; source/window changes refuse late capture. ACP receives a standard image content block. For Python, the host strips base64 from the worker reply and retains the bytes separately in the quota-limited context store. The Python append policy selects known artifact descriptors as whole user-material parts. Those parts use the existing protocol's whole-artifact segment rule; they are not text excerpts or editable source coordinates. The host resolves only retained descriptors, rechecks digest/size and PNG bounds, then supplies native provider image content. A quoted descriptor or a worker derivation cannot mint captured image authority.
+
+Artifact bytes survive session-store reopening and participate in its quota. Missing/tampered bytes fail closed, and no live file or URL is substituted. Request manifests bind actual selected descriptors and retained capture identity. Image delivery is distinct from model interpretation and from a verification verdict; actual provider capability errors remain visible.

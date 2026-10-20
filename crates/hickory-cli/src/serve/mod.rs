@@ -68,6 +68,7 @@ mod python_agent;
 mod revision_projects;
 mod runtime_runs;
 pub(crate) mod ui_actions;
+pub(crate) mod ui_images;
 pub use python_agent::bundled_runtime;
 mod launch_profiles;
 pub mod refactor;

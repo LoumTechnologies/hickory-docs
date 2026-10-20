@@ -283,8 +283,28 @@ pub fn catalogue() -> Vec<Value> {
     ]
 }
 
-pub fn tool_result(result: Value) -> Value {
-    json!({"content":[{"type":"text","text":result.to_string()}],"isError":matches!(result["status"].as_str(),Some("error"|"forbidden"|"invalid"|"conflict"|"unavailable"|"stale"|"disabled")) || result["outcome"]["status"] == "unavailable"})
+pub fn tool_result(mut result: Value) -> Value {
+    let image = match super::ui_images::result_image(&result) {
+        Ok(image) => image,
+        Err(error) => {
+            return json!({"content":[{"type":"text","text":json!({"status":"error","reason":format!("Image capture refused: {error:#}")}).to_string()}],"isError":true});
+        }
+    };
+    if image.is_some() {
+        result["outcome"]["value"]["ui_image"]
+            .as_object_mut()
+            .unwrap()
+            .remove("data");
+    }
+    let error = matches!(
+        result["status"].as_str(),
+        Some("error" | "forbidden" | "invalid" | "conflict" | "unavailable" | "stale" | "disabled")
+    ) || result["outcome"]["status"] == "unavailable";
+    let mut content = vec![json!({"type":"text","text":result.to_string()})];
+    if let Some(image) = image {
+        content.push(image);
+    }
+    json!({"content":content,"isError":error})
 }
 
 /// Bounded, local-only retained debugger observations for coach reconciliation.

@@ -74,6 +74,8 @@ struct Data {
     captures: Vec<CaptureReceipt>,
     #[serde(default)]
     productions: Vec<ProductionReceipt>,
+    #[serde(default)]
+    artifacts: BTreeMap<String, Vec<u8>>,
     sources: BTreeMap<String, Source>,
     heads: BTreeMap<String, Head>,
     keys: BTreeMap<String, Replay>,
@@ -87,6 +89,18 @@ fn validate_retained(data: &Data) -> Result<()> {
         "branch":"validation","policy":"none","policy_version":"1","observed_cursor":"none",
         "parts":[],"provider_coverage":"host_controlled_only"}});
     validate_bundle(&bundle)?;
+    for artifact in data.nodes.iter().filter_map(|node| node.artifact.as_ref()) {
+        let bytes = data
+            .artifacts
+            .get(&artifact.digest)
+            .context("retained artifact missing")?;
+        ensure!(
+            artifact.locator == format!("retained:{}", artifact.digest)
+                && artifact.byte_length == bytes.len() as u64
+                && digest(bytes) == artifact.digest,
+            "retained artifact digest mismatch"
+        );
+    }
     let references: BTreeSet<_> = data.nodes.iter().map(|n| n.id.as_str()).collect();
     ensure!(
         data.keys
@@ -348,6 +362,94 @@ impl Store {
         self.commit(next)?;
         Ok((node, receipt))
     }
+    /// Host-only immutable artifact capture. Worker derivations still cannot mint artifacts.
+    pub fn import_artifact(
+        &mut self,
+        kind: &str,
+        locator: &str,
+        media_type: &str,
+        bytes: &[u8],
+        key: &str,
+    ) -> Result<Node> {
+        ensure!(
+            !bytes.is_empty() && bytes.len() <= MAX_FRAME / 2,
+            "artifact exceeds capture budget"
+        );
+        let hash = digest(bytes);
+        let mut source = self.register(kind, locator)?;
+        source.revision = hash.clone();
+        let artifact = Artifact {
+            digest: hash.clone(),
+            media_type: media_type.into(),
+            byte_length: bytes.len() as u64,
+            locator: format!("retained:{hash}"),
+        };
+        let fingerprint = digest(&serde_json::to_vec(
+            &json!({"source":source,"artifact":artifact}),
+        )?);
+        if let Some(node) = self.replay(key, &fingerprint)? {
+            return Ok(node);
+        }
+        let mut node = Node {
+            id: fresh_id(),
+            digest: hash.clone(),
+            text: None,
+            artifact: Some(artifact),
+            source: Some(source),
+            source_span: None,
+            parents: vec![],
+            derivation: DerivationKind::Root,
+            coverage: Coverage::Complete,
+            mappings: vec![],
+            receipt: None,
+        };
+        let receipt = CaptureReceipt {
+            id: fresh_id(),
+            node: node.id.clone(),
+            captured_at: std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)?
+                .as_millis()
+                .to_string(),
+            state: "captured".into(),
+        };
+        node.receipt = Some(receipt.id.clone());
+        let mut next = self.data.clone();
+        next.artifacts.insert(hash, bytes.to_vec());
+        next.nodes.push(node.clone());
+        next.captures.push(receipt);
+        next.keys.insert(
+            key.into(),
+            Replay {
+                fingerprint,
+                node: node.id.clone(),
+            },
+        );
+        validate_retained(&next)?;
+        self.commit(next)?;
+        Ok(node)
+    }
+    /// Resolve only a retained descriptor; no URLs, worker paths or live-file substitution.
+    pub fn artifact_bytes(&self, artifact: &Artifact) -> Result<&[u8]> {
+        ensure!(
+            self.data
+                .nodes
+                .iter()
+                .any(|node| node.artifact.as_ref() == Some(artifact)),
+            "unknown retained artifact"
+        );
+        let bytes = self
+            .data
+            .artifacts
+            .get(&artifact.digest)
+            .context("artifact bytes unavailable")?;
+        ensure!(
+            artifact.locator == format!("retained:{}", artifact.digest)
+                && artifact.byte_length == bytes.len() as u64
+                && artifact.digest == digest(bytes),
+            "retained artifact bytes changed"
+        );
+        Ok(bytes)
+    }
     /// Trusted host adapter import of an existing exact read receipt. The adapter, not a
     /// worker DTO, attests the whole-snapshot digest and byte boundaries computed at read time.
     pub fn import_read(
@@ -496,7 +598,7 @@ impl Store {
         );
         ensure!(
             request.node.artifact.is_none(),
-            "artifact storage is not installed"
+            "workers cannot mint artifact nodes; use an explicit host capture"
         );
         ensure!(
             request.node.source.is_none() && request.node.source_span.is_none(),

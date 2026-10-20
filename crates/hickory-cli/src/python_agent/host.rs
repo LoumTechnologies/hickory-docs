@@ -69,12 +69,45 @@ impl Host<'_> {
             )?;
             let mut result = self.review.ui_call(name, arguments).await?;
             let capture = hick_context_store::fresh_id();
-            let references = self
+            let mut image_references = vec![];
+            let mut images = vec![];
+            if let Some(content) = result["content"].as_array_mut() {
+                ensure!(
+                    content
+                        .iter()
+                        .filter(|item| item["type"] == "image")
+                        .count()
+                        <= 1,
+                    "One captured image per UI read"
+                );
+                for image in content.iter().filter(|item| item["type"] == "image") {
+                    let media = image["mimeType"]
+                        .as_str()
+                        .context("Image media type missing")?;
+                    let data = image["data"].as_str().context("Image data missing")?;
+                    let bytes = crate::serve::ui_images::decode(media, data)?;
+                    let node = self.context_store.store.import_artifact(
+                        "ui_image",
+                        &capture,
+                        media,
+                        &bytes,
+                        &format!("{capture}/image"),
+                    )?;
+                    image_references.push(node.id.clone());
+                    images.push(json!({"reference":node.id,"artifact":node.artifact}));
+                }
+                content.retain(|item| item["type"] != "image");
+            }
+            if !images.is_empty() {
+                result["images"] = json!(images);
+            }
+            let mut references = self
                 .context_store
                 .snapshots("ui_observation", &capture, &result.to_string(), &capture)?
                 .into_iter()
                 .map(|node| node.id)
                 .collect::<Vec<_>>();
+            references.extend(image_references);
             result["context_references"] = json!(references);
             return Ok(result);
         }
@@ -334,13 +367,26 @@ impl Host<'_> {
                     .iter()
                     .enumerate()
                     .map(|(i, p)| {
-                        ensure!(
-                            p.slot == i.to_string() && p.artifact.is_none(),
-                            "Unsupported request slot"
-                        );
-                        Ok(serde_json::from_value(
-                            json!({"role":p.role,"content":p.text}),
-                        )?)
+                        ensure!(p.slot == i.to_string(), "Unsupported request slot");
+                        if let Some(artifact) = &p.artifact {
+                            ensure!(p.role == "user", "Image material must have user role");
+                            let bytes = self.context_store.store.artifact_bytes(artifact)?;
+                            use base64::Engine;
+                            let data = base64::engine::general_purpose::STANDARD.encode(bytes);
+                            crate::serve::ui_images::decode(&artifact.media_type, &data)?;
+                            Ok(Message {
+                                role: hickory_agent::Role::User,
+                                content: String::new(),
+                                images: vec![hickory_agent::Image {
+                                    media_type: artifact.media_type.clone(),
+                                    data,
+                                }],
+                            })
+                        } else {
+                            Ok(serde_json::from_value(
+                                json!({"role":p.role,"content":p.text}),
+                            )?)
+                        }
                     })
                     .collect::<Result<_>>()?;
                 self.deliveries

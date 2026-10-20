@@ -91,6 +91,8 @@ class Agent:
             self.record('context-prepared', deepcopy(bundle))
             for attempt in range(config.model_retries + 1):
                 try:
+                    if any('artifact' in part for part in bundle['request']['parts']) and not hasattr(self.model, 'complete_request'):
+                        raise RuntimeError('Model adapter cannot deliver selected image artifacts; use an artifact-capable adapter')
                     raw = (self.model.complete_request(deepcopy(bundle)) if hasattr(self.model, 'complete_request')
                            else self.model.complete([{'role': p['role'], 'content': p['text']}
                                for p in bundle['request']['parts']]))

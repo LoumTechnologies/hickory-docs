@@ -225,14 +225,19 @@ impl OpenAiCompatClient {
             .iter()
             // Empty content is rejected upstream and carries nothing; see the
             // matching backstop in `llm_anthropic`.
-            .filter(|m| !m.content.trim().is_empty())
+            .filter(|m| !m.content.trim().is_empty() || !m.images.is_empty())
             .map(|m| WireMessage {
                 role: match m.role {
                     Role::System => "system",
                     Role::User => "user",
                     Role::Assistant => "assistant",
                 },
-                content: m.content.clone(),
+                content: if m.images.is_empty() { serde_json::json!(m.content) } else {
+                    let mut parts = vec![];
+                    if !m.content.trim().is_empty() { parts.push(serde_json::json!({"type":"text","text":m.content})); }
+                    for image in &m.images { parts.push(serde_json::json!({"type":"image_url","image_url":{"url":format!("data:{};base64,{}", image.media_type, image.data)}})); }
+                    serde_json::json!(parts)
+                },
             })
             .collect();
 
@@ -317,7 +322,7 @@ impl LlmClient for OpenAiCompatClient {
 #[derive(Serialize)]
 struct WireMessage {
     role: &'static str,
-    content: String,
+    content: serde_json::Value,
 }
 
 #[derive(Deserialize)]
@@ -624,5 +629,23 @@ mod tests {
         let second = parse_next_event(&mut buf, &mut done).unwrap();
         assert_eq!(second.delta, "<hick:next>done</hick:next>");
         assert_eq!(second.reasoning, "");
+    }
+    #[test]
+    fn selected_images_are_native_openai_compatible_parts() {
+        let message = Message {
+            role: Role::User,
+            content: String::new(),
+            images: vec![crate::Image {
+                media_type: "image/png".into(),
+                data: "CAPTURED_BYTES".into(),
+            }],
+        };
+        let client = OpenAiCompatClient::new(Provider::OpenAi);
+        let value: serde_json::Value =
+            serde_json::from_slice(&client.request_body_bytes(&[message], false)).unwrap();
+        assert_eq!(
+            value["messages"][0]["content"][0],
+            serde_json::json!({"type":"image_url","image_url":{"url":"data:image/png;base64,CAPTURED_BYTES"}})
+        );
     }
 }

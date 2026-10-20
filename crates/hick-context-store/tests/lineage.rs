@@ -657,3 +657,54 @@ fn model_response_retains_production_genealogy_after_restart() {
     assert_eq!(reopened.store.node(&output.id).unwrap(), &output);
     assert_eq!(reopened.store.productions()[0].request, "request-1");
 }
+
+// Guarantee: docs/guarantees/agent/immutable-context-lineage.md
+#[test]
+fn retained_artifacts_reopen_exact_bytes_and_refuse_forged_descriptors_and_tampering() {
+    let (root, mut service) = service();
+    let bytes = b"immutable image fixture bytes";
+    let node = service
+        .store
+        .import_artifact("ui_image", "capture", "image/png", bytes, "image-read")
+        .unwrap();
+    assert_eq!(
+        service
+            .store
+            .import_artifact("ui_image", "capture", "image/png", bytes, "image-read")
+            .unwrap(),
+        node
+    );
+    assert!(
+        service
+            .store
+            .import_artifact("ui_image", "capture", "image/png", b"changed", "image-read")
+            .is_err()
+    );
+    let mut fabricated = node.clone();
+    fabricated.id = fresh_id();
+    fabricated.source = None;
+    fabricated.receipt = None;
+    assert!(
+        service
+            .store
+            .derive(&DeriveRequest {
+                idempotency_key: "worker-image".into(),
+                node: fabricated
+            })
+            .is_err()
+    );
+    let artifact = node.artifact.unwrap();
+    assert_eq!(service.store.artifact_bytes(&artifact).unwrap(), bytes);
+    let mut forged = artifact.clone();
+    forged.locator = "/etc/passwd".into();
+    assert!(service.store.artifact_bytes(&forged).is_err());
+    drop(service);
+    let reopened = Service::open(root.path(), &root.path().join("store.json"), "branch").unwrap();
+    assert_eq!(reopened.store.artifact_bytes(&artifact).unwrap(), bytes);
+    drop(reopened);
+    let path = root.path().join("store.json");
+    let mut data: serde_json::Value = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+    data["artifacts"][&artifact.digest][0] = json!(0);
+    fs::write(&path, serde_json::to_vec(&data).unwrap()).unwrap();
+    assert!(Service::open(root.path(), &path, "branch").is_err());
+}

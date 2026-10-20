@@ -86,8 +86,8 @@ Last LLM verification:
   implicit filesystem or network authority. Text-only runtime derivations reuse
   the protocol validator; producer-backed summaries/model/tool outputs need the
   authenticated production/request receipts of #50 and are refused here.
-  Binary artifact storage, automatic rename discovery, UI refresh and push
-  notifications are not provided. Instruction applicability describes retained
+  At that checkpoint, binary artifact storage, automatic rename discovery, UI refresh and push
+  notifications were not provided. Instruction applicability describes retained
   captured material, not discovery or automatic injection of AGENTS.md.
 - Evidence dependencies: inspected parent revision `ff01e02`; the exact source
   snapshots below and the issue handoff commit identify this implementation.
@@ -116,3 +116,9 @@ dbd09885a90038c87cc54c46f8f9e9e4a9b661c5431a9306af67a9ef3f7ccd67  crates/hickory
 563564681d8c86c5adabf606f15f0f181857eef93c5877da1c9e3dd65587049e  crates/hickory-agent/src/tools/read_file.rs
 10a60571712a7352b6d760b79e68d00456e29ac6b7a16cb8f2c3851152f2d541  crates/hickory-agent/src/tools/receipts.rs
 ```
+
+## Captured image artifacts — October 20 follow-up
+
+Host image captures can now retain immutable bytes under digest-bound descriptors. The store quota covers those bytes; reopening checks their digest/length and refuses tampering. Workers cannot mint artifact roots or resolve arbitrary locators. Python selects complete descriptors from explicit host reads; Rust validates and resolves only those selected retained bytes. Native provider image blocks are represented separately from text and stay user material.
+
+Focused evidence: `retained_artifacts_reopen_exact_bytes_and_refuse_forged_descriptors_and_tampering`, the worker artifact selection test, and `python_agent_delivers_captured_ui_images_as_selected_provider_content` (real confined worker/broker, scripted provider). Earlier verification remains historical. Provider transport tests establish wire shape, not model interpretation, image correctness or a released-native witness.
