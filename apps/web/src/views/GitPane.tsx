@@ -1,3 +1,5 @@
+import { useGitWorkingActions } from "./uiGitWorkingActions";
+import type { UiOutcome } from "../lib/uiActions";
 import { useGitHistoryActions } from "./uiGitHistoryActions";
 import { openCommit } from "../lib/readingViews";
 // The repository, as something to read.
@@ -22,7 +24,7 @@ import { openCommit } from "../lib/readingViews";
 // A merge or a rebase is a decision with conflicts in it, so pull is
 // fast-forward only, and a terminal is still one click away on the tree.
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { api } from "../api/client";
 import type { GitBranch, GitChangeFile, GitChanges, GitDiff, GitFileChange, GitLog } from "../api/types";
@@ -365,6 +367,7 @@ function WorkingTree({
 }) {
   const [changes, setChanges] = useState<GitChanges | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
+  const inFlight = useRef(false);
   const [notice, setNotice] = useState<Notice | null>(null);
   const [selected, setSelected] = useState<{ path: string; staged: boolean } | null>(null);
   const [diff, setDiff] = useState<GitDiff | null>(null);
@@ -394,6 +397,7 @@ function WorkingTree({
       return;
     }
     let live = true;
+    setDiff(null);
     api.gitDiff(selected.path, selected.staged).then(
       (answer) => live && setDiff(answer),
       () => live && setDiff(null),
@@ -410,54 +414,42 @@ function WorkingTree({
       action: () => Promise<{ said?: string } | unknown>,
       done: string,
       filesChanged = false,
-    ) => {
+    ): Promise<UiOutcome> => {
+      if (inFlight.current) return { status: "unavailable", reason: "Another Git operation is pending" };
+      inFlight.current = true;
       setBusy(verb);
       setNotice(null);
       try {
-        const answer = (await action()) as { said?: string } | undefined;
+        const answer = (await action()) as { said?: string; ok?: boolean } | undefined;
+        if (answer?.ok === false) throw new Error(answer.said || "Git refused the operation");
         const said = answer?.said?.trim();
         setNotice({ kind: "ok", text: said ? `${done} — ${said}` : done });
         refresh();
         // A checkout, a pull, a stash or a discard rewrote files on disk:
         // every open pane and the tree need to know.
         if (filesChanged) window.dispatchEvent(new Event(FILES_CHANGED_EVENT));
+        if (verb === "commit") { setMessage(""); setAmend(false); }
+        if (verb === "checkout") { setBranches(null); setNewBranch(""); }
+        return { status: "completed", value: { verb, reply: JSON.stringify(answer ?? null), scope: "Actual host reply; not independent verification" } };
       } catch (e) {
-        setNotice({ kind: "fail", text: e instanceof Error ? e.message : String(e) });
+        const reason = e instanceof Error ? e.message : String(e);
+        setNotice({ kind: "fail", text: reason });
+        return { status: "unavailable", reason };
       } finally {
+        inFlight.current = false;
         setBusy(null);
       }
     },
     [refresh],
   );
 
-  if (!changes?.repository) return null;
-  const { staged, unstaged } = sides(changes.files);
-  const ahead = changes.ahead ?? 0;
-  const behind = changes.behind ?? 0;
+  const { staged, unstaged } = sides(changes?.files ?? []);
+  const ahead = changes?.ahead ?? 0;
+  const behind = changes?.behind ?? 0;
 
-  const openBranches = () => {
-    if (branches) {
-      setBranches(null);
-      return;
-    }
-    api.gitBranches().then(
-      (answer) => setBranches(answer.branches),
-      (e: unknown) => setNotice({ kind: "fail", text: e instanceof Error ? e.message : String(e) }),
-    );
-  };
-
-  const commit = (event: React.FormEvent) => {
-    event.preventDefault();
-    const text = message.trim();
-    if (!text) return;
-    void run(
-      "commit",
-      () => api.gitCommit(text, amend),
-      amend ? "Amended the last commit" : "Committed",
-    ).then(() => {
-      setMessage("");
-      setAmend(false);
-    });
+  const openBranches = async (): Promise<UiOutcome> => {
+    if (branches) { setBranches(null); return { status: "completed", value: { open: false } }; }
+    return run("branches", async () => { const answer = await api.gitBranches(); setBranches(answer.branches); return answer; }, "Read branches");
   };
 
   const toggleAmend = (on: boolean) => {
@@ -469,6 +461,19 @@ function WorkingTree({
     }
   };
 
+  const workingAction = useGitWorkingActions({ changes, busy, notice, selected, diff, message, amend, branches, newBranch, confirmDiscard,
+    staged: staged.map(f => f.path), unstaged: unstaged.map(f => f.path), run, openBranches,
+    setMessage, setAmend: toggleAmend, setNewBranch, setDiscard: setConfirmDiscard,
+    pick: (path, staged) => { setDiff(null); setSelected({ path, staged }); }, openFile: onOpenFile,
+    operations: { pull: () => api.gitPull(), push: () => api.gitPush(), stash: pop => api.gitStash(pop ? "pop" : "push"),
+      stage: paths => api.gitStage(paths ? { paths } : { all: true }), unstage: paths => api.gitUnstage(paths ? { paths } : { all: true }),
+      discard: path => api.gitDiscard([path]), checkout: (name, create) => create ? api.gitCheckout(name, true) : api.gitCheckout(name), commit: () => api.gitCommit(message.trim(), amend),
+      review: () => selected ? openLiterate({ kind: "files", paths: [selected.path] }, selected.staged ? "HEAD" : "INDEX", selected.staged ? "INDEX" : undefined) : Promise.reject(new Error("No selected diff")),
+    },
+  });
+  const sideKey = (path: string, stagedSide: boolean) => `${stagedSide ? "staged" : "unstaged"}:${(stagedSide ? staged : unstaged).findIndex(f => f.path === path)}`;
+  if (!changes?.repository) return null;
+
   return (
     <section className="git-work" aria-label="Working tree">
       <header className="git-work__head">
@@ -476,7 +481,8 @@ function WorkingTree({
           type="button"
           className="git-branch"
           aria-expanded={branches !== null}
-          onClick={openBranches}
+          disabled={busy !== null}
+          onClick={() => void workingAction("branches")}
           data-tip="Switch or create a branch"
         >
           <span className="git-branch__icon" aria-hidden="true">⎇</span>
@@ -499,7 +505,7 @@ function WorkingTree({
             type="button"
             className="btn btn-small"
             disabled={busy !== null}
-            onClick={() => void run("pull", () => api.gitPull(), "Pulled", true)}
+            onClick={() => void workingAction("pull")}
             data-tip="git pull --ff-only — never a merge, never a rebase"
           >
             Pull
@@ -508,7 +514,7 @@ function WorkingTree({
             type="button"
             className="btn btn-small"
             disabled={busy !== null}
-            onClick={() => void run("push", () => api.gitPush(), "Pushed")}
+            onClick={() => void workingAction("push")}
             data-tip={changes.upstream ? "git push" : "git push -u origin <branch>"}
           >
             Push{ahead > 0 ? ` ${ahead}` : ""}
@@ -517,7 +523,7 @@ function WorkingTree({
             type="button"
             className="btn btn-small"
             disabled={busy !== null || changes.files.length === 0}
-            onClick={() => void run("stash", () => api.gitStash("push"), "Stashed", true)}
+            onClick={() => void workingAction("stash")}
             data-tip="git stash push --include-untracked"
           >
             Stash
@@ -526,7 +532,7 @@ function WorkingTree({
             type="button"
             className="btn btn-small"
             disabled={busy !== null}
-            onClick={() => void run("stash", () => api.gitStash("pop"), "Stash popped", true)}
+            onClick={() => void workingAction("pop")}
             data-tip="git stash pop"
           >
             Pop stash
@@ -537,17 +543,13 @@ function WorkingTree({
       {branches && (
         <div className="git-branches" role="group" aria-label="Branches">
           <ul className="git-branches__list">
-            {branches.map((branch) => (
+            {branches.map((branch, index) => (
               <li key={branch.name}>
                 <button
                   type="button"
                   className={`git-branches__item${branch.current ? " is-current" : ""}`}
                   disabled={branch.current || busy !== null}
-                  onClick={() =>
-                    void run("checkout", () => api.gitCheckout(branch.name), `On ${branch.name}`, true).then(
-                      () => setBranches(null),
-                    )
-                  }
+                  onClick={() => void workingAction(`checkout:${index}`)}
                 >
                   <span className="mono">{branch.name}</span>
                   {branch.upstream && <span className="muted mono"> → {branch.upstream}</span>}
@@ -557,15 +559,7 @@ function WorkingTree({
           </ul>
           <form
             className="git-branches__new"
-            onSubmit={(event) => {
-              event.preventDefault();
-              const name = newBranch.trim();
-              if (!name) return;
-              void run("checkout", () => api.gitCheckout(name, true), `On ${name}`, true).then(() => {
-                setBranches(null);
-                setNewBranch("");
-              });
-            }}
+            onSubmit={event => { event.preventDefault(); void workingAction("branch-create"); }}
           >
             <input
               className="git-branches__input mono"
@@ -596,10 +590,10 @@ function WorkingTree({
           allVerb="Unstage all"
           busy={busy !== null}
           selected={selected?.staged ? selected.path : null}
-          onVerb={(path) => void run("unstage", () => api.gitUnstage({ paths: [path] }), `Unstaged ${path}`)}
-          onAll={() => void run("unstage", () => api.gitUnstage({ all: true }), "Unstaged everything")}
-          onPick={(path) => setSelected({ path, staged: true })}
-          onOpen={onOpenFile}
+          onVerb={path => void workingAction(`unstage:${staged.findIndex(f => f.path === path)}`)}
+          onAll={() => void workingAction("unstage:all")}
+          onPick={path => void workingAction(`pick:${sideKey(path, true)}`)}
+          onOpen={onOpenFile ? path => void workingAction(`open:${sideKey(path, true)}`) : undefined}
         />
         <SideList
           heading="Changes"
@@ -609,34 +603,28 @@ function WorkingTree({
           allVerb="Stage all"
           busy={busy !== null}
           selected={selected && !selected.staged ? selected.path : null}
-          onVerb={(path) => void run("stage", () => api.gitStage({ paths: [path] }), `Staged ${path}`)}
-          onAll={() => void run("stage", () => api.gitStage({ all: true }), "Staged everything")}
-          onPick={(path) => setSelected({ path, staged: false })}
-          onOpen={onOpenFile}
+          onVerb={path => void workingAction(`stage:${unstaged.findIndex(f => f.path === path)}`)}
+          onAll={() => void workingAction("stage:all")}
+          onPick={path => void workingAction(`pick:${sideKey(path, false)}`)}
+          onOpen={onOpenFile ? path => void workingAction(`open:${sideKey(path, false)}`) : undefined}
           confirmDiscard={confirmDiscard}
-          onDiscard={(path) => {
-            if (confirmDiscard !== path) {
-              setConfirmDiscard(path);
-              return;
-            }
-            setConfirmDiscard(null);
-            void run("discard", () => api.gitDiscard([path]), `Discarded the changes to ${path}`, true);
-          }}
+          onDiscard={path => void workingAction(`discard:${unstaged.findIndex(f => f.path === path)}`)}
         />
       </div>
 
-      <form className="git-commit-form" onSubmit={commit}>
+      <form className="git-commit-form" onSubmit={event => { event.preventDefault(); void workingAction("commit"); }}>
         <textarea
           className="git-commit-form__message"
           aria-label="Commit message"
           placeholder={amend ? "New message for the last commit" : "What changed, and why"}
           value={message}
           rows={3}
+          disabled={busy !== null}
           onChange={(event) => setMessage(event.target.value)}
         />
         <div className="git-commit-form__row">
           <label className="git-commit-form__amend">
-            <input type="checkbox" checked={amend} onChange={(event) => toggleAmend(event.target.checked)} />{" "}
+            <input type="checkbox" checked={amend} disabled={busy !== null} onChange={event => void workingAction("amend", { enabled: event.target.checked })} />{" "}
             Amend last commit
           </label>
           <button
@@ -653,7 +641,7 @@ function WorkingTree({
       </form>
 
       {selected && diff && (
-        <button className="btn" onClick={() => void run("review", () => openLiterate({ kind: "files", paths: [selected.path] }, selected.staged ? "HEAD" : "INDEX", selected.staged ? "INDEX" : undefined), "Opened editable review")}>Review in the main editor</button>
+        <button className="btn" onClick={() => void workingAction("review")}>Review in the main editor</button>
       )}
       {selected && diff && (
         <DiffView path={diff.path} diff={diff.diff} binary={diff.binary} staged={selected.staged} />

@@ -1,5 +1,7 @@
+import { UiActions } from "../lib/uiActions";
+import { UiActionContext } from "../lib/uiActionBridge";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 
 import { GitPane, sides, when } from "./GitPane";
 import { bisects } from "../api/representations";
@@ -344,4 +346,37 @@ describe("the working tree", () => {
     await screen.findByText(/not a git repository/i);
     expect(screen.queryByRole("region", { name: "Working tree" })).toBeNull();
   });
+});
+
+// Guarantee: docs/guarantees/agent/ui-action-dispatch.md
+it("retains the commit draft when the host refuses the commit", async () => {
+  serve({});
+  vi.spyOn(api, "gitChanges").mockResolvedValue({ repository: true, branch: "master", files: [{ path: "a.py", index: "M", tree: " " }] });
+  vi.spyOn(api, "gitCommit").mockRejectedValue(new Error("hook refused"));
+  render(<GitPane />);
+  await screen.findByRole("button", { name: "Commit 1" });
+  fireEvent.change(screen.getByRole("textbox", { name: "Commit message" }), { target: { value: "keep this message" } });
+  fireEvent.click(screen.getByRole("button", { name: "Commit 1" }));
+  await screen.findByText("hook refused");
+  expect((screen.getByRole("textbox", { name: "Commit message" }) as HTMLTextAreaElement).value).toBe("keep this message");
+});
+
+it("lets an agent stage and inspect actual replies without impersonating discard or publication confirmation", async () => {
+  serve({});
+  vi.spyOn(api, "gitChanges").mockResolvedValue({ repository: true, branch: "master", files: [{ path: "a.py", index: " ", tree: "M" }] });
+  const stage = vi.spyOn(api, "gitStage").mockResolvedValue({ ok: true, said: "staged by host" });
+  const discard = vi.spyOn(api, "gitDiscard").mockResolvedValue({ ok: true });
+  const push = vi.spyOn(api, "gitPush").mockResolvedValue({ ok: true });
+  const registry = new UiActions({ workspace: "p", window: "w" }, () => true, async () => {});
+  render(<UiActionContext.Provider value={registry}><GitPane /></UiActionContext.Provider>);
+  await screen.findByRole("button", { name: "Stage all" });
+  const actions = () => registry.groups().groups.flatMap(group => registry.observe(group).actions);
+  let id = 0;
+  const run = async (label: string, args = {}) => { let result: unknown; await act(async () => { result = await registry.act(registry.scope, { id: "python:turn", kind: "agent" }, { handle: actions().find(a => a.label === label)!.handle, arguments: args, request_id: String(++id) }); }); return result; };
+  expect(await run("Discard Git changes a.py")).toMatchObject({ status: "result", outcome: { status: "requires_input" } });
+  expect(await run("Push Git branch")).toMatchObject({ status: "result", outcome: { status: "requires_input" } });
+  expect(discard).not.toHaveBeenCalled(); expect(push).not.toHaveBeenCalled();
+  const result = await run("Stage Git file a.py");
+  expect(result).toMatchObject({ status: "result", outcome: { status: "completed", value: { reply: JSON.stringify({ ok: true, said: "staged by host" }) } } });
+  expect(stage).toHaveBeenCalledWith({ paths: ["a.py"] });
 });
