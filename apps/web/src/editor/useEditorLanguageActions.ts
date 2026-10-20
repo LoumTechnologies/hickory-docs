@@ -1,4 +1,4 @@
-import { useEffect, useId, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { Compartment, StateEffect } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
 import { useUiCommands } from "../lib/uiActionBridge";
@@ -9,14 +9,19 @@ function identity(state: object) { let id = states.get(state); if (!id) { id = c
 /** Reconfiguration can install/remove providers without recreating the editor. */
 export function useEditorLanguageActions(view: EditorView | null, subject: string) {
   const parent = `editor-language:${subject}:${useId()}`;
+  const jobs = useRef(new Set<{ action: EditorLanguageAction; controller: AbortController }>());
   const [actions, setActions] = useState<readonly EditorLanguageAction[]>([]);
   useEffect(() => {
     if (!view) { setActions([]); return; }
     const compartment = new Compartment();
-    const refresh = () => setActions(view.state.facet(editorLanguageActions));
+    const refresh = () => {
+      const installed = view.state.facet(editorLanguageActions);
+      for (const job of jobs.current) if (!installed.includes(job.action)) job.controller.abort();
+      setActions(installed);
+    };
     view.dispatch({ effects: StateEffect.appendConfig.of(compartment.of(EditorView.updateListener.of(refresh))) });
     refresh();
-    return () => { if (view.dom.isConnected) view.dispatch({ effects: compartment.reconfigure([]) }); };
+    return () => { for (const job of jobs.current) job.controller.abort(); if (view.dom.isConnected) view.dispatch({ effects: compartment.reconfigure([]) }); };
   }, [view]);
   useUiCommands(view ? actions.map(action => ({ key: `${parent}:${action.id}`, command: {
     parent, subject: parent, label: action.label, parameters: action.parameters,
@@ -24,7 +29,13 @@ export function useEditorLanguageActions(view: EditorView | null, subject: strin
     read: () => ({ revision: `${identity(view.state)}:${JSON.stringify(action.revision?.(view))}`, enabled: view.dom.isConnected && view.state.facet(editorLanguageActions).includes(action) && action.enabled(view), reason: "Language provider must be installed and the selected position mapped to current source" }),
     execute: async (args, _actor, signal) => {
       if (!view.dom.isConnected || !view.state.facet(editorLanguageActions).includes(action) || !action.enabled(view)) return { status: "unavailable", reason: "Language action or source position is no longer available" };
-      return action.execute(view, args, signal);
+      const controller = new AbortController();
+      const abort = () => controller.abort();
+      signal.addEventListener("abort", abort, { once: true });
+      if (signal.aborted) controller.abort();
+      const job = { action, controller }; jobs.current.add(job);
+      try { return await action.execute(view, args, controller.signal); }
+      finally { jobs.current.delete(job); signal.removeEventListener("abort", abort); }
     },
   } })) : []);
 }

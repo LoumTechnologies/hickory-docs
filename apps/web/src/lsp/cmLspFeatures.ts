@@ -1,3 +1,6 @@
+import { editorLanguageActions } from "../editor/languageActions";
+import { prepareEditorChanges } from "../editor/textInput";
+import type { UiOutcome } from "../lib/uiActions";
 // The rest of the language server, in the notebook.
 //
 // `cmLsp.ts` covers what the editor had first — diagnostics, hover, goto,
@@ -225,6 +228,19 @@ export function lspFeatures(opts: LspFeatureOptions): Extension[] {
       ].filter((binding): binding is { key: string; run: (view: EditorView) => boolean } => binding.key !== null),
     ),
     formatter.of((view) => formatDocument(view, opts)),
+    editorLanguageActions.of({
+      id: `${opts.uri}:format`, label: `Format editor source (${opts.uri.slice(0, 200)})`, parameters: {},
+      enabled: view => !view.state.readOnly && view.state.facet(EditorView.editable) && (!opts.rangeAt || !!opts.positionAt(view.state.selection.main.head, view)),
+      execute: async (view, _args, signal) => {
+        const applied = await formatDocument(view, opts, signal);
+        return { status: "completed", value: { source_changed: applied, saved: false, verified: false, scope: "Actual shared formatter result; false means no changes applied, not verified formatting" } };
+      },
+    }),
+    ...(opts.onRename ? [editorLanguageActions.of({
+      id: `${opts.uri}:rename`, label: `Rename editor symbol (${opts.uri.slice(0, 200)})`, parameters: { name: { type: "string", maxLength: 4096 } },
+      enabled: (view: EditorView) => !view.state.readOnly && view.state.facet(EditorView.editable) && !!opts.positionAt(view.state.selection.main.head, view),
+      execute: (view, args, signal) => renameSymbol(view, opts, async () => args.name as string, signal),
+    })] : []),
     EditorView.theme({
       ".cm-lsp-inlay": {
         opacity: "0.6",
@@ -478,38 +494,37 @@ export function semanticLegend(client: LspClient): SemanticLegend | null {
 }
 
 function renameAt(view: EditorView, opts: LspFeatureOptions): boolean {
-  if (!opts.client || !opts.onRename || !opts.positionAt(view.state.selection.main.head, view)) return false;
-  const original=view.state.doc;
-  void (async () => {
-    const { client, uri, positionAt, offsetAt, onRename, onMessage } = opts;
-    if (!client || !onRename) return;
-    const head = view.state.selection.main.head;
-    const position = positionAt(head, view);
-    if (!position) return;
-
-    // prepareRename first: a server that says "not here" is saying the
-    // symbol is not renameable, and asking the user for a new name before
-    // finding that out wastes their answer.
-    const range = await client.prepareRename(uri, position).catch(() => null);
-    if (!range) {
-      onMessage?.("Nothing renameable at the cursor.");
-      return;
-    }
-    const from = offsetAt(range.start, view);
-    const to = offsetAt(range.end, view);
-    const current = from !== null && to !== null ? view.state.doc.sliceString(from, to) : "";
-    const next = await onRename(current);
-    if (!next || next === current) return;
-
-    const edit = await client.rename(uri, position, next).catch(() => null);
-    if (view.state.doc !== original) { onMessage?.("The buffer changed. Request rename again."); return; }
-    applyEdit(view, edit, opts);
-  })();
+  if (!opts.client || !opts.onRename || view.state.readOnly || !view.state.facet(EditorView.editable) || !opts.positionAt(view.state.selection.main.head, view)) return false;
+  void renameSymbol(view, opts, opts.onRename);
   return true;
 }
 
+export async function renameSymbol(view: EditorView, opts: LspFeatureOptions, askName: NonNullable<LspFeatureOptions["onRename"]>, signal?: AbortSignal): Promise<UiOutcome> {
+  const original = view.state.doc;
+  const { client, uri, positionAt, offsetAt, onMessage } = opts;
+  const current = () => view.state.doc === original && !view.state.readOnly && view.state.facet(EditorView.editable) && !signal?.aborted;
+  const refuse = (reason: string): UiOutcome => { onMessage?.(reason); return { status: "unavailable", reason }; };
+  const position = positionAt(view.state.selection.main.head, view);
+  if (!client || !current() || !position) return refuse("Rename needs a writable mapped source position.");
+  try {
+    const range = await client.prepareRename(uri, position);
+    if (!current()) return refuse("The buffer changed. Request rename again.");
+    if (!range) return refuse("Nothing renameable at the cursor.");
+    const from = offsetAt(range.start, view), to = offsetAt(range.end, view);
+    if (from === null || to === null || !Number.isInteger(from) || !Number.isInteger(to) || from < 0 || to < from || to > original.length || (opts.rangeAt && !opts.rangeAt(range, view))) return refuse("Rename crosses reading fragments. Rename in the source file instead.");
+    const previous = original.sliceString(from, to);
+    const next = await askName(previous);
+    if (!current()) return refuse("The buffer changed. Request rename again.");
+    if (!next || next === previous) return { status: "completed", value: { source_changed: false, cancelled_or_unchanged: true } };
+    const edit = await client.rename(uri, position, next);
+    if (!current()) return refuse("The buffer changed. Request rename again.");
+    const changed = applyEdit(view, edit, opts);
+    return { status: "completed", value: { source_changed: changed, other_documents: urisInEdit(edit).filter(other => other !== uri), scope: "Current editor only; other document edits are reported, not applied", saved: false, verified: false } };
+  } catch (e) { return refuse(e instanceof Error ? e.message : String(e)); }
+}
+
 function codeActionAt(view: EditorView, opts: LspFeatureOptions): boolean {
-  if (!opts.client || !opts.onCodeActions || !opts.positionAt(view.state.selection.main.from, view)) return false;
+  if (!opts.client || !opts.onCodeActions || view.state.readOnly || !view.state.facet(EditorView.editable) || !opts.positionAt(view.state.selection.main.from, view)) return false;
   const original=view.state.doc;
   void (async () => {
     const { client, uri, positionAt, onCodeActions, onMessage } = opts;
@@ -549,71 +564,47 @@ export async function formatView(view: EditorView): Promise<boolean> {
 }
 
 /**
- * Ask the server for the document's formatting and apply it, back to front.
- *
- * Back to front for the reason `applyEdit` gives below. Marked as a user
- * event so a pane that saves only what a person did saves this too: the
- * person asked for it.
+ * Ask the server for formatting and validate the entire original-coordinate
+ * batch before one native editor transaction. Mark the real input event so
+ * existing editor save/provenance policies process the result.
  */
-export async function formatDocument(view: EditorView, opts: LspFeatureOptions): Promise<boolean> {
-  const { client, uri, offsetAt, onMessage } = opts;
-  if (!client || (opts.rangeAt && !opts.positionAt(view.state.selection.main.head, view))) return false;
+export async function formatDocument(view: EditorView, opts: LspFeatureOptions, signal?: AbortSignal): Promise<boolean> {
+  const { client, uri, onMessage } = opts;
+  if (!client || view.state.readOnly || !view.state.facet(EditorView.editable) || signal?.aborted || (opts.rangeAt && !opts.positionAt(view.state.selection.main.head, view))) return false;
   const original = view.state.doc;
   const edits = await client.formatting(uri).catch(() => []);
-  if (view.state.doc !== original) { onMessage?.("The buffer changed. Request formatting again."); return false; }
+  if (view.state.doc !== original || view.state.readOnly || !view.state.facet(EditorView.editable) || signal?.aborted) { onMessage?.("The buffer changed or is read-only. Request formatting again."); return false; }
   if (opts.rangeAt && edits.some(edit=>!opts.rangeAt!(edit.range,view))) { onMessage?.("Formatting crosses reading fragments. Format the source file instead."); return false; }
   if (edits.length === 0) {
     onMessage?.("Nothing to format — either the file is already formatted or no formatter answers for it.");
     return false;
   }
-  const changes = edits
-    .map((edit) => {
-      const mapped=opts.rangeAt?.(edit.range, view);
-      const from = mapped?.from ?? offsetAt(edit.range.start, view);
-      const to = mapped?.to ?? offsetAt(edit.range.end, view);
-      if (from === null || to === null || to < from) return null;
-      return { from, to, insert: edit.newText };
-    })
-    .filter((change): change is { from: number; to: number; insert: string } => change !== null)
-    .sort((a, b) => b.from - a.from);
-  if (changes.length === 0) return false;
-  view.dispatch({ changes, userEvent: "input.format" });
-  return true;
+  return applyLanguageBatch(view, edits, opts, "input.format");
 }
 
-/**
- * Apply a workspace edit to this document, back to front.
- *
- * Back to front because every edit's range is in the coordinates of the
- * document as the server saw it: applying the first one shifts everything
- * after it, and a forwards pass writes each subsequent edit at the wrong
- * offset — which on a rename means corrupting the identifier it was
- * supposed to change.
- */
-function applyEdit(view: EditorView, edit: WorkspaceEdit | null, opts: LspFeatureOptions) {
-  const { uri, offsetAt, onMessage } = opts;
-  const edits = editsForUri(edit, uri);
-  if (edits.length === 0) {
-    onMessage?.("The server made no changes.");
-    return;
+/** Validate all mapped edits before dispatching one source transaction. */
+function applyLanguageBatch(view: EditorView, edits: { range: LspRange; newText: string }[], opts: LspFeatureOptions, event: string): boolean {
+  if (view.state.readOnly || !view.state.facet(EditorView.editable)) { opts.onMessage?.("The editor is read-only."); return false; }
+  const changes: { from: number; to: number; insert: string }[] = [];
+  for (const edit of edits) {
+    const mapped = opts.rangeAt?.(edit.range, view);
+    const from = mapped?.from ?? opts.offsetAt(edit.range.start, view), to = mapped?.to ?? opts.offsetAt(edit.range.end, view);
+    if ((opts.rangeAt && !mapped) || from === null || to === null) { opts.onMessage?.("The edit crosses reading fragments. Apply it in the source file instead."); return false; }
+    changes.push({ from, to, insert: edit.newText });
   }
-  if (opts.rangeAt && edits.some(item=>!opts.rangeAt!(item.range,view))) { onMessage?.("The edit crosses reading fragments. Apply it in the source file instead."); return; }
-  const changes = edits
-    .map((item) => {
-      const mapped=opts.rangeAt?.(item.range, view);
-      const from = mapped?.from ?? offsetAt(item.range.start, view);
-      const to = mapped?.to ?? offsetAt(item.range.end, view);
-      if (from === null || to === null || to < from) return null;
-      return { from, to, insert: item.newText };
-    })
-    .filter((change): change is { from: number; to: number; insert: string } => change !== null)
-    .sort((a, b) => b.from - a.from);
-  if (changes.length > 0) view.dispatch({ changes, userEvent:"input.lsp" });
+  changes.sort((a, b) => a.from - b.from || a.to - b.to);
+  const source = view.state.doc.toString(), prepared = prepareEditorChanges(source, changes);
+  if ("reason" in prepared) { opts.onMessage?.(prepared.reason); return false; }
+  if (prepared.expected === source) return false;
+  view.dispatch({ changes, userEvent: event });
+  return view.state.doc.toString() !== source;
+}
 
-  const elsewhere = urisInEdit(edit).filter((other) => other !== uri);
-  if (elsewhere.length > 0) {
-    onMessage?.(
-      `Also changes ${elsewhere.length} other document${elsewhere.length === 1 ? "" : "s"}: ${elsewhere.join(", ")}`,
-    );
-  }
+function applyEdit(view: EditorView, edit: WorkspaceEdit | null, opts: LspFeatureOptions): boolean {
+  const edits = editsForUri(edit, opts.uri);
+  if (!edits.length) { opts.onMessage?.("The server made no changes."); return false; }
+  const changed = applyLanguageBatch(view, edits, opts, "input.lsp");
+  const elsewhere = urisInEdit(edit).filter(other => other !== opts.uri);
+  if (elsewhere.length) opts.onMessage?.(`Also changes ${elsewhere.length} other document${elsewhere.length === 1 ? "" : "s"}: ${elsewhere.join(", ")}`);
+  return changed;
 }

@@ -11,15 +11,20 @@ function wellFormed(text: string) {
   return true;
 }
 
-export function prepareEditorInput(source: string, ranges: readonly { from: number; to: number }[], text: string): { expected: string } | { reason: string } {
-  if (!wellFormed(text)) return { reason: "Replacement contains an unpaired UTF-16 surrogate; provide valid Unicode text" };
-  if (new TextEncoder().encode(text).length * ranges.length > 1048576) return { reason: "Replacement exceeds the 1 MiB insertion budget; reduce text or select a smaller group" };
-  let expected = "", cursor = 0;
-  for (const range of ranges) {
-    if (!Number.isInteger(range.from) || !Number.isInteger(range.to) || range.from < cursor || range.to < range.from || range.to > source.length) return { reason: "Replacement ranges must be ordered and inside the current source" };
-    if (!boundary(source, range.from) || !boundary(source, range.to)) return { reason: "Range splits a UTF-16 surrogate pair; select the whole Unicode character" };
-    expected += source.slice(cursor, range.from) + text; cursor = range.to;
+export function prepareEditorChanges(source: string, changes: readonly { from: number; to: number; insert: string }[]): { expected: string } | { reason: string } {
+  let expected = "", cursor = 0, inserted = 0;
+  for (const change of changes) {
+    if (!wellFormed(change.insert)) return { reason: "Replacement contains an unpaired UTF-16 surrogate; provide valid Unicode text" };
+    inserted += new TextEncoder().encode(change.insert).length;
+    if (inserted > 1048576) return { reason: "Replacement exceeds the 1 MiB insertion budget; reduce text or select a smaller group" };
+    if (!Number.isInteger(change.from) || !Number.isInteger(change.to) || change.from < cursor || change.to < change.from || change.to > source.length) return { reason: "Replacement ranges must be ordered and inside the current source" };
+    if (!boundary(source, change.from) || !boundary(source, change.to)) return { reason: "Range splits a UTF-16 surrogate pair; select the whole Unicode character" };
+    expected += source.slice(cursor, change.from) + change.insert; cursor = change.to;
   }
   expected += source.slice(cursor);
   return wellFormed(expected) ? { expected } : { reason: "Result would retain malformed Unicode; replace the malformed region before writing" };
+}
+
+export function prepareEditorInput(source: string, ranges: readonly { from: number; to: number }[], text: string): { expected: string } | { reason: string } {
+  return prepareEditorChanges(source, ranges.map(range => ({ ...range, insert: text })));
 }
