@@ -152,9 +152,10 @@ async fn run_loop(
                             log::warn!("could not regenerate {}: {e:#}", path.display());
                         }
                     }
-                    Some(UpCommand::Resolve(path, content)) => {
-                        if let Err(e) = woven.resolve_output(&path, &content) {
-                            log::warn!("could not resolve {}: {e:#}", path.display());
+                    Some(UpCommand::Resolve { request, reply }) => {
+                        if !reply.is_closed() {
+                            let result = woven.resolve_output(&request).map_err(|e| format!("{e:#}"));
+                            let _ = reply.send(result);
                         }
                     }
                     Some(UpCommand::Reweave(path)) => {

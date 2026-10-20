@@ -58,6 +58,7 @@ mod meeting_recording;
 pub mod merged;
 mod merged_write;
 mod native_projects;
+mod output_resolution;
 pub mod outputs;
 pub mod plain_file;
 mod project_comparison;

@@ -51,7 +51,7 @@ export interface MergeViewProps {
   oursLabel?: string;
   theirsLabel?: string;
   /** Take the merged text. */
-  onAccept: (text: string) => void | boolean | Promise<void | boolean>;
+  onAccept: (text: string) => void | boolean | Record<string, unknown> | Promise<void | boolean | Record<string, unknown>>;
   sourceCurrent?: () => boolean;
   /** Walk away and keep `ours` untouched. */
   onCancel: () => void;
@@ -126,7 +126,7 @@ function MergeController({
   add("accept", "Accept merge preview", {}, async () => {
     if (inFlight.current || !current()) return { status: "unavailable", reason: "Merge owner changed or an acceptance is pending" };
     inFlight.current = true; setBusy(true); setError("");
-    try { const accepted = await onAccept(text); if (accepted === false) throw new Error("Merge owner refused stale input; inspect the current merge or save error"); return { status: "completed", value: { handler_returned: true, saved: "Not established by this merge controller", approved: false, verified: false } }; }
+    try { const accepted = await onAccept(text); if (accepted === false) throw new Error("Merge owner refused stale input; inspect the current merge or save error"); return { status: "completed", value: { handler_returned: true, owner_reply: JSON.stringify(accepted ?? null), saved: "Not established by this merge controller", approved: false, verified: false } }; }
     catch (e) { const reason = e instanceof Error ? e.message : String(e); setError(reason); return { status: "unavailable", reason }; }
     finally { inFlight.current = false; setBusy(false); }
   });

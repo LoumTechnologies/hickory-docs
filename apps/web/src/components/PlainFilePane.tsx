@@ -710,7 +710,7 @@ export function PlainFilePane({
       adoptDiskCopy(fresh);
       putInBuffer(text);
       setMerge(null);
-      return true;
+      return { buffer_applied: true, path, saved: false };
     },
     [saver, path, adoptDiskCopy, putInBuffer],
   );

@@ -267,7 +267,7 @@ export function GeneratedFileView({
           oursLabel="What is on disk"
           theirsLabel="What the document produces"
           onAccept={async (text) => {
-            try { await api.resolveOutput(path, text); setWayError(null); setMerging(false); return true; }
+            try { const reply = await api.resolveOutput(path, text, file.content, diverged.theirs); setWayError(null); setMerging(false); return reply; }
             catch (e) { setWayError(e instanceof Error ? e.message : String(e)); throw e; }
           }}
           onCancel={() => setMerging(false)}

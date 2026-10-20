@@ -51,7 +51,10 @@ pub enum UpCommand {
     /// path that writes over held bytes, taken only when asked by name.
     Regenerate(PathBuf),
     /// Write bytes a person chose (a merge's result) over a diverged file.
-    Resolve(PathBuf, String),
+    Resolve {
+        request: state::OutputResolution,
+        reply: tokio::sync::oneshot::Sender<std::result::Result<(), String>>,
+    },
     /// Reprocess a document changed by an engine action through the watcher.
     Reweave(PathBuf),
 }

@@ -113,7 +113,13 @@ impl Coordinator {
                         let mut woven = history.lock().await;
                         let result = match command {
                             UpCommand::Regenerate(path) => woven.restore_output(&path),
-                            UpCommand::Resolve(path, content) => woven.resolve_output(&path, &content),
+                            UpCommand::Resolve { request, reply } => {
+                                if !reply.is_closed() {
+                                    let result = woven.resolve_output(&request).map_err(|e| format!("{e:#}"));
+                                    let _ = reply.send(result);
+                                }
+                                Ok(())
+                            },
                             UpCommand::Reweave(path) => { let _ = queued.send(path); Ok(()) },
                         };
                         if let Err(error) = result { eprintln!("error: {error:#}"); }

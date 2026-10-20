@@ -13,6 +13,16 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context, Result};
 use hickory_lineage::Provenance;
 
+/// Exact observed sides of a requested held-output merge.
+#[derive(Debug)]
+pub struct OutputResolution {
+    pub root: PathBuf,
+    pub path: PathBuf,
+    pub content: String,
+    pub expected_current: String,
+    pub expected_produced: String,
+}
+
 /// One woven output file, as we last wrote it.
 pub struct OutputState {
     /// The `.md` document this file was woven from.
@@ -271,10 +281,40 @@ impl WovenState {
     /// Write bytes a person chose — a merge's result — over a diverged file.
     /// The next event on the file is then an ordinary save, carried back
     /// where it can be and held where it cannot.
-    pub fn resolve_output(&mut self, path: &Path, content: &str) -> Result<()> {
-        self.held.remove(path);
+    pub fn resolve_output(&mut self, request: &OutputResolution) -> Result<()> {
+        let OutputResolution {
+            root,
+            path,
+            content,
+            expected_current,
+            expected_produced,
+        } = request;
+        let root = root.canonicalize()?;
+        let actual = path.canonicalize()?;
+        anyhow::ensure!(
+            actual.starts_with(&root) && actual == *path,
+            "Resolution target changed or leaves the open folder"
+        );
+        let held = self
+            .held
+            .get(path)
+            .ok_or_else(|| anyhow::anyhow!("Output is no longer held; refresh before resolving"))?;
+        anyhow::ensure!(
+            held.kind == DivergedKind::Held && held.theirs == *expected_produced,
+            "Produced output changed; refresh the merge before resolving"
+        );
+        anyhow::ensure!(
+            self.outputs.contains_key(path),
+            "Resolution target is not a tracked output"
+        );
+        let disk = std::fs::read(path)?;
+        anyhow::ensure!(
+            disk == expected_current.as_bytes(),
+            "Output changed on disk; refresh the merge before resolving"
+        );
         set_read_only(path, false)?;
         write_atomic(path, content)?;
+        self.held.remove(path);
         Ok(())
     }
 
@@ -396,3 +436,6 @@ fn toggled(mut perms: std::fs::Permissions, read_only: bool) -> std::fs::Permiss
     perms.set_readonly(read_only);
     perms
 }
+
+#[cfg(test)]
+mod resolution_tests;

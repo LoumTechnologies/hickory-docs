@@ -805,47 +805,7 @@ pub async fn diverged_outputs(State(state): State<LocalState>) -> Json<Value> {
     Json(json!({ "diverged": held }))
 }
 
-#[derive(serde::Deserialize)]
-pub struct ResolveBody {
-    pub path: String,
-    pub content: String,
-}
-
-/// `POST /api/outputs/resolve` — write the bytes a person chose (a merge's
-/// result) over a diverged file. The loop then treats them as an ordinary
-/// save: carried back into the document where they can be.
-pub async fn resolve_output(
-    State(state): State<LocalState>,
-    Json(body): Json<ResolveBody>,
-) -> ApiResult<Json<Value>> {
-    if body.path.is_empty()
-        || std::path::Path::new(&body.path).is_absolute()
-        || body.path.split('/').any(|p| p == "..")
-    {
-        return Err(ApiError::bad_request(format!(
-            "{:?} is not a path inside the open folder",
-            body.path
-        )));
-    }
-    let root = state
-        .index
-        .root()
-        .canonicalize()
-        .unwrap_or_else(|_| state.index.root().to_path_buf());
-    let sender = state.up_commands.lock().expect("up command inbox").clone();
-    let Some(sender) = sender else {
-        return Err(ApiError::unavailable(
-            "the folder is not being watched, so nothing can take the resolution",
-        ));
-    };
-    sender
-        .send(crate::up::UpCommand::Resolve(
-            root.join(&body.path),
-            body.content,
-        ))
-        .map_err(|_| ApiError::unavailable("the watch loop has stopped"))?;
-    Ok(Json(json!({ "ok": true, "path": body.path })))
-}
+pub use super::output_resolution::resolve_output;
 
 #[derive(serde::Deserialize)]
 pub struct RegenerateBody {
