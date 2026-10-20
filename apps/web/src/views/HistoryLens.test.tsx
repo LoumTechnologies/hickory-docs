@@ -1,9 +1,11 @@
+import { UiActions } from "../lib/uiActions";
+import { UiActionContext } from "../lib/uiActionBridge";
 // The history lens: the repository read as a story.
 //
 // Protects docs/guarantees/lenses/the-history-lens-reads-the-repository-as-a-story.md
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 
 import { HistoryLens, OPEN_TAIL, floorIndex, storyOrder } from "./HistoryLens";
 import { api } from "../api/client";
@@ -271,3 +273,50 @@ describe("the story's verbs", () => {
   });
 });
 
+
+// Guarantee: docs/guarantees/agent/ui-action-dispatch.md
+it("shares progressive history controls, actual replay receipts and repository mutation exclusion", async () => {
+  const detail = serve();
+  let complete!: (value: Awaited<ReturnType<typeof api.gitReplay>>) => void;
+  const replay = vi.spyOn(api, "gitReplay").mockImplementation(() => new Promise(done => { complete = done; }));
+  const drop = vi.spyOn(api, "gitDrop").mockResolvedValue({ head: "new-head" });
+  const registry = new UiActions({ workspace: "p", window: "w" }, () => true, async () => {});
+  render(<UiActionContext.Provider value={registry}><HistoryLens /></UiActionContext.Provider>);
+  await screen.findByRole("article", { name: "Scaffold a web API" });
+  const actions = () => registry.groups().groups.flatMap(group => registry.observe(group).actions);
+  let id = 0;
+  const run = async (label: string, args = {}) => { let reply: unknown; await act(async () => { reply = await registry.act(registry.scope, { id: "python:turn", kind: "agent" }, { handle: actions().find(a => a.label === label)!.handle, arguments: args, request_id: String(++id) }); }); return reply; };
+  expect(actions().some(a => a.label === "Read history commit b2222222")).toBe(false);
+  await run("Set history changes visibility b2222222", { open: true });
+  await waitFor(() => expect(detail).toHaveBeenCalledWith("b2222222"));
+  await waitFor(() => expect(actions().some(a => a.label === "Read history commit b2222222")).toBe(true));
+  const handle = actions().find(a => a.label === "Replay history recipe b2222222")!.handle;
+  let pending!: ReturnType<typeof registry.act>;
+  await act(async () => { pending = registry.act(registry.scope, { id: "python:turn", kind: "agent" }, { handle, arguments: {}, request_id: "replay" }); });
+  await waitFor(() => expect(replay).toHaveBeenCalledTimes(1));
+  const dropping = actions().find(a => a.label === "Drop history draft c3333333")!;
+  expect(dropping.enabled).toBe(false);
+  expect(await registry.act(registry.scope, { id: "acp:other", kind: "agent" }, { handle: dropping.handle, arguments: {}, request_id: "other-operation" })).toMatchObject({ status: "disabled" });
+  expect(drop).not.toHaveBeenCalled();
+  const actual: Awaited<ReturnType<typeof api.gitReplay>> = { of: "b2222222", sha: "actual-replay", short: "actual-r", same: false, moved: "rebase", head: "actual-head", said: [] };
+  await act(async () => complete(actual));
+  expect(await pending).toMatchObject({ status: "result", outcome: { status: "completed", value: { reply: JSON.stringify(actual) } } });
+  await run("Set history changes visibility b2222222", { open: false });
+  expect(actions().some(a => a.label === "Read history commit b2222222")).toBe(false);
+});
+
+it("keeps a rejected history commit message and returns the actual commit on retry", async () => {
+  serve();
+  const commit = vi.mocked(api.gitCommit).mockRejectedValueOnce(new Error("hook refused")).mockResolvedValue({ sha: "actual-commit", short: "actual-c", subject: "Keep this rejected draft" });
+  const registry = new UiActions({ workspace: "p", window: "w" }, () => true, async () => {});
+  render(<UiActionContext.Provider value={registry}><HistoryLens /></UiActionContext.Provider>);
+  await screen.findByRole("article", { name: "Working tree" });
+  const actions = () => registry.groups().groups.flatMap(group => registry.observe(group).actions);
+  let id = 0;
+  const run = async (label: string, args = {}) => { let result: unknown; await act(async () => { result = await registry.act(registry.scope, { id: "python:turn", kind: "agent" }, { handle: actions().find(a => a.label === label)!.handle, arguments: args, request_id: String(++id) }); }); return result; };
+  await run("Set history tail commit message", { value: "Keep this rejected draft" });
+  expect(await run("Commit current history working tree")).toMatchObject({ status: "result", outcome: { status: "unavailable", reason: "hook refused" } });
+  expect((screen.getByRole("textbox", { name: "What happened" }) as HTMLTextAreaElement).value).toBe("Keep this rejected draft");
+  expect(await run("Commit current history working tree")).toMatchObject({ status: "result", outcome: { status: "completed", value: { commit_reply: JSON.stringify({ sha: "actual-commit", short: "actual-c", subject: "Keep this rejected draft" }) } } });
+  expect(commit).toHaveBeenCalledTimes(2);
+});

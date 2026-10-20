@@ -1,3 +1,6 @@
+import { useHistoryActions } from "./historyActions";
+import { useUiReading } from "../lib/uiReading";
+import type { UiOutcome, UiValue } from "../lib/uiActions";
 import { SurfaceInfo } from "../components/SurfaceInfo";
 import { openCommit } from "../lib/readingViews";
 // The repository's history, read as a story — and, above the floor, edited.
@@ -70,27 +73,27 @@ type Verbs = {
   refresh: () => void;
   /** What a verb said — a result, a refusal, or a stopped join, in git's words. */
   say: (text: string | null) => void;
+  pending: boolean;
+  activity: (pending: boolean) => void;
 };
 
 /** Run a verb, tell the story what it said, and re-read. */
-function runVerb(
+async function runVerb(
   verbs: Verbs,
   setBusy: (busy: boolean) => void,
-  work: Promise<string | null>,
+  work: () => Promise<{ said: string | null; value: UiValue }>,
   then?: () => void,
-) {
-  setBusy(true);
-  verbs.say(null);
-  work
-    .then((said) => {
-      then?.();
-      verbs.say(said);
-    })
-    .catch((e: unknown) => verbs.say(e instanceof Error ? e.message : String(e)))
-    .finally(() => {
-      setBusy(false);
-      verbs.refresh();
-    });
+): Promise<UiOutcome> {
+  if (verbs.pending) return { status: "unavailable", reason: "Another history operation is pending" };
+  verbs.pending = true; verbs.activity(true); setBusy(true); verbs.say(null);
+  try {
+    const result = await work();
+    then?.(); verbs.say(result.said);
+    return { status: "completed", value: result.value };
+  } catch (e) {
+    const reason = e instanceof Error ? e.message : String(e);
+    verbs.say(reason); return { status: "unavailable", reason };
+  } finally { verbs.pending = false; verbs.activity(false); setBusy(false); verbs.refresh(); }
 }
 
 /** One commit's card, fetched on expand: the diff and what was edited since. */
@@ -107,11 +110,13 @@ function CommitDetail({ sha, recipe }: { sha: string; recipe: boolean }) {
       live = false;
     };
   }, [sha]);
+  const human = useHistoryActions(`detail:${sha}`, () => [sha, detail, error], [{ id: "read", label: `Read history commit ${sha}`, enabled: () => !!detail && !error, execute: async () => { openCommit(sha); return { status: "completed", value: { navigation_requested: sha } }; } }], setError);
+  useUiReading("history commit detail status", { sha, error, loading: !detail && !error, files: detail?.files, edited_since: detail?.edited_since });
   if (error) return <p className="error">{error}</p>;
   if (!detail) return <p className="muted">Reading the change…</p>;
   return (
     <div className="story-card__detail">
-      <button className="btn" onClick={() => openCommit(sha)}>Read commit</button>
+      <button className="btn" onClick={() => human("read")}>Read commit</button>
       {/* The fact the scaffold cell could never show: the output stays, AND
           it says which later commit changed it. Only worth saying on a
           recipe, where "what the command wrote" and "what is there now" are
@@ -156,16 +161,14 @@ function RecipeCell({
   setBusy: (busy: boolean) => void;
 }) {
   const recipe = commit.recipe!;
-  const replay = () =>
-    runVerb(
-      verbs,
-      setBusy,
-      api.gitReplay(commit.sha).then((result) =>
-        result.same
-          ? `Replayed ${commit.short} as ${result.short}: the same tree, so nothing about it changed. Joined by ${result.moved}.`
-          : `Replayed ${commit.short} as ${result.short}: the output differs, and its diff says how. Joined by ${result.moved}.`,
-      ),
-    );
+  const replay = () => runVerb(verbs, setBusy, async () => {
+    const result = await api.gitReplay(commit.sha);
+    return { said: result.same
+      ? `Replayed ${commit.short} as ${result.short}: the same tree, so nothing about it changed. Joined by ${result.moved}.`
+      : `Replayed ${commit.short} as ${result.short}: the output differs, and its diff says how. Joined by ${result.moved}.`,
+      value: { reply: JSON.stringify(result), scope: "Actual Git replay equality and join reply, not independent runtime or prose verification" } };
+  });
+  const human = useHistoryActions(`recipe:${commit.sha}`, () => [commit, busy, verbs.pending], recipe.output_matches === true ? [{ id: "replay", label: `Replay history recipe ${commit.sha}`, enabled: () => !busy && !verbs.pending, execute: replay }] : [], verbs.say);
 
   return (
     <div className="story-cell" role="group" aria-label="Recipe">
@@ -226,8 +229,8 @@ function RecipeCell({
           <button
             type="button"
             className="btn"
-            disabled={busy}
-            onClick={replay}
+            disabled={busy || verbs.pending}
+            onClick={() => human("replay")}
             data-tip="Run this recipe again and commit what it makes as a NEW commit — never a rewrite of this one. Above the publication floor the commits after it are rebased onto the result; below it, the result is merged. Needs a clean working tree."
           >
             {busy ? "Replaying…" : "Replay"}
@@ -256,13 +259,19 @@ function DraftVerbs({
   setBusy: (busy: boolean) => void;
   onReword: () => void;
 }) {
+  const human = useHistoryActions(`draft:${commit.sha}`, () => [commit, first, last, busy, verbs.pending], [
+    { id: "reword", label: `Edit history commit message ${commit.sha}`, enabled: () => !busy && !verbs.pending, execute: async () => { onReword(); return { status: "completed", value: { message_editor_opened: true, history_rewritten: false } }; } },
+    { id: "earlier", label: `Move history draft earlier ${commit.sha}`, enabled: () => !busy && !first && !verbs.pending, execute: () => runVerb(verbs, setBusy, async () => ({ said: null, value: await api.gitMove(commit.sha, "earlier") })) },
+    { id: "later", label: `Move history draft later ${commit.sha}`, enabled: () => !busy && !last && !verbs.pending, execute: () => runVerb(verbs, setBusy, async () => ({ said: null, value: await api.gitMove(commit.sha, "later") })) },
+    { id: "drop", label: `Drop history draft ${commit.sha}`, enabled: () => !busy && !verbs.pending, execute: () => runVerb(verbs, setBusy, async () => ({ said: null, value: await api.gitDrop(commit.sha) })) },
+  ], verbs.say);
   return (
     <span className="story-card__verbs" role="group" aria-label="Edit this draft">
       <button
         type="button"
         className="btn"
-        disabled={busy}
-        onClick={onReword}
+        disabled={busy || verbs.pending}
+        onClick={() => human("reword")}
         data-tip="Change this commit's message — a rebase, allowed because this is a draft"
       >
         Reword
@@ -270,8 +279,8 @@ function DraftVerbs({
       <button
         type="button"
         className="btn"
-        disabled={busy || first}
-        onClick={() => runVerb(verbs, setBusy, api.gitMove(commit.sha, "earlier").then(() => null))}
+        disabled={busy || verbs.pending || first}
+        onClick={() => human("earlier")}
         data-tip="Swap this commit with the one before it"
         aria-label="Move earlier"
       >
@@ -280,8 +289,8 @@ function DraftVerbs({
       <button
         type="button"
         className="btn"
-        disabled={busy || last}
-        onClick={() => runVerb(verbs, setBusy, api.gitMove(commit.sha, "later").then(() => null))}
+        disabled={busy || verbs.pending || last}
+        onClick={() => human("later")}
         data-tip="Swap this commit with the one after it"
         aria-label="Move later"
       >
@@ -290,8 +299,8 @@ function DraftVerbs({
       <button
         type="button"
         className="btn"
-        disabled={busy}
-        onClick={() => runVerb(verbs, setBusy, api.gitDrop(commit.sha).then(() => null))}
+        disabled={busy || verbs.pending}
+        onClick={() => human("drop")}
         data-tip="Remove this commit from the history. Its changes go with it; the commits after it are rebased over the gap."
       >
         Drop
@@ -318,12 +327,21 @@ function CommitCard({
   const recipe = commit.recipe ?? null;
   const [busy, setBusy] = useState(false);
   const [rewording, setRewording] = useState<string | null>(null);
-  const saveReword = () => {
-    if (rewording === null) return;
-    runVerb(verbs, setBusy, api.gitReword(commit.sha, rewording).then(() => null), () =>
-      setRewording(null),
-    );
-  };
+  const saveReword = () => runVerb(verbs, setBusy, async () => {
+    if (rewording === null) throw new Error("Open the draft message editor first");
+    const value = await api.gitReword(commit.sha, rewording);
+    return { said: null, value };
+  }, () => setRewording(null));
+  const actions: Parameters<typeof useHistoryActions>[2] = [
+    { id: "toggle", label: `Set history changes visibility ${commit.sha}`, parameters: { open: { type: "boolean" as const } }, enabled: () => true, execute: async (args: Record<string, UiValue>): Promise<UiOutcome> => { if (expanded !== args.open) onToggle(); return { status: "completed", value: { expanded: args.open } }; } },
+  ];
+  if (rewording !== null) actions.push(
+    { id: "message", label: `Set history draft message ${commit.sha}`, parameters: { value: { type: "string", maxLength: 65536 } }, enabled: () => !busy && !verbs.pending, execute: async args => { setRewording(args.value as string); return { status: "completed", value: { draft_changed: true, history_rewritten: false } }; } },
+    { id: "save", label: `Save history draft message ${commit.sha}`, parameters: {}, enabled: () => !busy && !verbs.pending, execute: saveReword },
+    { id: "cancel", label: `Cancel history draft message ${commit.sha}`, parameters: {}, enabled: () => !busy && !verbs.pending, execute: async () => { setRewording(null); return { status: "completed", value: { draft_cancelled: true, history_rewritten: false } }; } },
+  );
+  const human = useHistoryActions(`card:${commit.sha}`, () => [commit, expanded, rewording, busy, verbs.pending], actions, verbs.say);
+  useUiReading("history story card", { sha: commit.sha, subject: commit.subject, author: commit.author, time: commit.time, refs: commit.refs, draft: !!commit.draft, body: recipe ? proseOf(commit.body ?? "") : commit.body, recipe: recipe && { command: recipe.command, image: recipe.image, output_matches: recipe.output_matches, replay_of: recipe.replay_of, replay_same: recipe.replay_same }, file_count: commit.files.length, added: commit.added, removed: commit.removed, expanded, message_draft: rewording, pending: busy, scope: "Loaded Git card; commit messages and recipes are declared claims, distinct from replay and diff evidence" });
   return (
     <article
       className={`story-card${recipe ? " story-card--recipe" : ""}${commit.draft ? " story-card--draft" : ""}`}
@@ -356,15 +374,16 @@ function CommitCard({
           <textarea
             className="story-card__textarea mono"
             aria-label="New message"
+            disabled={busy}
             value={rewording}
             rows={Math.max(3, rewording.split("\n").length + 1)}
             onChange={(event) => setRewording(event.target.value)}
           />
           <span className="story-card__verbs">
-            <button type="button" className="btn btn-primary" disabled={busy} onClick={saveReword}>
+            <button type="button" className="btn btn-primary" disabled={busy || verbs.pending} onClick={() => human("save")}>
               {busy ? "Rewording…" : "Save"}
             </button>
-            <button type="button" className="btn" disabled={busy} onClick={() => setRewording(null)}>
+            <button type="button" className="btn" disabled={busy || verbs.pending} onClick={() => human("cancel")}>
               Cancel
             </button>
           </span>
@@ -376,7 +395,7 @@ function CommitCard({
         </>
       )}
       <div className="story-card__foot">
-        <button type="button" className="story-card__toggle btn" onClick={onToggle} aria-expanded={expanded}>
+        <button type="button" className="story-card__toggle btn" onClick={() => human("toggle", { open: !expanded })} aria-expanded={expanded}>
           {expanded
             ? "Hide changes"
             : `${commit.files.length} file${commit.files.length === 1 ? "" : "s"}, +${commit.added} −${commit.removed}`}
@@ -411,28 +430,24 @@ function TailCard({ status, verbs }: { status: GitStatus | null; verbs: Verbs })
   const [command, setCommand] = useState("");
   const [output, setOutput] = useState("");
   const [busy, setBusy] = useState(false);
-  const commit = () =>
-    runVerb(
-      verbs,
-      setBusy,
-      api
-        .gitStage({ all: true })
-        .then(() => api.gitCommit(message))
-        .then(() => null),
-      () => setMessage(""),
-    );
-  const emit = () =>
-    runVerb(
-      verbs,
-      setBusy,
-      api
-        .gitRecipe(command, output)
-        .then((run) => `Ran it and committed ${output.trim()}/ as ${run.short}, with the recipe in its trailers.`),
-      () => {
-        setCommand("");
-        setOutput("");
-      },
-    );
+  const commit = () => runVerb(verbs, setBusy, async () => {
+    const stage = await api.gitStage({ all: true });
+    const result = await api.gitCommit(message);
+    return { said: null, value: { stage_reply: JSON.stringify(stage), commit_reply: JSON.stringify(result), scope: "Actual stage-all and commit replies; not a test or verification verdict" } };
+  }, () => setMessage(""));
+  const emit = () => runVerb(verbs, setBusy, async () => {
+    const result = await api.gitRecipe(command, output);
+    return { said: `Ran it and committed ${output.trim()}/ as ${result.short}, with the recipe in its trailers.`, value: { reply: JSON.stringify(result), scope: "Actual recipe commit reply; independent behavioral verification is separate" } };
+  }, () => { setCommand(""); setOutput(""); });
+  const actions: Parameters<typeof useHistoryActions>[2] = [
+    { id: "message", label: "Set history tail commit message", parameters: { value: { type: "string", maxLength: 65536 } }, enabled: () => !busy && dirty > 0, execute: async args => { setMessage(args.value as string); return { status: "completed", value: { message_changed: true, committed: false } }; } },
+    { id: "command", label: "Set history recipe command", parameters: { value: { type: "string", maxLength: 65536 } }, enabled: () => !busy, execute: async args => { setCommand(args.value as string); return { status: "completed", value: { command_changed: true, executed: false } }; } },
+    { id: "output", label: "Set history recipe output folder", parameters: { value: { type: "string", maxLength: 4096 } }, enabled: () => !busy, execute: async args => { setOutput(args.value as string); return { status: "completed", value: { output_changed: true, executed: false } }; } },
+    { id: "commit", label: "Commit current history working tree", enabled: () => !busy && !verbs.pending && dirty > 0 && !!message.trim(), execute: commit },
+    { id: "recipe", label: "Run and commit history recipe", enabled: () => !busy && !verbs.pending && !!command.trim() && !!output.trim(), execute: emit },
+  ];
+  const human = useHistoryActions("tail", () => [status, message, command, output, busy, verbs.pending], actions.filter(action => dirty > 0 || !["message", "commit"].includes(action.id)), verbs.say);
+  useUiReading("history working tree tail", { status, message: dirty > 0 ? message : null, command, output, pending: busy, scope: "Loaded working tree state and draft inputs; stage-all/commit act on the actual repository at dispatch" });
   return (
     <article className="story-card story-card--tail" aria-label="Working tree">
       <header className="story-card__head">
@@ -451,6 +466,7 @@ function TailCard({ status, verbs }: { status: GitStatus | null; verbs: Verbs })
           <textarea
             className="story-card__textarea mono"
             aria-label="What happened"
+            disabled={busy}
             placeholder="What happened, in a sentence — the next commit's message"
             value={message}
             rows={3}
@@ -460,8 +476,8 @@ function TailCard({ status, verbs }: { status: GitStatus | null; verbs: Verbs })
             <button
               type="button"
               className="btn btn-primary"
-              disabled={busy || message.trim() === ""}
-              onClick={commit}
+              disabled={busy || verbs.pending || message.trim() === ""}
+              onClick={() => human("commit")}
               data-tip="Stage everything and commit it with this message — one git commit, run as itself"
             >
               {busy ? "Committing…" : "Commit"}
@@ -478,6 +494,7 @@ function TailCard({ status, verbs }: { status: GitStatus | null; verbs: Verbs })
         <input
           className="insert-menu__input mono"
           aria-label="Command"
+          disabled={busy}
           placeholder="dotnet new webapi -o app"
           value={command}
           onChange={(event) => setCommand(event.target.value)}
@@ -485,6 +502,7 @@ function TailCard({ status, verbs }: { status: GitStatus | null; verbs: Verbs })
         <input
           className="insert-menu__input mono"
           aria-label="Output folder"
+          disabled={busy}
           placeholder="app"
           value={output}
           onChange={(event) => setOutput(event.target.value)}
@@ -493,8 +511,8 @@ function TailCard({ status, verbs }: { status: GitStatus | null; verbs: Verbs })
           <button
             type="button"
             className="btn"
-            disabled={busy || command.trim() === "" || output.trim() === ""}
-            onClick={emit}
+            disabled={busy || verbs.pending || command.trim() === "" || output.trim() === ""}
+            onClick={() => human("recipe")}
           >
             {busy ? "Running…" : "Run and commit"}
           </button>
@@ -513,13 +531,14 @@ export function HistoryLens() {
   // How many commits before the open tail are unfolded. Grows by clicks.
   const [unfolded, setUnfolded] = useState(0);
   const [tick, setTick] = useState(0);
+  const [repositoryBusy, setRepositoryBusy] = useState(false);
   const refresh = useCallback(() => setTick((n) => n + 1), []);
-  const verbs = useMemo<Verbs>(() => ({ refresh, say: setNotice }), [refresh]);
+  const verbs = useMemo<Verbs>(() => ({ refresh, say: setNotice, pending: false, activity: setRepositoryBusy }), [refresh]);
 
   useEffect(() => {
     let live = true;
     api.gitLog(1000).then(
-      (answer) => live && setLog(answer),
+      (answer) => { if (live) { setLog(answer); setError(null); } },
       (e: unknown) => live && setError(e instanceof Error ? e.message : String(e)),
     );
     api.gitStatus().then(
@@ -550,7 +569,12 @@ export function HistoryLens() {
       return next;
     });
 
-  if (error) return <p className="error git-pane__error">{error}</p>;
+  const human = useHistoryActions("story", () => [log, status, error, notice, unfolded, [...open], verbs.pending], [
+    { id: "refresh", label: "Refresh history story", enabled: () => !verbs.pending, execute: async () => { refresh(); return { status: "completed", value: { refresh_requested: true } }; } },
+    ...((log?.commits.length ?? 0) > OPEN_TAIL + unfolded ? [{ id: "unfold", label: "Show earlier history story commits", enabled: () => true, execute: async (): Promise<UiOutcome> => { setUnfolded(n => n + FOLD_STEP); return { status: "completed", value: { additional_cards_requested: FOLD_STEP } }; } }] : []),
+  ], setNotice);
+  useUiReading("history story status", { repository: log?.repository, loading: !log && !error, error, notice, floor: log?.floor && { source: log.floor.source, sha: log.floor.sha, summary: log.floor.summary, draft_count: log.floor.drafts.length }, total_loaded: log?.commits.length ?? 0, disclosed_cards: Math.min(log?.commits.length ?? 0, OPEN_TAIL + unfolded), repository_busy: repositoryBusy, scope: "Loaded story window; folded earlier cards require explicit expansion" });
+  if (error) return <div><p className="error git-pane__error">{error}</p><button className="btn" onClick={() => human("refresh")}>Retry history</button></div>;
   if (!log) return <p className="muted git-pane__loading">Reading history…</p>;
   if (!log.repository) {
     return (
@@ -569,6 +593,7 @@ export function HistoryLens() {
 
   return (
     <div className="story" role="region" aria-label="History, as a story">
+      <button className="btn" disabled={verbs.pending} onClick={() => human("refresh")}>Refresh history</button>
       <SurfaceInfo name="Repository history" editable destination="Actions change git history above the publication floor or create a new commit. Published commits are read-only." />
       <p className="story__banner muted" role="note">
         A lens over this repository’s history, oldest first. It exists on disk nowhere and cannot
@@ -584,7 +609,7 @@ export function HistoryLens() {
         <button
           type="button"
           className="btn story__fold"
-          onClick={() => setUnfolded((n) => n + FOLD_STEP)}
+          onClick={() => human("unfold")}
           aria-label={`${folded} earlier commits, folded`}
         >
           ⋯ {folded} earlier commit{folded === 1 ? "" : "s"}
