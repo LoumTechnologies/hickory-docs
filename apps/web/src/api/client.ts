@@ -635,17 +635,15 @@ export const api = {
     request<{ machine: FleetMachine }>("POST", "/api/fleet/accept", { invitation }),
 
   /** Give or take one verb for one machine. */
-  fleetGrant: (machine: string, grant: string, on: boolean) =>
-    request<{ machine: FleetMachine }>("PUT", "/api/fleet/grant", {
-      machine,
-      grant,
-      on,
+  fleetGrant: (machine: string, grant: string, on: boolean, expectedKey?: string) =>
+    request<{ machine: FleetMachine }>("PUT", expectedKey !== undefined ? "/api/v1/fleet/grant" : "/api/fleet/grant", {
+      machine, grant, on, ...(expectedKey !== undefined ? { expected_key: expectedKey } : {}),
     }),
 
   /** Revocation, which is deleting a key. */
-  fleetRemove: (machine: string) =>
-    request<{ removed: boolean; note: string }>("POST", "/api/fleet/remove", {
-      machine,
+  fleetRemove: (machine: string, expectedKey?: string) =>
+    request<{ removed: boolean; note: string }>("POST", expectedKey !== undefined ? "/api/v1/fleet/remove" : "/api/fleet/remove", {
+      machine, ...(expectedKey !== undefined ? { expected_key: expectedKey } : {}),
     }),
 
   /** Is continuity on for this project? Off by default. */

@@ -114,7 +114,7 @@ describe("pairing from the pane", () => {
     render(<FleetPane />);
     await waitFor(() => expect(screen.getByRole("button", { name: "execute" })).toBeTruthy());
     fireEvent.click(screen.getByRole("button", { name: "execute" }));
-    await waitFor(() => expect(grant).toHaveBeenCalledWith("desktop", "execute", true));
+    await waitFor(() => expect(grant).toHaveBeenCalledWith("desktop", "execute", true, desktop.public_key));
   });
 
   it("shows a refusal in full rather than swallowing it", async () => {
@@ -139,7 +139,7 @@ describe("pairing from the pane", () => {
     render(<FleetPane />);
     await waitFor(() => expect(screen.getByRole("button", { name: "remove" })).toBeTruthy());
     fireEvent.click(screen.getByRole("button", { name: "remove" }));
-    await waitFor(() => expect(remove).toHaveBeenCalledWith("desktop"));
+    await waitFor(() => expect(remove).toHaveBeenCalledWith("desktop", desktop.public_key));
     await waitFor(() =>
       expect(screen.getByText(/whole of the revocation/)).toBeTruthy(),
     );
@@ -225,7 +225,7 @@ it("shares disclosed fleet invitation and grant controls with exact mocked repli
   await waitFor(() => expect((screen.getByRole("button", { name: "execute" }) as HTMLButtonElement).disabled).toBe(false));
   const old = actions().find(action => action.label === "Set fleet grant desktop execute")!.handle;
   expect(await run("Set fleet grant desktop execute", { on: true })).toMatchObject({ status: "result", outcome: { value: { response: { machine: { grants: ["view", "edit", "execute"] } } } } });
-  expect(grant).toHaveBeenCalledExactlyOnceWith("desktop", "execute", true);
+  expect(grant).toHaveBeenCalledExactlyOnceWith("desktop", "execute", true, desktop.public_key);
   roster.mockResolvedValueOnce({ ...(await api.fleet()), machines: [{ ...desktop, public_key: "REPLACED-KEY" }] });
   await run("Refresh local fleet roster");
   expect(await registry.act(registry.scope, { id: "acp:turn", kind: "agent" }, { handle: old, arguments: { on: true }, request_id: "replaced" })).not.toMatchObject({ status: "result" });

@@ -35,6 +35,7 @@ export function FleetPane() {
   return (
     <div className="fleet-pane">
       <header className="fleet-pane__head">
+        <button type="button" disabled={busy} onClick={() => human("reload")}>Refresh fleet roster</button>
         <span className="mono">{fleet.this_machine.name}</span>
         <span className="muted mono fleet-pane__fp">
           {fleet.this_machine.fingerprint}

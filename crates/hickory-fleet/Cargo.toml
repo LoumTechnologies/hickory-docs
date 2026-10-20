@@ -17,6 +17,5 @@ base64 = "0.22"
 ed25519-dalek = { version = "2", features = ["rand_core"] }
 rand_core = { version = "0.6", features = ["getrandom"] }
 hickory-workspace = { path = "../hickory-workspace" }
-
-[dev-dependencies]
+fs2 = "0.4"
 tempfile = "3"

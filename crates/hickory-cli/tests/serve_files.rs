@@ -263,3 +263,23 @@ async fn versioned_scratchpad_preserves_agent_attribution_and_refuses_legacy_fal
     assert!(source.contains("source: scratchpad\nauthorship: agent-assisted\n"));
     assert!(source.contains("Exact submitted prose."));
 }
+
+#[tokio::test]
+async fn versioned_fleet_mutations_require_an_observed_key() {
+    let session = start().await;
+    let client = reqwest::Client::new();
+    let grant = client
+        .put(format!("{}/api/v1/fleet/grant", session.base))
+        .json(&serde_json::json!({"machine":"desktop","grant":"execute","on":true}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(grant.status(), reqwest::StatusCode::BAD_REQUEST);
+    let remove = client
+        .post(format!("{}/api/v1/fleet/remove", session.base))
+        .json(&serde_json::json!({"machine":"desktop","expected_key":""}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(remove.status(), reqwest::StatusCode::BAD_REQUEST);
+}

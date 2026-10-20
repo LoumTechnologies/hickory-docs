@@ -126,3 +126,19 @@ it("uses the versioned attribution route for assisted scratchpad saves without f
     expect(handler).toHaveBeenCalledTimes(3);
   } finally { installMockHandler(null as never); }
 });
+
+it("binds fleet mutation routes to observed keys without legacy fallback", async () => {
+  const handler = vi.fn(async () => ({ machine: { name: "desktop" } }));
+  installMockHandler(handler);
+  try {
+    await api.fleetGrant("desktop", "execute", true, "observed-key");
+    expect(handler).toHaveBeenLastCalledWith("PUT", "/api/v1/fleet/grant", { machine: "desktop", grant: "execute", on: true, expected_key: "observed-key" });
+    await api.fleetRemove("desktop", "observed-key");
+    expect(handler).toHaveBeenLastCalledWith("POST", "/api/v1/fleet/remove", { machine: "desktop", expected_key: "observed-key" });
+    handler.mockRejectedValueOnce(new Error("Versioned route missing"));
+    await expect(api.fleetGrant("desktop", "execute", true, "observed-key")).rejects.toThrow("Versioned route missing");
+    expect(handler).toHaveBeenCalledTimes(3);
+    await api.fleetRemove("desktop", "");
+    expect(handler).toHaveBeenLastCalledWith("POST", "/api/v1/fleet/remove", { machine: "desktop", expected_key: "" });
+  } finally { installMockHandler(null as never); }
+});

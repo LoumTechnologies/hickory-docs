@@ -118,3 +118,31 @@ file-length and diff checks passed. No real key, grant, pairing or fleet change
 was made. This checkpoint does not establish host cancellation of pairing or
 cross-process identity/roster compare-and-swap: those remain code gaps, not OS
 limitations, and this family is not certified complete.
+
+### Observed-key writes and cooperating process serialization (2026-10-20)
+
+The pane now sends its observed public key to versioned grant/removal endpoints.
+A missing/empty precondition is refused before opening the fleet identity. Under
+the same exclusive roster lock as the mutation, the fleet checks that the named
+machine still has that key. A changed/missing target returns a conflict and
+performs no roster write. An older engine cannot silently accept an unguarded
+request because the client never downgrades the versioned route.
+
+All updated `Fleet::add`, grant and remove writers use one stable sidecar lock;
+readers take a shared lock. Writes sync a private temporary file and atomically
+replace the roster. A corrupt roster can remain an empty safe view, but mutating
+it is refused rather than replacing it with an empty/new list. These guarantees
+coordinate updated cooperating CLI/server processes, not arbitrary external file
+editors or older writers that ignore the lock. Legacy unscoped API/CLI operations
+retain their explicit current-name semantics; the shared pane uses observed keys.
+
+Three focused fixture behaviors plus their subprocess helper passed in
+`hickory-fleet/tests/roster_guarded.rs`: stale replacement keys leave exact roster
+bytes unchanged; corrupt input is preserved; and four real writer processes keep
+all 40 entries. Three selected existing execute/phone authority cases passed.
+Five selected web/API cases passed for keyed native/agent dispatch, no route
+fallback and pending mutation exclusion. One real loopback HTTP case verifies
+required-key refusal. All keys/rosters used for library tests were private temporary
+fixtures; the user's fleet was not changed. Focused strict TypeScript, inventory,
+file-length and diff checks passed. This supersedes the preceding checkpoint's
+cooperating-writer/target-key gap; pairing request cancellation remains open.

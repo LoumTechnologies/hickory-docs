@@ -40,7 +40,7 @@ export function useFleetControls(grantDescriptions: Record<string, string>) {
     try {
       const result = await what();
       const value = { response: JSON.parse(JSON.stringify(result.response)) as UiValue,
-        scope: "Actual local fleet API reply; no peer connectivity or cross-process roster CAS is asserted" };
+        scope: "Actual local fleet API reply; observed-key writes use the roster lock; peer connectivity and noncooperating external writers are not verified" };
       if (mounted.current) { setReceipt(value); if (result.note) setNote(result.note); await reload(); }
       return { status: "completed", value };
     } catch (cause) {
@@ -115,9 +115,9 @@ export function useFleetControls(grantDescriptions: Record<string, string>) {
   );
   for (const machine of fleet?.machines ?? []) {
     for (const grant of FLEET_GRANTS) actions.push({ id: `grant:${machine.public_key}:${grant}`, label: `Set fleet grant ${machine.name} ${grant}`,
-      parameters: { on: { type: "boolean" } }, execute: async args => act(async () => ({ response: await api.fleetGrant(machine.name, grant, args.on as boolean) })) });
+      parameters: { on: { type: "boolean" } }, execute: async args => act(async () => ({ response: await api.fleetGrant(machine.name, grant, args.on as boolean, machine.public_key) })) });
     actions.push({ id: `remove:${machine.public_key}`, label: `Remove fleet machine ${machine.name}`, execute: async () => act(async () => {
-      const response = await api.fleetRemove(machine.name); return { response, note: response.note };
+      const response = await api.fleetRemove(machine.name, machine.public_key); return { response, note: response.note };
     }) });
   }
   const invoke = useUiCommands(actions.map(action => ({ key: `${parent}:${action.id}`, command: {

@@ -643,3 +643,13 @@ Clipboard denial reports a required-input request instead of false success.
 Validation uses mocked local fleet APIs, without real pairing or grant changes.
 Host pairing cancellation and stronger cross-process target identity checks
 remain explicit code gaps; this checkpoint is not full fleet certification.
+
+Fleet grant/removal now use versioned observed-key preconditions, checked under
+the host roster's stable write lock. Updated CLI/server writers serialize and
+atomically replace complete rosters; unreadable rosters cannot become empty
+writes. Focused tests include four real processes writing 40 private-fixture
+entries, stale key refusal without changes, current phone authority, required-key
+HTTP refusal and no client downgrade. This resolves the cooperating-writer
+identity gap noted above; arbitrary noncooperating file editors and legacy
+unscoped callers are outside that precondition contract. Pairing cancellation
+still needs its actual host request/result/cancel implementation.

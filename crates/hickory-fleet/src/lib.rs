@@ -372,6 +372,21 @@ impl Invitation {
 // The fleet
 // ---------------------------------------------------------------------------
 
+#[derive(Debug)]
+pub struct FleetTargetChanged {
+    pub name: String,
+}
+impl std::fmt::Display for FleetTargetChanged {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            formatter,
+            "Fleet target {:?} changed; refresh the roster before changing its grants or removing it",
+            self.name
+        )
+    }
+}
+impl std::error::Error for FleetTargetChanged {}
+
 /// The mutual list of public keys, under the per-user state directory.
 pub struct Fleet {
     path: PathBuf,
@@ -382,6 +397,8 @@ struct FleetFile {
     #[serde(default)]
     machines: Vec<Machine>,
 }
+
+mod store;
 
 impl Fleet {
     pub fn at(dir: &Path) -> Self {
@@ -397,23 +414,14 @@ impl Fleet {
     /// Every machine, by name. An unreadable file is an empty fleet: nothing
     /// is reachable, which is the safe reading.
     pub fn machines(&self) -> Vec<Machine> {
-        std::fs::read_to_string(&self.path)
-            .ok()
-            .and_then(|raw| serde_json::from_str::<FleetFile>(&raw).ok())
-            .map(|f| f.machines)
-            .unwrap_or_default()
+        let Ok(_guard) = store::lock(&self.path, false) else {
+            return Vec::new();
+        };
+        store::load(&self.path).unwrap_or_default()
     }
 
     fn save(&self, machines: Vec<Machine>) -> Result<()> {
-        if let Some(parent) = self.path.parent() {
-            std::fs::create_dir_all(parent)
-                .with_context(|| format!("could not create {}", parent.display()))?;
-        }
-        let body =
-            serde_json::to_string_pretty(&FleetFile { machines }).context("encoding the fleet")?;
-        std::fs::write(&self.path, body)
-            .with_context(|| format!("could not write {}", self.path.display()))?;
-        restrict(&self.path)
+        store::save(&self.path, machines)
     }
 
     /// Add a machine from an invitation.
@@ -421,7 +429,8 @@ impl Fleet {
     /// Re-adding the same key under the same name is idempotent and keeps the
     /// grants already set: pairing twice must not silently re-grant.
     pub fn add(&self, invitation: &Invitation, added: &str) -> Result<Machine> {
-        let mut machines = self.machines();
+        let _guard = store::lock(&self.path, true)?;
+        let mut machines = store::load(&self.path)?;
         if let Some(existing) = machines.iter().find(|m| m.name == invitation.name) {
             if existing.public_key != invitation.public_key {
                 bail!(
@@ -456,7 +465,26 @@ impl Fleet {
     /// Revocation is deleting a public key, and it is complete — no server
     /// holds a session you cannot reach.
     pub fn remove(&self, name: &str) -> Result<bool> {
-        let mut machines = self.machines();
+        self.remove_expected(name, None)
+    }
+
+    pub fn remove_if_key(&self, name: &str, expected_key: &str) -> Result<bool> {
+        self.remove_expected(name, Some(expected_key))
+    }
+
+    fn remove_expected(&self, name: &str, expected_key: Option<&str>) -> Result<bool> {
+        let _guard = store::lock(&self.path, true)?;
+        let mut machines = store::load(&self.path)?;
+        if let Some(expected) = expected_key {
+            anyhow::ensure!(
+                machines
+                    .iter()
+                    .any(|machine| machine.name == name && machine.public_key == expected),
+                FleetTargetChanged {
+                    name: name.to_owned()
+                }
+            );
+        }
         let before = machines.len();
         machines.retain(|m| m.name != name);
         if machines.len() == before {
@@ -468,11 +496,48 @@ impl Fleet {
 
     /// Change one machine's grants.
     pub fn set_grant(&self, name: &str, grant: Grant, on: bool) -> Result<Machine> {
-        let mut machines = self.machines();
+        self.set_grant_expected(name, grant, on, None)
+    }
+
+    pub fn set_grant_if_key(
+        &self,
+        name: &str,
+        grant: Grant,
+        on: bool,
+        expected_key: &str,
+    ) -> Result<Machine> {
+        self.set_grant_expected(name, grant, on, Some(expected_key))
+    }
+
+    fn set_grant_expected(
+        &self,
+        name: &str,
+        grant: Grant,
+        on: bool,
+        expected_key: Option<&str>,
+    ) -> Result<Machine> {
+        let _guard = store::lock(&self.path, true)?;
+        let mut machines = store::load(&self.path)?;
         let machine = machines
             .iter_mut()
             .find(|m| m.name == name)
-            .ok_or_else(|| anyhow::anyhow!("no machine called {name:?} is in this fleet"))?;
+            .ok_or_else(|| {
+                if expected_key.is_some() {
+                    anyhow::Error::new(FleetTargetChanged {
+                        name: name.to_owned(),
+                    })
+                } else {
+                    anyhow::anyhow!("no machine called {name:?} is in this fleet")
+                }
+            })?;
+        if let Some(expected) = expected_key {
+            anyhow::ensure!(
+                machine.public_key == expected,
+                FleetTargetChanged {
+                    name: name.to_owned()
+                }
+            );
+        }
         if grant == Grant::Execute && on && machine.kind == Kind::Phone {
             bail!(
                 "{name} is a phone, and a phone has no executor to grant. It \

@@ -438,6 +438,8 @@ pub struct GrantBody {
     /// `view`, `edit` or `execute`.
     pub grant: String,
     pub on: bool,
+    #[serde(default)]
+    pub expected_key: Option<String>,
 }
 
 /// `PUT /api/fleet/grant` — give or take one verb for one machine.
@@ -445,29 +447,63 @@ pub async fn fleet_grant(Json(body): Json<GrantBody>) -> ApiResult<Json<Value>> 
     let (_, fleet) = fleet_of()?;
     let grant = hickory_fleet::Grant::parse(&body.grant)
         .map_err(|e| ApiError::bad_request(format!("{e:#}")))?;
-    let machine = fleet
-        .set_grant(&body.machine, grant, body.on)
-        // A phone refusing `execute` is not a server error: it is the answer.
-        .map_err(|e| ApiError::unprocessable(format!("{e:#}")))?;
+    let machine = match &body.expected_key {
+        Some(key) => fleet.set_grant_if_key(&body.machine, grant, body.on, key),
+        None => fleet.set_grant(&body.machine, grant, body.on),
+    }
+    .map_err(fleet_change_error)?;
     Ok(Json(json!({ "machine": machine })))
 }
 
 #[derive(Deserialize)]
 pub struct RemoveBody {
     pub machine: String,
+    #[serde(default)]
+    pub expected_key: Option<String>,
 }
 
 /// `POST /api/fleet/remove` — revocation, which is deleting a key.
 pub async fn fleet_remove(Json(body): Json<RemoveBody>) -> ApiResult<Json<Value>> {
     let (_, fleet) = fleet_of()?;
-    let removed = fleet
-        .remove(&body.machine)
-        .map_err(|e| ApiError::internal(format!("{e:#}")))?;
+    let removed = match &body.expected_key {
+        Some(key) => fleet.remove_if_key(&body.machine, key),
+        None => fleet.remove(&body.machine),
+    }
+    .map_err(fleet_change_error)?;
     Ok(Json(json!({
         "removed": removed,
         "note": "Its key is gone from this machine, and that is the whole of \
                  the revocation — no server holds a session you cannot reach.",
     })))
+}
+
+fn fleet_change_error(error: anyhow::Error) -> ApiError {
+    if error
+        .downcast_ref::<hickory_fleet::FleetTargetChanged>()
+        .is_some()
+    {
+        ApiError::conflict(error.to_string())
+    } else {
+        ApiError::unprocessable(format!("{error:#}"))
+    }
+}
+
+pub async fn fleet_grant_scoped(Json(body): Json<GrantBody>) -> ApiResult<Json<Value>> {
+    if body.expected_key.as_ref().is_none_or(|key| key.is_empty()) {
+        return Err(ApiError::bad_request(
+            "Observe a current fleet public key before changing grants",
+        ));
+    }
+    fleet_grant(Json(body)).await
+}
+
+pub async fn fleet_remove_scoped(Json(body): Json<RemoveBody>) -> ApiResult<Json<Value>> {
+    if body.expected_key.as_ref().is_none_or(|key| key.is_empty()) {
+        return Err(ApiError::bad_request(
+            "Observe a current fleet public key before removing a machine",
+        ));
+    }
+    fleet_remove(Json(body)).await
 }
 
 #[derive(Deserialize)]

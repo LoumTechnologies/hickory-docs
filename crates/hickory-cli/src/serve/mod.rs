@@ -830,6 +830,11 @@ pub(crate) fn router(state: LocalState) -> Router {
         .route("/fleet/invite", get(history::fleet_invite))
         .route("/fleet/accept", post(history::fleet_accept))
         .route("/fleet/grant", axum::routing::put(history::fleet_grant))
+        .route(
+            "/v1/fleet/grant",
+            axum::routing::put(history::fleet_grant_scoped),
+        )
+        .route("/v1/fleet/remove", post(history::fleet_remove_scoped))
         .route("/fleet/remove", post(history::fleet_remove))
         // Formulas: the host has already resolved references and worked out
         // the order by the time a backend sees anything. See serve/formula.rs.
