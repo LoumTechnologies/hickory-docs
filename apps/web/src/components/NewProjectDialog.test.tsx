@@ -580,3 +580,61 @@ describe("choosing which scaffolder", () => {
     expect(await screen.findByText("No uv on this machine")).toBeTruthy();
   });
 });
+
+it("shares project fields and starts the exact selected spec as a real terminal job", async () => {
+  const { act } = await import("@testing-library/react");
+  const { UiActions } = await import("../lib/uiActions");
+  const { UiActionContext } = await import("../lib/uiActionBridge");
+  vi.mocked(api.scaffoldTemplates).mockResolvedValue(CATALOG);
+  vi.mocked(api.scaffoldOptions).mockResolvedValue(DETAIL);
+  vi.mocked(api.scaffoldPreview).mockResolvedValue({ output: "agent-project", folder: "/home/nate/notes/agent-project", repository: CATALOG.location,
+    command: "measured preview", message: "measured commit preview" });
+  let complete!: (value: typeof STARTED) => void;
+  vi.mocked(api.scaffoldCreate).mockImplementation(() => new Promise(done => { complete = done; }));
+  const registry = new UiActions({ workspace: "p", window: "w" }, () => true, async () => {});
+  const onStarted = vi.fn(), onClose = vi.fn();
+  render(<UiActionContext.Provider value={registry}><NewProjectDialog onStarted={onStarted} onClose={onClose} /></UiActionContext.Provider>);
+  await screen.findByText("-f, --framework");
+  const actions = () => registry.groups().groups.flatMap(group => registry.observe(group, 64).actions);
+  let id = 0;
+  const run = async (label: string, args = {}) => { let result: unknown; await act(async () => { result = await registry.act(registry.scope,
+    { id: "python:turn", kind: "agent" }, { handle: actions().find(action => action.label === label)!.handle, arguments: args, request_id: String(++id) }); }); return result; };
+  await run("Set new project name", { value: "Agent Project" });
+  expect(screen.getByDisplayValue("agent-project")).toBeTruthy();
+  await run("Set new project option --framework", { value: "net9.0" });
+  await run("Set new project folder name", { value: "custom-folder" });
+  await run("Set new project name", { value: "Renamed Project" });
+  expect(screen.getByDisplayValue("custom-folder")).toBeTruthy();
+  let pending!: ReturnType<typeof registry.act>;
+  await act(async () => { pending = registry.act(registry.scope, { id: "acp:turn", kind: "agent" }, {
+    handle: actions().find(action => action.label === "Create new project")!.handle, arguments: {}, request_id: "create",
+  }); });
+  await waitFor(() => expect(api.scaffoldCreate).toHaveBeenCalledTimes(1));
+  expect(api.scaffoldCreate).toHaveBeenLastCalledWith(expect.objectContaining({ name: "Renamed Project", output: "custom-folder", options: expect.arrayContaining([{ flag: "--framework", value: "net9.0" }]) }));
+  expect(await run("Create new project")).toMatchObject({ status: "disabled" });
+  expect(await run("Close new project dialog")).toMatchObject({ status: "disabled" });
+  fireEvent.change(screen.getByDisplayValue("custom-folder"), { target: { value: "late-edit" } });
+  expect(screen.queryByDisplayValue("late-edit")).toBeNull();
+  let result: unknown;
+  await act(async () => { complete(STARTED); result = await pending; });
+  expect(result).toMatchObject({ status: "result", outcome: { status: "running", job: "term-3", value: { committed: false } } });
+  expect(onStarted).toHaveBeenCalledExactlyOnceWith(STARTED); expect(onClose).toHaveBeenCalledOnce();
+});
+
+it("refuses late template options after selecting a different template", async () => {
+  const { act } = await import("@testing-library/react");
+  vi.mocked(api.scaffoldTemplates).mockResolvedValue(CATALOG);
+  const requests: { template: string; done: (value: ScaffoldTemplateDetail) => void }[] = [];
+  vi.mocked(api.scaffoldOptions).mockImplementation(template => new Promise(done => requests.push({ template, done })));
+  render(<NewProjectDialog onStarted={() => {}} onClose={() => {}} />);
+  await screen.findByRole("option", { name: /Console App/ });
+  await waitFor(() => expect(requests.some(request => request.template === "console")).toBe(true));
+  fireEvent.click(screen.getByRole("option", { name: /ASP.NET Core Web API/ }));
+  expect((screen.getByRole("button", { name: "Create project" }) as HTMLButtonElement).disabled).toBe(true);
+  await waitFor(() => expect(requests.some(request => request.template === "webapi")).toBe(true));
+  await act(async () => { for (const request of requests.filter(request => request.template === "console")) request.done({ ...DETAIL, description: "Late console options" }); });
+  expect(screen.queryByText("Late console options")).toBeNull();
+  const current = requests.filter(request => request.template === "webapi").at(-1)!;
+  await act(async () => current.done({ ...DETAIL, description: "Current Web API options" }));
+  expect(screen.getByText("Current Web API options")).toBeTruthy();
+});

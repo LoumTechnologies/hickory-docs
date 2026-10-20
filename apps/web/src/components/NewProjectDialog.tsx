@@ -1,3 +1,7 @@
+import { useUiCommands, useUiRevision } from "../lib/uiActionBridge";
+import { useUiReading } from "../lib/uiReading";
+import { Field, OptionField } from "./NewProjectFields";
+import { useNewProjectActions, type ProjectField } from "./useNewProjectActions";
 import { ChangePreview } from "./ChangePreview";
 // File → New Project: `dotnet new`, as a form.
 //
@@ -40,8 +44,9 @@ import { ChangePreview } from "./ChangePreview";
 // there and yours to untick. A form that has already made the obvious choice
 // is faster than one that asks, and honest as long as the choice is visible.
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 
+import type { UiOutcome } from "../lib/uiActions";
 import { ApiError, api } from "../api/client";
 import type {
   ScaffoldCatalog,
@@ -50,10 +55,8 @@ import type {
   ScaffoldSpec,
   ScaffoldTemplate,
   ScaffoldTemplateDetail,
-  TemplateOption,
 } from "../api/types";
 import {
-  NO_RESTORE,
   chosenOptions,
   filterTemplates,
   grouped,
@@ -107,6 +110,20 @@ export function NewProjectDialog({ onStarted, onClose }: NewProjectDialogProps) 
   const [missingTool, setMissingTool] = useState<string | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [reload, setReload] = useState(0);
+  const liveToolchain = useRef(toolchain); liveToolchain.current = toolchain;
+  const selectToolchain = (value: string) => {
+    if (value === toolchain || !catalog?.toolchains.some(tool => tool.id === value)) return;
+    setCatalog(null); setToolchain(value);
+  };
+  const statusParent = `project-catalog:${useId()}`;
+  const statusRevision = useUiRevision(() => [toolchain, catalog?.kind, missingTool, loadError, reload]);
+  const invokeCatalog = useUiCommands(loadError ? [{ key: statusParent, command: {
+    parent: statusParent, subject: statusParent, label: "Retry new project template catalog", parameters: {}, prerequisites: [],
+    read: () => ({ revision: statusRevision(), enabled: !!loadError }),
+    execute: async () => { setReload(current => current + 1); return { status: "completed", value: { retry_requested: true } }; },
+  } }] : []);
+  useUiReading("new project catalog status", { toolchain, loading: !catalog && !missingTool && !loadError,
+    missing_tool: missingTool, error: loadError, catalog_kind: catalog?.kind ?? null });
 
   useEffect(() => {
     let live = true;
@@ -115,12 +132,12 @@ export function NewProjectDialog({ onStarted, onClose }: NewProjectDialogProps) 
     api
       .scaffoldTemplates(toolchain ?? undefined)
       .then((c) => {
-        if (!live) return;
+        if (!live || liveToolchain.current !== toolchain) return;
         setCatalog(c);
         setToolchain((current) => current ?? c.kind);
       })
       .catch((e: unknown) => {
-        if (!live) return;
+        if (!live || liveToolchain.current !== toolchain) return;
         const missing =
           e instanceof ApiError &&
           typeof e.body === "object" &&
@@ -145,7 +162,7 @@ export function NewProjectDialog({ onStarted, onClose }: NewProjectDialogProps) 
           <p className="new-project__error">{loadError}</p>
           <p className="insert-menu__hint">Your project has not been created. Retry after addressing the reported problem.</p>
           <div className="insert-menu__actions">
-            <button type="button" className="btn" onClick={() => setReload(n => n + 1)}>Retry reading templates</button>
+            <button type="button" className="btn" onClick={() => void invokeCatalog(statusParent, {}).catch(() => {})}>Retry reading templates</button>
             <button type="button" className="btn" onClick={onClose}>
               Close
             </button>
@@ -171,7 +188,7 @@ export function NewProjectDialog({ onStarted, onClose }: NewProjectDialogProps) 
       key={toolchain ?? catalog.kind}
       catalog={catalog}
       toolchain={toolchain ?? catalog.kind}
-      onToolchain={setToolchain}
+      onToolchain={selectToolchain}
       onStarted={onStarted}
       onClose={onClose}
     />
@@ -183,13 +200,23 @@ function Shell({
   children,
   onClose,
   label,
+  canClose = () => true,
 }: {
   children: React.ReactNode;
   onClose: () => void;
   label: string;
+  canClose?: () => boolean;
 }) {
+  const parent = `project-dialog:${useId()}`;
+  const revision = useUiRevision(() => [label, canClose()]);
+  const close = () => { if (canClose()) onClose(); };
+  const invoke = useUiCommands([{ key: parent, command: { parent, subject: parent, label: "Close new project dialog", parameters: {}, prerequisites: [],
+    read: () => ({ revision: revision(), enabled: canClose(), reason: canClose() ? undefined : "Wait for the scaffold start reply" }),
+    execute: async () => { if (!canClose()) return { status: "unavailable", reason: "Wait for the scaffold start reply" }; close(); return { status: "completed", value: { close_requested: true } }; },
+  } }]);
+  const requestClose = () => void invoke(parent, {}).catch(() => {});
   return (
-    <div className="insert-menu-backdrop" onMouseDown={onClose}>
+    <div className="insert-menu-backdrop" onMouseDown={requestClose}>
       <div
         className="new-project"
         role="dialog"
@@ -198,7 +225,7 @@ function Shell({
         onKeyDown={(event) => {
           if (event.key === "Escape") {
             event.preventDefault();
-            onClose();
+            requestClose();
           }
         }}
       >
@@ -348,7 +375,10 @@ function Chooser({
     catalog.templates.find((t) => t.short_names[0] === chosen) ?? matches[0];
 
   const [language, setLanguage] = useState("");
-  const [detail, setDetail] = useState<ScaffoldTemplateDetail | null>(null);
+  const [capturedDetail, setDetail] = useState<{ value: ScaffoldTemplateDetail; key: string } | null>(null);
+  const detailKey = JSON.stringify([template?.short_names[0], language, toolchain]);
+  const liveDetailKey = useRef(detailKey); liveDetailKey.current = detailKey;
+  const detail = capturedDetail?.key === detailKey ? capturedDetail.value : null;
   const [detailError, setDetailError] = useState<string | null>(null);
   const [values, setValues] = useState<FieldValues>({});
 
@@ -367,12 +397,12 @@ function Chooser({
     api
       .scaffoldOptions(template.short_names[0], language || null, toolchain)
       .then((d) => {
-        if (!live) return;
-        setDetail(d);
+        if (!live || liveDetailKey.current !== detailKey) return;
+        setDetail({ value: d, key: detailKey });
         setValues(initialValues(d.options));
       })
       .catch((e: unknown) => {
-        if (live) setDetailError(e instanceof Error ? e.message : String(e));
+        if (live && liveDetailKey.current === detailKey) setDetailError(e instanceof Error ? e.message : String(e));
       });
     return () => {
       live = false;
@@ -390,6 +420,7 @@ function Chooser({
   const [output, setOutput] = useState("greeter");
   const [outputTouched, setOutputTouched] = useState(false);
   const renameTo = (next: string) => {
+    if (pending.current || pickingRef.current) return;
     setName(next);
     if (!outputTouched) setOutput(slug(next));
   };
@@ -414,6 +445,9 @@ function Chooser({
   const [picking, setPicking] = useState(false);
   const [showProblems, setShowProblems] = useState(false);
   const [busy, setBusy] = useState(false);
+  const pending = useRef(false);
+  const mounted = useRef(true);
+  useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
   const [failure, setFailure] = useState<string | null>(null);
 
   const spec: ScaffoldSpec | null = useMemo(() => {
@@ -454,6 +488,9 @@ function Chooser({
   // typing, including "none of them, and here is the folder a `git init`
   // would run in". That is why the preview route never refuses for want of a
   // repository: a blank pane teaches nothing.
+  const specKey = JSON.stringify(spec);
+  const liveSpec = useRef(specKey); liveSpec.current = specKey;
+  const [previewKey, setPreviewKey] = useState<string | null>(null);
   const [preview, setPreview] = useState<ScaffoldPreview | null>(null);
   useEffect(() => {
     if (!spec) return;
@@ -462,8 +499,8 @@ function Chooser({
       api
         .scaffoldPreview(spec)
         .then((p) => {
-          if (!live) return;
-          setPreview(p);
+          if (!live || liveSpec.current !== specKey) return;
+          setPreview(p); setPreviewKey(specKey);
           // The preview is what knows both answers, because both are about
           // where the project lands and only the server resolves that.
           if (!initTouched) setInitRepository(p.repository === null);
@@ -483,49 +520,85 @@ function Chooser({
   const problems = validate(name, output);
   const blocked = Object.keys(problems).length > 0;
 
-  const submit = useCallback(() => {
-    if (blocked) {
-      setShowProblems(true);
-      return;
-    }
-    if (!spec || busy) return;
-    setBusy(true);
-    setFailure(null);
-    api
-      .scaffoldCreate(spec)
-      .then((started) => {
-        // The scaffolder is running, in a terminal. Handing it over and
-        // closing is the whole point: what happens next is `dotnet`'s own
-        // output, in a tab, not a spinner on a modal.
-        onStarted(started);
-        onClose();
-      })
-      .catch((e: unknown) => {
-        // Including `missing: "repository"`, which is now the answer to
-        // having unticked the checkbox above — the server still refuses by
-        // type, and the sentence it refuses with is the one to show.
-        setFailure(e instanceof Error ? e.message : String(e));
-        setBusy(false);
-      });
-  }, [blocked, spec, busy, onStarted, onClose]);
+  const submit = useCallback(async (signal?: AbortSignal): Promise<UiOutcome> => {
+    if (blocked) { setShowProblems(true); return { status: "unavailable", reason: "Correct the marked project fields" }; }
+    if (!spec || pending.current || signal?.aborted || !mounted.current || liveSpec.current !== JSON.stringify(spec))
+      return { status: "unavailable", reason: "Wait for the current project options or pending request" };
+    pending.current = true; setBusy(true); setFailure(null);
+    try {
+      const started = await api.scaffoldCreate(spec);
+      if (mounted.current) { onStarted(started); onClose(); }
+      return { status: "running", job: started.session.id, value: { started: JSON.parse(JSON.stringify(started)),
+        committed: false, scope: "Actual scaffold terminal; inspect its result and output, not a completed commit" } };
+    } catch (e) {
+      const reason = e instanceof Error ? e.message : String(e);
+      if (mounted.current) setFailure(reason);
+      return { status: "unavailable", reason };
+    } finally { pending.current = false; if (mounted.current) setBusy(false); }
+  }, [blocked, spec, onStarted, onClose]);
+  const chooseOutput = (value: string) => { if (pending.current || pickingRef.current) return; setOutputTouched(true); setOutput(value); };
+  const chooseInit = (value: boolean) => { if (pending.current || pickingRef.current) return; setInitTouched(true); setInitRepository(value); };
+  const chooseOpen = (value: boolean) => { if (pending.current || pickingRef.current) return; setOpenTouched(true); setOpenIt(value); };
+  const pickingRef = useRef(false);
+  const pick = async (): Promise<UiOutcome> => {
+    if (!catalog.can_pick_folder || pickingRef.current || pending.current) return { status: "unavailable", reason: "Native folder picker is unavailable or busy; set the location field directly" };
+    pickingRef.current = true; setPicking(true);
+    const captured = location;
+    try {
+      const chosen = await api.pickFolder(captured);
+      if (!mounted.current) return { status: "unavailable", reason: "Project dialog closed during folder selection" };
+      if (chosen.path) setLocation(current => current === captured ? chosen.path! : current);
+      return { status: "completed", value: { selected_path: chosen.path, cancelled: !chosen.path,
+        scope: "Native chooser response; typed location is the direct equivalent" } };
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : String(error); if (mounted.current) setFailure(reason);
+      return { status: "unavailable", reason };
+    } finally { pickingRef.current = false; if (mounted.current) setPicking(false); }
+  };
+  const text = { type: "string" as const, maxLength: 8192 };
+  const boolean = { type: "boolean" as const };
+  const fields: ProjectField[] = [
+    { id: "query", label: "Search new project templates", schema: text, value: query, set: value => setQuery(value as string) },
+    { id: "name", label: "Set new project name", schema: text, value: name, set: value => renameTo(value as string) },
+    { id: "location", label: "Set new project location", schema: text, value: location, set: value => setLocation(value as string) },
+    { id: "output", label: "Set new project folder name", schema: text, value: output, set: value => chooseOutput(value as string) },
+    { id: "init", label: "Set new project repository creation", schema: boolean, value: initRepository, enabled: !preview?.repository, set: value => chooseInit(value as boolean) },
+    { id: "open", label: "Set new project opening", schema: boolean, value: openIt, set: value => chooseOpen(value as boolean) },
+    { id: "window", label: "Set new project separate window", schema: boolean, value: newWindow, enabled: openIt, set: value => setNewWindow(value as boolean) },
+  ];
+  if (template && template.languages.length > 1) fields.push({ id: "language", label: "Set new project language", schema: { ...text, choices: template.languages }, value: language, set: value => setLanguage(value as string) });
+  if (catalog.toolchains.length > 1) fields.push({ id: "toolchain", label: "Set new project toolchain", schema: { ...text, choices: catalog.toolchains.map(tool => tool.id) }, value: toolchain, set: value => onToolchain(value as string) });
+  for (const option of detail?.options ?? []) fields.push({ id: `option:${option.flag}`, label: `Set new project option ${option.flag}`,
+    schema: option.kind === "bool" ? { ...text, choices: ["true", "false"] } : option.kind === "choice" ? { ...text, choices: ["", ...option.choices.map(choice => choice.value)] } : text,
+    value: values[option.flag] ?? "", set: value => setValues(current => ({ ...current, [option.flag]: value as string })) });
+  const invokeProject = useNewProjectActions({ toolchain, templates: matches, template, language, detail, detail_error: detailError,
+    name, location, output, init_repository: initRepository, open: openIt, new_window: newWindow, values, spec,
+    preview, preview_current: previewKey === specKey, problems, busy, picking, failure },
+    () => mounted.current && !pending.current && !pickingRef.current, fields, [
+      ...matches.map(candidate => ({ id: `template:${candidate.short_names[0]}`, label: `Choose new project template ${candidate.name}`,
+        enabled: () => true, execute: async () => { setChosen(candidate.short_names[0]); return { status: "completed" as const, value: { template_selected: candidate.short_names[0] } }; } })),
+      { id: "create", label: "Create new project", enabled: () => !!detail, execute: async (_args, _actor, signal) => submit(signal) },
+      { id: "pick", label: "Choose new project folder", enabled: () => catalog.can_pick_folder && !pickingRef.current, reason: () => "This build has no available native folder picker; set the location field directly", execute: pick },
+    ]);
 
   const searchRef = useRef<HTMLInputElement>(null);
   useEffect(() => searchRef.current?.focus(), []);
 
   const move = (delta: number) => {
+    if (pending.current || pickingRef.current) return;
     const index = matches.findIndex((m) => m.short_names[0] === chosen);
     const next = matches[Math.min(matches.length - 1, Math.max(0, index + delta))];
     if (next) setChosen(next.short_names[0]);
   };
 
   return (
-    <Shell onClose={busy ? () => {} : onClose} label="New project">
+    <Shell onClose={onClose} canClose={() => !pending.current} label="New project">
       <div
         className="new-project__body"
         onKeyDown={(event) => {
           if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
             event.preventDefault();
-            submit();
+            invokeProject("create");
           }
         }}
       >
@@ -533,7 +606,7 @@ function Chooser({
           <ToolchainPicker
             catalog={catalog}
             chosen={toolchain}
-            onChoose={onToolchain}
+            onChoose={value => { if (!pending.current && !pickingRef.current) onToolchain(value); }}
           />
           <input
             ref={searchRef}
@@ -543,7 +616,7 @@ function Chooser({
             hidden={catalog.templates.length < 2}
             value={query}
             aria-label="Find a template"
-            onChange={(event) => setQuery(event.target.value)}
+            onChange={(event) => { if (!pending.current && !pickingRef.current) setQuery(event.target.value); }}
             onKeyDown={(event) => {
               if (event.key === "ArrowDown") {
                 event.preventDefault();
@@ -576,8 +649,8 @@ function Chooser({
                     className={`insert-menu__item${
                       candidate.short_names[0] === template?.short_names[0] ? " on" : ""
                     }`}
-                    onClick={() => setChosen(candidate.short_names[0])}
-                    onDoubleClick={submit}
+                    onClick={() => { if (!pending.current && !pickingRef.current) setChosen(candidate.short_names[0]); }}
+                    onDoubleClick={() => invokeProject("create")}
                   >
                     <span className="insert-menu__item-title">{candidate.name}</span>
                     <span className="insert-menu__item-tag mono">
@@ -640,7 +713,7 @@ function Chooser({
                     spellCheck={false}
                     autoComplete="off"
                     aria-label="Location"
-                    onChange={(event) => setLocation(event.target.value)}
+                    onChange={(event) => { if (!pending.current && !pickingRef.current) setLocation(event.target.value); }}
                   />
                   {/* Drawn only where there is something on the other end of
                       it: a browser tab served by `hick up` has no native
@@ -653,20 +726,7 @@ function Chooser({
                       aria-label="Choose a folder"
                       data-tip="Choose a folder"
                       disabled={picking}
-                      onClick={() => {
-                        setPicking(true);
-                        api
-                          .pickFolder(location)
-                          .then((chosen) => {
-                            // Cancelling is an answer: the field keeps what
-                            // it had, and nothing is said about it.
-                            if (chosen.path) setLocation(chosen.path);
-                          })
-                          .catch((e: unknown) =>
-                            setFailure(e instanceof Error ? e.message : String(e)),
-                          )
-                          .finally(() => setPicking(false));
-                      }}
+                      onClick={() => invokeProject("pick")}
                     >
                       …
                     </button>
@@ -680,8 +740,7 @@ function Chooser({
                   checked={initRepository}
                   disabled={Boolean(preview?.repository)}
                   onChange={(event) => {
-                    setInitTouched(true);
-                    setInitRepository(event.target.checked);
+                    chooseInit(event.target.checked);
                   }}
                 />
                 <span>
@@ -712,8 +771,7 @@ function Chooser({
                   value={output}
                   spellCheck={false}
                   onChange={(event) => {
-                    setOutputTouched(true);
-                    setOutput(event.target.value);
+                    chooseOutput(event.target.value);
                   }}
                 />
                 <p className="insert-menu__hint mono new-project__resolved">
@@ -730,7 +788,7 @@ function Chooser({
                   <select
                     className="insert-menu__input"
                     value={language}
-                    onChange={(event) => setLanguage(event.target.value)}
+                    onChange={(event) => { if (!pending.current && !pickingRef.current) setLanguage(event.target.value); }}
                   >
                     {template.languages.map((l) => (
                       <option key={l} value={l}>
@@ -746,8 +804,7 @@ function Chooser({
                   type="checkbox"
                   checked={openIt}
                   onChange={(event) => {
-                    setOpenTouched(true);
-                    setOpenIt(event.target.checked);
+                    chooseOpen(event.target.checked);
                   }}
                 />
                 <span>
@@ -763,7 +820,7 @@ function Chooser({
                   type="checkbox"
                   checked={newWindow}
                   disabled={!openIt}
-                  onChange={(event) => setNewWindow(event.target.checked)}
+                  onChange={(event) => { if (!pending.current && !pickingRef.current) setNewWindow(event.target.checked); }}
                 />
                 <span>
                   in a new window
@@ -789,15 +846,16 @@ function Chooser({
                   key={option.flag}
                   option={option}
                   value={values[option.flag] ?? ""}
-                  onChange={(next) =>
-                    setValues((current) => ({ ...current, [option.flag]: next }))
-                  }
+                  onChange={(next) => {
+                    if (!pending.current && !pickingRef.current) setValues(current => ({ ...current, [option.flag]: next }));
+                  }}
                 />
               ))}
             </div>
           </div>
 
           <ChangePreview heading="The commit this makes">
+            {preview && previewKey !== specKey && <p role="status">Preview from earlier form values; current preview is pending.</p>}
             <pre className="insert-menu__preview-text mono">
               {preview?.message ?? "…"}
             </pre>
@@ -845,13 +903,13 @@ function Chooser({
             <span className="insert-menu__shortcut">
               {navigator.platform.startsWith("Mac") ? "⌘" : "Ctrl"}+Enter
             </span>
-            <button type="button" className="btn" onClick={onClose} disabled={busy}>
+            <button type="button" className="btn" onClick={() => { if (!pending.current) onClose(); }} disabled={busy}>
               Cancel
             </button>
             <button
               type="button"
               className="btn btn-primary"
-              onClick={submit}
+              onClick={() => invokeProject("create")}
               disabled={busy || !detail}
               data-tip={blocked ? "Fill the fields marked below first" : undefined}
             >
@@ -863,106 +921,4 @@ function Chooser({
     </Shell>
   );
 }
-
-function Field({
-  label,
-  attr,
-  hint,
-  problem,
-  children,
-}: {
-  label: string;
-  attr: string;
-  hint: string;
-  problem?: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <div className="insert-menu__field">
-      <label className="insert-menu__label">
-        {label}
-        <span className="mono insert-menu__attr">{attr}</span>
-      </label>
-      {children}
-      <p className="insert-menu__hint">{hint}</p>
-      {problem && (
-        <p className="insert-menu__problem" role="alert">
-          {problem}
-        </p>
-      )}
-    </div>
-  );
-}
-
-/** One of the template's own options. */
-function OptionField({
-  option,
-  value,
-  onChange,
-}: {
-  option: TemplateOption;
-  value: string;
-  onChange: (next: string) => void;
-}) {
-  const hint =
-    option.flag === NO_RESTORE
-      ? "On by default here, unlike dotnet's: a restore is a build step, and what it writes into obj/ is not something a document should own."
-      : option.description;
-  return (
-    <div className="insert-menu__field">
-      <label className="insert-menu__label">
-        {option.names.join(", ")}
-        {option.default !== null && (
-          <span className="mono insert-menu__attr">default {option.default}</span>
-        )}
-      </label>
-      {option.kind === "bool" ? (
-        <label className="new-project__check">
-          <input
-            type="checkbox"
-            checked={(value || "false").toLowerCase() === "true"}
-            onChange={(event) => onChange(event.target.checked ? "true" : "false")}
-          />
-          {option.description}
-        </label>
-      ) : option.kind === "choice" ? (
-        <select
-          className="insert-menu__input"
-          value={value}
-          onChange={(event) => onChange(event.target.value)}
-        >
-          {/* A choice may be left alone: no flag is written, and `dotnet`
-              decides. Not the same as picking the value that happens to be
-              the default today. */}
-          <option value="">(leave to dotnet)</option>
-          {option.choices.map((choice) => (
-            <option key={choice.value} value={choice.value}>
-              {choice.description
-                ? `${choice.value} — ${choice.description}`
-                : choice.value}
-            </option>
-          ))}
-        </select>
-      ) : (
-        <input
-          className="insert-menu__input"
-          value={value}
-          spellCheck={false}
-          placeholder={option.default ?? ""}
-          onChange={(event) => onChange(event.target.value)}
-        />
-      )}
-      {option.kind !== "bool" && <p className="insert-menu__hint">{hint}</p>}
-      {option.kind === "bool" && option.flag === NO_RESTORE && (
-        <p className="insert-menu__hint">{hint}</p>
-      )}
-      {option.enabled_if && (
-        <p className="insert-menu__hint">
-          Applies when <span className="mono">{option.enabled_if}</span>.
-        </p>
-      )}
-    </div>
-  );
-}
-
 

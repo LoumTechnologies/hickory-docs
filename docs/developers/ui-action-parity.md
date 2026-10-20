@@ -594,3 +594,13 @@ navigation use shared handlers and report actual replies/navigation requests.
 Focused tests cover disclosure/retirement, lazy network boundaries, stale responses,
 draft retention, notification replies, native/agent link dispatch and unsafe-link
 refusal. Host/provider replies remain mocked; no live check logs were monitored.
+
+### New Project checkpoint (2026-10-20)
+
+Measured templates/options and current form/preview have explicit reading and
+typed shared field/selection commands. Create returns the actual scaffold terminal
+as running, without asserting its eventual commit. Pending start excludes repeat
+submission, edits and close; template/language/toolchain and preview responses bind
+their originating inputs. Native folder picking uses the same handler and actual
+response; builds without it expose typed location entry and a disabled reason.
+Focused tests use mocked toolchain/chooser replies, not native/provider witnesses.

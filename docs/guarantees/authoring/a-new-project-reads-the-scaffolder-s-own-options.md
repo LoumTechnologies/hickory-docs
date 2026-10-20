@@ -81,3 +81,31 @@ Last LLM verification:
   but the parse is bound to a layout Microsoft may change. A future SDK that
   laid help out differently would show wrong fields rather than fail loudly;
   the preview pane is what makes that visible before anything is written.
+
+## Shared project form and source-bound replies (2026-10-20)
+
+The project form exposes paged reading of the measured catalog/templates/options,
+current fields, validation, exact specification and preview. Typed commands use
+the same setters for name/folder-following behavior, location, language, toolchain,
+options, repository creation and opening/window choices. Create and the native
+folder chooser share their actual request handlers. A build without a picker
+reports that boundary and exposes typed location entry as its direct equivalent.
+Catalog failures have a retry command; dialog dismissal preserves the pending
+scaffold-start boundary.
+
+Options bind template, language and toolchain; late replies cannot configure a
+new selection. Preview replies bind their requested specification, and an earlier
+preview is labelled while a current one is pending. Switching toolchains clears
+the old catalog/form instead of combining new tooling with old options. A pending
+start immediately excludes another start, edits and dismissal. Its successful
+receipt returns the actual running scaffold terminal/session and explicitly does
+not assert a completed scaffold commit. Terminal completion remains the existing
+scaffold result and terminal workflow. Closing during native folder selection
+refuses late adoption; chooser cancellation retains the location.
+
+Focused validation: `NewProjectDialog.test.tsx` tests mixed native/agent field
+semantics and exact started specification, actual terminal job identity from the
+mocked host, pending duplicate/close/edit exclusion, stale option responses, and
+existing native chooser/toolchain/start cases. Strict focused TypeScript,
+inventory, file-length and diff checks passed. These use mocked host responses;
+they do not witness a real toolchain scaffold, native OS chooser or provider run.
