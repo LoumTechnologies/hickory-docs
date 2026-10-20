@@ -1,3 +1,5 @@
+import { editorLanguageActions } from "../editor/languageActions";
+import type { UiOutcome } from "../lib/uiActions";
 import { cmKeyOf } from "../lib/keymap";
 // CodeMirror bindings for the LSP bridge: hover, go-to-definition, find
 // references, and diagnostics.
@@ -193,38 +195,74 @@ export function lspSupport(opts: CmLspOptions): Extension[] {
     offset: number,
     view: EditorView,
     what: "definition" | "references",
-  ): Promise<void> => {
+    signal?: AbortSignal,
+  ): Promise<UiOutcome> => {
+    const original = view.state.doc;
     const location = target(offset, view);
-    if (!location) return;
+    if (!location) return { status: "unavailable", reason: "Position has no mapped language source" };
     const {uri,position} = location;
     const from: LspNavigationTarget = { uri, range: { start: position, end: position } };
-    if (what === "definition") {
-      const locations = await client.definition(uri, position).catch(() => []);
-      if (locations.length > 0) onNavigate(locations[0]);
-      return;
-    }
-    const locations = await client.references(uri, position).catch(() => []);
-    onReferences?.(locations, from);
+    try {
+      const locations = await (what === "definition" ? client.definition(uri, position) : client.references(uri, position));
+      if (signal?.aborted || view.state.doc !== original || !view.dom.isConnected) return { status: "unavailable", reason: "Navigation source changed, editor closed or request cancelled" };
+      if (what === "definition" && locations.length) onNavigate(locations[0]);
+      if (what === "references") onReferences?.(locations, from);
+      return { status: "completed", value: { kind: what, total: locations.length, navigation_requested: what === "definition" && locations.length > 0, references_requested: what === "references" && !!onReferences, scope: "Actual language-provider response and shared navigation callback; navigation is not an execution witness" } };
+    } catch (e) { return { status: "unavailable", reason: e instanceof Error ? e.message : String(e) }; }
+  };
+  let hoverSnapshot: { source: Text; id: string; bytes: Uint8Array } | undefined;
+  const hoverAt = async (view: EditorView, pos: number) => {
+    const original = view.state.doc;
+    const problems = diagnosticsAt(view.state, pos);
+    const location = target(pos, view);
+    const identifier = identifierAt(original.toString(), pos);
+    const [result, value] = await Promise.all([
+      location ? client.hover(location.uri, location.position).catch(() => null) : Promise.resolve(null),
+      identifier && runtimeValue ? runtimeValue(identifier).catch(() => null) : Promise.resolve(null),
+    ]);
+    if (view.state.doc !== original || !view.dom.isConnected) return null;
+    const found = { problems, identifier, value, text: hoverText(result?.contents) };
+    hoverSnapshot = { source: original, id: crypto.randomUUID(), bytes: new TextEncoder().encode(JSON.stringify(found)) };
+    return { ...found, snapshot: hoverSnapshot };
   };
 
   return [
     lspDiagnosticField,
+    ...(["definition", "references"] as const).map(what => editorLanguageActions.of({
+      id: `${uri}:${what}`, label: `${what === "definition" ? "Go to definition" : "Find references"} at editor cursor (${uri.slice(0, 200)})`, parameters: {},
+      enabled: view => !!target(view.state.selection.main.head, view),
+      execute: (view, _args, signal) => requestAt(view.state.selection.main.head, view, what, signal),
+    })),
+    editorLanguageActions.of({
+      id: `${uri}:hover`, label: `Inspect editor hover (${uri.slice(0, 200)})`,
+      parameters: { position: { type: "number", minimum: 0, maximum: 100000000, integer: true } },
+      enabled: () => true,
+      execute: async (view, args, signal) => {
+        const pos = args.position as number;
+        if (pos > view.state.doc.length) return { status: "unavailable", reason: "Hover position outside current editor source" };
+        const found = await hoverAt(view, pos);
+        if (!found || signal.aborted || found.snapshot.source !== view.state.doc) return { status: "unavailable", reason: "Hover source changed, editor closed or request cancelled" };
+        return { status: "completed", value: { snapshot: found.snapshot.id, total_bytes: found.snapshot.bytes.length, scope: "Read captured diagnostic, language hover and debugger identifier value through Read editor hover snapshot bytes" } };
+      },
+    }),
+    editorLanguageActions.of({
+      id: `${uri}:hover-read`, label: `Read editor hover snapshot bytes (${uri.slice(0, 200)})`,
+      parameters: { snapshot: { type: "string", maxLength: 128 }, offset: { type: "number", minimum: 0, maximum: 1000000000, integer: true }, limit: { type: "number", minimum: 1, maximum: 8192, integer: true } },
+      revision: () => hoverSnapshot?.id,
+      enabled: view => !!hoverSnapshot && hoverSnapshot.source === view.state.doc,
+      execute: async (view, args) => {
+        const snapshot = hoverSnapshot;
+        if (!snapshot || snapshot.id !== args.snapshot || snapshot.source !== view.state.doc) return { status: "unavailable", reason: "Hover snapshot changed; inspect the current hover again" };
+        const { bytes } = snapshot;
+        const offset = args.offset as number, end = Math.min(offset + (args.limit as number), bytes.length);
+        if (offset > bytes.length) return { status: "unavailable", reason: "Offset outside captured hover response" };
+        return { status: "completed", value: { snapshot: snapshot.id, bytes: Array.from(bytes.slice(offset, end)), encoding: "JSON UTF-8", offset, total_bytes: bytes.length, next_offset: end < bytes.length ? end : null, scope: "Immutable human-handler hover capture; runtime value is captured evidence, not a current execution verdict" } };
+      },
+    }),
     hoverTooltip(async (view, pos): Promise<Tooltip | null> => {
-      // The diagnostic comes FIRST, and comes from local state rather than a
-      // request: if you are pointing at a squiggle, the thing you want is the
-      // reason for the squiggle. Hover info is what a symbol IS; a diagnostic
-      // is what is wrong with it, and an underline that cannot tell you which
-      // is only half a report.
-      const problems = diagnosticsAt(view.state, pos);
-      const location = target(pos, view);
-      // Asked in parallel: a hover that waits for the language server and
-      // then the debugger takes twice as long to say one thing.
-      const identifier = identifierAt(view.state.doc.toString(), pos);
-      const [result, value] = await Promise.all([
-        location ? client.hover(location.uri, location.position).catch(() => null) : Promise.resolve(null),
-        identifier && runtimeValue ? runtimeValue(identifier).catch(() => null) : Promise.resolve(null),
-      ]);
-      const text = hoverText(result?.contents);
+      const found = await hoverAt(view, pos);
+      if (!found) return null;
+      const { problems, identifier, value, text } = found;
       if (problems.length === 0 && !text.trim() && !value) return null;
 
       return {

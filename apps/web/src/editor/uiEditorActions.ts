@@ -1,3 +1,4 @@
+import { useEditorLanguageActions } from "./useEditorLanguageActions";
 import { EditorSelection, EditorState } from "@codemirror/state";
 import { useId } from "react";
 import { foldAll, foldCode, foldedRanges, unfoldAll, unfoldCode } from "@codemirror/language";
@@ -9,6 +10,7 @@ function identity(state: object) { let id = identities.get(state); if (!id) { id
 
 /** Source and editor state are explicitly paged; scrolling never reads them. */
 export function useEditorActions(view: EditorView | null, subject: string) {
+  useEditorLanguageActions(view, subject);
   const instance = useId(); const parent = `editor:${subject}:${instance}`;
   const commands: { key: string; command: UiCommand }[] = [];
   const number = { type: "number" as const, minimum: 0, maximum: 100_000_000, integer: true };
