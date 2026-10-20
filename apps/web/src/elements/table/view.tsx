@@ -1,3 +1,5 @@
+import { markdownTableBlocks } from "../../editor/markdownTables";
+import { structureOf } from "../../editor/wysiwyg";
 import { replaceTable } from "../../editor/tableEdit";
 import { MarkdownTable } from "../../components/MarkdownTable";
 import { Engaged } from "../../components/Engaged";
@@ -12,6 +14,11 @@ export const tableView: ElementView = {
   render(slot, cx) {
     // Named by the table's own `path` where it has one, so the size
     // survives prose being written above it — see `tableKey`.
+    const document = cx.view?.state.doc;
+    const structure = cx.view ? structureOf(cx.view.state) : null;
+    const block = structure && document ? structure.blocks.find(b => b.from === slot.at) ?? markdownTableBlocks(structure, document.toString()).find(b => b.from === slot.at) : null;
+    const anchored = !!block && cx.view?.state.doc.sliceString(block.contentFrom, block.contentTo) === slot.text;
+    const sourceCurrent = () => anchored && !!cx.view?.dom.isConnected && !cx.view.state.readOnly && cx.view.state.doc === document;
     const Panel = slot.table?.format === "markdown" ? MarkdownTable : TablePanel;
     const key = tableKey(cx.path, slot.index, slot.table?.path);
     return (
@@ -20,6 +27,8 @@ export const tableView: ElementView = {
       // scrolling (styles.css hides the internal overflow until then).
       <Engaged className="rendered-table rendered-table--laned">
         <Panel
+          sourceCurrent={sourceCurrent}
+          sourceIdentity={`${cx.path ?? "unnamed document"}#table:${slot.index}@${slot.at}`}
           laneRight
           layout={cx.tableLayouts?.[key]}
           onLayout={(size) => cx.onTableLayout?.(key, size)}
@@ -32,8 +41,8 @@ export const tableView: ElementView = {
           // The document stays the source of truth — there is no second
           // copy of the table anywhere — which is what keeps the file a
           // file somebody reviews in a diff.
-          onChange={(csv, formats = "") => slot.table?.format === "markdown"
-            ? cx.replaceBlockContent(slot, csv) : replaceTable(slot, cx, csv, formats)}
+          onChange={cx.view && !cx.view.state.readOnly ? (csv, formats = "", actor) => slot.table?.format === "markdown"
+            ? cx.replaceBlockContent(slot, csv, actor?.kind === "agent" ? "input.uiAgentTable" : "input.table") : replaceTable(slot, cx, csv, formats, actor?.kind === "agent") : undefined}
         />
       </Engaged>
     );

@@ -422,3 +422,16 @@ into the handler and uses an explicit agent UI transaction event; receipts do no
 turn that event into human approval, verification or commit authorship. The native
 entry points use the document-editor target registry rather than a later arbitrary
 focused file/generated buffer. Each reopened form gets a new request identity.
+
+Core editable tables now expose bounded controller/cell-region reads, cell writes,
+selection/ranges/rows/columns, pending-edit commit/cancel, add row/column, actual
+context-menu disclosure/actions, fill, formula/debugger/size disclosure, prose wrap
+and row/column sizing/fitting through the existing controllers. Structural actions
+require pending draft commit/cancel first. Authored CSV and Markdown table adapters
+bind their owning editor, original document and block bytes; stale/readonly/closed
+writes are refused before invoking the source callback. Agent actor is forwarded
+through CSV/Markdown writes and recorded in the UI transaction event. Source UI
+writes are not independent proposal approval, commit authorship or verification.
+Formula computation reports pending/current/failed separately from editable scope.
+Nested number-format, size-form and formula-step controls are the next slice;
+remaining clipboard/formula-pointing/drag/scroll details still need parity review.

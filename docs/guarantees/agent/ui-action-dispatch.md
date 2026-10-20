@@ -488,3 +488,30 @@ focus changes during formatting, real acknowledgement false, chooser/print
 policy, empty saves, source changes without rerender and shared human/agent
 routing. Native dialogs, printing, full app menus and external filesystem races
 remain unwitnessed.
+
+### Core editable table controls — 2026-10-19
+
+Tables now register current controller reads and explicitly requested cell regions
+(maximum 64 by 64 cells, then JSON UTF-8 pages capped at 8192 bytes), shared cell
+commit, selection/ranges/rows/columns, structural/menu/fill and layout/disclosure
+commands. Reads distinguish raw/displayed values, calculation pending/current/
+failed and owning writable-scope currency. Discovery revisions keep cell/source
+bytes opaque. Structural commands require pending edit commit/cancel first.
+
+Authored CSV and Markdown adapters bind block bytes and their actual immutable
+CodeMirror document. Writes reject a changed/closed/readonly owner even before
+React rerenders. Source identity is disclosed explicitly. Agent actor travels
+through the source callback and its UI transaction name; these are recorded
+agent operations, not human approval or verified correctness. Independent host
+operations retain local UI permissions; no model code receives direct filesystem
+access. Layout dispatch/measurement is not an acknowledged persistence result.
+Nested formula/format/resize and remaining gestures are not certified by this slice.
+
+Executed focused checks: 13 selected TablePanel/MarkdownTable/new adapter cases
+passed; new adapter cases rerun after metadata correction (2 passed), then a third
+real-CodeMirror CSV write case passed with the two earlier cases. Strict targeted
+checking passed after removing an unused test import. Coverage includes real
+CSV write-through, Markdown callback/actor routing, stale owner before rerender,
+cell write/fill/menu, existing CSV normalization and formula result/failure cases.
+These checks do not witness native pointer geometry, a real formula interpreter,
+provider behavior or whole-table UI parity.

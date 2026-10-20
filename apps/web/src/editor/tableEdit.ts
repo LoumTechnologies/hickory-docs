@@ -3,7 +3,7 @@ import type { SlotContext } from "../elements/types";
 import { structureOf } from "./wysiwyg";
 
 /** Commit data and presentation together, so undo cannot separate them. */
-export function replaceTable(slot: RenderedSlot, cx: SlotContext, csv: string, formats: string): void {
+export function replaceTable(slot: RenderedSlot, cx: SlotContext, csv: string, formats: string, agent = false): void {
   const view = cx.view;
   if (!view) return;
   const block = structureOf(view.state).blocks.find(b => b.from === slot.at && b.name === "table");
@@ -17,5 +17,5 @@ export function replaceTable(slot: RenderedSlot, cx: SlotContext, csv: string, f
   view.dispatch({ changes: [
     { from: block.from, to: block.contentFrom, insert: next },
     { from: block.contentFrom, to: block.contentTo, insert: body },
-  ], userEvent: "input.table" });
+  ], userEvent: agent ? "input.uiAgentTable" : "input.table" });
 }

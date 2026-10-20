@@ -1,5 +1,8 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 
+import { useUiCommands, useUiRevision } from "../lib/uiActionBridge";
+import type { UiActor, UiCommand, UiOutcome } from "../lib/uiActions";
+import { fillExtent, fillTable } from "../lib/tableFill";
 import { currencyInput, displayNumber, readFormats, writeFormats } from "../lib/tableFormats";
 import { TableFormatControl } from "./TableFormatControl";
 import { TableFillHandle } from "./TableFillHandle";
@@ -93,7 +96,10 @@ export interface TablePanelProps {
   delimiter?: string;
   /** The new CSV text after an edit. Absent means read-only — a generated
    * table has a document behind it, and editing the output is not the way. */
-  onChange?: (csv: string, formats?: string) => void;
+  onChange?: (csv: string, formats?: string, actor?: UiActor) => void;
+  /** Live owning-editor guard; a view refresh alone cannot authorize a stale source write. */
+  sourceCurrent?: () => boolean;
+  sourceIdentity?: string;
   /** Present only when the document can persist number formats. */
   formats?: string;
   /** The language this table's formulas are written in. Absent means the
@@ -171,6 +177,8 @@ export function TablePanel({
   header = true,
   delimiter,
   onChange,
+  sourceCurrent,
+  sourceIdentity,
   formats,
   language,
   layout,
@@ -181,6 +189,9 @@ export function TablePanel({
   // Parsed from the source on every render rather than held as state: the
   // document is the truth, and a second copy here would drift the moment
   // somebody edited the CSV as text instead.
+  const parent = `table:${useId()}`;
+  const [operationError, setOperationError] = useState("");
+  const sourceIsCurrent = () => sourceCurrent?.() ?? true;
   const table: Csv = { ...parseCsv(source, delimiter), formats: readFormats(formats) };
   const width = Math.max(1, columnCount(table));
   const height = Math.max(1, table.rows.length);
@@ -193,6 +204,7 @@ export function TablePanel({
   const [computed, setComputed] = useState<{
     values: Record<string, string>;
     errors: Record<string, string>;
+    source?: string; language?: string; status?: "ok" | "failed";
   }>({ values: {}, errors: {} });
   const [formulaNote, setFormulaNote] = useState<string | null>(null);
 
@@ -212,14 +224,14 @@ export function TablePanel({
       api.evaluateFormulas(language, table.rows).then(
         (answer) => {
           if (!live) return;
-          setComputed(answer);
+          setComputed({ ...answer, source, language, status: "ok" });
           setFormulaNote(null);
         },
         (error: unknown) => {
           if (!live) return;
           // A missing interpreter is the common case and not a fault: the
           // table still renders and still edits, it just does not compute.
-          setComputed({ values: {}, errors: {} });
+          setComputed({ values: {}, errors: {}, source, language, status: "failed" });
           setFormulaNote(
             error instanceof Error ? error.message : String(error),
           );
@@ -329,7 +341,8 @@ export function TablePanel({
   }, []);
 
   const apply = useCallback(
-    (next: Csv, inferFormat = true) => {
+    (next: Csv, inferFormat = true, actor?: UiActor): boolean => {
+      if (!sourceIsCurrent()) { setOperationError("Table source changed or closed. Reopen its current rendering before editing."); return false; }
       if (formats !== undefined) {
         const detected = { ...next.formats };
         const rows = next.rows.map((row, r) => row.map((raw, c) => {
@@ -346,11 +359,13 @@ export function TablePanel({
       // lands in the undo history, which is how pressing Delete on already
       // empty cells ends up as a commit somebody has to explain.
       if (text !== source || (formats !== undefined && nextFormats !== formats)) {
-        if (formats === undefined) onChange?.(text);
+        if (actor) onChange?.(text, formats === undefined ? undefined : nextFormats, actor);
+        else if (formats === undefined) onChange?.(text);
         else onChange?.(text, nextFormats);
       }
+      return true;
     },
-    [onChange, source, formats],
+    [onChange, source, formats, sourceCurrent],
   );
 
   const fill = useTableFill({ table, selection, revision: `${source}\0${formats ?? ""}`, language, gridRef,
@@ -368,9 +383,9 @@ export function TablePanel({
 
   /** Write the draft into the cell it belongs to, if it changed anything. */
   const commit = useCallback(
-    (at: CellAt, value: string) => {
-      if (cellAt(table, at.row, at.column) === value) return;
-      apply(withCell(table, at.row, at.column, value));
+    (at: CellAt, value: string, actor?: UiActor) => {
+      if (cellAt(table, at.row, at.column) === value) return true;
+      return apply(withCell(table, at.row, at.column, value), true, actor);
     },
     [apply, table],
   );
@@ -860,7 +875,7 @@ export function TablePanel({
   };
 
   /** Run what the menu was clicked for, against the current selection. */
-  const runMenu = (action: string) => {
+  const runMenu = (action: string, actor?: UiActor) => {
     setMenu(null);
     if (!selection) return;
     const rows = rowsIn(selection);
@@ -868,33 +883,33 @@ export function TablePanel({
     stopEditing();
     switch (action) {
       case "insert-rows-above":
-        apply(times(table, rows.length, (t) => insertTableRow(t, rows[0])));
+        apply(times(table, rows.length, (t) => insertTableRow(t, rows[0])), true, actor);
         break;
       case "insert-rows-below":
         apply(
           times(table, rows.length, (t) =>
             insertTableRow(t, rows[rows.length - 1] + 1),
-          ),
+          ), true, actor,
         );
         break;
       case "insert-columns-left":
         apply(
-          times(table, columns.length, (t) => insertTableColumn(t, columns[0])),
+          times(table, columns.length, (t) => insertTableColumn(t, columns[0])), true, actor,
         );
         break;
       case "insert-columns-right":
         apply(
           times(table, columns.length, (t) =>
             insertTableColumn(t, columns[columns.length - 1] + 1),
-          ),
+          ), true, actor,
         );
         break;
       case "delete-rows":
-        apply(removeRows(table, rows));
+        apply(removeRows(table, rows), true, actor);
         setSelection(null);
         break;
       case "delete-columns":
-        apply(removeColumns(table, columns));
+        apply(removeColumns(table, columns), true, actor);
         setSelection(null);
         break;
     }
@@ -915,6 +930,66 @@ export function TablePanel({
     [],
   );
 
+  const computation = !language || !hasFormulas ? "not_applicable" : computed.source === source && computed.language === language ? computed.status ?? "pending" : "pending";
+  const revision = useUiRevision(() => [sourceIdentity, source, formats, language, header, selection, editing, draft, computed, showFormulas, debugging, stepping, sizing, menu, size, fitProse, sourceIsCurrent(), operationError]);
+  const commands: { key: string; command: UiCommand }[] = [];
+  const index = { type: "number" as const, minimum: 0, maximum: 1000000, integer: true };
+  const add = (key: string, label: string, parameters: UiCommand["parameters"], enabled: boolean, execute: UiCommand["execute"], mutates = false) => commands.push({ key: `${parent}:${key}`, command: { label, parent, subject: parent, parameters, prerequisites: [], read: () => ({ revision: revision(), enabled: enabled && (!mutates || sourceIsCurrent()), reason: !sourceIsCurrent() ? "Owning source changed, closed or became read-only" : !enabled ? "Select a valid target and commit/cancel any current edit first" : undefined }), execute } });
+  const written = (ok: boolean, actor: UiActor): UiOutcome => ok ? { status: "completed", value: { source_write: "handler dispatched; inspect actual source", actor, saved: "not established", verification: "not requested" } } : { status: "unavailable", reason: "The owning table refused a stale source write" };
+  add("read", "Read table controller state bytes", { offset: { ...index, maximum: 1000000000 }, limit: { ...index, minimum: 1, maximum: 8192 } }, true, async args => {
+    const bytes = new TextEncoder().encode(JSON.stringify({ source_identity: sourceIdentity ?? null, rows: height, columns: width, header, editable, selection, editing, draft: editing ? draft : null, show_formulas: showFormulas, formula_note: formulaNote, computation, debugging, stepping, sizing, menu_open: !!menu, layout: size, fit_prose: fitProse, write_scope_current: sourceIsCurrent(), error: operationError, scope: "Local table controller state; formula values and dispatched writes are not independent verification" }));
+    const offset = args.offset as number, end = Math.min(offset + (args.limit as number), bytes.length);
+    if (offset > bytes.length) return { status: "unavailable", reason: "Offset outside table state" };
+    return { status: "completed", value: { bytes: Array.from(bytes.slice(offset, end)), encoding: "JSON UTF-8", offset, total_bytes: bytes.length, next_offset: end < bytes.length ? end : null } };
+  });
+  add("cells", "Read table cell region bytes", { row: index, column: index, rows: { ...index, minimum: 1, maximum: 64 }, columns: { ...index, minimum: 1, maximum: 64 }, offset: { ...index, maximum: 1000000000 }, limit: { ...index, minimum: 1, maximum: 8192 } }, true, async args => {
+    const row = args.row as number, column = args.column as number;
+    if (row >= height || column >= width) return { status: "unavailable", reason: "Region begins outside the observed table" };
+    const cells = [];
+    for (let r = row; r < Math.min(height, row + (args.rows as number)); r++) for (let c = column; c < Math.min(width, column + (args.columns as number)); c++) cells.push({ row: r, column: c, label: cellLabel(c, r), raw: cellAt(table, r, c), displayed: shownAt(r, c), error: computed.errors[cellLabel(c, r)] ?? null });
+    const bytes = new TextEncoder().encode(JSON.stringify({ cells, total_rows: height, total_columns: width, write_scope_current: sourceIsCurrent(), computation, scope: "Zero-based coordinates; explicit current region only; not a document edit baseline" }));
+    const offset = args.offset as number, end = Math.min(offset + (args.limit as number), bytes.length);
+    if (offset > bytes.length) return { status: "unavailable", reason: "Offset outside table region" };
+    return { status: "completed", value: { bytes: Array.from(bytes.slice(offset, end)), encoding: "JSON UTF-8", offset, total_bytes: bytes.length, next_offset: end < bytes.length ? end : null } };
+  });
+  add("select", "Select table cell or range", { row: index, column: index, extend: { type: "boolean" } }, !editing, async args => {
+    if ((args.row as number) >= height || (args.column as number) >= width) return { status: "unavailable", reason: "Cell outside current table" };
+    if (args.extend) extend(args.row as number, args.column as number); else select(args.row as number, args.column as number);
+    return { status: "completed", value: { selection_changed: true } };
+  });
+  add("select-row", "Select table row", { row: index, extend: { type: "boolean" } }, !editing, async args => { if ((args.row as number) >= height) return { status: "unavailable", reason: "Row outside table" }; takeRow(args.row as number, args.extend as boolean); return { status: "completed", value: { selection_changed: true } }; });
+  add("select-column", "Select table column", { column: index, extend: { type: "boolean" } }, !editing, async args => { if ((args.column as number) >= width) return { status: "unavailable", reason: "Column outside table" }; takeColumn(args.column as number, args.extend as boolean); return { status: "completed", value: { selection_changed: true } }; });
+  add("select-all", "Select all table cells", {}, !editing, async () => { selectAll(); return { status: "completed", value: { selection_changed: true } }; });
+  add("write", "Write table cell contents", { row: index, column: index, value: { type: "string", maxLength: 1048576 } }, editable && !editing, async (args, actor) => {
+    const row = args.row as number, column = args.column as number;
+    if (row >= height || column >= width) return { status: "unavailable", reason: "Cell outside table; resize/add first" };
+    return written(commit({ row, column }, args.value as string, actor), actor);
+  }, true);
+  add("commit", "Commit pending table cell edit", {}, editable && editing && !!active, async (_args, actor) => { if (!active) return { status: "unavailable", reason: "No active cell" }; const ok = commit(active, draft, actor); if (ok) { setEditing(false); setPointer(null); } return written(ok, actor); }, true);
+  add("cancel-edit", "Cancel pending table cell edit", {}, editing, async () => { setDraft(selectedRaw); setEditing(false); setPointer(null); return { status: "completed", value: { draft_cancelled: true, source_written: false } }; });
+  if (editable) {
+    add("add-row", "Add table row", {}, !editing, async (_args, actor) => written(apply(insertTableRow(table, height), true, actor), actor), true);
+    add("add-column", "Add table column", {}, !editing, async (_args, actor) => written(apply(insertTableColumn(table, width), true, actor), actor), true);
+    add("menu", "Set table context menu visibility", { open: { type: "boolean" } }, !!selection && !editing, async args => { setMenu(args.open ? { x: 16, y: 16 } : null); return { status: "completed", value: { open: args.open } }; });
+    if (menu && selection) for (const item of tableMenuItems({ rows: selectedRows, columns: selectedColumns, height, width })) add(`menu:${item.id}`, item.label, {}, !item.disabled && !editing, async (_args, actor) => { runMenu(item.id, actor); return { status: "completed", value: { source_write: "handler dispatched; inspect actual source", actor } }; }, true);
+    add("fill", "Fill table selection to cell", { row: index, column: index }, !!selection && !editing, async (args, actor) => {
+      if (!selection) return { status: "unavailable", reason: "Select a seed region first" };
+      const target = fillExtent(table, selection, { row: args.row as number, column: args.column as number });
+      const ok = apply(fillTable(table, selection, target, language || false), false, actor); if (ok) setSelection(target);
+      return written(ok, actor);
+    }, true);
+    add("size", "Set table size dialog visibility", { open: { type: "boolean" } }, !editing, async args => { setSizing(args.open as boolean); return { status: "completed", value: args.open }; });
+  }
+  if (language) {
+    add("formulas", "Set table formula visibility", { show: { type: "boolean" } }, true, async args => { setShowFormulas(args.show as boolean); return { status: "completed", value: args.show }; });
+    if (hasFormulas) add("debug", "Set formula debugger visibility", { open: { type: "boolean" } }, true, async args => { setDebugging(args.open as boolean); return { status: "completed", value: args.open }; });
+  }
+  add("fit", "Set table prose wrapping", { enabled: { type: "boolean" } }, true, async args => { setFitProse(args.enabled as boolean); return { status: "completed", value: args.enabled }; });
+  add("column-width", "Resize table column", { column: index, pixels: { type: "number", minimum: MIN_COLUMN_WIDTH, maximum: MAX_COLUMN_WIDTH } }, true, async args => { if ((args.column as number) >= width) return { status: "unavailable", reason: "Column outside table" }; widen(args.column as number, args.pixels as number); return { status: "completed", value: { layout_change_requested: true } }; });
+  add("row-height", "Resize table row", { row: index, pixels: { type: "number", minimum: MIN_ROW_HEIGHT, maximum: 2000 } }, true, async args => { if ((args.row as number) >= height) return { status: "unavailable", reason: "Row outside table" }; heighten(args.row as number, args.pixels as number); return { status: "completed", value: { layout_change_requested: true } }; });
+  add("fit-column", "Fit table column to rendered contents", { column: index }, true, async args => { if ((args.column as number) >= width) return { status: "unavailable", reason: "Column outside table" }; fitColumn(args.column as number); return { status: "completed", value: { layout_measurement_requested: true } }; });
+  add("fit-row", "Fit table row to rendered contents", { row: index }, true, async args => { if ((args.row as number) >= height) return { status: "unavailable", reason: "Row outside table" }; fitRow(args.row as number); return { status: "completed", value: { layout_measurement_requested: true } }; });
+  useUiCommands(commands);
   const rowNumber = (row: number, lane = false) => (
     <th
       scope="row"
@@ -1524,6 +1599,8 @@ export function TablePanel({
           {active && cellLabel(active.column, active.row)}: {selectedProblem}
         </p>
       )}
+      {computation === "pending" && <p className="table-panel__note muted">Formula values or notes may be from previous source; current calculation is pending.</p>}
+      {operationError && <p className="table-panel__note table-panel__note--bad" role="alert">{operationError}</p>}
       {formulaNote && (
         <p className="table-panel__note muted" role="status">
           {formulaNote}

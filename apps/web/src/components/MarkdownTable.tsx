@@ -8,5 +8,5 @@ export function MarkdownTable({ source, onChange, ...props }: TablePanelProps) {
   const { body, formats } = splitFormatComment(source);
   const csv = writeCsv({ rows: markdownRows(body), delimiter: ",", newline: "\n", trailingNewline: false });
   return <TablePanel fitProseDefault {...props} source={csv} formats={formats} delimiter="," header
-    onChange={onChange ? (next, formats = "") => onChange(withFormatComment(writeMarkdownTable(body, parseCsv(next, ",").rows), formats)) : undefined} />;
+    onChange={onChange ? (next, formats = "", actor) => { const text = withFormatComment(writeMarkdownTable(body, parseCsv(next, ",").rows), formats); if (actor) onChange(text, undefined, actor); else onChange(text); } : undefined} />;
 }
