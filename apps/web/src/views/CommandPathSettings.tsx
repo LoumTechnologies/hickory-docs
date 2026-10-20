@@ -1,4 +1,6 @@
-import { useEffect, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
+import { useUiCommands, useUiRevision } from "../lib/uiActionBridge";
+import type { UiOutcome } from "../lib/uiActions";
 import { request } from "../api/client";
 
 export interface CommandPathStatus {
@@ -22,22 +24,46 @@ export const hasCommandInstaller = () => capability ??= readCommandPath()
 export function CommandPathSettings() {
   const [status, setStatus] = useState<CommandPathStatus | null>(null);
   const [busy, setBusy] = useState(false);
+  const pending = useRef(false);
+  const epoch = useRef(0);
+  const parent = `command-path:${useId()}`;
   const [error, setError] = useState<string | null>(null);
   useEffect(() => {
-    let live = true;
+    let live = true; const stamp = ++epoch.current;
     readCommandPath().then(
-      (answer) => { if (live && typeof answer.available === "boolean") setStatus(answer); },
-      () => {}, // Headless engines have no desktop command installer.
+      (answer) => { if (live && stamp === epoch.current && typeof answer.available === "boolean") setStatus(answer); },
+      reason => { if (live && stamp === epoch.current) setError(String(reason)); }, // A headless engine may have no desktop installer.
     );
     return () => { live = false; };
   }, []);
-  const apply = async (action: "install" | "remove") => {
-    setBusy(true);
-    setError(null);
-    try { setStatus(await request<CommandPathStatus>("POST", endpoint, { action })); }
-    catch (error) { setError(error instanceof Error ? error.message : String(error)); }
-    finally { setBusy(false); }
+  const apply = async (action: "install" | "remove"): Promise<UiOutcome> => {
+    if (pending.current) return { status: "unavailable", reason: "Command installer operation already running" };
+    pending.current = true; const stamp = ++epoch.current; setBusy(true); setError(null);
+    try {
+      const actual = await request<CommandPathStatus>("POST", endpoint, { action }); if (stamp === epoch.current) setStatus(actual);
+      return { status: "completed", value: { action, available: actual.available, installed: actual.installed, can_remove: actual.can_remove, conflict: actual.conflict, message: actual.message, scope: "Returned desktop installer status; not a new CLI execution" } };
+    } catch (error) { const reason = error instanceof Error ? error.message : String(error); setError(reason); return { status: "unavailable", reason }; }
+    finally { pending.current = false; setBusy(false); }
   };
+  const revision = useUiRevision(() => [status, busy, error]);
+  const invoke = useUiCommands([
+    { key: `${parent}:install`, command: { label: "Install hick command", parent, subject: parent, parameters: {}, prerequisites: ["Desktop installer available; no conflicting command"], read: () => ({ revision: revision(), enabled: !busy && !!status?.available && !status.installed && !status.conflict, reason: busy ? "Installer busy" : status?.message ?? error ?? "Desktop installer status unavailable" }), execute: async () => apply("install") } },
+    { key: `${parent}:remove`, command: { label: "Remove hick command", parent, subject: parent, parameters: {}, prerequisites: ["The host recognizes a removable installation"], read: () => ({ revision: revision(), enabled: !busy && !!status?.can_remove, reason: busy ? "Installer busy" : status?.message ?? error ?? "Desktop installer status unavailable" }), execute: async () => apply("remove") } },
+    { key: `${parent}:refresh`, command: { label: "Refresh hick command status", parent, subject: parent, parameters: {}, prerequisites: [], read: () => ({ revision: revision(), enabled: !busy }), execute: async () => {
+      if (pending.current) return { status: "unavailable", reason: "Command installer operation already running" };
+      pending.current = true; const stamp = ++epoch.current; setBusy(true);
+      try { const actual = await readCommandPath(); if (stamp === epoch.current) { setStatus(actual); setError(null); } return { status: "completed", value: { available: actual.available, installed: actual.installed, message: actual.message } }; }
+      catch (error) { const reason = String(error); setError(reason); return { status: "unavailable", reason }; }
+      finally { pending.current = false; setBusy(false); }
+    } } },
+    { key: `${parent}:read`, command: { label: "Read hick command status bytes", parent, subject: parent, parameters: { offset: { type: "number", minimum: 0, maximum: 1000000000, integer: true }, limit: { type: "number", minimum: 1, maximum: 8192, integer: true } }, prerequisites: [], read: () => ({ revision: revision(), enabled: true }), execute: async args => {
+      const bytes = new TextEncoder().encode(JSON.stringify({ status, busy, error, scope: "Desktop command installer; unsupported/unavailable host status is explicit" }));
+      const offset = args.offset as number, end = Math.min(offset + (args.limit as number), bytes.length);
+      if (offset > bytes.length) return { status: "unavailable", reason: "Offset outside command status" };
+      return { status: "completed", value: { bytes: Array.from(bytes.slice(offset, end)), encoding: "JSON UTF-8", offset, total_bytes: bytes.length, next_offset: end < bytes.length ? end : null } };
+    } } },
+  ]);
+  const click = (key: string) => { void invoke(`${parent}:${key}`).catch(reason => setError(String(reason))); };
   if (!status) return null;
   return (
     <section className="settings__appearance" aria-label="Command line" id="command-line">
@@ -51,11 +77,12 @@ export function CommandPathSettings() {
         </div>
         <div className="settings-row__actions">
           {status.available && !status.installed && !status.conflict && (
-            <button className="btn" disabled={busy} onClick={() => void apply("install")}>Install hick command…</button>
+            <button className="btn" disabled={busy} onClick={() => click("install")}>Install hick command…</button>
           )}
           {status.can_remove && (
-            <button className="btn btn-quiet" disabled={busy} onClick={() => void apply("remove")}>Remove hick command</button>
+            <button className="btn btn-quiet" disabled={busy} onClick={() => click("remove")}>Remove hick command</button>
           )}
+          <button className="btn btn-quiet" disabled={busy} onClick={() => click("refresh")}>Refresh command status</button>
         </div>
       </div>
       <p className="muted settings__note" role="status">{status.message}</p>

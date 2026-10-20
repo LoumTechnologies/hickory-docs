@@ -359,3 +359,10 @@ and session views. Collapsing a recorded item retires its own byte reader and an
 nested live-detail readers; expanding exposes exact retained JSON through bounded
 pages. Adapter-reported status remains a declaration, and recorded stops use a
 neutral label rather than assuming the human initiated them.
+
+Native command-path settings now share install/remove/refresh handlers and bounded
+status reads. Enabled predicates retain the existing host availability, conflict
+and removable-installation conditions. Actual returned installer state is reported;
+it does not claim a CLI run or mutate another installation on conflict. Initial
+status responses cannot replace a newer explicit refresh. A headless/missing host
+keeps its ordinary hidden UI and exposes unavailable status through the adapter.

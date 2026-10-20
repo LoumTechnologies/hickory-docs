@@ -357,3 +357,18 @@ Executed focused checks: AcpRecord (2 passed), including nested reader retiremen
 explicit Unicode evidence, malformed payload and neutral stopped attribution;
 strict targeted checking passed. These retained-record component checks do not
 witness live provider output or certify an adapter's claims.
+
+### Desktop command installer — 2026-10-19
+
+Install/remove/refresh use the existing desktop endpoint and report returned
+availability, installation, removal, conflict and message fields. Bounded explicit
+reads expose the full status/error; revision tokens keep private source paths
+opaque. A synchronous pending guard prevents overlapping local operations, and
+status generations reject superseded initial reads. Client enabled predicates
+preserve existing conflict/platform constraints; the native host remains the
+filesystem authority. No CLI execution or supported packaging witness is implied.
+
+Executed focused checks: CommandPathSettings (5 passed), including human install/
+remove, conflict, failure/retry, headless UI and registered install/read with actual
+mocked host status; targeted strict checking passed. These tests did not modify
+PATH or shell profiles on a real platform.
