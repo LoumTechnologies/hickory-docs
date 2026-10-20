@@ -379,6 +379,8 @@ pub(super) async fn run_turn(
         root: state.index.root().to_path_buf(),
         doc: if doc == super::agent_context::WORKSPACE_AGENT {
             identity.primary
+        } else if doc.starts_with("lens:") {
+            None
         } else {
             Some(subject.clone())
         },
@@ -387,6 +389,10 @@ pub(super) async fn run_turn(
     };
     let conversation = crate::python_agent::Conversation {
         session: Some(identity.session),
+        session_storage: Some(
+            super::agent_context::session_root(state, doc)
+                .map_err(|_| "Could not open conversation storage".to_string())?,
+        ),
         subject: Some(subject),
         turn: Some(identity.turn.clone()),
         parent: identity.parent,
@@ -453,7 +459,8 @@ async fn context_updates(
     Json(body): Json<ContextRequest>,
 ) -> ApiResult<Json<Value>> {
     let subject = super::agent_context::subject(&state, &doc)?;
-    state.agent.hydrate(state.index.root(), &doc, &subject);
+    let storage = super::agent_context::session_root(&state, &doc)?;
+    state.agent.hydrate(&storage, &doc, &subject);
     let session = state
         .agent
         .turns

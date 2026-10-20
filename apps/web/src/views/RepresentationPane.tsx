@@ -159,7 +159,7 @@ export function RepresentationPane({ id, initialBase = "", initialTarget = "", b
       <button className="btn" disabled={busy || !dirty || historical} onClick={discard}>Discard unsaved edits</button>
       {record.backing.kind === "files" && <button className="btn" disabled={dirty || busy} onClick={() => void openLiterate(record.backing).catch(e => setNotice(message(e)))}>Rebuild reading from current files</button>}
       <button className="btn" disabled={dirty || busy || historical} onClick={() => void representations.keep(id).then(v => setNotice(`View kept locally at ${v.path}`), e => setNotice(message(e)))}>Keep view locally</button>
-      <button className="btn" disabled={historical} onClick={() => setAgent(v => !v)}>Explain or edit with ACP</button>
+      <button className="btn" disabled={historical} onClick={() => setAgent(v => !v)}>Explain or edit with an agent</button>
       </MoreActions>
     </div></PaneHeaderContent>
     {dirty && !historical && <ChangePreview heading="Review changes before saving" collapsible effects="Save writes these edits to the targets named above. This view has no recovery draft; closing without saving discards its edits.">
@@ -198,9 +198,9 @@ export function RepresentationPane({ id, initialBase = "", initialTarget = "", b
       onDebugFile={historical ? undefined : startDebug}
       readOnly={historical} comparisonBase={comparison?.source ?? null} lspExtensions={extensions} />
     <PromptPanel prompt={prompt.prompt} onSettle={prompt.settle} />
-    {agent && <ChatDock docId={`lens:${id}`} realtime={realtime} initialPrompt={`Read literate view ${id} using read_literate_view, then organize_literate_view to explain its code and arrange exact source fragments. Preserve every source byte.`}
-      contextLabel={`Literate view ${id}; choose an installed ACP agent`}
-      getContext={async () => ({ buffers: [{ name: `Literate view ${id}`, path: null, content: source, focused: true }] })}
+    {agent && <ChatDock docId={`lens:${id}`} realtime={realtime} initialPrompt={`Read literate view ${id} through the available reading tools and explain its code. Discover available actions before changing it. Preserve source bytes when rearranging explanations; do not invent unavailable tools or claim a buffer edit has been saved.`}
+      contextLabel={`Literate view ${id}; Hickory Python or an installed ACP agent`}
+      getContext={async () => ({ live: true, buffers: [{ id: `lens:${id}`, name: `Literate view ${id}`, path: null, content: current.current.source, focused: true }] })}
       onAgentFinished={() => { if (!dirty) void representations.get(id).then(accept); else setNotice("The agent finished. Save or discard your local edits before refreshing its changes."); }} />}
   </section>;
 }

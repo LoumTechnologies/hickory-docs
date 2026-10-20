@@ -28,6 +28,8 @@ pub struct Config {
 #[derive(Default)]
 pub struct Conversation {
     pub session: Option<PathBuf>,
+    /// Host-selected storage root; never supplied by a model or worker.
+    pub session_storage: Option<PathBuf>,
     pub subject: Option<PathBuf>,
     pub turn: Option<String>,
     pub parent: Option<String>,
@@ -348,17 +350,22 @@ pub async fn run_conversation(
         .stdout(Stdio::piped())
         .stderr(Stdio::inherit())
         .kill_on_drop(true);
-    let session_dir = config.root.join("sessions");
+    let session_storage = conversation
+        .session_storage
+        .unwrap_or_else(|| config.root.clone());
+    std::fs::create_dir_all(&session_storage)?;
+    let session_storage = session_storage.canonicalize()?;
+    let session_dir = session_storage.join("sessions");
     std::fs::create_dir_all(&session_dir)?;
-    contained(&config.root, &session_dir)?;
+    contained(&session_storage, &session_dir)?;
     let session = match conversation.session {
         Some(path) => {
             contained(
-                &config.root,
+                &session_storage,
                 path.parent().context("Session has no directory")?,
             )?;
             if path.exists() {
-                contained(&config.root, &path)?;
+                contained(&session_storage, &path)?;
             }
             path
         }

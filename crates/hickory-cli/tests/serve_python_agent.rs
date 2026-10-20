@@ -184,6 +184,13 @@ impl App {
             .request("GET", &self.route("/python"), Value::Null)
             .await;
         if let Some(id) = snapshot["edits"]["captureRequest"].as_str() {
+            if let Some(lens) = self.doc.strip_prefix("lens:") {
+                let (_, view) = self.request("GET", &format!("/api/representations/{lens}"), Value::Null).await;
+                self.request("POST", &self.route("/python/review"), json!({"capture_request":id,"context":{"live":true,"buffers":[{
+                    "id":self.doc,"name":"Literate fixture","path":null,"content":view["source"],"focused":true
+                }]}})).await;
+                return;
+            }
             let content = self.state.rooms.get(&self.doc).await.unwrap().text().await;
             self.request("POST", &self.route("/python/review"), json!({"capture_request":id,"context":{"live":true,"buffers":[{
                 "id":"note-editor","name":"Meeting note","path":"note.md","content":content,"focused":true
@@ -225,10 +232,27 @@ fn python() -> Option<String> {
 // The separate component tests witness the actual shared UI controller.
 #[tokio::test]
 async fn python_agent_uses_originating_window_ui_tools_with_retained_context() {
+    ui_transport_case(false).await;
+}
+
+#[tokio::test]
+async fn python_literate_view_uses_ui_without_creating_a_synthetic_document() {
+    ui_transport_case(true).await;
+}
+
+async fn ui_transport_case(lens: bool) {
     let Some(python) = python() else {
         return;
     };
-    let app = App::start().await;
+    let mut app = App::start().await;
+    let mut buffers = json!([]);
+    if lens {
+        std::fs::write(app.root.join("code.py"), "print(42)\n").unwrap();
+        let (status, view) = app.request("POST", "/api/representations", json!({"backing":{"kind":"files","paths":["code.py"]}})).await;
+        assert_eq!(status, 200, "{view}");
+        app.doc = format!("lens:{}", view["id"].as_str().unwrap());
+        buffers = json!([{"id":app.doc,"name":"Literate fixture","path":null,"content":view["source"],"focused":true}]);
+    }
     app.configure(&python).await;
     let model = Model::new([
         json!({"python":"import json\no = json.loads(tool('ui_observe', {'parent':'fixture-rail'})['content'][0]['text'])\nprint(tool('ui_act', {'handle':o['actions'][0]['handle'], 'arguments':{}, 'request_id':'one-run'}))"}),
@@ -238,7 +262,7 @@ async fn python_agent_uses_originating_window_ui_tools_with_retained_context() {
     let (status, scope) = app.request("POST", "/api/v1/ui/windows", json!({})).await;
     assert_eq!(status, 200, "{scope}");
     let window = scope["window"].as_str().unwrap();
-    let (status, sent) = app.request("POST", &app.route(""), json!({"backend":"python","prompt":"Discover and run the registered cell","context":{"ui_window":window,"buffers":[]}})).await;
+    let (status, sent) = app.request("POST", &app.route(""), json!({"backend":"python","prompt":"Discover and run the registered cell","context":{"live":lens,"ui_window":window,"buffers":buffers}})).await;
     assert_eq!(status, 202, "{sent}");
     let turn = sent["session_id"].as_str().unwrap();
     let poll_route = format!("/api/v1/ui/windows/{window}/requests");
@@ -253,8 +277,18 @@ async fn python_agent_uses_originating_window_ui_tools_with_retained_context() {
             json!({"status":"result","outcome":{"status":"queued","job":"fixture-runtime-job"}}),
         ),
     ] {
-        let (status, frame) = app.request("GET", &poll_route, Value::Null).await;
+        let poll = app.request("GET", &poll_route, Value::Null);
+        tokio::pin!(poll);
+        let (status, frame) = loop {
+            tokio::select! {
+                result = &mut poll => break result,
+                _ = tokio::time::sleep(Duration::from_millis(25)) => app.refresh_capture().await,
+            }
+        };
         assert_eq!(status, 200, "{frame}");
+        if frame["request"].is_null() {
+            panic!("missing UI request: {}", app.wait(turn).await);
+        }
         let frame = &frame["request"];
         assert_eq!(frame["method"], method, "{frame}");
         assert_eq!(
@@ -278,8 +312,13 @@ async fn python_agent_uses_originating_window_ui_tools_with_retained_context() {
     }
     let outcome = app.wait(turn).await;
     assert_eq!(outcome["status"], "ok", "{outcome}");
-    let source =
-        std::fs::read_to_string(app.root.join(outcome["session"].as_str().unwrap())).unwrap();
+    let session = app.root.join(outcome["session"].as_str().unwrap());
+    if lens {
+        assert!(!session.starts_with(&app.root), "lens sessions belong to workspace storage");
+        assert!(!app.root.join(format!(".hick-lens-{}", app.doc.strip_prefix("lens:").unwrap())).exists());
+        assert!(!app.root.join("sessions").exists());
+    }
+    let source = std::fs::read_to_string(session).unwrap();
     assert!(source.contains("python-ui-request"));
     assert!(source.contains("fixture-runtime-job"));
     assert!(source.contains("context_references"));

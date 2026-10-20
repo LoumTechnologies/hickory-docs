@@ -367,10 +367,12 @@ pub async fn start_turn(
     if backend != "python" {
         return super::acp::start_turn(state, id, body, backend).await;
     }
-    if id.starts_with("lens:") {
-        return Err(ApiError::bad_request(
-            "Choose an installed ACP agent to organize or edit a source-backed literate view.",
-        ));
+    if let Some(lens) = id.strip_prefix("lens:") {
+        super::agent_context::subject(&state, &id)?;
+        super::representation_store::load(&state).await?;
+        if !state.representations.lock().await.contains_key(lens) {
+            return Err(ApiError::not_found("literate view no longer exists"));
+        }
     }
     state
         .agent
@@ -449,7 +451,8 @@ pub async fn start_turn(
         .unwrap_or_else(|| llm.model_name().to_string());
 
     let turn_id = format!("{:016x}", rand_id());
-    state.agent.hydrate(state.index.root(), &id, &doc_path);
+    let session_root = super::agent_context::session_root(&state, &id)?;
+    state.agent.hydrate(&session_root, &id, &doc_path);
     let parent_for_run = body.parent_id.clone();
     let (prior_turns, session_rel) = {
         let mut map = state.agent.turns.lock().unwrap();
@@ -488,7 +491,7 @@ pub async fn start_turn(
             .map(|t| t.session.clone())
             .filter(|s| !s.is_empty())
             .unwrap_or_else(|| {
-                let abs = hickory_agent::session_file_path(state.index.root(), &prompt);
+                let abs = hickory_agent::session_file_path(&session_root, &prompt);
                 abs.strip_prefix(state.index.root())
                     .map(|p| p.display().to_string())
                     .unwrap_or_else(|_| abs.display().to_string())
@@ -686,7 +689,10 @@ async fn run_turn(
     // Flush the live room to disk first: the agent's edit session reads the
     // file, and running against text missing the newest keystrokes would
     // edit a document the user is no longer looking at.
-    if let Some(room) = state.rooms.get(doc_id).await {
+    if doc_id != super::agent_context::WORKSPACE_AGENT
+        && !doc_id.starts_with("lens:")
+        && let Some(room) = state.rooms.get(doc_id).await
+    {
         let live = room.text().await;
         if live != std::fs::read_to_string(&doc_path).unwrap_or_default()
             && let Err(e) = store::write_atomic(&doc_path, live.as_bytes())
