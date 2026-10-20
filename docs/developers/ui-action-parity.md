@@ -702,3 +702,11 @@ pending callbacks exclude duplicates, and actual host refusal is reported.
 Navigation callbacks do not certify process state. Two focused mocked-callback
 cases and six recording-strip presentation cases pass. No concurrent host-anchor
 CAS, real PTY/provider or native-release claim is added by this checkpoint.
+
+AttentionCard now has paged visible reading, shared queue/navigation/interrupt
+controls and explicitly labeled agent-prepared reply drafts. Existing human
+prompt authority yields a question-bound decision request; actual human
+callbacks report host success/refusal with that request identity and no semantic
+approval attestation. Changed questions retire old drafts/handles. One new mixed
+callback-fixture case and five presentation cases pass. This preserves an
+application-policy boundary, not an OS exception or full prompt-answer parity.

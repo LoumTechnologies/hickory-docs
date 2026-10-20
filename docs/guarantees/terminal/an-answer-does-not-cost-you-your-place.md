@@ -43,3 +43,24 @@ Last LLM verification:
   rests on the card's handlers not calling `setLayout`, which an LLM reviewer
   should re-read rather than assume. A workspace-level test that answers a
   prompt and asserts the layout is identity-equal afterwards would close this.
+
+### Shared attention-card request boundary (issue #72)
+
+The visible attention card exposes paged question/source/choice-label/queue/draft
+reading plus shared open, next, interrupt and dismiss actions. Replies prepared
+by an agent are labeled and remain labeled through human edits. Preparing does
+not send input or attest approval. The existing terminal human-decision policy
+returns an addressable request tied to the exact session/state/question; actual
+human callbacks use that same control and their receipts name the decision
+request, actual host-request result and actor kind, without semantic approval
+attestation. A host refusal remains visible and preserves the draft. A new
+question in the same session gets a new request and an empty draft, and old
+handles retire. Closing/dismissing is not an answer or operation cancellation.
+
+One focused mixed native/model callback-fixture case passes for reading, draft
+preparation/labeling, required human decision without sending input, actual
+human-callback refusal, same-session question replacement and queue/navigation/
+interrupt controls. Five existing card presentation cases pass. Strict
+TypeScript/file-length/diff checks pass. This preserves an existing application
+policy; it is not an OS limitation, universal prompt-answer parity, an atomic
+host prompt-version precondition or a real PTY/provider/native-release witness.

@@ -7,8 +7,11 @@
 //
 // Protects docs/guarantees/terminal/an-answer-does-not-cost-you-your-place.md
 
-import { useEffect, useState } from "react";
+import { useId, useMemo, useRef, useState } from "react";
 
+import { useTerminalChromeActions } from "./useTerminalChromeActions";
+import { useUiCommands, useUiRevision } from "../lib/uiActionBridge";
+import type { UiActor } from "../lib/uiActions";
 import type { TerminalSession } from "../api/types";
 
 export function AttentionCard({
@@ -25,19 +28,48 @@ export function AttentionCard({
   /** 1-based place in the queue, for "2 of 5". */
   position: number;
   total: number;
-  onAnswer: (send: string) => void;
+  onAnswer: (send: string) => boolean | void | Promise<boolean | void>;
   onOpen: () => void;
-  onInterrupt: () => void;
+  onInterrupt: () => boolean | void | Promise<boolean | void>;
   onNext: () => void;
   onDismiss: () => void;
 }) {
-  const [typed, setTyped] = useState("");
-  // A new session under the card is a new question; never carry a half-typed
-  // answer from one prompt to another.
-  useEffect(() => setTyped(""), [session.id]);
-
   const prompt = session.prompt;
+  const promptKey = JSON.stringify([session.id, session.state, session.since_ms, prompt]);
+  const latestPrompt = useRef(promptKey); latestPrompt.current = promptKey;
+  const request = useMemo(() => `terminal-decision:${crypto.randomUUID()}`, [promptKey]);
+  const [draft, setDraft] = useState({ owner: promptKey, text: "", prepared: false });
+  const typed = draft.owner === promptKey ? draft.text : "";
+  const prepared = draft.owner === promptKey && draft.prepared;
+  const setTyped = (text: string, actor?: UiActor) => { if (text.length <= 8192) setDraft({ owner: promptKey, text, prepared: actor?.kind === "agent" || prepared }); };
   const guessed = prompt?.source === "guessed";
+  const canAnswer = !!prompt && session.state === "needs-you";
+  const send = async (text: string) => {
+    if (!canAnswer) return false;
+    const reply = await onAnswer(text);
+    if (reply !== false && latestPrompt.current === promptKey) setDraft({ owner: promptKey, text: "", prepared: false });
+    return reply;
+  };
+  const controls = useTerminalChromeActions("terminal attention card", {
+    session: session.id, title: session.title, state: session.state, branch: session.branch, dirty: session.dirty, position, total,
+    question: prompt?.question ?? session.preview, prompt_source: prompt?.source ?? null,
+    choices: prompt?.choices.map(choice => ({ label: choice.label, destructive: choice.destructive })) ?? [],
+    draft: typed, draft_prepared_by_agent: prepared, decision_request: prompt ? request : null,
+    exit_code: session.exit_code, authority: "Existing human prompt-answer policy; this is an application boundary, not an OS limitation",
+  }, [
+    { id: "open", label: "Open attention terminal", run: onOpen },
+    { id: "next", label: "Show next terminal attention request", run: onNext },
+    { id: "dismiss", label: "Dismiss terminal attention card", run: onDismiss },
+    ...(session.state === "needs-you" ? [{ id: "interrupt", label: "Interrupt attention terminal", run: onInterrupt }] : []),
+    ...(canAnswer ? prompt!.choices.length ? prompt!.choices.map((choice, index) => ({ id: `choice:${index}`, label: `Answer attention prompt: ${choice.label}`, humanRequest: request, run: () => send(choice.send) }))
+      : [{ id: "send", label: "Send attention prompt reply", humanRequest: request, run: () => send(`${typed}\n`) }] : []),
+  ]);
+  const parent = `attention-draft:${useId()}`;
+  const revision = useUiRevision(() => [promptKey, typed, prepared]);
+  useUiCommands(canAnswer && !prompt!.choices.length ? [{ key: parent, command: { parent, subject: parent, label: "Prepare terminal attention reply draft",
+    parameters: { text: { type: "string", maxLength: 8192 } }, prerequisites: ["Preparing a draft does not send an answer or approve a decision"],
+    read: () => ({ revision: revision(), enabled: !controls.pending }), execute: async (args, actor) => { setTyped(args.text as string, actor); return { status: "completed", value: { draft_updated: true, answer_sent: false, approval: false } }; },
+  } }] : []);
 
   return (
     <div className="attention-card" role="dialog" aria-label={`${session.title} needs you`}>
@@ -63,7 +95,8 @@ export function AttentionCard({
             <button
               key={choice.label}
               className={choice.destructive ? "btn btn-danger" : "btn btn-primary"}
-              onClick={() => onAnswer(choice.send)}
+              disabled={!canAnswer || !!controls.pending}
+              onClick={() => controls.human(`choice:${prompt.choices.indexOf(choice)}`)}
             >
               {choice.label}
             </button>
@@ -76,8 +109,7 @@ export function AttentionCard({
           className="attention-reply"
           onSubmit={(e) => {
             e.preventDefault();
-            onAnswer(`${typed}\n`);
-            setTyped("");
+            controls.human("send");
           }}
         >
           {/* No choices means nobody told us what the answers are — so the
@@ -90,10 +122,13 @@ export function AttentionCard({
           <input
             id={`reply-${session.id}`}
             value={typed}
+            disabled={!canAnswer || !!controls.pending}
+            maxLength={8192}
             autoFocus
             onChange={(e) => setTyped(e.target.value)}
           />
-          <button className="btn btn-primary" type="submit">
+          {prepared && <p role="note">Prepared by an agent. Review this reply before sending.</p>}
+          <button className="btn btn-primary" type="submit" disabled={!canAnswer || !!controls.pending}>
             Send
           </button>
         </form>
@@ -108,19 +143,20 @@ export function AttentionCard({
         </p>
       )}
 
+      {controls.error && <p role="alert">{controls.error}</p>}
       <footer className="attention-card-foot">
-        <button className="btn" onClick={onOpen}>
+        <button className="btn" disabled={!!controls.pending} onClick={() => controls.human("open")}>
           Open terminal
         </button>
         {session.state === "needs-you" && (
-          <button className="btn" onClick={onInterrupt}>
+          <button className="btn" disabled={!!controls.pending} onClick={() => controls.human("interrupt")}>
             Interrupt
           </button>
         )}
-        <button className="btn" onClick={onNext}>
+        <button className="btn" disabled={!!controls.pending} onClick={() => controls.human("next")}>
           Next
         </button>
-        <button className="btn" onClick={onDismiss}>
+        <button className="btn" disabled={!!controls.pending} onClick={() => controls.human("dismiss")}>
           Later
         </button>
       </footer>

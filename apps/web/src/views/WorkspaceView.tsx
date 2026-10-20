@@ -1843,9 +1843,9 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
           session={attentionSession}
           position={attentionPlace + 1}
           total={terminals.attention.length}
-          onAnswer={(send) => void terminals.answer(attentionSession.id, send)}
+          onAnswer={(send) => terminals.answer(attentionSession.id, send)}
           onOpen={() => showTerminal(attentionSession.id)}
-          onInterrupt={() => void terminals.interrupt(attentionSession.id)}
+          onInterrupt={() => terminals.interrupt(attentionSession.id)}
           onNext={nextAttention}
           onDismiss={() => setAttentionAt(null)}
         />
