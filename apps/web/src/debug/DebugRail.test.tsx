@@ -80,3 +80,68 @@ it("keeps a document's controls out of the rails of its nested patch editors", (
   rail.className = "cm-debug-rail";
   expect(debugRailElement(view)).toBe(rail);
 });
+// Guarantee: docs/guarantees/agent/scoped-reading-surfaces-share-native-actions.md
+it("shares launch rail callbacks and refuses stale source before a React rerender", async () => {
+  const { act } = await import("@testing-library/react");
+  const { UiActions } = await import("../lib/uiActions");
+  const { UiActionContext } = await import("../lib/uiActionBridge");
+  const registry = new UiActions({ workspace: "p", window: "w" }, () => true, async () => {});
+  const container = editor("print(1)\n"), first = vi.fn(), second = vi.fn(), profiles = vi.fn();
+  const draw = (start: typeof first) => <UiActionContext.Provider value={registry}><DebugLaunchRail view={view} plainPath="app.py" onStart={start} onProfiles={profiles} /></UiActionContext.Provider>;
+  const rendered = render(draw(first), { container });
+  const actions = () => registry.groups().groups.flatMap(group => registry.observe(group, 64).actions);
+  const handle = () => actions().find(action => action.label === "Debug app.py")!.handle;
+  const run = async (target: string) => {
+    let result: unknown;
+    await act(async () => { result = await registry.act(registry.scope, { id: "python:fixture", kind: "agent" }, { handle: target, arguments: {}, request_id: crypto.randomUUID() }); });
+    return result;
+  };
+  expect(await run(handle())).toMatchObject({ status: "result", outcome: { value: { launch_callback_completed: true, launch_completed: false } } });
+  expect(first).toHaveBeenCalledExactlyOnceWith("app.py", undefined);
+  const stale = handle();
+  act(() => view.dispatch({ changes: { from: 0, to: 0, insert: "#changed\n" } }));
+  expect(await run(stale)).not.toMatchObject({ status: "result" });
+  view.focus(); fireEvent.keyDown(view.contentDOM, { key: "F5" });
+  expect(first).toHaveBeenCalledTimes(1);
+  rendered.rerender(draw(second));
+  expect(await run(handle())).toMatchObject({ status: "result" });
+  expect(second).toHaveBeenCalledExactlyOnceWith("app.py", undefined);
+  expect(await run(actions().find(action => action.label === "Launch profiles for app.py")!.handle)).toMatchObject({ status: "result" });
+  expect(profiles).toHaveBeenCalledExactlyOnceWith("app.py", undefined);
+});
+// Guarantee: docs/guarantees/agent/scoped-reading-surfaces-share-native-actions.md
+it("surfaces a launch callback failure and excludes overlapping native requests", async () => {
+  const { act } = await import("@testing-library/react");
+  let reject!: (error: Error) => void;
+  const start = vi.fn(() => new Promise<void>((_resolve, fail) => { reject = fail; }));
+  const container = editor("print(1)\n");
+  render(<DebugLaunchRail view={view} plainPath="app.py" onStart={start} />, { container });
+  const button = screen.getByRole("button", { name: "Debug app.py" });
+  fireEvent.click(button); fireEvent.click(button);
+  expect(start).toHaveBeenCalledTimes(1);
+  await act(async () => { reject(Error("actual debugger refusal")); });
+  expect(screen.getByRole("alert").textContent).toContain("actual debugger refusal");
+});
+// Guarantee: docs/guarantees/agent/scoped-reading-surfaces-share-native-actions.md
+it("retires projection launch callbacks when an identical-label target is replaced", async () => {
+  const { act } = await import("@testing-library/react");
+  const { DebugLaunchAction } = await import("./DebugRail");
+  const { UiActions } = await import("../lib/uiActions");
+  const { UiActionContext } = await import("../lib/uiActionBridge");
+  const registry = new UiActions({ workspace: "p", window: "w" }, () => true, async () => {});
+  const container = editor("print(1)\n"), first = vi.fn(), second = vi.fn();
+  render(<DebugLaunchRail view={view} />, { container });
+  const draw = (start: typeof first, disabled = false) => <UiActionContext.Provider value={registry}><DebugLaunchAction view={view} label="Debug captured app" onStart={start} disabled={disabled} /></UiActionContext.Provider>;
+  const rendered = render(draw(first));
+  const actions = () => registry.groups().groups.flatMap(group => registry.observe(group, 64).actions);
+  const handle = () => actions().find(action => action.label === "Debug captured app")!.handle;
+  const stale = handle();
+  rendered.rerender(draw(second));
+  await act(async () => { expect(await registry.act(registry.scope, { id: "acp:fixture", kind: "agent" }, { handle: stale, arguments: {}, request_id: "old-projection" })).not.toMatchObject({ status: "result" }); });
+  expect(first).not.toHaveBeenCalled(); expect(second).not.toHaveBeenCalled();
+  await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Debug captured app" })); });
+  expect(second).toHaveBeenCalledTimes(1);
+  rendered.rerender(draw(second, true));
+  await act(async () => { expect(await registry.act(registry.scope, { id: "acp:fixture", kind: "agent" }, { handle: handle(), arguments: {}, request_id: "disabled-projection" })).toMatchObject({ status: "disabled" }); });
+  expect(second).toHaveBeenCalledTimes(1);
+});

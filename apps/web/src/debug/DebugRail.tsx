@@ -1,3 +1,4 @@
+import { useDebugLaunchActions } from "./useDebugLaunchActions";
 import { bindingOf, formatBinding, isAction } from "../lib/keymap";
 import { useEffect, useRef, type ReactNode } from "react";
 import { createPortal } from "react-dom";
@@ -82,24 +83,30 @@ export function DebugLaunchRail({ view, onStart, onProfiles, plainPath, enabled 
       }
     }
   }
-  const current = useRef({ targets, onStart }); current.current = { targets, onStart };
+  const controls = useDebugLaunchActions(view, targets.flatMap(target => [
+    { key: `start:${target.path}:${target.at}`, label: `Debug ${target.path}`, run: () => onStart?.(target.path, plainPath ? undefined : target.at) },
+    ...(onProfiles ? [{ key: `profiles:${target.path}:${target.at}`, label: `Launch profiles for ${target.path}`, run: () => onProfiles(target.path, plainPath ? undefined : target.at) }] : []),
+  ]));
+  const start = (target: typeof targets[number], profiles = false) => { void controls.launch(`${profiles ? "profiles" : "start"}:${target.path}:${target.at}`); };
+  const current = useRef({ targets, start }); current.current = { targets, start };
   useEffect(() => {
     if (!view) return;
     const key = (event: KeyboardEvent) => {
       if (event.defaultPrevented || !debugViewFocused(view) || !(isAction(event, "debug.continue") || isAction(event, "debug.start"))) return;
       if (debugRailElement(view)?.querySelector(".is-active")) return;
-      const {targets,onStart} = current.current, pos = view.state.selection.main.head;
+      const {targets,start} = current.current, pos = view.state.selection.main.head;
       const target = targets.find(t => t.at <= pos && pos <= t.end) ?? (targets.length === 1 ? targets[0] : null);
-      if (target) { event.preventDefault(); onStart?.(target.path, plainPath ? undefined : target.at); }
+      if (target) { event.preventDefault(); start(target); }
     };
     window.addEventListener("keydown", key);
     return () => window.removeEventListener("keydown", key);
   }, [view, plainPath]);
   return <div className="cm-debug-rail" aria-label="Script debugging">
+    {controls.error && <p role="alert">{controls.error}</p>}
     {view && targets.map(target => <DebugRailGroup key={`${target.path}:${target.at}`} view={view} at={target.at}>
       <button type="button" className="cm-debug-start debug-icon" aria-label={`Debug ${target.path}`}
-        data-tip={`Debug ${target.path} · installs the debugger if needed`} onClick={() => onStart?.(target.path, plainPath ? undefined : target.at)}>▷</button>
-      {onProfiles && <button type="button" className="debug-icon" aria-label={`Launch profiles for ${target.path}`} data-tip="Choose a Run or Debug profile" onClick={()=>onProfiles(target.path,plainPath?undefined:target.at)}>⋯</button>}
+        data-tip={`Debug ${target.path} · installs the debugger if needed`} onClick={() => start(target)}>▷</button>
+      {onProfiles && <button type="button" className="debug-icon" aria-label={`Launch profiles for ${target.path}`} data-tip="Choose a Run or Debug profile" onClick={()=>start(target, true)}>⋯</button>}
     </DebugRailGroup>)}
   </div>;
 }
@@ -131,7 +138,13 @@ export function debugViewFocused(view: EditorView): boolean {
 export function DebugLaunchAction({ view, label, onStart, disabled = false, hint, onProfiles }: {
   view: EditorView | null; label: string; onStart: () => void; disabled?: boolean; hint?: string; onProfiles?: () => void;
 }) {
-  const callback = useRef({onStart,disabled}); callback.current = {onStart,disabled};
+  const rail = view ? debugRailElement(view) : null;
+  const controls = useDebugLaunchActions(view, view && rail ? [
+    { key: "start", label, disabled, run: onStart },
+    ...(onProfiles ? [{ key: "profiles", label: `Launch profiles for ${label}`, disabled, run: onProfiles }] : []),
+  ] : []);
+  const start = () => { void controls.launch("start"); };
+  const callback = useRef({onStart: start,disabled}); callback.current = {onStart: start,disabled};
   useEffect(() => {
     if (!view) return;
     const key = (event: KeyboardEvent) => {
@@ -142,9 +155,9 @@ export function DebugLaunchAction({ view, label, onStart, disabled = false, hint
     window.addEventListener("keydown", key);
     return () => window.removeEventListener("keydown", key);
   }, [view]);
-  const rail = view ? debugRailElement(view) : null;
   return view && rail ? createPortal(<DebugRailGroup view={view} at={0}>
-    <button type="button" className="cm-debug-start debug-icon" aria-label={label} data-tip={hint ?? `${label} · ${formatBinding(bindingOf("debug.start") || bindingOf("debug.continue"))}`} disabled={disabled} onClick={onStart}>▷</button>
-    {onProfiles && <button type="button" className="debug-icon" aria-label={`Launch profiles for ${label}`} data-tip="Choose a Run or Debug profile" disabled={disabled} onClick={onProfiles}>⋯</button>}
+    {controls.error && <p role="alert">{controls.error}</p>}
+    <button type="button" className="cm-debug-start debug-icon" aria-label={label} data-tip={hint ?? `${label} · ${formatBinding(bindingOf("debug.start") || bindingOf("debug.continue"))}`} disabled={disabled} onClick={start}>▷</button>
+    {onProfiles && <button type="button" className="debug-icon" aria-label={`Launch profiles for ${label}`} data-tip="Choose a Run or Debug profile" disabled={disabled} onClick={() => void controls.launch("profiles")}>⋯</button>}
   </DebugRailGroup>, rail) : null;
 }

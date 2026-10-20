@@ -858,3 +858,17 @@ Old side, switches natively to New, edits the real CodeMirror draft through the
 agent registry and checks the regenerated source/agent marker. Targeted TypeScript
 checking passes. These cases do not certify cross-process project-apply races,
 external captured-project persistence, provider execution or native packaging.
+
+DebugLaunchRail and projection DebugLaunchAction now share native click/F5 and
+model launch/profile callbacks. Exact displayed source, editor lifetime, callback
+replacement and native disabled state bind each handle. A source edit before a
+React rerender refuses the old callback. Pending callback duplication is excluded;
+actual callback errors are displayed. Completion reports callback invocation,
+not a running debugger/process. The existing launch-profile resolver owns those
+later outcomes.
+
+Five existing focused rail cases plus three new real-CodeMirror/mock-callback
+cases pass: mixed model/F5 stale-source refusal and profile choice, pending native
+callback exclusion/failure, and same-label projection callback replacement with
+native/model disabled parity. Targeted TypeScript checking passes. These are not
+real adapter launches or provider/release evidence.

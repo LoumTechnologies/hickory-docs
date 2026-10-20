@@ -83,3 +83,18 @@ Evidence dependencies (SHA-256):
 - `apps/web/src/debug/ProfileEvidence.tsx`: `f60eb10520685206fa32323daf2c66f56b1f71dde87f2b31eca73383b5e2d3a1`
 - `apps/web/src/elements/patch/Editor.tsx`: `39edf9e24f2918274164941f2beeb7c739649f8fbf640040b5a7b55a224ab48a`
 - `apps/web/src/components/ComparisonEditor.tsx`: `d6e12c85bda04a9664a6575938dbc9e47860f9c1a2ab0ac8c49d5812f4d34ce4`
+
+## Source launch rail continuation
+
+Source and projection launch rails now invoke the same callback from model,
+click and F5 controls. Exact source and callback/lifetime changes retire handles;
+callbacks cannot overlap within their controller. A completed callback does not
+establish a live debugger/process; actual failure remains visible. This extends
+the contract to `DebugRail`/`useDebugLaunchActions` without certifying downstream
+adapter startup. Five existing rail cases and three new focused registry/native
+cases passed, with real CodeMirror and mocked launch callbacks. LLM review is
+partial; human judgment and native/provider witnesses remain unrecorded.
+
+Source dependencies (SHA-256):
+- `apps/web/src/debug/DebugRail.tsx`: `224cbdfb8dde2e348728beb9295da89239ebd1a7bda781fb4c5b7130481b3ae6`
+- `apps/web/src/debug/useDebugLaunchActions.ts`: `a4e2f3af054e2de713bdb64ec48816d5dc40f81dc22cebf0250e86217f57ae5d`
