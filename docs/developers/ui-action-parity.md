@@ -915,3 +915,11 @@ reading, native collapse, stale handles and late verified-asset cleanup. Targete
 TypeScript checks pass. These adapters require an enclosing registry; the separate
 static snapshot entrypoint still lacks native-agent attachment, and its import,
 index/navigation and complete asset/media control mapping remain open.
+
+UiCheckbox now binds handles to owner/label/input identity and callback replacement,
+including same-valued replacements. Native/model changes share pending-operation
+exclusion and actual callback failure handling. A retired callback's late error
+cannot become the new owner's error; completion explicitly does not certify
+persistence. Two focused native/registry cases and targeted TypeScript checks
+pass. This verifies the generic controller, not every settings backend or product
+form using it.

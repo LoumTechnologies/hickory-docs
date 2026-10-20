@@ -687,3 +687,24 @@ edge forms; and unresolved/nonliteral/glob/missing-entry reporting. These are
 static analyzer fixtures, not runtime UI or launch witnesses. This index helps
 avoid adding adapters to an unused renderer while leaving actual reachable gaps
 visible; it does not close the per-command semantic coverage requirement.
+
+### Owned setting callback continuation — 2026-10-20
+
+UiCheckbox now includes owner, label, input identity and callback identity in its
+private revision, so same-valued replacements cannot reuse a disclosed handle.
+Native and model paths share change invocation, pending-callback exclusion and
+actual failure reporting. An error from a retired callback stays associated with
+that callback. Requested checked state and callback completion do not establish
+backend persistence.
+
+LLM implementation review: partially verified for the generic controller. Two
+focused `UiCheckbox.test.tsx` cases passed with native input and real registry
+invocations: same-valued callback/owner replacement, mixed native/model changes,
+duplicate pending exclusion, actual error and late-error isolation. Targeted
+TypeScript, whitespace and file-length checks passed. Tests use callback fixtures;
+they do not certify every consuming settings form, backend, provider or OS.
+Human judgment remains unrecorded.
+
+- Dependency `apps/web/src/components/UiCheckbox.tsx` SHA-256: `f298bfb97c7bd881a342d73685caa4f1ae1e1e73bfe7f792ae0d7a7365473d73`.
+
+- Dependency `apps/web/src/components/UiCheckbox.test.tsx` SHA-256: `c116afe87c0a7b748a239f03669d39df8a2588d489cfad1ceaa9c2f10b4c20b4`.
