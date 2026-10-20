@@ -830,3 +830,16 @@ presentation/ribbon cases and two new lifecycle/retry cases pass. The ACP ribbon
 test now targets the actual adapter-report caption. Targeted TypeScript checks
 pass; these are recorded fixtures and mocked navigation/API boundaries, not live
 provider or native-release evidence.
+
+ProfileEvidence now shares disclosure, next-context pinning and displayed source
+navigation. Aggregate rows are paged only while expanded. Source navigation opens
+the actual recorded event; editor selection changes only when that event's source
+bytes match the current editor. Stale displayed source disables navigation, and
+run/source replacement resets disclosure/pinning and retires handles. Pin requests
+do not claim provider context delivery; function totals remain separate from
+per-line costs and include profiling overhead.
+
+Two focused recorded-profile cases pass with a real CodeMirror fixture: mixed
+native/model disclosure/pinning, exact aggregate reading, old-run handle refusal,
+context-selection cleanup and unrelated-buffer navigation safety. Targeted
+TypeScript checking passes. No real profiling execution/provider is asserted.
