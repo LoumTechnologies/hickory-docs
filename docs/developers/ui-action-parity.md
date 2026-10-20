@@ -451,3 +451,5 @@ the actual captured host trace, expires prior-source handles and drops old trace
 content immediately when a new supplied revision is pending. Replay is cell order,
 not expression stepping or reverse execution. Remaining clipboard/formula-pointing,
 scroll/engagement and drag edge cases still require inventory review.
+
+Table grid controls were extracted without changing selection or drag behavior. Focused checks: strict TablePanel TypeScript and 13 selection/resize/fit cases passed. The repository file-length check still reports other oversized files; their cleanup remains required.
