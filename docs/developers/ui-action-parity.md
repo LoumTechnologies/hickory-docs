@@ -743,3 +743,11 @@ menu dismissal and pending fleet-start cancellation now have separate subjects
 from the callbacks they control. Two focused tests hold the original registered
 action pending while invoking the escape command, then settle the actual result.
 This corrects the earlier direct-hook coverage gap without claiming rollback.
+
+WorktreeRegionEditor now shares source-bound route/reset/apply controls and
+paged state. Changed parent snapshot/region/input/writable membership retains a
+read-only stale draft until explicit reset. Missing snapshots refuse writes;
+pending apply excludes duplicates and exposes actual per-target callback replies.
+Two real-CodeMirror/mocked-write cases pass. The containing MergedView's source
+loading, target selection, undo and late-result lifetimes remain outstanding;
+this child checkpoint does not certify the complete worktree view.

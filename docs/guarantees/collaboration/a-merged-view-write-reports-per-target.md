@@ -73,3 +73,24 @@ restored without writing while a newer edit on the written side remains intact.
 Per-target guards do not make a multi-target filesystem transaction. Current
 dependency hashes and failure/correction evidence are in
 `../literate-projects/comparison-integration-evidence.md`. Human judgment is not recorded.
+
+### Source-bound region draft controller (issue #72)
+
+Worktree region editing now exposes shared route/reset/apply controls and paged
+state reading alongside the existing comparison editors. Drafts bind the parent
+host snapshot plus region identity, path, values and writable membership. Changed
+input retains the old draft read-only and requires explicit reset; it cannot
+silently reuse a newer apply callback. Missing host snapshots disable writes.
+Apply captures the actual edited target/text/route, excludes duplicate pending
+writes and returns the actual callback reply. Per-target replies are separately
+disclosed; a partial reply or transport failure never asserts rollback or
+independent verification. Parent refresh failure after receiving a write reply
+does not relabel that received write reply as a failed write.
+
+Two focused UI cases with real CodeMirror comparison drafts and mocked apply
+callbacks pass: native/model route/draft/apply sharing, duplicate exclusion and
+partial per-target reply reading; and snapshot replacement, stale-handle refusal,
+read-only draft retention and explicit reset. Strict TypeScript/file-length/diff
+checks pass. These tests cover the region child; the containing view's loading,
+selection, undo and late-response lifetimes remain separate integration work.
+No user's worktrees, real host writes or native/provider releases are exercised.

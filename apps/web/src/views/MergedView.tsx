@@ -107,8 +107,10 @@ export function MergedView({ path }: { path: string }) {
   const shown = view.sources.map((s) => s.name);
   const refresh=()=>api.merged(path,targets).then(setView);
   const apply=async(region:number,text:string,target:string,route:"shared"|"just-here")=> {
-    setResult(await request("POST","/api/merged/write",{path,targets:shown,writable:[...writable],expected:view.snapshot,region,text,route,source:target}));
-    setEditing(null);setComparison(null);await refresh();
+    const answer = await request<NonNullable<typeof result>>("POST","/api/merged/write",{path,targets:shown,writable:[...writable],expected:view.snapshot,region,text,route,source:target});
+    setResult(answer); setEditing(null); setComparison(null);
+    try { await refresh(); } catch (cause) { setError(`Write reply received; refreshing the comparison failed: ${String(cause)}`); }
+    return answer;
   };
   const inspect=async()=> {
     const sources=await Promise.all(shown.map(async name=> {
@@ -183,12 +185,12 @@ export function MergedView({ path }: { path: string }) {
           region.kind === "shared" ? (
             <section key={i} className="merged-region merged-region--shared"><pre>{region.text}</pre>
               <button className="btn" onClick={()=>setEditing(editing===i?null:i)}>Edit shared region</button>
-              {editing===i && <WorktreeRegionEditor path={path} values={Object.fromEntries(shown.map(name=>[name,region.text]))} shared writable={writable} onApply={(text,target,route)=>apply(i,text,target,route)} />}
+              {editing===i && <WorktreeRegionEditor sourceEpoch={view.snapshot ? JSON.stringify([path, view.snapshot, i]) : null} path={path} values={Object.fromEntries(shown.map(name=>[name,region.text]))} shared writable={writable} onApply={(text,target,route)=>apply(i,text,target,route)} />}
             </section>
           ) : (
             <div key={i} className="merged-region merged-region--variant">
               <button className="btn" onClick={()=>setEditing(editing===i?null:i)}>Edit variant region</button>
-              {editing===i && <WorktreeRegionEditor path={path} values={region.by_source} shared={false} writable={writable} onApply={(text,target,route)=>apply(i,text,target,route)} />}
+              {editing===i && <WorktreeRegionEditor sourceEpoch={view.snapshot ? JSON.stringify([path, view.snapshot, i]) : null} path={path} values={region.by_source} shared={false} writable={writable} onApply={(text,target,route)=>apply(i,text,target,route)} />}
               {Object.entries(region.by_source).map(([name, text]) => (
                 <div key={name} className="merged-variant">
                   <span className="merged-variant__label mono">{name}</span>
