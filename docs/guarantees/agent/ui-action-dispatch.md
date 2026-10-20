@@ -299,3 +299,22 @@ Executed focused checks: uiActionConnection (4 passed), selected WorkspaceChat
 startup/preview cases (2 passed), strict targeted bridge/context checking passed.
 The connection tests exercise pending, timeout, closed/replacement and failed
 handshakes with mocked host endpoints; native startup remains a separate witness.
+
+### ACP permission and tool evidence — 2026-10-19
+
+An agent can explicitly read the actual permission request/options and request a
+human decision keyed by document/backend/request identity. It cannot answer any
+option on its own behalf. Human buttons use the same current-choice handler and
+actual host acknowledgement. `answered: false` keeps the request visible and
+reports an error; acknowledgement does not certify tool completion. Tool details
+use explicit JSON UTF-8 byte reads capped at 8192, with opaque revisions. Closed
+adapter tool details retire their reading commands while preserving the mounted
+view; reopening requires current handles. This local registry actor policy does
+not authenticate independent HTTP callers or sandbox ACP processes.
+
+Executed focused checks: four selected AcpControls permission/disclosure cases
+passed, including human exact-choice routing, agent self-answer refusal, actual
+host refusal staying visible, and hidden tool-reading retirement. The host-false
+case first exposed missing inline error feedback in the hostless adapter; that
+feedback was fixed before rerun. Strict targeted AcpControls checking passed.
+Endpoints are mocked; real adapter permission/provider behavior remains unwitnessed.

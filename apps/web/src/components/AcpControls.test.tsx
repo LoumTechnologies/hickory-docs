@@ -69,3 +69,54 @@ describe("ACP controls", () => {
     expect(screen.getByRole("button", { name: "Install Codex adapter" })).toBeTruthy();
   });
 });
+
+// Guarantee: docs/guarantees/agent/ui-action-dispatch.md
+it("retains an addressable permission request without allowing the agent to answer itself", async () => {
+  const { UiActions } = await import("../lib/uiActions");
+  const { UiActionContext } = await import("../lib/uiActionBridge");
+  const registry = new UiActions({ workspace: "p", window: "w" }, () => true, async () => {});
+  vi.mocked(acpApi.catalogue).mockResolvedValue({ agents: [] });
+  vi.mocked(acpApi.state).mockResolvedValue({ ...ready, permissions: [{ id: "permission", toolCall: { title: "Write", rawInput: { private: "proposal λ" } }, options: [{ optionId: "yes", name: "Allow once", kind: "allow_once" }, { optionId: "no", name: "Reject", kind: "reject_once" }] }] });
+  vi.mocked(acpApi.permission).mockResolvedValue({ answered: true });
+  render(<UiActionContext.Provider value={registry}><Surface running="turn" settingsOpen={false} /></UiActionContext.Provider>);
+  await screen.findByText("Allow once");
+  const parent = registry.groups().groups.find(g => g.startsWith("adapter-permission:"))!;
+  expect(JSON.stringify(registry.observe(parent))).not.toContain("proposal λ");
+  const action = registry.observe(parent).actions.find(a => a.label === "Answer adapter permission")!;
+  expect(await registry.act(registry.scope, { id: "acp:session", kind: "agent" }, { handle: action.handle, arguments: { option: "yes" }, request_id: "request-human" })).toMatchObject({ outcome: { status: "requires_input", request: "adapter-permission:doc:codex:permission" } });
+  expect(acpApi.permission).not.toHaveBeenCalled();
+  const reader = registry.observe(parent).actions.find(a => a.label === "Read adapter permission bytes")!;
+  const reading = await registry.act(registry.scope, { id: "acp:session", kind: "agent" }, { handle: reader.handle, arguments: { offset: 0, limit: 8192 }, request_id: "read" });
+  if (reading.status !== "result" || reading.outcome.status !== "completed") throw Error("Expected bytes");
+  expect(new TextDecoder().decode(new Uint8Array((reading.outcome.value as { bytes: number[] }).bytes))).toContain("proposal λ");
+  fireEvent.click(screen.getByText("Reject"));
+  await waitFor(() => expect(acpApi.permission).toHaveBeenCalledWith("doc", "permission", "no"));
+  await waitFor(() => expect(registry.observe(parent).actions).toEqual([]));
+});
+it("keeps a permission request visible when the host refuses its answer", async () => {
+  vi.mocked(acpApi.catalogue).mockResolvedValue({ agents: [] });
+  vi.mocked(acpApi.state).mockResolvedValue({ ...ready, permissions: [{ id: "permission", toolCall: { title: "Write" }, options: [{ optionId: "no", name: "Reject", kind: "reject_once" }] }] });
+  vi.mocked(acpApi.permission).mockResolvedValue({ answered: false });
+  render(<Surface running="turn" settingsOpen={false} />);
+  fireEvent.click(await screen.findByText("Reject"));
+  await waitFor(() => expect(screen.getByRole("alert").textContent).toContain("host did not accept"));
+  expect(screen.getByText("Reject")).toBeTruthy();
+});
+it("discloses completed adapter tool bytes only after opening its actual details", async () => {
+  const { UiActions } = await import("../lib/uiActions");
+  const { UiActionContext } = await import("../lib/uiActionBridge");
+  const registry = new UiActions({ workspace: "p", window: "w" }, () => true, async () => {});
+  vi.mocked(acpApi.catalogue).mockResolvedValue({ agents: [] });
+  vi.mocked(acpApi.state).mockResolvedValue({ ...ready, tools: [{ toolCallId: "tool", title: "Read evidence", status: "completed", rawOutput: "HIDDEN OUTPUT λ" }] });
+  render(<UiActionContext.Provider value={registry}><Surface running="turn" settingsOpen={false} /></UiActionContext.Provider>);
+  await screen.findByText("Read evidence");
+  expect(registry.groups().groups.some(g => g.startsWith("adapter-tool-reading:"))).toBe(false);
+  const parent = registry.groups().groups.find(g => g.startsWith("adapter-tool:"))!;
+  const open = registry.observe(parent).actions[0];
+  await act(async () => { await registry.act(registry.scope, { id: "acp:session", kind: "agent" }, { handle: open.handle, arguments: { open: true }, request_id: "open" }); });
+  expect(registry.groups().groups.some(g => g.startsWith("adapter-tool-reading:"))).toBe(true);
+  expect(JSON.stringify(registry.observe(parent))).not.toContain("HIDDEN OUTPUT");
+  const close = registry.observe(parent).actions[0];
+  await act(async () => { await registry.act(registry.scope, { id: "acp:session", kind: "agent" }, { handle: close.handle, arguments: { open: false }, request_id: "close" }); });
+  expect(registry.groups().groups.some(g => g.startsWith("adapter-tool-reading:"))).toBe(false);
+});

@@ -333,3 +333,11 @@ submission with a retry/reopen reason; it no longer silently drops UI tools.
 Closing that origin rejects its capture even if a replacement connects. A
 hostless embedding with no UiActionsProvider still captures without a window.
 An established capture remains bound to its original window; it never reattaches.
+
+ACP permission cards now have exact bounded reads and addressable human-choice
+requests. Agent invocation cannot answer a permission itself. Human choices use
+the actual host permission endpoint; cards retire only on `answered: true`, and a
+refused answer stays visible with an error. Adapter tool details have explicit
+open/close disclosure and bounded byte reads; closed details unregister their
+reading commands. Permission and provider authority remain owned by the actual
+adapter/host, not by a rendered action reference.

@@ -1,7 +1,9 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useRef, useState } from "react";
+import { useUiCommands, useUiRevision, UiActionsVisibility } from "../lib/uiActionBridge";
+import type { UiOutcome } from "../lib/uiActions";
 import { DiffView } from "./DiffView";
 import { unifiedDiff } from "../lib/diff";
-import { acpApi, type AcpState, type AcpUpdate, type AgentCommand, type ConfigOption } from "../api/acp";
+import { acpApi, type AcpState, type AcpUpdate, type AgentCommand, type ConfigOption, type AcpPermission } from "../api/acp";
 
 const defaults: AgentCommand[] = [
   { id: "codex", name: "Codex", command: "codex-acp", args: [] },
@@ -96,19 +98,55 @@ export function AcpControls({ doc, backend, running, control, settingsOpen = tru
     {settingsOpen && !busy && !state?.ready && <p className="muted">Use your agent’s own account or API key. Agent commands follow that agent’s permissions and sandbox.</p>}
     {settingsOpen && state?.commands?.length ? <details className="acp-commands"><summary>Agent commands</summary>
       {state.commands.map(c => <p key={c.name}><code>/{c.name}</code> — {c.description}</p>)}</details> : null}
-    {!settingsOnly && state?.permissions?.map(permission => <section key={permission.id} className="acp-permission" role="group" aria-label="Agent permission">
-      <strong>{permission.toolCall.title ?? "The agent needs your permission"}</strong>
-      <ToolDetails tool={permission.toolCall} />
-      <div className="acp-settings">{permission.options.map(option =>
-        <button className="btn" key={option.optionId} onClick={async () => {
-          try { await acpApi.permission(doc, permission.id, option.optionId); control.setState(s => s ? { ...s, permissions: s.permissions?.filter(p => p.id !== permission.id) } : s); }
-          catch (e) { control.setError(e instanceof Error ? e.message : String(e)); }
-        }}>{option.name}</button>)}</div>
-    </section>)}
-    {!settingsOnly && showTools && running && state?.tools?.map(tool => <details key={tool.toolCallId} className="acp-tool" open={tool.status === "pending"}>
-      <summary>{tool.title ?? tool.kind ?? "Agent tool"} <span className="muted">{tool.status}</span></summary><ToolDetails tool={tool} />
-    </details>)}
+    {!settingsOnly && state?.permissions?.map(permission => <PermissionControl key={permission.id} doc={doc} backend={backend} permission={permission} control={control} />)}
+    {!settingsOnly && showTools && running && state?.tools?.map(tool => <AdapterTool key={tool.toolCallId} tool={tool} />)}
   </div>;
+}
+
+function PermissionControl({ doc, backend, permission, control }: { doc: string; backend: string; permission: AcpPermission; control: Controls }) {
+  const parent = `adapter-permission:${useId()}`;
+  const [answering, setAnswering] = useState(false);
+  const pending = useRef(false);
+  const revision = useUiRevision(() => [doc, backend, permission, answering]);
+  const invoke = useUiCommands([{ key: parent, command: {
+    label: "Answer adapter permission", parent, subject: parent,
+    parameters: { option: { type: "string", maxLength: 4096, choices: permission.options.map(o => o.optionId) } }, prerequisites: ["The human chooses an actual current adapter permission option"],
+    read: () => ({ revision: revision(), enabled: !answering }),
+    execute: async (args, actor): Promise<UiOutcome> => {
+      if (actor.kind === "agent") return { status: "requires_input", request: `adapter-permission:${doc}:${backend}:${permission.id}`, reason: "The human must choose this adapter permission; inspect current request/status after that decision" };
+      if (pending.current) return { status: "unavailable", reason: "Permission answer already in flight" };
+      pending.current = true; setAnswering(true);
+      try {
+        const actual = await acpApi.permission(doc, permission.id, args.option as string);
+        if (!actual.answered) { const reason = "The host did not accept this permission answer; refresh actual adapter state"; control.setError(reason); return { status: "unavailable", reason }; }
+        control.setState(s => s ? { ...s, permissions: s.permissions?.filter(p => p.id !== permission.id) } : s);
+        return { status: "completed", value: { request: permission.id, option: args.option, answered: actual.answered, tool_completion: "not established" } };
+      } catch (e) { const reason = e instanceof Error ? e.message : String(e); control.setError(reason); return { status: "unavailable", reason }; }
+      finally { pending.current = false; setAnswering(false); }
+    },
+  } }, { key: `${parent}:read`, command: {
+    label: "Read adapter permission bytes", parent, subject: parent,
+    parameters: { offset: { type: "number", minimum: 0, maximum: 1000000000, integer: true }, limit: { type: "number", minimum: 1, maximum: 8192, integer: true } }, prerequisites: [], read: () => ({ revision: revision(), enabled: true }),
+    execute: async args => {
+      const bytes = new TextEncoder().encode(JSON.stringify({ doc, backend, permission, answering }));
+      const offset = args.offset as number, end = Math.min(offset + (args.limit as number), bytes.length);
+      if (offset > bytes.length) return { status: "unavailable", reason: "Offset outside permission request" };
+      return { status: "completed", value: { bytes: Array.from(bytes.slice(offset, end)), encoding: "JSON UTF-8", offset, total_bytes: bytes.length, next_offset: end < bytes.length ? end : null } };
+    },
+  } }]);
+  return <section className="acp-permission" role="group" aria-label="Agent permission">
+    <strong>{permission.toolCall.title ?? "The agent needs your permission"}</strong>
+    <ToolDetails tool={permission.toolCall} />
+    <div className="acp-settings">{permission.options.map(option => <button className="btn" key={option.optionId} disabled={answering} onClick={() => void invoke(parent, { option: option.optionId }).catch(reason => control.setError(String(reason)))}>{option.name}</button>)}</div>
+  </section>;
+}
+
+function AdapterTool({ tool }: { tool: AcpUpdate }) {
+  const [open, setOpen] = useState(tool.status === "pending");
+  const subject = `adapter-tool:${useId()}`;
+  const revision = useUiRevision(() => [tool.toolCallId, tool.status, open]);
+  useUiCommands([{ key: subject, command: { label: `Set adapter tool details visibility: ${(tool.title ?? tool.kind ?? "Agent tool").slice(0, 256)}`, parent: subject, subject, parameters: { open: { type: "boolean" } }, prerequisites: [], read: () => ({ revision: revision(), enabled: true, value: { open, status: tool.status ?? null } }), execute: async args => { setOpen(args.open as boolean); return { status: "completed", value: args.open }; } } }]);
+  return <details className="acp-tool" open={open} onToggle={event => setOpen(event.currentTarget.open)}><summary>{tool.title ?? tool.kind ?? "Agent tool"} <span className="muted">{tool.status}</span></summary><UiActionsVisibility visible={open}><ToolDetails tool={tool} /></UiActionsVisibility></details>;
 }
 
 function ConfigControl({ option, disabled, onChange }: { option: ConfigOption; disabled: boolean; onChange: (value: string | boolean) => void }) {
@@ -119,6 +157,18 @@ function ConfigControl({ option, disabled, onChange }: { option: ConfigOption; d
 }
 
 export function ToolDetails({ tool }: { tool: AcpUpdate }) {
+  const subject = `adapter-tool-reading:${useId()}`;
+  const revision = useUiRevision(() => tool);
+  useUiCommands([{ key: subject, command: {
+    label: "Read adapter tool details bytes", parent: subject, subject,
+    parameters: { offset: { type: "number", minimum: 0, maximum: 1000000000, integer: true }, limit: { type: "number", minimum: 1, maximum: 8192, integer: true } }, prerequisites: [], read: () => ({ revision: revision(), enabled: true }),
+    execute: async args => {
+      const bytes = new TextEncoder().encode(JSON.stringify(tool));
+      const offset = args.offset as number, end = Math.min(offset + (args.limit as number), bytes.length);
+      if (offset > bytes.length) return { status: "unavailable", reason: "Offset outside current tool details" };
+      return { status: "completed", value: { bytes: Array.from(bytes.slice(offset, end)), encoding: "JSON UTF-8", offset, total_bytes: bytes.length, next_offset: end < bytes.length ? end : null } };
+    },
+  } }]);
   return <div className="acp-tool-details">
     {tool.locations?.map((location, i) => <p key={i}><code>{location.path}</code>{location.line !== undefined ? `:${location.line + 1}` : ""}</p>)}
     {tool._meta?.terminal_output_delta?.data && <pre>{tool._meta.terminal_output_delta.data}</pre>}
