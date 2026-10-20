@@ -116,3 +116,28 @@ cleanup, and bounded inspectable failures. They do not exercise native UI,
 providers, actual fleet identities, or network pairing. The separate peer tests
 above cover the real temporary-fixture network cancellation boundary. UI job
 adoption remains the next integration step.
+
+### Shared UI job adoption (issue #72)
+
+The Fleet pane now starts versioned host/dial jobs using its actual UI scope;
+it never falls back to the uncancellable blocking route. Both native controls
+and registered agent actions inspect the same host job IDs and phases, request
+cancellation, refresh retained requests and forget finished results. Full replies
+remain behind an evidence disclosure. Only actual active jobs are polled, and
+old pane/window responses cannot be adopted by a replacement controller.
+
+An uncertain start retains its private request ID and exact arguments for retry.
+Changed-argument retries require inspection rather than blindly starting again.
+Definitive client refusals release the attempt. Cancellation before receiving a
+job ID is explicitly pending and forwarded when that identity is recovered;
+unmount also requests cancellation for known jobs and late start replies.
+This does not promise that an uncertain transport failure means no work, that
+remote invitations can be retracted, or that closing a pane rolls back enrollment.
+
+Focused web validation uses mocked host replies: native phrase/dial adoption,
+shared invitation/grant safety, actual job identity in agent cancellation,
+uncertain retry identity, late-reply cancellation, pending-start cancellation
+and later observed closed state. A focused API test verifies all versioned paths
+and no legacy downgrade. Strict TypeScript and file-length checks apply to the
+changed surface. These are fixture-backed integration witnesses, not a real
+native/provider/remote-machine recording or released-build witness.

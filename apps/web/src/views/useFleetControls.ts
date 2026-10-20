@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useId, useRef, useState } from "react";
+import { useFleetPairingControls } from "./useFleetPairingControls";
 import { api } from "../api/client";
 import type { FleetResponse } from "../api/types";
 import { useUiCommands, useUiRevision } from "../lib/uiActionBridge";
@@ -18,9 +19,7 @@ export function useFleetControls(grantDescriptions: Record<string, string>) {
   const [busy, setBusy] = useState(false);
   const [fallbackOpen, setFallbackOpen] = useState(false);
   const [receipt, setReceipt] = useState<UiValue>(null);
-  const [hostResult, setHostResult] = useState<UiValue>(null);
   const pending = useRef(false), mounted = useRef(true), sequence = useRef(0);
-  const hostRequest = useRef<string | null>(null);
   useEffect(() => { mounted.current = true; return () => { mounted.current = false; sequence.current++; }; }, []);
   const reload = useCallback(async () => {
     const ticket = ++sequence.current;
@@ -49,34 +48,26 @@ export function useFleetControls(grantDescriptions: Record<string, string>) {
       return { status: "unavailable", reason };
     } finally { pending.current = false; if (mounted.current) setBusy(false); }
   };
-  const phrase = () => act(async () => {
-    if (hostRequest.current) throw Error("A pairing host request is already waiting; inspect its result or expiry");
-    const response = await api.fleetPhrase();
-    const job = crypto.randomUUID(); hostRequest.current = job;
-    if (mounted.current) { setHosting(response.phrase); setHostResult({ job, status: "waiting", seconds: response.seconds }); }
-    void api.fleetHost(response.phrase).then(answer => {
-      if (!mounted.current || hostRequest.current !== job) return;
-      setHosting(null); setHostResult({ job, status: "paired", response: JSON.parse(JSON.stringify(answer)) });
-      setNote(`Paired with “${answer.machine.name}”. Compare the fingerprints: them ${answer.their_fingerprint}, you ${answer.our_fingerprint}.`);
-      void reload();
-    }, cause => {
-      if (!mounted.current || hostRequest.current !== job) return;
-      const reason = cause instanceof Error ? cause.message : String(cause);
-      setHosting(null); setError(reason); setHostResult({ job, status: "failed", error: reason });
-    }).finally(() => {
-      if (hostRequest.current === job) {
-        hostRequest.current = null;
-        if (mounted.current) setHostResult(current => current && typeof current === "object" && !Array.isArray(current) ? { ...current, request_finished: true } : current);
-      }
-    });
-    return { response, note: `Read this out and type it on the other machine. ${response.seconds} seconds.` };
-  });
-  const pair = () => act(async () => {
-    const captured = dialled.trim(); if (!captured) throw Error("Enter a pairing phrase");
-    const response = await api.fleetPair(captured);
-    if (mounted.current) setDialled(current => current.trim() === captured ? "" : current);
-    return { response, note: `Paired with “${response.machine.name}”. ${response.note} Them ${response.their_fingerprint}, you ${response.our_fingerprint}.` };
-  });
+  const pairing = useFleetPairingControls(parent, () => { void reload(); });
+  const phrase = async (_args: Record<string, UiValue>, _actor: unknown, signal: AbortSignal): Promise<UiOutcome> => {
+    if (pending.current || pairing.pending || pairing.active) return { status: "unavailable", reason: "Fleet controller is busy" };
+    if (pairing.uncertain && hosting) return pairing.start("host", hosting, signal);
+    pending.current = true; setBusy(true);
+    try {
+      const response = await api.fleetPhrase();
+      if (!mounted.current) return { status: "unavailable", reason: "Fleet pane closed" };
+      setHosting(response.phrase); setNote(`Read this out and type it on the other machine. ${response.seconds} seconds.`);
+      return await pairing.start("host", response.phrase, signal);
+    } catch (cause) { setError(String(cause)); return { status: "unavailable", reason: String(cause) }; }
+    finally { pending.current = false; if (mounted.current) setBusy(false); }
+  };
+  const pair = async (_args: Record<string, UiValue>, _actor: unknown, signal: AbortSignal): Promise<UiOutcome> => {
+    if (pending.current || !dialled.trim()) return { status: "unavailable", reason: "Enter a pairing phrase and wait for the foreground operation" };
+    return pairing.start("dial", dialled.trim(), signal);
+  };
+  const hostResult: UiValue = pairing.jobs.length ? JSON.parse(JSON.stringify(pairing.jobs)) : null;
+  const pairedJob = [...pairing.jobs].reverse().find(job => job.status === "paired");
+  const pairingNote = pairedJob?.result ? `Paired with “${pairedJob.result.machine.name}”. ${pairedJob.result.note} Them ${pairedJob.result.their_fingerprint}, you ${pairedJob.result.our_fingerprint}.` : null;
   const invite = () => act(async () => {
     const response = await api.fleetInvite(); if (mounted.current) setInvitation(response.invitation);
     return { response, note: response.note };
@@ -100,12 +91,12 @@ export function useFleetControls(grantDescriptions: Record<string, string>) {
       return { status: "requires_input", request: `${parent}:clipboard`, reason };
     }
   };
-  const revision = useUiRevision(() => [fleet, error, note, fallbackOpen, invitation, pasted, dialled, hosting, hostResult, pending.current, receipt]);
+  const revision = useUiRevision(() => [fleet, error, note, fallbackOpen, invitation, pasted, dialled, hosting, hostResult, pending.current, pairing.pending, pairing.active, receipt]);
   const actions: { id: string; label: string; parameters?: UiCommand["parameters"]; enabled?: () => boolean; execute: UiCommand["execute"] }[] = [
     { id: "reload", label: "Refresh local fleet roster", execute: async () => ({ status: "completed", value: { refreshed: !!await reload() } }) },
-    { id: "phrase", label: "Get fleet pairing phrase", enabled: () => !hostRequest.current, execute: phrase },
-    { id: "dialled", label: "Set fleet pairing phrase", parameters: { text: { type: "string", maxLength: 8192 } }, execute: async args => { setDialled(args.text as string); return { status: "completed", value: { draft_updated: true } }; } },
-    { id: "pair", label: "Pair fleet machine by phrase", enabled: () => !!dialled.trim(), execute: pair },
+    { id: "phrase", label: "Get fleet pairing phrase", enabled: () => !pairing.pending && !pairing.active, execute: phrase },
+    { id: "dialled", enabled: () => !pairing.pending && !pairing.active, label: "Set fleet pairing phrase", parameters: { text: { type: "string", maxLength: 8192 } }, execute: async args => { setDialled(args.text as string); return { status: "completed", value: { draft_updated: true } }; } },
+    { id: "pair", label: "Pair fleet machine by phrase", enabled: () => !!dialled.trim() && !pairing.pending && !pairing.active, execute: pair },
   ];
   if (fallbackOpen) actions.push(
     { id: "invite", label: "Show local fleet invitation", execute: invite },
@@ -122,18 +113,18 @@ export function useFleetControls(grantDescriptions: Record<string, string>) {
   }
   const invoke = useUiCommands(actions.map(action => ({ key: `${parent}:${action.id}`, command: {
     parent, subject: parent, label: action.label, parameters: action.parameters ?? {}, prerequisites: ["Existing local-only fleet API authority; peer routes do not expose fleet writes"],
-    read: () => ({ revision: revision(), enabled: !pending.current && (action.enabled?.() ?? true) }), execute: action.execute,
+    read: () => ({ revision: revision(), enabled: !pending.current && !pairing.pending && (action.enabled?.() ?? true) }), execute: action.execute,
   } })));
   const human = (id: string, args = {}) => void invoke(`${parent}:${id}`, args).catch(cause => { if (mounted.current) setError(String(cause)); });
   const metadata = { fleet: fleet ? { this_machine: fleet.this_machine,
     machines: fleet.machines.map(machine => ({ name: machine.name, kind: machine.kind, grants: machine.grants, public_key_prefix: `${machine.public_key.slice(0, 12)}…` })),
     reach: fleet.reach, reach_note: fleet.reach_note, note: fleet.note } : null,
-    error, note, busy, dialled, hosting, grant_descriptions: grantDescriptions,
-    host_request_active: !!hostRequest.current, raw_reply_available: !!receipt || !!hostResult,
+    error: error ?? pairing.error, note: pairingNote ?? note, busy: busy || pairing.pending, dialled, hosting, grant_descriptions: grantDescriptions,
+    host_request_active: pairing.active, raw_reply_available: !!receipt || !!hostResult,
     fallback_open: fallbackOpen, invitation: fallbackOpen ? invitation : null, invitation_draft: fallbackOpen ? pasted : null };
   useUiReading("local fleet state", metadata);
-  return { fleet, error, note, invitation, pasted, dialled, hosting, busy, fallbackOpen, setFallbackOpen,
+  return { fleet, error: error ?? pairing.error, note: pairingNote ?? note, invitation, pasted, dialled, hosting, busy: busy || pairing.pending, pairing, fallbackOpen, setFallbackOpen,
     setPasted: (text: string) => { if (!pending.current) setPasted(text); },
-    setDialled: (text: string) => { if (!pending.current) setDialled(text); },
+    setDialled: (text: string) => { if (!pending.current && !pairing.pending && !pairing.active) setDialled(text); },
     human, copy, receipt, hostResult };
 }

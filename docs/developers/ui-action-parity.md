@@ -659,3 +659,12 @@ forget with live-window checks, exact-argument idempotency, bounded retention,
 actual cancellation outcomes and close cleanup. Peer transport refuses these
 local authority routes. Four focused fixture-worker tests pass; this backend
 checkpoint does not claim UI adoption or a native/provider witness.
+
+The Fleet pane now adopts those window-owned jobs through the shared UI scope.
+Native/model start, metadata reading, cancel, refresh and forgetting share real
+host identities; full replies require disclosure. Unknown starts reuse exact
+request IDs; early cancellation forwards only after identity recovery and never
+claims confirmed stopping. Closed controllers refuse late adoption. Focused
+mocked-host/native-control/agent-action and versioned-API tests pass; the earlier
+UI host-cancellation code gap is resolved for this request surface. This does
+not establish universal native/provider/release parity.

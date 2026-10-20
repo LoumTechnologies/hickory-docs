@@ -142,3 +142,23 @@ it("binds fleet mutation routes to observed keys without legacy fallback", async
     expect(handler).toHaveBeenLastCalledWith("POST", "/api/v1/fleet/remove", { machine: "desktop", expected_key: "" });
   } finally { installMockHandler(null as never); }
 });
+
+it("keeps pairing jobs on the versioned originating-window routes without fallback", async () => {
+  const handler = vi.fn(async () => ({}));
+  installMockHandler(handler);
+  try {
+    await api.startFleetPairing("window", "retry-id", "host", "phrase");
+    expect(handler).toHaveBeenLastCalledWith("POST", "/api/v1/fleet/pairings", { window: "window", request_id: "retry-id", mode: "host", phrase: "phrase" });
+    await api.fleetPairings("window");
+    expect(handler).toHaveBeenLastCalledWith("GET", "/api/v1/fleet/pairings?window=window", undefined);
+    await api.fleetPairing("window", "job");
+    expect(handler).toHaveBeenLastCalledWith("GET", "/api/v1/fleet/pairings/job?window=window", undefined);
+    await api.cancelFleetPairing("window", "job");
+    expect(handler).toHaveBeenLastCalledWith("POST", "/api/v1/fleet/pairings/job/cancel?window=window", {});
+    await api.forgetFleetPairing("window", "job");
+    expect(handler).toHaveBeenLastCalledWith("DELETE", "/api/v1/fleet/pairings/job?window=window", undefined);
+    handler.mockRejectedValueOnce(Error("Protocol unavailable"));
+    await expect(api.startFleetPairing("window", "retry-id", "host", "phrase")).rejects.toThrow("Protocol unavailable");
+    expect(handler).toHaveBeenCalledTimes(6);
+  } finally { installMockHandler(null as never); }
+});

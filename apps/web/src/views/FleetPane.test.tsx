@@ -4,12 +4,25 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 
 import { api } from "../api/client";
 import { FleetPane } from "./FleetPane";
+import { UiActions } from "../lib/uiActions";
+import { UiActionContext } from "../lib/uiActionBridge";
+import type { FleetPairingJob } from "../api/fleetPairings";
 import type { FleetMachine } from "../api/types";
 
 beforeEach(() => {
   cleanup();
   vi.restoreAllMocks();
+  vi.spyOn(api, "fleetPairings").mockResolvedValue({ jobs: [] });
+  vi.spyOn(api, "cancelFleetPairing").mockResolvedValue({ job: job("cancelled") });
 });
+
+function job(status: FleetPairingJob["status"] = "running"): FleetPairingJob {
+  return { id: "host-job", request_id: "request", mode: "host", status, phase: "waiting_for_peer", cancel_requested: status === "cancelled", rollback: false };
+}
+function renderFleet() {
+  const registry = new UiActions({ workspace: "p", window: "w" }, () => true, async () => {});
+  return render(<UiActionContext.Provider value={registry}><FleetPane /></UiActionContext.Provider>);
+}
 
 function fleet(machines: FleetMachine[] = []) {
   return vi.spyOn(api, "fleet").mockResolvedValue({
@@ -35,14 +48,14 @@ describe("what the pane says", () => {
     // The default routes through infrastructure neither party runs. That is a
     // fact to be told, not one to be found in a config file.
     fleet();
-    render(<FleetPane />);
+    renderFleet();
     await waitFor(() => expect(screen.getByText(/number0/)).toBeTruthy());
     expect(screen.getByText(/encrypted end to end, but transiting/)).toBeTruthy();
   });
 
   it("tells an empty fleet that pairing is mutual", async () => {
     fleet();
-    render(<FleetPane />);
+    renderFleet();
     await waitFor(() =>
       expect(screen.getByText(/each machine accepts the other/)).toBeTruthy(),
     );
@@ -51,7 +64,7 @@ describe("what the pane says", () => {
   it("says plainly that reaching a session is still the command line", async () => {
     // The boundary, stated rather than discovered by hunting for a button.
     fleet();
-    render(<FleetPane />);
+    renderFleet();
     await waitFor(() =>
       expect(screen.getByText(/Reaching a session is still the command line/)).toBeTruthy(),
     );
@@ -61,7 +74,7 @@ describe("what the pane says", () => {
     // "This machine cannot execute" is the fact worth seeing; an absent row
     // would read as an unanswered question.
     fleet([desktop]);
-    render(<FleetPane />);
+    renderFleet();
     // "desktop" is both the machine's NAME and its KIND, so match the row by
     // the control that is unique to it.
     await waitFor(() => expect(screen.getByRole("button", { name: "execute" })).toBeTruthy());
@@ -82,7 +95,7 @@ describe("pairing from the pane", () => {
       fingerprint: "SHA256:abc",
       note: "Then do the same in the other direction — a fleet is a MUTUAL list of keys.",
     });
-    render(<FleetPane />);
+    renderFleet();
     await waitFor(() => expect(screen.getByRole("button", { name: /invitation/i })).toBeTruthy());
     fireEvent.click(screen.getByRole("button", { name: /invitation/i }));
     await waitFor(() =>
@@ -96,7 +109,7 @@ describe("pairing from the pane", () => {
   it("accepts a pasted invitation, and says execute is still off", async () => {
     fleet();
     const accept = vi.spyOn(api, "fleetAccept").mockResolvedValue({ machine: desktop });
-    render(<FleetPane />);
+    renderFleet();
     await waitFor(() => expect(screen.getByLabelText(/an invitation to accept/i)).toBeTruthy());
     fireEvent.change(screen.getByLabelText(/an invitation to accept/i), {
       target: { value: "hick-fleet:xyz" },
@@ -111,7 +124,7 @@ describe("pairing from the pane", () => {
     const grant = vi
       .spyOn(api, "fleetGrant")
       .mockResolvedValue({ machine: { ...desktop, grants: ["view", "edit", "execute"] } });
-    render(<FleetPane />);
+    renderFleet();
     await waitFor(() => expect(screen.getByRole("button", { name: "execute" })).toBeTruthy());
     fireEvent.click(screen.getByRole("button", { name: "execute" }));
     await waitFor(() => expect(grant).toHaveBeenCalledWith("desktop", "execute", true, desktop.public_key));
@@ -124,7 +137,7 @@ describe("pairing from the pane", () => {
     vi.spyOn(api, "fleetGrant").mockRejectedValue(
       new Error("phone is a phone, and a phone has no executor to grant."),
     );
-    render(<FleetPane />);
+    renderFleet();
     await waitFor(() => expect(screen.getByRole("button", { name: "execute" })).toBeTruthy());
     fireEvent.click(screen.getByRole("button", { name: "execute" }));
     await waitFor(() => expect(screen.getByText(/no executor to grant/)).toBeTruthy());
@@ -136,7 +149,7 @@ describe("pairing from the pane", () => {
       removed: true,
       note: "Its key is gone from this machine, and that is the whole of the revocation — no server holds a session you cannot reach.",
     });
-    render(<FleetPane />);
+    renderFleet();
     await waitFor(() => expect(screen.getByRole("button", { name: "remove" })).toBeTruthy());
     fireEvent.click(screen.getByRole("button", { name: "remove" }));
     await waitFor(() => expect(remove).toHaveBeenCalledWith("desktop", desktop.public_key));
@@ -156,8 +169,9 @@ describe("pairing by phrase", () => {
       note: "Read this to the other machine.",
     });
     // Hosting blocks for the window; never resolving is the realistic case.
-    vi.spyOn(api, "fleetHost").mockReturnValue(new Promise(() => {}));
-    render(<FleetPane />);
+    vi.spyOn(api, "startFleetPairing").mockResolvedValue({ started: true, job: job() });
+    vi.spyOn(api, "fleetPairing").mockResolvedValue(job());
+    renderFleet();
     await waitFor(() => expect(screen.getByRole("button", { name: /pairing phrase/i })).toBeTruthy());
     fireEvent.click(screen.getByRole("button", { name: /pairing phrase/i }));
     await waitFor(() =>
@@ -172,20 +186,20 @@ describe("pairing by phrase", () => {
   it("dials a phrase and tells you to compare fingerprints", async () => {
     // Comparing them is the only check that catches somebody who guessed.
     fleet();
-    const pair = vi.spyOn(api, "fleetPair").mockResolvedValue({
+    const pair = vi.spyOn(api, "startFleetPairing").mockResolvedValue({ started: true, job: { ...job("paired"), mode: "dial", result: {
       machine: desktop,
       their_fingerprint: "SHA256:them",
       our_fingerprint: "SHA256:us",
       note: "Compare those two fingerprints on both screens.",
-    });
-    render(<FleetPane />);
+    } } });
+    renderFleet();
     await waitFor(() => expect(screen.getByLabelText(/a pairing phrase to dial/i)).toBeTruthy());
     fireEvent.change(screen.getByLabelText(/a pairing phrase to dial/i), {
       target: { value: "bagel-cherry-mahogany-cutlass-93" },
     });
     fireEvent.click(screen.getByRole("button", { name: "Pair" }));
     await waitFor(() =>
-      expect(pair).toHaveBeenCalledWith("bagel-cherry-mahogany-cutlass-93"),
+      expect(pair).toHaveBeenCalledWith("w", expect.any(String), "dial", "bagel-cherry-mahogany-cutlass-93"),
     );
     await waitFor(() => expect(screen.getByText(/Compare those two fingerprints/)).toBeTruthy());
     expect(screen.getByText(/SHA256:them/)).toBeTruthy();
@@ -193,7 +207,7 @@ describe("pairing by phrase", () => {
 
   it("keeps the invitation flow, folded away for machines that cannot reach each other", async () => {
     fleet();
-    render(<FleetPane />);
+    renderFleet();
     await waitFor(() =>
       expect(screen.getByText(/cannot reach each other/)).toBeTruthy(),
     );

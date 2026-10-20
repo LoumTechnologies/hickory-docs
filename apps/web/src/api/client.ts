@@ -1,3 +1,4 @@
+import type { FleetPairingJob } from "./fleetPairings";
 import type { CommitReadingData } from "./git";
 import type { AgentEditorContext } from "./agentTypes";
 import type {
@@ -605,6 +606,13 @@ export const api = {
       "GET",
       "/api/fleet/phrase",
     ),
+
+  startFleetPairing: (window: string, request_id: string, mode: "host" | "dial", phrase: string) =>
+    request<{ started: boolean; job: FleetPairingJob }>("POST", "/api/v1/fleet/pairings", { window, request_id, mode, phrase }),
+  fleetPairings: (window: string) => request<{ jobs: FleetPairingJob[] }>("GET", `/api/v1/fleet/pairings?window=${encodeURIComponent(window)}`),
+  fleetPairing: (window: string, id: string) => request<FleetPairingJob>("GET", `/api/v1/fleet/pairings/${encodeURIComponent(id)}?window=${encodeURIComponent(window)}`),
+  cancelFleetPairing: (window: string, id: string) => request<{ job: FleetPairingJob }>("POST", `/api/v1/fleet/pairings/${encodeURIComponent(id)}/cancel?window=${encodeURIComponent(window)}`, {}, true),
+  forgetFleetPairing: (window: string, id: string) => request<{ forgotten: string }>("DELETE", `/api/v1/fleet/pairings/${encodeURIComponent(id)}?window=${encodeURIComponent(window)}`),
 
   /** Wait for the other machine to dial this phrase. Blocks for the window. */
   fleetHost: (phrase: string) =>

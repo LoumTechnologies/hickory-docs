@@ -27,7 +27,7 @@ const GRANT_TIP: Record<string, string> = {
 
 
 export function FleetPane() {
-  const { fleet, error, note, invitation, pasted, dialled, hosting, busy, setFallbackOpen, setPasted, setDialled, human, copy, receipt, hostResult } = useFleetControls(GRANT_TIP);
+  const { fleet, error, note, invitation, pasted, dialled, hosting, busy, setFallbackOpen, setPasted, setDialled, human, copy, receipt, hostResult, pairing } = useFleetControls(GRANT_TIP);
 
   if (error && !fleet) return <p className="error">{error}</p>;
   if (!fleet) return <p className="muted">Reading this machine’s identity…</p>;
@@ -70,7 +70,7 @@ export function FleetPane() {
         <div className="fleet-pair__row">
           <button
             type="button"
-            disabled={busy || !!hosting}
+            disabled={busy || pairing.active}
             onClick={() => human("phrase")}
           >
             Get a pairing phrase
@@ -85,19 +85,27 @@ export function FleetPane() {
           <input
             className="fleet-pair__input mono"
             placeholder="…or type the phrase the other machine showed"
-            disabled={busy}
+            disabled={busy || pairing.active}
             value={dialled}
             onChange={(e) => setDialled(e.target.value)}
             aria-label="A pairing phrase to dial"
           />
           <button
             type="button"
-            disabled={busy || !dialled.trim()}
+            disabled={busy || pairing.active || !dialled.trim()}
             onClick={() => human("pair")}
           >
             Pair
           </button>
         </div>
+        <button type="button" disabled={pairing.pending} onClick={() => pairing.human("refresh")}>Refresh pairing requests</button>
+        {(pairing.pending || pairing.uncertain) && <button type="button" onClick={() => pairing.human("cancel-start")}>Request cancellation of pending start</button>}
+        {pairing.jobs.map(job => <div key={job.id}>
+          <p role="status">{job.mode} request {job.id}: {job.status} ({job.phase}){job.cancel_requested ? "; cancellation requested" : ""}</p>
+          {job.status === "queued" || job.status === "running"
+            ? <button type="button" onClick={() => pairing.human(`cancel:${job.id}`)}>Cancel pairing request</button>
+            : <button type="button" onClick={() => pairing.human(`forget:${job.id}`)}>Forget pairing result</button>}
+        </div>)}
         <EvidenceDisclosure className="fleet-pair__fallback" label="Machines that cannot reach each other" value={{ invitation, invitation_draft: pasted }} onOpenChange={setFallbackOpen}>
         <div className="fleet-pair__row">
           <button

@@ -6,6 +6,7 @@ const Context = createContext<UiActions | null>(null);
 let activeWindow: string | undefined;
 type WindowConnection = { ready: Promise<string | undefined>; closed: boolean; failed?: string };
 let windowConnection: WindowConnection | undefined;
+export function useUiScope() { return useContext(Context)?.scope ?? null; }
 export function uiWindow(): string | undefined { return activeWindow; }
 /** Capture this connection once; never wait on or adopt a replacement window. */
 export async function captureUiWindow(timeoutMs = 3000): Promise<string | undefined> {
