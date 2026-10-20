@@ -710,3 +710,10 @@ callbacks report host success/refusal with that request identity and no semantic
 approval attestation. Changed questions retire old drafts/handles. One new mixed
 callback-fixture case and five presentation cases pass. This preserves an
 application-policy boundary, not an OS exception or full prompt-answer parity.
+
+Source-observation visibility/pinning now shares native state and the existing
+selected-context projection. Root reading excludes annotation payloads; detailed
+rendered-line/evidence reading appears only while expanded and retires on close.
+Source/stop changes refuse old handles; pinning folded evidence remains explicit.
+Five existing context cases and one new mixed fixture case pass, without adding
+a live debugger/provider/release witness or claiming provider delivery.

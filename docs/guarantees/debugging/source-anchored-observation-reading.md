@@ -137,3 +137,24 @@ two frontend runtime-history tests and one external-review context contract test
 TypeScript passed. Browser interaction results are recorded in the issue handoff.
 No human usability or paid model benchmark is claimed; #53 owns measurements.
 The preceding implementation hashes are historical, not hashes of this update.
+
+### Shared observation disclosure/pinning (issue #72)
+
+Source-observation visibility and pinning now use explicit revision-bound
+commands over the same state as native details/checkbox controls and the existing
+selected-context projection. The root reader contains disclosure/capture state,
+not annotation payloads. Expanded content mounts its own bounded UTF-8 JSON
+reader for rendered location lines, annotations, unmapped evidence, provider
+precision/measurement summaries and unsupported fields. It does not dump
+unrendered whole-source bytes. Collapsing retires the detailed reader; pinning
+continues to select captured evidence while folded, as the native view already
+did. Stop/source/reading changes invalidate old handles. Selection replies do
+not assert actual provider delivery, current edit authority or independent
+verification; historical/changed flags are retained.
+
+Five existing selected-context/pinning cases and one new mixed native/model
+progressive-reading case pass. The latter checks closed discovery, real selected
+context state, displayed checkbox/details state, exact rendered source line,
+old-stop refusal, collapsed-reader retirement and native unpin cleanup. Strict
+TypeScript/file-length/diff checks pass. These tests use a captured JSON fixture,
+not a live debugger/provider/native package.

@@ -83,3 +83,40 @@ it("serializes synthetic output, exception and profile records without losing ru
   expect(selected.reading.scope).toEqual(reading.scope);
   view.unmount();
 });
+
+it("shares progressive observation expansion and pinning without exposing closed payloads in discovery", async () => {
+  const { act } = await import("@testing-library/react");
+  const { UiActions } = await import("../lib/uiActions");
+  const { UiActionContext } = await import("../lib/uiActionBridge");
+  const registry = new UiActions({ workspace: "p", window: "w" }, () => true, async () => {});
+  const reading = fixture();
+  const panel = (current: Reading) => <UiActionContext.Provider value={registry}><ObservationReading reading={current} historical /></UiActionContext.Provider>;
+  const view = render(panel(reading));
+  const actions = () => registry.groups().groups.flatMap(group => registry.observe(group, 64).actions);
+  let id = 0;
+  const run = async (label: string, args = {}) => { let result: unknown; await act(async () => { result = await registry.act(registry.scope, { id: "python:fixture", kind: "agent" }, {
+    handle: actions().find(action => action.label === label)!.handle, arguments: args, request_id: String(++id),
+  }); }); return result; };
+  expect(actions().some(action => action.label === "Read expanded source observations bytes")).toBe(false);
+  expect(JSON.stringify(actions())).not.toContain("opaque-E");
+  expect(selectedObservations("demo.md", source)).toEqual([]);
+  await run("Set source observations pinned", { pinned: true });
+  expect((screen.getByRole("checkbox", { name: /Pin observations/ }) as HTMLInputElement).checked).toBe(true);
+  expect(selectedObservations("demo.md", source)[0]).toMatchObject({ state: "historical", evidence: ["opaque-E"] });
+  expect(view.container.querySelector("details")!.open).toBe(false);
+  await run("Set source observation visibility", { open: true });
+  expect(view.container.querySelector("details")!.open).toBe(true);
+  const result = await run("Read expanded source observations bytes", { offset: 0, limit: 8192 }) as { outcome: { value: { bytes: number[] } } };
+  const evidence = JSON.parse(new TextDecoder().decode(Uint8Array.from(result.outcome.value.bytes)));
+  expect(evidence).toMatchObject({ historical: true, source_revision: reading.source.revision, locations: [{ id: "opaque-L", text: "value += 1;" }] });
+  expect(JSON.stringify(evidence)).not.toContain("BREAKPOINT HERE");
+  const old = actions().find(action => action.label === "Read expanded source observations bytes")!.handle;
+  const replaced = fixture(); replaced.scope.stop = "replacement-stop";
+  view.rerender(panel(replaced));
+  expect(await registry.act(registry.scope, { id: "acp:fixture", kind: "agent" }, { handle: old, arguments: { offset: 0, limit: 8192 }, request_id: "old-stop" })).not.toMatchObject({ status: "result" });
+  await run("Set source observation visibility", { open: false });
+  expect(actions().some(action => action.label === "Read expanded source observations bytes")).toBe(false);
+  expect(selectedObservations("demo.md", source)).toHaveLength(1);
+  fireEvent.click(screen.getByRole("checkbox", { name: /Pin observations/ }));
+  expect(selectedObservations("demo.md", source)).toEqual([]);
+});
