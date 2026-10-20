@@ -336,3 +336,10 @@ failed-operation, sign-in and superseded-result cases passed after adding the
 scope guard. Strict targeted AcpControls, its test and ChatDock checking passed.
 Actual APIs are mocked; no adapter package was installed and no login/provider
 call was made by these tests.
+
+Conversation backend/model selector revisions also bind document, selected branch
+and session. A focused ChatDock follow-up (2 selected cases passed) verifies that
+same-looking controls cannot reuse old handles after a document change, alongside
+existing settings disclosure. Strict targeted checking passed. This guards local
+UI retargeting; concurrent independent host configuration remains outside this
+client-only check.

@@ -594,8 +594,8 @@ export function ChatDock({
           </button>
         )}
         {!collapsed && <FeatureSettings label="Agent settings">
-        {backend === "python" && <ConversationModelChoice provider={provider} model={model} disabled={running !== null || sending} providers={PROVIDERS} defaultModel={defaultModelFor(provider)} onProvider={setProvider} onModel={setModel} />}
-      <AgentPicker backend={backend} agents={acp.agents} disabled={running !== null || sending} detecting={acp.detecting} error={acp.catalogueError}
+        {backend === "python" && <ConversationModelChoice scope={`${docId}:${tip ?? "root"}:${selectedSession ?? "new"}`} provider={provider} model={model} disabled={running !== null || sending} providers={PROVIDERS} defaultModel={defaultModelFor(provider)} onProvider={setProvider} onModel={setModel} />}
+      <AgentPicker scope={`${docId}:${tip ?? "root"}:${selectedSession ?? "new"}`} backend={backend} agents={acp.agents} disabled={running !== null || sending} detecting={acp.detecting} error={acp.catalogueError}
         onRefresh={() => acp.refreshAgents()} onChange={next => {
           rememberAgent(next); setBackend(next); setTip(null); setUnavailable(false); setError(null); setNote(null);
         }} />

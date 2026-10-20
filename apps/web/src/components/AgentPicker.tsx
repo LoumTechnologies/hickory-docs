@@ -11,12 +11,12 @@ export function rememberAgent(backend: string) {
   try { localStorage.setItem(preferenceKey, backend); } catch { /* Storage is optional. */ }
 }
 
-export function AgentPicker({ backend, agents, disabled, detecting, error, onChange, onRefresh }: {
-  backend: string; agents: AgentCommand[]; disabled: boolean; detecting: boolean;
+export function AgentPicker({ scope, backend, agents, disabled, detecting, error, onChange, onRefresh }: {
+  scope: string; backend: string; agents: AgentCommand[]; disabled: boolean; detecting: boolean;
   error: string | null; onChange: (backend: string) => void; onRefresh: () => void | Promise<void>;
 }) {
   const parent = `agent-picker:${useId()}`;
-  const revision = useUiRevision(() => [backend, agents, disabled, detecting, error]);
+  const revision = useUiRevision(() => [scope, backend, agents, disabled, detecting, error]);
   const invoke = useUiCommands([
     { key: `${parent}:choose`, command: { label: "Select conversation agent", parent, subject: parent, parameters: { backend: { type: "string", maxLength: 4096, choices: [...new Set([backend, ...agents.map(a => a.id)])] } }, prerequisites: ["Switching starts a new thread; inspect actual connection status before sending"], read: () => ({ revision: revision(), enabled: !disabled, value: backend, reason: disabled ? "Conversation is running or starting" : undefined }), execute: async args => { onChange(args.backend as string); return { status: "completed", value: { backend_requested: args.backend, connection: "Observe actual agent readiness; selection is not a completed login" } }; } } },
     { key: `${parent}:refresh`, command: { label: "Refresh conversation agent catalogue", parent, subject: parent, parameters: {}, prerequisites: [], read: () => ({ revision: revision(), enabled: !disabled && !detecting }), execute: async () => { await onRefresh(); return { status: "completed", value: { refresh_returned: true, interpretation: "Read current catalogue and error; availability is not a configured login" } }; } } },

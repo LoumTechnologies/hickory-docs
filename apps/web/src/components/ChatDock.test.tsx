@@ -553,3 +553,30 @@ it("discloses actual agent settings before registered model and backend selectio
     expect(api.agent).not.toHaveBeenCalled();
   } finally { view.unmount(); }
 });
+
+// Guarantee: docs/guarantees/agent/ui-action-dispatch.md
+it("invalidates model and backend handles when the conversation document changes", async () => {
+  const { UiActions } = await import("../lib/uiActions");
+  const { UiActionContext } = await import("../lib/uiActionBridge");
+  const registry = new UiActions({ workspace: "p", window: "w" }, () => true, async () => {});
+  vi.mocked(acpApi.catalogue).mockResolvedValue({ agents: [{ id: "python", name: "Python", command: "python", args: [], available: true }, { id: "codex", name: "Codex", command: "codex-acp", args: [], available: true }] });
+  vi.mocked(acpApi.state).mockResolvedValue({ backend: "python", ready: true });
+  vi.mocked(api.agentTurns).mockResolvedValue({ turns: [], provider: "anthropic", model: "claude-sonnet-5", totals: { usd: 0, input: 0, output: 0, cache_read: 0, cache_write: 0 } });
+  const realtime = { onRunEvent: () => () => undefined } as unknown as Realtime;
+  const content = (docId: string) => <UiActionContext.Provider value={registry}><ChatDock docId={docId} realtime={realtime} onAgentFinished={() => {}} /></UiActionContext.Provider>;
+  const view = render(content("first"));
+  try {
+    fireEvent.click(screen.getByRole("button", { name: "Agent settings" }));
+    await screen.findByRole("option", { name: "Codex (ACP)" });
+    const picker = registry.groups().groups.find(g => g.startsWith("agent-picker:"))!;
+    const model = registry.groups().groups.find(g => g.startsWith("conversation-model:"))!;
+    const agentAction = registry.observe(picker).actions.find(a => a.label === "Select conversation agent")!;
+    const modelAction = registry.observe(model).actions.find(a => a.label === "Set conversation model")!;
+    view.rerender(content("second"));
+    await act(async () => {});
+    expect(await registry.act(registry.scope, { id: "python:turn", kind: "agent" }, { handle: agentAction.handle, arguments: { backend: "codex" }, request_id: "old-backend" })).toMatchObject({ status: "stale" });
+    expect(await registry.act(registry.scope, { id: "python:turn", kind: "agent" }, { handle: modelAction.handle, arguments: { model: "other" }, request_id: "old-model" })).toMatchObject({ status: "stale" });
+    expect(localStorage.getItem("hickory.agent")).toBeNull();
+    expect((screen.getByLabelText("Model") as HTMLInputElement).value).toBe("");
+  } finally { view.unmount(); }
+});
