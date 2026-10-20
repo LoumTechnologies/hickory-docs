@@ -16,7 +16,7 @@ it("retains the originating unnamed target across async formatting and does not 
   scope.target = { id: "second", kind: "untitled" };
   scope.untitled.push("second");
   finish(); await pending;
-  expect(handlers.saveUntitled).toHaveBeenCalledExactlyOnceWith(false, "first");
+  expect(handlers.saveUntitled).toHaveBeenCalledExactlyOnceWith(false, "first", undefined);
 });
 it("does not open OS print/save dialogs or perform partial writes when an agent needs human input", async () => {
   const { scope, handlers } = setup();
@@ -47,4 +47,14 @@ it("does not request a destination or write for a known empty unnamed buffer wit
   const { scope, handlers } = setup(); scope.unnamedEmpty = true;
   expect(await runWorkspaceMenu("save", agent, scope, handlers)).toMatchObject({ value: { empty_buffer_no_write: true } });
   expect(handlers.saveUntitled).not.toHaveBeenCalled(); expect(handlers.formatFirst).not.toHaveBeenCalled();
+});
+
+// Guarantee: docs/guarantees/authoring/new-document-is-an-act.md
+it("uses an agent-specified destination through the same captured unnamed-save handler", async () => {
+  const { scope, handlers } = setup();
+  expect(await runWorkspaceMenu("save-as", agent, scope, handlers, "notes/Chosen.md")).toMatchObject({ status: "completed", value: { target: "first", save_handler_returned: true } });
+  expect(handlers.saveUntitled).toHaveBeenCalledExactlyOnceWith(true, "first", "notes/Chosen.md");
+  scope.target = { id: "named", kind: "document" };
+  expect(await runWorkspaceMenu("save-as", agent, scope, handlers, "other.md")).toMatchObject({ status: "unavailable" });
+  expect(handlers.saveUntitled).toHaveBeenCalledTimes(1);
 });

@@ -1,13 +1,13 @@
 import { useRef, useState } from "react";
 import { useWorkspaceUi } from "./useWorkspaceUi";
-import { act, renderHook, waitFor } from "@testing-library/react";
+import { act, cleanup, renderHook, waitFor } from "@testing-library/react";
 import { afterEach, expect, it, vi } from "vitest";
 import { api } from "../api/client";
 import { panes, type Layout } from "../shell/layout";
 import { initialWorkspace, openUntitledTab } from "./workspaceState";
 import { useUntitledSave } from "./useUntitledSave";
 
-afterEach(() => vi.restoreAllMocks());
+afterEach(() => { cleanup(); vi.restoreAllMocks(); });
 
 it("saves the requested unnamed buffer even when another tab is active or edited during the dialog", async () => {
   const layoutRef = { current: openUntitledTab(openUntitledTab(initialWorkspace()), true) };
@@ -57,4 +57,67 @@ it("publishes a newly named tab before the closing window flushes its layout", a
   const state = store.mock.calls.at(-1)![0] as { layout: Layout };
   expect(panes(state.layout.root).flatMap(pane => pane.tabs)).toEqual([expect.objectContaining({ kind: "document", target: "Saved.md", docId: "saved" })]);
   unmount();
+});
+function saveFixture() {
+  const layoutRef = { current: openUntitledTab(initialWorkspace()) };
+  const id = panes(layoutRef.current.root).flatMap(pane => pane.tabs).find(tab => tab.kind === "untitled")!.id;
+  const sources = { [id]: "# Captured" };
+  vi.spyOn(api, "projects").mockResolvedValue([{ id: "p", name: "p", visibility: "private", created_at: "" }]);
+  vi.spyOn(api, "projectDocs").mockResolvedValue([]);
+  const picker = vi.spyOn(api, "saveFileDialog");
+  const created = { id: "named", path: "chosen.md", source: "# Captured\n", updated_at: "" };
+  const create = vi.spyOn(api, "createDoc").mockResolvedValue(created);
+  const discard = vi.spyOn(api, "discardDraft").mockResolvedValue({ ok: true });
+  const error = vi.fn(), setLayout = vi.fn(), onSaved = vi.fn();
+  const hook = renderHook(() => useUntitledSave({ layoutRef, setLayout, onError: error, onSaved, sourceFor: id => sources[id] }));
+  return { ...hook, id, sources, picker, create, created, error, setLayout, discard, onSaved };
+}
+// Guarantee: docs/guarantees/authoring/new-document-is-an-act.md
+it("uses an explicit destination without opening a native chooser", async () => {
+  const fixture = saveFixture();
+  await act(async () => { expect(await fixture.result.current(true, fixture.id, "chosen.md")).toBe(true); });
+  expect(fixture.picker).not.toHaveBeenCalled();
+  expect(fixture.create).toHaveBeenCalledExactlyOnceWith("p", "chosen.md", "# Captured\n");
+  expect(fixture.setLayout).toHaveBeenCalledTimes(1);
+  fixture.unmount();
+});
+// Guarantee: docs/guarantees/authoring/new-document-is-an-act.md
+it("refuses an originating buffer changed before destination creation", async () => {
+  const fixture = saveFixture();
+  let resolve!: (docs: never[]) => void;
+  vi.mocked(api.projectDocs).mockImplementation(() => new Promise(done => { resolve = done; }));
+  let pending!: Promise<boolean>;
+  await act(async () => { pending = fixture.result.current(true, fixture.id, "chosen.md"); });
+  fixture.sources[fixture.id] = "new unseen bytes";
+  await act(async () => { resolve([]); expect(await pending).toBe(false); });
+  expect(fixture.create).not.toHaveBeenCalled(); expect(fixture.setLayout).not.toHaveBeenCalled();
+  expect(fixture.error).toHaveBeenCalledWith(expect.stringContaining("No file was created"));
+  fixture.unmount();
+});
+// Guarantee: docs/guarantees/authoring/new-document-is-an-act.md
+it.each(["edited", "unmounted"])("retains the actual created-file outcome when its buffer is %s during writing", async change => {
+  const fixture = saveFixture();
+  let resolve!: (doc: typeof fixture.created) => void;
+  fixture.create.mockImplementation(() => new Promise(done => { resolve = done; }));
+  let pending!: Promise<boolean>;
+  await act(async () => { pending = fixture.result.current(true, fixture.id, "chosen.md"); });
+  expect(fixture.create).toHaveBeenCalledTimes(1);
+  // A repeated request cannot create a second destination for this buffer.
+  await act(async () => { expect(await fixture.result.current(true, fixture.id, "second.md")).toBe(false); });
+  if (change === "edited") fixture.sources[fixture.id] = "newer draft"; else fixture.unmount();
+  await act(async () => { resolve(fixture.created); expect(await pending).toBe(false); });
+  expect(fixture.setLayout).not.toHaveBeenCalled(); expect(fixture.discard).not.toHaveBeenCalled(); expect(fixture.onSaved).not.toHaveBeenCalled();
+  expect(fixture.error).toHaveBeenLastCalledWith(expect.stringContaining("Saved the captured source to chosen.md"));
+  expect(fixture.create).toHaveBeenCalledTimes(1);
+  if (change === "edited") fixture.unmount();
+});
+// Guarantee: docs/guarantees/authoring/new-document-is-an-act.md
+it("reports an unacknowledged create without adopting or retrying it", async () => {
+  const fixture = saveFixture();
+  fixture.create.mockRejectedValue(Error("reply lost"));
+  await act(async () => { expect(await fixture.result.current(true, fixture.id, "chosen.md")).toBe(false); });
+  expect(fixture.create).toHaveBeenCalledTimes(1);
+  expect(fixture.error).toHaveBeenCalledWith(expect.stringContaining("Creation of chosen.md was not acknowledged"));
+  expect(fixture.setLayout).not.toHaveBeenCalled(); expect(fixture.discard).not.toHaveBeenCalled();
+  expect(fixture.picker).not.toHaveBeenCalled(); fixture.unmount();
 });

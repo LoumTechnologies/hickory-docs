@@ -1223,7 +1223,7 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
     const status = { target: active ? { id: active.id, kind: active.kind, path: active.target } : null, document: session?.doc?.id ?? null, document_status: session?.syncState ?? null, banner: session?.banner ? { kind: session.banner.kind, text: session.banner.text } : null, notice: insertNotice, format_on_save: formatOnSave(), insert_target: insertTab ? { id: insertTab.id, kind: insertTab.kind, path: insertTab.target } : null, unnamed_buffers: tabs.filter(t => t.kind === "untitled").map(t => t.id) };
     return { visible: workspaceIsVisible(), guard: [status, view?.state.doc.toString(), view?.state.selection.toJSON(), insertView?.state.doc.toString(), insertView?.state.selection.toJSON(), registry.all().map(s => [s.doc?.id, s.doc?.path, s.liveSource]), tabs.map(t => [t.id, t.kind, t.target, t.docId]), [...plainSources.current], untitledSourcesRef.current], status };
   };
-  const handleDocumentMenu = async (detail: MenuAction, actor: import("../lib/uiActions").UiActor) => {
+  const handleDocumentMenu = async (detail: MenuAction, actor: import("../lib/uiActions").UiActor, destination?: string) => {
     const pane = panesOf(layoutRef.current.root).find(p => p.id === layoutRef.current.focus);
     const active = pane?.tabs[pane.active];
     const session = registry.get(focusedIdRef.current);
@@ -1244,7 +1244,7 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
         if ((!formatted && view.state.doc !== original) || !view.dom.isConnected) throw Error("The originating buffer changed or closed during formatting. Save was not submitted; inspect its current source before retrying.");
       },
       saveUntitled, flush: requestFlushSaves, print: printFocusedBuffer, insert: openInsert, editElement: openEditElement,
-    });
+    }, destination);
   };
   const invokeDocumentMenu = useWorkspaceMenuActions(menuSnapshot, handleDocumentMenu);
   const menuHandler = useRef(invokeDocumentMenu); menuHandler.current = invokeDocumentMenu;

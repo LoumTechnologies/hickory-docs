@@ -9,12 +9,12 @@ export type MenuScope = {
 };
 export type MenuHandlers = {
   formatFirst(): Promise<void>;
-  saveUntitled(saveAs: boolean, id?: string): Promise<boolean>;
+  saveUntitled(saveAs: boolean, id?: string, destination?: string): Promise<boolean>;
   flush(): void; print(): void; insert(id: string | null): void; editElement(): void;
 };
 
 /** Capture the target before awaiting formatting/dialogs; never re-read focus. */
-export async function runWorkspaceMenu(action: MenuAction, actor: UiActor, scope: MenuScope, handlers: MenuHandlers): Promise<UiOutcome> {
+export async function runWorkspaceMenu(action: MenuAction, actor: UiActor, scope: MenuScope, handlers: MenuHandlers, destination?: string): Promise<UiOutcome> {
   scope = { ...scope, target: { ...scope.target }, untitled: [...scope.untitled], untitledNeedingDestination: scope.untitledNeedingDestination ? [...scope.untitledNeedingDestination] : undefined, sessions: scope.sessions.map(s => ({ ...s })), session: scope.session ? { ...scope.session } : undefined, working: scope.working ? { ...scope.working } : undefined };
   if (action === "insert" || insertTarget(action) !== null) { handlers.insert(insertTarget(action)); return { status: "completed", value: { insert_panel_requested: true, source_written: false } }; }
   if (action === "edit-element") { handlers.editElement(); return { status: "completed", value: { element_editor_requested: true, source_written: false } }; }
@@ -23,7 +23,7 @@ export async function runWorkspaceMenu(action: MenuAction, actor: UiActor, scope
     handlers.print(); return { status: "completed", value: { print_requested: true, physical_output: "not observed" } };
   }
   if (action === "save-all") {
-    if (actor.kind === "agent" && (scope.untitledNeedingDestination ?? scope.untitled).length) return { status: "requires_input", request: `workspace-save-all:${scope.untitled.join(":")}`, reason: "The human chooses destinations for unnamed buffers in the native Save dialogs; inspect their actual resulting paths" };
+    if (actor.kind === "agent" && (scope.untitledNeedingDestination ?? scope.untitled).length) return { status: "requires_input", request: `workspace-save-all:${scope.untitled.join(":")}`, reason: "Name each buffer with Save unnamed buffer to specified path, or use native Save dialogs; no partial Save all was submitted" };
     await handlers.formatFirst();
     for (const id of scope.untitled) if (!await handlers.saveUntitled(false, id)) return { status: "completed", value: { unnamed_save_completed: false, target: id, scope: "Cancelled, unavailable or failed; inspect actual UI result" } };
     const documents = [];
@@ -34,11 +34,12 @@ export async function runWorkspaceMenu(action: MenuAction, actor: UiActor, scope
   if (action !== "save" && action !== "save-as") return { status: "unavailable", reason: "No scoped document handler for this menu action" };
   if (scope.target.kind === "untitled") {
     if (actor.kind === "agent" && scope.unnamedEmpty) return { status: "completed", value: { target: scope.target.id, empty_buffer_no_write: true } };
-    if (actor.kind === "agent") return { status: "requires_input", request: `workspace-save:${scope.target.id}`, reason: "The human chooses this unnamed buffer's destination in the actual native Save dialog" };
+    if (actor.kind === "agent" && destination === undefined) return { status: "requires_input", request: `workspace-save:${scope.target.id}`, reason: "Choose a destination with Save unnamed buffer to specified path, or use the actual native Save dialog" };
     await handlers.formatFirst();
-    const returned = await handlers.saveUntitled(action === "save-as", scope.target.id ?? undefined);
+    const returned = await handlers.saveUntitled(action === "save-as", scope.target.id ?? undefined, destination);
     return { status: "completed", value: { target: scope.target.id, save_handler_returned: returned, path: "Inspect actual resulting named buffer; empty/cancelled buffers may create no file" } };
   }
+  if (destination !== undefined) return { status: "unavailable", reason: "An explicit destination belongs to an unnamed buffer. Observe the current focused buffer again." };
   if (action === "save" && scope.working) {
     await handlers.formatFirst();
     return { status: "completed", value: { target: scope.target.id, unchanged_after_save: await scope.working.save(), verification: "not requested" } };

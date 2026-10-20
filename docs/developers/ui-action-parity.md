@@ -872,3 +872,20 @@ cases pass: mixed model/F5 stale-source refusal and profile choice, pending nati
 callback exclusion/failure, and same-label projection callback replacement with
 native/model disabled parity. Targeted TypeScript checking passes. These are not
 real adapter launches or provider/release evidence.
+
+Unnamed saves now have a typed destination-path equivalent to the native Save
+chooser. The workspace command captures the focused unnamed tab and calls the
+same save handler; the host's create-only operation refuses existing files.
+Source/tab changes before creation refuse submission. Edits or unmount during
+writing preserve the unnamed recovery draft and report the acknowledged created
+path without adopting it or silently saving newer bytes. Duplicate saves for one
+unnamed buffer are excluded. Lost create replies report unacknowledged effects
+and do not retry. Empty buffers retain their existing no-file behavior.
+
+Seven focused unnamed-save cases, six workspace-menu cases and two registry
+cases pass. They include explicit path/no chooser, focus-stale handles, changed
+source, duplicate requests, late edit/unmount and lost reply. Save-all still
+requires naming its nonempty unnamed buffers first; a path is never invented.
+Targeted TypeScript checking includes WorkspaceView. API/native chooser replies
+are mocked here; host create-only concurrency/symlink tests are recorded separately.
+OS print completion and native-window close remain uncertified.

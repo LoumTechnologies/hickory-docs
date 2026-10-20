@@ -84,3 +84,37 @@ Evidence dependency SHA-256 values (changed bytes invalidate this checkpoint):
 
 - `crates/hickory-cli/src/serve/api.rs`: `b54aff5268ce5a0595aab3d79bdf5ea75046dcf93c4deae4940058302fb8ee82`
 - `crates/hickory-cli/src/serve/api/create_new.rs`: `516e58a44d1cc9c3a1cf083169ebb4513fede55aacb33d135b9a73b803428e8d`
+
+## Shared destination saves — 2026-10-20
+
+An agent can supply an explicit new `.md` destination for the current unnamed
+buffer through the workspace action, using the same `useUntitledSave` handler as
+the native chooser. The dispatcher binds focused tab/source; the handler captures
+the tab identity before awaiting. It excludes duplicate saves for that tab and
+refuses changed/closed origins before creation. If the acknowledged file creation
+finishes after an edit or unmount, it reports the actual created path and keeps
+the unnamed draft instead of adopting or silently writing newer source. An
+unacknowledged create is not retried. Source writes remain host validated.
+
+This corrects another earlier omission: the old handler could save newer source
+with a second write after creating the captured version. That implicit extra
+write is removed. Users inspect the created file and retained newer draft after
+such a race. A background recovery-cleanup failure is separate from the successful
+named-file save. No implicit overwrite or native user consent is inferred.
+
+LLM review: partially verified for this frontend controller and its native/menu
+callers. Seven focused `useUntitledSave` cases, six `workspaceMenuActions` cases
+and two `uiWorkspaceMenuActions` cases passed with mocked API/chooser replies.
+Targeted TypeScript checking included `WorkspaceView`. New adversarial checks cover
+focus changes without rerender, source changes before creation, edit/unmount during
+creation, duplicate pending saves and a lost create reply. Host create-only tests
+above are separate filesystem evidence. Network reply loss cannot establish file
+absence; post-create buffers need explicit reconciliation. Actual native chooser,
+provider and release validation and human judgment remain unrecorded.
+
+Shared-save evidence dependency SHA-256 values:
+
+- `apps/web/src/views/useUntitledSave.ts`: `7fea48b55245a936713e45bb485a7f2dcd28af1da18c38a296473fc6c670eb29`
+- `apps/web/src/views/workspaceMenuActions.ts`: `56a22ab893b6cbd638ad765eafcd1e5c2173b8f0ee4ad8229e24b810cd9281e9`
+- `apps/web/src/views/uiWorkspaceMenuActions.ts`: `1a86b1395438a19a5ac721f833d9db83c4f8a25631d1f2f3e69db809761d615a`
+- `apps/web/src/views/WorkspaceView.tsx`: `2f91c4d941fec857caa9df0773b518184deab91d7e242834dd33334c8175ca64`
