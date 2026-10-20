@@ -3789,12 +3789,8 @@ fn emit_json(mut docs: Vec<serde_json::Value>) -> Result<()> {
     Ok(())
 }
 
-fn indent(s: &str) -> String {
-    s.lines()
-        .map(|l| format!("    | {l}"))
-        .collect::<Vec<_>>()
-        .join("\n")
-}
+mod output_format;
+use output_format::indent;
 
 /// `hick refresh` — rewrite stale transform passages from their inputs.
 ///
