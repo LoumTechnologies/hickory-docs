@@ -18,6 +18,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
+import { useLineageControls } from "./useLineageControls";
 import { indexOf } from "./bm25";
 import { LinkLayer } from "./LinkLayer";
 import { StageColumn } from "./StageColumn";
@@ -49,7 +50,12 @@ export interface LineageColumnsProps {
   compact?: boolean;
 }
 
-export function LineageColumns({ model, initialFocus, onSelect, compact }: LineageColumnsProps) {
+export function LineageColumns(props: LineageColumnsProps) {
+  const capture = useMemo(() => crypto.randomUUID(), [props.model, props.initialFocus]);
+  return <CapturedLineageColumns key={capture} {...props} />;
+}
+
+function CapturedLineageColumns({ model, initialFocus, onSelect, compact }: LineageColumnsProps) {
   const startingFocus = useMemo(
     () => initialFocus ?? model.stages.map((s) => s.doc),
     [initialFocus, model],
@@ -201,6 +207,30 @@ export function LineageColumns({ model, initialFocus, onSelect, compact }: Linea
     return index.countByFile(q);
   }, [globalQuery, index]);
 
+  const toggleKind = (kind: LinkKind) => {
+    const next = new Set(kinds);
+    if (next.has(kind)) next.delete(kind); else next.add(kind);
+    setKinds(next); requestAnimationFrame(remeasure);
+  };
+  const toggleLinks = () => { setLinksOn(!linksOn); requestAnimationFrame(remeasure); };
+  const search = (q: string) => {
+    setGlobalQuery(q);
+    const hits = q.trim() ? hitsFor(q) : null;
+    setColumns(previous => previous.map(col => {
+      if (!col.focus || col.query.trim()) return col;
+      const file = model.files.get(col.focus);
+      if (!file) return col;
+      return { ...col, ranges: hits ? rangesForLines(file, hits.get(col.focus) ?? []) : fullRange(file) };
+    }));
+    requestAnimationFrame(remeasure);
+  };
+  useLineageControls("lineage toolbar", { toolbar_visible: !compact, selected, columns: columns.length,
+    ...(compact ? {} : { query: globalQuery, kinds: [...kinds], links_visible: linksOn, hits: totalHits }) }, compact ? [] : [
+    ...Object.keys(LINK_KINDS).map(kind => ({ key: kind, label: `Toggle ${LINK_KINDS[kind as LinkKind].label} lineage links`, run: () => toggleKind(kind as LinkKind) })),
+    { key: "links", label: `${linksOn ? "Hide" : "Show"} lineage links`, run: toggleLinks },
+    { key: "search", label: "Search every lineage stage", parameters: { query: { type: "string" as const, maxLength: 8192 } }, run: args => search(args.query as string) },
+  ]);
+
   return (
     <div className="lineage">
       {!compact && (
@@ -214,13 +244,7 @@ export function LineageColumns({ model, initialFocus, onSelect, compact }: Linea
                 className={`lineage-kind k-${kind}`}
                 aria-pressed={kinds.has(kind)}
                 data-tip={LINK_KINDS[kind].detail}
-                onClick={() => {
-                  const next = new Set(kinds);
-                  if (next.has(kind)) next.delete(kind);
-                  else next.add(kind);
-                  setKinds(next);
-                  requestAnimationFrame(remeasure);
-                }}
+                onClick={() => toggleKind(kind)}
               >
                 <i />
                 {LINK_KINDS[kind].label}
@@ -230,10 +254,7 @@ export function LineageColumns({ model, initialFocus, onSelect, compact }: Linea
               type="button"
               className="btn btn-quiet"
               aria-pressed={linksOn}
-              onClick={() => {
-                setLinksOn(!linksOn);
-                requestAnimationFrame(remeasure);
-              }}
+              onClick={toggleLinks}
             >
               {linksOn ? "Links on" : "Links off"}
             </button>
@@ -244,24 +265,7 @@ export function LineageColumns({ model, initialFocus, onSelect, compact }: Linea
               value={globalQuery}
               placeholder="Search every stage…"
               aria-label="Search every stage"
-              onChange={(e) => {
-                const q = e.target.value;
-                setGlobalQuery(q);
-                const hits = q.trim() ? hitsFor(q) : null;
-                setColumns((prev) =>
-                  prev.map((col) => {
-                    if (!col.focus || col.query.trim()) return col;
-                    const file = model.files.get(col.focus)!;
-                    return {
-                      ...col,
-                      ranges: hits
-                        ? rangesForLines(file, hits.get(col.focus) ?? [])
-                        : fullRange(file),
-                    };
-                  }),
-                );
-                requestAnimationFrame(remeasure);
-              }}
+              onChange={event => search(event.target.value)}
             />
             {totalHits && (
               <span className="lineage-count">

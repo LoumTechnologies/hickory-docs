@@ -779,3 +779,16 @@ covering mixed native/model selection, stale project handles, empty-history
 recovery, failed-read retry, late previous-project refusal and historical
 structure exclusion. Targeted TypeScript checking passes. This does not certify
 lineage column/fold controls or provide a native/provider/release witness.
+
+Lineage columns now share toolbar search/link filters, per-file search/open,
+visible-block selection, gutter folding, folded-range edge/all reveal and
+other-stage disclosure/navigation. Paged column reading contains displayed lines
+and rendered metadata; folded source requires reveal. Model replacement retires
+column state/handles. Gutter gesture state is column-owned and cancelled when its
+capture, file, ranges or mounted lifetime changes. An entirely folded file renders
+one recovery hole instead of duplicating the same hole.
+
+Twelve focused column cases pass, including real native gutter gestures, mixed
+model fold/reveal and native/model file switching, stale capture handles and
+unfinished-gesture cleanup. Targeted TypeScript checking passes. These are
+in-process model/DOM fixtures, not actual native/provider or release evidence.

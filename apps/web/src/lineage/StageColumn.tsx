@@ -6,8 +6,9 @@
 // column that owns them, so a hidden file is a place you can reach rather
 // than a number.
 
-import { useMemo } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
+import { useLineageControls } from "./useLineageControls";
 import { HoleRow } from "./HoleRow";
 import {
   foldRange,
@@ -65,6 +66,31 @@ export function StageColumn(props: StageColumnProps) {
     () => (file ? (hitsByFile.get(file.path) ?? new Set<number>()) : new Set<number>()),
     [file, hitsByFile],
   );
+
+  const [otherOpen, setOtherOpen] = useState(false);
+  const fold = useRef<{ from: number; to: number } | null>(null);
+  const finishFold = useRef<(() => void) | null>(null);
+  useEffect(() => () => { if (finishFold.current) window.removeEventListener("pointerup", finishFold.current); fold.current = null; }, [model, column.focus, column.ranges]);
+  const hide = (from: number, to: number) => {
+    if (![from, to].every(line => column.ranges.some(([a, b]) => line >= a && line <= b))) throw Error("Fold endpoints must be displayed lines");
+    onRanges(foldRange(column.ranges, Math.min(from, to), Math.max(from, to), max));
+  };
+  const jump = (path: string) => {
+    const owner = model.stages.findIndex(stage => stage.files.includes(path));
+    onJump(path, owner === -1 ? index : owner);
+  };
+  const visible = file ? column.ranges.flatMap(([from, to]) => file.lines.slice(from, to + 1).map((text, offset) => ({ line: from + offset, text, hit: hits.has(from + offset), node: nodeAt(model, file.path, from + offset)?.id ?? null }))) : [];
+  const nodes = [...new Set(visible.flatMap(line => line.node ? [line.node] : []))];
+  useLineageControls(`lineage column ${index + 1}`, { index, stage: stage?.name, focus: column.focus, query: column.query,
+    files: mine.map(path => ({ path, lines: model.files.get(path)?.lines.length, hits: hitsByFile.get(path)?.size ?? 0, executable_cells: [...model.nodes.values()].filter(node => node.file === path && node.kind === "exec").length })), visible_lines: visible.map(line => ({ ...line, relation: line.node ? relation(line.node) : null })),
+    other_stages_open: otherOpen, other_files: otherOpen ? elsewhere : null, scope: "Captured displayed source lines only; folded bytes require reveal controls. Line indices are zero-based." }, [
+    ...mine.filter(path => model.files.has(path)).map(path => ({ key: `file:${path}`, label: `${path === column.focus ? "Close" : "Open"} lineage file ${path}`, run: () => onOpen(path === column.focus ? null : path) })),
+    { key: "query", label: `Search lineage column ${index + 1}`, enabled: !!column.focus, parameters: { query: { type: "string" as const, maxLength: 8192 } }, run: args => onQuery(args.query as string) },
+    ...(visible.length ? [{ key: "fold", label: `Fold displayed lines in lineage column ${index + 1}`, parameters: { from: { type: "number" as const, minimum: 0, maximum: max, integer: true }, to: { type: "number" as const, minimum: 0, maximum: max, integer: true } }, run: (args: Record<string, import("../lib/uiActions").UiValue>) => hide(args.from as number, args.to as number) }] : []),
+    ...nodes.map(id => ({ key: `node:${id}`, label: `Select lineage block ${id}`, run: () => onSelect(id) })),
+    ...(elsewhere.length ? [{ key: "other", label: `${otherOpen ? "Hide" : "Show"} other lineage stages in column ${index + 1}`, run: () => setOtherOpen(!otherOpen) }] : []),
+    ...(otherOpen ? elsewhere.map(path => ({ key: `jump:${path}`, label: `Go to lineage file ${path}`, run: () => jump(path) })) : []),
+  ]);
 
   return (
     <section className="stage-col" data-column={index} data-stage={stage?.doc ?? ""}>
@@ -143,7 +169,7 @@ export function StageColumn(props: StageColumnProps) {
         })}
 
         {elsewhere.length > 0 && (
-          <details className="stage-elsewhere">
+          <details className="stage-elsewhere" open={otherOpen} onToggle={event => setOtherOpen(event.currentTarget.open)}>
             <summary>
               ⋯ {elsewhere.length} more file{elsewhere.length === 1 ? "" : "s"} in other stages
             </summary>
@@ -159,7 +185,7 @@ export function StageColumn(props: StageColumnProps) {
                       ? `Open ${path} here — no stage owns it`
                       : `Go to the ${model.stages[owner].name} stage, which owns ${path}`
                   }
-                  onClick={() => onJump(path, owner === -1 ? index : owner)}
+                  onClick={() => jump(path)}
                 >
                   <span className="sf-name">{path}</span>
                   <span className="sf-where">
@@ -203,7 +229,6 @@ export function StageColumn(props: StageColumnProps) {
     }
     const tail = holes.find((h) => h[0] === cursor);
     if (tail) pushHole(tail);
-    if (!column.ranges.length && holes.length) pushHole(holes[0]);
     return out;
   }
 
@@ -252,20 +277,21 @@ export function StageColumn(props: StageColumnProps) {
   // Folding is a drag over the gutter, so the unit is whatever the reader
   // decides it is rather than one the tool picked for them.
   function startFold(line: number) {
-    foldState = { from: line, to: line };
+    if (finishFold.current) window.removeEventListener("pointerup", finishFold.current);
+    fold.current = { from: line, to: line };
     const finish = () => {
       window.removeEventListener("pointerup", finish);
-      if (!foldState) return;
-      const { from, to } = foldState;
-      foldState = null;
-      onRanges(foldRange(column.ranges, Math.min(from, to), Math.max(from, to), max));
+      finishFold.current = null;
+      if (!fold.current) return;
+      const { from, to } = fold.current;
+      fold.current = null;
+      hide(from, to);
     };
+    finishFold.current = finish;
     window.addEventListener("pointerup", finish);
   }
 
   function extendFold(line: number) {
-    if (foldState) foldState.to = line;
+    if (fold.current) fold.current.to = line;
   }
 }
-
-let foldState: { from: number; to: number } | null = null;

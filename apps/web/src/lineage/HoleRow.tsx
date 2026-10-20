@@ -13,6 +13,7 @@
 // diff viewer usually labels its expanders — puts the arrow backwards from
 // what a hand expects when it grabs an edge.
 
+import { useLineageControls } from "./useLineageControls";
 import { foldRange, revealRange, type Range } from "./model";
 
 /** Lines an expander moves per click. */
@@ -31,6 +32,14 @@ export function HoleRow({ from, to, max, lines, ranges, onRanges }: HoleRowProps
   const hidden = to - from + 1;
   const preview = lines.slice(from, to + 1).find((l) => l.trim().length > 2);
 
+  const moves = [
+    { key: "above", label: `Hide ${Math.min(CHUNK, from)} more lines above`, enabled: from !== 0, run: () => onRanges(foldRange(ranges, Math.max(0, from - CHUNK), from - 1, max)) },
+    { key: "top", label: `Show ${Math.min(CHUNK, hidden)} lines from the top`, run: () => onRanges(revealRange(ranges, from, from + CHUNK - 1, max)) },
+    { key: "bottom", label: `Show ${Math.min(CHUNK, hidden)} lines from the bottom`, run: () => onRanges(revealRange(ranges, to - CHUNK + 1, to, max)) },
+    { key: "below", label: `Hide ${Math.min(CHUNK, max - to)} more lines below`, enabled: to !== max, run: () => onRanges(foldRange(ranges, to + 1, Math.min(max, to + CHUNK), max)) },
+    ...(hidden <= CHUNK * 3 ? [{ key: "all", label: `Show all ${hidden} hidden lines`, run: () => onRanges(revealRange(ranges, from, to, max)) }] : []),
+  ];
+  useLineageControls("lineage folded range", { from, to, hidden, preview: preview?.trim().slice(0, 34) ?? null }, moves);
   return (
     <div className="hole" data-from={from} data-to={to}>
       <div className="hole-edges">
@@ -41,7 +50,7 @@ export function HoleRow({ from, to, max, lines, ranges, onRanges }: HoleRowProps
             disabled={from === 0}
             data-tip={`Hide ${Math.min(CHUNK, from)} more line(s) above`}
             aria-label={`Hide ${Math.min(CHUNK, from)} more lines above`}
-            onClick={() => onRanges(foldRange(ranges, Math.max(0, from - CHUNK), from - 1, max))}
+            onClick={() => moves[0].run()}
           >
             ↑
           </button>
@@ -50,7 +59,7 @@ export function HoleRow({ from, to, max, lines, ranges, onRanges }: HoleRowProps
             className="hole-btn"
             data-tip={`Show ${Math.min(CHUNK, hidden)} line(s) from the top`}
             aria-label={`Show ${Math.min(CHUNK, hidden)} lines from the top`}
-            onClick={() => onRanges(revealRange(ranges, from, from + CHUNK - 1, max))}
+            onClick={() => moves[1].run()}
           >
             ↓
           </button>
@@ -61,7 +70,7 @@ export function HoleRow({ from, to, max, lines, ranges, onRanges }: HoleRowProps
             className="hole-btn"
             data-tip={`Show ${Math.min(CHUNK, hidden)} line(s) from the bottom`}
             aria-label={`Show ${Math.min(CHUNK, hidden)} lines from the bottom`}
-            onClick={() => onRanges(revealRange(ranges, to - CHUNK + 1, to, max))}
+            onClick={() => moves[2].run()}
           >
             ↑
           </button>
@@ -71,7 +80,7 @@ export function HoleRow({ from, to, max, lines, ranges, onRanges }: HoleRowProps
             disabled={to === max}
             data-tip={`Hide ${Math.min(CHUNK, max - to)} more line(s) below`}
             aria-label={`Hide ${Math.min(CHUNK, max - to)} more lines below`}
-            onClick={() => onRanges(foldRange(ranges, to + 1, Math.min(max, to + CHUNK), max))}
+            onClick={() => moves[3].run()}
           >
             ↓
           </button>
@@ -87,7 +96,7 @@ export function HoleRow({ from, to, max, lines, ranges, onRanges }: HoleRowProps
             type="button"
             className="hole-all"
             data-tip={`Show all ${hidden} hidden lines`}
-            onClick={() => onRanges(revealRange(ranges, from, to, max))}
+            onClick={() => moves[4].run()}
           >
             ⤢ {hidden}
           </button>

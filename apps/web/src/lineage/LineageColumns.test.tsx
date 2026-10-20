@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { weaveOutputs } from "../lib/weave";
@@ -153,4 +153,53 @@ describe("the lineage browser", () => {
     fireEvent.click(paste);
     expect(paste.getAttribute("aria-pressed")).toBe("false");
   });
+});
+
+it("shares displayed folding and recovery without leaking folded source bytes", async () => {
+  const { UiActions } = await import("../lib/uiActions");
+  const { UiActionContext } = await import("../lib/uiActionBridge");
+  const registry = new UiActions({ workspace: "p", window: "w" }, () => true, async () => {});
+  const view = render(<UiActionContext.Provider value={registry}><LineageColumns model={model()} /></UiActionContext.Provider>);
+  const actions = () => registry.groups().groups.flatMap(group => registry.observe(group, 64).actions);
+  const handle = (label: string) => actions().find(action => action.label === label)!.handle;
+  const run = async (target: string, args: Record<string, string | number> = {}) => {
+    let result: unknown;
+    await act(async () => { result = await registry.act(registry.scope, { id: "python:fixture", kind: "agent" }, { handle: target, arguments: args, request_id: crypto.randomUUID() }); });
+    return result;
+  };
+  const read = async () => {
+    const result = await run(handle("Read lineage column 1 bytes"), { offset: 0, limit: 8192 }) as { outcome: { value: { bytes: number[] } } };
+    return JSON.parse(new TextDecoder().decode(new Uint8Array(result.outcome.value.bytes)));
+  };
+  expect((await read()).visible_lines.some((line: { text: string }) => line.text.includes("Prose that belongs"))).toBe(true);
+  expect(await run(handle("Fold displayed lines in lineage column 1"), { from: 2, to: 4 })).toMatchObject({ status: "result" });
+  expect((await read()).visible_lines.some((line: { line: number }) => line.line >= 2 && line.line <= 4)).toBe(false);
+  expect(document.querySelectorAll(".hole")).toHaveLength(1);
+  await run(handle("Show all 3 hidden lines"));
+  expect((await read()).visible_lines.some((line: { line: number }) => line.line === 2)).toBe(true);
+  const count = (await read()).visible_lines.length;
+  await run(handle("Fold displayed lines in lineage column 1"), { from: 0, to: count - 1 });
+  expect(document.querySelectorAll(".hole")).toHaveLength(1);
+  expect((await read()).visible_lines).toHaveLength(0);
+  await run(handle(`Show all ${count} hidden lines`));
+  expect((await read()).visible_lines).toHaveLength(count);
+  await run(handle("Search every lineage stage"), { query: "bisectLeft" });
+  expect((screen.getByLabelText("Search every stage") as HTMLInputElement).value).toBe("bisectLeft");
+  fireEvent.change(screen.getByLabelText("Search every stage"), { target: { value: "" } });
+  await run(handle("Hide lineage links"));
+  expect(screen.getByRole("button", { name: "Links off" }).getAttribute("aria-pressed")).toBe("false");
+  const stale = handle("Open lineage file search/bisect.py");
+  await run(stale);
+  expect(screen.getByText(/search\/bisect.py ·/)).toBeTruthy();
+  fireEvent.click(screen.getByText("bisect.md"));
+  expect(screen.getByText(/notes\/bisect.md ·/)).toBeTruthy();
+  view.rerender(<UiActionContext.Provider value={registry}><LineageColumns model={model()} /></UiActionContext.Provider>);
+  expect(await run(stale)).not.toMatchObject({ status: "result" });
+});
+it("retires an unfinished gutter gesture on captured model replacement", () => {
+  const view = render(<LineageColumns model={model()} />);
+  fireEvent.pointerDown(document.querySelectorAll(".lin-gutter")[2]);
+  view.rerender(<LineageColumns model={model()} />);
+  fireEvent.pointerUp(window);
+  expect(document.querySelector(".hole")).toBeNull();
 });
