@@ -112,3 +112,11 @@ cancellation after the first request, partial failure, existing native deletion
 and semantic provider title application. Six selected cases passed together;
 strict focused TypeScript, inventory, file-length and diff checks also passed.
 These are mocked host replies with real CodeMirror, not a native/provider witness.
+
+Files row activation and menu opening also share controller functions between
+native double/right-click and typed one-based line commands. Reordered rows keep
+their reconciled file identity. File activation selects the entire actual line;
+associated rows retain their own optional activation callback. Menu requests pass
+an explicit anchor point to the owning menu controller, never a synthetic DOM
+mouse event. An absent capability is reported as unavailable. The focused
+reordered-row test covers both actor paths and the selected line/menu identity.

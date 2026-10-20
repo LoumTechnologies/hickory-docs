@@ -564,3 +564,8 @@ owner replacement and failures stop subsequent batch operations while reporting
 completed responses and uncertain failed effects without claiming rollback.
 Focused tests use real CodeMirror with mocked filesystem/provider replies.
 Filesystem activation and context-menu mapping still need their own audit.
+
+Files row activation and context menus now use shared line-target resolution,
+including presentation-only reorders and associated-object activation callbacks.
+The model's menu request supplies a controller-owned anchor point; native mouse
+events use that same semantic menu boundary. No synthetic DOM event is dispatched.

@@ -344,3 +344,27 @@ it("reports partial Files failure and never starts later operations", async () =
   expect(operations).toEqual([{ op: "rename", path: "one.txt", to: "new-one.txt" }, { op: "rename", path: "two.txt", to: "new-two.txt" }]);
   expect(editor().state.doc.toString()).toBe("new-one.txt\nnew-two.txt\nnew-three.txt");
 });
+
+it("shares reordered Files row activation and semantic menu anchors without synthetic events", async () => {
+  const { act } = await import("@testing-library/react");
+  const { UiActions } = await import("../lib/uiActions");
+  const { UiActionContext } = await import("../lib/uiActionBridge");
+  const registry = new UiActions({ workspace: "p", window: "w" }, () => true, async () => {});
+  const open = vi.fn(), menu = vi.fn();
+  render(<UiActionContext.Provider value={registry}><FilesystemTreeEditor nodes={[
+    { name: "one.txt", path: "one.txt", dir: false }, { name: "two.txt", path: "two.txt", dir: false },
+  ]} onChanged={() => {}} onOpenPath={open} onContextPath={menu} /></UiActionContext.Provider>);
+  await act(async () => { editor().dispatch({ changes: { from: 0, to: editor().state.doc.length, insert: "two.txt\none.txt" } }); });
+  const actions = () => registry.groups().groups.flatMap(group => registry.observe(group, 64).actions);
+  for (const [index, label] of ["Activate Files row", "Open Files row menu"].entries()) {
+    await act(async () => { await registry.act(registry.scope, { id: "python:turn", kind: "agent" }, {
+      handle: actions().find(action => action.label === label)!.handle, arguments: { line: 1 }, request_id: String(index),
+    }); });
+  }
+  expect(open).toHaveBeenCalledExactlyOnceWith("two.txt");
+  expect(editor().state.sliceDoc(editor().state.selection.main.from, editor().state.selection.main.to)).toBe("two.txt");
+  expect(menu).toHaveBeenCalledWith({ clientX: expect.any(Number), clientY: expect.any(Number) }, "two.txt", false);
+  expect(menu.mock.calls[0][0]).not.toBeInstanceOf(Event);
+  fireEvent.doubleClick(editor().contentDOM.querySelector(".cm-line")!);
+  expect(open).toHaveBeenLastCalledWith("two.txt");
+});

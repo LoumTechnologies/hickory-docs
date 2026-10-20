@@ -82,7 +82,7 @@ export function FilesystemTreeEditor({
   nodes: readonly FileNode[];
   onChanged: (renames?: readonly { path: string; to: string }[]) => void;
   onOpenPath: (path: string) => void;
-  onContextPath: (event: MouseEvent, path: string, dir: boolean) => void;
+  onContextPath: (anchor: { clientX: number; clientY: number }, path: string, dir: boolean) => void;
   kindOfPath?: (path: string, dir: boolean) => string;
   extras?: readonly WorkspaceTextExtra[];
   dirtyPaths?: ReadonlySet<string>;
@@ -104,6 +104,27 @@ export function FilesystemTreeEditor({
   const [dryRun, setDryRun] = useState<{ lines?: string[]; error?: string } | null>(null);
   const [message, setMessage] = useState("Edit names or indentation. Changes stay here until Apply.");
   const save = useRef<() => void>(() => undefined);
+  const activate = useRef<(index: number, editor: EditorView) => boolean>(() => false);
+  const context = useRef<(index: number, editor: EditorView, anchor: { clientX: number; clientY: number }) => boolean>(() => false);
+  const target = (index: number, editor: EditorView): ProjectedLine | null => {
+    if (pending.current || editor !== view.current || version !== liveVersion.current || index < 0 || index >= editor.state.doc.lines) return null;
+    const reordered = extras.length === 0 ? parseFilesystemTreeText(editor.state.doc.toString(), entries).edits?.[index] : undefined;
+    if (reordered) return { text: editor.state.doc.line(index + 1).text, filesystem: reordered };
+    return base.current[index] ?? null;
+  };
+  activate.current = (index, editor) => {
+    const line = target(index, editor);
+    if (!line) return false;
+    const run = "extra" in line ? line.extra.activate : line.filesystem.dir ? undefined : () => onOpenPath(line.filesystem.path);
+    if (!run) return false;
+    const at = editor.state.doc.line(index + 1);
+    editor.dispatch({ selection: { anchor: at.from, head: at.to } }); run(); return true;
+  };
+  context.current = (index, editor, anchor) => {
+    const line = target(index, editor);
+    if (!line || !("filesystem" in line)) return false;
+    onContextPath(anchor, line.filesystem.path, line.filesystem.dir); return true;
+  };
 
   useEffect(() => {
     if (!host.current) return;
@@ -187,54 +208,17 @@ export function FilesystemTreeEditor({
               let position: number | null = null;
               try { position = current.posAtDOM(event.target as Node); } catch { position = current.posAtCoords({ x: event.clientX, y: event.clientY }); }
               if (position === null) return false;
-              const documentLine = current.state.doc.lineAt(position);
-              const lineIndex = documentLine.number - 1;
-              const reordered = extras.length === 0
-                ? parseFilesystemTreeText(current.state.doc.toString(), entries).edits?.[lineIndex]
-                : undefined;
-              if (reordered) {
-                if (!reordered.dir) {
-                  event.preventDefault();
-                  current.dispatch({ selection: { anchor: documentLine.from, head: documentLine.to } });
-                  onOpenPath(reordered.path);
-                }
-                return !reordered.dir;
-              }
-              const line = base.current[lineIndex];
-              if (line && "extra" in line) {
-                if (line.extra.activate) {
-                  event.preventDefault();
-                  current.dispatch({ selection: { anchor: documentLine.from, head: documentLine.to } });
-                  line.extra.activate();
-                  return true;
-                }
-                return false;
-              }
-              if (line && !line.filesystem.dir) {
-                event.preventDefault();
-                current.dispatch({ selection: { anchor: documentLine.from, head: documentLine.to } });
-                onOpenPath(line.filesystem.path);
-              }
-              return Boolean(line && !line.filesystem.dir);
+              const handled = activate.current(current.state.doc.lineAt(position).number - 1, current);
+              if (handled) event.preventDefault();
+              return handled;
             },
             contextmenu: (event, current) => {
               let position: number | null = null;
               try { position = current.posAtDOM(event.target as Node); } catch { position = current.posAtCoords({ x: event.clientX, y: event.clientY }); }
               if (position === null) return false;
-              const lineIndex = current.state.doc.lineAt(position).number - 1;
-              const reordered = extras.length === 0
-                ? parseFilesystemTreeText(current.state.doc.toString(), entries).edits?.[lineIndex]
-                : undefined;
-              if (reordered) {
-                event.preventDefault();
-                onContextPath(event, reordered.path, reordered.dir);
-                return true;
-              }
-              const line = base.current[lineIndex];
-              if (!line || "extra" in line) return false;
-              event.preventDefault();
-              onContextPath(event, line.filesystem.path, line.filesystem.dir);
-              return true;
+              const handled = context.current(current.state.doc.lineAt(position).number - 1, current, event);
+              if (handled) event.preventDefault();
+              return handled;
             },
           }),
         ],
@@ -382,6 +366,20 @@ export function FilesystemTreeEditor({
     { key: "cancel", label: "Cancel Files deletions", enabled: !!pendingDeletes, execute: async () => { cancelDeletes(); return { status: "completed", value: { cancelled: true, writes: false } }; } },
   ].map(action => ({ key: `${parent}:${action.key}`, command: { parent, subject: parent, label: action.label, parameters: {}, prerequisites: [],
     read: () => ({ revision: revision(), enabled: action.enabled && !pending.current && !!owner.current && version === liveVersion.current }), execute: action.execute as UiCommand["execute"] } }));
+  const row = { type: "number" as const, minimum: 1, maximum: 1000000, integer: true };
+  for (const menu of [false, true]) commands.push({ key: `${parent}:${menu ? "menu" : "activate"}`, command: {
+    parent, subject: parent, label: menu ? "Open Files row menu" : "Activate Files row", parameters: { line: row }, prerequisites: [],
+    read: () => ({ revision: revision(), enabled: !!view.current && !!owner.current && !pending.current && version === liveVersion.current }),
+    execute: async args => {
+      const editor = view.current;
+      if (!editor || pending.current || !owner.current || version !== liveVersion.current) return { status: "unavailable", reason: "Files owner changed or is busy" };
+      const index = (args.line as number) - 1;
+      const rect = host.current?.getBoundingClientRect();
+      const handled = menu ? context.current(index, editor, { clientX: rect?.left ?? 0, clientY: rect?.top ?? 0 }) : activate.current(index, editor);
+      return handled ? { status: "completed", value: { dispatched: true, line: index + 1, effect: menu ? "Read the opened menu" : "Observe the actual opened pane" } }
+        : { status: "unavailable", reason: "This current row has no requested semantic capability" };
+    },
+  } });
   const invoke = useUiCommands(commands);
   const invokeHuman = (id: string) => void invoke(`${parent}:${id}`, {}).catch(error => setMessage(said(error)));
   save.current = () => invokeHuman("apply");
