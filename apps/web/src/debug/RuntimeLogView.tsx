@@ -1,18 +1,31 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { EditorView } from "@codemirror/view";
 import { EditingSurface } from "../embed/EditingSurface";
 import { RibbonOverlay } from "../shell/Ribbons";
 import { openReview, sha256 } from "../lib/reviews";
 import type { RuntimeRun, RuntimeEvent, RuntimeLocation } from "./runtimeObservations";
 import { logLinks, outputLines, printable } from "./runtimeLog";
+import { useRuntimeLogActions } from "./useRuntimeLogActions";
 import { RUNTIME_REVEAL, revealRuntimeEvent } from "./runtimeNavigation";
 import "./runtimeLog.css";
 
 export function RuntimeLog({ run }: { run: RuntimeRun }) {
   const [open, setOpen] = useState(false);
+  const visibility = useRef({ open: false, epoch: 0 });
+  const changeOpen = (value: boolean) => {
+    if (visibility.current.open !== value) visibility.current.epoch++;
+    visibility.current.open = value; setOpen(value);
+  };
+  const [reviewPending, setReviewPending] = useState(false);
+  const [reviewErrorState, setReviewErrorState] = useState<{ record: string; message: string } | null>(null);
+  const reviewLock = useRef(false), mounted = useRef(true);
+  const recordKey = JSON.stringify(run), currentRecord = useRef(recordKey); currentRecord.current = recordKey;
+  const reviewError = reviewErrorState?.record === recordKey ? reviewErrorState.message : null;
+  const setReviewError = (message: string | null) => setReviewErrorState(message === null ? null : { record: recordKey, message });
+  useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
   const [pair, setPair] = useState("");
   const [sourceId, setSourceId] = useState("");
-  const [pendingLine, setPendingLine] = useState<number | null>(null);
+  const [pendingLine, setPendingLine] = useState<{ record: string; source: string; line: number } | null>(null);
   const [style, setStyle] = useState<"bands" | "braces">("braces");
   const [selected, setSelected] = useState("");
   const [container, setContainer] = useState<HTMLDivElement | null>(null);
@@ -24,14 +37,14 @@ export function RuntimeLog({ run }: { run: RuntimeRun }) {
   const lines = useMemo(() => outputLines(run, stream, category), [run, stream, category]);
   const logPath = `runtime-log-${run.id}.txt`;
   const source = run.sources.find(source => source.id === sourceId) ?? run.sources[0];
-  const sourcePath = `runtime-source-${run.id}-${encodeURIComponent(source.id)}.txt`;
-  const sourceText = new TextDecoder().decode(new Uint8Array(source.bytes));
+  const sourcePath = `runtime-source-${run.id}-${encodeURIComponent(source?.id ?? "missing")}.txt`;
+  const sourceText = new TextDecoder().decode(new Uint8Array(source?.bytes ?? []));
   const logText = lines.map(line => printable(line.bytes).replace(/\n$/, "") + (line.terminated ? "" : " ⟪partial line⟫")).join("\n");
-  const links = useMemo(() => logLinks(run, lines, logPath, sourcePath, source.id), [run, lines, logPath, sourcePath, source.id]);
+  const links = useMemo(() => source ? logLinks(run, lines, logPath, sourcePath, source.id) : [], [run, lines, logPath, sourcePath, source?.id]);
   const sources = useMemo(() => [{ docPath: logPath, docSource: logText, view: logView ?? undefined },
-    { docPath: sourcePath, docSource: sourceText, view: sourceView ?? undefined }], [logView, sourceView, logPath, sourcePath, logText, sourceText]);
+    ...(source ? [{ docPath: sourcePath, docSource: sourceText, view: sourceView ?? undefined }] : [])], [logView, sourceView, logPath, sourcePath, logText, sourceText, source]);
   function jump(view: EditorView | null, line: number) {
-    if (!view) return; const target = view.state.doc.line(Math.max(1, Math.min(line, view.state.doc.lines)));
+    if (!view || !view.dom.isConnected) return; const target = view.state.doc.line(Math.max(1, Math.min(line, view.state.doc.lines)));
     view.dispatch({ selection: { anchor: target.from }, effects: EditorView.scrollIntoView(target.from, { y: "center" }) }); view.focus();
   }
   function navigate(event: RuntimeEvent, location: RuntimeLocation | null) {
@@ -39,15 +52,19 @@ export function RuntimeLog({ run }: { run: RuntimeRun }) {
     const captured = run.sources.find(item => item.id === location?.source);
     if (location?.bytes && captured) {
       setSourceId(captured.id);
-      setPendingLine(new TextDecoder().decode(new Uint8Array(captured.bytes.slice(0, location.bytes.start))).split("\n").length);
+      setPendingLine({ record: recordKey, source: captured.id, line: new TextDecoder().decode(new Uint8Array(captured.bytes.slice(0, location.bytes.start))).split("\n").length });
     }
   }
-  useEffect(() => { if (pendingLine !== null && sourceView) { jump(sourceView, pendingLine); setPendingLine(null); } }, [pendingLine, source.id, sourceText, sourceView]);
+  useEffect(() => {
+    if (!pendingLine) return;
+    if (pendingLine.record !== recordKey || pendingLine.source !== source?.id) { setPendingLine(null); return; }
+    if (sourceView) { jump(sourceView, pendingLine.line); setPendingLine(null); }
+  }, [pendingLine, recordKey, source?.id, sourceText, sourceView]);
   useEffect(() => {
     const reveal = (event: Event) => {
       const detail = (event as CustomEvent<{ run: string; event: string }>).detail;
       if (detail.run !== run.id) return;
-      setOpen(true); setSelected(detail.event);
+      changeOpen(true); setSelected(detail.event);
       const captured = run.events.find(item => item.id === detail.event);
       if (captured?.observation.kind === "output") setPair(JSON.stringify([captured.observation.stream, captured.observation.category]));
       const index = lines.findIndex(line => line.contributors.some(item => item.event === detail.event));
@@ -56,23 +73,37 @@ export function RuntimeLog({ run }: { run: RuntimeRun }) {
     window.addEventListener(RUNTIME_REVEAL, reveal); return () => window.removeEventListener(RUNTIME_REVEAL, reveal);
   }, [run.id, lines, logView]);
   useEffect(() => { const index = lines.findIndex(line => line.contributors.some(item => item.event === selected)); if (index >= 0) jump(logView, index + 1); }, [selected, lines, logView]);
-  async function challenge(event: RuntimeEvent) {
-    const exact = links.find(link => link.key.includes(`:${event.id}:`) && link.review);
-    if (exact?.review) { openReview(exact.review); return; }
-    const record = JSON.stringify(run);
-    openReview({ kind: "runtime-record", path: `runtime-record://${run.id}`, quote: JSON.stringify(event),
-      source_hash: await sha256(record), lines: [1, 1], relationship: { run: run.id, event, source_revision: source.revision, precision: event.emission?.precision ?? "unknown" } });
+  async function challenge(event: RuntimeEvent, signal?: AbortSignal): Promise<boolean> {
+    if (signal?.aborted || reviewLock.current || !mounted.current || !visibility.current.open || currentRecord.current !== recordKey) return false;
+    const disclosure = visibility.current.epoch;
+    reviewLock.current = true; setReviewPending(true); setReviewError(null);
+    try {
+      const exact = links.find(link => link.key.includes(`:${event.id}:`) && link.review);
+      if (exact?.review) { openReview(exact.review); return true; }
+      const record = JSON.stringify(run), source_hash = await sha256(record);
+      if (signal?.aborted || !mounted.current || !visibility.current.open || visibility.current.epoch !== disclosure || currentRecord.current !== recordKey) return false;
+      const location = event.observation.kind === "exception" ? event.observation.throwing : event.emission;
+      openReview({ kind: "runtime-record", path: `runtime-record://${run.id}`, quote: JSON.stringify(event),
+        source_hash, lines: [1, 1], relationship: { run: run.id, event,
+          source_revision: run.sources.find(source => source.id === location?.source)?.revision ?? null, precision: location?.precision ?? "unknown" } });
+      return true;
+    } catch (cause) { if (mounted.current && currentRecord.current === recordKey) setReviewError(String(cause)); return false; }
+    finally { reviewLock.current = false; if (mounted.current) setReviewPending(false); }
   }
-  return <details className="runtime-log" open={open} onToggle={event => setOpen(event.currentTarget.open)}>
+  useRuntimeLogActions(run, { open, pair: chosen, pairs, source: source?.id ?? null, style, selected, lines, pending: reviewPending, error: reviewError }, {
+    open: changeOpen, pair: setPair, source: setSourceId, style: setStyle, navigate, challenge,
+  });
+  return <details className="runtime-log" open={open} onToggle={event => changeOpen(event.currentTarget.open)}>
     <summary>Execution log and source relationships · run {run.id}</summary>
     {open && <>
-      <p>Observed execution provenance · revision {source.revision}. These links are separate from byte lineage, model context and declared support. Emission and calling context are different locations. Captured source is historical.</p>
+      {reviewError && <p role="alert">{reviewError}</p>}
+      <p>Observed execution provenance · revision {source?.revision ?? "not retained"}. These links are separate from byte lineage, model context and declared support. Emission and calling context are different locations. Captured source is historical.</p>
       <label>Runtime log stream <select value={chosen ?? ""} onChange={event => setPair(event.target.value)}>{pairs.map(value => <option key={value} value={value}>{JSON.parse(value).join(" · ")}</option>)}</select></label>
-      <label>Captured source <select value={source.id} onChange={event => setSourceId(event.target.value)}>{run.sources.map(item => <option key={item.id} value={item.id}>{item.uri} · {item.revision}</option>)}</select></label>
+      <label>Captured source <select value={source?.id ?? ""} disabled={!source} onChange={event => setSourceId(event.target.value)}>{run.sources.map(item => <option key={item.id} value={item.id}>{item.uri} · {item.revision}</option>)}</select></label>
       <label>Execution connector style <select value={style} onChange={event => setStyle(event.target.value as "bands" | "braces")}><option value="braces">Braces</option><option value="bands">Ribbons</option></select></label>
       <div className="runtime-log-panes" ref={setContainer}>
         <div><h4>Captured log · {stream}/{category}</h4><EditingSurface readOnly value={logText} onViewReady={setLogView} ariaLabel="Captured execution log" /></div>
-        <div><h4>Captured source · {source.uri}</h4><EditingSurface readOnly value={sourceText} onViewReady={setSourceView} ariaLabel="Captured execution source" /></div>
+        {source ? <div><h4>Captured source · {source.uri}</h4><EditingSurface readOnly value={sourceText} onViewReady={setSourceView} ariaLabel="Captured execution source" /></div> : <p>No captured source retained for this run.</p>}
         <RibbonOverlay container={container} sources={sources} files={[]} links={links} ribbonStyle={style} visibility="always" onNavigate={target => {
           if (target.kind !== "path") return;
           const link = links.find(item => item.key === target.linkKey);
@@ -88,13 +119,13 @@ export function RuntimeLog({ run }: { run: RuntimeRun }) {
             <strong>{selected === event.id ? "Selected · " : ""}{event.id}</strong> · invocation {event.invocation ?? "unknown"} · chunk bytes {item.chunk_bytes.start}–{item.chunk_bytes.end} → line bytes {item.line_bytes.start}–{item.line_bytes.end}
             <button onClick={() => navigate(event, event.emission)}>Emission · {event.emission?.precision ?? "unknown"}</button>
             {event.callers.map((caller, callerIndex) => <button key={callerIndex} onClick={() => navigate(event, caller)}>Calling context {callerIndex + 1} · {caller.precision}</button>)}
-            <button onClick={() => void challenge(event)}>Challenge runtime relationship</button>
+            <button disabled={reviewPending} onClick={() => void challenge(event)}>Challenge runtime relationship</button>
           </div>;
         })}
       </li>)}</ol>
       {run.events.filter(event => event.observation.kind !== "output").map(event => <p key={event.id}>{selected === event.id ? "Selected · " : ""}{event.id} · typed {event.observation.kind} observation; not inferred from stderr.
         <button onClick={() => navigate(event, event.observation.kind === "exception" ? event.observation.throwing : event.emission)}>Throwing/emitting location</button>
-        <button onClick={() => void challenge(event)}>Challenge runtime relationship</button></p>)}
+        <button disabled={reviewPending} onClick={() => void challenge(event)}>Challenge runtime relationship</button></p>)}
     </>}
   </details>;
 }

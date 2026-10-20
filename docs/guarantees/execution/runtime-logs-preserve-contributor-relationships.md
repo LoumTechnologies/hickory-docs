@@ -52,3 +52,31 @@ Last LLM verification:
   tests and three serial real Chromium/Firefox/WebKit flows passed. Production
   site build (including TypeScript) and diff checks passed.
 - Human judgment: not recorded.
+
+### Shared captured-log relationships (issue #72)
+
+Runtime-log disclosure now gates shared stream/source/style selectors, bounded
+rendered-contributor metadata reading, emitting/throwing/caller navigation and
+relationship challenges. Closing retires those detailed controls; source/log
+text remains owned by the existing read-only editors. Only events visible in
+the selected stream (plus the displayed typed observations) get relationship
+actions. Changed run/stream/source state refuses old handles. Review results
+report an opened review request, not a completed investigation or validation.
+
+Missing retained source no longer crashes the log viewer: output remains readable
+with an explicit absence message and no source chooser action. Fallback review
+records hash the exact captured run and derive source revision from the event's
+location, not the unrelated source selected in the adjacent pane. Pending hashes
+cannot open reviews after capture replacement, unmount, or closing/reopening the
+disclosure. Duplicate pending review requests are refused. Agent cancellation also refuses
+a late review open, and disclosure/read controls have independent action locks
+so a pending review does not prevent closing or inspecting it. Queued source jumps
+are bound to their record/source; detached editors are not navigation targets.
+
+Two focused captured-fixture UI cases pass, including native/model selectors,
+stream-bound retirement, exact source review versus full-record fallback digest,
+missing source, replaced-capture, agent-cancelled and closed/reopened-disclosure
+late-hash refusal. Real
+read-only CodeMirror editors are mounted; the review opener is mocked. Strict
+TypeScript/file-length/diff checks pass. This does not witness a real execution,
+provider, native release, completed review or deployed flow.

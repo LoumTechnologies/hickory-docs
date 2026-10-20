@@ -717,3 +717,11 @@ rendered-line/evidence reading appears only while expanded and retires on close.
 Source/stop changes refuse old handles; pinning folded evidence remains explicit.
 Five existing context cases and one new mixed fixture case pass, without adding
 a live debugger/provider/release witness or claiming provider delivery.
+
+Runtime-log relationships now expose shared disclosure, visible stream/source/
+style selectors, paged contributor metadata, location navigation and review
+requests. Missing-source captures remain readable. Review hashing binds the
+actual record/event source and refuses replaced/closed captures; queued source
+jumps also bind their source record. Two focused fixture UI cases with real
+read-only editors and a mocked review opener pass. Ribbons outside this owned
+runtime-log path and actual provider/release/deployed witnesses remain separate.
