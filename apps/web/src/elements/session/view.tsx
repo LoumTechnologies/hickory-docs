@@ -1,3 +1,7 @@
+import { useId, useMemo, type ReactNode } from "react";
+import { useUiCommands, useUiRevision } from "../../lib/uiActionBridge";
+import { useUiReading } from "../../lib/uiReading";
+import { EvidenceDisclosure } from "../../components/EvidenceDisclosure";
 import { openReview, reviewError } from "../../lib/reviews";
 import { publishReading, openReading } from "../../lib/readingViews";
 import { AcpRecord } from "../../components/AcpRecord";
@@ -52,12 +56,13 @@ function reviewSourceChip(link: SessionLink) {
   const snapshot = link.historical;
   if (!snapshot?.content || !snapshot.path || !snapshot.sha256 || snapshot.first_line === undefined || snapshot.last_line === undefined || !/^[a-f0-9]{64}$/i.test(snapshot.sha256)) {
     reviewError("Open the source and select a passage to capture a review target; this chip has no exact historical source snapshot.");
-    return;
+    return false;
   }
   openReview({ kind: "source-relationship", path: snapshot.path, quote: snapshot.content,
     source_hash: snapshot.sha256, lines: [snapshot.first_line, snapshot.last_line],
     relationship: { family: link.family, claim: snapshot.claim, target: link.to,
       historical: snapshot, source_span: link.span } });
+  return true;
 }
 
 const VERB: Record<SessionLink["family"], string> = {
@@ -70,7 +75,6 @@ const VERB: Record<SessionLink["family"], string> = {
  * wrote (lineage) and pointed at (declared) — the same three families the
  * ribbons draw, in words, under the answer they belong to. */
 export function SourceChips({ links }: { links: readonly SessionLink[] }) {
-  if (links.length === 0) return null;
   const seen = new Set<string>();
   const shown = links.filter((link) => {
     const key = `${link.family}:${link.to.path}:${link.to.lines?.join("-") ?? ""}`;
@@ -78,6 +82,20 @@ export function SourceChips({ links }: { links: readonly SessionLink[] }) {
     seen.add(key);
     return true;
   });
+  const parent = `session-sources:${useId()}`;
+  const capture = useMemo(() => crypto.randomUUID(), [links]);
+  const revision = useUiRevision(() => capture);
+  useUiReading("conversation source chips", shown.map(link => ({ family: link.family, title: link.title, target: link.to, evidence_path: link.evidence?.path ?? null,
+    opens: link.historical?.content !== undefined ? "captured historical passage" : "current source location" })));
+  useUiCommands(shown.flatMap((link, index) => [
+    { key: `${parent}:${index}:open`, command: { label: `Open recorded source ${link.to.path}`, parent, subject: parent, parameters: {}, prerequisites: [],
+      read: () => ({ revision: revision(), enabled: true }), execute: async () => { openTarget(link); return { status: "completed" as const, value: { navigation_requested: true, source_verified: false } }; } } },
+    { key: `${parent}:${index}:review`, command: { label: `Challenge recorded source ${link.to.path}`, parent, subject: parent, parameters: {}, prerequisites: [],
+      read: () => ({ revision: revision(), enabled: true }), execute: async () => reviewSourceChip(link)
+        ? { status: "completed" as const, value: { review_requested: true, review_completed: false } }
+        : { status: "requires_input" as const, reason: "This chip has no exact historical source snapshot. Open the source and select a passage to capture a review target." } } },
+  ]));
+  if (!shown.length) return null;
   return (
     <div className="chat-sources" aria-label="Recorded inputs and declared references">
       {shown.map((link, i) => (
@@ -107,11 +125,16 @@ export function SourceChips({ links }: { links: readonly SessionLink[] }) {
   );
 }
 
+function SessionReading({ label, value, children }: { label: string; value: unknown; children: ReactNode }) {
+  useUiReading(label, value);
+  return <>{children}</>;
+}
+
 export const sessionUserView = view("session-user", "user", (slot, cx) => (
   <div className="chat-msg chat-user">
     <span className="chat-role">you</span>
     <div className="chat-bubble">
-      <p className="chat-answer">{serverBlock(slot, cx, "session-user")?.body ?? slot.text.trim()}</p>
+      <SessionReading label="recorded user message" value={serverBlock(slot, cx, "session-user")?.body ?? slot.text.trim()}><p className="chat-answer">{serverBlock(slot, cx, "session-user")?.body ?? slot.text.trim()}</p></SessionReading>
     </div>
   </div>
 ));
@@ -159,7 +182,7 @@ export const sessionAssistantView = view("session-assistant", "assistant", (slot
         <>
           <span className="chat-role">agent</span>
           <div className="chat-bubble">
-            {body ? <p className="chat-answer">{body}</p> : null}
+            {body ? <SessionReading label="recorded assistant message" value={body}><p className="chat-answer">{body}</p></SessionReading> : null}
             <SourceChips links={links} />
           </div>
         </>
@@ -173,17 +196,15 @@ export const sessionAssistantView = view("session-assistant", "assistant", (slot
 const INNER: Partial<Record<Block["kind"], ElementView["render"]>> = {};
 
 export const sessionReasoningView = view("session-reasoning", "reasoning", (slot, cx) => (
-  <details className="chat-reasoning">
-    <summary>reasoning</summary>
+  <EvidenceDisclosure className="chat-reasoning" label="reasoning" value={serverBlock(slot, cx, "session-reasoning")?.body ?? slot.text.trim()}>
     <pre className="chat-reasoning__text">{serverBlock(slot, cx, "session-reasoning")?.body ?? slot.text.trim()}</pre>
-  </details>
+  </EvidenceDisclosure>
 ));
 
 export const sessionToolView = view("session-tool", "tool", (slot, cx) => {
   const block = serverBlock(slot, cx, "session-tool");
   return (
-    <details className="chat-step chat-step--tool">
-      <summary>
+    <EvidenceDisclosure className="chat-step chat-step--tool" label={block?.name ?? "tool"} children={null} value={null} summary={<SessionReading label="recorded tool summary" value={{ name: block?.name ?? slot.text.slice(0, 40), args: (block?.args ?? []).map(([name, value]) => [name, value.length > 60 ? `${value.slice(0, 60)}…` : value]) }}>
         <code>{block?.name ?? slot.text.slice(0, 40)}</code>
         {(block?.args ?? []).map(([k, v]) => (
           <span key={k} className="chat-step__arg">
@@ -191,16 +212,14 @@ export const sessionToolView = view("session-tool", "tool", (slot, cx) => {
             {k}=<code>{v.length > 60 ? `${v.slice(0, 60)}…` : v}</code>
           </span>
         ))}
-      </summary>
-    </details>
+      </SessionReading>}/>
   );
 });
 
 export const sessionToolResultView = view("session-tool-result", "tool-result", (slot, cx) => {
   const block = serverBlock(slot, cx, "session-tool-result");
   return (
-    <details className="chat-step chat-step--tool">
-      <summary>
+    <EvidenceDisclosure className="chat-step chat-step--tool" label="result" value={block?.body ?? slot.text.trim()} summary={<SessionReading label="recorded result summary" value={{ name: block?.name ?? null, failed: block?.ok === false }}>
         result
         {block?.name ? (
           <>
@@ -209,26 +228,25 @@ export const sessionToolResultView = view("session-tool-result", "tool-result", 
           </>
         ) : null}
         {block?.ok === false ? <span className="chat-error"> failed</span> : null}
-      </summary>
+      </SessionReading>}>
       <pre>{block?.body ?? slot.text.trim()}</pre>
-    </details>
+    </EvidenceDisclosure>
   );
 });
 
 export const sessionInputView = view("session-input", "input", (slot, cx) => {
   const block = serverBlock(slot, cx, "session-input");
   return (
-    <details className="chat-step chat-step--tool">
-      <summary>input{block?.name ? <> · {block.name}</> : null}</summary>
+    <EvidenceDisclosure className="chat-step chat-step--tool" label="input" value={block?.body ?? slot.text.trim()} summary={<SessionReading label="recorded input summary" value={block?.name ?? null}>input{block?.name ? <> · {block.name}</> : null}</SessionReading>}>
       <pre>{block?.body ?? slot.text.trim()}</pre>
-    </details>
+    </EvidenceDisclosure>
   );
 });
 
 export const sessionReadView = view("session-read", "read", (slot, cx) => {
   const block = serverBlock(slot, cx, "session-read");
   return (
-    <p
+    <SessionReading label="recorded read metadata" value={{ file: block?.file ?? null, lines: block?.lines ?? null, sha256: block?.sha256 ?? null, commit: block?.commit ?? null }}><p
       className="chat-step chat-step--read muted"
       data-tip={
         block?.sha256 ? `sha256 ${block.sha256}${block.commit ? ` · commit ${block.commit}` : ""}` : undefined
@@ -236,17 +254,17 @@ export const sessionReadView = view("session-read", "read", (slot, cx) => {
     >
       read <code>{block?.file ?? "a file"}</code>
       {block?.lines ? <> lines {block.lines}</> : null}
-    </p>
+    </p></SessionReading>
   );
 });
 
 export const sessionWroteView = view("session-wrote", "wrote", (slot, cx) => {
   const block = serverBlock(slot, cx, "session-wrote");
   return (
-    <p className="chat-step chat-step--wrote muted">
+    <SessionReading label="recorded wrote metadata" value={{ file: block?.file ?? null, lines: block?.lines ?? null }}><p className="chat-step chat-step--wrote muted">
       wrote <code>{block?.file ?? "a file"}</code>
       {block?.lines ? <> lines {block.lines}</> : null}
-    </p>
+    </p></SessionReading>
   );
 });
 
@@ -254,30 +272,27 @@ export const sessionContextView = view("session-context", "context", (slot, cx) 
   const block = serverBlock(slot, cx, "session-context");
   if ((block?.context_kind?.startsWith("acp-") || block?.context_kind?.startsWith("filesystem-"))) return <AcpRecord kind={block.context_kind} body={block.body ?? slot.text.trim()} />;
   return (
-    <details className="chat-step chat-step--context">
-      <summary>context{block?.context_kind ? <> · {block.context_kind}</> : null}</summary>
+    <EvidenceDisclosure className="chat-step chat-step--context" label="context" value={block?.body ?? slot.text.trim()} summary={<SessionReading label="recorded context summary" value={block?.context_kind ?? null}>context{block?.context_kind ? <> · {block.context_kind}</> : null}</SessionReading>}>
       <pre>{block?.body ?? slot.text.trim()}</pre>
-    </details>
+    </EvidenceDisclosure>
   );
 });
 
 export const sessionObservationView = view("session-observation", "observation", (slot, cx) => {
   const block = serverBlock(slot, cx, "session-observation");
   return (
-    <details className="chat-step chat-step--tool">
-      <summary>observation{block?.exit ? <> · exit {block.exit}</> : null}</summary>
+    <EvidenceDisclosure className="chat-step chat-step--tool" label="observation" value={block?.body ?? slot.text.trim()} summary={<SessionReading label="recorded observation summary" value={block?.exit ?? null}>observation{block?.exit ? <> · exit {block.exit}</> : null}</SessionReading>}>
       <pre>{block?.body ?? slot.text.trim()}</pre>
-    </details>
+    </EvidenceDisclosure>
   );
 });
 
 export const sessionActionView = view("session-action", "action", (slot, cx) => {
   const block = serverBlock(slot, cx, "session-action");
   return (
-    <details className="chat-step chat-step--action">
-      <summary>ran{block?.lang ? <> · {block.lang}</> : null}</summary>
+    <EvidenceDisclosure className="chat-step chat-step--action" label="ran" value={block?.body ?? slot.text.trim()} summary={<SessionReading label="recorded ran summary" value={block?.lang ?? null}>ran{block?.lang ? <> · {block.lang}</> : null}</SessionReading>}>
       <pre>{block?.body ?? slot.text.trim()}</pre>
-    </details>
+    </EvidenceDisclosure>
   );
 });
 

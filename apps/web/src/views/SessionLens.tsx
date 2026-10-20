@@ -12,6 +12,8 @@ import { EditorState, StateField } from "@codemirror/state";
 import { Decoration, EditorView, WidgetType, lineNumbers } from "@codemirror/view";
 import type { DecorationSet } from "@codemirror/view";
 
+import { useUiCommands, useUiRevision } from "../lib/uiActionBridge";
+import { useUiReading } from "../lib/uiReading";
 import { api } from "../api/client";
 import type { Block, SessionLink, SessionViewResponse } from "../api/types";
 import { editorChrome } from "../editor/chrome";
@@ -99,7 +101,12 @@ export interface SessionLensProps {
   showCollapsedLineage?: boolean;
 }
 
-export function SessionLens({ path, stamp, showCollapsedLineage = false }: SessionLensProps) {
+export function SessionLens(props: SessionLensProps) {
+  return <OwnedSessionLens key={props.path} {...props} />;
+}
+
+function OwnedSessionLens({ path, stamp, showCollapsedLineage = false }: SessionLensProps) {
+  const [retry, setRetry] = useState(0);
   const hostRef = useRef<HTMLDivElement | null>(null);
   const viewRef = useRef<EditorView | null>(null);
   const registry = useMemo(() => new RenderedRegistry(), []);
@@ -134,7 +141,16 @@ export function SessionLens({ path, stamp, showCollapsedLineage = false }: Sessi
     refresh();
     const timer = window.setInterval(refresh, 5000);
     return () => { live = false; window.clearInterval(timer); };
-  }, [path, stamp]);
+  }, [path, stamp, retry]);
+
+  const statusRevision = useUiRevision(() => [path, stamp, retry, error, !!data]);
+  useUiReading("conversation history status", { path, loaded: !!data, error, scope: "Read-only session lens. Message cards and disclosed work have separate reading controls." });
+  useUiCommands(error ? [{ key: `session-retry:${path}`, command: {
+    label: "Retry reading conversation history", parent: `session:${path}`, subject: `session:${path}`, parameters: {}, prerequisites: [],
+    read: () => ({ revision: statusRevision(), enabled: true }), execute: async () => {
+      setRetry(value => value + 1); return { status: "completed", value: { read_requested: true, read_completed: false } };
+    },
+  } }] : []);
 
   // One editor for the lens's life; a new version of the file replaces its
   // text rather than remounting, so the cards already on screen stay put.
@@ -172,14 +188,16 @@ export function SessionLens({ path, stamp, showCollapsedLineage = false }: Sessi
     view.dispatch({ effects: setRenderedBlocks.of(blocks.map((b) => b.from)) });
     // A conversation opens at its newest turn, the way the cards always
     // did; the log is the pane's, so it is the log that scrolls.
+    const scrollTimers: number[] = [];
+    let scrollFrame: number | undefined;
     const log = host.closest<HTMLElement>(".chat-log");
     if (log && changed) {
       // Once now, and again after the cards have measured: the editor
       // virtualises against the log, so its height settles over a few
       // frames as widgets mount.
       const toEnd = () => log.scrollTo({ top: log.scrollHeight });
-      requestAnimationFrame(toEnd);
-      for (const ms of [120, 400, 900]) window.setTimeout(toEnd, ms);
+      scrollFrame = requestAnimationFrame(toEnd);
+      for (const ms of [120, 400, 900]) scrollTimers.push(window.setTimeout(toEnd, ms));
     }
     setFacts({
       blocks: data.blocks.map((b) => ({
@@ -189,7 +207,10 @@ export function SessionLens({ path, stamp, showCollapsedLineage = false }: Sessi
       linksAt: linksByAnswer(view.state, data.links),
       view,
     });
-
+    return () => {
+      if (scrollFrame !== undefined) cancelAnimationFrame(scrollFrame);
+      scrollTimers.forEach(timer => window.clearTimeout(timer));
+    };
   }, [data, registry]);
 
   // Recompute links as folds change. Hidden work cannot leave a ribbon
@@ -238,7 +259,7 @@ export function SessionLens({ path, stamp, showCollapsedLineage = false }: Sessi
   return (
     <div className="session-lens" data-session-lens={path}>
       <SurfaceInfo name="Conversation history" editable={false} destination="Reads the session document. This view writes nothing; replies belong in the conversation editor." />
-      {error && <p className="error">{error}</p>}
+      {error && <div><p className="error">{error}</p><button type="button" onClick={() => setRetry(value => value + 1)}>Retry reading conversation history</button></div>}
       <div ref={hostRef} className="editor-cm-host session-lens__editor" />
       {slots.map((slot) => {
         const element = elementViews[slot.kind];

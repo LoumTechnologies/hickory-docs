@@ -1,7 +1,7 @@
 // docs/guarantees/agent/an-answer-in-the-agent-pane-has-ribbons.md: the
 // agent pane's history is the session document, drawn as cards with line
 // numbers, and its links reach the overlay through the lens store.
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { installMockHandler } from "../api/client";
@@ -97,9 +97,9 @@ describe("the session lens", () => {
       links: [{ family: "context", span: tool, lines: [3, 3], to: { path: "source.md" }, title: "read" }],
     }));
     const result = render(<SessionLens path="sessions/fold.md" />);
-    await screen.findByText("Read source");
+    await screen.findByText(/Adapter report · Read source/);
     await waitFor(() => expect(lensSources().find(lens => lens.path === "sessions/fold.md")?.links).toEqual([]));
-    const fold = screen.getByText("Read source").closest("details")!;
+    const fold = screen.getByText(/Adapter report · Read source/).closest("details")!;
     fold.open = true; fireEvent(fold, new Event("toggle"));
     await waitFor(() => expect(lensSources().find(lens => lens.path === "sessions/fold.md")?.links).toHaveLength(1));
     fold.open = false; fireEvent(fold, new Event("toggle"));
@@ -108,4 +108,31 @@ describe("the session lens", () => {
     await waitFor(() => expect(lensSources().find(lens => lens.path === "sessions/fold.md")?.links).toHaveLength(1));
   });
 
+});
+
+it("retires a previous session's pending response on path replacement", async () => {
+  let resolve!: (value: unknown) => void;
+  const answer = (path: string, text: string) => ({ path, source: `<hick:session>\n<hick:user>${text}</hick:user>\n</hick:session>`, blocks: [], links: [], view: { turns: [] } });
+  installMockHandler(async (_method, path) => path.includes("first.md") ? new Promise(done => { resolve = done; }) : answer("second.md", "second session"));
+  const view = render(<SessionLens path="first.md" />);
+  await waitFor(() => expect(resolve).toBeTruthy());
+  view.rerender(<SessionLens path="second.md" />);
+  await screen.findByText("second session");
+  await act(async () => { resolve(answer("first.md", "retired session")); });
+  expect(screen.queryByText("retired session")).toBeNull();
+  expect(document.querySelector('[data-session-lens="first.md"]')).toBeNull();
+});
+it("shares recovery after a session read failure", async () => {
+  const { UiActions } = await import("../lib/uiActions");
+  const { UiActionContext } = await import("../lib/uiActionBridge");
+  const registry = new UiActions({ workspace: "p", window: "w" }, () => true, async () => {});
+  let reads = 0;
+  installMockHandler(async () => { if (++reads === 1) throw Error("read denied"); return { path: "s.md", source: "<hick:session>\n<hick:user>recovered</hick:user>\n</hick:session>", blocks: [], links: [], view: { turns: [] } }; });
+  render(<UiActionContext.Provider value={registry}><SessionLens path="s.md" /></UiActionContext.Provider>);
+  await screen.findByText("read denied");
+  const retry = registry.groups().groups.flatMap(group => registry.observe(group, 64).actions).find(action => action.label === "Retry reading conversation history")!;
+  await act(async () => { expect(await registry.act(registry.scope, { id: "python:fixture", kind: "agent" }, { handle: retry.handle, arguments: {}, request_id: "retry" })).toMatchObject({ status: "result", outcome: { value: { read_requested: true, read_completed: false } } }); });
+  await screen.findByText("recovered");
+  expect(screen.queryByText("read denied")).toBeNull();
+  expect(reads).toBe(2);
 });

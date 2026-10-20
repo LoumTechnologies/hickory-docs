@@ -814,3 +814,19 @@ discards the draft. A measure request does not claim source edits or persistence
 Ten existing ruler presentation cases and two new mixed-registry/stale-owner
 and cancelled-pointer cases pass. Real CodeMirror is used with fixture geometry; targeted TypeScript
 checking includes the containing document editor. This is not a native witness.
+
+Recorded session cards now provide paged displayed-message/summary metadata and
+shared reasoning/tool-result/input/context/observation/action disclosure. Bodies
+remain behind the existing evidence disclosure; ACP cards retain their adapter
+precision labels. Source chips share historical/current navigation and relationship
+review requests with the native click/keyboard handlers. Changed captured links
+retire old handles; missing exact historical review bytes require source capture.
+Opening or challenging a source is not verification or a completed review.
+
+SessionLens is owned by its path, rejects late previous-session adoption, exposes
+read status and shared failure recovery, and cancels delayed scroll requests when
+its capture retires. Five focused source-chip/disclosure cases, two existing lens
+presentation/ribbon cases and two new lifecycle/retry cases pass. The ACP ribbon
+test now targets the actual adapter-report caption. Targeted TypeScript checks
+pass; these are recorded fixtures and mocked navigation/API boundaries, not live
+provider or native-release evidence.

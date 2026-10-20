@@ -3,7 +3,7 @@ import { UiActionsVisibility, useUiCommands, useUiRevision } from "../lib/uiActi
 import type { UiCommand } from "../lib/uiActions";
 
 /** A normal details element whose private evidence is explicitly disclosed. */
-export function EvidenceDisclosure({ label, value, children, className, onOpenChange }: { label: string; value: unknown; children: ReactNode; className?: string; onOpenChange?: (open: boolean) => void }) {
+export function EvidenceDisclosure({ label, value, children, className, onOpenChange, summary }: { label: string; summary?: ReactNode; value: unknown; children: ReactNode; className?: string; onOpenChange?: (open: boolean) => void }) {
   const [open, setOpen] = useState(false);
   const change = (next: boolean) => { setOpen(next); onOpenChange?.(next); };
   const subject = `evidence:${useId()}`;
@@ -25,5 +25,5 @@ export function EvidenceDisclosure({ label, value, children, className, onOpenCh
     },
   } });
   useUiCommands(commands);
-  return <details className={className} open={open} onToggle={event => change(event.currentTarget.open)}><summary>{label}</summary><UiActionsVisibility visible={open}>{children}</UiActionsVisibility></details>;
+  return <details className={className} open={open} onToggle={event => change(event.currentTarget.open)}><summary>{summary ?? label}</summary><UiActionsVisibility visible={open}>{children}</UiActionsVisibility></details>;
 }

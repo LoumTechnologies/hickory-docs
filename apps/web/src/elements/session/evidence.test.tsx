@@ -43,3 +43,52 @@ it("captures source-chip relationship reviews with historical bytes via keyboard
     expect(openLocation).not.toHaveBeenCalled();
   } finally { window.removeEventListener("hickory:review-target", received); }
 });
+it("shares historical-chip navigation and retires same-label replacement handles", async () => {
+  const { act } = await import("@testing-library/react");
+  const { UiActions } = await import("../../lib/uiActions");
+  const { UiActionContext } = await import("../../lib/uiActionBridge");
+  const registry = new UiActions({ workspace: "p", window: "w" }, () => true, async () => {});
+  const links = (content: string) => [{ family: "declared" as const, span: [1, 2] as [number, number], lines: [1, 1] as [number, number], to: { path: "file.md" }, title: "Recorded source",
+    historical: { record_kind: "read-snapshot" as const, session_line: 1, path: "file.md", content, sha256: "a".repeat(64), first_line: 1, last_line: 1 } }];
+  const renderChips = (content: string) => <UiActionContext.Provider value={registry}><SourceChips links={links(content)} /></UiActionContext.Provider>;
+  const view = render(renderChips("old bytes"));
+  const actions = () => registry.groups().groups.flatMap(group => registry.observe(group, 64).actions);
+  const handle = () => actions().find(action => action.label === "Open recorded source file.md")!.handle;
+  const run = async (target: string) => {
+    let result: unknown;
+    await act(async () => { result = await registry.act(registry.scope, { id: "python:fixture", kind: "agent" }, { handle: target, arguments: {}, request_id: crypto.randomUUID() }); });
+    return result;
+  };
+  const stale = handle();
+  view.rerender(renderChips("new captured bytes"));
+  expect(await run(stale)).not.toMatchObject({ status: "result" });
+  expect(publishReading).not.toHaveBeenCalled();
+  expect(await run(handle())).toMatchObject({ status: "result", outcome: { value: { navigation_requested: true, source_verified: false } } });
+  expect(vi.mocked(publishReading).mock.calls[0][1].after).toContain("new captured bytes");
+  expect(openLocation).not.toHaveBeenCalled();
+});
+it("keeps recorded reasoning behind shared disclosure and retires its byte handle on collapse", async () => {
+  const { act } = await import("@testing-library/react");
+  const { sessionReasoningView } = await import("./view");
+  const { UiActions } = await import("../../lib/uiActions");
+  const { UiActionContext } = await import("../../lib/uiActionBridge");
+  const registry = new UiActions({ workspace: "p", window: "w" }, () => true, async () => {});
+  const slot = { key: "r", text: "private recorded reasoning", at: 0, span: [0, 26], index: 0 } as import("../../editor/rendered").RenderedSlot;
+  const cx = { sessionBlocks: [] } as unknown as import("../types").SlotContext;
+  render(<UiActionContext.Provider value={registry}>{sessionReasoningView.render(slot, cx)}</UiActionContext.Provider>);
+  const actions = () => registry.groups().groups.flatMap(group => registry.observe(group, 64).actions);
+  const run = async (target: string, args: Record<string, boolean | number>) => {
+    let result: unknown;
+    await act(async () => { result = await registry.act(registry.scope, { id: "acp:fixture", kind: "agent" }, { handle: target, arguments: args, request_id: crypto.randomUUID() }); });
+    return result;
+  };
+  expect(actions().some(action => action.label === "Read disclosed evidence bytes")).toBe(false);
+  expect(JSON.stringify(actions())).not.toContain("private recorded reasoning");
+  await run(actions().find(action => action.label === "Set evidence visibility: reasoning")!.handle, { open: true });
+  const bytes = actions().find(action => action.label === "Read disclosed evidence bytes")!.handle;
+  const result = await run(bytes, { offset: 0, limit: 8192 }) as { outcome: { value: { bytes: number[] } } };
+  expect(new TextDecoder().decode(new Uint8Array(result.outcome.value.bytes))).toContain("private recorded reasoning");
+  const fold = document.querySelector("details")!;
+  fold.open = false; fireEvent(fold, new Event("toggle"));
+  expect(await run(bytes, { offset: 0, limit: 8192 })).not.toMatchObject({ status: "result" });
+});
