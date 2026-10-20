@@ -457,3 +457,5 @@ Table grid controls were extracted without changing selection or drag behavior. 
 Git history now has progressive bounded reading and shared navigation for loaded summaries, expanded bodies/files, commit readings, current files, older history, story and literate views. Working-tree command parity remains outstanding.
 
 Git working-tree reads, drafts, navigation and routine host command handlers now share scoped controls and actual host replies. Push/amend/discard report explicit human-input decisions; fetched status is not an atomic disk baseline. Bisect and the other repository/merge interfaces remain outstanding.
+
+Visual bisect now has progressive scoped session reading and real host command handlers. Good/bad verdicts explicitly require human classification; native-window/worktree execution remains unwitnessed. Remaining-commit evidence is a nested disclosure.
