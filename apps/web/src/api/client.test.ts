@@ -162,3 +162,21 @@ it("keeps pairing jobs on the versioned originating-window routes without fallba
     expect(handler).toHaveBeenCalledTimes(6);
   } finally { installMockHandler(null as never); }
 });
+
+it("preserves versioned merged-view all, empty and literal-name selections without downgrade", async () => {
+  const handler = vi.fn(async () => ({})); installMockHandler(handler);
+  try {
+    await api.merged("file.txt");
+    expect(handler).toHaveBeenLastCalledWith("GET", "/api/v1/merged?path=file.txt", undefined);
+    await api.merged("file.txt", []);
+    expect(handler).toHaveBeenLastCalledWith("GET", "/api/v1/merged?path=file.txt&targets=%5B%5D", undefined);
+    await api.merged("file.txt", ["branch,with,commas", "λ"]);
+    expect(handler).toHaveBeenLastCalledWith("GET", `/api/v1/merged?path=file.txt&targets=${encodeURIComponent(JSON.stringify(["branch,with,commas", "λ"]))}`, undefined);
+    handler.mockRejectedValueOnce(Error("Versioned selection unavailable"));
+    await expect(api.merged("file.txt", [])).rejects.toThrow("Versioned selection unavailable");
+    expect(handler).toHaveBeenCalledTimes(4);
+    handler.mockRejectedValueOnce(new ApiError(404, "Not found"));
+    await expect(api.merged("file.txt", [])).rejects.toThrow("Update the app and engine together");
+    expect(handler).toHaveBeenCalledTimes(5);
+  } finally { installMockHandler(null as never); }
+});

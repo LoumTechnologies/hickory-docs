@@ -151,6 +151,7 @@ fn required(method: &str, path: &str) -> Option<Grant> {
         || path.starts_with("/api/git")
         || path.starts_with("/api/sessions")
         || path.starts_with("/api/merged")
+        || path == "/api/v1/merged"
         || path.starts_with("/api/worktrees")
         || path == "/api/fleet"
         || path.starts_with("/api/executor")
@@ -188,6 +189,26 @@ mod tests {
 
     fn all() -> BTreeSet<Grant> {
         grants(&[Grant::View, Grant::Edit, Grant::Execute])
+    }
+
+    #[test]
+    fn versioned_merged_read_does_not_grant_mutation_or_subpath_authority() {
+        assert!(
+            permitted(
+                "GET",
+                "/api/v1/merged?path=file&targets=%5B%5D",
+                &grants(&[Grant::View]),
+                "peer"
+            )
+            .is_ok()
+        );
+        for (method, path) in [
+            ("POST", "/api/v1/merged"),
+            ("GET", "/api/v1/merged/undo"),
+            ("POST", "/api/v1/merged/write"),
+        ] {
+            assert!(permitted(method, path, &grants(&[Grant::View]), "peer").is_err());
+        }
     }
 
     #[test]

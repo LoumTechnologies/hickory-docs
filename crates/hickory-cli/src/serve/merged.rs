@@ -127,8 +127,8 @@ fn parse_worktrees(text: &str, current: &Path) -> Vec<Worktree> {
 pub struct MergedParams {
     /// Repository-relative path of the file to view.
     pub path: String,
-    /// Comma-separated worktree names. Absent means every worktree that has
-    /// the file.
+    /// Legacy: comma-separated names. V1: a JSON string array preserving
+    /// literal names and empty membership. Absent means all worktrees.
     #[serde(default)]
     pub targets: Option<String>,
 }
@@ -142,8 +142,56 @@ pub async fn merged(
     State(state): State<LocalState>,
     Query(params): Query<MergedParams>,
 ) -> ApiResult<Json<Value>> {
+    let wanted = params.targets.as_ref().map(|targets| {
+        targets
+            .split(',')
+            .map(str::trim)
+            .filter(|name| !name.is_empty())
+            .map(str::to_owned)
+            .collect()
+    });
+    merged_selected(state, params.path.trim().to_owned(), wanted).await
+}
+
+/// Versioned selection preserves empty membership and names containing commas.
+pub async fn merged_v1(
+    State(state): State<LocalState>,
+    Query(params): Query<MergedParams>,
+) -> ApiResult<Json<Value>> {
+    let wanted = selected_v1(params.targets.as_deref())?;
+    merged_selected(state, params.path, wanted).await
+}
+fn selected_v1(encoded: Option<&str>) -> ApiResult<Option<Vec<String>>> {
+    let Some(encoded) = encoded else {
+        return Ok(None);
+    };
+    if encoded.len() > 65536 {
+        return Err(ApiError::bad_request("Worktree selection is too large"));
+    }
+    let names: Vec<String> = serde_json::from_str(encoded).map_err(|error| {
+        ApiError::bad_request(format!(
+            "Worktree targets must be a JSON string array: {error}"
+        ))
+    })?;
+    let mut seen = std::collections::BTreeSet::new();
+    if names.len() > 1024
+        || names
+            .iter()
+            .any(|name| name.is_empty() || name.len() > 4096 || !seen.insert(name))
+    {
+        return Err(ApiError::bad_request(
+            "Worktree targets must be bounded, nonempty and unique",
+        ));
+    }
+    Ok(Some(names))
+}
+async fn merged_selected(
+    state: LocalState,
+    path: String,
+    wanted: Option<Vec<String>>,
+) -> ApiResult<Json<Value>> {
     let root = state.index.root().to_path_buf();
-    let rel = params.path.trim().to_string();
+    let rel = path;
     if rel.is_empty()
         || Path::new(&rel).is_absolute()
         || Path::new(&rel)
@@ -154,14 +202,6 @@ pub async fn merged(
             "path must be relative to the repository, with no `..` — got {rel:?}"
         )));
     }
-
-    let wanted: Option<Vec<String>> = params.targets.as_ref().map(|t| {
-        t.split(',')
-            .map(str::trim)
-            .filter(|s| !s.is_empty())
-            .map(str::to_string)
-            .collect()
-    });
 
     let answer = tokio::task::spawn_blocking(move || {
         let trees = worktrees(&root);
@@ -286,5 +326,30 @@ mod tests {
     #[test]
     fn no_repository_is_no_worktrees_rather_than_an_error() {
         assert!(parse_worktrees("", Path::new("/repo")).is_empty());
+    }
+}
+
+#[cfg(test)]
+mod selection_tests {
+    use super::*;
+    #[test]
+    fn versioned_selection_keeps_none_empty_and_literal_names_distinct() {
+        assert_eq!(selected_v1(None).unwrap(), None);
+        assert_eq!(selected_v1(Some("[]")).unwrap(), Some(vec![]));
+        assert_eq!(
+            selected_v1(Some(r#"["branch,with,commas"," quote ","λ"]"#)).unwrap(),
+            Some(vec![
+                "branch,with,commas".into(),
+                " quote ".into(),
+                "λ".into()
+            ])
+        );
+    }
+    #[test]
+    fn versioned_selection_refuses_ambiguous_or_unbounded_encodings() {
+        for encoded in ["repo,side", "null", r#"[1]"#, r#"[""]"#, r#"["a","a"]"#] {
+            assert!(selected_v1(Some(encoded)).is_err());
+        }
+        assert!(selected_v1(Some(&"x".repeat(65537))).is_err());
     }
 }

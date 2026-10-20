@@ -807,11 +807,11 @@ pub(crate) fn router(state: LocalState) -> Router {
         .route("/git/reword", post(story::reword))
         .route("/git/drop", post(story::drop))
         .route("/git/move", post(story::move_commit))
-        // The merged view: one tab, several worktrees, read-only for now —
-        // the alignment is where the risk lives and is proved before anything
-        // writes through it. See docs/specs/freeform/the-merged-view.md.
+        // Captured worktree lens; v1 preserves literal target names and empty
+        // membership. Reads do not grant the separate write authority below.
         .route("/worktrees", get(merged::list))
         .route("/merged", get(merged::merged))
+        .route("/v1/merged", get(merged::merged_v1))
         // Writing through the view. Read-only is the default for any target
         // not explicitly opened for writing, a multi-target edit is not
         // atomic and reports per target, and undo across targets restores

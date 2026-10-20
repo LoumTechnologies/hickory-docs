@@ -586,15 +586,16 @@ export const api = {
       "/api/worktrees",
     ),
 
-  /** One file as it exists in several worktrees at once. Read-only: the
-   * alignment is where the risk lives, so it is proved before anything writes
-   * through it. */
+  /** Captured worktree lens; exact selection is independent of write authority. */
   merged: (path: string, targets?: string[]) =>
     request<MergedViewResponse>(
       "GET",
-      `/api/merged?path=${encodeURIComponent(path)}` +
-        (targets?.length ? `&targets=${encodeURIComponent(targets.join(","))}` : ""),
-    ),
+      `/api/v1/merged?path=${encodeURIComponent(path)}` +
+        (targets !== undefined ? `&targets=${encodeURIComponent(JSON.stringify(targets))}` : ""),
+    ).catch(error => {
+      if (error instanceof ApiError && error.status === 404) throw new ApiError(404, "Worktree selection protocol v1 is unavailable. Update the app and engine together; no legacy selection was requested.", error.body);
+      throw error;
+    }),
 
   /** This machine, and the machines paired with it. Identity, not
    * connectivity: nothing here can be attached to yet. */

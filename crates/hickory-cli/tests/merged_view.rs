@@ -465,3 +465,76 @@ async fn a_write_routed_at_a_source_that_is_not_here_is_refused() {
     .await;
     assert_eq!(status, 422, "{answer}");
 }
+
+#[tokio::test]
+async fn versioned_selection_preserves_empty_literal_names_and_exact_file_paths() {
+    let session = start().await;
+    let literal = session.root.parent().unwrap().join("comma,tree");
+    git(
+        &session.root,
+        &[
+            "worktree",
+            "add",
+            "-q",
+            "-b",
+            "literal-name",
+            literal.to_str().unwrap(),
+        ],
+    );
+    let filename = " exact name.txt ";
+    std::fs::write(session.root.join(filename), "spaced repo\n").unwrap();
+    std::fs::write(session.root.join(filename.trim()), "wrong trimmed file\n").unwrap();
+    std::fs::write(literal.join(filename), "spaced comma\n").unwrap();
+    let client = reqwest::Client::new();
+    let endpoint = format!("{}/api/v1/merged", session.base);
+    let response = client
+        .get(&endpoint)
+        .query(&[("path", filename), ("targets", r#"["comma,tree"]"#)])
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), 200);
+    let answer: Value = response.json().await.unwrap();
+    assert_eq!(answer["path"], filename);
+    assert_eq!(answer["sources"].as_array().unwrap().len(), 1);
+    assert_eq!(answer["sources"][0]["name"], "comma,tree");
+    assert_eq!(answer["snapshot"]["comma,tree"], "spaced comma\n");
+    let empty: Value = client
+        .get(&endpoint)
+        .query(&[("path", filename), ("targets", "[]")])
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(empty["sources"], serde_json::json!([]));
+    assert_eq!(empty["regions"], serde_json::json!([]));
+    assert_eq!(empty["snapshot"], serde_json::json!({}));
+    let all: Value = client
+        .get(&endpoint)
+        .query(&[("path", filename)])
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(all["sources"].as_array().unwrap().len(), 3);
+    assert_eq!(all["snapshot"]["repo"], "spaced repo\n");
+    let refused = client
+        .get(&endpoint)
+        .query(&[("path", filename), ("targets", "repo,comma,tree")])
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(refused.status(), 400);
+    assert_eq!(
+        std::fs::read_to_string(literal.join(filename)).unwrap(),
+        "spaced comma\n"
+    );
+    assert_eq!(
+        std::fs::read_to_string(session.root.join(filename)).unwrap(),
+        "spaced repo\n"
+    );
+}

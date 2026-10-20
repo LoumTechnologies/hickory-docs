@@ -751,3 +751,18 @@ pending apply excludes duplicates and exposes actual per-target callback replies
 Two real-CodeMirror/mocked-write cases pass. The containing MergedView's source
 loading, target selection, undo and late-result lifetimes remain outstanding;
 this child checkpoint does not certify the complete worktree view.
+
+
+MergedView now shares membership, write-target permission, region disclosure,
+complete-project inspection, refresh, paged displayed reading and guarded undo.
+File/membership lifetimes refuse stale adoption/retargeting. Unknown write effects
+require refreshing before further region edits; earlier replies are labeled
+separately from a newer failed request. This resolves the containing-view gaps
+named in the preceding region-child checkpoint for these tested paths.
+
+Five focused fixture-controller cases, one integrated native/agent/CodeMirror
+case and six presentation cases pass. Writes/undo in web tests are mocked. The
+versioned read route separately has a real temporary-worktree HTTP witness for
+all/empty/literal-comma membership, exact spaced filenames and malformed-input
+refusal; two parser, one peer-policy and one no-downgrade client case also pass.
+No native/provider/released/deployed witness or exhaustive coverage is claimed.

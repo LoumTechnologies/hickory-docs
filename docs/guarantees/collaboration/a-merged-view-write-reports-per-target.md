@@ -94,3 +94,27 @@ read-only draft retention and explicit reset. Strict TypeScript/file-length/diff
 checks pass. These tests cover the region child; the containing view's loading,
 selection, undo and late-response lifetimes remain separate integration work.
 No user's worktrees, real host writes or native/provider releases are exercised.
+
+
+### Exact versioned read membership (issue #72)
+
+Current clients read `/api/v1/merged` with JSON-array target membership. Omitted
+membership means all worktrees; `[]` means none; commas, spaces and Unicode in
+individual names are not separators. Duplicate/unbounded/non-array selections
+are refused. V1 preserves the exact repository-relative filename, including
+surrounding spaces. The legacy comma-separated/trimmed read remains available
+to legacy callers; current clients never downgrade to it. A missing v1 route
+returns an app/engine update recovery message. Peer `view` grants permit only
+the exact read endpoint, without adding write or subpath authority.
+
+Focused validation: two selection-parser cases; one exact peer-read authority
+case; one client all/empty/literal-name/no-downgrade case; and one real loopback
+HTTP test using three temporary Git worktrees. The HTTP case reads a literal
+comma-named worktree and a filename with surrounding spaces, distinguishes all
+from none, refuses malformed CSV on v1 and verifies the fixture files remain
+unchanged. No user worktrees, provider or released native build are involved.
+
+This completes the containing-view UI integration gaps named in the previous
+region-child checkpoint for the tested control paths. It does not certify the
+entire #72 surface inventory, adversarial filesystem compare-and-swap, or the
+native/provider/released/deployed acceptance witnesses.

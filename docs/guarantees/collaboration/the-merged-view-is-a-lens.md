@@ -3,7 +3,9 @@
 Given a file that exists in several worktrees of one repository, when a merged
 view is opened over it, then regions **every** source agrees on appear once,
 regions that differ appear as variants naming each source, and the view says
-plainly that it is read-only and exists on disk nowhere.
+plainly that it is read-only by default and exists on disk nowhere. Explicit
+region edits name the targets opened for writing and use the captured source
+preconditions; they do not give the lens a save path.
 
 **It is a lens, not a document** — one of four, named and given one rule in
 `docs/specs/freeform/lenses.md` (2026-09-03): every block declares what it
@@ -78,3 +80,37 @@ Last LLM verification:
 - Caveat requiring LLM review: N is not bounded. Four targets is legible;
   twelve is not, and nothing here says what happens when someone opens a view
   over every branch in a repository.
+
+
+### Shared containing-view lifecycle (issue #72)
+
+The worktree view now exposes paged displayed-region/state reading, membership,
+explicit per-target write permission, region disclosure, complete-project
+comparison, refresh and guarded undo through the same native/model controller.
+Membership alone does not grant writing. File/membership lifetime changes mask
+old data immediately, reset write permissions and retire old controls/results;
+late reads/writes cannot adopt into a different file or retarget a cached call.
+One-worktree/non-repository status views expose no hidden file bodies or detailed
+controls. Complete-project inspection refuses a selected file that no longer
+matches the displayed capture; it does not claim a frozen dependency tree.
+
+A host write request invalidates the editable capture until refresh. Drafts
+remain read-only while the parent is busy or needs refresh. Actual partial write
+replies remain available when refresh fails; explicit undo uses their exact
+returned guard bytes and original file. An earlier received reply is labeled
+as earlier if a newer request fails, so its success is not attributed to that
+failed request. No rollback, atomic multi-target write or cross-process lock is
+asserted by this UI integration.
+
+Focused web evidence: five fixture-backed controller cases cover selection/
+permission lifetimes, empty membership, late path-bound results, stale initial
+reads, hidden status-view payloads, snapshot-mismatched project inspection,
+partial replies, refresh failure and exact undo. One integrated UI case uses real
+CodeMirror draft edits between native permission/disclosure and native undo,
+then verifies read-only retention after an uncertain mocked write. Six earlier
+view-presentation cases pass; agreement wording is now scoped to the capture.
+Strict TypeScript/file-length/diff checks pass. Host writes in these UI tests are
+mocked; they are not a real native/provider/released/deployed workflow.
+
+The versioned selection route and its separate real HTTP read witness are
+recorded in `a-merged-view-write-reports-per-target.md`.
