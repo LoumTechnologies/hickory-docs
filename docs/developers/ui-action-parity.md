@@ -674,3 +674,10 @@ metadata while open. Same-label callback replacement retires old authority;
 async picks exclude duplicates and report actual callback failure. Dismissal
 never claims operation cancellation. Two focused callback-fixture tests pass;
 caller-specific write/result contracts remain owned by their controllers.
+
+FenceConvert and CSV dataset promotion now expose shared drafts, paged preview/
+metadata and guarded conversion/cancel controls. Real CodeMirror tests witness
+stale-preview refusal, source-span tracking through repeated CSV size changes,
+and exact promotion with surrounding bytes preserved. Grid writes retain agent
+attribution. Conversion is explicitly a source edit, not saving, execution or
+output writing; these focused tests do not certify the release/provider flow.

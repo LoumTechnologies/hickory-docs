@@ -83,3 +83,27 @@ Last LLM verification:
   an entry that actually opened a REPL would hang the cell until its timeout.
   Only the `python` path has been executed end to end, and only in the mock
   environment, where no cell really runs.
+
+### Shared conversion and source ownership (issue #72)
+
+Fence conversion now exposes paged rendered preview reading, declared-container
+choice (or a bounded free name), conversion and cancellation through the same
+native/model controller. Source/preview/container/callback changes retire old
+handles. The editor checks the exact live immutable source version and current
+write authority before replacing the fence; an old DOM callback cannot replace
+new text. A refusal retains the draft and requests reopening/inspection.
+
+The open popover follows its actual mapped source span through edits instead of
+reusing a fence ordinal. Replacing/removing its entire source retires it. CSV
+grid writes receive the same live-source guard and retain agent actor attribution;
+shared dataset-path/promotion actions use the guarded conversion callback.
+Promotion requests a document edit only: it neither saves nor writes an output
+file. Existing table-grid readers own the CSV data disclosure.
+
+Focused validation: existing preview/conversion cases; new mixed native/model
+container, preview, stale-source handle, owner-refusal and cancellation cases;
+a real CodeMirror edit between preview and click that refuses the stale write;
+and two real CSV edits changing span length followed by agent dataset promotion
+with surrounding source preserved exactly. Strict TypeScript/file-length/diff
+checks pass. No interpreter execution, native package or provider witness is
+claimed by these tests.

@@ -1,3 +1,4 @@
+import type { UiActor } from "../lib/uiActions";
 import { useEditorEditing } from "./useEditorEditing";
 import { DebugLaunchRail } from "../debug/DebugRail";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
@@ -551,11 +552,15 @@ export function DocumentEditor({
             // The rail follows the text. Replaced only when the list
             // actually differs, so typing inside a cell does not re-render
             // the rail (and close nothing) on every keystroke.
-            setCards((previous) => {
-              const next = cardsOf(structureOf(u.state), {
-                text: u.state.doc.toString(),
-              });
-              return sameCards(previous, next) ? previous : next;
+            const next = cardsOf(structureOf(u.state), { text: u.state.doc.toString() });
+            setCards(previous => sameCards(previous, next) ? previous : next);
+            setOpen(current => {
+              if (!current) return null;
+              let replaced = false;
+              u.changes.iterChangedRanges((from, to) => { if (from <= current.card.from && to >= current.card.to) replaced = true; });
+              const from = u.changes.mapPos(current.card.from, -1), to = u.changes.mapPos(current.card.to, 1);
+              const card = next.find(card => card.kind === current.card.kind && card.from === from && card.to === to);
+              return replaced || !card ? null : { ...current, card };
             });
             // The room's first sync arrives as an ordinary document change,
             // so this — not construction — is usually where a collaborative
@@ -749,11 +754,10 @@ export function DocumentEditor({
     );
 
   /** Replace a fence with the exec cell built from it. */
-  const convertFenceCard = (card: DocCard, text: string) => {
+  const convertFenceCard = (card: DocCard, text: string, expected: EditorState["doc"]) => {
     const view = viewRef.current;
-    if (!view) return;
-    const to = Math.min(card.to, view.state.doc.length);
-    const from = Math.min(card.from, to);
+    if (!view || view.state.readOnly || view.state.doc !== expected) return false;
+    const { from, to } = card;
     view.dispatch({
       changes: { from, to, insert: text },
       // The caret lands in the new cell's body, which is where the next edit
@@ -764,12 +768,13 @@ export function DocumentEditor({
     });
     setOpen(null);
     view.focus();
+    return true;
   };
 
   /** Commit fence data and its number-format attribute together. */
-  const replaceFenceBody = (card: DocCard, fence: { body: string }, csv: string, formats = "") => {
+  const replaceFenceBody = (card: DocCard, fence: { body: string }, csv: string, formats: string, expected: EditorState["doc"], actor?: UiActor) => {
     const view = viewRef.current;
-    if (!view) return;
+    if (!view || view.state.readOnly || view.state.doc !== expected) return;
     const text = view.state.doc.toString();
     const bodyFrom = text.indexOf("\n", card.from) + 1;
     const bodyTo = bodyFrom + fence.body.length;
@@ -781,7 +786,7 @@ export function DocumentEditor({
     if (text.slice(bodyFrom, bodyTo) === body && opening === nextOpening) return;
     view.dispatch({
       changes: { from: card.from, to: bodyTo, insert: nextOpening + body },
-      userEvent: "input.table",
+      userEvent: actor?.kind === "agent" ? "input.uiAgentTable" : "input.table",
     });
   };
 
@@ -790,7 +795,8 @@ export function DocumentEditor({
     const view = viewRef.current;
     if (!view || card.kind !== "fence") return null;
     const structure = structureOf(view.state);
-    const fence = proseFences(structure, view.state.doc.toString())[card.index];
+    const expected = view.state.doc;
+    const fence = proseFences(structure, expected.toString()).find(f => f.from === card.from && f.to === card.to);
     if (!fence) return null;
     // A ```csv fence is a table somebody pasted into their notes. It gets a
     // grid rather than the "make it a cell" converter — running a CSV file as
@@ -801,8 +807,9 @@ export function DocumentEditor({
         <FenceTable
           body={fence.body}
           formats={fence.info.match(/\bformats="([^"]*)"/)?.[1] ?? ""}
-          onChange={(csv, formats) => replaceFenceBody(card, fence, csv, formats)}
-          onPromote={(path) => convertFenceCard(card, tableElementFor(fence.body, path, fence.info.match(/\bformats="([^"]*)"/)?.[1]))}
+          sourceCurrent={() => viewRef.current?.state.doc === expected && !viewRef.current?.state.readOnly}
+          onChange={(csv, formats, actor) => replaceFenceBody(card, fence, csv, formats ?? "", expected, actor)}
+          onPromote={(path) => convertFenceCard(card, tableElementFor(fence.body, path, fence.info.match(/\bformats="([^"]*)"/)?.[1]), expected)}
         />
       );
     }
@@ -811,7 +818,7 @@ export function DocumentEditor({
         info={fence.info}
         body={fence.body}
         containers={containerNamesOf(structure)}
-        onConvert={(text) => convertFenceCard(card, text)}
+        onConvert={(text) => convertFenceCard(card, text, expected)}
         onCancel={() => setOpen(null)}
       />
     );

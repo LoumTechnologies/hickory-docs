@@ -83,3 +83,37 @@ describe("converting a fence", () => {
     expect(onConvert).not.toHaveBeenCalled();
   });
 });
+
+it("shares the conversion draft and preview with agents and retires replaced-source handles", async () => {
+  const { act } = await import("@testing-library/react");
+  const { UiActions } = await import("../lib/uiActions");
+  const { UiActionContext } = await import("../lib/uiActionBridge");
+  const registry = new UiActions({ workspace: "p", window: "w" }, () => true, async () => {});
+  const convert = vi.fn(() => true), cancel = vi.fn();
+  const panel = (body: string) => <UiActionContext.Provider value={registry}><FenceConvert info="python" body={body} containers={["py", "other"]} onConvert={convert} onCancel={cancel} /></UiActionContext.Provider>;
+  const view = render(panel("print(1)"));
+  const actions = () => registry.groups().groups.flatMap(group => registry.observe(group, 64).actions);
+  let id = 0;
+  const run = async (label: string, args = {}) => { let result: unknown; await act(async () => { result = await registry.act(registry.scope, { id: "python:fixture", kind: "agent" }, {
+    handle: actions().find(action => action.label === label)!.handle, arguments: args, request_id: String(++id),
+  }); }); return result; };
+  const read = await run("Read fence conversion preview bytes", { offset: 0, limit: 8192 }) as { outcome: { value: { bytes: number[] } } };
+  expect(new TextDecoder().decode(Uint8Array.from(read.outcome.value.bytes))).toContain("print(1)");
+  await run("Set fence conversion container", { container: "other" });
+  expect((screen.getByLabelText(/Container/) as HTMLSelectElement).value).toBe("other");
+  const old = actions().find(action => action.label === "Convert fence to executable cell")!.handle;
+  view.rerender(panel("print(2)"));
+  expect(await registry.act(registry.scope, { id: "acp:fixture", kind: "agent" }, { handle: old, arguments: {}, request_id: "stale" })).not.toMatchObject({ status: "result" });
+  expect(convert).not.toHaveBeenCalled();
+  const preview = document.querySelector(".insert-menu__preview-text")!.textContent!;
+  expect(await run("Convert fence to executable cell")).toMatchObject({ status: "result", outcome: { value: { source_changed: true, saved: false, executed: false } } });
+  expect(convert).toHaveBeenCalledExactlyOnceWith(preview);
+  await run("Cancel fence conversion");
+  expect(cancel).toHaveBeenCalledTimes(1);
+});
+it("preserves the conversion draft when the owner refuses changed source", () => {
+  panel({ onConvert: () => false });
+  fireEvent.click(screen.getByRole("button", { name: "Convert" }));
+  expect(screen.getByRole("alert").textContent).toContain("source or editor authority changed");
+  expect((screen.getByLabelText(/Container/) as HTMLSelectElement).value).toBe("py");
+});

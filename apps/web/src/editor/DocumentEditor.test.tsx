@@ -789,3 +789,53 @@ it("agent document input shares the live room callback and respects a later read
     expect(view!.state.doc.toString()).toBe("# Title\n\nchanged\n");
   } finally { mounted.unmount(); realtime.close(); }
 });
+
+it("refuses a fence conversion against a changed live document before React refreshes the preview", async () => {
+  const source = '<hick:container name="py" image="python:3.12" />\n\n```python\nprint(1)\n```\n';
+  const realtime = new LocalRealtime();
+  const view = render(<DocumentEditor docId="fence-stale" initialSource={source} realtime={realtime} execBlocks={[]} runningCells={new Set()} onRunCell={() => {}} />);
+  try {
+    const rail = await screen.findByRole("button", { name: /make it a cell/i });
+    act(() => rail.click());
+    const convert = await screen.findByRole("button", { name: "Convert" });
+    const editor = (window as unknown as { __hickoryView: EditorViewType }).__hickoryView;
+    act(() => {
+      const from = editor.state.doc.toString().indexOf("print(1)");
+      editor.dispatch({ changes: { from, to: from + 8, insert: "print(2)" }, userEvent: "input" });
+      convert.click(); // The old DOM callback still closes over the prior preview.
+    });
+    expect(editor.state.doc.toString()).toContain("```python\nprint(2)");
+    expect(editor.state.doc.toString()).not.toContain("<hick:exec");
+    await waitFor(() => expect(document.querySelector(".insert-menu__preview-text")?.textContent).toContain("print(2)"));
+    act(() => screen.getByRole("button", { name: "Convert" }).click());
+    expect(editor.state.doc.toString()).toContain("<hick:exec");
+    expect(editor.state.doc.toString()).toContain("print(2)");
+  } finally { view.unmount(); realtime.close(); }
+});
+
+it("keeps an edited CSV fence bound to its real span and shares dataset promotion", async () => {
+  const registry = new UiActions({ workspace: "p", window: "w" }, () => true, async () => {});
+  const source = 'Before\n\n```csv\nname,count\nNorth,2\n```\n\nAfter\n';
+  const realtime = new LocalRealtime();
+  const view = render(<UiActionContext.Provider value={registry}><DocumentEditor docId="fence-table-owned" initialSource={source} realtime={realtime} execBlocks={[]} runningCells={new Set()} onRunCell={() => {}} /></UiActionContext.Provider>);
+  const actions = () => registry.groups().groups.flatMap(group => registry.observe(group, 64).actions);
+  let id = 0;
+  const run = async (label: string, args = {}) => { let result: unknown; await act(async () => { result = await registry.act(registry.scope, { id: "python:fixture", kind: "agent" }, {
+    handle: actions().find(action => action.label === label)!.handle, arguments: args, request_id: String(++id),
+  }); }); return result; };
+  try {
+    const rail = await screen.findByRole("button", { name: /make it a cell/i });
+    act(() => rail.click());
+    await screen.findByTestId("table-panel");
+    const editor = (window as unknown as { __hickoryView: EditorViewType }).__hickoryView;
+    await run("Write table cell contents", { row: 1, column: 1, value: "12345" });
+    expect(editor.state.doc.toString()).toContain("North,12345");
+    expect(screen.getByTestId("table-panel")).toBeTruthy();
+    await run("Write table cell contents", { row: 1, column: 1, value: "678" });
+    expect(editor.state.doc.toString()).toContain("North,678");
+    await run("Set fence dataset path", { path: "data/north.csv" });
+    expect((screen.getByLabelText(/file to write the csv to/i) as HTMLInputElement).value).toBe("data/north.csv");
+    expect(await run("Promote fence to table element")).toMatchObject({ status: "result", outcome: { value: { source_changed: true, file_written: false } } });
+    expect(editor.state.doc.toString()).toBe('Before\n\n<hick:table path="data/north.csv">\nname,count\nNorth,678\n</hick:table>\n\nAfter\n');
+  } finally { view.unmount(); realtime.close(); }
+});

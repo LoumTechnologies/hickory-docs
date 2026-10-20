@@ -6,8 +6,11 @@
 // only choice worth asking about, because it is the only thing the fence
 // cannot tell us — everything else is derived from the language tag.
 
-import { useMemo, useState } from "react";
+import { useId, useMemo, useState } from "react";
 
+import { useUiCommands, useUiRevision } from "../lib/uiActionBridge";
+import { useUiReading } from "../lib/uiReading";
+import type { UiOutcome } from "../lib/uiActions";
 import { convertFence } from "../lib/fenceToExec";
 import { elementById, initialValues, renderElement } from "../lib/insertCatalog";
 
@@ -18,7 +21,7 @@ export interface FenceConvertProps {
   /** Containers this document already declares, in document order. */
   containers: string[];
   /** Replace the fence with this text. */
-  onConvert: (text: string) => void;
+  onConvert: (text: string) => boolean | void;
   onCancel: () => void;
 }
 
@@ -40,6 +43,37 @@ export function FenceConvert({
     if (!exec) return "";
     return renderElement(exec, { ...initialValues(exec), container }, conversion.body);
   }, [exec, container, conversion.body]);
+
+  const parent = `fence-convert:${useId()}`;
+  const [error, setError] = useState<string | null>(null);
+  const callbackRevision = useMemo(() => crypto.randomUUID(), [onConvert, onCancel]);
+  const revision = useUiRevision(() => [info, body, containers, container, preview, callbackRevision]);
+  const changeContainer = (text: string): UiOutcome => {
+    if (text.length > 256 || (containers.length > 0 && !containers.includes(text))) return { status: "unavailable", reason: "Choose a currently declared container" };
+    setContainer(text); setError(null);
+    return { status: "completed", value: { draft_updated: true } };
+  };
+  const convert = (): UiOutcome => {
+    if (!container.trim() || (containers.length > 0 && !containers.includes(container))) return { status: "unavailable", reason: "Choose a current container before converting" };
+    try {
+      const changed = onConvert(preview);
+      if (changed === false) {
+        const reason = "The fence source or editor authority changed. Reopen this fence and inspect the current preview.";
+        setError(reason); return { status: "requires_input", request: `${parent}:source`, reason };
+      }
+      return { status: "completed", value: { edit_requested: true, source_changed: changed === true, saved: false, executed: false } };
+    } catch (cause) { setError(String(cause)); return { status: "unavailable", reason: String(cause) }; }
+  };
+  const cancel = (): UiOutcome => { onCancel(); return { status: "completed", value: { dismissal_requested: true, converted: false } }; };
+  useUiCommands([
+    { key: `${parent}:container`, command: { parent, subject: parent, label: "Set fence conversion container", parameters: { container: { type: "string", maxLength: 256, ...(containers.length ? { choices: containers } : {}) } }, prerequisites: [],
+      read: () => ({ revision: revision(), enabled: true }), execute: async args => changeContainer(args.container as string) } },
+    { key: `${parent}:convert`, command: { parent, subject: parent, label: "Convert fence to executable cell", parameters: {}, prerequisites: ["Preview is a source edit, not execution or saving"],
+      read: () => ({ revision: revision(), enabled: !!container.trim() && (!containers.length || containers.includes(container)) }), execute: async () => convert() } },
+    { key: `${parent}:cancel`, command: { parent, subject: parent, label: "Cancel fence conversion", parameters: {}, prerequisites: [],
+      read: () => ({ revision: revision(), enabled: true }), execute: async () => cancel() } },
+  ]);
+  useUiReading("fence conversion preview", { info, body, container, containers, conversion, preview, error, scope: "Rendered preview; conversion neither saves nor executes the cell" });
 
   return (
     <div className="fence-convert">
@@ -67,7 +101,7 @@ export function FenceConvert({
           id="fence-convert-container"
           className="insert-menu__input"
           value={container}
-          onChange={(event) => setContainer(event.target.value)}
+          onChange={(event) => changeContainer(event.target.value)}
         >
           {containers.map((name) => (
             <option key={name} value={name}>
@@ -83,7 +117,8 @@ export function FenceConvert({
           value={container}
           spellCheck={false}
           placeholder="py"
-          onChange={(event) => setContainer(event.target.value)}
+          maxLength={256}
+          onChange={(event) => changeContainer(event.target.value)}
         />
       )}
       {containers.length === 0 && (
@@ -104,16 +139,17 @@ export function FenceConvert({
         <pre className="insert-menu__preview-text mono">{preview}</pre>
       </div>
 
+      {error && <p role="alert">{error}</p>}
       <div className="insert-menu__actions">
-        <button type="button" className="btn" onClick={onCancel}>
+        <button type="button" className="btn" onClick={() => cancel()}>
           Cancel
         </button>
         <button
           type="button"
           className="btn btn-primary"
-          disabled={!container.trim()}
+          disabled={!container.trim() || (containers.length > 0 && !containers.includes(container))}
           data-tip={container.trim() ? undefined : "Name the container it runs in"}
-          onClick={() => onConvert(preview)}
+          onClick={() => convert()}
         >
           Convert
         </button>
