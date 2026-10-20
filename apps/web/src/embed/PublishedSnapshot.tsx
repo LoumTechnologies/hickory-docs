@@ -1,4 +1,6 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useId, useMemo, useState, type ReactNode } from "react";
+import { UiActionsVisibility, useUiCommands, useUiRevision } from "../lib/uiActionBridge";
+import { useUiReading } from "../lib/uiReading";
 import type { ExecBlock } from "../api/types";
 import { DocumentEmbed } from "./DocumentEmbed";
 import { CellPanel } from "../components/CellPanel";
@@ -57,9 +59,14 @@ export async function verifiedPublicationAsset(snapshot: ViewerSnapshot, artifac
   if (hash !== expected) throw Error("Published asset hash mismatch");
   return URL.createObjectURL(new Blob([bytes], { type: response.headers.get("Content-Type") ?? "application/octet-stream" }));
 }
-export function PublishedSnapshot({ snapshot, artifactUrl }: { snapshot: ViewerSnapshot; artifactUrl?: string }) {
-  const assetUrls = useRef(new Set<string>());
-  useEffect(() => () => { for (const url of assetUrls.current) URL.revokeObjectURL(url); assetUrls.current.clear(); }, [snapshot, artifactUrl]);
+type SnapshotProps = { snapshot: ViewerSnapshot; artifactUrl?: string };
+export function PublishedSnapshot(props: SnapshotProps) {
+  const owner = useMemo(() => crypto.randomUUID(), [props.snapshot, props.artifactUrl]);
+  return <CapturedPublishedSnapshot key={owner} {...props} />;
+}
+function CapturedPublishedSnapshot({ snapshot, artifactUrl }: SnapshotProps) {
+  const assets = useMemo(() => ({ urls: new Set<string>(), disposed: false }), [snapshot, artifactUrl]);
+  useEffect(() => { assets.disposed = false; return () => { assets.disposed = true; for (const url of assets.urls) URL.revokeObjectURL(url); assets.urls.clear(); }; }, [assets]);
   const host = useMemo(() => ({ resolveAsset: async (path: string, signal: AbortSignal) => {
     if (!artifactUrl || !snapshot.verification) throw Error("No published asset manifest available");
     const sourcePath = new URL(snapshot.path, "https://publication.invalid/");
@@ -67,10 +74,20 @@ export function PublishedSnapshot({ snapshot, artifactUrl }: { snapshot: ViewerS
     if (relative.origin !== sourcePath.origin) throw Error("External assets are not approved");
     const key = decodeURIComponent(relative.pathname.slice(1));
     const immutable = await verifiedPublicationAsset(snapshot, artifactUrl, key, signal);
-    assetUrls.current.add(immutable);
+    if (signal.aborted || assets.disposed) { URL.revokeObjectURL(immutable); throw Error("The originating publication capture was retired"); }
+    assets.urls.add(immutable);
     return immutable;
-  } }), [snapshot, artifactUrl]);
+  } }), [snapshot, artifactUrl, assets]);
   const [replay, setReplay] = useState(true);
+  const parent = `publication:${useId()}`;
+  const revision = useUiRevision(() => [snapshot, artifactUrl, replay]);
+  useUiReading("published snapshot status", { path: snapshot.path, captured: new Date(snapshot.captured_at_ms).toLocaleString(), source_hash: snapshot.source_hash,
+    historical: true, transcripts_shown: replay, verification: snapshot.verification ? { status: snapshot.verification.status, revision: snapshot.verification.revision,
+      origin: snapshot.verification.origin, scope: snapshot.verification.scope, requirements: snapshot.verification.requirements } : null,
+    cells: snapshot.cells.map(cell => ({ id: cell.id, status: cell.status ?? "unrecorded" })), scope: "Supplied historical results; no current repository, execution or authenticity certification." });
+  useUiCommands([{ key: `${parent}:transcripts`, command: { label: "Set published execution transcript visibility", parent, subject: parent, parameters: { shown: { type: "boolean" } }, prerequisites: [],
+    read: () => ({ revision: revision(), enabled: true }), execute: async args => { setReplay(args.shown as boolean); return { status: "completed", value: { transcripts_requested: args.shown, execution_requested: false } }; },
+  } }]);
   return <main className="published-snapshot">
     <h1>{snapshot.path}</h1>
     <p>Captured {new Date(snapshot.captured_at_ms).toLocaleString()} · historical snapshot</p>
@@ -80,11 +97,11 @@ export function PublishedSnapshot({ snapshot, artifactUrl }: { snapshot: ViewerS
       <h2>Verification: {snapshot.verification.status}</h2>
       <a href={`https://github.com/LoumTechnologies/hickory-docs/commit/${snapshot.verification.revision}`}>Tested revision {snapshot.verification.revision}</a>
       <p>{snapshot.verification.origin}</p>
-      <details><summary>Recording/replay evidence</summary><pre>{JSON.stringify(snapshot.verification.execution_evidence ?? "Recording origin unavailable", null, 2)}</pre></details><p>{snapshot.verification.scope}</p>
+      <SnapshotDisclosure label="Recording/replay evidence" value={snapshot.verification.execution_evidence ?? "Recording origin unavailable"}><pre>{JSON.stringify(snapshot.verification.execution_evidence ?? "Recording origin unavailable", null, 2)}</pre></SnapshotDisclosure><p>{snapshot.verification.scope}</p>
       <p>Historical success certifies only these source/dependency hashes; changed inputs need a new run.</p>
-      <details><summary>Environment and dependency identities</summary><pre>{JSON.stringify({ environment: snapshot.verification.environment, dependencies: snapshot.verification.dependencies, assets: snapshot.verification.assets }, null, 2)}</pre></details>
+      <SnapshotDisclosure label="Environment and dependency identities" value={{ environment: snapshot.verification.environment, dependencies: snapshot.verification.dependencies, assets: snapshot.verification.assets }}><pre>{JSON.stringify({ environment: snapshot.verification.environment, dependencies: snapshot.verification.dependencies, assets: snapshot.verification.assets }, null, 2)}</pre></SnapshotDisclosure>
       {snapshot.verification.requirements.map((r, n) => <section key={`${r.id}:${n}`} id={`requirement-${n}`}><h3>{r.id}</h3><p>{r.text}</p>{r.witnesses.map(i => snapshot.cells[i] ? <a key={i} href={`#witness-${i}`}>Witness {snapshot.cells[i].id} </a> : <p key={i}>Witness {i} unavailable · not verified</p>)}</section>)}
-      {snapshot.verification.commands.map((c, i) => <details key={i} open={snapshot.verification!.status !== "passed"}><summary>{c.command.join(" ")} · {c.exit_code === undefined ? "unavailable" : `exit ${c.exit_code}`}</summary><pre>{c.stdout}</pre><pre>{c.stderr ?? c.error}</pre></details>)}
+      {snapshot.verification.commands.map((c, i) => <SnapshotDisclosure key={i} initialOpen={snapshot.verification!.status !== "passed"} label={`${c.command.join(" ")} · ${c.exit_code === undefined ? "unavailable" : `exit ${c.exit_code}`}`} value={{ stdout: c.stdout ?? "", stderr: c.stderr ?? c.error ?? "" }}><pre>{c.stdout}</pre><pre>{c.stderr ?? c.error}</pre></SnapshotDisclosure>)}
     </section>}
     <DocumentEmbed source={snapshot.source} revision={snapshot.source_hash} path={snapshot.path} host={host} readOnly />
     <h2>Recorded cell results</h2>
@@ -93,3 +110,16 @@ export function PublishedSnapshot({ snapshot, artifactUrl }: { snapshot: ViewerS
     {snapshot.cells.map((cell, index) => <section key={`${cell.id}:${index}`} id={`witness-${index}`}><h3>{cell.id} · {cell.status ?? "unrecorded"}</h3><CellPanel block={cell} command={cell.command} replay={replay} /></section>)}
   </main>;
 }
+
+function SnapshotDisclosure({ label, value, children, initialOpen = false }: { label: string; value: unknown; children: ReactNode; initialOpen?: boolean }) {
+  const [open, setOpen] = useState(initialOpen);
+  const parent = `publication-evidence:${useId()}`;
+  const revision = useUiRevision(() => [label, value, open]);
+  useUiReading("publication evidence summary", { label, open });
+  useUiCommands([{ key: parent, command: { label: `Set publication evidence visibility: ${label.slice(0, 256)}`, parent, subject: parent,
+    parameters: { open: { type: "boolean" } }, prerequisites: [], read: () => ({ revision: revision(), enabled: true }),
+    execute: async args => { setOpen(args.open as boolean); return { status: "completed", value: { visibility_requested: args.open } }; },
+  } }]);
+  return <details open={open} onToggle={event => setOpen(event.currentTarget.open)}><summary>{label}</summary><UiActionsVisibility visible={open}><SnapshotPayload value={value} />{children}</UiActionsVisibility></details>;
+}
+function SnapshotPayload({ value }: { value: unknown }) { useUiReading("disclosed publication evidence", value); return null; }

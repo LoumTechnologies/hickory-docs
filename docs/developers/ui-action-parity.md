@@ -905,3 +905,13 @@ a test blocker matching source-module URLs and was corrected before the passing
 runs. Complete iframe renderer/asset mapping and native-agent attachment of the
 separate static marketing/publication entrypoints remain open. No native/provider,
 release or deployment witness is claimed.
+
+PublishedSnapshot now has shared transcript visibility, paged historical status
+and verification evidence disclosure. Failed-command evidence retains its native
+initially-open state. A replacement capture resets controls and retires handles;
+verified assets completing after capture disposal are revoked instead of adopted.
+Two focused mocked-document/real-controller cases pass, including disclosed-byte
+reading, native collapse, stale handles and late verified-asset cleanup. Targeted
+TypeScript checks pass. These adapters require an enclosing registry; the separate
+static snapshot entrypoint still lacks native-agent attachment, and its import,
+index/navigation and complete asset/media control mapping remain open.

@@ -34,3 +34,28 @@ Last LLM verification:
 - Human judgment: not recorded.
 
 - Dependency fingerprint: `apps/web/src/embed/PublishedSnapshot.tsx` SHA-256 `b3632eb6c3f856e95bb7a581b2b86c51a893735f889cb22c7d04850f4a22ca96`; changes to this implementation or its cited integration paths require review.
+
+## Shared captured-view controls — 2026-10-20
+
+When mounted under an owning UI registry, PublishedSnapshot shares transcript
+visibility and explicit recording/environment/command-evidence disclosure. Paged
+status preserves the historical/non-authenticating scope. Collapsed evidence
+bodies have no reading action; failed command records remain initially open as
+before. Replacing a capture retires controls and resets transcript state. An
+asset that finishes verification after its capture retires is revoked and refused,
+so a late blob URL cannot be adopted into a replacement capture.
+
+LLM review: partially verified for `PublishedSnapshot`, `SnapshotDisclosure` and
+capture-owned asset resolution. Two focused `PublishedSnapshot.controls.test.tsx`
+cases passed with the nested document mocked and actual registry/controllers:
+disclosure, exact evidence bytes, native collapse, stale capture refusal and a
+late verified-fetch completion whose blob is revoked. Targeted TypeScript,
+whitespace and file-length checks passed. Existing decoder checks were not rerun
+because decoding was unchanged. Actual browser asset playback, standalone-page
+native-agent attachment and full import/index/link/media mapping remain open;
+these are implementation gaps, not newly declared OS exemptions. No publication,
+provider/native/release/deployed validation or human acceptance is asserted.
+
+- Dependency `apps/web/src/embed/PublishedSnapshot.tsx` SHA-256: `833964d54137f01c378346246447e0fa314ad534f3364862c49c58c20b4fc8e7`.
+
+- Dependency `apps/web/src/embed/PublishedSnapshot.controls.test.tsx` SHA-256: `2dce032345088d92329d33d669936f93cccf052ee54c31566505ca1eeaa031d8`.
