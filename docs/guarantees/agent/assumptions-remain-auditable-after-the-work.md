@@ -40,3 +40,29 @@ Last LLM verification:
 - Human judgment: not recorded; actual omission-detection efficacy is unevaluated.
 - Exclusions: opaque adapter memory, hidden reasoning, all-assumptions completeness,
   authenticated authorship and durability after session deletion.
+
+## Shared audit inspection and declaration authority (2026-10-20)
+
+The assumption-audit disclosure now gates its own child controls. Search,
+category selection and paged visible-record reading use the actual filtered UI
+projection. Unrendered provider payloads require the record's nested details
+before their bytes are available. Record/current-source navigation calls the
+existing location controller; full session export has an explicit paged byte
+read and a browser download request without a claim that a file was saved.
+Verification standing is explicitly readable with the same historical/current
+and execution-only scope shown to the human.
+
+The nested annotation form exposes draft setters and its current request/result.
+It still writes a user declaration through the existing human annotation endpoint.
+An agent invoking that submit receives an addressable required-human-declaration
+request and performs no write. A real human submit uses the same prepared fields
+and returns the actual annotation reply. The built-in/external agent's existing
+audit tools retain model attribution; a prepared UI note is not human testimony.
+Closing the audit disclosure retires its child action handles without secretly
+expanding or reading nested content.
+
+Focused `AssumptionAudit.test.tsx` cases passed for progressive retirement,
+visible-versus-raw payload reading, no model impersonation/post, actual mocked
+human annotation reply and existing historical/filter behavior. Strict focused
+TypeScript, inventory, file-length and diff checks passed. No real annotation,
+provider/native/release/deployment witness or broad regression run is claimed.

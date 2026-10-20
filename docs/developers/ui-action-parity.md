@@ -604,3 +604,13 @@ submission, edits and close; template/language/toolchain and preview responses b
 their originating inputs. Native folder picking uses the same handler and actual
 response; builds without it expose typed location entry and a disabled reason.
 Focused tests use mocked toolchain/chooser replies, not native/provider witnesses.
+
+### Assumption audit checkpoint (2026-10-20)
+
+Audit search/filtering, visible-record and nested raw reading, source navigation,
+session byte export/download requests and verification standing now have shared
+controls. The annotation form's draft and required-human-declaration/result are
+addressable. Its existing endpoint records human declarations; agent submission
+is refused with a concrete request instead of impersonating human testimony.
+Existing model audit tools retain model attribution. Focused tests prove no POST
+for an agent and the actual mocked reply for a human using the prepared draft.

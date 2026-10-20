@@ -50,3 +50,34 @@ it("shows recording gaps even while filtering declarations", () => {
   render(<AssumptionAudit records={[{ record_kind: "audit-gap", state: "unreadable", session_line: 7 }]} path="sessions/demo.md" />);
   expect(screen.getByRole("alert", { hidden: true }).textContent).toContain("Coverage is incomplete");
 });
+
+it("discloses audit reading progressively and refuses model-authored human declarations", async () => {
+  const { act } = await import("@testing-library/react");
+  const { UiActions } = await import("../lib/uiActions");
+  const { UiActionContext } = await import("../lib/uiActionBridge");
+  const registry = new UiActions({ workspace: "p", window: "w" }, () => true, async () => {});
+  vi.mocked(request).mockResolvedValue({ recorded: "actual annotation reply" });
+  const hidden = { record_kind: "model-request", session_line: 11, raw_payload: "Explicitly hidden provider payload" } as AuditRecord;
+  render(<UiActionContext.Provider value={registry}><AssumptionAudit records={[...records, hidden]} path="sessions/demo.md" source="Full historical session bytes" /></UiActionContext.Provider>);
+  const actions = () => registry.groups().groups.flatMap(group => registry.observe(group, 64).actions);
+  let id = 0;
+  const run = async (label: string, args = {}) => { let result: unknown; await act(async () => { result = await registry.act(registry.scope,
+    { id: "python:turn", kind: "agent" }, { handle: actions().find(action => action.label === label)!.handle, arguments: args, request_id: String(++id) }); }); return result; };
+  expect(actions().some(a => a.label === "Search assumption audit")).toBe(false);
+  await run("Set evidence visibility: Assumption audit · 2 declared records · all branches", { open: true });
+  await run("Filter assumption audit records", { category: "all" });
+  const reading = await run("Read visible assumption audit records bytes", { offset: 0, limit: 8192 }) as { outcome: { value: { bytes: number[] } } };
+  const text = new TextDecoder().decode(Uint8Array.from(reading.outcome.value.bytes));
+  expect(text).toContain("Assumed dollars"); expect(text).not.toContain("Explicitly hidden provider payload");
+  expect(actions().some(a => a.label === "Set audit note statement")).toBe(false);
+  await run("Set evidence visibility: Add an audit note or correction", { open: true });
+  await run("Set audit note statement", { text: "Prepared correction" });
+  await run("Set audit note reason", { text: "Inspect the evidence" });
+  expect(await run("Record user audit declaration")).toMatchObject({ status: "result", outcome: { status: "requires_input", request: expect.stringContaining("human-declaration") } });
+  expect(request).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole("button", { name: "Record audit note" }));
+  await waitFor(() => expect(request).toHaveBeenCalledWith("POST", "/api/sessions/audit", { path: "sessions/demo.md", entry: { statement: "Prepared correction", reason: "Inspect the evidence" } }));
+  await screen.findByText(/Recorded as a user declaration/);
+  await run("Set evidence visibility: Assumption audit · 2 declared records · all branches", { open: false });
+  expect(actions().some(a => a.label === "Set audit note statement" || a.label === "Search assumption audit")).toBe(false);
+});
