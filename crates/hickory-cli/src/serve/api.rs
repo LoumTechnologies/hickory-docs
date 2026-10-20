@@ -11,6 +11,8 @@
 //! see [`super::agent`] — the same confined Python agent `hick agent` runs, wired to the
 //! chat dock.
 
+mod create_new;
+
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -192,9 +194,7 @@ pub async fn create_doc(
         std::fs::create_dir_all(parent).map_err(|e| {
             ApiError::internal(format!("could not create {}: {e}", parent.display()))
         })?;
-        std::fs::write(&absolute, &body.source).map_err(|e| {
-            ApiError::internal(format!("could not write {}: {e}", absolute.display()))
-        })?;
+        create_new::write(&absolute, &body.source)?;
         // Naming an unnamed buffer keeps it in this window, including when
         // the Save dialog chooses a file outside the workspace.
         let rel = absolute
@@ -212,8 +212,7 @@ pub async fn create_doc(
         ));
     }
     let (rel, absolute) = new_doc_target(&state, &body.path)?;
-    std::fs::write(&absolute, &body.source)
-        .map_err(|e| ApiError::internal(format!("could not write {}: {e}", absolute.display())))?;
+    create_new::write(&absolute, &body.source)?;
 
     let id = state.index.add(&rel);
     Ok((

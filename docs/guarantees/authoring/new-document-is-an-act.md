@@ -53,3 +53,34 @@ Last LLM verification:
   behavior using the real CodeMirror editors under jsdom.
 - Boundary: native platform dialogs are typechecked and reviewed; these tests
   do not click the operating system's menu or Save dialog.
+
+## New-file creation refuses overwrite — 2026-10-20
+
+Naming an unnamed buffer creates a new file; it does not truncate an existing
+file, even when a native chooser returns an absolute existing path. Both absolute
+and folder-relative document creation use atomic `create_new`, so another writer
+winning after target inspection causes a conflict. Final symlinks, including
+ones whose targets are absent, are refused rather than followed for creation.
+Open the existing file to edit it, or choose a new filename. A failure after
+creation reports that partial new bytes may remain; it does not assert no effect.
+
+Retrospective correction: the route's earlier refusal comment was stronger than
+its implementation. The absolute branch used an overwriting write, and the
+relative branch's existence check was not atomic with writing. This review found
+and corrected those paths while auditing issue #72's native chooser equivalents.
+No model request is treated as native overwrite consent.
+
+LLM review: partially verified. Inspected `serve/api.rs::create_doc` dispatching
+both branches to `serve/api/create_new.rs::write`. Two focused Rust cases passed
+via `cargo test -p hickory-cli --lib serve::api::create_new::tests --quiet`:
+concurrent temporary-file creates produce exactly one complete winner and a
+conflict, and Unix final/dangling symlinks preserve existing bytes/absent targets.
+These are real temporary filesystem operations, not an HTTP/native-dialog
+witness. Parent-directory symlink changes, disk-full partial writes, power-loss
+durability and Windows symlink behavior are not certified. Human judgment and
+real native chooser validation are unrecorded.
+
+Evidence dependency SHA-256 values (changed bytes invalidate this checkpoint):
+
+- `crates/hickory-cli/src/serve/api.rs`: `b54aff5268ce5a0595aab3d79bdf5ea75046dcf93c4deae4940058302fb8ee82`
+- `crates/hickory-cli/src/serve/api/create_new.rs`: `516e58a44d1cc9c3a1cf083169ebb4513fede55aacb33d135b9a73b803428e8d`
