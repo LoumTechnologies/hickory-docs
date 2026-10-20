@@ -614,3 +614,13 @@ addressable. Its existing endpoint records human declarations; agent submission
 is refused with a concrete request instead of impersonating human testimony.
 Existing model audit tools retain model attribution. Focused tests prove no POST
 for an agent and the actual mocked reply for a human using the prepared draft.
+
+### Scratchpad checkpoint (2026-10-20)
+
+Scratchpad reading, draft replacement and save now share native/agent handlers.
+Agent-assisted drafts and agent-triggered saves retain explicit authorship on a
+versioned API, with no silent downgrade to the human-only route. Pending saves
+exclude another save and native edits; refusals preserve text. Focused testing
+also exposed and fixed legacy `.hick` output and a concurrent filename race:
+new notes are `.md` and use exclusive creation. Tests include real engine
+parse/weave, a real loopback HTTP route, and mocked-host mixed UI actor cases.

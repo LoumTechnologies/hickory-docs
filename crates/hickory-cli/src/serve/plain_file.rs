@@ -427,6 +427,8 @@ mod tests {
 #[derive(Deserialize)]
 pub struct ScratchpadNote {
     pub text: String,
+    #[serde(default)]
+    pub agent_assisted: bool,
 }
 
 /// `POST /api/scratchpad` — save typed text as a note in the open folder.
@@ -440,13 +442,38 @@ pub async fn post_scratchpad(
     State(state): State<LocalState>,
     Json(body): Json<ScratchpadNote>,
 ) -> ApiResult<Json<Value>> {
+    if body.agent_assisted {
+        return Err(ApiError::bad_request(
+            "Use the versioned agent-assisted scratchpad endpoint",
+        ));
+    }
+    save_scratchpad_note(state, body)
+}
+
+/// Versioned to prevent an older engine silently treating agent text as human-only.
+pub async fn post_assisted_scratchpad(
+    State(state): State<LocalState>,
+    Json(body): Json<ScratchpadNote>,
+) -> ApiResult<Json<Value>> {
+    if !body.agent_assisted {
+        return Err(ApiError::bad_request(
+            "Agent-assisted scratchpad attribution is required",
+        ));
+    }
+    save_scratchpad_note(state, body)
+}
+
+fn save_scratchpad_note(state: LocalState, body: ScratchpadNote) -> ApiResult<Json<Value>> {
     let root = state.index.root().to_path_buf();
-    let path = crate::ingest::save_scratchpad(&body.text, &root)
-        .map_err(|e| ApiError::bad_request(format!("{e:#}")))?;
+    let path =
+        crate::ingest::save_scratchpad_with_attribution(&body.text, &root, body.agent_assisted)
+            .map_err(|e| ApiError::bad_request(format!("{e:#}")))?;
     let relative = path
         .strip_prefix(&root)
         .unwrap_or(&path)
         .to_string_lossy()
         .to_string();
-    Ok(Json(json!({ "path": relative })))
+    Ok(Json(
+        json!({ "path": relative, "agent_assisted": body.agent_assisted }),
+    ))
 }

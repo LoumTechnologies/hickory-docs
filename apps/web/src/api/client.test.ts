@@ -112,3 +112,17 @@ describe("a failed request says what the server said", () => {
     await expect(api.files()).rejects.toThrow("Unprocessable Entity");
   });
 });
+
+it("uses the versioned attribution route for assisted scratchpad saves without fallback", async () => {
+  const handler = vi.fn(async () => ({ path: "note.md" }));
+  installMockHandler(handler);
+  try {
+    await api.saveScratchpad("Human text");
+    expect(handler).toHaveBeenLastCalledWith("POST", "/api/scratchpad", { text: "Human text" });
+    await api.saveScratchpad("Assisted text", true);
+    expect(handler).toHaveBeenLastCalledWith("POST", "/api/v1/scratchpad", { text: "Assisted text", agent_assisted: true });
+    handler.mockRejectedValueOnce(new Error("Versioned route unavailable"));
+    await expect(api.saveScratchpad("Do not downgrade", true)).rejects.toThrow("Versioned route unavailable");
+    expect(handler).toHaveBeenCalledTimes(3);
+  } finally { installMockHandler(null as never); }
+});

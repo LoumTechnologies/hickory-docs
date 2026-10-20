@@ -2,7 +2,8 @@
 
 Given text typed into the app's scratchpad, when it is saved, then it becomes a
 note whose body is **prose** — no `<hick:transcript>`, no derived speaker turns,
-no summary transforms — recording only that it came from the scratchpad; and
+no summary transforms — recording that it came from the scratchpad and, for
+agent-assisted drafts, explicit agent-assisted authorship; and
 when the text is empty, or contains hick markup, then it is refused with a
 reason and the text is left where the person can act on it.
 
@@ -10,7 +11,7 @@ The reason is the provenance rule in
 `docs/specs/freeform/provenance-and-standing.md`, applied at the point material
 enters. A `hick:transcript` means *bytes another tool produced*, which is
 exactly right for a downloaded export and exactly wrong for a sentence somebody
-just typed. On the attributable axis, scratchpad text is the strongest material
+just typed. For human-only drafts, scratchpad text is the strongest material
 there is: a named human wrote it, in this app, and git will say so. Wrapping it
 as machine-conveyed material would throw that away and imply a machine step
 between the person and the words that never happened.
@@ -75,3 +76,33 @@ Last LLM verification:
     its placement and sizing in a real layout are unverified.
   - **There is no mobile app to put this in**, which is where a scratchpad is
     most useful. See `notes-ide.md` — `apps/mobile` does not exist yet.
+
+## Shared input and truthful authorship (2026-10-20)
+
+The scratchpad now exposes paged draft/save reading, typed draft replacement and
+explicit save through the same controller as native typing and Ctrl/Command+Enter.
+An agent edit marks the draft agent-assisted; subsequent human edits retain that
+standing until the draft is cleared or saved. An agent-triggered save also uses
+the assisted path. Assisted notes remain prose and carry
+`authorship: agent-assisted` in their frontmatter, without a verification claim.
+Human-only native saves retain their existing source metadata.
+
+The assisted API is `/api/v1/scratchpad` and requires the attribution flag. It
+never falls back to an older engine's human-only route; the legacy route refuses
+an assisted payload on a current engine. Both paths now create `.md` notes,
+fixing an existing scratchpad bug that produced `.hick` files rejected by the
+current engine. Saving claims a filename with exclusive creation so concurrent
+notes cannot overwrite one another. A write failure can leave a partial file;
+the error names it for inspection. The draft remains after refusal. Pending
+saves exclude duplicate submission and native editing, and late results after
+closing do not clear a replacement draft.
+
+Focused evidence: seven scratchpad behavior/safety tests in `tests/ingest.rs`
+passed, including eight concurrent saves. The assisted note's current-engine
+parse/weave check passed with its exact source unchanged. One real loopback HTTP
+case verifies attribution, `.md` output, and legacy/missing-attribution refusal.
+Five selected web/API cases cover mixed human/agent attribution, pending save
+exclusion, failed draft retention and no route downgrade. Strict focused
+TypeScript, inventory, file-length and diff checks passed. This is not a real
+provider/native app/released/deployed witness, nor authentication of arbitrary
+local REST callers as human authors.

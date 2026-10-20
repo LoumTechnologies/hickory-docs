@@ -14,7 +14,7 @@ crates/hick-lsp/src/backend.rs 2656
 crates/hick-token/src/lib.rs 1378
 crates/hickory-agent/src/tools/mod.rs 1065
 crates/hickory-cli/src/claude_code.rs 1195
-crates/hickory-cli/src/ingest.rs 1107
+crates/hickory-cli/src/ingest.rs 1005
 crates/hickory-cli/src/lib.rs 2008
 crates/hickory-cli/src/main.rs 4139
 crates/hickory-cli/src/serve/api.rs 1491

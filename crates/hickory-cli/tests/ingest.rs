@@ -473,6 +473,8 @@ fn saving_the_scratchpad_writes_a_note_that_parses_and_weaves() {
     let dir = tempfile::tempdir().unwrap();
     let path = save_scratchpad("# Standup\n\nAll green.", dir.path()).unwrap();
     assert!(path.exists());
+    assert_eq!(path.extension().unwrap(), "md");
+    let before = std::fs::read_to_string(&path).unwrap();
 
     let out = hick().arg("weave").arg(&path).output().unwrap();
     assert!(
@@ -480,8 +482,12 @@ fn saving_the_scratchpad_writes_a_note_that_parses_and_weaves() {
         "{}",
         String::from_utf8_lossy(&out.stderr)
     );
-    let woven = std::fs::read_to_string(path.with_extension("md")).unwrap();
-    assert!(woven.contains("All green."), "in:\n{woven}");
+    let source = std::fs::read_to_string(&path).unwrap();
+    assert_eq!(
+        source, before,
+        "Weaving a prose note must not alter its owned Markdown"
+    );
+    assert!(source.contains("All green."), "in:\n{source}");
 }
 
 #[test]
@@ -533,4 +539,69 @@ fn a_macos_download_records_where_it_came_from() {
         !note.contains("SAFARI_LINKED_SECRET"),
         "the query string reached the note:\n{note}"
     );
+}
+
+#[test]
+fn agent_assisted_scratchpad_keeps_prose_with_explicit_authorship() {
+    let note = hickory_cli::ingest::note_from_scratchpad_with_attribution(
+        "# Draft\n\nAgent-assisted words.",
+        Some("2026-10-20"),
+        true,
+    )
+    .unwrap();
+    assert!(note.contains("source: scratchpad\nauthorship: agent-assisted\n"));
+    assert!(note.contains("# Draft\n\nAgent-assisted words."));
+    assert!(!note.contains("hick:transcript"));
+    let human = note_from_scratchpad("# Draft\n\nHuman words.", None).unwrap();
+    assert!(!human.contains("authorship: agent-assisted"));
+    let dir = tempfile::tempdir().unwrap();
+    let path = hickory_cli::ingest::save_scratchpad_with_attribution(
+        "# Draft\n\nAgent-assisted words.",
+        dir.path(),
+        true,
+    )
+    .unwrap();
+    let saved = std::fs::read_to_string(&path).unwrap();
+    assert!(saved.contains("authorship: agent-assisted"));
+    let woven = hick().arg("weave").arg(&path).output().unwrap();
+    assert!(
+        woven.status.success(),
+        "{}",
+        String::from_utf8_lossy(&woven.stderr)
+    );
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), saved);
+    assert!(
+        hickory_cli::ingest::note_from_scratchpad_with_attribution("<hick:run>", None, true)
+            .is_err()
+    );
+}
+
+#[test]
+fn concurrent_scratchpad_saves_never_overwrite_another_note() {
+    let dir = tempfile::tempdir().unwrap();
+    let barrier = std::sync::Arc::new(std::sync::Barrier::new(8));
+    let threads: Vec<_> = (0..8)
+        .map(|index| {
+            let root = dir.path().to_path_buf();
+            let barrier = barrier.clone();
+            std::thread::spawn(move || {
+                barrier.wait();
+                let text = format!("# Same title\n\nUnique payload {index}.");
+                let path =
+                    hickory_cli::ingest::save_scratchpad_with_attribution(&text, &root, true)
+                        .unwrap();
+                assert!(
+                    std::fs::read_to_string(&path)
+                        .unwrap()
+                        .contains(&format!("Unique payload {index}."))
+                );
+                path
+            })
+        })
+        .collect();
+    let paths: std::collections::HashSet<_> = threads
+        .into_iter()
+        .map(|thread| thread.join().unwrap())
+        .collect();
+    assert_eq!(paths.len(), 8);
 }

@@ -725,6 +725,7 @@ pub(crate) fn router(state: LocalState) -> Router {
         .route("/open-file", post(plain_file::open_file))
         .route("/file", get(plain_file::get_file).put(plain_file::put_file))
         .route("/scratchpad", post(plain_file::post_scratchpad))
+        .route("/v1/scratchpad", post(plain_file::post_assisted_scratchpad))
         .route(
             "/tour/practice",
             axum::routing::get(engineer_tour::status).post(engineer_tour::create),

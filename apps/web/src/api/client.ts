@@ -379,8 +379,8 @@ export const api = {
    * this is prose a named human typed here, not bytes another tool produced,
    * so it is never wrapped as a transcript. See
    * `docs/specs/freeform/ingest.md`. */
-  saveScratchpad: (text: string) =>
-    request<ScratchpadSaved>("POST", "/api/scratchpad", { text }),
+  saveScratchpad: (text: string, agentAssisted = false) =>
+    request<ScratchpadSaved>("POST", agentAssisted ? "/api/v1/scratchpad" : "/api/scratchpad", { text, ...(agentAssisted ? { agent_assisted: true } : {}) }),
 
   /** Pin the document's current woven outputs as a refactor baseline. */
   refactorBegin: (docId: string) =>

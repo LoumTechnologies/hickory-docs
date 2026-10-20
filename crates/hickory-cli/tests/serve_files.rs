@@ -233,3 +233,33 @@ async fn opening_one_file_does_not_open_its_parent_as_a_folder() {
     let (_, folder_files) = get(&start().await, "/api/files").await;
     assert_eq!(folder_files["folder_open"], true);
 }
+
+#[tokio::test]
+async fn versioned_scratchpad_preserves_agent_attribution_and_refuses_legacy_fallback() {
+    let session = start().await;
+    let client = reqwest::Client::new();
+    let legacy = client
+        .post(format!("{}/api/scratchpad", session.base))
+        .json(&serde_json::json!({"text":"# Legacy refusal", "agent_assisted":true}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(legacy.status(), reqwest::StatusCode::BAD_REQUEST);
+    let missing = client
+        .post(format!("{}/api/v1/scratchpad", session.base))
+        .json(&serde_json::json!({"text":"# Missing attribution"}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(missing.status(), reqwest::StatusCode::BAD_REQUEST);
+    let response = client.post(format!("{}/api/v1/scratchpad", session.base))
+        .json(&serde_json::json!({"text":"# Assisted note\n\nExact submitted prose.", "agent_assisted":true})).send().await.unwrap();
+    assert!(response.status().is_success());
+    let saved: Value = response.json().await.unwrap();
+    assert_eq!(saved["agent_assisted"], true);
+    assert!(saved["path"].as_str().unwrap().ends_with(".md"));
+    let source =
+        std::fs::read_to_string(session.root.join(saved["path"].as_str().unwrap())).unwrap();
+    assert!(source.contains("source: scratchpad\nauthorship: agent-assisted\n"));
+    assert!(source.contains("Exact submitted prose."));
+}

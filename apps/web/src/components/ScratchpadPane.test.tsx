@@ -13,7 +13,7 @@ import { ScratchpadPane } from "./ScratchpadPane";
 const saveScratchpad = vi.fn();
 vi.mock("../api/client", () => ({
   api: {
-    saveScratchpad: (text: string) => saveScratchpad(text),
+    saveScratchpad: (text: string, assisted?: boolean) => assisted === undefined ? saveScratchpad(text) : saveScratchpad(text, assisted),
   },
 }));
 
@@ -72,4 +72,44 @@ describe("the scratchpad", () => {
     expect(await screen.findByText(/Next step/)).toBeTruthy();
     expect(box.value).toBe("I used a hick tag");
   });
+});
+
+it("retains agent-assisted authorship when a human saves an agent-edited draft", async () => {
+  const { act } = await import("@testing-library/react");
+  const { UiActions } = await import("../lib/uiActions");
+  const { UiActionContext } = await import("../lib/uiActionBridge");
+  const registry = new UiActions({ workspace: "p", window: "w" }, () => true, async () => {});
+  saveScratchpad.mockResolvedValue({ path: "assisted.md" });
+  render(<UiActionContext.Provider value={registry}><ScratchpadPane /></UiActionContext.Provider>);
+  const actions = () => registry.groups().groups.flatMap(group => registry.observe(group, 64).actions);
+  await act(async () => { await registry.act(registry.scope, { id: "python:turn", kind: "agent" }, {
+    handle: actions().find(action => action.label === "Set scratchpad draft")!.handle, arguments: { text: "Agent draft" }, request_id: "draft",
+  }); });
+  fireEvent.change(screen.getByLabelText(/scratchpad/i), { target: { value: "Agent draft with human edits" } });
+  fireEvent.click(screen.getByRole("button", { name: /save as note/i }));
+  await waitFor(() => expect(saveScratchpad).toHaveBeenCalledExactlyOnceWith("Agent draft with human edits", true));
+  expect(await screen.findByText("Saved to assisted.md")).toBeTruthy();
+});
+
+it("excludes duplicate scratchpad saves and retains a failed agent draft", async () => {
+  const { act } = await import("@testing-library/react");
+  const { UiActions } = await import("../lib/uiActions");
+  const { UiActionContext } = await import("../lib/uiActionBridge");
+  const registry = new UiActions({ workspace: "p", window: "w" }, () => true, async () => {});
+  let fail!: (error: unknown) => void;
+  saveScratchpad.mockImplementation(() => new Promise((_done, reject) => { fail = reject; }));
+  render(<UiActionContext.Provider value={registry}><ScratchpadPane /></UiActionContext.Provider>);
+  const actions = () => registry.groups().groups.flatMap(group => registry.observe(group, 64).actions);
+  fireEvent.change(screen.getByLabelText(/scratchpad/i), { target: { value: "Retain me" } });
+  const actor = { id: "acp:turn", kind: "agent" as const };
+  let pending!: ReturnType<typeof registry.act>;
+  await act(async () => { pending = registry.act(registry.scope, actor, {
+    handle: actions().find(action => action.label === "Save scratchpad as note")!.handle, arguments: {}, request_id: "save",
+  }); });
+  expect(await registry.act(registry.scope, { id: "python:other", kind: "agent" }, {
+    handle: actions().find(action => action.label === "Save scratchpad as note")!.handle, arguments: {}, request_id: "other",
+  })).toMatchObject({ status: "disabled" });
+  await act(async () => { fail(Error("Engine update required")); await pending; });
+  expect((screen.getByLabelText(/scratchpad/i) as HTMLTextAreaElement).value).toBe("Retain me");
+  expect(saveScratchpad).toHaveBeenCalledExactlyOnceWith("Retain me", true);
 });
