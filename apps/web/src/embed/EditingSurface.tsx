@@ -1,4 +1,6 @@
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { useEditorActions } from "../editor/uiEditorActions";
+import { useEditorEditing } from "../editor/useEditorEditing";
 import { Annotation, EditorState } from "@codemirror/state";
 import type { Extension } from "@codemirror/state";
 import { EditorView, keymap, drawSelection } from "@codemirror/view";
@@ -74,6 +76,9 @@ export function EditingSurface({
   ariaLabel,
   testId,
 }: EditingSurfaceProps) {
+  const [mounted, setMounted] = useState<EditorView | null>(null);
+  useEditorActions(mounted, `embed:${ariaLabel}`);
+  useEditorEditing(mounted, { source: `embed:${ariaLabel}`, label: "embedded document", identity: () => [ariaLabel, syncToken], current: () => !readOnly, localOnly: true });
   const hostRef = useRef<HTMLDivElement>(null);
   const viewRef = useRef<EditorView | null>(null);
   // Held in a ref so a changing callback never tears down the editor.
@@ -112,12 +117,12 @@ export function EditingSurface({
         extensions,
       }),
     });
-    viewRef.current = view;
+    viewRef.current = view; setMounted(view);
     onViewReady?.(view);
     return () => {
       onViewReady?.(null);
       view.destroy();
-      viewRef.current = null;
+      viewRef.current = null; setMounted(null);
     };
     // The buffer's identity — not its contents — decides when to rebuild.
     // eslint-disable-next-line react-hooks/exhaustive-deps

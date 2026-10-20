@@ -142,3 +142,43 @@ For a deliberately live example, `DebuggableDocument` also accepts
 breakpoint and starts once after both editor and worker transport are ready.
 Remount to start a fresh example; ordinary edits do not restart it. A draft
 changed before loading finishes cancels the automatic start.
+
+### Structured iframe UI requests
+
+The iframe advertises `uiActions: "scoped-v1"` in `ready`. Each accepted `load`
+returns a fresh `ui_scope` in `loaded`. Retain its `window` value and send only to
+the configured concrete iframe origin:
+
+```js
+iframe.contentWindow.postMessage({
+  channel: "hickory-embed", version: 1, op: "ui", id: "observe-1",
+  data: {
+    window: loaded.ui_scope.window,
+    method: "ui_observe", arguments: { parent: "root" }
+  }
+}, iframeOrigin);
+```
+
+The `ui-result` response echoes the transport `id` and contains `{scope, result}`.
+Observe a returned group to discover its current handles. Invoke one with
+`method: "ui_act"` and `arguments: {handle, arguments: {...}, request_id: "edit-1"}`.
+Retry the same `request_id` with identical invocation arguments. `ui_cancel` takes
+`{request_id}` and requests cancellation without claiming rollback. An `error`
+response reports invalid/disposed/mismatched scope. Loading reports scope creation;
+parser/editor mounting may still be pending, so wait for the controls to appear.
+
+Messages retain the existing exact-parent/window/origin/channel/version checks.
+The frame fixes the caller to `embed-parent` with agent policy; callers cannot
+supply a human actor or another scope. `ui-receipt` events contain requested/result
+records. Forward and persist them in the owning host session if durable evidence
+is needed; the iframe has no durable journal or provider identity attestation.
+Loading again disposes the old registry and remounts its document; old scopes and
+handles cannot read or modify the replacement. Late replies carry their original
+scope, not the replacement scope. Disposing the frame aborts owned pending calls.
+
+Editor reading, selection/folding and draft edits use the same CodeMirror
+controllers as native interaction. Read-only remains enforced. An edit reply is a
+draft result; use `save` to receive current source for the host to persist. The
+bridge adds no implicit engine, credentials, shell, native execution or provider.
+It does not connect the separate marketing/snapshot pages to a native agent; that
+integration and complete renderer/asset capability mapping remain outstanding.

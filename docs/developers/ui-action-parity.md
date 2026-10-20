@@ -889,3 +889,19 @@ requires naming its nonempty unnamed buffers first; a path is never invented.
 Targeted TypeScript checking includes WorkspaceView. API/native chooser replies
 are mocked here; host create-only concurrency/symlink tests are recorded separately.
 OS print completion and native-window close remain uncertified.
+
+The standalone iframe now accepts scoped structured parent UI requests through
+its existing concrete-origin message channel. Each load mints a separate registry
+and agent-policy caller; replacement/dispose retires the previous one. Replies
+carry their original scope and receipts are emitted to the owning host, which
+must persist them for durable evidence. Embedded editor reads/selection/folds and
+local draft edits reuse the existing CodeMirror adapters; read-only is enforced.
+This adds no implicit engine or provider connection.
+
+Three focused controller/editor cases and one real Chrome cross-origin case pass,
+including native/model editing, host save, origin/scope rejection, replacement
+retirement and zero engine requests. The initial development-server failure was
+a test blocker matching source-module URLs and was corrected before the passing
+runs. Complete iframe renderer/asset mapping and native-agent attachment of the
+separate static marketing/publication entrypoints remain open. No native/provider,
+release or deployment witness is claimed.

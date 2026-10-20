@@ -8,7 +8,10 @@ import type { Page } from "@playwright/test";
 // docs/guarantees/embedding/an-embed-has-no-implicit-host.md
 async function noEngine(page: Page) {
   const unexpected: string[] = [];
-  await page.route("**/api/**", (route) => { unexpected.push(route.request().url()); return route.abort(); });
+  await page.route("**/api/**", (route) => {
+    if (!new URL(route.request().url()).pathname.startsWith("/api/")) return route.continue(); // Vite source modules are not engine requests.
+    unexpected.push(route.request().url()); return route.abort();
+  });
   await page.addInitScript(() => { globalThis.WebSocket = class { constructor() { throw Error("Unexpected WebSocket"); } } as unknown as typeof WebSocket; });
   return unexpected;
 }
@@ -149,7 +152,7 @@ test("local persistence survives reload and a concurrent tab cannot overwrite", 
 });
 
 test("cross-origin iframe validates sender, saves through its host and disposes", async ({ page }) => {
-  await noEngine(page); await page.goto("http://localhost:4178/embed.html");
+  const unexpected = await noEngine(page); await page.goto("http://localhost:4178/embed.html");
   await page.evaluate(() => {
     const messages: { event: string; data: unknown }[] = [];
     Object.assign(window, { embedMessages: messages });
@@ -178,16 +181,48 @@ test("cross-origin iframe validates sender, saves through its host and disposes"
   const iframeEditor = frame.getByRole("group", { name: "iframe-note.md" }).locator(".cm-content");
   await iframeEditor.click(); await page.keyboard.press("ControlOrMeta+End"); await page.keyboard.type("Captured in frame");
   await expect(iframeEditor).toContainText("Captured in frame");
+  const ui = (method: string, args: Record<string, unknown>, scope?: string) => page.evaluate(({ method, args, scope }) => {
+    const iframe = document.getElementById("external-embed") as HTMLIFrameElement;
+    const messages = (window as unknown as { embedMessages: { event: string; data: { ui_scope?: { window: string } } }[] }).embedMessages;
+    const owner = scope ?? messages.filter(message => message.event === "loaded").at(-1)!.data.ui_scope!.window;
+    return new Promise<{ event: string; data: any }>((resolve, reject) => {
+      const id = crypto.randomUUID();
+      const timeout = setTimeout(() => { window.removeEventListener("message", receive); reject(Error("Embedded UI response timed out")); }, 5000);
+      const receive = (event: MessageEvent) => {
+        if (event.source !== iframe.contentWindow || event.origin !== "http://127.0.0.1:4178" || event.data.channel !== "hickory-embed" || event.data.id !== id) return;
+        clearTimeout(timeout); window.removeEventListener("message", receive); resolve(event.data);
+      };
+      window.addEventListener("message", receive);
+      iframe.contentWindow!.postMessage({ channel: "hickory-embed", version: 1, op: "ui", id, data: { window: owner, method, arguments: args } }, "http://127.0.0.1:4178");
+    });
+  }, { method, args, scope });
+  const root = await ui("ui_observe", { parent: "root" });
+  expect(root.event).toBe("ui-result");
+  const originalScope = root.data.scope.window as string;
+  const actions = (await Promise.all((root.data.result.groups as string[]).map(parent => ui("ui_observe", { parent, limit: 64 })))).flatMap(reply => reply.data.result.actions);
+  const replace = actions.find(action => action.label === "Replace embedded document range");
+  expect(replace).toBeTruthy();
+  const edited = await ui("ui_act", { handle: replace.handle, arguments: { from: 0, to: 0, text: "# Agent edit\n" }, request_id: "frame-agent-edit" });
+  expect(edited.data.result).toMatchObject({ status: "result", outcome: { value: { draft_changed: true, saved: false } } });
+  await expect(iframeEditor).toContainText("Agent edit");
+  expect((await ui("ui_observe", {}, "retired-window")).event).toBe("error");
   await page.evaluate(() => {
     const iframe = document.getElementById("external-embed") as HTMLIFrameElement;
     iframe.contentWindow!.postMessage({ channel: "hickory-embed", version: 1, op: "save", id: "save-1" }, "http://127.0.0.1:4178");
   });
-  await expect.poll(() => page.evaluate(() => (window as unknown as { embedMessages: { event: string; data: unknown }[] }).embedMessages.find((e) => e.event === "save")?.data)).toEqual({ path: "iframe-note.md", source: "# From another origin\nCaptured in frame", revision: "base" });
+  await expect.poll(() => page.evaluate(() => (window as unknown as { embedMessages: { event: string; data: unknown }[] }).embedMessages.find((e) => e.event === "save")?.data)).toEqual({ path: "iframe-note.md", source: "# Agent edit\n# From another origin\nCaptured in frame", revision: "base" });
+  await page.evaluate(() => {
+    const iframe = document.getElementById("external-embed") as HTMLIFrameElement;
+    iframe.contentWindow!.postMessage({ channel: "hickory-embed", version: 1, op: "load", data: { path: "replacement.md", source: "# Replacement document\n", revision: "second" } }, "http://127.0.0.1:4178");
+  });
+  await expect(frame.getByRole("group", { name: "replacement.md" })).toContainText("Replacement document");
+  expect((await ui("ui_observe", {}, originalScope)).event).toBe("error");
   await page.evaluate(() => {
     const iframe = document.getElementById("external-embed") as HTMLIFrameElement;
     iframe.contentWindow!.postMessage({ channel: "hickory-embed", version: 1, op: "dispose" }, "http://127.0.0.1:4178");
   });
   await expect(frame.locator(".hickory-browser-debug")).toHaveCount(0);
+  expect(unexpected).toEqual([]);
 });
 
 test("running infinite loop stays responsive and sessions stay independent", async ({ page, context }) => {
