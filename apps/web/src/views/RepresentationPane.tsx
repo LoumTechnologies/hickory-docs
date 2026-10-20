@@ -1,7 +1,8 @@
 import { registerDebugSurface, preferDebugSurface, representedFrameOffset } from "../debug/preferredDebugLocation";
 import { PaneHeaderContent } from "../shell/PaneHeader";
 import { SurfaceInfo } from "../components/SurfaceInfo";
-import { MoreActions } from "../components/MoreActions";
+import { RepresentationActions } from "./RepresentationActions";
+import type { UiOutcome } from "../lib/uiActions";
 import { ChangePreview } from "../components/ChangePreview";
 import { DocumentComparison } from "./DocumentReading";
 import { viewBuffers } from "../lib/viewBuffers";
@@ -48,6 +49,8 @@ export function RepresentationPane({ id, initialBase = "", initialTarget = "", b
   const mounted = useRef(true);
   useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
   const current = useRef({ source, mappedSource, files, record, busy, comparison }); current.current = { source, mappedSource, files, record, busy, comparison };
+  const saveResult = useRef<UiOutcome>({ status: "unavailable", reason: "No save has completed" });
+  const refreshResult = useRef<UiOutcome>({ status: "unavailable", reason: "No refresh has completed" });
   const debugSessions = useRef(new Map<string, DebugSession>());
   const diagnostics = useRef(new Map<string, DiagnosticSpan[]>());
   const [debugTick, setDebugTick] = useState(0);
@@ -63,6 +66,7 @@ export function RepresentationPane({ id, initialBase = "", initialTarget = "", b
   }, [id, owner]);
   useEffect(() => { let live = true; representations.get(id).then(v => { if (live) accept(v); }, e => { if (live) setNotice(message(e)); }); return () => { live = false; local.close(); }; }, [id, accept, local]);
   const refresh = useCallback(async () => {
+    refreshResult.current = { status: "unavailable", reason: "Refresh refused: local edits, historical view or pending request" };
     const now = { ...current.current };
     if (ownerRef.current !== owner || now.comparison?.target || now.busy || (now.record && now.source !== now.record.source)) return false;
     current.current.busy = true; setBusy(true);
@@ -75,8 +79,9 @@ export function RepresentationPane({ id, initialBase = "", initialTarget = "", b
       }
       if (next.id !== id) throw new Error("Refresh returned a different literate view.");
       accept(next);
+      refreshResult.current = { status: "completed", value: { id: next.id, revision: next.revision, refreshed: true, scope: "Actual source refresh reply; execution not verified" } };
       return true;
-    } catch (e) { if (ownerRef.current === owner && mounted.current) setNotice(message(e)); return false; }
+    } catch (e) { refreshResult.current = { status: "unavailable", reason: message(e) }; if (ownerRef.current === owner && mounted.current) setNotice(message(e)); return false; }
     finally { if (ownerRef.current === owner) { current.current.busy = false; if (mounted.current) setBusy(false); } }
   }, [id, accept, owner]);
   useEffect(() => { const run = () => { void refresh(); }; window.addEventListener(FILES_CHANGED_EVENT, run); window.addEventListener("focus", run); return () => { window.removeEventListener(FILES_CHANGED_EVENT, run); window.removeEventListener("focus", run); }; }, [refresh]);
@@ -87,6 +92,7 @@ export function RepresentationPane({ id, initialBase = "", initialTarget = "", b
     return () => { live = false; clearTimeout(timer); };
   }, [id, record, source, comparison?.target]);
   const save = useCallback(async () => {
+    saveResult.current = { status: "unavailable", reason: "Save refused: view unavailable, historical or request pending" };
     const now = { ...current.current };
     if (ownerRef.current !== owner || !now.record || now.busy || (now.comparison && !now.comparison.editable)) return false;
     current.current.busy = true;
@@ -103,8 +109,9 @@ export function RepresentationPane({ id, initialBase = "", initialTarget = "", b
       viewBuffers.set(bufferId, { dirty: buffers.has(id), save, discard });
       setNotice(`Saved to ${next.backing.kind === "files" ? next.files.map(file => file.path).join(", ") : "the owning document"}.`);
       window.dispatchEvent(new Event(FILES_CHANGED_EVENT));
+      saveResult.current = { status: "completed", value: { id: next.id, revision: next.revision, clean: !buffers.has(id), files: next.files.map(({ path, hash }) => ({ path, hash })), source_save_acknowledged: true, verified: false } };
       return !buffers.has(id);
-    } catch (e) { if (ownerRef.current === owner && mounted.current) setNotice(message(e)); return false; }
+    } catch (e) { saveResult.current = { status: "unavailable", reason: message(e) }; if (ownerRef.current === owner && mounted.current) setNotice(message(e)); return false; }
     finally { if (ownerRef.current === owner) { current.current.busy = false; if (mounted.current) setBusy(false); } }
   }, [id, bufferId, accept, owner]);
   const discard = useCallback(() => {
@@ -181,15 +188,10 @@ export function RepresentationPane({ id, initialBase = "", initialTarget = "", b
   return <section className="representation-pane" aria-label="Literate editor">
     <SurfaceInfo name="Literate view" editable={!historical} destination={historical ? "Historical comparison; this view writes nothing." : record.backing.kind === "files" ? `Save writes code to ${record.files.map(file => file.path).join(", ")} and keeps this reading arrangement locally.` : "Save writes changes into the owning document and keeps this reading arrangement locally."} />
     <PaneHeaderContent part="actions"><div className="doc-tab-toolbar" role="toolbar" aria-label="Literate view actions">
-      <button className="btn btn-primary" disabled={!dirty || busy || historical} onClick={() => void save()}>{busy ? "Saving…" : "Save"}</button>
-      <button className="btn" disabled={dirty || busy} onClick={() => void refresh()}>Refresh from source</button>
-      <span role="status">{dirty ? "Unsaved changes" : "Saved"}</span>
-      <MoreActions label="More actions for this view">
-      <button className="btn" disabled={busy || !dirty || historical} onClick={discard}>Discard unsaved edits</button>
-      {record.backing.kind === "files" && <button className="btn" disabled={dirty || busy} onClick={() => void openLiterate(record.backing).catch(e => setNotice(message(e)))}>Rebuild reading from current files</button>}
-      <button className="btn" disabled={dirty || busy || historical} onClick={() => void representations.keep(id).then(v => setNotice(`View kept locally at ${v.path}`), e => setNotice(message(e)))}>Keep view locally</button>
-      <button className="btn" disabled={historical} onClick={() => setAgent(v => !v)}>Explain or edit with an agent</button>
-      </MoreActions>
+      <RepresentationActions record={record} dirty={dirty} busy={busy} historical={historical} agent={agent}
+        live={() => [ownerRef.current === owner, current.current.source, current.current.record?.revision, current.current.comparison, current.current.busy]}
+        save={async () => { await save(); return saveResult.current; }} refresh={async () => { await refresh(); return refreshResult.current; }}
+        discard={discard} toggleAgent={() => setAgent(v => !v)} onNotice={setNotice} />
     </div></PaneHeaderContent>
     {dirty && !historical && <ChangePreview heading="Review changes before saving" collapsible effects="Save writes these edits to the targets named above. This view has no recovery draft; closing without saving discards its edits.">
       <DocumentComparison id={`${id}:preview`} path="arrangement.md" before={record.source} after={source} />
