@@ -102,3 +102,38 @@ Last LLM verification:
   `apps/web/src/components/graph/SceneEdgeView.test.tsx` (the label editor's
   gap is a mask the path actually references, and no mask when nothing is
   being edited).
+
+## Shared controller and current evidence (2026-10-20)
+
+The originating-window action registry exposes bounded scene/selection/connector/
+viewport reading and typed add, rename, move, resize, selection, palette, label,
+delete, connect, reconnect, auto-layout and viewport commands. Human gestures
+and these commands use the same controller callbacks and canonical commit path.
+Derived scenes refuse topology edits while allowing layout edits. A changed
+resolved topology reloads even when the authored paste source is unchanged.
+Missing nodes cannot acquire layout through a late drag/resize callback.
+
+Inline label drafts have separate open/read/change/commit/cancel controls. If
+the committed label changes while a draft is open, applying it requires recovery
+and preserves the draft. Inspector commits target their original edge identity.
+A callback request does not assert disk-save acknowledgement or verified diagram
+assertions. The existing current-document replacement guard still applies at the
+embedding/editor boundary; this controller does not create a filesystem CAS.
+
+Focused verification performed:
+
+- `GraphEditorPanel.test.tsx`: native and scripted actor mutations, exact round/
+  snap behavior, selection/palette parity, invalid inputs without writes,
+  parallel-edge identity, reconnect/delete, derived protection and stale handles.
+- `SceneNodeView.test.tsx` and `SceneEdgeView.test.tsx`: actual visible draft
+  preservation after a changed label and native/agent drafting through one draft.
+- `e2e/uiGraph.spec.ts`: **real Chrome and React Flow**, native label typing,
+  native node dragging, then a registered scripted-agent move; document bytes
+  and live node bounds change together. No API calls were needed by this fixture.
+- Focused strict TypeScript checks, declaration inventory, file-length and diff
+  checks passed. Broad regressions and post-commit status were not monitored.
+
+The browser case supersedes the older statement that no real browser drag had
+been exercised. It does not establish every canvas gesture, rendered pixel
+capture, model interpretation, native app/provider execution, released-package
+behavior or matching deployed-build behavior. Its actor is explicitly scripted.
