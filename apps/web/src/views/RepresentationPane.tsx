@@ -43,26 +43,43 @@ export function RepresentationPane({ id, initialBase = "", initialTarget = "", b
   const local = useMemo(() => new LocalRealtime(), [id]);
   const realtime = useMemo(() => getWorkspaceRealtime() ?? new LocalRealtime(), []);
   const viewRef = useRef<EditorView | null>(null);
+  const owner = useMemo(() => ({}), [id]);
+  const ownerRef = useRef(owner); ownerRef.current = owner;
+  const mounted = useRef(true);
+  useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
   const current = useRef({ source, mappedSource, files, record, busy, comparison }); current.current = { source, mappedSource, files, record, busy, comparison };
   const debugSessions = useRef(new Map<string, DebugSession>());
   const diagnostics = useRef(new Map<string, DiagnosticSpan[]>());
   const [debugTick, setDebugTick] = useState(0);
   const dirty = !!record && source !== record.source && (!comparison || comparison.editable);
   const accept = useCallback((next: Representation) => {
+    if (ownerRef.current !== owner || next.id !== id) return;
     setRecord(next); setFiles(next.files); setMappedSource(next.source);
     const text = buffers.get(id) ?? next.source;
     current.current = { ...current.current, record: next, source: text, mappedSource: next.source, files: next.files };
     setSource(text);
     const view = viewRef.current;
     if (view && view.state.doc.toString() !== text) view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: text } });
-  }, [id]);
+  }, [id, owner]);
   useEffect(() => { let live = true; representations.get(id).then(v => { if (live) accept(v); }, e => { if (live) setNotice(message(e)); }); return () => { live = false; local.close(); }; }, [id, accept, local]);
   const refresh = useCallback(async () => {
-    const now = current.current;
-    if (now.comparison?.target || now.busy || (now.record && now.source !== now.record.source && !now.comparison?.target)) return;
-    try { accept(await representations.refresh(id)); } catch (e) { setNotice(message(e)); }
-  }, [id, accept]);
-  useEffect(() => { window.addEventListener(FILES_CHANGED_EVENT, refresh); window.addEventListener("focus", refresh); return () => { window.removeEventListener(FILES_CHANGED_EVENT, refresh); window.removeEventListener("focus", refresh); }; }, [refresh]);
+    const now = { ...current.current };
+    if (ownerRef.current !== owner || now.comparison?.target || now.busy || (now.record && now.source !== now.record.source)) return false;
+    current.current.busy = true; setBusy(true);
+    try {
+      const next = await representations.refresh(id);
+      if (!mounted.current || ownerRef.current !== owner) return false;
+      if (current.current.source !== now.source || current.current.comparison !== now.comparison) {
+        setNotice("Source changed while refreshing. Your newer edits were kept; refresh again after saving or discarding them.");
+        return false;
+      }
+      if (next.id !== id) throw new Error("Refresh returned a different literate view.");
+      accept(next);
+      return true;
+    } catch (e) { if (ownerRef.current === owner && mounted.current) setNotice(message(e)); return false; }
+    finally { if (ownerRef.current === owner) { current.current.busy = false; if (mounted.current) setBusy(false); } }
+  }, [id, accept, owner]);
+  useEffect(() => { const run = () => { void refresh(); }; window.addEventListener(FILES_CHANGED_EVENT, run); window.addEventListener("focus", run); return () => { window.removeEventListener(FILES_CHANGED_EVENT, run); window.removeEventListener("focus", run); }; }, [refresh]);
   useEffect(() => {
     if (!record || comparison?.target) return;
     let live = true;
@@ -70,12 +87,14 @@ export function RepresentationPane({ id, initialBase = "", initialTarget = "", b
     return () => { live = false; clearTimeout(timer); };
   }, [id, record, source, comparison?.target]);
   const save = useCallback(async () => {
-    const now = current.current;
-    if (!now.record || now.busy || now.comparison?.target) return false;
+    const now = { ...current.current };
+    if (ownerRef.current !== owner || !now.record || now.busy || (now.comparison && !now.comparison.editable)) return false;
     current.current.busy = true;
     setBusy(true); setNotice("");
     try {
       const next = await representations.edit(id, now.record.revision, now.source);
+      if (next.id !== id) throw new Error("Save returned a different literate view.");
+      if (ownerRef.current !== owner) return false;
       // A user can keep typing while the request is in flight. Preserve
       // those later edits; only the acknowledged text becomes clean.
       if (current.current.source === now.source) buffers.delete(id);
@@ -85,8 +104,9 @@ export function RepresentationPane({ id, initialBase = "", initialTarget = "", b
       setNotice(`Saved to ${next.backing.kind === "files" ? next.files.map(file => file.path).join(", ") : "the owning document"}.`);
       window.dispatchEvent(new Event(FILES_CHANGED_EVENT));
       return !buffers.has(id);
-    } catch (e) { setNotice(message(e)); return false; } finally { current.current.busy = false; setBusy(false); }
-  }, [id, bufferId, accept]);
+    } catch (e) { if (ownerRef.current === owner && mounted.current) setNotice(message(e)); return false; }
+    finally { if (ownerRef.current === owner) { current.current.busy = false; if (mounted.current) setBusy(false); } }
+  }, [id, bufferId, accept, owner]);
   const discard = useCallback(() => {
     buffers.delete(id);
     const now = current.current;
@@ -96,7 +116,7 @@ export function RepresentationPane({ id, initialBase = "", initialTarget = "", b
   }, [id, bufferId, accept, save]);
   useEffect(() => { viewBuffers.set(bufferId, { dirty, save, discard }); }, [bufferId, dirty, save, discard]);
   useEffect(() => { const key = (event: KeyboardEvent) => { if (viewRef.current?.hasFocus && isAction(event, "file.save")) { event.preventDefault(); void save(); } }; window.addEventListener("keydown", key); return () => window.removeEventListener("keydown", key); }, [save]);
-  const change = useCallback((text: string) => { setSource(text); if (!current.current.comparison?.target) buffers.set(id, text); }, [id]);
+  const change = useCallback((text: string) => { current.current.source = text; setSource(text); if (!current.current.comparison?.target) buffers.set(id, text); }, [id]);
   const extensions = useMemo(() => [
     ...lspSupport({ client: null, uri: "", positionAt: () => null, onNavigate: () => {} }),
     ...debugEditor({ onToggleBreakpoint: line => {
@@ -138,17 +158,26 @@ export function RepresentationPane({ id, initialBase = "", initialTarget = "", b
     editor.dispatch({ effects: [setBreakpointMarks.of(marks), setPausedLine.of(paused)] });
   }, [editor, files, source, mappedSource, debugTick, comparison?.target]);
   const compare = async () => {
-    if (dirty) { setNotice("Save your edits before changing the comparison."); return; }
+    const now = { ...current.current };
+    if (now.busy || ownerRef.current !== owner) return;
+    if (now.record && now.source !== now.record.source && (!now.comparison || now.comparison.editable)) { setNotice("Save your edits before changing the comparison."); return; }
+    current.current.busy = true; setBusy(true);
     try {
       const next = await representations.compare(id, base || "HEAD", target || undefined);
-      setComparison(next);
-      setSource(next.target_source);
-      if (editor && editor.state.doc.toString() !== next.target_source) editor.dispatch({ changes: { from: 0, to: editor.state.doc.length, insert: next.target_source } });
-    } catch (e) { setNotice(message(e)); }
+      if (!mounted.current || ownerRef.current !== owner) return;
+      if (current.current.source !== now.source || current.current.comparison !== now.comparison) {
+        setNotice("Source changed while comparing. Your newer edits were kept; request the comparison again."); return;
+      }
+      current.current.comparison = next; current.current.source = next.target_source;
+      setComparison(next); setSource(next.target_source);
+      const view = viewRef.current;
+      if (view && view.state.doc.toString() !== next.target_source) view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: next.target_source } });
+    } catch (e) { if (ownerRef.current === owner && mounted.current) setNotice(message(e)); }
+    finally { if (ownerRef.current === owner) { current.current.busy = false; if (mounted.current) setBusy(false); } }
   };
   useEffect(() => { if (record && initialBase) void compare(); /* opening comparison */ }, [record?.id]); // eslint-disable-line react-hooks/exhaustive-deps
   if (!record) return <p role={notice ? "alert" : "status"}>{notice || "Opening literate view…"}</p>;
-  const historical = !!comparison?.target;
+  const historical = !!comparison && !comparison.editable;
   return <section className="representation-pane" aria-label="Literate editor">
     <SurfaceInfo name="Literate view" editable={!historical} destination={historical ? "Historical comparison; this view writes nothing." : record.backing.kind === "files" ? `Save writes code to ${record.files.map(file => file.path).join(", ")} and keeps this reading arrangement locally.` : "Save writes changes into the owning document and keeps this reading arrangement locally."} />
     <PaneHeaderContent part="actions"><div className="doc-tab-toolbar" role="toolbar" aria-label="Literate view actions">
@@ -201,7 +230,7 @@ export function RepresentationPane({ id, initialBase = "", initialTarget = "", b
     {agent && <ChatDock docId={`lens:${id}`} realtime={realtime} initialPrompt={`Read literate view ${id} through the available reading tools and explain its code. Discover available actions before changing it. Preserve source bytes when rearranging explanations; do not invent unavailable tools or claim a buffer edit has been saved.`}
       contextLabel={`Literate view ${id}; Hickory Python or an installed ACP agent`}
       getContext={async () => ({ live: true, buffers: [{ id: `lens:${id}`, name: `Literate view ${id}`, path: null, content: current.current.source, focused: true }] })}
-      onAgentFinished={() => { if (!dirty) void representations.get(id).then(accept); else setNotice("The agent finished. Save or discard your local edits before refreshing its changes."); }} />}
+      onAgentFinished={() => { if (current.current.record && current.current.source === current.current.record.source) void refresh(); else setNotice("The agent finished. Save or discard your local edits before refreshing its changes."); }} />}
   </section>;
 }
 

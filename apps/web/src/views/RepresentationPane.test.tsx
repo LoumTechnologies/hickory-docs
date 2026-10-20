@@ -13,7 +13,7 @@ vi.mock("../components/ChatDock", () => ({ ChatDock: () => null }));
 
 const record = (source: string, revision = "r1"): Representation => ({ id: "v", backing: { kind: "files", paths: ["code.py"] },
   source, revision, files: [{ path: "code.py", content: source, hash: revision, provenance: [] }], explanation_stale: false });
-afterEach(() => { cleanup(); viewBuffers.ids().forEach(id => viewBuffers.forget(id)); vi.restoreAllMocks(); });
+afterEach(() => { act(() => { viewBuffers.ids().forEach(id => viewBuffers.get(id)?.discard()); }); cleanup(); viewBuffers.ids().forEach(id => viewBuffers.forget(id)); vi.restoreAllMocks(); });
 async function mount() {
   vi.spyOn(representations, "get").mockResolvedValue(record("old"));
   vi.spyOn(representations, "preview").mockResolvedValue(record("new").files);
@@ -63,4 +63,31 @@ it("keeps revision selection in a closed menu until requested", async () => {
   fireEvent.click(screen.getByText("Compare revisions…"));
   expect(menu.open).toBe(true);
   expect((screen.getByLabelText("Comparison target") as HTMLInputElement).placeholder).toBe("Current code (editable)");
+});
+
+// Guarantee: docs/guarantees/agent/ui-action-dispatch.md
+it("keeps later typing when a source refresh completes", async () => {
+  let complete!: (value: Representation) => void;
+  const refresh = vi.spyOn(representations, "refresh").mockImplementation(() => new Promise(done => { complete = done; }));
+  const { editor } = await mount();
+  fireEvent.click(screen.getByRole("button", { name: "Refresh from source" }));
+  expect(refresh).toHaveBeenCalledWith("v");
+  fireEvent.change(editor, { target: { value: "typed during refresh" } });
+  await act(async () => complete(record("disk changed", "r2")));
+  expect((editor as HTMLTextAreaElement).value).toBe("typed during refresh");
+  expect(screen.getByText(/Source changed while refreshing/)).toBeTruthy();
+  expect(viewBuffers.get("tab-v")?.dirty).toBe(true);
+});
+
+it("keeps later typing when a revision comparison completes", async () => {
+  let complete!: (value: Awaited<ReturnType<typeof representations.compare>>) => void;
+  vi.spyOn(representations, "compare").mockImplementation(() => new Promise(done => { complete = done; }));
+  const { editor } = await mount();
+  fireEvent.click(screen.getByText("Compare revisions…"));
+  fireEvent.click(screen.getByRole("button", { name: "Show diff" }));
+  fireEvent.change(editor, { target: { value: "typed during comparison" } });
+  await act(async () => complete({ base: "HEAD", target: "past", source: "base", target_source: "historical", editable: false, revision: "r2" }));
+  expect((editor as HTMLTextAreaElement).value).toBe("typed during comparison");
+  expect((editor as HTMLTextAreaElement).readOnly).toBe(false);
+  expect(screen.getByText(/Source changed while comparing/)).toBeTruthy();
 });
