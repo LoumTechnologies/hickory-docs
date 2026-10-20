@@ -13,6 +13,8 @@
 
 import { useEffect, useMemo, useState } from "react";
 
+import { useUiCommands, useUiRevision } from "../lib/uiActionBridge";
+import { useUiReading } from "../lib/uiReading";
 import { api } from "../api/client";
 import { LineageColumns } from "../lineage/LineageColumns";
 import { TimeSlider } from "../lineage/TimeSlider";
@@ -40,6 +42,11 @@ function mergedHistory(histories: ReplayCommit[][]): ReplayCommit[] {
 }
 
 export function LineageView({ projectId }: { projectId: string }) {
+  return <ProjectLineage key={projectId} projectId={projectId} />;
+}
+
+function ProjectLineage({ projectId }: { projectId: string }) {
+  const [retry, setRetry] = useState(0);
   const [docs, setDocs] = useState<SourceDocument[] | null>(null);
   const [structure, setStructure] = useState<StructureResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -54,6 +61,7 @@ export function LineageView({ projectId }: { projectId: string }) {
   useEffect(() => {
     let cancelled = false;
     setDocs(null);
+    setStructure(null);
     setError(null);
     setPartial([]);
     setBoundary(null);
@@ -140,6 +148,7 @@ export function LineageView({ projectId }: { projectId: string }) {
         // complete without it. A failure here must not cost the reader the
         // provenance they came for.
         try {
+          if (at !== null || cancelled) return;
           const found = await api.structure();
           if (!cancelled) setStructure(found);
         } catch {
@@ -156,7 +165,16 @@ export function LineageView({ projectId }: { projectId: string }) {
     return () => {
       cancelled = true;
     };
-  }, [projectId, at]);
+  }, [projectId, at, retry]);
+
+  const revision = useUiRevision(() => [projectId, at, retry, error, docs, partial, boundary, busy]);
+  useUiReading("project lineage status", { projectId, at, error, partial, boundary, loading: docs === null && error === null,
+    structural_navigation: at === null ? "Optional current working-tree structure" : "Unavailable for historical replay; current structure is not historical evidence" });
+  useUiCommands(error ? [{ key: `lineage-retry:${projectId}`, command: {
+    label: "Retry reading project lineage", parent: `lineage:${projectId}`, subject: `lineage:${projectId}`,
+    parameters: {}, prerequisites: [], read: () => ({ revision: revision(), enabled: true }),
+    execute: async () => { setRetry(value => value + 1); return { status: "completed", value: { read_requested: true, read_completed: false } }; },
+  } }] : []);
 
   const { model, ambiguous } = useMemo(() => {
     if (!docs) return { model: null, ambiguous: new Map<string, number>() };
@@ -167,6 +185,7 @@ export function LineageView({ projectId }: { projectId: string }) {
 
   const slider = (
     <TimeSlider
+      owner={projectId}
       commits={history}
       at={at}
       onChange={setAt}
@@ -178,6 +197,8 @@ export function LineageView({ projectId }: { projectId: string }) {
   if (error) {
     return (
       <div className="lineage-empty">
+        {slider}
+        <button type="button" onClick={() => setRetry(value => value + 1)}>Retry reading project lineage</button>
         <p>Could not read this project: {error}</p>
         <p className="muted">
           The lineage browser reads the same documents and generated files the editor does; if

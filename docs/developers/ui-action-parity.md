@@ -766,3 +766,16 @@ versioned read route separately has a real temporary-worktree HTTP witness for
 all/empty/literal-comma membership, exact spaced filenames and malformed-input
 refusal; two parser, one peer-policy and one no-downgrade client case also pass.
 No native/provider/released/deployed witness or exhaustive coverage is claimed.
+
+Lineage replay now shares stop selection, working-tree recovery and paged
+selection/status reading. Unknown revisions are explicitly unavailable, including
+when no replay stops were loaded. Project replacement retires the old component
+and its pending replies. Read failures retain replay recovery and a shared retry.
+Historical replay excludes current working-tree structural navigation; replay
+weaves source with today's binary and does not execute cells.
+
+Eight focused slider cases and three mocked-API containing-view cases pass,
+covering mixed native/model selection, stale project handles, empty-history
+recovery, failed-read retry, late previous-project refusal and historical
+structure exclusion. Targeted TypeScript checking passes. This does not certify
+lineage column/fold controls or provide a native/provider/release witness.

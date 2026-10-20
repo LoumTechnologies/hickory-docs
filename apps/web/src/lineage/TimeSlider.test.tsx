@@ -1,6 +1,6 @@
 // docs/guarantees/lineage/replay-recomputes-lineage-at-a-commit.md
 import { describe, expect, it, vi, beforeEach } from "vitest";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 
 import { TimeSlider, indexOf, positions } from "./TimeSlider";
 import type { ReplayCommit } from "../api/types";
@@ -77,4 +77,37 @@ describe("the slider", () => {
     render(<TimeSlider commits={commits} at={null} onChange={() => {}} />);
     expect(screen.getByText(/relating one version/)).toBeTruthy();
   });
+});
+
+it("shares native and model replay selection and retires replaced project handles", async () => {
+  const { UiActions } = await import("../lib/uiActions");
+  const { UiActionContext } = await import("../lib/uiActionBridge");
+  const registry = new UiActions({ workspace: "p", window: "w" }, () => true, async () => {});
+  const change = vi.fn();
+  const viewFor = (owner: string, at: string | null, stops = commits) => <UiActionContext.Provider value={registry}><TimeSlider owner={owner} commits={stops} at={at} onChange={change} /></UiActionContext.Provider>;
+  const view = render(viewFor("first", null));
+  const actions = () => registry.groups().groups.flatMap(group => registry.observe(group, 64).actions);
+  const run = async (handle: string, args: Record<string, number> = {}) => {
+    let result: unknown;
+    await act(async () => { result = await registry.act(registry.scope, { id: "python:fixture", kind: "agent" }, { handle, arguments: args, request_id: crypto.randomUUID() }); });
+    return result;
+  };
+  const pick = () => actions().find(action => action.label === "Select lineage replay stop")!.handle;
+  expect(await run(pick(), { index: 0 })).toMatchObject({ status: "result", outcome: { value: { selection_requested: true, replay_completed: false } } });
+  expect(change).toHaveBeenLastCalledWith("old");
+  fireEvent.change(screen.getByRole("slider"), { target: { value: "1" } });
+  expect(change).toHaveBeenLastCalledWith("new");
+  const stale = pick();
+  view.rerender(viewFor("second", "gone"));
+  expect(screen.queryByText("As it stands")).toBeNull();
+  expect(screen.getByText(/Selected revision is unavailable/)).toBeTruthy();
+  change.mockClear();
+  expect(await run(stale, { index: 0 })).not.toMatchObject({ status: "result" });
+  expect(change).not.toHaveBeenCalled();
+  view.rerender(viewFor("second", "gone", []));
+  expect(actions().some(action => action.label === "Select lineage replay stop")).toBe(false);
+  expect(await run(actions().find(action => action.label === "Show working-tree lineage")!.handle)).toMatchObject({ status: "result", outcome: { value: { at: null, read_completed: false } } });
+  expect(change).toHaveBeenLastCalledWith(null);
+  fireEvent.click(screen.getByRole("button", { name: "Show working-tree lineage" }));
+  expect(change).toHaveBeenCalledTimes(2);
 });
