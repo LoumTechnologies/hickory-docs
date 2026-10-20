@@ -34,3 +34,57 @@ it("shows capture refusal without creating a recording or uploading audio", asyn
   expect(denied).toHaveBeenCalledWith({ audio: true, video: false });
   expect(vi.mocked(request).mock.calls.every(call => call[0] === "GET")).toBe(true);
 });
+
+// Guarantee: docs/guarantees/agent/ui-action-dispatch.md
+it("exposes microphone and remote transcription as human requests even with cached consent", async () => {
+  const { UiActions } = await import("../lib/uiActions");
+  const { UiActionContext } = await import("../lib/uiActionBridge");
+  const { act } = await import("@testing-library/react");
+  const registry = new UiActions({ workspace: "p", window: "w" }, () => true, async () => {});
+  vi.mocked(request).mockResolvedValue(catalogue);
+  render(<UiActionContext.Provider value={registry}><MeetingRecording /></UiActionContext.Provider>);
+  const parent = registry.groups().groups.find(g => g.startsWith("meeting-recording:"))!; let n = 0;
+  async function invoke(label: string, args: Record<string, string | boolean>) {
+    const action = registry.observe(parent).actions.find(a => a.label === label)!;
+    let result: unknown;
+    await act(async () => { result = await registry.act(registry.scope, { id: "python:turn", kind: "agent" }, { handle: action.handle, arguments: args, request_id: String(++n) }); });
+    return result;
+  }
+  expect(registry.observe(parent).actions).toHaveLength(1);
+  await invoke("Set meeting recording visibility", { open: true });
+  expect(await invoke("Start microphone recording", {})).toMatchObject({ outcome: { status: "requires_input" } });
+  expect(await invoke("Set remote transcription consent", { checked: true })).toMatchObject({ outcome: { status: "requires_input" } });
+  fireEvent.click(screen.getByLabelText(/I authorize uploading/));
+  expect((screen.getByLabelText(/I authorize uploading/) as HTMLInputElement).checked).toBe(true);
+  expect(await invoke("Transcribe retained meeting audio", { id: "record" })).toMatchObject({ outcome: { status: "requires_input", request: expect.stringContaining("record:audio-hash") } });
+  expect(vi.mocked(request).mock.calls.every(call => call[0] === "GET")).toBe(true);
+  expect(JSON.stringify(registry.observe(parent))).not.toContain(catalogue.directory);
+});
+it("allows status and cancellation while an actual local transcription request is pending", async () => {
+  const { UiActions } = await import("../lib/uiActions");
+  const { UiActionContext } = await import("../lib/uiActionBridge");
+  const { act } = await import("@testing-library/react");
+  const registry = new UiActions({ workspace: "p", window: "w" }, () => true, async () => {});
+  let reject!: (reason: Error) => void;
+  const pendingHost = new Promise((_resolve, reject_) => { reject = reject_; });
+  vi.mocked(request).mockImplementation(async (method, path) => path === "/api/meetings/transcribe" ? pendingHost : path.endsWith("/cancel") ? { cancelled: "record", coverage: "Actual host cancellation response" } : { ...catalogue, adapter: { ...catalogue.adapter, mode: "local" } });
+  render(<UiActionContext.Provider value={registry}><MeetingRecording /></UiActionContext.Provider>);
+  fireEvent.click(screen.getByText("Record a meeting")); await screen.findByText("Transcribe / retry");
+  const parent = registry.groups().groups.find(g => g.startsWith("meeting-recording:"))!;
+  const transcribe = registry.observe(parent).actions.find(a => a.label === "Transcribe retained meeting audio")!;
+  let operation!: ReturnType<typeof registry.act>;
+  await act(async () => { operation = registry.act(registry.scope, { id: "python:turn", kind: "agent" }, { handle: transcribe.handle, arguments: { id: "record" }, request_id: "transcribe" }); await Promise.resolve(); });
+  const read = registry.observe(parent).actions.find(a => a.label === "Read meeting recording state bytes")!;
+  const reading = await registry.act(registry.scope, { id: "python:turn", kind: "agent" }, { handle: read.handle, arguments: { offset: 0, limit: 8192 }, request_id: "read" });
+  if (reading.status !== "result" || reading.outcome.status !== "completed") throw Error("Expected live status reading");
+  expect(JSON.parse(new TextDecoder().decode(new Uint8Array((reading.outcome.value as { bytes: number[] }).bytes))).transcribing).toBe("record");
+  for (const [open, id] of [[false, "close"], [true, "reopen"]] as const) {
+    const visibility = registry.observe(parent).actions.find(a => a.label === "Set meeting recording visibility")!;
+    await act(async () => { expect(await registry.act(registry.scope, { id: "python:turn", kind: "agent" }, { handle: visibility.handle, arguments: { open }, request_id: id })).toMatchObject({ status: "result" }); });
+  }
+  const cancel = registry.observe(parent).actions.find(a => a.label === "Cancel meeting transcription")!;
+  await act(async () => { expect(await registry.act(registry.scope, { id: "python:turn", kind: "agent" }, { handle: cancel.handle, arguments: {}, request_id: "cancel" })).toMatchObject({ outcome: { value: { cancellation_requested: "record", host: { coverage: "Actual host cancellation response" } } } }); });
+  expect(request).toHaveBeenCalledWith("POST", "/api/meetings/recordings/record/cancel", {});
+  await act(async () => { reject(Error("Local transcription cancelled; audio retained")); await operation; });
+  expect((await screen.findByRole("alert")).textContent).toContain("audio retained");
+});

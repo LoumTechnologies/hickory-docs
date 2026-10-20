@@ -375,3 +375,13 @@ filter/sort setters used by their inputs. Filtering/sorting apply only to the
 loaded preview, and reads preserve offset/total/has-more/column truncation scope.
 Editable table cells, formula debugging, fill/layout and other renderer gestures
 remain separate integration work.
+
+Meeting recording now has actual panel disclosure, bounded catalogue/configuration/
+retention/transcript reads, configuration drafts/save, recording supervision,
+local transcription, recovery/delete/download and explicit cancellation. Start
+microphone, remote consent/upload and reviewed-transcript import require actual
+human input when requested by an agent. Cached checkbox state cannot authorize an
+agent's remote upload. Capture returns its real recording ID; stop/final retention
+and transcription/cancellation remain distinct states. Reads, disclosure and
+cancellation have separate subjects so a pending transcription does not block its
+own supervision. Closing/reopening the panel retains the current job.

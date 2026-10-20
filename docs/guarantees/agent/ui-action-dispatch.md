@@ -388,3 +388,29 @@ Executed focused checks: uiDatasetActions (2 passed), covering exact Unicode
 read/sort/filter, invalid column, explicit S3 load, actual next-page response,
 old-page handle retirement and truncation scope; targeted strict checking passed.
 Fetch responses are mocked; real S3 credentials/storage were not exercised.
+
+### Recording and transcription supervision — 2026-10-19
+
+The actual recording panel now registers typed configuration/draft/save,
+retention/recovery/delete/download, current-state reads, capture supervision and
+local transcription. Microphone start, remote consent/upload and human-reviewed
+transcript import return addressable human requests to an agent. Remote upload
+is never authorized solely by a cached checked consent value. Original audio and
+transcription remain separate from correction drafts and linked note import.
+
+Capture returns a real recording job ID after MediaRecorder starts. Stop reports
+its request while final chunks/hash remain pending. Transcription returns actual
+audio/transcript identity and byte count after the host response. Explicit cancel
+and owned AbortSignal cancellation use the existing host cancellation route; a
+request is not rollback or proof a remote provider avoided processing/charges.
+Status, visibility and cancel subjects stay usable during a pending local
+transcription. Read output is bounded JSON UTF-8 bytes. Active capture must stop
+before its retained audio can be recovered/deleted. Download is a browser request,
+not an observed saved file. Independent host/device/platform policy still applies.
+
+Executed focused checks: MeetingRecording (4 passed), plus its pending-job
+supervision case rerun after adding close/reopen coverage (passed); strict targeted
+component/test checking passed. Cases cover actual human remote-consent failure,
+OS capture refusal, agent self-consent/remote-upload refusal, and local request
+status/cancel while pending. Devices, provider and retention APIs are mocked;
+no real microphone, remote upload or provider billing was exercised.
