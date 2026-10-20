@@ -1,3 +1,5 @@
+import { useUiCommands, useUiRevision } from "../lib/uiActionBridge";
+import type { UiActor, UiCommand, UiOutcome } from "../lib/uiActions";
 import { ChangePreview } from "./ChangePreview";
 // The Insert menu: the hick vocabulary, as something you pick rather than
 // something you remember.
@@ -18,7 +20,7 @@ import { ChangePreview } from "./ChangePreview";
 // values back to the workspace, which owns the question of which buffer is
 // being written to (editor/activeEditor.ts).
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 
 import {
   INSERT_GROUPS,
@@ -38,7 +40,8 @@ export interface InsertMenuProps {
   /** What is selected in the buffer right now — becomes the body. */
   selectedText: string;
   /** Insert this. The workspace writes it into the focused buffer. */
-  onInsert: (element: InsertElement, values: FieldValues, body: string) => void;
+  onInsert: (element: InsertElement, values: FieldValues, body: string, actor?: UiActor) => void | boolean;
+  sourceCurrent?: () => boolean;
   /** Editing fixes the element instead of offering the vocabulary, and seeds
    * the fields from the element already in the document. */
   edit?: { values: FieldValues; body: string };
@@ -50,8 +53,11 @@ export function InsertMenu({
   selectedText,
   onInsert,
   edit,
+  sourceCurrent,
   onClose,
 }: InsertMenuProps) {
+  const parent = `insert-form:${useId()}`;
+  const [formError, setFormError] = useState("");
   const [query, setQuery] = useState("");
   const matches = useMemo(() => filterElements(query), [query]);
 
@@ -138,15 +144,37 @@ export function InsertMenu({
         ? `Goes on its own line inside ${element.belongsIn ? `a ${element.belongsIn}` : "its parent"}, indented.`
         : "Goes inline, right where the caret is.";
 
-  const submit = () => {
-    if (blocked) {
-      setShowProblems(true);
-      return;
-    }
-    onInsert(element, values, body);
+  const current = () => sourceCurrent?.() ?? true;
+  const submit = (actor: UiActor): UiOutcome => {
+    if (blocked) { setShowProblems(true); return { status: "unavailable", reason: "Fill the required attributes first" }; }
+    if (!current()) { setFormError("The originating editor changed, closed or became read-only. Reopen this form."); return { status: "unavailable", reason: "The captured source is no longer current" }; }
+    const result = onInsert(element, values, body, actor);
+    if (result === false) { setFormError("The originating editor refused the change. Inspect its current source and reopen the form."); return { status: "unavailable", reason: "Source change was refused by its actual editor" }; }
     onClose();
+    return { status: "completed", value: { editor_handler_returned: true, source_write: result === true ? "dispatched" : "Inspect actual source; callback supplied no write acknowledgement", actor, saved: "not established", verification: "not requested" } };
   };
-
+  const revision = useUiRevision(() => [query, element.id, values, body, formError, current(), edit?.values, edit?.body]);
+  const commands: { key: string; command: UiCommand }[] = [];
+  const add = (key: string, label: string, parameters: UiCommand["parameters"], execute: UiCommand["execute"], enabled = true) => commands.push({ key: `${parent}:${key}`, command: { label, parent, subject: parent, parameters, prerequisites: [], read: () => ({ revision: revision(), enabled: enabled && (key !== "submit" || current()), reason: !current() ? "Originating editor/source changed; reopen the form" : !enabled ? "Fill required attributes" : undefined }), execute } });
+  if (!edit) {
+    add("query", "Search insert element catalogue", { query: { type: "string", maxLength: 16384 } }, async args => { setQuery(args.query as string); return { status: "completed", value: { query_changed: true } }; });
+    add("choose", "Select insert element", { id: { type: "string", maxLength: 4096 } }, async args => {
+      if (!matches.some(candidate => candidate.id === args.id)) return { status: "unavailable", reason: "Observe a current matching catalogue identity" };
+      setChosenId(args.id as string); return { status: "completed", value: { selected: args.id } };
+    });
+  }
+  for (const field of element.fields) add(`field:${field.name}`, `Set element attribute: ${field.label}`, { value: { type: "string", maxLength: 1048576, ...(field.choices ? { choices: [...field.choices] } : {}) } }, async args => { setFieldValue(field.name, args.value as string); return { status: "completed", value: { draft_changed: true, source_written: false } }; });
+  if (element.body !== "none") add("body", "Set element body draft", { body: { type: "string", maxLength: 1048576 } }, async args => { setBody(args.body as string); return { status: "completed", value: { draft_changed: true, source_written: false } }; });
+  add("submit", edit ? "Apply captured element edit" : "Insert into captured source", {}, async (_args, actor) => submit(actor), !blocked);
+  add("cancel", "Cancel element form", {}, async () => { onClose(); return { status: "completed", value: { closed: true, source_written: false } }; });
+  add("read", "Read element form bytes", { offset: { type: "number", minimum: 0, maximum: 1000000000, integer: true }, limit: { type: "number", minimum: 1, maximum: 8192, integer: true } }, async args => {
+    const bytes = new TextEncoder().encode(JSON.stringify({ mode: edit ? "edit" : "insert", query, matches: edit ? [] : matches.map(m => ({ id: m.id, title: m.title, summary: m.summary, group: m.group })), element, values, body, preview, placement: placementNote, problems, source_current: current(), error: formError, edit_baseline: false }));
+    const offset = args.offset as number, end = Math.min(offset + (args.limit as number), bytes.length);
+    if (offset > bytes.length) return { status: "unavailable", reason: "Offset outside current element form" };
+    return { status: "completed", value: { bytes: Array.from(bytes.slice(offset, end)), encoding: "JSON UTF-8", offset, total_bytes: bytes.length, next_offset: end < bytes.length ? end : null } };
+  });
+  const invoke = useUiCommands(commands);
+  const click = (key: string) => { if (key === "submit" && blocked) { setShowProblems(true); return; } void invoke(`${parent}:${key}`).catch(reason => setFormError(String(reason))); };
   const move = (delta: number) => {
     const index = matches.findIndex((m) => m.id === chosenId);
     const next =
@@ -157,14 +185,14 @@ export function InsertMenu({
   const onKeyDown = (event: React.KeyboardEvent) => {
     if (event.key === "Escape") {
       event.preventDefault();
-      onClose();
+      click("cancel");
       return;
     }
     // Insert from anywhere in the panel, including a body textarea where a
     // bare Enter is a newline.
     if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
       event.preventDefault();
-      submit();
+      click("submit");
     }
   };
 
@@ -184,7 +212,7 @@ export function InsertMenu({
   };
 
   return (
-    <div className="insert-menu-backdrop" onMouseDown={onClose}>
+    <div className="insert-menu-backdrop" onMouseDown={() => click("cancel")}>
       <div
         className="insert-menu"
         role="dialog"
@@ -192,6 +220,8 @@ export function InsertMenu({
         onMouseDown={(event) => event.stopPropagation()}
         onKeyDown={onKeyDown}
       >
+        {formError && <p role="alert">{formError}</p>}
+        {!current() && <p role="status">The originating source changed. Cancel and reopen this form.</p>}
         {!edit && <div className="insert-menu__list-pane">
           <input
             ref={searchRef}
@@ -229,7 +259,7 @@ export function InsertMenu({
                       aria-selected={candidate.id === element.id}
                       className={`insert-menu__item${candidate.id === element.id ? " on" : ""}`}
                       onClick={() => setChosenId(candidate.id)}
-                      onDoubleClick={submit}
+                      onDoubleClick={() => click("submit")}
                     >
                       <span className="insert-menu__item-title">
                         {candidate.title}
@@ -319,12 +349,7 @@ export function InsertMenu({
                         value={values[field.name] ?? ""}
                         placeholder={field.placeholder}
                         spellCheck={false}
-                        onChange={(event) =>
-                          setValues((v) => ({
-                            ...v,
-                            [field.name]: event.target.value,
-                          }))
-                        }
+                        onChange={event => setFieldValue(field.name, event.target.value)}
                       />
                     )}
                     <p className="insert-menu__hint">{field.hint}</p>
@@ -363,7 +388,7 @@ export function InsertMenu({
             </div>
           </div>
 
-          <ChangePreview heading={edit ? "What changes" : "What gets written"} effects={edit ? "Replaces this element in the focused document; unknown attributes remain intact." : placementNote}>
+          <ChangePreview heading={edit ? "What changes" : "What gets written"} effects={edit ? "Replaces this element in its captured document; unknown attributes remain intact." : placementNote}>
             <pre className="insert-menu__preview-text mono">{preview}</pre>
           </ChangePreview>
 
@@ -371,13 +396,13 @@ export function InsertMenu({
             <span className="insert-menu__shortcut">
               {navigator.platform.startsWith("Mac") ? "⌘" : "Ctrl"}+Enter
             </span>
-            <button type="button" className="btn" onClick={onClose}>
+            <button type="button" className="btn" onClick={() => click("cancel")}>
               Cancel
             </button>
             <button
               type="button"
               className="btn btn-primary"
-              onClick={submit}
+              onClick={() => click("submit")}
               data-tip={
                 blocked ? "Fill the required attributes first" : undefined
               }

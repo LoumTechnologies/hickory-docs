@@ -413,3 +413,12 @@ print dialogs expose human request paths, while the in-app Save a copy prompt is
 addressable through the shared prompt controller. Known empty unnamed saves with
 formatting off are no-ops. Save acknowledgements, self-saver flush intent, copy
 prompt settlement and physical print output remain distinct; none is verification.
+
+Insert/Edit Element forms now share typed catalogue, attribute/body draft, preview,
+submit and cancel handlers. Their captured document editor, immutable source and
+selection are retained through focus changes; stale/closed/read-only source is
+refused. Opening the form does not write. Agent submission carries the actual actor
+into the handler and uses an explicit agent UI transaction event; receipts do not
+turn that event into human approval, verification or commit authorship. The native
+entry points use the document-editor target registry rather than a later arbitrary
+focused file/generated buffer. Each reopened form gets a new request identity.

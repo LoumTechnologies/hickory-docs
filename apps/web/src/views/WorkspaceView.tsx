@@ -47,7 +47,7 @@ import { bufferEditor, openBufferTarget } from "../lib/editorBufferTargets";
 import { workspaceRibbonSources } from "./workspaceRibbonSources";
 import { openPlainSearchFiles, searchWorkspace } from "../lib/workspaceSearch";
 import { insertTarget, type MenuAction } from "../lib/menuBridge";
-import { insertElement } from "../editor/insertElement";
+import { captureInsertion, insertionCurrent, insertCapturedElement, insertElement } from "../editor/insertElement";
 import {
   elementForExisting,
   initialValues,
@@ -151,7 +151,7 @@ import { useUntitledRecovery } from "./useUntitledRecovery";
 import { restoreFolderLayout } from "./restoreFolderLayout";
 import { useWorkspaceUi } from "./useWorkspaceUi";
 import { openSelectedFile, useFolderPane } from "./folderPane";
-import { focusedEditor } from "../editor/activeEditor";
+import { activeEditor, focusedEditor } from "../editor/activeEditor";
 import { useZoom } from "./useZoom";
 import { StatusBar } from "../shell/StatusBar";
 import { WelcomePane, type WelcomeAction } from "./WelcomePane";
@@ -236,12 +236,16 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
   const [insertPanel, setInsertPanel] = useState<{
     id: string | null;
     selected: string;
+    request: string;
+    target: ReturnType<typeof captureInsertion>;
   } | null>(null);
   // The same form edits an existing element. Its source range is captured
   // with the parsed structure, rather than relying on the selection after
   // the dialog has taken focus.
   const [editPanel, setEditPanel] = useState<{
     element: InsertElement;
+    request: string;
+    target: ReturnType<typeof captureInsertion>;
     values: FieldValues;
     body: string;
     attrs: Readonly<Record<string, string>>;
@@ -1090,7 +1094,7 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
   // not the focused SESSION, because the untitled buffer has no session and
   // is exactly where a first `<hick:exec>` most wants to be typed.
   const openInsert = useCallback((id: string | null) => {
-    const view = focusedEditor();
+    const view = activeEditor();
     if (!view) {
       setInsertNotice(
         "There is no document open to insert into. Open one from the Files tree, or start a new one.",
@@ -1098,27 +1102,16 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
       return;
     }
     const { from, to } = view.state.selection.main;
-    setInsertPanel({ id, selected: view.state.sliceDoc(from, to) });
+    setInsertPanel({ id, selected: view.state.sliceDoc(from, to), request: crypto.randomUUID(), target: captureInsertion(view) });
   }, []);
-  const applyInsert = useCallback(
-    (
-      element: Parameters<typeof insertElement>[1],
-      values: Parameters<typeof insertElement>[2],
-      body: string,
-    ) => {
-      const view = focusedEditor();
-      if (!view) {
-        setInsertNotice(
-          "The document this was going into was closed. Open it again and retry.",
-        );
-        return;
-      }
-      insertElement(view, element, values, body);
-    },
-    [],
-  );
+  const applyInsert = useCallback((element: InsertElement, values: FieldValues, body: string, actor?: import("../lib/uiActions").UiActor) => {
+    if (!insertPanel || !insertCapturedElement(insertPanel.target, element, values, body, actor?.kind === "agent")) {
+      setInsertNotice("The originating editor changed, closed or became read-only. Reopen Insert from its current source."); return false;
+    }
+    return true;
+  }, [insertPanel]);
   const openEditElement = useCallback(() => {
-    const view = focusedEditor();
+    const view = activeEditor();
     if (!view) {
       setInsertNotice("Open a document, then put the caret in the element you want to edit.");
       return;
@@ -1143,7 +1136,7 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
       ? rawBody.replace(/^\n/, "").replace(/\n$/, "")
       : rawBody;
     setEditPanel({
-      element,
+      element, request: crypto.randomUUID(), target: captureInsertion(view),
       values,
       body,
       attrs: block.attrs,
@@ -1153,16 +1146,16 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
     });
   }, []);
   const applyEditElement = useCallback(
-    (element: InsertElement, values: FieldValues, body: string) => {
+    (element: InsertElement, values: FieldValues, body: string, actor?: import("../lib/uiActions").UiActor) => {
       const edit = editPanel;
-      const view = focusedEditor();
-      if (!edit || !view) return;
+      const view = edit?.target.view;
+      if (!edit || !view || !insertionCurrent(edit.target)) { setInsertNotice("The originating element editor changed, closed or became read-only. Reopen its current source."); return false; }
       // A collaborator may have changed this document while the form was
       // open. Offsets are not durable identities, so refuse rather than
       // replacing whichever bytes subsequently landed at this range.
       if (view.state.sliceDoc(edit.from, edit.to) !== edit.source) {
         setInsertNotice("This element changed while its editor was open. Reopen Edit Element to start from its current text.");
-        return;
+        return false;
       }
       view.dispatch({
         changes: {
@@ -1172,9 +1165,10 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
         },
         selection: { anchor: edit.from },
         scrollIntoView: true,
-        userEvent: "input.editElement",
+        userEvent: actor?.kind === "agent" ? "input.uiAgentEditElement" : "input.editElement",
       });
       view.focus();
+      return true;
     },
     [editPanel],
   );
@@ -1224,8 +1218,10 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
     const session = registry.get(focusedIdRef.current);
     const view = focusedEditor();
     const tabs = panesOf(layoutRef.current.root).flatMap(p => p.tabs);
-    const status = { target: active ? { id: active.id, kind: active.kind, path: active.target } : null, document: session?.doc?.id ?? null, document_status: session?.syncState ?? null, banner: session?.banner ? { kind: session.banner.kind, text: session.banner.text } : null, notice: insertNotice, format_on_save: formatOnSave(), unnamed_buffers: tabs.filter(t => t.kind === "untitled").map(t => t.id) };
-    return { visible: workspaceIsVisible(), guard: [status, view?.state.doc.toString(), view?.state.selection.toJSON(), registry.all().map(s => [s.doc?.id, s.doc?.path, s.liveSource]), tabs.map(t => [t.id, t.kind, t.target, t.docId]), [...plainSources.current], untitledSourcesRef.current], status };
+    const insertView = activeEditor();
+    const insertTab = tabs.find(t => t.kind === "document" ? registry.get(t.docId)?.docEditor === insertView : t.kind === "untitled" ? bufferEditor(t.id) === insertView : false);
+    const status = { target: active ? { id: active.id, kind: active.kind, path: active.target } : null, document: session?.doc?.id ?? null, document_status: session?.syncState ?? null, banner: session?.banner ? { kind: session.banner.kind, text: session.banner.text } : null, notice: insertNotice, format_on_save: formatOnSave(), insert_target: insertTab ? { id: insertTab.id, kind: insertTab.kind, path: insertTab.target } : null, unnamed_buffers: tabs.filter(t => t.kind === "untitled").map(t => t.id) };
+    return { visible: workspaceIsVisible(), guard: [status, view?.state.doc.toString(), view?.state.selection.toJSON(), insertView?.state.doc.toString(), insertView?.state.selection.toJSON(), registry.all().map(s => [s.doc?.id, s.doc?.path, s.liveSource]), tabs.map(t => [t.id, t.kind, t.target, t.docId]), [...plainSources.current], untitledSourcesRef.current], status };
   };
   const handleDocumentMenu = async (detail: MenuAction, actor: import("../lib/uiActions").UiActor) => {
     const pane = panesOf(layoutRef.current.root).find(p => p.id === layoutRef.current.focus);
@@ -1768,6 +1764,8 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
       )}
       {insertPanel && (
         <InsertMenu
+          key={insertPanel.request}
+          sourceCurrent={() => insertionCurrent(insertPanel.target)}
           initialId={insertPanel.id}
           selectedText={insertPanel.selected}
           onInsert={applyInsert}
@@ -1776,6 +1774,8 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
       )}
       {editPanel && (
         <InsertMenu
+          key={editPanel.request}
+          sourceCurrent={() => insertionCurrent(editPanel.target)}
           initialId={editPanel.element.id}
           selectedText=""
           edit={{ values: editPanel.values, body: editPanel.body }}

@@ -35,6 +35,7 @@ export function insertElement(
   /** The body as the panel last showed it. Omitted, the selection (or the
    * catalogue's starter text) is used. */
   body?: string,
+  userEvent = "input.insertElement",
 ): void {
   const { state } = view;
   const range = state.selection.main;
@@ -56,9 +57,23 @@ export function insertElement(
       head: range.from + insertion.selectTo,
     },
     scrollIntoView: true,
-    userEvent: "input.insertElement",
+    userEvent,
   });
   // The panel had the focus; typing over the placeholder is the next thing
   // anybody does, so the buffer takes it back.
   view.focus();
+}
+
+/** The dialog owns this exact editor/source/range even after another pane gains focus. */
+export function captureInsertion(view: EditorView) {
+  return { view, doc: view.state.doc, selection: { anchor: view.state.selection.main.anchor, head: view.state.selection.main.head } };
+}
+export function insertionCurrent(capture: ReturnType<typeof captureInsertion>): boolean {
+  return capture.view.dom.isConnected && !capture.view.state.readOnly && capture.view.state.doc === capture.doc;
+}
+export function insertCapturedElement(capture: ReturnType<typeof captureInsertion>, element: InsertElement, values: FieldValues, body: string, agent = false): boolean {
+  if (!insertionCurrent(capture)) return false;
+  capture.view.dispatch({ selection: capture.selection });
+  insertElement(capture.view, element, values, body, agent ? "input.uiAgentInsert" : "input.insertElement");
+  return true;
 }

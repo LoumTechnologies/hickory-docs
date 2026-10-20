@@ -106,3 +106,29 @@ Last LLM verification:
   from the same table the parity test reads, but that the Tauri submenu
   renders and forwards its ids was verified by reading, not by running the
   packaged app. The web path was driven end to end in a browser.
+
+## Captured form target and agent adapter — 2026-10-19
+
+Insert and Edit Element now capture the document editor and immutable source when
+the form opens. Insert also captures the original selection; moving focus or the
+caret afterward cannot retarget it. Applying refuses a changed/closed/read-only
+source, preserving the form for recovery. Reopening creates a fresh form identity.
+The workspace entry points use the document-editor registry, preserving the
+boundary above instead of choosing an arbitrary focused plain/generated editor.
+
+The shared agent form exposes typed catalogue/field/body input and explicit
+bounded JSON UTF-8 preview/state reads. Submission invokes the same captured
+handler with the trusted actor; agent UI transactions carry their own event name
+for undo bookkeeping. Actual request/result actor attribution stays separate from
+human approval, Git credit and source-origin claims. Dispatch is not save or
+verification, and a legacy callback without an acknowledgement is reported as
+unconfirmed rather than an applied edit.
+
+Executed focused checks: InsertMenu first run passed 22 of 23 cases; a new capture
+case expected `select="known"` rather than the catalogue's canonical
+`select="#known"`. Correcting that expectation and rerunning the new capture case
+passed, including changed/readonly refusal and the actual agent transaction tag.
+The other new case drove structured field/submit, stale source refusal, private
+preview isolation and actor forwarding. Strict targeted WorkspaceView/form/test
+checking passed. Native-window/menu integration and visual placement remain
+unwitnessed; the focused tests use real CodeMirror with component callbacks.

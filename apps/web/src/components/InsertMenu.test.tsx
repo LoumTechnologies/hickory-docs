@@ -4,7 +4,7 @@
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
-import { EditorState, Transaction } from "@codemirror/state";
+import { EditorState, StateEffect, Transaction } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
 
 import { InsertMenu } from "./InsertMenu";
@@ -240,4 +240,47 @@ describe("what lands in the buffer", () => {
     insert(view, "confirm", { message: "Go?" });
     expect(seen).toEqual(["input.insertElement"]);
   });
+});
+
+// Guarantee: docs/guarantees/agent/ui-action-dispatch.md
+it("keeps a captured editor/range across focus changes and rejects changed/readonly source", async () => {
+  const { captureInsertion, insertCapturedElement } = await import("../editor/insertElement");
+  const first = editor("original selection"), other = editor("other buffer");
+  first.dispatch({ selection: { anchor: 0, head: 8 } });
+  const capture = captureInsertion(first);
+  const events: (string | undefined)[] = [];
+  first.dispatch({ effects: StateEffect.appendConfig.of(EditorView.updateListener.of(update => update.transactions.forEach(tr => events.push(tr.annotation(Transaction.userEvent))))) });
+  markActiveEditor(other);
+  first.dispatch({ selection: { anchor: first.state.doc.length } });
+  const element = elementById("paste")!;
+  expect(insertCapturedElement(capture, element, { ...initialValues(element), select: "known" }, "", true)).toBe(true);
+  expect(first.state.doc.toString()).toContain('select="#known"');
+  expect(first.state.doc.toString()).not.toContain("original");
+  expect(other.state.doc.toString()).toBe("other buffer");
+  expect(events).toContain("input.uiAgentInsert");
+  expect(insertCapturedElement(capture, element, { select: "old" }, "", true)).toBe(false);
+  const readonly = new EditorView({ parent: document.body, state: EditorState.create({ doc: "readonly", extensions: [EditorState.readOnly.of(true)] }) });
+  views.push(readonly);
+  expect(insertCapturedElement(captureInsertion(readonly), element, { select: "no" }, "", true)).toBe(false);
+});
+it("drives typed element form actions through the real callback and refuses stale source", async () => {
+  const { UiActions } = await import("../lib/uiActions");
+  const { UiActionContext } = await import("../lib/uiActionBridge");
+  const { act } = await import("@testing-library/react");
+  const registry = new UiActions({ workspace: "p", window: "w" }, () => true, async () => {});
+  const onInsert = vi.fn(() => true), onClose = vi.fn(); let current = true;
+  render(<UiActionContext.Provider value={registry}><InsertMenu initialId="copy" selectedText="PRIVATE selected λ" onInsert={onInsert} onClose={onClose} sourceCurrent={() => current} /></UiActionContext.Provider>);
+  const parent = registry.groups().groups.find(g => g.startsWith("insert-form:"))!;
+  expect(JSON.stringify(registry.observe(parent))).not.toContain("PRIVATE selected λ");
+  const attribute = registry.observe(parent).actions.find(a => a.label === "Set element attribute: Id")!;
+  await act(async () => { await registry.act(registry.scope, { id: "python:turn", kind: "agent" }, { handle: attribute.handle, arguments: { value: "claim" }, request_id: "id" }); });
+  const submit = registry.observe(parent).actions.find(a => a.label === "Insert into captured source")!;
+  current = false;
+  expect(await registry.act(registry.scope, { id: "python:turn", kind: "agent" }, { handle: submit.handle, arguments: {}, request_id: "stale" })).toMatchObject({ status: "stale" });
+  expect(onInsert).not.toHaveBeenCalled(); expect(onClose).not.toHaveBeenCalled();
+  current = true;
+  const fresh = registry.observe(parent).actions.find(a => a.label === "Insert into captured source")!;
+  await act(async () => { expect(await registry.act(registry.scope, { id: "python:turn", kind: "agent" }, { handle: fresh.handle, arguments: {}, request_id: "insert" })).toMatchObject({ outcome: { value: { source_write: "dispatched", actor: { kind: "agent" }, verification: "not requested" } } }); });
+  expect(onInsert).toHaveBeenCalledWith(expect.objectContaining({ id: "copy" }), expect.objectContaining({ id: "claim" }), "PRIVATE selected λ", { id: "python:turn", kind: "agent" });
+  expect(onClose).toHaveBeenCalledOnce();
 });
