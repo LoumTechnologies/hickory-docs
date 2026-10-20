@@ -299,3 +299,13 @@ Review each generated native declaration against these owned families. Private
 helpers and tests may appear; they are not independently exposed capabilities.
 Canvas/drag interactions and rendered values remain manual review work in #73;
 this broader source index intentionally does not mark them complete.
+
+Conversation controls now register bounded state/history/draft/stream/usage reads,
+response draft, discard, Send, Stop, branch selection, new thread, tree and optional
+collapsed visibility. Send calls the actual conversation handler and returns its
+host turn ID as queued; Stop awaits the existing stop endpoint but requires the
+actual terminal turn state before claiming completion. Retried request IDs reuse
+the registry result. Response typing and agent draft input share the recovery edit
+handler; ordinary keystrokes remain immediate. Provider/model/backend settings,
+permissions/edit review and history/project lens controls still need their own
+complete disclosure and actor-aware adapters.

@@ -223,3 +223,27 @@ Unicode/failed-result bytes, actor routing, truthful download/publication scope
 and document-change retirement; targeted strict TypeScript checking passed.
 The browser download and host snapshot are mocked; actual filesystem save and
 reviewed publication remain separate witnesses.
+
+### Conversation submission and supervision — 2026-10-19
+
+Registered conversation controls read current history, draft, output and UI status
+only through explicit JSON UTF-8 pages of at most 8192 bytes. Opaque revisions
+cover branch, draft, running turn, readiness and current evidence. Draft input
+uses the same recovery edit handler as typing; it does not submit. Send invokes
+the existing conversation handler, preserving its selected context/provider and
+recovery semantics, and reports the actual returned turn ID as queued. A local
+slash command or failed/no submission returns no invented job. Stop awaits the
+existing host request and reports whether it was requested; only the actual turn
+state can establish stopped. Branch selection rejects unknown identities and is
+disabled while sending/running. Request cancellation is not a rollback of a
+submitted provider turn; its actual job must be stopped separately. UI receipts
+retain the initiating agent actor; agent invocation is not human attestation.
+
+Executed focused checks: uiConversationActions (1), selected ChatDock provider/
+Python/ACP/Stop/registered-Send cases (5), selected WorkspaceChat startup/preview
+cases (2), all passed after correcting stale context-status fixtures. The new
+ChatDock case drives registry draft/Send into the actual Python conversation
+handler and checks its queued host ID. Strict targeted TypeScript checks passed.
+Provider responses and host APIs are mocked; these are not real provider/native
+witnesses. The initial focused ChatDock runs exposed missing items/updates in
+test mocks; those failures are not counted as passing checks.

@@ -1,3 +1,4 @@
+import { useConversationActions } from "./uiConversationActions";
 import { ContextUpdates } from "./ContextUpdates";
 import { registerInvestigationConversation } from "../lib/reviewInvestigations";
 import { AgentProject } from "./AgentProject";
@@ -373,14 +374,11 @@ export function ChatDock({
   // The hand on the cord. The run halts at its next seam — mid-stream
   // included, which is what stops the token spend on a model looping — and
   // the terminal "stopped" frame above clears the running state.
-  const stop = useCallback(() => {
-    if (!runningRef.current || stopping) return;
+  const stop = useCallback(async () => {
+    if (!runningRef.current || stopping) return false;
     setStopping(true);
-    api.agentStop(docId).catch(() => {
-      // The turn finished in the race between seeing it run and clicking:
-      // the terminal frame is on its way and will clear everything.
-      setStopping(false);
-    });
+    try { await api.agentStop(docId); return true; }
+    catch (reason) { setStopping(false); setError(String(reason)); return false; }
   }, [docId, stopping]);
 
   const branch = useMemo(() => branchOf(turns, tip), [turns, tip]);
@@ -525,6 +523,12 @@ export function ChatDock({
     } finally { sendingRef.current = false; setSending(false); earlyEvents.current = []; }
   };
 
+  const conversationActions = useConversationActions({ doc: docId, draft: prompt, tip, turns, running, sending, stopping,
+    ready: !!acp.state?.ready && !acp.busy, tree: showTree, collapsed,
+    evidence: { stream, reasoning, totals, note, error, unavailable, recovery_error: recovery.error, backend, provider, model, context: contextLabel ?? null, session_path: sessionPath },
+    setDraft: setPrompt, discard: recovery.discard, setTip, setTree: setShowTree,
+    send: () => send(), stop, toggleCollapsed: onToggleCollapsed,
+  });
   const investigationSend = useRef(send);
   investigationSend.current = send;
   useEffect(() => registerInvestigationConversation({
@@ -548,7 +552,7 @@ export function ChatDock({
           <button
             className="chat-toggle"
             aria-expanded={!collapsed}
-            onClick={onToggleCollapsed}
+            onClick={() => void conversationActions.invoke("collapse")}
             data-tip={collapsed ? "Show conversation" : "Hide conversation"}
           >
             <span aria-hidden="true">{collapsed ? "▴" : "▾"}</span> Agent
@@ -571,7 +575,7 @@ export function ChatDock({
           <button
             className="btn-link chat-new"
             disabled={running !== null || sending}
-            onClick={() => setTip(null)}
+            onClick={() => void conversationActions.invoke("new")}
             data-tip="Start a conversation that does not continue from any existing turn"
           >
             New thread
@@ -580,7 +584,7 @@ export function ChatDock({
         {turns.length > 0 && (
           <button
             className={`btn-link chat-tree-toggle${showTree ? " chat-tree-toggle--on" : ""}`}
-            onClick={() => setShowTree((v) => !v)}
+            onClick={() => void conversationActions.invoke("tree", { open: !showTree })}
             aria-pressed={showTree}
             data-tip="Zoom out: every turn as a node, branches where you rewound (/tree)"
           >
@@ -640,22 +644,19 @@ export function ChatDock({
             <ChatTree
               turns={turns}
               tip={tip}
-              onSelect={(id) => {
-                setTip(id);
-                setShowTree(false);
-              }}
+              onSelect={id => { if (!running && !sending) void conversationActions.invoke("tip", { id }); }}
             />
           ) : (
             <>
               {branch.filter(turn => turn.status === "ok").map(turn => <AgentProject key={turn.id} doc={docId} turn={turn.id} getContext={getContext} applyChange={applyAgentChange} />)}
               <ConversationEditor branch={branch} path={sessionPath} stamp={lensStamp} running={running}
                 showCollapsedLineage={showCollapsedLineage} stream={stream} reasoning={reasoning} draft={prompt} onDraft={setPrompt}
-                onSend={() => void send()} sending={sending} canSend={!running && !sending && (!!acp.state?.ready && !acp.busy)} />
+                onSend={() => void conversationActions.invoke("send")} sending={sending} canSend={!running && !sending && (!!acp.state?.ready && !acp.busy)} />
               {branch.length > 0 && <div className="chat-turn-strip" aria-label="Turns">
                 {branch.map(turn => <span key={turn.id} className="chat-turn-strip__turn">
                   <span className="muted">{turn.prompt.slice(0, 40)}</span>
                   {(backend === "python" || acp.state?.canRewind) && turn.id !== tip &&
-                    <button className="btn-link chat-rewind" onClick={() => setTip(turn.id)} data-tip={REWIND_TIP}>rewind here</button>}
+                    <button className="btn-link chat-rewind" disabled={!!running || sending} onClick={() => void conversationActions.invoke("tip", { id: turn.id })} data-tip={REWIND_TIP}>rewind here</button>}
                 </span>)}
                 {sessionPath && onOpenSession && <button className="btn-link" onClick={() => onOpenSession(sessionPath)}>session</button>}
               </div>}
@@ -675,7 +676,7 @@ export function ChatDock({
           <button
             className="btn chat-stop"
             disabled={stopping}
-            onClick={stop}
+            onClick={() => void conversationActions.invoke("stop")}
             aria-label="Stop the agent"
             data-tip="Stop this turn now — the stream is cut and no more tokens are spent"
           >
@@ -685,13 +686,13 @@ export function ChatDock({
           <button
             className="btn btn-primary"
             disabled={!prompt.trim() || sending || (!acp.state?.ready || acp.busy)}
-            onClick={() => void send()}
+            onClick={() => void conversationActions.invoke("send")}
           >
             {sending ? "Starting…" : "Send"}
           </button>
         ) : null}
       </div>
-      {prompt && <button className="btn-link" onClick={recovery.discard}>Discard response</button>}
+      {prompt && <button className="btn-link" onClick={() => void conversationActions.invoke("discard")}>Discard response</button>}
       {recovery.error && <p className="chat-note error" role="status">{recovery.error}</p>}
       {unavailable && (
         <p className="chat-note muted">

@@ -10,7 +10,7 @@ import {
   waitFor,
 } from "@testing-library/react";
 
-vi.mock("../api/client", () => ({ request: vi.fn().mockResolvedValue({}),
+vi.mock("../api/client", () => ({ request: vi.fn().mockImplementation(async (_method, path: string) => path.endsWith("/agent/python/context") ? { items: [], updates: [], coverage: "No retained references in this fixture" } : {}),
   api: { responseDraft: vi.fn().mockResolvedValue({ scope: "test", state: null }), saveResponseDraft: vi.fn().mockResolvedValue({ ok: true }), agent: vi.fn(), agentTurns: vi.fn(), agentStop: vi.fn(), executor: vi.fn().mockResolvedValue({}), sessionView: vi.fn().mockRejectedValue(new Error("No session fixture")), complete: vi.fn().mockResolvedValue({ suggestions: [] }) },
 }));
 
@@ -495,4 +495,27 @@ it("retains a rejected send and preserves a newer response when a later send is 
   fireEvent.click(screen.getByRole("button", { name: "Discard response" }));
   expect(screen.getByRole("textbox", { name: "Agent conversation and response" }).textContent).not.toContain("newer text while sending");
   view.unmount(); cleanup();
+});
+
+// Guarantee: docs/guarantees/agent/ui-action-dispatch.md
+it("dispatches registered draft and Send through the actual Python conversation handler", async () => {
+  const { UiActions } = await import("../lib/uiActions");
+  const { UiActionContext } = await import("../lib/uiActionBridge");
+  const registry = new UiActions({ workspace: "p", window: "w" }, () => true, async () => {});
+  vi.mocked(acpApi.catalogue).mockResolvedValue({ agents: [] });
+  vi.mocked(acpApi.state).mockResolvedValue({ backend: "python", ready: true, canRewind: true });
+  vi.mocked(api.agentTurns).mockResolvedValue({ turns: [], provider: "anthropic", model: "claude-sonnet-5", totals: { usd: 0, input: 0, output: 0, cache_read: 0, cache_write: 0 } });
+  vi.mocked(api.agent).mockClear().mockResolvedValue({ session_id: "real-handler-turn" });
+  const view = render(<UiActionContext.Provider value={registry}><ChatDock docId="d1" realtime={{ onRunEvent: () => () => undefined } as unknown as Realtime} onAgentFinished={() => {}} /></UiActionContext.Provider>);
+  try {
+    await waitFor(() => expect(acpApi.state).toHaveBeenCalled());
+    const parent = registry.groups().groups.find(g => g.startsWith("conversation:"))!;
+    const draft = registry.observe(parent).actions.find(a => a.label === "Set conversation response draft")!;
+    await act(async () => { await registry.act(registry.scope, { id: "python:parent", kind: "agent" }, { handle: draft.handle, arguments: { text: "Investigate the counterexample" }, request_id: "draft" }); });
+    await waitFor(() => expect(registry.observe(parent).actions.find(a => a.label === "Send conversation response")!.enabled).toBe(true));
+    const send = registry.observe(parent).actions.find(a => a.label === "Send conversation response")!;
+    await act(async () => { expect(await registry.act(registry.scope, { id: "python:parent", kind: "agent" }, { handle: send.handle, arguments: {}, request_id: "send" })).toMatchObject({ outcome: { status: "queued", job: "real-handler-turn" } }); });
+    expect(api.agent).toHaveBeenCalledExactlyOnceWith("d1", "Investigate the counterexample", null, "anthropic", "", "python");
+    expect(screen.getByRole("button", { name: "Stop the agent" })).toBeTruthy();
+  } finally { view.unmount(); }
 });
