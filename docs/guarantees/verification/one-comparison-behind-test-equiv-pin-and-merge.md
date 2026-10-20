@@ -39,3 +39,22 @@ Last LLM verification:
 - Test coverage: `crates/hick-literate/src/equiv.rs::describe_difference_tests`
   (moved from the CLI with the function); `crates/hickory-cli/tests/test_command_tests.rs`
   (drift verdicts); `crates/hickory-cli/tests/round_trip.rs` (the gate).
+
+### Output-baseline UI ownership (issue #72)
+
+The baseline hook now binds each request to its document lifetime. Old-document
+replies cannot enter the next view, and old status reads cannot overwrite a
+newer mutation result. An immediate write lock excludes duplicate pin/drop
+requests and polling during those writes. Refusals remain visible, including
+failed drops; a transport failure asserts no rollback. Native overflow-menu pin/
+drop callbacks await the same controller, with busy state reflected in items.
+The visible badge exposes paged verdict/tooltip reading, explicit refresh and
+stop actions using actual host replies. Inactive stop controls retire. Reported
+results distinguish weave-only baseline comparison from execution or independent
+verification; no cross-client compare-and-swap guarantee is claimed.
+
+Three focused fixture-API tests pass: changed-document late replies and cached
+callbacks; duplicate-write refusal and stale-read ordering; and mixed native/
+agent verdict reading, actual drop refusal, retry and action retirement. These
+establish the UI request boundary, not live weave results, real provider behavior
+or released native/deployed evidence.

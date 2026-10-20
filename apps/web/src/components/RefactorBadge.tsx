@@ -17,8 +17,11 @@
 // The baseline is session state on the server, so the badge resumes after a
 // tab close and re-open by asking for status on mount.
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 
+import { useUiCommands, useUiRevision } from "../lib/uiActionBridge";
+import { useUiReading } from "../lib/uiReading";
+import type { UiOutcome, UiValue } from "../lib/uiActions";
 import { api } from "../api/client";
 import type { RefactorStatus } from "../api/types";
 import { refactorDetail, refactorSummary } from "../lib/refactorSummary";
@@ -30,12 +33,14 @@ import { refactorDetail, refactorSummary } from "../lib/refactorSummary";
 const POLL_MS = 2500;
 
 export interface Baseline {
+  scope: string;
   status: RefactorStatus | null;
   active: boolean;
   busy: boolean;
   error: string | null;
-  begin: () => void;
-  end: () => void;
+  begin: () => Promise<UiOutcome>;
+  end: () => Promise<UiOutcome>;
+  refresh: () => Promise<UiOutcome>;
 }
 
 /**
@@ -47,69 +52,43 @@ export interface Baseline {
  * same baseline.
  */
 export function useBaseline(docId: string): Baseline {
-  const [status, setStatus] = useState<RefactorStatus | null>(null);
+  const scope = useMemo(() => crypto.randomUUID(), [docId]);
+  const [snapshot, setSnapshot] = useState<{ owner: string; status: RefactorStatus } | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const liveRef = useRef(true);
-
-  const refresh = useCallback(() => {
-    api.refactorStatus(docId).then(
-      (s) => {
-        if (!liveRef.current) return;
-        setStatus(s);
-        setError(null);
-      },
-      (e) => liveRef.current && setError(e instanceof Error ? e.message : String(e)),
-    );
+  const currentDoc = useRef(docId); currentDoc.current = docId;
+  const life = useRef({ owner: docId, live: false, sequence: 0, pending: false });
+  const status = snapshot?.owner === docId ? snapshot.status : null;
+  const request = useCallback(async (kind: "status" | "begin" | "end"): Promise<UiOutcome> => {
+    const captured = life.current;
+    if (!captured.live || captured.owner !== docId || currentDoc.current !== docId || captured.pending)
+      return { status: "unavailable", reason: "Baseline owner is closed, changed or busy" };
+    const ticket = ++captured.sequence;
+    if (kind !== "status") { captured.pending = true; setBusy(true); }
+    try {
+      const response = await (kind === "status" ? api.refactorStatus(docId) : kind === "begin" ? api.refactorBegin(docId) : api.refactorEnd(docId));
+      if (captured.live && currentDoc.current === docId && captured.sequence === ticket) { setSnapshot({ owner: docId, status: response }); setError(null); }
+      return { status: "completed", value: { doc_id: docId, response: JSON.parse(JSON.stringify(response)) as UiValue,
+        scope: "Actual baseline API reply. Weave-only comparison; no cell execution or independent output verification." } };
+    } catch (cause) {
+      const reason = `${String(cause)}. Inspect this document's baseline before retrying; no rollback is asserted.`;
+      if (captured.live && currentDoc.current === docId && captured.sequence === ticket) setError(reason);
+      return { status: "unavailable", reason };
+    } finally { if (kind !== "status") { captured.pending = false; if (captured.live && currentDoc.current === docId) setBusy(false); } }
   }, [docId]);
-
-  // Resume on mount (the baseline outlives this tab), then poll while
-  // active. The interval always runs off the LATEST status — an inactive
-  // baseline polls nothing.
   useEffect(() => {
-    liveRef.current = true;
-    refresh();
-    return () => {
-      liveRef.current = false;
-    };
-  }, [refresh]);
+    const captured = { owner: docId, live: true, sequence: 0, pending: false }; life.current = captured;
+    setSnapshot(null); setBusy(false); setError(null);
+    void request("status");
+    return () => { captured.live = false; captured.sequence++; };
+  }, [docId, request]);
   const active = status?.active === true;
   useEffect(() => {
     if (!active) return;
-    const timer = setInterval(refresh, POLL_MS);
+    const timer = setInterval(() => { void request("status"); }, POLL_MS);
     return () => clearInterval(timer);
-  }, [active, refresh]);
-
-  const begin = useCallback(() => {
-    setBusy(true);
-    api.refactorBegin(docId).then(
-      (s) => {
-        if (!liveRef.current) return;
-        setBusy(false);
-        setStatus(s);
-        setError(null);
-      },
-      (e) => {
-        if (!liveRef.current) return;
-        setBusy(false);
-        setError(e instanceof Error ? e.message : String(e));
-      },
-    );
-  }, [docId]);
-
-  const end = useCallback(() => {
-    setBusy(true);
-    api.refactorEnd(docId).then(
-      (s) => {
-        if (!liveRef.current) return;
-        setBusy(false);
-        setStatus(s);
-      },
-      () => liveRef.current && setBusy(false),
-    );
-  }, [docId]);
-
-  return { status, active, busy, error, begin, end };
+  }, [active, request]);
+  return { scope, status, active, busy: life.current.owner === docId && busy, error: life.current.owner === docId ? error : null, begin: () => request("begin"), end: () => request("end"), refresh: () => request("status") };
 }
 
 /**
@@ -120,11 +99,21 @@ export function useBaseline(docId: string): Baseline {
  * something true to say in it.
  */
 export function RefactorBadge({ baseline }: { baseline: Baseline }) {
-  const { status, busy, error, end } = baseline;
+  const { status, busy, error, end, refresh } = baseline;
+  const parent = `output-baseline:${useId()}`;
+  const revision = useUiRevision(() => [baseline.scope, status, busy, error]);
+  useUiCommands([
+    ...(status?.active ? [{ key: `${parent}:end`, command: { parent, subject: parent, label: "Stop comparing outputs to baseline", parameters: {}, prerequisites: [],
+      read: () => ({ revision: revision(), enabled: !busy }), execute: end } }] : []),
+    ...(status?.active || error ? [{ key: `${parent}:refresh`, command: { parent, subject: parent, label: "Refresh output baseline verdict", parameters: {}, prerequisites: [],
+      read: () => ({ revision: revision(), enabled: !busy }), execute: refresh } }] : []),
+  ]);
+  useUiReading("output baseline verdict", { active: status?.active ?? null, busy, error, summary: refactorSummary(status), detail: refactorDetail(status),
+    scope: "Last host-observed weave-only comparison; no cell execution or independent verification" });
   if (!status || !status.active) {
     return error ? (
       <span className="error refactor-badge__error" role="status">
-        {error}
+        {error}<button type="button" disabled={busy} onClick={() => void refresh()}>Refresh baseline verdict</button>
       </span>
     ) : null;
   }
@@ -141,10 +130,11 @@ export function RefactorBadge({ baseline }: { baseline: Baseline }) {
         {status.clean ? "✓ " : "△ "}
         {summary}
       </span>
+      <button className="btn" disabled={busy} onClick={() => void refresh()}>Refresh baseline verdict</button>
       <button
         className="btn"
         disabled={busy}
-        onClick={end}
+        onClick={() => void end()}
         data-tip="Stop comparing. The outputs as they stand become the new baseline."
       >
         Done

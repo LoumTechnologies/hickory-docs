@@ -681,3 +681,10 @@ stale-preview refusal, source-span tracking through repeated CSV size changes,
 and exact promotion with surrounding bytes preserved. Grid writes retain agent
 attribution. Conversion is explicitly a source edit, not saving, execution or
 output writing; these focused tests do not certify the release/provider flow.
+
+Output-baseline controls now bind async status/pin/drop requests to the actual
+document lifetime, serialize writes and refuse stale status adoption. Native
+menu callbacks await the same controller. The visible badge has paged verdict/
+tooltip reading and shared refresh/stop commands; failed drops remain visible.
+Three focused fixture-API tests pass, without claiming a new live comparison,
+provider or release witness.

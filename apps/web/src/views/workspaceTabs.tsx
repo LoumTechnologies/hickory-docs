@@ -57,11 +57,13 @@ function DocToolbar({
     baseline.active
       ? {
           id: "baseline-off",
+          disabled: baseline.busy,
           label: "Stop comparing to the baseline",
           tip: "The outputs as they stand become the new truth.",
         }
       : {
           id: "baseline-on",
+          disabled: baseline.busy,
           label: "Pin outputs as a baseline",
           tip:
             "Restructure freely; a badge reports the moment a generated " +
@@ -95,8 +97,8 @@ function DocToolbar({
             if (id === "run" && !running) onRun();
             if (id === "test" && !running) onTest();
             if (id === "review") void openLiterate({ kind: "document", doc_id: docId }, "HEAD").catch(e => setError(e instanceof Error ? e.message : String(e)));
-            if (id === "baseline-on") baseline.begin();
-            if (id === "baseline-off") baseline.end();
+            if (id === "baseline-on") return baseline.begin();
+            if (id === "baseline-off") return baseline.end();
           }}
           onClose={() => setMenuAt(null)}
         />
