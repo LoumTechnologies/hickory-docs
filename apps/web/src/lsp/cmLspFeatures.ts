@@ -24,7 +24,7 @@ import type { UiOutcome } from "../lib/uiActions";
 import { cmKeyOf } from "../lib/keymap";
 import { foldService } from "@codemirror/language";
 import { Facet, RangeSetBuilder, StateEffect, StateField } from "@codemirror/state";
-import type { Extension } from "@codemirror/state";
+import type { Extension, Text } from "@codemirror/state";
 import { Decoration, EditorView, ViewPlugin, WidgetType, keymap } from "@codemirror/view";
 import type { DecorationSet, ViewUpdate } from "@codemirror/view";
 import type { CodeAction, InlayHint, LspClient, WorkspaceEdit } from "./client";
@@ -115,6 +115,7 @@ class InlayWidget extends WidgetType {
   ignoreEvent() {
     return false;
   }
+  reading() { return this.text; }
 }
 
 export const setInlayHints = StateEffect.define<{ at: number; text: string }[]>();
@@ -205,7 +206,7 @@ const REFRESH_DELAY_MS = 250;
 
 export function lspFeatures(opts: LspFeatureOptions): Extension[] {
   const { client } = opts;
-  const fields = [semanticTokenField, highlightField, inlayHintField];
+  const fields = [semanticTokenField, highlightField, inlayHintField, signatureField, signatureRenderer, annotationReading(opts.uri)];
   if (!client) return fields;
   const codeActions = codeActionController(opts, applyEdit);
 
@@ -267,6 +268,7 @@ export function lspFeatures(opts: LspFeatureOptions): Extension[] {
 function refreshPlugin(opts: LspFeatureOptions) {
   return ViewPlugin.fromClass(
     class {
+      private alive = true;
       private timer: ReturnType<typeof setTimeout> | null = null;
       private cursorTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -298,8 +300,9 @@ function refreshPlugin(opts: LspFeatureOptions) {
         if (!client) return;
         const legend = semanticLegend(client);
         if (!legend) return;
+        const source = this.view.state.doc;
         const data = await client.semanticTokens(uri).catch(() => null);
-        if (!data) return;
+        if (!data || !this.alive || this.view.state.doc !== source) return;
         const spans: Span[] = [];
         for (const token of decodeSemanticTokens(data, legend)) {
           const from = offsetAt({ line: token.line, character: token.start }, this.view);
@@ -322,6 +325,7 @@ function refreshPlugin(opts: LspFeatureOptions) {
           end: { line: Math.max(0, doc.lines - 1), character: 0 },
         };
         const hints = await client.inlayHints(uri, range).catch(() => []);
+        if (!this.alive || this.view.state.doc !== doc) return;
         const placed: { at: number; text: string }[] = [];
         for (const hint of hints) {
           const at = offsetAt(hint.position, this.view);
@@ -334,13 +338,15 @@ function refreshPlugin(opts: LspFeatureOptions) {
       async highlight() {
         const { client, uri, positionAt, offsetAt } = opts;
         if (!client) return;
-        const head = this.view.state.selection.main.head;
+        const original = this.view.state;
+        const head = original.selection.main.head;
         const position = positionAt(head, this.view);
         if (!position) {
           this.view.dispatch({ effects: setHighlights.of([]) });
           return;
         }
         const ranges = await client.documentHighlight(uri, position).catch(() => []);
+        if (!this.alive || this.view.state.doc !== original.doc || !this.view.state.selection.eq(original.selection)) return;
         const spans: Span[] = [];
         for (const range of ranges) {
           const from = offsetAt(range.start, this.view);
@@ -352,6 +358,7 @@ function refreshPlugin(opts: LspFeatureOptions) {
       }
 
       destroy() {
+        this.alive = false;
         if (this.timer) clearTimeout(this.timer);
         if (this.cursorTimer) clearTimeout(this.cursorTimer);
       }
@@ -369,24 +376,73 @@ function refreshPlugin(opts: LspFeatureOptions) {
  * than by every keystroke: those are the moments the answer changes, and
  * asking otherwise is a request per character for an unchanged reply.
  */
+export const setSignatureHelp = StateEffect.define<{ label: string; source: Text; at: number } | null>();
+export const signatureField = StateField.define<{ label: string; source: Text; at: number } | null>({
+  create: () => null,
+  update(value, transaction) {
+    if (transaction.docChanged || transaction.selection) value = null;
+    for (const effect of transaction.effects) if (effect.is(setSignatureHelp)) value = effect.value && effect.value.source === transaction.state.doc ? effect.value : null;
+    return value;
+  },
+});
+
+// Preserve the existing bottom-pinned human signature surface. Its renderer
+// owns its node; model readings use the field, never inspect this DOM.
+const signatureRenderer = ViewPlugin.fromClass(class {
+  private element: HTMLElement | null = null;
+  constructor(private view: EditorView) { this.render(); }
+  update() { this.render(); }
+  private render() {
+    const value = this.view.state.field(signatureField, false);
+    if (!value?.label) { this.element?.remove(); this.element = null; return; }
+    if (!this.element) { this.element = document.createElement("div"); this.element.className = "cm-lsp-signature"; this.view.dom.appendChild(this.element); }
+    this.element.textContent = value.label;
+  }
+  destroy() { this.element?.remove(); }
+});
+
+
 function signatureHelpTooltip(opts: LspFeatureOptions): Extension {
-  return EditorView.updateListener.of((update: ViewUpdate) => {
-    if (!update.docChanged) return;
-    const { client, uri, positionAt } = opts;
-    if (!client) return;
-    let triggered = false;
-    update.changes.iterChanges((_fromA, _toA, _fromB, _toB, inserted) => {
-      const text = inserted.toString();
-      if (text === "(" || text === "," || text === ")") triggered = true;
-    });
-    if (!triggered) return;
-    const view = update.view;
-    const position = positionAt(view.state.selection.main.head, view);
-    if (!position) return;
-    void client
-      .signatureHelp(uri, position)
-      .then((help) => showSignature(view, help ? signatureLabel(help) : ""))
-      .catch(() => showSignature(view, ""));
+  return ViewPlugin.fromClass(class {
+    private alive = true;
+    update(update: ViewUpdate) {
+      if (!update.docChanged) return;
+      const { client, uri, positionAt } = opts;
+      if (!client) return;
+      let triggered = false;
+      update.changes.iterChanges((_fromA, _toA, _fromB, _toB, inserted) => {
+        if (["(", ",", ")"].includes(inserted.toString())) triggered = true;
+      });
+      if (!triggered) return;
+      const view = update.view, original = view.state;
+      const position = positionAt(original.selection.main.head, view);
+      if (!position) return;
+      void client.signatureHelp(uri, position).catch(() => null).then(help => {
+        if (!this.alive || !view.dom.isConnected || view.state.doc !== original.doc || !view.state.selection.eq(original.selection) || view.state.field(signatureField, false) === undefined) return;
+        const label = help ? signatureLabel(help) : "";
+        view.dispatch({ effects: setSignatureHelp.of(label ? { label, source: original.doc, at: original.selection.main.head } : null) });
+      });
+    }
+    destroy() { this.alive = false; }
+  });
+}
+
+function annotationReading(uri: string): Extension {
+  return editorLanguageActions.of({
+    id: `${uri}:annotations`, label: `Read editor language annotations (${uri.slice(0, 200)})`, enabled: () => true,
+    parameters: { offset: { type: "number", minimum: 0, maximum: 1000000000, integer: true }, limit: { type: "number", minimum: 1, maximum: 8192, integer: true } },
+    execute: async (view, args) => {
+      const marks = (field: typeof semanticTokenField) => {
+        const spans: { from: number; to: number; class: string | null; text: string | null }[] = [];
+        view.state.field(field, false)?.between(0, view.state.doc.length, (from, to, decoration) => { spans.push({ from, to, class: decoration.spec.class ?? null, text: decoration.spec.widget instanceof InlayWidget ? decoration.spec.widget.reading() : null }); });
+        return spans;
+      };
+      const signature = view.state.field(signatureField, false);
+      const bytes = new TextEncoder().encode(JSON.stringify({ semantic_marks: marks(semanticTokenField), highlights: marks(highlightField), inlay_hints: marks(inlayHintField), signature: signature && { label: signature.label, at: signature.at }, coordinate_unit: "UTF-16 code units", scope: "Actual rendered annotation state; positions may be mapped across edits until the provider refreshes. Not independent type or execution verification." }));
+      const offset = args.offset as number, end = Math.min(offset + (args.limit as number), bytes.length);
+      if (offset > bytes.length) return { status: "unavailable", reason: "Offset outside current annotation reading" };
+      return { status: "completed", value: { bytes: Array.from(bytes.slice(offset, end)), offset, total_bytes: bytes.length, next_offset: end < bytes.length ? end : null, encoding: "JSON UTF-8" } };
+    },
   });
 }
 
@@ -397,18 +453,6 @@ export function signatureLabel(help: {
 }): string {
   const signature = help.signatures?.[help.activeSignature ?? 0];
   return signature?.label ?? "";
-}
-
-function showSignature(view: EditorView, label: string) {
-  const existing = view.dom.querySelector(".cm-lsp-signature");
-  if (!label) {
-    existing?.remove();
-    return;
-  }
-  const element = (existing as HTMLElement | null) ?? document.createElement("div");
-  element.className = "cm-lsp-signature";
-  element.textContent = label;
-  if (!existing) view.dom.appendChild(element);
 }
 
 // --- folding ----------------------------------------------------------------
@@ -424,12 +468,15 @@ function showSignature(view: EditorView, label: string) {
  */
 function foldFromServer(opts: LspFeatureOptions): Extension {
   let ranges: FoldSpan[] = [];
+  let generation = 0;
   const fetch = (view: EditorView) => {
     const { client, uri, offsetAt } = opts;
     if (!client) return;
+    const source = view.state.doc, requested = ++generation;
     void client
       .foldingRanges(uri)
       .then((found) => {
+        if (requested !== generation || view.state.doc !== source) return;
         ranges = found
           .map((range) => {
             // Fold from the END of the first line: the header stays visible,
@@ -444,7 +491,7 @@ function foldFromServer(opts: LspFeatureOptions): Extension {
           .filter((span): span is FoldSpan => span !== null);
       })
       .catch(() => {
-        ranges = [];
+        if (requested === generation && view.state.doc === source) ranges = [];
       });
   };
 
@@ -457,10 +504,12 @@ function foldFromServer(opts: LspFeatureOptions): Extension {
         }
         update(update: ViewUpdate) {
           if (!update.docChanged) return;
+          generation++; ranges = [];
           if (this.timer) clearTimeout(this.timer);
           this.timer = setTimeout(() => fetch(this.view), REFRESH_DELAY_MS);
         }
         destroy() {
+          generation++; ranges = [];
           if (this.timer) clearTimeout(this.timer);
         }
       },
