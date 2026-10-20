@@ -3,14 +3,15 @@ import { UiActionsVisibility, useUiCommands, useUiRevision } from "../lib/uiActi
 import type { UiCommand } from "../lib/uiActions";
 
 /** A normal details element whose private evidence is explicitly disclosed. */
-export function EvidenceDisclosure({ label, value, children, className }: { label: string; value: unknown; children: ReactNode; className?: string }) {
+export function EvidenceDisclosure({ label, value, children, className, onOpenChange }: { label: string; value: unknown; children: ReactNode; className?: string; onOpenChange?: (open: boolean) => void }) {
   const [open, setOpen] = useState(false);
+  const change = (next: boolean) => { setOpen(next); onOpenChange?.(next); };
   const subject = `evidence:${useId()}`;
   const revision = useUiRevision(() => [label, value, open]);
   const commands: { key: string; command: UiCommand }[] = [{ key: `${subject}:open`, command: {
     label: `Set evidence visibility: ${label.slice(0, 256)}`, parent: subject, subject, parameters: { open: { type: "boolean" } }, prerequisites: [],
     read: () => ({ revision: revision(), enabled: true, value: { open } }),
-    execute: async args => { setOpen(args.open as boolean); return { status: "completed", value: args.open }; },
+    execute: async args => { change(args.open as boolean); return { status: "completed", value: args.open }; },
   } }];
   if (open) commands.push({ key: `${subject}:read`, command: {
     label: "Read disclosed evidence bytes", parent: subject, subject,
@@ -24,5 +25,5 @@ export function EvidenceDisclosure({ label, value, children, className }: { labe
     },
   } });
   useUiCommands(commands);
-  return <details className={className} open={open} onToggle={event => setOpen(event.currentTarget.open)}><summary>{label}</summary><UiActionsVisibility visible={open}>{children}</UiActionsVisibility></details>;
+  return <details className={className} open={open} onToggle={event => change(event.currentTarget.open)}><summary>{label}</summary><UiActionsVisibility visible={open}>{children}</UiActionsVisibility></details>;
 }
