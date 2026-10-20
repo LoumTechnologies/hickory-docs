@@ -1,3 +1,4 @@
+import { EditorView } from "@codemirror/view";
 // Unsaved work coming back, and what happens when the file moved on while the
 // app was closed.
 //
@@ -8,7 +9,7 @@
 // made from what those two requests answer.
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 
 import { PlainFilePane } from "./PlainFilePane";
 import { api } from "../api/client";
@@ -391,4 +392,22 @@ it("applies a reviewed merge draft only after the observed disk side still match
   fireEvent.click(screen.getByRole("button", { name: /accept, keeping mine/i }));
   await waitFor(() => expect(screen.queryByTestId("merge-view")).toBeNull());
   expect(document.querySelector(".cm-content")?.textContent).toContain("MINE");
+});
+
+// Guarantee: docs/guarantees/agent/ui-action-dispatch.md
+it("keeps newer buffer edits when an explicit disk reload returns late", async () => {
+  serve({ content: ON_DISK, drafts: [] });
+  vi.mocked(api.saveFile).mockRejectedValue(Object.assign(new Error("disk changed"), { status: 409 }));
+  render(<PlainFilePane path="notes.md" />);
+  await waitFor(() => expect(document.querySelector(".cm-content")?.textContent).toContain("two"));
+  const editor = EditorView.findFromDOM(document.querySelector<HTMLElement>(".cm-editor")!)!;
+  act(() => { editor.dispatch({ changes: { from: 0, to: editor.state.doc.length, insert: "FIRST EDIT" }, userEvent: "input" }); });
+  await screen.findByRole("button", { name: "Reload from disk" });
+  let finish!: (value: Awaited<ReturnType<typeof api.file>>) => void;
+  vi.mocked(api.file).mockImplementation(() => new Promise(resolve => { finish = resolve; }));
+  fireEvent.click(screen.getByRole("button", { name: "Reload from disk" }));
+  act(() => { editor.dispatch({ changes: { from: 0, to: editor.state.doc.length, insert: "NEWER EDIT" }, userEvent: "input" }); });
+  await act(async () => { finish({ path: "notes.md", language: "markdown", content: "new disk", hash: "new-disk-hash" }); });
+  await screen.findByText(/new edits were kept/);
+  expect(editor.state.doc.toString()).toBe("NEWER EDIT");
 });

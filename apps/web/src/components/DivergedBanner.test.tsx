@@ -1,7 +1,9 @@
+import { UiActions } from "../lib/uiActions";
+import { UiActionContext } from "../lib/uiActionBridge";
 // Protects docs/guarantees/authoring/an-output-that-cannot-be-carried-back-is-held.md
 // and docs/specs/freeform/three-axes.md, axis 3.
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { DivergedBanner } from "./DivergedBanner";
 
 afterEach(cleanup);
@@ -49,4 +51,24 @@ describe("the one diverged surface", () => {
     expect(screen.queryByRole("button", { name: "Regenerate from document" })).toBeNull();
     expect(screen.getByText(/Run the document/)).toBeTruthy();
   });
+});
+
+// Guarantee: docs/guarantees/agent/ui-action-dispatch.md
+it("binds decisions to the live owner and retains asynchronous host failures", async () => {
+  const registry = new UiActions({ workspace: "p", window: "w" }, () => true, async () => {});
+  let source = "PRIVATE FIRST BUFFER";
+  const take = vi.fn().mockRejectedValueOnce(new Error("reload failed")).mockResolvedValue({ reloaded: true, hash: "actual-host-hash" });
+  render(<UiActionContext.Provider value={registry}><DivergedBanner what="a.txt" reason="disk moved" mine="draft" theirs="disk" keepLabel="Keep draft" keepEffect="Request overwrite" takeLabel="Reload disk" takeEffect="Replace draft" onTakeTheirs={take} sourceRevision={() => source} /></UiActionContext.Provider>);
+  const actions = () => registry.groups().groups.flatMap(g => registry.observe(g).actions);
+  const old = actions().find(a => a.label === "Reload disk")!;
+  expect(JSON.stringify(actions())).not.toContain(source);
+  source = "PRIVATE CHANGED BUFFER";
+  expect(await registry.act(registry.scope, { id: "python:turn", kind: "agent" }, { handle: old.handle, arguments: {}, request_id: "stale" })).toMatchObject({ status: "stale" });
+  expect(take).not.toHaveBeenCalled();
+  let id = 0;
+  const run = async () => { let result: unknown; await act(async () => { result = await registry.act(registry.scope, { id: "python:turn", kind: "agent" }, { handle: actions().find(a => a.label === "Reload disk")!.handle, arguments: {}, request_id: String(++id) }); }); return result; };
+  expect(await run()).toMatchObject({ status: "result", outcome: { status: "unavailable", reason: "reload failed" } });
+  expect(screen.getByText("reload failed")).toBeTruthy();
+  expect(await run()).toMatchObject({ status: "result", outcome: { status: "completed", value: { owner_reply: JSON.stringify({ reloaded: true, hash: "actual-host-hash" }), verified: false } } });
+  expect(take).toHaveBeenCalledTimes(2);
 });

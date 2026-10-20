@@ -1,3 +1,4 @@
+import { useDivergenceActions } from "./useDivergenceActions";
 // The one surface for "the disk does not hold what this document produces".
 //
 // A produced file the loop is holding, a produced file the document cannot
@@ -17,17 +18,18 @@ export interface DivergedBannerProps {
   /** What "theirs" is — "the document's version", "the file on disk". */
   theirs: string;
   /** Keep mine. Absent when keeping is the default and needs no click. */
-  onKeepMine?: () => void;
+  onKeepMine?: () => unknown;
   keepLabel: string;
   keepEffect: string;
   /** Take theirs. Absent when theirs does not exist yet; `takeTheirsHint`
    * then says what would make it exist. */
-  onTakeTheirs?: () => void;
+  onTakeTheirs?: () => unknown;
   takeLabel: string;
   takeEffect: string;
   takeTheirsHint?: string;
   /** Open the three-way merge. */
-  onMerge?: () => void;
+  onMerge?: () => unknown;
+  sourceRevision?: () => unknown;
   error?: string | null;
 }
 
@@ -41,7 +43,9 @@ export function DivergedBanner({
   takeTheirsHint,
   onMerge,
   error,
+  sourceRevision,
 }: DivergedBannerProps) {
+  const actions = useDivergenceActions({ what, reason, mine, theirs, onKeepMine, keepLabel, keepEffect, onTakeTheirs, takeLabel, takeEffect, takeTheirsHint, onMerge, error, sourceRevision });
   return (
     <div className="banner banner-warn diverged" role="alert" data-testid="diverged">
       <span className="diverged__text">
@@ -49,25 +53,25 @@ export function DivergedBanner({
       </span>
       <span className="diverged__ways">
         {onKeepMine && (
-          <button type="button" className="btn btn-small" onClick={onKeepMine} data-tip={keepEffect}>
+          <button type="button" className="btn btn-small" disabled={!!actions.pending} onClick={() => actions.invoke("keep")} data-tip={keepEffect}>
             {keepLabel}
           </button>
         )}
         {onTakeTheirs ? (
-          <button type="button" className="btn btn-small" onClick={onTakeTheirs} data-tip={takeEffect}>
+          <button type="button" className="btn btn-small" disabled={!!actions.pending} onClick={() => actions.invoke("take")} data-tip={takeEffect}>
             {takeLabel}
           </button>
         ) : (
           takeTheirsHint && <span className="muted">{takeTheirsHint}</span>
         )}
         {onMerge && (
-          <button type="button" className="btn btn-small btn-primary" onClick={onMerge}>
+          <button type="button" className="btn btn-small btn-primary" disabled={!!actions.pending} onClick={() => actions.invoke("merge")}>
             Merge…
           </button>
         )}
       </span>
       <p className="muted diverged__effects">{onKeepMine && keepEffect} {onTakeTheirs && takeEffect}</p>
-      {error && <span className="error"> {error}</span>}
+      {(error || actions.failure) && <span className="error"> {error || actions.failure}</span>}
     </div>
   );
 }

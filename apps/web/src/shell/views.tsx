@@ -236,6 +236,7 @@ export function GeneratedFileView({
       {diverged && dismissed !== diverged.reason && !merging && (
         <DivergedBanner
           what={path}
+          sourceRevision={() => [docId, file?.content, diverged, outputView.current?.state.doc.toString()]}
           reason={diverged.reason}
           mine="what is on disk"
           theirs="what the document produces"
@@ -245,9 +246,9 @@ export function GeneratedFileView({
           onTakeTheirs={
             diverged.kind === "held"
               ? () =>
-                  void api.regenerateOutput(path).then(
-                    () => setWayError(null),
-                    (e) => setWayError(e instanceof Error ? e.message : String(e)),
+                  api.regenerateOutput(path).then(
+                    reply => { setWayError(null); return { ...reply, scope: "Regeneration queued; inspect actual output before claiming application" }; },
+                    (e) => { setWayError(e instanceof Error ? e.message : String(e)); throw e; },
                   )
               : undefined
           }

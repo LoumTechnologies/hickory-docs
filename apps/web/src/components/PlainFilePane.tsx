@@ -674,23 +674,17 @@ export function PlainFilePane({
   /** The third answer to a conflict, and the one that does not throw work
    * away: three-way merge the buffer against the disk, over the bytes this
    * session started from. */
-  const openMerge = useCallback(() => {
+  const openMerge = useCallback(async () => {
     const view = viewRef.current;
-    if (!view) return;
-    const ours = view.state.doc.toString();
-    const base = saver.baseContent();
-    void api.file(path).then(
-      (fresh) =>
-        setMerge({
-          bufferAtOpen: ours,
-          base,
-          ours,
-          theirs: fresh.content,
-          oursLabel: "Your unsaved changes",
-          theirsLabel: "The file on disk",
-        }),
-      (e) => setSaveState({ kind: "error", message: e instanceof Error ? e.message : String(e) }),
-    );
+    if (!view) throw new Error("The file editor is closed");
+    const captured = view.state.doc;
+    const ours = captured.toString(), base = saver.baseContent();
+    try {
+      const fresh = await api.file(path);
+      if (viewRef.current !== view || !view.dom.isConnected || view.state.doc !== captured) throw new Error("The buffer changed while opening its merge. Try again with the current buffer.");
+      setMerge({ bufferAtOpen: ours, base, ours, theirs: fresh.content, oursLabel: "Your unsaved changes", theirsLabel: "The file on disk" });
+      return { merge_opened: true, accepted: false };
+    } catch (e) { setSaveState({ kind: "error", message: e instanceof Error ? e.message : String(e) }); throw e; }
   }, [saver, path]);
 
   /** The merged text becomes the buffer, and the file is reloaded first so
@@ -714,12 +708,15 @@ export function PlainFilePane({
     },
     [saver, path, adoptDiskCopy, putInBuffer],
   );
-  const reload = useCallback(() => {
-    saver.resolve("reload");
-    api.file(path).then(adoptDiskCopy, (e) =>
-      setSaveState({ kind: "error", message: e instanceof Error ? e.message : String(e) }),
-    );
-  }, [saver, path, adoptDiskCopy]);
+  const reload = useCallback(async () => {
+    const view = viewRef.current, captured = view?.state.doc;
+    try {
+      const fresh = await api.file(path);
+      if (!view?.dom.isConnected || viewRef.current !== view || view.state.doc !== captured) throw new Error("The buffer changed while reloading. Its new edits were kept.");
+      saver.resolve("reload"); adoptDiskCopy(fresh);
+      return { reloaded: true, path, hash: fresh.hash };
+    } catch (e) { setSaveState({ kind: "error", message: e instanceof Error ? e.message : String(e) }); throw e; }
+  }, [path, saver, adoptDiskCopy]);
 
   const launchProfile = async (choose=false) => {
     const source=viewRef.current?.state.doc.toString();
@@ -789,6 +786,7 @@ export function PlainFilePane({
         // disk, because it was another program that wrote the file.
         <DivergedBanner
           what={path}
+          sourceRevision={() => [fileRef.current?.hash, viewRef.current?.state.doc.toString(), saveState]}
           reason="Another program wrote the file while you were editing; your text is still in this buffer, unsaved."
           mine="your unsaved text"
           theirs="the file on disk"
