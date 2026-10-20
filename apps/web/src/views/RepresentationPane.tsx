@@ -20,7 +20,6 @@ import { debugEditor, setBreakpointMarks, setPausedLine, type BreakpointMark } f
 import type { DebugSession } from "../debug/useDebugger";
 import { filePosition, representationOffset } from "../lsp/representationMapping";
 import { FILES_CHANGED_EVENT } from "../shell/FolderTreePane";
-import { openLiterate, showRepresentation } from "../lib/openRepresentation";
 import { isAction } from "../lib/keymap";
 
 const noCells = new Set<string>();
@@ -224,17 +223,4 @@ export function RepresentationPane({ id, initialBase = "", initialTarget = "", b
   </section>;
 }
 
-export function RepresentationLibrary() {
-  const [paths, setPaths] = useState("");
-  const [views, setViews] = useState<Representation[]>([]);
-  const [error, setError] = useState("");
-  useEffect(() => { void representations.list().then(v => setViews(v.views), e => setError(message(e))); }, []);
-  return <section className="representation-library"><h2>Literate views</h2>
-    <p>Keep ordinary source files in git. Use a personal literate arrangement to read and edit them.</p>
-    <form onSubmit={e => { e.preventDefault(); void openLiterate({ kind: "files", paths: paths.split("\n").map(p => p.trim()).filter(Boolean) }).catch(e => setError(message(e))); }}>
-      <label>Source files, one relative path per line<textarea aria-label="Literate source files" rows={4} value={paths} onChange={e => setPaths(e.target.value)} /></label>
-      <button className="btn btn-primary" disabled={!paths.trim()}>Open literate view</button>
-    </form>{error && <p role="alert">{error}</p>}
-    <ul>{views.map(view => <li key={view.id}><button className="btn-link" onClick={() => showRepresentation(view.id)}>{view.files.map(f => f.path).join(", ")}</button> <button className="btn" onClick={() => void representations.discard(view.id).then(() => setViews(v => v.filter(item => item.id !== view.id)), e => setError(message(e)))}>Discard view</button></li>)}</ul>
-  </section>;
-}
+export { RepresentationLibrary } from "./RepresentationLibrary";
