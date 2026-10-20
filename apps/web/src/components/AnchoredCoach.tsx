@@ -1,4 +1,6 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useId, useRef, useState, type ReactNode } from "react";
+import { useUiCommands, useUiRevision } from "../lib/uiActionBridge";
+import type { UiOutcome } from "../lib/uiActions";
 import { createPortal } from "react-dom";
 import "./anchoredCoach.css";
 
@@ -7,13 +9,21 @@ export function AnchoredCoach({ target, title, children, onDismiss }: { target: 
   const popup = useRef<HTMLElement>(null);
   const [position, setPosition] = useState<{ top: number; left: number } | null>(null);
   const [missing, setMissing] = useState(false);
-  function locate() {
+  const subject = `coach-popup:${useId()}`;
+  const revision = useUiRevision(() => [target, title, missing]);
+  function locate(): UiOutcome {
     const element = document.querySelector<HTMLElement>(target);
-    if (!element) { setMissing(true); return; }
+    if (!element || element.getClientRects().length === 0) { setMissing(true); return { status: "unavailable", reason: "Target closed, hidden or unavailable; open its normal workspace pane first" }; }
     element.scrollIntoView({ block: "nearest", behavior: "instant" });
     if (!element.hasAttribute("tabindex") && !element.matches("button,input,select,textarea,a")) element.setAttribute("tabindex", "-1");
     element.focus({ preventScroll: true });
+    return { status: "completed", value: { scroll_requested: true, focused: document.activeElement === element } };
   }
+  const invoke = useUiCommands([
+    { key: `${subject}:locate`, command: { label: "Locate coach target", parent: subject, subject, parameters: {}, prerequisites: ["The actual workspace target must be mounted and visible"], read: () => ({ revision: revision(), enabled: true, value: { missing } }), execute: async () => locate() } },
+    { key: `${subject}:dismiss`, command: { label: "Dismiss anchored coach", parent: subject, subject, parameters: {}, prerequisites: [], read: () => ({ revision: revision(), enabled: true }), execute: async () => { onDismiss(); return { status: "completed", value: { dismiss_requested: true } }; } } },
+  ]);
+
   useEffect(() => {
     function place() {
       const element = document.querySelector<HTMLElement>(target);
@@ -29,16 +39,16 @@ export function AnchoredCoach({ target, title, children, onDismiss }: { target: 
         : box.bottom + height + 12 < window.innerHeight ? box.bottom + 8 : Math.max(12, box.top - height - 8);
       setMissing(false); setPosition({ top: Math.max(12, top), left });
     }
-    const key = (event: KeyboardEvent) => { if (event.key === "Escape" && popup.current?.contains(document.activeElement)) { event.preventDefault(); onDismiss(); } };
+    const key = (event: KeyboardEvent) => { if (event.key === "Escape" && popup.current?.contains(document.activeElement)) { event.preventDefault(); void invoke(`${subject}:dismiss`); } };
     place(); const observer = new MutationObserver(place);
     observer.observe(document.body, { childList: true, subtree: true });
     window.addEventListener("resize", place); window.addEventListener("scroll", place, true); window.addEventListener("keydown", key);
     return () => { observer.disconnect(); window.removeEventListener("resize", place); window.removeEventListener("scroll", place, true); window.removeEventListener("keydown", key); };
   }, [target, onDismiss]);
   return createPortal(<aside ref={popup} className="anchored-coach" role="region" aria-label={title} style={position ?? { bottom: 12, right: 12 }}>
-    <header><strong>{title}</strong><button onClick={onDismiss} aria-label="Dismiss coach">×</button></header>
+    <header><strong>{title}</strong><button onClick={() => void invoke(`${subject}:dismiss`)} aria-label="Dismiss coach">×</button></header>
     {missing && <p role="status">The target is closed, hidden or unavailable. Open its normal workspace pane, use Locate target, or skip this step.</p>}
-    <button onClick={locate}>Locate target</button>
+    <button onClick={() => void invoke(`${subject}:locate`)}>Locate target</button>
     {children}
   </aside>, document.body);
 }

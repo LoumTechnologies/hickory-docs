@@ -4,6 +4,8 @@ import { afterEach, expect, it, vi } from "vitest";
 import { request } from "../api/client";
 import { retainDebugReading } from "../debug/readingCapture";
 import type { ObservationReading } from "../debug/observations";
+import { UiActions } from "../lib/uiActions";
+import { UiActionContext } from "../lib/uiActionBridge";
 import { NativeWorkflowTour } from "./NativeWorkflowTour";
 vi.mock("../api/client", () => ({ request: vi.fn() }));
 const owner = Symbol("test-captured-debugger");
@@ -60,4 +62,25 @@ it("does not count an agent comment as the human acceptance criterion", async ()
   render(<NativeWorkflowTour />); fireEvent.click(screen.getByText("AI engineer tour"));
   await screen.findByText("Decide what the customer meant");
   expect((screen.getByRole("button", { name: "Continue" }) as HTMLButtonElement).disabled).toBe(true);
+});
+
+it("requires coach disclosure, reads guidance explicitly and retires actions on dismiss", async () => {
+  responses();
+  const registry = new UiActions({ workspace: "practice", window: "one" }, () => true, async () => {});
+  render(<UiActionContext.Provider value={registry}><NativeWorkflowTour /></UiActionContext.Provider>);
+  const parent = registry.groups().groups.find(group => group.startsWith("coach:"))!;
+  expect(registry.observe(parent).actions.map(a => a.label)).toEqual(["AI engineer tour"]);
+  const toggle = registry.observe(parent).actions[0];
+  await act(async () => { await registry.act(registry.scope, { id: "python:turn", kind: "agent" }, { handle: toggle.handle, arguments: {}, request_id: "open" }); });
+  const read = registry.observe(parent).actions.find(a => a.label === "Read current practice guidance bytes")!;
+  expect(JSON.stringify(registry.observe(parent))).not.toContain("/data/practice");
+  const reading = await registry.act(registry.scope, { id: "python:turn", kind: "agent" }, { handle: read.handle, arguments: { offset: 0, limit: 8192 }, request_id: "read" });
+  if (reading.status !== "result" || reading.outcome.status !== "completed") throw Error("Expected reading");
+  expect(new TextDecoder().decode(new Uint8Array((reading.outcome.value as { bytes: number[] }).bytes))).toContain("/data/practice");
+  expect(registry.observe(parent).actions.some(a => a.label === "Compare reviewed published JSON")).toBe(false);
+  const dismiss = registry.observe(parent).actions.find(a => a.label === "Dismiss practice guidance")!;
+  await act(async () => { await registry.act(registry.scope, { id: "python:turn", kind: "agent" }, { handle: dismiss.handle, arguments: {}, request_id: "close" }); });
+  expect(registry.observe(parent).actions.map(a => a.label)).toEqual(["AI engineer tour"]);
+  expect(await registry.act(registry.scope, { id: "python:turn", kind: "agent" }, { handle: read.handle, arguments: { offset: 0, limit: 8192 }, request_id: "old" })).toMatchObject({ status: "unavailable" });
+  expect(registry.groups().groups.some(g => g.startsWith("coach-popup:"))).toBe(false);
 });

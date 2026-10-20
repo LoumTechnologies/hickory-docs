@@ -2,7 +2,7 @@ import { useEffect, useId, useState } from "react";
 import type { EditorView } from "@codemirror/view";
 import { request } from "../api/client";
 import { PublishedSnapshot, decodeSnapshot, type ViewerSnapshot } from "../embed/PublishedSnapshot";
-import { useUiCommands } from "../lib/uiActionBridge";
+import { useUiCommands, useUiRevision } from "../lib/uiActionBridge";
 import type { UiCommand, UiValue } from "../lib/uiActions";
 import { capturedDebugReadings, onDebugReading } from "../debug/readingCapture";
 import type { ReviewEvent } from "../lib/reviews";
@@ -87,30 +87,45 @@ export function NativeWorkflowTour({ onOpen }: { onOpen?: (path: string, line?: 
     const snapshot = await decodeSnapshot(JSON.parse(text)); setPublication(snapshot);
     return { source_hash: snapshot.source_hash, reported_status: snapshot.verification?.status ?? "not_run", revision: snapshot.verification?.revision ?? null, interpretation: "Loaded artifact declaration; inspect its reviewed publication origin and matching source" };
   }
-  const revision = `${info?.id}:${info?.source_hash}:${phase}:${busy}:${gates.map(Boolean).join(":")}`;
+  const revision = useUiRevision(() => [open, info, phase, busy, gates, skipped, error, task, publication, pause, events, turns, created]);
   const commands: { key: string; command: UiCommand }[] = [];
   function add(id: string, label: string, enabled: boolean, execute: UiCommand["execute"], parameters: UiCommand["parameters"] = {}) {
-    commands.push({ key: `${parent}/${id}`, command: { label, subject: parent, parent, parameters, prerequisites: [], read: () => ({ revision, enabled: enabled && !busy, reason: busy ? "Coach is refreshing" : !enabled ? "Required product evidence is not established" : undefined, value: { open, step: phase + 1, total: COACH_STEPS.length, evidence: !!gates[phase], skipped, source_hash: info?.source_hash ?? null } }), execute } });
+    if (id !== "toggle" && !open) return;
+    if (!["toggle", "read", "dismiss", "create"].includes(id) && !info?.active) return;
+    if (id === "create" && info?.active) return;
+    if (id === "task" && ![0, 3].includes(phase)) return;
+    if (id === "source" && phase !== 1) return;
+    if (id === "publication" && phase !== 5) return;
+    if (["next", "skip"].includes(id) && phase === COACH_STEPS.length - 1) return;
+    commands.push({ key: `${parent}/${id}`, command: { label, subject: parent, parent, parameters, prerequisites: [], read: () => ({ revision: revision(), enabled: enabled && (!busy || id === "dismiss"), reason: busy && id !== "dismiss" ? "Coach is refreshing" : !enabled ? "Required product evidence is not established" : undefined, value: (id === "toggle" ? { open } : { open, step: phase + 1, total: COACH_STEPS.length, evidence: !!gates[phase] }) as UiValue }), execute } });
   }
   add("toggle", open ? "Close AI engineer tour" : "AI engineer tour", true, async () => perform(async () => { if (!open) await refresh(true); setOpen(!open); return { open: !open }; }));
   add("refresh", "Refresh observed product evidence", !!info?.active, async () => perform(async () => { await refresh(); return { refreshed: true, verification: "See actual receipts; refresh is not execution" }; }));
   add("create", "Create and open an isolated practice repository", !info?.active, async () => perform(async () => { const result = await request<{ path: string; opened: boolean; open_error?: string }>("POST", "/api/tour/practice", {}); setCreated(result); return JSON.parse(JSON.stringify(result)); }));
-  add("back", "Back", phase > 0, async () => { setPhase(phase - 1); return { status: "completed", value: { step: phase } }; });
-  add("next", "Continue", !!gates[phase] && phase < COACH_STEPS.length - 1, async () => { setPhase(phase + 1); return { status: "completed", value: { step: phase + 2, completed_operation: false } }; });
-  add("skip", "Skip this step", phase < COACH_STEPS.length - 1, async () => { setSkipped([...new Set([...skipped, phase])]); setPhase(phase + 1); return { status: "completed", value: { skipped: phase + 1, evidence_established: false } }; });
+  add("back", "Back", !!info?.active && phase > 0, async () => { setPhase(phase - 1); return { status: "completed", value: { step: phase } }; });
+  add("next", "Continue", !!info?.active && !!gates[phase] && phase < COACH_STEPS.length - 1, async () => { setPhase(phase + 1); return { status: "completed", value: { step: phase + 2, completed_operation: false } }; });
+  add("skip", "Skip this step", !!info?.active && phase < COACH_STEPS.length - 1, async () => { setSkipped([...new Set([...skipped, phase])]); setPhase(phase + 1); return { status: "completed", value: { skipped: phase + 1, evidence_established: false } }; });
   add("restart", "Restart guidance", !!info?.active, async () => { setPhase(0); setSkipped([]); setPause(null); setPublication(null); return { status: "completed", value: { step: 1, retained_history: true, repository_reset: false } }; });
-  add("task", phase < 3 ? "Copy investigation task" : "Copy correction and verification task", !!info?.active, async (_args, actor) => {
+  add("task", phase < 3 ? "Copy investigation task" : "Copy correction and verification task", !!info?.active && [0, 3].includes(phase), async (_args, actor) => {
     const text = phase < 3 ? INVESTIGATION_TASK : CORRECTION_TASK; setTask(text);
     if (actor.kind === "human" && navigator.clipboard) await navigator.clipboard.writeText(text);
     return { status: "completed", value: { text, provider_request_sent: false } };
   });
-  add("publication", "Compare reviewed published JSON", !!info?.active, async args => perform(async () => loadPublication(String(args.json))), { json: { type: "string", maxLength: 262144 } });
+  add("publication", "Compare reviewed published JSON", !!info?.active && phase === 5, async args => perform(async () => loadPublication(String(args.json))), { json: { type: "string", maxLength: 262144 } });
+  add("dismiss", "Dismiss practice guidance", true, async () => { setOpen(false); return { status: "completed", value: { open: false, retained_history: true } }; });
+  add("source", "Open actual source and debugger", !!info?.active && phase === 1 && !!onOpen, async () => { onOpen?.("deadline-spec.md", 13); return { status: "completed", value: { navigation_requested: "deadline-spec.md", line: 13, debugger_started: false } }; });
+  add("read", "Read current practice guidance bytes", true, async args => {
+    const bytes = new TextEncoder().encode(JSON.stringify({ customer: "Two 80ms attempts must share a 100ms total deadline, including retries", deterministic_model: true, step: phase + 1, guidance: COACH_STEPS[phase], gates, skipped: skipped.map(step => step + 1), error, task, practice: info ? { active: info.active, path: info.path, source_hash: info.source_hash, seed_source_hash: info.seed_source_hash, seed: info.seed } : null, created, evidence: { delegated, failed_run: failed?.id ?? null, pause, thread: thread ?? null, corrected, verified_run: verified?.id ?? null, passed: !!passed, resolved, publication_matches: !!published }, launch_readiness: "Native/provider recording and released/deployed witnesses are required separately" }));
+    const offset = args.offset as number, end = Math.min(offset + (args.limit as number), bytes.length);
+    if (offset > bytes.length) return { status: "unavailable", reason: "Offset outside current guidance" };
+    return { status: "completed", value: { bytes: Array.from(bytes.slice(offset, end)), encoding: "JSON UTF-8", offset, total_bytes: bytes.length, next_offset: end < bytes.length ? end : null } };
+  }, { offset: { type: "number", minimum: 0, maximum: 1000000000, integer: true }, limit: { type: "number", minimum: 1, maximum: 8192, integer: true } });
   const invoke = useUiCommands(commands);
   const click = (id: string, args: Record<string, UiValue> = {}) => { void invoke(`${parent}/${id}`, args).catch(reason => setError(String(reason))); };
   const target = phase === 0 || phase === 3 ? '[data-coach-target="agent"]' : phase === 2 || phase === 4 ? '[data-coach-target="review"]' : '.cm-card-rail';
   return <div className="workflow-tour-launcher">
     <button className="btn" disabled={busy} onClick={() => click("toggle")}>{open ? "Close AI engineer tour" : "AI engineer tour"}</button>
-    {open && <AnchoredCoach target={target} title="AI engineer tour" onDismiss={() => setOpen(false)}>
+    {open && <AnchoredCoach target={target} title="AI engineer tour" onDismiss={() => click("dismiss")}>
       <section className="workflow-tour workflow-tour--app" aria-label="Agent-first practice">
         <p><strong>Customer brief:</strong> A client retries outbound requests. Two 80ms attempts must share a 100ms total deadline, while short attempts and an empty sequence retain their behavior. The missed qualification is “including retries.” This deterministic model does not test network or OS timing.</p>
         {error && <p role="alert">{error}</p>}
@@ -123,7 +138,7 @@ export function NativeWorkflowTour({ onOpen }: { onOpen?: (path: string, line?: 
           <p>Step {phase + 1} of {COACH_STEPS.length}. Dismiss to use the workspace; reopening reconciles actual receipts. Missing witnesses stay unestablished.</p>
           <h3>{COACH_STEPS[phase].title}</h3><p>{COACH_STEPS[phase].text}</p>
           {phase === 0 && <><button onClick={() => click("task")}>Copy investigation task</button><p>Paste into the actual workspace agent, inspect the provider, then Send. No model request is sent by the coach. Confirmed request and completed response: {delegated ? "observed" : "not established"}.</p></>}
-          {phase === 1 && <><button onClick={() => onOpen?.("deadline-spec.md", 13)}>Open actual source and debugger</button><p>Source-bound failure: {failed?.id ?? "not established"}. Bound paused evidence: {pause ? `${pause.run} / ${pause.stop}` : "not established"}. Ask the agent to use the registered debugger controls and inspect the actual paused marker. Historical browsing is not reverse execution.</p></>}
+          {phase === 1 && <><button onClick={() => click("source")}>Open actual source and debugger</button><p>Source-bound failure: {failed?.id ?? "not established"}. Bound paused evidence: {pause ? `${pause.run} / ${pause.stop}` : "not established"}. Ask the agent to use the registered debugger controls and inspect the actual paused marker. Historical browsing is not reverse execution.</p></>}
           {phase === 2 && <p>Decide whether the deadline includes retries. Select the actual “The deadline bounds…” claim and record the missed qualification with the existing Comment on selection control. Saved review thread: {thread ?? "not established"}. The coach does not create or resolve a human review for you.</p>}
           {phase === 3 && <><button onClick={() => click("task")}>Copy correction and verification task</button><p>Review the agent's actual preview before accepting it. Delegate Verify saved document through its shared action handle. Receipt: {verified?.id ?? "not established"} · {verified?.status ?? "unavailable"}; current-root pass: {passed ? "observed" : "not established"}. A model completion is not a check.</p></>}
           {phase === 4 && <p>Inspect the focused diff, actual source/run identity and independent checks, then resolve the real review thread yourself. Current resolution: {resolved ? "resolved" : "open/unavailable"}. Profiling is optional when it helps this customer problem, using the normal runtime controls.</p>}
@@ -134,7 +149,7 @@ export function NativeWorkflowTour({ onOpen }: { onOpen?: (path: string, line?: 
           <div className="workflow-tour-controls"><button disabled={phase === 0 || busy} onClick={() => click("back")}>Back</button>{phase < COACH_STEPS.length - 1 && <><button disabled={!gates[phase] || busy} onClick={() => click("next")}>Continue</button><button disabled={busy} onClick={() => click("skip")}>Skip this step</button></>}<button disabled={busy} onClick={() => click("restart")}>Restart guidance</button></div>
           <p>Retained history is not reset. Reload requires missing paused/publication evidence to be re-established. Recording, native/provider execution and deployed revision still need their actual witnesses; the coach never declares launch readiness.</p>
         </>}
-        <button onClick={() => setOpen(false)}>Skip / close</button>
+        <button onClick={() => click("dismiss")}>Skip / close</button>
       </section>
     </AnchoredCoach>}
   </div>;

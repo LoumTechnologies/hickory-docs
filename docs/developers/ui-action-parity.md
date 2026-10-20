@@ -268,3 +268,11 @@ SHA-256, a browser download request (without claiming a saved path), and no
 publication request. Explicit pages expose those exact captured bytes. Switching
 documents retires the old artifact read command; saved/recorded snapshot contents
 do not attest to a new verification run or to the current unsaved editor.
+
+Coach children now unregister when guidance closes; phase-specific actions are
+only registered where the corresponding controls exist. Current instructions,
+skips and observed evidence gates have bounded JSON UTF-8 reads, with private
+practice state kept behind opaque revision tokens. Source navigation and popup
+Locate/Dismiss share the actual handlers; Locate reports absent/hidden targets
+rather than claiming it opened a pane or started a debugger. Dismiss preserves
+retained history and never certifies skipped work.

@@ -97,3 +97,20 @@ October 19 agent-first coach revision:
   native/provider/released/deployed witnesses remain outstanding.
 - The earlier nine-phase description above documents the previous implementation;
   the current capture procedure is docs/developers/engineer-tour-video.md.
+
+### Coach disclosure follow-up — 2026-10-19
+
+Closed guidance exposes only its launcher. Phase-specific controls retire outside
+their actual visible phase, and closing retires guidance/popup commands. Explicit
+bounded reads expose the current brief, instructions, skips and evidence gates;
+opaque revisions do not disclose private practice paths or task bytes. The source
+navigation result says navigation requested, not debugger started. Popup Locate
+and Dismiss use shared handlers; hidden/absent targets return a recovery reason.
+This adds agent access to the existing coach without sending a task, fabricating
+human review, or satisfying any native/provider/released/deployed witness.
+
+Executed focused checks: NativeWorkflowTour (6) and AnchoredCoach (2), all passed.
+New coverage drives structured disclosure/read/dismiss, checks hidden commands
+retire and checks discovery does not leak the practice path. Existing focus,
+Escape, missing-target, retained-evidence and human-criterion checks remain in
+those focused files. These are component witnesses, not visual/native footage.
