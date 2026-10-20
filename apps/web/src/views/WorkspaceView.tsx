@@ -1,3 +1,5 @@
+import { runWorkspaceMenu } from "./workspaceMenuActions";
+import { useWorkspaceMenuActions } from "./uiWorkspaceMenuActions";
 import { NativeRuntimeHistory } from "../debug/RuntimeRuns";
 import { MeetingImport } from "../components/MeetingImport";
 import { SnapshotExport } from "../components/SnapshotExport";
@@ -41,7 +43,7 @@ import { WorkspaceProblems } from "../environments/WorkspaceProblems";
 import { useEnvironments } from "../environments/useEnvironments";
 import { EnvironmentNotice } from "../environments/EnvironmentPanel";
 import { PromptPanel, usePrompt } from "../components/PromptPanel";
-import { openBufferTarget } from "../lib/editorBufferTargets";
+import { bufferEditor, openBufferTarget } from "../lib/editorBufferTargets";
 import { workspaceRibbonSources } from "./workspaceRibbonSources";
 import { openPlainSearchFiles, searchWorkspace } from "../lib/workspaceSearch";
 import { insertTarget, type MenuAction } from "../lib/menuBridge";
@@ -1216,67 +1218,42 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
   //
   // The desktop menu's Save and Save As arrive from App as one window event;
   // they act on the FOCUSED document's session, whichever that is.
+  const menuSnapshot = () => {
+    const pane = panesOf(layoutRef.current.root).find(p => p.id === layoutRef.current.focus);
+    const active = pane?.tabs[pane.active];
+    const session = registry.get(focusedIdRef.current);
+    const view = focusedEditor();
+    const tabs = panesOf(layoutRef.current.root).flatMap(p => p.tabs);
+    const status = { target: active ? { id: active.id, kind: active.kind, path: active.target } : null, document: session?.doc?.id ?? null, document_status: session?.syncState ?? null, banner: session?.banner ? { kind: session.banner.kind, text: session.banner.text } : null, notice: insertNotice, format_on_save: formatOnSave(), unnamed_buffers: tabs.filter(t => t.kind === "untitled").map(t => t.id) };
+    return { visible: workspaceIsVisible(), guard: [status, view?.state.doc.toString(), view?.state.selection.toJSON(), registry.all().map(s => [s.doc?.id, s.doc?.path, s.liveSource]), tabs.map(t => [t.id, t.kind, t.target, t.docId]), [...plainSources.current], untitledSourcesRef.current], status };
+  };
+  const handleDocumentMenu = async (detail: MenuAction, actor: import("../lib/uiActions").UiActor) => {
+    const pane = panesOf(layoutRef.current.root).find(p => p.id === layoutRef.current.focus);
+    const active = pane?.tabs[pane.active];
+    const session = registry.get(focusedIdRef.current);
+    const view = focusedEditor();
+    const unnamedSource = (id: string) => untitledSourcesRef.current[id] ?? bufferEditor(id)?.state.doc.toString();
+    const unnamed = panesOf(layoutRef.current.root).flatMap(p => p.tabs).filter(t => t.kind === "untitled").map(t => t.id);
+    const wrapSession = (session: NonNullable<ReturnType<typeof registry.get>>) => ({ id: session.doc?.id ?? null, save: session.menuSave, saveAs: session.menuSaveAs });
+    return runWorkspaceMenu(detail, actor, {
+      target: { id: active?.id ?? null, kind: active?.kind ?? null },
+      untitled: unnamed, untitledNeedingDestination: unnamed.filter(id => unnamedSource(id) !== "" || formatOnSave()), unnamedEmpty: active?.kind === "untitled" && unnamedSource(active.id) === "" && !formatOnSave(),
+      sessions: registry.all().map(wrapSession), session: session ? wrapSession(session) : undefined,
+      working: active ? viewBuffers.get(active.id) ?? plainUnsavedActions.current.get(active.id) : undefined,
+    }, {
+      formatFirst: async () => {
+        if (!formatOnSave() || !view) return;
+        const original = view.state.doc;
+        const formatted = await formatView(view).catch(() => false);
+        if ((!formatted && view.state.doc !== original) || !view.dom.isConnected) throw Error("The originating buffer changed or closed during formatting. Save was not submitted; inspect its current source before retrying.");
+      },
+      saveUntitled, flush: requestFlushSaves, print: printFocusedBuffer, insert: openInsert, editElement: openEditElement,
+    });
+  };
+  const invokeDocumentMenu = useWorkspaceMenuActions(menuSnapshot, handleDocumentMenu);
+  const menuHandler = useRef(invokeDocumentMenu); menuHandler.current = invokeDocumentMenu;
   useEffect(() => {
-    const onCommand = (event: Event) => {
-      const detail = (event as CustomEvent).detail as MenuAction;
-      // Insert first: it belongs to the focused BUFFER, and the untitled one
-      // has no session for the lookup below to find.
-      if (detail === "insert" || insertTarget(detail) !== null) {
-        openInsert(insertTarget(detail));
-        return;
-      }
-      if (detail === "edit-element") {
-        openEditElement();
-        return;
-      }
-      // Format first, when asked to: the focused buffer, through whatever
-      // formatter its language server offers. Then the save — every save,
-      // since a plain file's autosave and a document's room both answer
-      // to the flush, and the formatted text must be what lands on disk.
-      const formatFirst = async () => {
-        if (!formatOnSave()) return;
-        const view = focusedEditor();
-        if (view) await formatView(view).catch(() => false);
-      };
-      if (detail === "save-all") {
-        void formatFirst().then(async () => {
-          for (const tab of panesOf(layoutRef.current.root).flatMap(pane => pane.tabs).filter(tab => tab.kind === "untitled")) {
-            if (!(await saveUntitled(false, tab.id))) return;
-          }
-          for (const open of registry.all()) open.menuSave();
-          requestFlushSaves();
-        });
-        return;
-      }
-      if (detail === "print") {
-        printFocusedBuffer();
-        return;
-      }
-      const focusedPane = panesOf(layoutRef.current.root).find(
-        (pane) => pane.id === layoutRef.current.focus,
-      );
-      if (
-        (detail === "save" || detail === "save-as") &&
-        focusedPane?.tabs[focusedPane.active]?.kind === "untitled"
-      ) {
-        void formatFirst().then(() => saveUntitled(detail === "save-as"));
-        return;
-      }
-      const active = focusedPane?.tabs[focusedPane.active];
-      const working = active && (viewBuffers.get(active.id) ?? plainUnsavedActions.current.get(active.id));
-      if (detail === "save" && working) {
-        void formatFirst().then(() => working.save());
-        return;
-      }
-      const session = registry.get(focusedIdRef.current);
-      if (!session) return;
-      if (detail === "save") {
-        void formatFirst().then(() => {
-          session.menuSave();
-          requestFlushSaves();
-        });
-      } else if (detail === "save-as") session.menuSaveAs();
-    };
+    const onCommand = (event: Event) => { void menuHandler.current((event as CustomEvent).detail as MenuAction).catch(error => setInsertNotice(String(error))); };
     // The tree pane's reopen affordances, now that there is no toolbar:
     // File > Show Files in the native menu, and the explorer key everywhere.
     const onKey = (e: KeyboardEvent) => {

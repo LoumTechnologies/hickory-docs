@@ -434,7 +434,7 @@ handles, exact Unicode reading, real fallback state, and out-of-order math
 completion. The renderer engines are mocked in the renderer-specific tests; these
 are not real native layout, model vision, provider or screenshot witnesses.
 
-Current rendered-reading evidence fingerprints (SHA-256; the declaration inventory binds its listed source files, not semantic parity):
+Rendered-reading evidence fingerprints for that check (historical after later source/inventory changes; SHA-256 binds listed bytes, not semantic parity):
 
 - `docs/developers/ui-control-inventory.json`: `35e65d1f10642d2fde37f42f327eb1aef637697d411b9f48d3f7728f42656054`
 - `scripts/inventory-ui-actions.mjs`: `fd2cf4881b5c22659ccb67e06c8f61e1b5be77d5bd6b7e4f7a9c59df38c369d8`
@@ -462,3 +462,29 @@ corrected and all cases rerun. Strict targeted WorkspaceView/prompt checking pas
 with the repository's existing js-interpreter declaration explicitly included;
 the initial ad-hoc command omitted that declaration and failed on library types.
 These tests do not execute an actual LSP refactor, native chooser or file copy.
+
+### Scoped workspace menu controller — 2026-10-19
+
+Native menu and agent controls now share Save/Save a copy/Save all/Print/Insert/
+Edit element handlers. Live private source/focus/selection/open-buffer guards
+reject stale handles even without a React render. The controller copies target
+identity before async formatting; subsequent focus changes cannot retarget an
+unnamed save. Source-changing/closed-buffer formatting failure prevents save
+submission. Native destination/print dialogs require real human input; in-app
+copy prompts use the separately scoped prompt interface. Known empty unnamed
+buffers with formatting off create no file and need no chooser.
+
+Outcomes preserve returned document save booleans, copy/insert/editor requests,
+and unconfirmed self-saving-pane flush intent. Prompt/print requests do not
+certify copied files, physical output or verification. Current command reads
+include actual document banner/sync state and the last adapter outcome. This
+client guard does not coordinate independent external writers or strengthen the
+existing document-save endpoint into a filesystem transaction.
+
+Executed focused checks: workspaceMenuActions (5), uiWorkspaceMenuActions (1),
+existing useUntitledSave (2), all passed; strict targeted WorkspaceView/menu
+checking passed with the existing interpreter declaration included. Cases cover
+focus changes during formatting, real acknowledgement false, chooser/print
+policy, empty saves, source changes without rerender and shared human/agent
+routing. Native dialogs, printing, full app menus and external filesystem races
+remain unwitnessed.

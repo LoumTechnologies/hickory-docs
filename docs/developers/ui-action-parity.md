@@ -404,3 +404,12 @@ retain human decision authority. Prompt IDs prevent identical titles from
 retargeting an old handle. Replacing/unmounting settles pending promises as
 cancelled. Settling a prompt resumes its caller; it does not certify that a later
 save/refactor/debug operation succeeded. Native OS choosers remain separate work.
+
+Workspace Save/Save a copy/Save all/Print/Insert/Edit element now share a scoped
+controller with native menu dispatch. Source/focus/selection and open-buffer state
+guard handles without disclosing source in discovery. Targets are captured before
+awaiting formatting; unnamed saves use that exact tab ID. Native destination and
+print dialogs expose human request paths, while the in-app Save a copy prompt is
+addressable through the shared prompt controller. Known empty unnamed saves with
+formatting off are no-ops. Save acknowledgements, self-saver flush intent, copy
+prompt settlement and physical print output remain distinct; none is verification.
