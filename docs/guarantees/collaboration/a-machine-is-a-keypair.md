@@ -94,3 +94,27 @@ Last LLM verification:
   keychain. It lives in a file only this user can read, which is weaker
   against a user-level compromise of the machine. Named rather than implied
   away.
+
+## Shared local fleet controller checkpoint (2026-10-20)
+
+The fleet pane exposes explicit roster/status reading and the existing local API
+handlers for phrase pairing, invitation creation/acceptance, grant changes and
+removal. Invitation controls exist only after their fallback disclosure opens;
+closing it retires them. Actual API replies have a separate explicit raw
+response disclosure. Root reading retains the displayed public-key prefix rather
+than dumping the complete roster keys or hidden invitation replies.
+
+An immediate controller lock excludes another foreground mutation and native
+input while waiting. A changed roster/key retires stale handles. Pairing host
+requests retain distinct waiting/result identity and refuse a second concurrent
+host request. Clipboard feedback waits for actual success; denial returns an
+addressable request and the displayed invitation remains the read/select
+alternative. No peer API write authority is added by these browser controllers.
+
+Focused provider-mocked tests in `FleetPane.test.tsx` cover native/agent controls,
+actual replies, disclosure/retirement, replaced keys, pending mutation exclusion,
+phrase/dial behavior and clipboard refusal. Focused strict TypeScript, inventory,
+file-length and diff checks passed. No real key, grant, pairing or fleet change
+was made. This checkpoint does not establish host cancellation of pairing or
+cross-process identity/roster compare-and-swap: those remain code gaps, not OS
+limitations, and this family is not certified complete.

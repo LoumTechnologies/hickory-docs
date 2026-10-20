@@ -13,10 +13,9 @@
 //
 // docs/specs/freeform/one-engineer-many-machines.md
 
-import { useCallback, useEffect, useState } from "react";
-
-import { api } from "../api/client";
-import type { FleetResponse } from "../api/types";
+import { useState } from "react";
+import { EvidenceDisclosure } from "../components/EvidenceDisclosure";
+import { useFleetControls, FLEET_GRANTS as GRANTS } from "./useFleetControls";
 
 /** What each grant means, said where the grant is toggled. */
 const GRANT_TIP: Record<string, string> = {
@@ -26,47 +25,9 @@ const GRANT_TIP: Record<string, string> = {
     "Run a cell or the up-loop, type into a shell, start or steer an agent turn. Off unless given deliberately — what it costs is a property of that machine, not of the grant: a cell under the sandbox or Docker is confined to its own workdir, and a shell is not.",
 };
 
-const GRANTS = ["view", "edit", "execute"] as const;
 
 export function FleetPane() {
-  const [fleet, setFleet] = useState<FleetResponse | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [note, setNote] = useState<string | null>(null);
-  const [invitation, setInvitation] = useState<string | null>(null);
-  const [pasted, setPasted] = useState("");
-  const [dialled, setDialled] = useState("");
-  /** The phrase this machine is currently hosting, while it waits. */
-  const [hosting, setHosting] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
-
-  const reload = useCallback(() => {
-    api.fleet().then(
-      (answer) => setFleet(answer),
-      (e: unknown) => setError(e instanceof Error ? e.message : String(e)),
-    );
-  }, []);
-
-  useEffect(reload, [reload]);
-
-  const act = useCallback(
-    async (what: () => Promise<string | null>) => {
-      setBusy(true);
-      setError(null);
-      try {
-        const said = await what();
-        if (said) setNote(said);
-        reload();
-      } catch (e) {
-        // A refusal is the answer, not a crash: a phone declining `execute`
-        // and a name already taken both arrive here and both are worth
-        // reading in full.
-        setError(e instanceof Error ? e.message : String(e));
-      } finally {
-        setBusy(false);
-      }
-    },
-    [reload],
-  );
+  const { fleet, error, note, invitation, pasted, dialled, hosting, busy, setFallbackOpen, setPasted, setDialled, human, copy, receipt, hostResult } = useFleetControls(GRANT_TIP);
 
   if (error && !fleet) return <p className="error">{error}</p>;
   if (!fleet) return <p className="muted">Reading this machine’s identity…</p>;
@@ -108,29 +69,8 @@ export function FleetPane() {
         <div className="fleet-pair__row">
           <button
             type="button"
-            disabled={busy}
-            onClick={() =>
-              act(async () => {
-                const { phrase, seconds } = await api.fleetPhrase();
-                setHosting(phrase);
-                // Read it out, then wait here for the other end to answer.
-                void api.fleetHost(phrase).then(
-                  (answer) => {
-                    setHosting(null);
-                    setNote(
-                      `Paired with “${answer.machine.name}”. Compare the fingerprints: ` +
-                        `them ${answer.their_fingerprint}, you ${answer.our_fingerprint}.`,
-                    );
-                    reload();
-                  },
-                  (e: unknown) => {
-                    setHosting(null);
-                    setError(e instanceof Error ? e.message : String(e));
-                  },
-                );
-                return `Read this out and type it on the other machine. ${seconds} seconds.`;
-              })
-            }
+            disabled={busy || !!hosting}
+            onClick={() => human("phrase")}
           >
             Get a pairing phrase
           </button>
@@ -144,6 +84,7 @@ export function FleetPane() {
           <input
             className="fleet-pair__input mono"
             placeholder="…or type the phrase the other machine showed"
+            disabled={busy}
             value={dialled}
             onChange={(e) => setDialled(e.target.value)}
             aria-label="A pairing phrase to dial"
@@ -151,45 +92,24 @@ export function FleetPane() {
           <button
             type="button"
             disabled={busy || !dialled.trim()}
-            onClick={() =>
-              act(async () => {
-                const answer = await api.fleetPair(dialled.trim());
-                setDialled("");
-                return (
-                  `Paired with “${answer.machine.name}”. ${answer.note} ` +
-                  `Them ${answer.their_fingerprint}, you ${answer.our_fingerprint}.`
-                );
-              })
-            }
+            onClick={() => human("pair")}
           >
             Pair
           </button>
         </div>
-        <details className="fleet-pair__fallback">
-          <summary className="muted">
-            Machines that cannot reach each other
-          </summary>
+        <EvidenceDisclosure className="fleet-pair__fallback" label="Machines that cannot reach each other" value={{ invitation, invitation_draft: pasted }} onOpenChange={setFallbackOpen}>
         <div className="fleet-pair__row">
           <button
             type="button"
             disabled={busy}
-            onClick={() =>
-              act(async () => {
-                const answer = await api.fleetInvite();
-                setInvitation(answer.invitation);
-                return answer.note;
-              })
-            }
+            onClick={() => human("invite")}
           >
             Show this machine’s invitation
           </button>
           {invitation && (
             <button
               type="button"
-              onClick={() => {
-                void navigator.clipboard?.writeText(invitation);
-                setNote("Copied. Paste it on the other machine.");
-              }}
+              onClick={() => void copy()}
             >
               Copy
             </button>
@@ -208,6 +128,7 @@ export function FleetPane() {
           <input
             className="fleet-pair__input mono"
             placeholder="hick-fleet:… — paste the other machine's invitation"
+            disabled={busy}
             value={pasted}
             onChange={(e) => setPasted(e.target.value)}
             aria-label="An invitation to accept"
@@ -215,23 +136,12 @@ export function FleetPane() {
           <button
             type="button"
             disabled={busy || !pasted.trim()}
-            onClick={() =>
-              act(async () => {
-                const answer = await api.fleetAccept(pasted.trim());
-                setPasted("");
-                return (
-                  `Added “${answer.machine.name}”. It can view and edit; ` +
-                  "execute is off until you give it — and remember to accept " +
-                  "this machine's invitation over there too, or it will be " +
-                  "refused when it dials."
-                );
-              })
-            }
+            onClick={() => human("accept")}
           >
             Accept
           </button>
         </div>
-        </details>
+        </EvidenceDisclosure>
       </section>
 
       {fleet.machines.length === 0 ? (
@@ -260,12 +170,7 @@ export function FleetPane() {
                       aria-pressed={on}
                       className={`fleet-grant${on ? " fleet-grant--on" : ""}`}
                       data-tip={GRANT_TIP[grant]}
-                      onClick={() =>
-                        act(async () => {
-                          await api.fleetGrant(machine.name, grant, !on);
-                          return null;
-                        })
-                      }
+                      onClick={() => human(`grant:${machine.public_key}:${grant}`, { on: !on })}
                     >
                       {grant}
                     </button>
@@ -276,12 +181,7 @@ export function FleetPane() {
                   disabled={busy}
                   className="fleet-remove"
                   data-tip="Delete this machine's key. That is the whole of the revocation — no server holds a session you cannot reach."
-                  onClick={() =>
-                    act(async () => {
-                      const answer = await api.fleetRemove(machine.name);
-                      return answer.note;
-                    })
-                  }
+                  onClick={() => human(`remove:${machine.public_key}`)}
                 >
                   remove
                 </button>
@@ -290,6 +190,8 @@ export function FleetPane() {
           ))}
         </ul>
       )}
+
+      {(receipt || hostResult) && <FleetReply value={{ receipt, hosting: hostResult }} />}
 
       {/* The boundary, said rather than discovered. */}
       <p className="muted fleet-pane__cli">
@@ -301,4 +203,11 @@ export function FleetPane() {
       </p>
     </div>
   );
+}
+
+function FleetReply({ value }: { value: unknown }) {
+  const [open, setOpen] = useState(false);
+  return <EvidenceDisclosure label="Latest fleet operation reply" value={value} onOpenChange={setOpen}>
+    {open && <pre>{JSON.stringify(value, null, 2)}</pre>}
+  </EvidenceDisclosure>;
 }

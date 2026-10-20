@@ -632,3 +632,14 @@ and bounded reading; collapsed children stay unmounted. Custom child components
 are counted as unresolved in literal-text projection and keep their own reading
 responsibility. Focused tests cover native/agent retry, stale callback refusal,
 preview mounting and child-reader retirement.
+
+### Fleet controller checkpoint (2026-10-20)
+
+Fleet roster/status, pairing, disclosed invitations, grants/removal and actual
+replies now use shared controllers. Hidden invitation controls retire on close;
+raw replies require their own disclosure. Pending foreground operations exclude
+another mutation and native input; stale roster-key handles are refused.
+Clipboard denial reports a required-input request instead of false success.
+Validation uses mocked local fleet APIs, without real pairing or grant changes.
+Host pairing cancellation and stronger cross-process target identity checks
+remain explicit code gaps; this checkpoint is not full fleet certification.

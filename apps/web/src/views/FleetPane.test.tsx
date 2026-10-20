@@ -199,3 +199,74 @@ describe("pairing by phrase", () => {
     );
   });
 });
+
+it("shares disclosed fleet invitation and grant controls with exact mocked replies", async () => {
+  const { act } = await import("@testing-library/react");
+  const { UiActions } = await import("../lib/uiActions");
+  const { UiActionContext } = await import("../lib/uiActionBridge");
+  const registry = new UiActions({ workspace: "p", window: "w" }, () => true, async () => {});
+  const roster = fleet([desktop]);
+  vi.spyOn(api, "fleetInvite").mockResolvedValue({ invitation: "hick-fleet:local", fingerprint: "SHA256:us", note: "Mutual invitation" });
+  const accept = vi.spyOn(api, "fleetAccept").mockResolvedValue({ machine: desktop });
+  const grant = vi.spyOn(api, "fleetGrant").mockResolvedValue({ machine: { ...desktop, grants: ["view", "edit", "execute"] } });
+  render(<UiActionContext.Provider value={registry}><FleetPane /></UiActionContext.Provider>);
+  await screen.findByRole("button", { name: "execute" });
+  const actions = () => registry.groups().groups.flatMap(group => registry.observe(group, 64).actions);
+  let id = 0;
+  const run = async (label: string, args = {}) => { let result: unknown; await act(async () => { result = await registry.act(registry.scope,
+    { id: "python:turn", kind: "agent" }, { handle: actions().find(action => action.label === label)!.handle, arguments: args, request_id: String(++id) }); }); return result; };
+  expect(actions().some(action => action.label === "Show local fleet invitation")).toBe(false);
+  fireEvent.click(screen.getByText("Machines that cannot reach each other", { selector: "summary" }));
+  await waitFor(() => expect(actions().some(action => action.label === "Show local fleet invitation")).toBe(true));
+  expect(await run("Show local fleet invitation")).toMatchObject({ status: "result", outcome: { value: { response: { invitation: "hick-fleet:local" } } } });
+  await run("Set fleet invitation draft", { text: "hick-fleet:peer" });
+  fireEvent.click(screen.getByRole("button", { name: "Accept" }));
+  await waitFor(() => expect(accept).toHaveBeenCalledExactlyOnceWith("hick-fleet:peer"));
+  await waitFor(() => expect((screen.getByRole("button", { name: "execute" }) as HTMLButtonElement).disabled).toBe(false));
+  const old = actions().find(action => action.label === "Set fleet grant desktop execute")!.handle;
+  expect(await run("Set fleet grant desktop execute", { on: true })).toMatchObject({ status: "result", outcome: { value: { response: { machine: { grants: ["view", "edit", "execute"] } } } } });
+  expect(grant).toHaveBeenCalledExactlyOnceWith("desktop", "execute", true);
+  roster.mockResolvedValueOnce({ ...(await api.fleet()), machines: [{ ...desktop, public_key: "REPLACED-KEY" }] });
+  await run("Refresh local fleet roster");
+  expect(await registry.act(registry.scope, { id: "acp:turn", kind: "agent" }, { handle: old, arguments: { on: true }, request_id: "replaced" })).not.toMatchObject({ status: "result" });
+  await run("Set evidence visibility: Machines that cannot reach each other", { open: false });
+  expect(actions().some(action => action.label === "Show local fleet invitation")).toBe(false);
+});
+
+it("excludes concurrent fleet mutations and reports clipboard authority without a false copy claim", async () => {
+  const { act } = await import("@testing-library/react");
+  const { UiActions } = await import("../lib/uiActions");
+  const { UiActionContext } = await import("../lib/uiActionBridge");
+  const registry = new UiActions({ workspace: "p", window: "w" }, () => true, async () => {});
+  fleet([desktop]);
+  let complete!: (value: { removed: boolean; note: string }) => void;
+  vi.spyOn(api, "fleetRemove").mockImplementation(() => new Promise(done => { complete = done; }));
+  const grant = vi.spyOn(api, "fleetGrant");
+  vi.spyOn(api, "fleetInvite").mockResolvedValue({ invitation: "hick-fleet:local", fingerprint: "SHA256:us", note: "Invitation ready" });
+  render(<UiActionContext.Provider value={registry}><FleetPane /></UiActionContext.Provider>);
+  await screen.findByRole("button", { name: "remove" });
+  const actions = () => registry.groups().groups.flatMap(group => registry.observe(group, 64).actions);
+  let pending!: ReturnType<typeof registry.act>;
+  await act(async () => { pending = registry.act(registry.scope, { id: "acp:turn", kind: "agent" }, {
+    handle: actions().find(action => action.label === "Remove fleet machine desktop")!.handle, arguments: {}, request_id: "remove",
+  }); });
+  expect(await registry.act(registry.scope, { id: "python:other", kind: "agent" }, {
+    handle: actions().find(action => action.label === "Set fleet grant desktop execute")!.handle, arguments: { on: true }, request_id: "grant",
+  })).toMatchObject({ status: "disabled" });
+  expect(grant).not.toHaveBeenCalled();
+  fireEvent.change(screen.getByLabelText("A pairing phrase to dial"), { target: { value: "late-edit" } });
+  expect((screen.getByLabelText("A pairing phrase to dial") as HTMLInputElement).value).toBe("");
+  await act(async () => { complete({ removed: true, note: "Removed" }); await pending; });
+  const run = async (label: string, args = {}) => { let result: unknown; await act(async () => { result = await registry.act(registry.scope,
+    { id: "python:turn", kind: "agent" }, { handle: actions().find(action => action.label === label)!.handle, arguments: args, request_id: label }); }); return result; };
+  await run("Set evidence visibility: Machines that cannot reach each other", { open: true });
+  await run("Show local fleet invitation");
+  const previous = Object.getOwnPropertyDescriptor(navigator, "clipboard");
+  Object.defineProperty(navigator, "clipboard", { configurable: true, value: undefined });
+  try {
+    expect(await run("Copy local fleet invitation")).toMatchObject({ status: "result", outcome: { status: "requires_input", request: expect.stringContaining("clipboard") } });
+    expect(screen.queryByText("Copied. Paste it on the other machine.")).toBeNull();
+  } finally {
+    if (previous) Object.defineProperty(navigator, "clipboard", previous); else Reflect.deleteProperty(navigator, "clipboard");
+  }
+});
