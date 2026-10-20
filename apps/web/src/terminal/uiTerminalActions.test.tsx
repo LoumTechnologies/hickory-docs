@@ -12,7 +12,7 @@ afterEach(() => { cleanup(); vi.restoreAllMocks(); });
 function fixture(prompt: unknown = null) {
   const registry = new UiActions({ workspace: "practice", window: "one" }, () => true, async () => {});
   const controller = { sessions: [{ id: "terminal-1", title: "setup", prompt }], attention: [], anchors: {}, turbo: false, error: null,
-    open: vi.fn().mockResolvedValue({ id: "real-job" }), close: vi.fn(), answer: vi.fn(), interrupt: vi.fn(), setTurbo: vi.fn(), anchor: vi.fn(), unanchor: vi.fn(), resumeAnchor: vi.fn(), refresh: vi.fn(),
+    open: vi.fn().mockResolvedValue({ id: "real-job" }), close: vi.fn().mockResolvedValue(true), answer: vi.fn().mockResolvedValue(true), interrupt: vi.fn().mockResolvedValue(true), setTurbo: vi.fn().mockResolvedValue(true), anchor: vi.fn().mockResolvedValue(true), unanchor: vi.fn().mockResolvedValue(true), resumeAnchor: vi.fn().mockResolvedValue(true), refresh: vi.fn(),
   } as unknown as Terminals;
   const wrapper = ({ children }: { children: ReactNode }) => <UiActionContext.Provider value={registry}>{children}</UiActionContext.Provider>;
   renderHook(() => useTerminalActions(controller), { wrapper });
@@ -44,4 +44,10 @@ it("requires actual human input for opaque prompts and enabling automatic answer
   expect(f.controller.answer).not.toHaveBeenCalled(); expect(input).not.toHaveBeenCalled(); expect(f.controller.setTurbo).not.toHaveBeenCalled();
   expect(await f.invoke("Answer terminal prompt: setup", { send: "yes" }, true)).toMatchObject({ status: "result", outcome: { status: "completed" } });
   expect(f.controller.answer).toHaveBeenCalledWith("terminal-1", "yes");
+});
+it("does not turn a refused host operation into a completed agent action", async () => {
+  const f = fixture();
+  vi.mocked(f.controller.interrupt).mockResolvedValue(false);
+  expect(await f.invoke("Interrupt terminal: setup")).toMatchObject({ status: "result", outcome: { status: "unavailable", reason: expect.stringContaining("failed") } });
+  expect(f.controller.interrupt).toHaveBeenCalledWith("terminal-1");
 });

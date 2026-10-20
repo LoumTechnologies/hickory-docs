@@ -688,3 +688,10 @@ menu callbacks await the same controller. The visible badge has paged verdict/
 tooltip reading and shared refresh/stop commands; failed drops remain visible.
 Three focused fixture-API tests pass, without claiming a new live comparison,
 provider or release witness.
+
+Terminal controller actions now consume actual host-request success/refusal
+instead of reporting completed after swallowed errors. Polling cannot erase an
+operation error or adopt an older supervision reply, closed controllers refuse
+new writes, and automatic-answer state comes from the host. Seven focused
+fixture/controller tests pass. The existing prompt-human-authority policy is
+unchanged and is not claimed as an OS exception or full prompt-answer parity.

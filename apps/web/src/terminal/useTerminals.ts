@@ -31,15 +31,15 @@ export interface Terminals {
   turbo: boolean;
   error: string | null;
   open: (spec?: OpenTerminal) => Promise<TerminalSession | null>;
-  close: (id: string) => Promise<void>;
-  answer: (id: string, send: string) => Promise<void>;
-  interrupt: (id: string) => Promise<void>;
-  setTurbo: (enabled: boolean) => Promise<void>;
+  close: (id: string) => Promise<boolean>;
+  answer: (id: string, send: string) => Promise<boolean>;
+  interrupt: (id: string) => Promise<boolean>;
+  setTurbo: (enabled: boolean) => Promise<boolean>;
   /** Bind a terminal to a container in a document, and start recording. */
-  anchor: (id: string, doc: string, container: string) => Promise<void>;
-  unanchor: (id: string) => Promise<void>;
+  anchor: (id: string, doc: string, container: string) => Promise<boolean>;
+  unanchor: (id: string) => Promise<boolean>;
   /** Record again after a suspension. Always a new cell. */
-  resumeAnchor: (id: string) => Promise<void>;
+  resumeAnchor: (id: string) => Promise<boolean>;
   refresh: () => void;
 }
 
@@ -48,133 +48,50 @@ export function useTerminals(): Terminals {
   const [attention, setAttention] = useState<string[]>([]);
   const [turbo, setTurboState] = useState(false);
   const [anchors, setAnchors] = useState<Record<string, TerminalAnchor>>({});
-  const [error, setError] = useState<string | null>(null);
-  const live = useRef(true);
-
+  const [readError, setReadError] = useState<string | null>(null);
+  const [operationError, setOperationError] = useState<string | null>(null);
+  const life = useRef({ live: false, sequence: 0 });
   const refresh = useCallback(() => {
-    // Its own request rather than a field on `/terminals`: an anchor is a
-    // fact about a session AND a document, and the terminal list belongs to
-    // sessions alone. A failure here leaves the sessions readable.
-    api.terminalAnchors().then(
-      (state) => {
-        if (live.current) setAnchors(state.anchors);
-      },
-      () => {},
-    );
-    api.terminals().then(
-      (state) => {
-        if (!live.current) return;
-        setSessions(state.sessions);
-        setAttention(state.attention);
-        setTurboState(state.turbo);
-        setError(null);
-      },
-      (e) => {
-        if (!live.current) return;
-        setError(e instanceof Error ? e.message : String(e));
-      },
-    );
+    const captured = life.current, ticket = ++captured.sequence;
+    if (!captured.live) return;
+    const current = () => captured.live && captured.sequence === ticket;
+    void api.terminalAnchors().then(state => { if (current()) setAnchors(state.anchors); }, () => {});
+    void api.terminals().then(state => {
+      if (!current()) return;
+      setSessions(state.sessions); setAttention(state.attention); setTurboState(state.turbo); setReadError(null);
+    }, cause => { if (current()) setReadError(String(cause)); });
   }, []);
-
   useEffect(() => {
-    live.current = true;
+    const captured = { live: true, sequence: 0 }; life.current = captured;
     refresh();
     const timer = window.setInterval(refresh, POLL_MS);
-    return () => {
-      live.current = false;
-      window.clearInterval(timer);
-    };
+    return () => { captured.live = false; captured.sequence++; window.clearInterval(timer); };
   }, [refresh]);
-
-  const open = useCallback(
-    async (spec: OpenTerminal = {}) => {
-      try {
-        const session = await api.openTerminal(spec);
-        refresh();
-        return session;
-      } catch (e) {
-        setError(e instanceof Error ? e.message : String(e));
-        return null;
-      }
-    },
-    [refresh],
-  );
-
-  const close = useCallback(
-    async (id: string) => {
-      // A close that races another close is not an error worth showing: the
-      // session is gone either way, which is what was asked for.
-      await api.closeTerminal(id).catch(() => {});
-      refresh();
-    },
-    [refresh],
-  );
-
-  const answer = useCallback(
-    async (id: string, send: string) => {
-      try {
-        await api.answerTerminal(id, send);
-      } catch (e) {
-        setError(e instanceof Error ? e.message : String(e));
-      }
-      refresh();
-    },
-    [refresh],
-  );
-
-  const interrupt = useCallback(
-    async (id: string) => {
-      await api.interruptTerminal(id).catch(() => {});
-      refresh();
-    },
-    [refresh],
-  );
-
-  const setTurbo = useCallback(
-    async (enabled: boolean) => {
-      // Optimistic, because the switch should feel like a switch; the next
-      // poll is the truth either way.
-      setTurboState(enabled);
-      await api.setTurbo(enabled).catch(() => {});
-      refresh();
-    },
-    [refresh],
-  );
-
-  const anchor = useCallback(
-    async (id: string, doc: string, container: string) => {
-      try {
-        await api.anchorTerminal(id, doc, container);
-      } catch (e) {
-        // A refusal here is a sentence a person needs to read — an
-        // un-hookable shell says which shells work — so it goes where
-        // errors go rather than being swallowed.
-        setError(e instanceof Error ? e.message : String(e));
-      }
-      refresh();
-    },
-    [refresh],
-  );
-
-  const unanchor = useCallback(
-    async (id: string) => {
-      await api.unanchorTerminal(id).catch(() => {});
-      refresh();
-    },
-    [refresh],
-  );
-
-  const resumeAnchor = useCallback(
-    async (id: string) => {
-      try {
-        await api.resumeAnchor(id);
-      } catch (e) {
-        setError(e instanceof Error ? e.message : String(e));
-      }
-      refresh();
-    },
-    [refresh],
-  );
+  const perform = useCallback(async (what: () => Promise<unknown>): Promise<boolean> => {
+    const captured = life.current;
+    if (!captured.live) return false;
+    try {
+      await what();
+      if (captured.live) { setOperationError(null); refresh(); }
+      return true;
+    } catch (cause) {
+      if (captured.live) { setOperationError(`${String(cause)}. Inspect terminal state before retrying; effects are not rolled back.`); refresh(); }
+      return false;
+    }
+  }, [refresh]);
+  const open = useCallback(async (spec: OpenTerminal = {}) => {
+    let session: TerminalSession | null = null;
+    await perform(async () => { session = await api.openTerminal(spec); });
+    return session;
+  }, [perform]);
+  const close = useCallback((id: string) => perform(() => api.closeTerminal(id)), [perform]);
+  const answer = useCallback((id: string, send: string) => perform(() => api.answerTerminal(id, send)), [perform]);
+  const interrupt = useCallback((id: string) => perform(() => api.interruptTerminal(id)), [perform]);
+  const setTurbo = useCallback((enabled: boolean) => perform(() => api.setTurbo(enabled)), [perform]);
+  const anchor = useCallback((id: string, doc: string, container: string) => perform(() => api.anchorTerminal(id, doc, container)), [perform]);
+  const unanchor = useCallback((id: string) => perform(() => api.unanchorTerminal(id)), [perform]);
+  const resumeAnchor = useCallback((id: string) => perform(() => api.resumeAnchor(id)), [perform]);
+  const error = operationError ?? readError;
 
   const controller = {
     sessions,

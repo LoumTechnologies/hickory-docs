@@ -636,3 +636,23 @@ Two focused mocked-callback tests cover mixed native/model picks, disabled
 items, same-label callback replacement, unmount retirement, duplicate async
 picks and actual callback failure. They establish this shared menu boundary,
 not all caller-specific operations, real provider behavior or native releases.
+
+### Terminal operation-result checkpoint (issue #72)
+
+The shared terminal controller returns whether the actual host request completed
+instead of swallowing close/interrupt/anchor/resume/answer/turbo failures. Agent
+actions report refusal when that result is false; success describes the host
+request reply, not process termination, recording completion or verification.
+Operation errors survive successful supervision polling until a successful
+operation clears them. Automatic-answer state is adopted from the host rather
+than optimistically enabled. Supervision reads are ordered and bound to their
+mounted controller lifetime; closed controllers refuse new host mutations.
+Existing human prompt/automatic-answer authority policy is preserved. This
+checkpoint does not reclassify that application policy as an OS limitation or
+certify universal prompt-answer parity.
+
+Seven focused fixture-API/controller tests pass across the two terminal test
+files, including actual refused-operation propagation, persistent error reading,
+stale supervision response refusal, closed-controller refusal and no optimistic
+automatic-answer enablement. No real PTY/provider/native release is exercised by
+these new tests; existing real PTY evidence has its separately recorded scope.
