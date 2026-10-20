@@ -5,9 +5,9 @@ import { useUiCommands, useUiRevision } from "../lib/uiActionBridge";
 import type { UiCommand, UiOutcome, UiValue } from "../lib/uiActions";
 import { useUiReading } from "../lib/uiReading";
 
-export function GithubBodyAndComment({ kind, repository, number, body, comments, onChanged }: {
+export function GithubBodyAndComment({ kind, repository, number, body, comments, onChanged, readOnly = false }: {
   kind: "pr" | "issue"; repository: string; number: number; body: string;
-  comments: GithubComment[]; onChanged: () => void;
+  comments: GithubComment[]; readOnly?: boolean; onChanged: () => void;
 }) {
   const identity = `${kind}:${repository}#${number}`;
   const parent = `github-body:${useId()}`;
@@ -26,7 +26,7 @@ export function GithubBodyAndComment({ kind, repository, number, body, comments,
   const changeBody = (text: string) => { if (!pending.current) setDraft(current => ({ ...current, text })); };
   const changeComment = (text: string) => { if (!pending.current) setComment(text); };
   const submit = async (field: "body" | "comment", signal: AbortSignal): Promise<UiOutcome> => {
-    if (pending.current || signal.aborted || draft.identity !== identity) return { status: "unavailable", reason: "The provider editor changed or is busy" };
+    if (readOnly || pending.current || signal.aborted || draft.identity !== identity) return { status: "unavailable", reason: "The provider editor changed or is busy" };
     if (field === "body" && draft.baseline !== body) return { status: "requires_input", request: `${parent}:changed-body`, reason: "The provider body changed. Read it and explicitly reset or revise this retained draft before saving." };
     const value = field === "body" ? draft.text : comment;
     if (field === "comment" && !value.trim()) return { status: "unavailable", reason: "Enter a comment first" };
@@ -56,7 +56,7 @@ export function GithubBodyAndComment({ kind, repository, number, body, comments,
       if (mounted.current) setBusy(false);
     }
   };
-  const revision = useUiRevision(() => [identity, body, draft, comment, pending.current, comments, receipt]);
+  const revision = useUiRevision(() => [identity, body, draft, comment, pending.current, comments, receipt, readOnly]);
   const actions: { id: string; label: string; parameters?: UiCommand["parameters"]; enabled?: () => boolean; execute: UiCommand["execute"] }[] = [
     { id: "body", label: `Set GitHub body draft ${identity}`, parameters: { text: { type: "string", maxLength: 1048576 } },
       execute: async args => { changeBody(args.text as string); return { status: "completed", value: { draft_updated: true, sent: false } }; } },
@@ -65,9 +65,9 @@ export function GithubBodyAndComment({ kind, repository, number, body, comments,
     { id: "reset", label: `Reset GitHub body draft ${identity}`, execute: async () => {
       setDraft({ identity, baseline: body, text: body }); return { status: "completed", value: { reset_to_current_body: true, sent: false } };
     } },
-    { id: "save", label: `Save GitHub body ${identity}`, enabled: () => draft.text !== body,
+    { id: "save", label: `Save GitHub body ${identity}`, enabled: () => !readOnly && draft.text !== body,
       execute: async (_args, _actor, signal) => submit("body", signal) },
-    { id: "send", label: `Add GitHub comment ${identity}`, enabled: () => !!comment.trim(),
+    { id: "send", label: `Add GitHub comment ${identity}`, enabled: () => !readOnly && !!comment.trim(),
       execute: async (_args, _actor, signal) => submit("comment", signal) },
   ];
   const invoke = useUiCommands(actions.map(action => ({ key: `${parent}:${action.id}`, command: {
@@ -76,12 +76,12 @@ export function GithubBodyAndComment({ kind, repository, number, body, comments,
   } })));
   const human = (id: string) => void invoke(`${parent}:${id}`, {}).catch(error => setNotice(String(error)));
   useUiReading(`GitHub body and comments ${identity}`, { identity, committed_body: body, body_draft: draft.text,
-    draft_baseline_current: draft.baseline === body, comment_draft: comment, comments, busy, notice, receipt,
+    draft_baseline_current: draft.baseline === body, comment_draft: comment, comments, busy, notice, receipt, read_only: readOnly,
     scope: "Provider-reported content and replies; no independent verification or cross-client compare-and-swap" });
   return <>
     <li role="treeitem" className="github-tree__field">
       <label>Body<textarea value={draft.text} disabled={busy} onChange={event => changeBody(event.target.value)} /></label>
-      <button type="button" disabled={busy || draft.text === body} onClick={() => human("save")}>Save body</button>
+      <button type="button" disabled={readOnly || busy || draft.text === body} onClick={() => human("save")}>Save body</button>
       {draft.baseline !== body && <button type="button" disabled={busy} onClick={() => human("reset")}>Reset body draft to current</button>}
     </li>
     <li role="treeitem" className="github-tree__section"><span>Comments ({comments.length})</span>
@@ -91,7 +91,7 @@ export function GithubBodyAndComment({ kind, repository, number, body, comments,
         </li>)}
         <li role="treeitem" className="github-tree__new-comment">
           <label>New comment<textarea value={comment} disabled={busy} onChange={event => changeComment(event.target.value)} /></label>
-          <button type="button" disabled={busy || !comment.trim()} onClick={() => human("send")}>Add comment</button>
+          <button type="button" disabled={readOnly || busy || !comment.trim()} onClick={() => human("send")}>Add comment</button>
         </li>
       </ul>
     </li>

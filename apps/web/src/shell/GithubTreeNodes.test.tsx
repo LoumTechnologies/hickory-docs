@@ -101,3 +101,65 @@ describe("GitHub workspace-tree nodes", () => {
     expect(calls.some(([method, path, body]) => method === "POST" && path.endsWith("/comment") && (body as { body: string }).body === "I checked this.")).toBe(true);
   });
 });
+
+it("shares lazy PR/check disclosure, notification and link controls and retires closed children", async () => {
+  const { act } = await import("@testing-library/react");
+  const { UiActions } = await import("../lib/uiActions");
+  const { UiActionContext } = await import("../lib/uiActionBridge");
+  const registry = new UiActions({ workspace: "p", window: "w" }, () => true, async () => {});
+  const calls: string[] = [];
+  const opened = vi.spyOn(window, "open").mockReturnValue(null);
+  installMockHandler(async (method, path) => {
+    calls.push(`${method} ${path}`);
+    if (path === "/api/workspace/github/pr/12") return { ...PR, body: "Explicit PR body", comments: [],
+      checks: [{ name: "unit", workflow: "CI", status: "COMPLETED", run: 2, job: 3 }] };
+    if (path.startsWith("/api/workspace/github/check-log")) return { text: "Explicit log", truncated: false };
+    if (path === "/api/workspace/github/notification/991") return { ok: true };
+    throw Error(path);
+  });
+  const view = render(<UiActionContext.Provider value={registry}><ul><GithubReviewRows workspace={WORKSPACE} onChanged={() => {}} /></ul></UiActionContext.Provider>);
+  const actions = () => registry.groups().groups.flatMap(group => registry.observe(group, 64).actions);
+  let id = 0;
+  const run = async (label: string, args = {}) => { let result: unknown; await act(async () => { result = await registry.act(registry.scope,
+    { id: "python:turn", kind: "agent" }, { handle: actions().find(action => action.label === label)!.handle, arguments: args, request_id: String(++id) }); }); return result; };
+  expect(actions().some(a => a.label.includes("GitHub body draft"))).toBe(false);
+  expect(calls).toEqual([]);
+  await run("Set GitHub PR acme/widget#12 visibility", { open: true });
+  await screen.findByDisplayValue("Explicit PR body");
+  expect(calls).toEqual(["GET /api/workspace/github/pr/12"]);
+  const bodyHandle = actions().find(a => a.label === "Set GitHub body draft pr:acme/widget#12")!.handle;
+  await run("Set GitHub check acme/widget#12/CI/unit visibility", { open: true });
+  await screen.findByText("Explicit log");
+  expect(await run("Mark GitHub notification 991 read")).toMatchObject({ status: "result", outcome: { value: { response: { ok: true } } } });
+  expect(await run("Open GitHub link: Open on GitHub")).toMatchObject({ status: "result", outcome: { value: { navigation_requested: true, tab_handle_returned: false } } });
+  fireEvent.click(screen.getByRole("link", { name: "Open on GitHub" }));
+  expect(opened).toHaveBeenCalledTimes(2);
+  await run("Set GitHub PR acme/widget#12 visibility", { open: false });
+  expect(actions().some(a => a.label.includes("GitHub body draft") || a.label.includes("GitHub check"))).toBe(false);
+  expect(await registry.act(registry.scope, { id: "acp:turn", kind: "agent" }, { handle: bodyHandle, arguments: { text: "stale" }, request_id: "closed" })).toMatchObject({ status: "unavailable" });
+  view.unmount(); opened.mockRestore();
+});
+
+it("refuses late issue reads and preserves a dirty body while provider identity refreshes", async () => {
+  const { act } = await import("@testing-library/react");
+  const responses: ((value: unknown) => void)[] = [];
+  installMockHandler(async () => new Promise(done => responses.push(done)));
+  const mount = (updated_at: string) => <ul><GithubIssueRows workspace={{ ...WORKSPACE,
+    issues: [{ ...WORKSPACE.issues[0], updated_at }] }} folder="docs" onChanged={() => {}} /></ul>;
+  const view = render(mount("one"));
+  fireEvent.click(screen.getByRole("button", { name: /Issue.*#7/ }));
+  await vi.waitFor(() => expect(responses).toHaveLength(1));
+  view.rerender(mount("two"));
+  await vi.waitFor(() => expect(responses).toHaveLength(2));
+  await act(async () => { responses[0]({ ...WORKSPACE.issues[0], body: "Late old body", comments: [] }); });
+  expect(screen.queryByDisplayValue("Late old body")).toBeNull();
+  await act(async () => { responses[1]({ ...WORKSPACE.issues[0], body: "Current body", comments: [] }); });
+  fireEvent.change(screen.getByLabelText("Body"), { target: { value: "Retained local draft" } });
+  view.rerender(mount("three"));
+  expect((screen.getByLabelText("Body") as HTMLTextAreaElement).value).toBe("Retained local draft");
+  expect((screen.getByRole("button", { name: "Save body" }) as HTMLButtonElement).disabled).toBe(true);
+  await vi.waitFor(() => expect(responses).toHaveLength(3));
+  await act(async () => { responses[2]({ ...WORKSPACE.issues[0], body: "New provider body", comments: [] }); });
+  expect((screen.getByLabelText("Body") as HTMLTextAreaElement).value).toBe("Retained local draft");
+  expect(screen.getByRole("button", { name: "Reset body draft to current" })).toBeTruthy();
+});

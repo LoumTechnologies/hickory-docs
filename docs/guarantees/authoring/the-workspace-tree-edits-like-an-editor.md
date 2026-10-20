@@ -128,3 +128,15 @@ explicit recovery. A pending submit excludes another submit; failed comment
 requests retain text and report uncertain effects. Focused mixed native/agent
 and failure tests in `GithubBodyAndComment.test.tsx` passed with mocked replies,
 alongside the existing semantic title/body/comment case. No live post was made.
+
+GitHub rows expose collapsed summaries separately from expanded detail reading.
+Their shared lazy disclosure controller binds results to the requested source;
+changed-source or explicitly discarded responses cannot replace current details.
+Prior captures stay labelled while refreshing and retain local body drafts;
+submissions are disabled against the prior capture. Closing a row unmounts its
+body/comment/check/read controls and retires their action handles. Notification
+read returns its real semantic API reply, while outbound links accept only HTTPS
+GitHub URLs and report browser navigation requests without asserting page loads.
+Focused provider-mocked cases in `GithubTreeNodes.test.tsx` and
+`GithubTreeControls.test.tsx` verify these boundaries. No real provider/post or
+native/released/deployed witness is established by those tests.

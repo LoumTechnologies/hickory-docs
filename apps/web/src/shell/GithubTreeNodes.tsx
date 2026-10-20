@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useState, type KeyboardEvent } from "react";
 
+import { useGithubTreeDisclosure } from "./useGithubTreeDisclosure";
+import { useUiReading } from "../lib/uiReading";
 import { api } from "../api/client";
 import type {
   GithubCheck,
@@ -9,6 +11,7 @@ import type {
 } from "../api/github";
 import { workspaceNodeKey } from "../lib/workspaceTree";
 import { isAction } from "../lib/keymap";
+import { GithubNotificationRead, GithubTreeLink } from "./GithubTreeControls";
 import { GithubBodyAndComment as BodyAndComment } from "./GithubBodyAndComment";
 import { TreeRenameEditor } from "./TreeRenameEditor";
 
@@ -34,17 +37,17 @@ export function githubUnreadUnder(issues: readonly GithubIssue[], folder: string
     total + ((issue.folder === folder || (prefix && issue.folder.startsWith(prefix))) ? issue.unread ?? 0 : 0), 0);
 }
 
+function GithubTreeReading({ label, value }: { label: string; value: unknown }) {
+  useUiReading(`GitHub tree content ${label}`, value);
+  return null;
+}
+
 function UnreadBadge({ count }: { count?: number }) {
   return count ? <span className="github-tree__unread" data-tip={`${count} unread GitHub notification${count === 1 ? "" : "s"}`}>{count}</span> : null;
 }
 
 function MarkRead({ thread, onChanged }: { thread?: string | null; onChanged: () => void }) {
-  const [error, setError] = useState<string | null>(null);
-  if (!thread) return null;
-  return <li role="treeitem" className="github-tree__mark-read"><button type="button" onClick={() => {
-    setError(null);
-    void api.markGithubNotificationRead(thread).then(onChanged, (cause) => setError(textOf(cause)));
-  }}>Mark notification read</button>{error && <span>{error}</span>}</li>;
+  return thread ? <GithubNotificationRead thread={thread} onChanged={onChanged} /> : null;
 }
 
 export function useGithubWorkspaceNodes() {
@@ -99,20 +102,13 @@ function RenameTitle({
 }
 
 function CheckRow({ check, parent }: { check: GithubCheck; parent: string }) {
-  const [open, setOpen] = useState(false);
-  const [log, setLog] = useState<{ text: string; truncated: boolean } | null>(null);
-  const [error, setError] = useState<string | null>(null);
   const key = githubKey(`${parent}/check/${check.name}`);
   const canLog = Boolean(check.run && check.job);
-  const toggle = () => {
-    if (!canLog) return;
-    setOpen((before) => !before);
-    if (!log && !open) {
-      void api.githubCheckLog(check.run!, check.job!).then(setLog, (cause) => setError(textOf(cause)));
-    }
-  };
+  const { open, detail: log, changed, error, toggle } = useGithubTreeDisclosure(
+    `GitHub check ${parent}/${check.workflow ?? ""}/${check.name}`, [parent, check],
+    () => api.githubCheckLog(check.run!, check.job!), canLog ? undefined : "This check has no addressable run/job log", false);
   return (
-    <li role="treeitem" aria-expanded={canLog ? open : undefined}>
+    <li role="treeitem" aria-expanded={open}>
       <button
         type="button"
         className="github-tree__check mono"
@@ -128,7 +124,7 @@ function CheckRow({ check, parent }: { check: GithubCheck; parent: string }) {
         {check.workflow ? `${check.workflow}: ` : ""}{check.name}
         <span className="github-tree__state">{(check.conclusion ?? check.status).toLowerCase()}</span>
       </button>
-      {open && <ul role="group"><li role="treeitem" className="github-tree__log"><pre>{error ?? log?.text ?? "Loading log…"}</pre>{log?.truncated && <span>Log truncated at 512 KiB.</span>}</li></ul>}
+      {open && <ul role="group"><GithubTreeReading label={key} value={{ check, log, error, capture_matches_source: !changed, available: canLog }} /><li role="treeitem" className="github-tree__log"><pre>{changed ? "Earlier check capture; refreshing current check…\n" : ""}{error ?? log?.text ?? (canLog ? "Loading log…" : "No addressable run/job log")}</pre>{log?.truncated && <span>Log truncated at 512 KiB.</span>}</li></ul>}
     </li>
   );
 }
@@ -139,6 +135,8 @@ export function GithubReviewRows({ workspace, onChanged }: { workspace: GithubWo
 }
 
 export function GithubProviderStatusRow({ workspace }: { workspace: GithubWorkspace | null }) {
+  useUiReading("GitHub provider status", workspace ? { status: workspace.status, reason: workspace.reason ?? null,
+    repository: workspace.repository ?? null, branch: workspace.branch ?? null } : { status: "not_loaded" });
   if (!workspace || workspace.status !== "unavailable") return null;
   return (
     <li role="treeitem">
@@ -153,24 +151,17 @@ export function GithubProviderStatusRow({ workspace }: { workspace: GithubWorksp
 }
 
 function ReviewRow({ review, onChanged }: { review: GithubPullRequest; onChanged: () => void }) {
-  const [open, setOpen] = useState(false);
-  const [detail, setDetail] = useState<GithubPullRequest | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [renaming, setRenaming] = useState(false);
+  useUiReading(`GitHub PR row ${review.repository}#${review.number}`, { title: review.title, state: review.state,
+    draft: review.draft, status: statusText(review), head: review.head, head_sha: review.head_sha, base: review.base,
+    unread: review.unread ?? 0, updated_at: review.updated_at ?? null });
   const id = `${review.repository}#${review.number}`;
   const key = githubKey(id);
-  const load = useCallback(() => {
-    setError(null);
-    void api.githubPullRequest(review.number).then(setDetail, (cause) => setError(textOf(cause)));
-  }, [review.number]);
-  const toggle = () => {
-    setOpen((before) => !before);
-    if (!open && !detail) load();
-  };
+  const { open, detail, changed, error, renaming, setRenaming, load, toggle, rename } = useGithubTreeDisclosure(
+    `GitHub PR ${id}`, [review.repository, review.number, review.head_sha, review.updated_at], () => api.githubPullRequest(review.number));
   const renameKey = (event: KeyboardEvent) => {
     if (isAction(event, "tree.rename")) {
       event.preventDefault(); event.stopPropagation();
-      setOpen(true); setRenaming(true); if (!detail) load();
+      rename();
     }
   };
   return (
@@ -188,19 +179,21 @@ function ReviewRow({ review, onChanged }: { review: GithubPullRequest; onChanged
         {renaming && <li role="treeitem"><RenameTitle kind="pr" repository={review.repository} number={review.number} initialTitle={review.title} onDone={(changed) => { setRenaming(false); if (changed) onChanged(); }} /></li>}
         {error && <li role="treeitem" className="github-tree__notice">{error}</li>}
         {!detail && !error && <li role="treeitem" className="muted">Loading pull request…</li>}
+        {changed && <li role="treeitem">Showing an earlier provider capture while the current source refreshes. Submission is disabled.</li>}
         {detail && <>
+          <GithubTreeReading label={key} value={{ detail, capture_matches_source: !changed }} />
           <MarkRead thread={review.notification_thread} onChanged={onChanged} />
-          <li role="treeitem" className="github-tree__facts">{statusText(detail)} · {detail.author ?? "unknown author"} · <a href={detail.url} target="_blank" rel="noreferrer">Open on GitHub</a></li>
-          <BodyAndComment kind="pr" repository={detail.repository} number={detail.number} body={detail.body ?? ""} comments={detail.comments ?? []} onChanged={load} />
+          <li role="treeitem" className="github-tree__facts">{statusText(detail)} · {detail.author ?? "unknown author"} · <GithubTreeLink url={detail.url} label="Open on GitHub" /></li>
+          <BodyAndComment readOnly={changed} kind="pr" repository={detail.repository} number={detail.number} body={detail.body ?? ""} comments={detail.comments ?? []} onChanged={load} />
           <li role="treeitem" className="github-tree__section">Reviews ({detail.reviews?.length ?? 0})
             <ul role="group">{(detail.reviews ?? []).map((item, index) => <li role="treeitem" key={item.id ?? index}><span className="github-tree__byline">{item.author?.login ?? "unknown"} · {item.state?.toLowerCase()}</span>{item.body && <p>{item.body}</p>}</li>)}</ul>
           </li>
           <li role="treeitem" className="github-tree__section">Checks ({detail.checks.length})
-            <ul role="group">{detail.checks.map((check) => <CheckRow key={`${check.workflow}:${check.name}`} check={check} parent={id} />)}</ul>
+            <ul role="group">{detail.checks.map((check, index) => <CheckRow key={`${check.workflow}:${check.name}:${check.run}:${check.job}:${index}`} check={check} parent={id} />)}</ul>
           </li>
           <li role="treeitem" className="github-tree__section">Current-head conflict analysis ({detail.current_head_conflicts?.length ?? 0})
             <ul role="group">{(detail.current_head_conflicts ?? []).map((other) => <li role="treeitem" key={other.number}>
-              <a href={other.url} target="_blank" rel="noreferrer">PR #{other.number}: {other.title}</a>
+              <GithubTreeLink url={other.url} label={`PR #${other.number}: ${other.title}`} />
               <span> — {other.status}; provider author {other.author ?? "unknown"}; commit authors {other.commit_authors.join(", ") || "unknown"}</span>
               {other.status === "conflicting" && <p>{other.claim}.</p>}
               {other.reason && <p>{other.reason}</p>}
@@ -218,20 +211,16 @@ export function GithubIssueRows({ workspace, folder, parentKey, onChanged }: { w
 }
 
 function IssueRow({ issue, parentKey, onChanged }: { issue: GithubIssue; parentKey?: string; onChanged: () => void }) {
-  const [open, setOpen] = useState(false);
-  const [detail, setDetail] = useState<GithubIssue | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [renaming, setRenaming] = useState(false);
+  useUiReading(`GitHub issue row ${issue.repository}#${issue.number}`, { title: issue.title, state: issue.state,
+    folder: issue.folder, unread: issue.unread ?? 0, freshness: issue.freshness ?? null, reason: issue.reason ?? null });
   const key = githubKey(`${issue.repository}#${issue.number}`);
-  const load = useCallback(() => {
-    setError(null);
-    void api.githubIssue(issue.repository, issue.number).then(setDetail, (cause) => setError(textOf(cause)));
-  }, [issue.repository, issue.number]);
-  const toggle = () => { setOpen((before) => !before); if (!open && !detail && issue.freshness !== "unavailable") load(); };
+  const { open, detail, changed, error, renaming, setRenaming, load, toggle, rename } = useGithubTreeDisclosure(
+    `GitHub issue ${issue.repository}#${issue.number}`, [issue.repository, issue.number, issue.updated_at, issue.freshness],
+    () => api.githubIssue(issue.repository, issue.number), issue.freshness === "unavailable" ? issue.reason ?? "Provider unavailable" : undefined);
   return (
     <li role="treeitem" aria-expanded={open}>
       <button type="button" className="github-tree__node mono" onClick={toggle}
-        onKeyDown={(event) => { if (isAction(event, "tree.rename")) { event.preventDefault(); event.stopPropagation(); setOpen(true); setRenaming(true); if (!detail && issue.freshness !== "unavailable") load(); } }}
+        onKeyDown={(event) => { if (isAction(event, "tree.rename")) { event.preventDefault(); event.stopPropagation(); rename(); } }}
         data-workspace-node-key={key} data-workspace-node-kind="work-item"
         data-workspace-parent={parentKey} data-workspace-expandable="true"
         data-workspace-expanded={String(open)} tabIndex={-1}
@@ -246,10 +235,12 @@ function IssueRow({ issue, parentKey, onChanged }: { issue: GithubIssue; parentK
         {issue.reason && <li role="treeitem" className="github-tree__notice">{issue.reason}</li>}
         {error && <li role="treeitem" className="github-tree__notice">{error}</li>}
         {!detail && !error && !issue.reason && <li role="treeitem" className="muted">Loading issue…</li>}
+        {changed && <li role="treeitem">Showing an earlier provider capture while the current source refreshes. Submission is disabled.</li>}
         {detail && <>
+          <GithubTreeReading label={key} value={{ detail, capture_matches_source: !changed }} />
           <MarkRead thread={issue.notification_thread} onChanged={onChanged} />
-          <li role="treeitem" className="github-tree__facts">{detail.author ?? "unknown author"} · {(detail.labels ?? []).join(", ") || "no labels"} · <a href={detail.url ?? "#"} target="_blank" rel="noreferrer">Open on GitHub</a></li>
-          <BodyAndComment kind="issue" repository={detail.repository} number={detail.number} body={detail.body ?? ""} comments={detail.comments ?? []} onChanged={load} />
+          <li role="treeitem" className="github-tree__facts">{detail.author ?? "unknown author"} · {(detail.labels ?? []).join(", ") || "no labels"} · <GithubTreeLink url={detail.url} label="Open on GitHub" /></li>
+          <BodyAndComment readOnly={changed} kind="issue" repository={detail.repository} number={detail.number} body={detail.body ?? ""} comments={detail.comments ?? []} onChanged={load} />
         </>}
       </ul>}
     </li>

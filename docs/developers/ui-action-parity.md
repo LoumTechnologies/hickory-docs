@@ -581,3 +581,16 @@ without claiming independent verification or cross-client compare-and-swap.
 Focused tests use mocked provider replies; no GitHub content was posted. The
 collapsed work-item rows, provider status, lazy checks and outbound links still
 need disclosure/read/action registration.
+
+GitHub workspace rows now register explicit disclosure/status controls and
+separate collapsed summaries. Expanding an issue/PR or check performs its native
+lazy fetch; body, comments, reviews, conflicts and actual bounded logs are readable
+only in the expanded subtree. Closing it retires child handles. Refresh and
+pending-read discard have actual controller state; discarding a reply does not
+claim to cancel the host request. A changed row source refuses late replies and
+labels prior captures while refreshing, preserving body drafts and disabling
+submission until the current capture arrives. Notification read and HTTPS GitHub
+navigation use shared handlers and report actual replies/navigation requests.
+Focused tests cover disclosure/retirement, lazy network boundaries, stale responses,
+draft retention, notification replies, native/agent link dispatch and unsafe-link
+refusal. Host/provider replies remain mocked; no live check logs were monitored.
