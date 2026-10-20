@@ -1,3 +1,5 @@
+import { UiActions } from "../lib/uiActions";
+import { UiActionContext } from "../lib/uiActionBridge";
 // docs/guarantees/collaboration/hick-documents-merge-through-hick.md
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
@@ -97,4 +99,28 @@ describe("the banner's button", () => {
     await waitFor(() => expect(screen.getByText(/hick init failed: not a git work tree/)).toBeTruthy());
     expect(screen.getByRole("button", { name: "Run hick init" })).toBeTruthy();
   });
+});
+
+// Guarantee: docs/guarantees/agent/ui-action-dispatch.md
+it("shares the awaited repair with agents and retires controls after dismissal", async () => {
+  answer({});
+  const outcome = { ok: true, changed: { hook: true, gitignore: false, gitattributes: false, merge_driver: true, agents_md: false, mcp_json: false }, hook_path: ".git/hooks/pre-commit", status: { repository: true, attributes: true, configured: true, summary: "configured" } };
+  let finish!: (value: typeof outcome) => void;
+  const init = vi.spyOn(api, "initRepository").mockImplementation(() => new Promise(resolve => { finish = resolve; }));
+  const registry = new UiActions({ workspace: "p", window: "w" }, () => true, async () => {});
+  render(<UiActionContext.Provider value={registry}><MergeDriverNotice /></UiActionContext.Provider>);
+  await screen.findByRole("button", { name: "Run hick init" });
+  const actions = () => registry.groups().groups.flatMap(group => registry.observe(group).actions);
+  const repair = actions().find(a => a.label === "Initialize repository merge driver")!;
+  let result!: ReturnType<typeof registry.act>;
+  await act(async () => { result = registry.act(registry.scope, { id: "python:turn", kind: "agent" }, { handle: repair.handle, arguments: {}, request_id: "init" }); });
+  expect(init).toHaveBeenCalledOnce();
+  expect(await registry.act(registry.scope, { id: "python:turn", kind: "agent" }, { handle: repair.handle, arguments: {}, request_id: "duplicate" })).toMatchObject({ status: "stale" });
+  let response: unknown;
+  await act(async () => { finish(outcome); response = await result; });
+  expect(response).toMatchObject({ status: "result", outcome: { status: "completed", value: { reply: JSON.stringify(outcome) } } });
+  expect(actions().some(a => a.label === "Initialize repository merge driver")).toBe(false);
+  const dismiss = actions().find(a => a.label === "Dismiss merge driver notice")!;
+  await act(async () => { await registry.act(registry.scope, { id: "python:turn", kind: "agent" }, { handle: dismiss.handle, arguments: {}, request_id: "dismiss" }); });
+  expect(actions()).toHaveLength(0);
 });
