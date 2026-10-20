@@ -233,3 +233,22 @@ it("refuses a launch if the visible buffer changes before its captured model upd
     expect(screen.getByRole("alert").textContent).toContain("displayed code changed");
   } finally { cleanup(); view.destroy(); wrapper.remove(); }
 });
+
+// Guarantee: docs/guarantees/agent/ui-action-dispatch.md
+it("does not adopt references that arrive after the captured source changes", async () => {
+  let finish!: (locations: import("../lsp/client").LspLocation[]) => void;
+  const references = vi.fn(() => new Promise<import("../lsp/client").LspLocation[]>(resolve => { finish = resolve; }));
+  vi.mocked(useWorkspaceLsp).mockImplementation(path => ({ client: { references } as unknown as LspClient, uri: path, diagnostics: [], ready: true }));
+  const view = new EditorView({ parent: document.body, state: EditorState.create({ doc: "value" }) });
+  try {
+    const mounted = render(<ComparisonTools path="app.ts" source={{ id: "new", label: "New", kind: "git", text: "value", project: [entry()] }} view={view} />);
+    await waitFor(() => expect(view.state.facet(completionSources)).toHaveLength(1));
+    fireEvent.keyDown(view.contentDOM, { key: "F12", shiftKey: true });
+    await waitFor(() => expect(references).toHaveBeenCalledOnce());
+    act(() => { view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: "changed" } }); });
+    mounted.rerender(<ComparisonTools path="app.ts" source={{ id: "next", label: "Next", kind: "git", text: "changed", project: [entry("changed")] }} view={view} />);
+    await act(async () => { finish([{ uri: "hick-project:///captured/old.ts", range: { start: { line: 0, character: 0 }, end: { line: 0, character: 1 } } }]); });
+    expect(screen.queryByRole("dialog", { name: "References" })).toBeNull();
+    mounted.unmount();
+  } finally { view.destroy(); }
+});

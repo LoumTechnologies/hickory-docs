@@ -1,9 +1,12 @@
+import { CapturedReferences } from "./CapturedReferences";
+import { useUiCommands, useUiRevision } from "../lib/uiActionBridge";
+import { useUiReading } from "../lib/uiReading";
 import { launchWithProfiles } from "../debug/launchProfiles";
 import { revealPreferredDebugLocation } from "../debug/preferredDebugLocation";
 import { preferCapturedLiterateSurface, registerCapturedComparison, ProjectDebugLinks } from "../debug/projectDebugSurface";
 import { PromptPanel, usePrompt } from "./PromptPanel";
 import { completionSource, completionSources } from "../lsp/completion";
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react";
 import { Compartment, StateEffect } from "@codemirror/state";
 import type { EditorView } from "@codemirror/view";
 import { api } from "../api/client";
@@ -38,7 +41,7 @@ export { openCapturedCode } from "../lib/capturedCode";
 export function ComparisonTools({path,source,view,children}: {path:string;source:ComparisonSource;view:EditorView|null;children?: (debug: typeof IDLE_SESSION | null) => ReactNode}) {
   const prompt = usePrompt();
   const [registration,setContext] = useState<{id:string;uri:string;project:ProjectEntry[]}|null>(null);
-  const [references,setReferences] = useState<import("../lsp/client").LspLocation[] | null>(null);
+  const [references,setReferences] = useState<{ scope: string; locations: import("../lsp/client").LspLocation[] } | null>(null);
   const [error,setError] = useState("");
   const [busy,setBusy] = useState(false);
   const [retry,setRetry] = useState(0);
@@ -59,6 +62,7 @@ export function ComparisonTools({path,source,view,children}: {path:string;source
   const displayMatches = !!displayed && decode(displayed) === source.text;
   const context = registration?.project === selected && displayMatches ? registration : null;
   const uri = context && active ? `${context.uri}${active.path}` : "";
+  const referenceScope = JSON.stringify([context?.id, uri, source.id, source.text]);
   const lsp = useWorkspaceLsp(uri,active ? decode(active) : "");
   const debug = useFollowingDebugSession(uri, source.debugOwner) ?? IDLE_SESSION;
   const live = useRef({source,local,selected,context,debug}); live.current={source,local,selected,context,debug};
@@ -115,7 +119,7 @@ export function ComparisonTools({path,source,view,children}: {path:string;source
         }
         void openCapturedCode(target, source.debugOwner ?? uri).catch(e=>setError(String(e)));
       },
-      onReferences:locations => setReferences(locations),
+      onReferences:locations => { if (live.current.context === context && view.state.doc.toString() === source.text) setReferences({ scope: referenceScope, locations }); },
       runtimeValue:word => exact ? live.current.debug.valueAt(word) : Promise.resolve(null),
     }),
       completionSources.of(async completion => {
@@ -130,7 +134,7 @@ export function ComparisonTools({path,source,view,children}: {path:string;source
     if (exact) extensions.push(...debugEditor({language:languageFromPath(path),onToggleBreakpoint:line=>live.current.debug.toggleBreakpoint(line),onSelectFrame:id=>live.current.debug.selectFrame(id),onEvaluate:expression=>live.current.debug.query(expression),onAddWatch:expression=>live.current.debug.addWatch(expression),onSetBreakpointCondition:(line,patch)=>live.current.debug.setBreakpointCondition(line,patch)}));
     view.dispatch({effects:tools.get(view.state) === undefined ? StateEffect.appendConfig.of(tools.of(extensions)) : tools.reconfigure(extensions)});
     return () => { if (view.dom.isConnected) view.dispatch({effects:tools.reconfigure([])}); };
-  },[view,context,lsp.client,lsp.uri,path,exact,tools,local,selected,displayMatches]);
+  },[view,context,lsp.client,lsp.uri,path,exact,tools,local,selected,displayMatches,source.text,referenceScope]);
   useEffect(() => { if (view && context && exact) view.dispatch({effects:debugStateEffects(debug)}); },[view,context,exact,debug]);
   useEffect(()=> {
     if(view && context && exact && displayMatches)return registerCapturedComparison(uri,view,source.text,source.debugSurface?.view);
@@ -161,6 +165,10 @@ export function ComparisonTools({path,source,view,children}: {path:string;source
   const canDebug = !!active && isDebuggable(languageFromPath(active.path));
   const selectedFrame = debug.frames.find(frame => frame.id === debug.selectedFrame);
   useSelectedFrame(view, exact ? (selectedFrame?.line ?? debug.pausedLine) : null);
+  const setup = `comparison-tools:${useId()}`;
+  const setupRevision = useUiRevision(() => [source.id, source.text, path, uri, exact, displayMatches, busy, error, retry]);
+  const setupAction = useUiCommands(error ? [{ key: setup, command: { parent: setup, subject: setup, label: "Retry captured code tools", parameters: {}, prerequisites: [], read: () => ({ revision: setupRevision(), enabled: !busy }), execute: async () => { setRetry(n => n + 1); return { status: "completed", value: { registration_requested: true, ready: false } }; } } }] : []);
+  useUiReading("captured code tools status", { path, label: source.label, uri: uri || null, exact, display_matches: displayMatches, registering: busy, error: error || selection?.error || null, scope: "Actual captured-code controller state; registration is not execution or verification" }, [source.id, source.text, uri]);
   return <>
     {children?.(context && exact && canDebug ? debug : null)}
     {canDebug && <DebugLaunchAction view={view} label={`Debug ${path} · ${source.label}`} disabled={!context || busy || !displayMatches || !exact} onStart={()=>launch()} onProfiles={()=>launch(true)} hint={selection?.latest ? "Debug this code · latest project" : "Debug this code · latest project containing this version of the file"} />}
@@ -179,15 +187,13 @@ export function ComparisonTools({path,source,view,children}: {path:string;source
     {selection?.error && <div className="comparison-tools"><p role="alert">{selection.error}</p></div>}
     {error && <div className="comparison-tools">
       <p role="alert">Could not start code tools: {error}</p>
-      <button className="btn" onClick={() => setRetry(n => n + 1)}>Retry code tools</button>
+      <button className="btn" onClick={() => void setupAction(setup).catch(() => undefined)}>Retry code tools</button>
     </div>}
     <PromptPanel prompt={prompt.prompt} onSettle={prompt.settle} />
-    {references && <div className="code-references" role="dialog" aria-label="References" onKeyDown={event=>{if(event.key==="Escape")setReferences(null);}}>
-      <button type="button" aria-label="Close references" onClick={()=>setReferences(null)}>×</button>
-      {references.length ? references.map((target,index)=><button type="button" key={index} onClick={()=>{
-        void openCapturedCode(target,source.debugOwner ?? uri).then(()=>setReferences(null),e=>setError(String(e)));
-      }}>{decodeURIComponent(target.uri.split("/").slice(4).join("/"))}:{target.range.start.line+1}</button>) : <p>No references found.</p>}
-    </div>}
+    {references?.scope === referenceScope && <CapturedReferences targets={references.locations} scope={referenceScope} owner={source.debugOwner ?? uri}
+      current={() => !!context && displayMatches && (!view || (view.dom.isConnected && view.state.doc.toString() === source.text))}
+      onClose={() => setReferences(null)} onError={setError} />}
+
   </>;
 }
 
