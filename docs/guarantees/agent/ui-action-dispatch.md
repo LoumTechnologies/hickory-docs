@@ -343,3 +343,17 @@ same-looking controls cannot reuse old handles after a document change, alongsid
 existing settings disclosure. Strict targeted checking passed. This guards local
 UI retargeting; concurrent independent host configuration remains outside this
 client-only check.
+
+### Recorded ACP evidence — 2026-10-19
+
+Recorded message/reasoning/plan/tool/status/filesystem evidence has actual details
+disclosure and explicit JSON UTF-8 reads capped at 8192 bytes. Closed items retain
+mounted view state while retiring their reading and nested tool-reading commands.
+Opaque revision tokens include the retained value without disclosing it. Invalid
+or non-object JSON remains inspectable as text. A recorded stop is labelled
+neutrally; an adapter report is not an independent execution/byte check.
+
+Executed focused checks: AcpRecord (2 passed), including nested reader retirement,
+explicit Unicode evidence, malformed payload and neutral stopped attribution;
+strict targeted checking passed. These retained-record component checks do not
+witness live provider output or certify an adapter's claims.

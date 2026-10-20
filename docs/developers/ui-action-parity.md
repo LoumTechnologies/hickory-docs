@@ -353,3 +353,9 @@ input; other opaque adapter configuration semantics retain the adapter's own
 permission model. Agent command help requires its actual disclosure before bytes
 are included in connection reads. Configuration revisions include document,
 backend and adapter session, not just the displayed value.
+
+Recorded ACP activity now uses the same progressive evidence disclosure in dock
+and session views. Collapsing a recorded item retires its own byte reader and any
+nested live-detail readers; expanding exposes exact retained JSON through bounded
+pages. Adapter-reported status remains a declaration, and recorded stops use a
+neutral label rather than assuming the human initiated them.
