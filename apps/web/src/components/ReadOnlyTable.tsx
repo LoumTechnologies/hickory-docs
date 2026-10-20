@@ -1,4 +1,6 @@
-import { useMemo, useState } from "react";
+import { useId, useMemo, useState } from "react";
+
+import { useUiCommands, useUiRevision } from "../lib/uiActionBridge";
 
 export interface NotebookTable {
   kind: "table";
@@ -27,12 +29,29 @@ export function ReadOnlyTable({ table }: { table: NotebookTable }) {
     });
     return result;
   }, [table, filter, sort]);
+  const parent = `notebook-table:${useId()}`;
+  const revision = useUiRevision(() => [table, filter, sort]);
+  const sortBy = (column: number, descending: boolean) => setSort({ column, descending });
+  useUiCommands([
+    { key: `${parent}:filter`, command: { label: "Filter read-only table page", parent, subject: parent, parameters: { filter: { type: "string", maxLength: 16384 } }, prerequisites: [], read: () => ({ revision: revision(), enabled: true }), execute: async args => { setFilter(args.filter as string); return { status: "completed", value: { filtered_page: true, scope: "Current loaded preview only" } }; } } },
+    { key: `${parent}:sort`, command: { label: "Sort read-only table page", parent, subject: parent, parameters: { column: { type: "number", minimum: 0, maximum: 1000000, integer: true }, descending: { type: "boolean" } }, prerequisites: [], read: () => ({ revision: revision(), enabled: table.schema.length > 0 }), execute: async args => {
+      if ((args.column as number) >= table.schema.length) return { status: "unavailable", reason: "Observe a current schema column index" };
+      sortBy(args.column as number, args.descending as boolean);
+      return { status: "completed", value: { sorted_page: true, scope: "Current loaded preview only" } };
+    } } },
+    { key: `${parent}:read`, command: { label: "Read visible table page bytes", parent, subject: parent, parameters: { offset: { type: "number", minimum: 0, maximum: 1000000000, integer: true }, limit: { type: "number", minimum: 1, maximum: 8192, integer: true } }, prerequisites: [], read: () => ({ revision: revision(), enabled: true, value: { visible_rows: rows.length, loaded_rows: table.rows.length, columns: table.schema.length } }), execute: async args => {
+      const bytes = new TextEncoder().encode(JSON.stringify({ schema: table.schema, rows, filter, sort, source_offset: table.offset, loaded_rows: table.rows.length, has_more: table.has_more, total: table.total ?? null, columns_truncated: table.columns_truncated ?? false, scope: "Read-only current page after local filtering/sorting; no dataset write or global sorting" }));
+      const offset = args.offset as number, end = Math.min(offset + (args.limit as number), bytes.length);
+      if (offset > bytes.length) return { status: "unavailable", reason: "Offset outside visible table page" };
+      return { status: "completed", value: { bytes: Array.from(bytes.slice(offset, end)), encoding: "JSON UTF-8", offset, total_bytes: bytes.length, next_offset: end < bytes.length ? end : null } };
+    } } },
+  ]);
   return <section className="notebook-table" aria-label="Read-only table">
     <label>Filter this page <input value={filter} onChange={e => setFilter(e.target.value)} /></label>
     <span className="muted"> Read-only · {table.rows.length} rows{table.total != null ? ` of ${table.total}` : ""}{table.has_more ? " · preview truncated" : ""}{table.columns_truncated ? " · first 256 columns" : ""}</span>
     <div className="notebook-table-scroll"><table>
       <thead><tr>{table.schema.map((col, i) => <th key={i} aria-sort={sort?.column === i ? (sort.descending ? "descending" : "ascending") : "none"}>
-        <button onClick={() => setSort({ column: i, descending: sort?.column === i && !sort.descending })}>{col.name}</button><small>{col.dtype}</small>
+        <button onClick={() => sortBy(i, sort?.column === i && !sort.descending)}>{col.name}</button><small>{col.dtype}</small>
       </th>)}</tr></thead>
       <tbody>{rows.map((row, i) => <tr key={i}>{table.schema.map((_, j) => <td key={j} data-tip={cell(row[j])} className={row[j] === null ? "muted" : ""}>{cell(row[j])}</td>)}</tr>)}</tbody>
     </table></div>

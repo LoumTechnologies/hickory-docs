@@ -372,3 +372,19 @@ Executed focused checks: CommandPathSettings (5 passed), including human install
 remove, conflict, failure/retry, headless UI and registered install/read with actual
 mocked host status; targeted strict checking passed. These tests did not modify
 PATH or shell profiles on a real platform.
+
+### Dataset previews and read-only tables — 2026-10-19
+
+Dataset refresh/remote load/paging use their existing fetch/state handlers and
+report requested transitions rather than claiming a completed read. S3 remains
+explicit; no remote read occurs before its Load action. Responses are bound to
+source, format, document, page, refresh and remote-selection identity. A changed
+request cannot display old rows under the new source/page. Current read-only
+tables expose bounded JSON UTF-8 schema/visible-row reads and shared filter/sort
+setters. Scope includes loaded count, source offset, total/has-more and column
+truncation; sorting/filtering is page-local and never writes the dataset.
+
+Executed focused checks: uiDatasetActions (2 passed), covering exact Unicode
+read/sort/filter, invalid column, explicit S3 load, actual next-page response,
+old-page handle retirement and truncation scope; targeted strict checking passed.
+Fetch responses are mocked; real S3 credentials/storage were not exercised.

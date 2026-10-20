@@ -366,3 +366,12 @@ and removable-installation conditions. Actual returned installer state is report
 it does not claim a CLI run or mutate another installation on conflict. Initial
 status responses cannot replace a newer explicit refresh. A headless/missing host
 keeps its ordinary hidden UI and exposes unavailable status through the adapter.
+
+Dataset preview now exposes explicit remote S3 load, refresh, current status and
+actual previous/next paging. Loading a new source/page invalidates old table
+controls; fetched responses carry their request identity before display. Read-only
+notebook tables expose current schema/values through bounded pages and the same
+filter/sort setters used by their inputs. Filtering/sorting apply only to the
+loaded preview, and reads preserve offset/total/has-more/column truncation scope.
+Editable table cells, formula debugging, fill/layout and other renderer gestures
+remain separate integration work.
