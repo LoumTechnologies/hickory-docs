@@ -190,6 +190,54 @@ async fn trade(
     Invitation::decode(String::from_utf8_lossy(&raw).trim())
 }
 
+#[derive(Debug)]
+pub struct PairCancelled;
+impl std::fmt::Display for PairCancelled {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "Pairing cancelled before local enrollment; the remote machine may have received an invitation. Inspect both rosters before retrying."
+        )
+    }
+}
+impl std::error::Error for PairCancelled {}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PairPhase {
+    Preparing,
+    Binding,
+    WaitingForPeer,
+    ExchangingKeys,
+    Enrolled,
+    Closing,
+    Closed,
+}
+
+fn phase(progress: &Option<tokio::sync::watch::Sender<PairPhase>>, value: PairPhase) {
+    if let Some(progress) = progress {
+        progress.send_replace(value);
+    }
+}
+async fn close_endpoint(
+    endpoint: &iroh::Endpoint,
+    progress: &Option<tokio::sync::watch::Sender<PairPhase>>,
+) {
+    phase(progress, PairPhase::Closing);
+    endpoint.close().await;
+    phase(progress, PairPhase::Closed);
+}
+async fn cancelled(cancel: &mut tokio::sync::watch::Receiver<bool>) {
+    loop {
+        if *cancel.borrow() {
+            return;
+        }
+        if cancel.changed().await.is_err() {
+            std::future::pending::<()>().await;
+        }
+    }
+}
+
 /// Wait for the other machine to dial this phrase, then trade keys.
 pub async fn host(
     identity: &Identity,
@@ -199,6 +247,26 @@ pub async fn host(
     reach: &Reach,
     today: &str,
 ) -> Result<Paired> {
+    let (keep, cancel) = tokio::sync::watch::channel(false);
+    let result = host_cancellable(identity, fleet, phrase, kind, reach, today, cancel, None).await;
+    drop(keep);
+    result
+}
+
+pub async fn host_cancellable(
+    identity: &Identity,
+    fleet: &Fleet,
+    phrase: &Phrase,
+    kind: Kind,
+    reach: &Reach,
+    today: &str,
+    mut cancel: tokio::sync::watch::Receiver<bool>,
+    progress: Option<tokio::sync::watch::Sender<PairPhase>>,
+) -> Result<Paired> {
+    if *cancel.borrow() {
+        return Err(PairCancelled.into());
+    }
+    phase(&progress, PairPhase::Binding);
     let endpoint = builder_for(reach)?
         .secret_key(phrase.rendezvous_key()?)
         .alpns(vec![PAIR_ALPN.to_vec()])
@@ -206,38 +274,69 @@ pub async fn host(
         .await
         .context("could not bind the rendezvous endpoint")?;
 
-    let accepted = tokio::time::timeout(WINDOW, endpoint.accept())
-        .await
-        .map_err(|_| {
-            anyhow::anyhow!(
-                "nobody dialled that phrase within {} seconds, so it has expired.\n  \
+    phase(&progress, PairPhase::WaitingForPeer);
+    let exchange = async {
+        let accepted = tokio::time::timeout(WINDOW, endpoint.accept())
+            .await
+            .map_err(|_| {
+                anyhow::anyhow!(
+                    "nobody dialled that phrase within {} seconds, so it has expired.\n  \
                  A phrase is a one-time secret with a deadline, which is most of \
                  what makes this safe.\n  \
                  Next step: run `hick fleet pair --new` again for a fresh one, and \
                  have the other machine ready before you read it out.",
-                WINDOW.as_secs()
-            )
-        })?;
-    let Some(incoming) = accepted else {
-        bail!("the rendezvous endpoint closed before anyone arrived");
-    };
-    let connection = incoming.await.context("the rendezvous handshake failed")?;
-    let (mut send, mut recv) = connection
-        .accept_bi()
-        .await
-        .context("the other machine opened no stream")?;
+                    WINDOW.as_secs()
+                )
+            })?;
+        let Some(incoming) = accepted else {
+            bail!("the rendezvous endpoint closed before anyone arrived");
+        };
+        let connection = incoming.await.context("the rendezvous handshake failed")?;
+        let (mut send, mut recv) = connection
+            .accept_bi()
+            .await
+            .context("the other machine opened no stream")?;
 
-    let theirs = trade(identity, kind, &mut send, &mut recv).await?;
-    let machine = fleet.add(&theirs, today)?;
+        phase(&progress, PairPhase::ExchangingKeys);
+        let theirs = trade(identity, kind, &mut send, &mut recv).await?;
+        Ok::<_, anyhow::Error>((connection, theirs))
+    };
+    let outcome = tokio::select! {
+        biased;
+        _ = cancelled(&mut cancel) => Err(PairCancelled.into()),
+        outcome = tokio::time::timeout(WINDOW, exchange) => outcome.unwrap_or_else(|_| Err(anyhow::anyhow!("Pairing exchange expired before local enrollment"))),
+    };
+    let (connection, theirs) = match outcome {
+        Ok(value) if !*cancel.borrow() => value,
+        Ok(_) => {
+            close_endpoint(&endpoint, &progress).await;
+            return Err(PairCancelled.into());
+        }
+        Err(error) => {
+            close_endpoint(&endpoint, &progress).await;
+            return Err(error);
+        }
+    };
+    let machine = match fleet.add(&theirs, today) {
+        Ok(machine) => machine,
+        Err(error) => {
+            close_endpoint(&endpoint, &progress).await;
+            return Err(error);
+        }
+    };
+    phase(&progress, PairPhase::Enrolled);
+
     // Wait for the other side to hang up before tearing the endpoint down.
     // `finish()` marks a stream complete; it does not mean the bytes have
     // arrived, and closing the endpoint underneath them loses the last write —
     // which the other machine reports as "hung up before sending its key",
     // pointing at the wrong side entirely.
+    // Once enrolled, cancellation cannot undo the write or cut off delivery of
+    // the invitation already sent. Report the actual paired result after grace.
     let _ = tokio::time::timeout(Duration::from_secs(10), connection.closed()).await;
     // Single use: the phrase dies with this connection, so a second dialler
     // finds nothing.
-    endpoint.close().await;
+    close_endpoint(&endpoint, &progress).await;
     Ok(Paired {
         machine,
         ours: identity.fingerprint(),
@@ -253,6 +352,26 @@ pub async fn join(
     reach: &Reach,
     today: &str,
 ) -> Result<Paired> {
+    let (keep, cancel) = tokio::sync::watch::channel(false);
+    let result = join_cancellable(identity, fleet, phrase, kind, reach, today, cancel, None).await;
+    drop(keep);
+    result
+}
+
+pub async fn join_cancellable(
+    identity: &Identity,
+    fleet: &Fleet,
+    phrase: &Phrase,
+    kind: Kind,
+    reach: &Reach,
+    today: &str,
+    mut cancel: tokio::sync::watch::Receiver<bool>,
+    progress: Option<tokio::sync::watch::Sender<PairPhase>>,
+) -> Result<Paired> {
+    if *cancel.borrow() {
+        return Err(PairCancelled.into());
+    }
+    phase(&progress, PairPhase::Binding);
     let rendezvous = phrase.rendezvous_key()?;
     let target: iroh::EndpointId = rendezvous.public();
 
@@ -260,31 +379,60 @@ pub async fn join(
         .bind()
         .await
         .context("could not bind an endpoint to dial from")?;
-    let connection = tokio::time::timeout(
-        WINDOW,
-        endpoint.connect(iroh::EndpointAddr::from(target), PAIR_ALPN),
-    )
-    .await
-    .map_err(|_| {
-        anyhow::anyhow!(
-            "could not reach that phrase within {} seconds.\n  \
+    phase(&progress, PairPhase::WaitingForPeer);
+    let exchange = async {
+        let connection = tokio::time::timeout(
+            WINDOW,
+            endpoint.connect(iroh::EndpointAddr::from(target), PAIR_ALPN),
+        )
+        .await
+        .map_err(|_| {
+            anyhow::anyhow!(
+                "could not reach that phrase within {} seconds.\n  \
              Either it has expired, or nobody is hosting it, or the two \
              machines cannot find each other on this network.\n  \
              Next steps: check `hick fleet pair --new` is still running on the \
              other machine, and that the phrase was typed exactly as read.",
-            WINDOW.as_secs()
-        )
-    })?
-    .context("that phrase is not being hosted right now")?;
+                WINDOW.as_secs()
+            )
+        })?
+        .context("that phrase is not being hosted right now")?;
 
-    let (mut send, mut recv) = connection
-        .open_bi()
-        .await
-        .context("could not open a stream to the other machine")?;
-    let theirs = trade(identity, kind, &mut send, &mut recv).await?;
-    let machine = fleet.add(&theirs, today)?;
+        let (mut send, mut recv) = connection
+            .open_bi()
+            .await
+            .context("could not open a stream to the other machine")?;
+        phase(&progress, PairPhase::ExchangingKeys);
+        let theirs = trade(identity, kind, &mut send, &mut recv).await?;
+        Ok::<_, anyhow::Error>((connection, theirs))
+    };
+    let outcome = tokio::select! {
+        biased;
+        _ = cancelled(&mut cancel) => Err(PairCancelled.into()),
+        outcome = tokio::time::timeout(WINDOW, exchange) => outcome.unwrap_or_else(|_| Err(anyhow::anyhow!("Pairing exchange expired before local enrollment"))),
+    };
+    let (connection, theirs) = match outcome {
+        Ok(value) if !*cancel.borrow() => value,
+        Ok(_) => {
+            close_endpoint(&endpoint, &progress).await;
+            return Err(PairCancelled.into());
+        }
+        Err(error) => {
+            close_endpoint(&endpoint, &progress).await;
+            return Err(error);
+        }
+    };
+    let machine = match fleet.add(&theirs, today) {
+        Ok(machine) => machine,
+        Err(error) => {
+            close_endpoint(&endpoint, &progress).await;
+            return Err(error);
+        }
+    };
+    phase(&progress, PairPhase::Enrolled);
+
     connection.close(0u32.into(), b"paired");
-    endpoint.close().await;
+    close_endpoint(&endpoint, &progress).await;
     Ok(Paired {
         machine,
         ours: identity.fingerprint(),

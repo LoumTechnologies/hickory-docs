@@ -78,3 +78,23 @@ Last LLM verification:
 - Second caveat: an active attacker who knows the phrase can sit in the middle,
   because both sides derive the *same* secret rather than running a PAKE. The
   fingerprint comparison is what detects it, and it is a human step.
+
+## Cancellable peer exchange foundation (2026-10-20)
+
+Peer host/dial helpers now accept cancellation and report actual preparing,
+binding, waiting, key-exchange, enrolled and endpoint-closing/closed phases.
+Cancellation before local enrollment closes the bound endpoint and does not add
+a local roster entry. It cannot retract an invitation already sent to the remote
+machine. Once local enrollment has happened, the actual paired result wins:
+cancellation does not undo the roster or cut off the existing invitation-delivery
+grace period. Connection/stream/key exchange has a bounded window, including
+handshakes after acceptance. Errors close owned endpoints as well.
+
+Two focused tests in `hickory-peer/tests/pairing_cancel.rs` passed: cancelling a
+real bound direct/local endpoint reaches closed with an empty fixture roster,
+and a pre-cancelled dial never binds/enrolls. The existing real offline two-way
+pairing case also passed, preserving both keys and default grants. All identities
+and rosters were temporary fixtures, with `Reach::Direct`, no relay and no change
+to the user's fleet. File-length and diff checks passed. This is the peer-library
+foundation; the shared UI's window-scoped job start/read/cancel wiring is still
+required and is not established by these tests.
