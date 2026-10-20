@@ -612,7 +612,7 @@ export function ChatDock({
           <AgentChanges doc={docId} state={acp.state} running={running !== null} apply={applyAgentChange} update={acp.setState} />
           {branch.length === 0 && !running && (
             <p className="muted chat-empty">
-              {backend === "python" ? "Ask the Python agent to edit or extend this document. Its edits require review; checks remain unrun." : "Ask the agent to edit, extend, or verify this document."} It works
+              {backend === "python" ? "Ask the Python agent to edit or extend this document. Document-edit previews require review; shared UI operations retain their host permissions. Checks remain unrun." : "Ask the agent to edit, extend, or verify this document."} It works
               through the document and its generated output, and every session
               is saved into the project as a <code>hick:session</code> file.
             </p>

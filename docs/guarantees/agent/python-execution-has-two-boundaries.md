@@ -135,3 +135,22 @@ Issue 72 boundary extension (2026-10-19):
   prompt refusal tests. These do not establish a paid provider or native release.
 - Review: partial; the issue-72 audit records coverage and remaining work. No
   human correctness or launch-readiness judgment was supplied.
+
+### UI source-operation wording — 2026-10-19
+
+The UI capability surface includes ordinary source-form/table mutations under the
+host's existing UI permissions, alongside setup/process/filesystem operations.
+Their receipts identify the agent and do not fabricate a separate edit_doc/
+edit_output preview approval, source authorship or verification. Those named
+preview tools retain their independent exact-edit approval and freshness checks.
+The model instructions and conversation capability text now state this scope;
+the worker did not gain direct Monty filesystem/process access. This is not an
+all-workspace-write approval sandbox. The actual coach still requires its real
+approved-edit evidence rather than counting an arbitrary UI write as that approval.
+
+Validation: focused strict WorkspaceView/table-adapter checking with unused-local
+checks passed after removing two obsolete imports from the prior menu extraction;
+the expanded command initially failed on those imports, after the earlier
+TablePanel-only targeted command passed. Python instruction syntax parsed. Copy
+changes received no new superficial tests. Real provider/native permission behavior
+remains unwitnessed.

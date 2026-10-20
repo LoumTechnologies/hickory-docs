@@ -41,7 +41,7 @@ export function AgentPicker({ scope, backend, agents, disabled, detecting, error
       <button className="btn-link" disabled={disabled || detecting} onClick={() => void invoke(`${parent}:refresh`)}>{detecting ? "Checking agents…" : "Refresh agents"}</button>
     </div>
     {error && <p className="chat-note error" role="alert">{error}</p>}
-    <p className="muted">{backend === "python" ? "The Python agent uses your provider API key, confined Python and Monty. Each edit needs approval; checks remain unrun. Switching agents starts a new thread."
+    <p className="muted">{backend === "python" ? "The Python agent uses your provider API key and confined Python. Document-edit previews require approval; shared UI actions use this host’s existing permissions and can run programs or change files. Checks remain unrun. Switching agents starts a new thread."
       : `${agents.find(a => a.id === backend)?.name ?? backend} connects through ACP using its own login. Switching agents starts a new thread; previous conversations stay in the tree.`}</p>
   </div>;
 }

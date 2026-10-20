@@ -435,3 +435,9 @@ writes are not independent proposal approval, commit authorship or verification.
 Formula computation reports pending/current/failed separately from editable scope.
 Nested number-format, size-form and formula-step controls are the next slice;
 remaining clipboard/formula-pointing/drag/scroll details still need parity review.
+
+Capability wording now distinguishes independently approved document-edit previews
+from routine registered host UI operations, including source changes. UI receipts
+record agent actors and do not count as proposal approval or independent correctness.
+The confined worker still has no direct filesystem/process access. Human-only
+review/attestation, credentials and OS input remain actual human requests.

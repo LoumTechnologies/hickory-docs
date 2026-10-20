@@ -88,7 +88,7 @@ export function AgentChanges({ doc, state, running, apply, update }: {
   return <section className="agent-changes" aria-label="Conversation document edits">
     <label>Document edits <select aria-label="Document edits" value={state.edits.mode} disabled={running || state.backend === "python"}
       onChange={e => void invoke(`${parent}:mode`, { mode: e.target.value })}><option value="review">Review</option>{state.backend !== "python" && <option value="auto-accept">Auto-accept</option>}</select></label>
-    <p className="muted">Reviews cover Hickory document tools. {state.backend === "python" ? "Every Python agent edit requires approval. Acceptance does not verify the edit or change its authorship. Checks remain unrun." : "Native agent commands follow the adapter’s permissions and can bypass this review."}</p>
+    <p className="muted">Reviews cover Hickory document tools. {state.backend === "python" ? "Python document-edit previews require approval. Shared UI operations retain their separate host permissions. Acceptance does not verify the edit or change its authorship. Checks remain unrun." : "Native agent commands follow the adapter’s permissions and can bypass this review."}</p>
     {error && <p role="alert">{error}</p>}
     {state.edits.changes.map(change => <div key={change.id} className="agent-change-link">
       <span>{change.status === "pending" ? "Proposed change" : change.status === "applying" ? "Applying change" : `${change.status.charAt(0).toUpperCase()}${change.status.slice(1)} change`} · {change.path ?? change.name}</span>

@@ -46,8 +46,8 @@ import { PromptPanel, usePrompt } from "../components/PromptPanel";
 import { bufferEditor, openBufferTarget } from "../lib/editorBufferTargets";
 import { workspaceRibbonSources } from "./workspaceRibbonSources";
 import { openPlainSearchFiles, searchWorkspace } from "../lib/workspaceSearch";
-import { insertTarget, type MenuAction } from "../lib/menuBridge";
-import { captureInsertion, insertionCurrent, insertCapturedElement, insertElement } from "../editor/insertElement";
+import type { MenuAction } from "../lib/menuBridge";
+import { captureInsertion, insertionCurrent, insertCapturedElement } from "../editor/insertElement";
 import {
   elementForExisting,
   initialValues,
