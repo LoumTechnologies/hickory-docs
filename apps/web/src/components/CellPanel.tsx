@@ -1,3 +1,4 @@
+import { useUiReading } from "../lib/uiReading";
 import { notebookOutputs } from "../lib/notebookOutput";
 import { NotebookOutputs } from "./NotebookOutputs";
 import { useMemo } from "react";
@@ -92,6 +93,18 @@ export function CellPanel({
     [failedExpect, block?.expect, stdout],
   );
 
+  const collapsible = block ? hasReplay({
+    status: block.status,
+    hasExpect: !!block.expect,
+    transcriptLength: transcript.length,
+    running: !!running,
+  }) : false;
+  const showTranscript =
+    running || (transcript.length > 0 && (collapsible ? replay : !verified && !failedExpect)
+      && (rich.outputs.length === 0 || !!rich.text.trim() || transcript.some(e => e.kind === "err") || replay));
+
+  useUiReading("cell rendering", { id: block?.id ?? null, command: command ?? null, status: block?.status ?? "save_required", running: !!running, container: block?.container ?? null, image: block?.image ?? null, saved_output: block && savedOnly ? rich.text : null, expected_output_matches: verified, diff, replay_available: collapsible, transcript: block && showTranscript ? displayTranscript : null, transcript_hidden: !!block && !showTranscript && transcript.length > 0, rich_outputs: block && !running ? rich.outputs : [], svg: block && !running ? svgFigure : null, ingested: block?.ingested ?? null, scope: "Current cell view; recorded output/expectation match does not verify prose or certify current source/run freshness" }, block);
+
   // A cell the server has not rendered yet still shows its commands and can
   // still be read; only the run is unavailable, and it says why.
   if (!block) {
@@ -105,15 +118,6 @@ export function CellPanel({
     );
   }
 
-  const collapsible = hasReplay({
-    status: block.status,
-    hasExpect: !!block.expect,
-    transcriptLength: transcript.length,
-    running: !!running,
-  });
-  const showTranscript =
-    running || (transcript.length > 0 && (collapsible ? replay : !verified && !failedExpect)
-      && (rich.outputs.length === 0 || !!rich.text.trim() || transcript.some(e => e.kind === "err") || replay));
 
   return (
     <div className="cell-panel" data-testid={`cell-panel-${block.id}`}>

@@ -16,6 +16,7 @@
 // source tree — a static import would put a diagramming engine into the
 // bundle of a page that shows no diagrams.
 
+import { useUiReading } from "../lib/uiReading";
 import { useEffect, useRef, useState } from "react";
 
 export interface DiagramPanelProps {
@@ -31,8 +32,8 @@ export interface DiagramPanelProps {
 
 type Render =
   | { status: "idle" }
-  | { status: "drawn"; svg: string }
-  | { status: "failed"; message: string };
+  | { status: "drawn"; svg: string; input: { source: string; renderer: string; domId: string } }
+  | { status: "failed"; message: string; input: { source: string; renderer: string; domId: string } };
 
 /** Only what this build can draw; everything else falls back to the source. */
 const RENDERERS = ["mermaid"];
@@ -70,7 +71,7 @@ export function DiagramPanel({
         });
         const { svg } = await mermaid.render(domId, trimmed);
         if (!cancelled && ticket === latest.current)
-          setRender({ status: "drawn", svg });
+          setRender({ status: "drawn", svg, input: { source, renderer, domId } });
       } catch (error) {
         // A half-typed diagram is the common case, not an exception. The
         // source stays visible below either way, so this never costs the
@@ -78,6 +79,7 @@ export function DiagramPanel({
         if (!cancelled && ticket === latest.current) {
           setRender({
             status: "failed",
+            input: { source, renderer, domId },
             message: error instanceof Error ? error.message : String(error),
           });
         }
@@ -89,6 +91,8 @@ export function DiagramPanel({
     };
   }, [renderer, source, domId]);
 
+  const stale = render.status !== "idle" && (render.input.source !== source || render.input.renderer !== renderer || render.input.domId !== domId);
+  useUiReading("diagram rendering", { renderer, source, assertions, render: RENDERERS.includes(renderer) ? render : { status: "unsupported" }, stale, scope: "Actual renderer result and reported assertion states; diagram rendering does not independently establish assertions" });
   if (!RENDERERS.includes(renderer)) {
     return (
       <div className="diagram-panel diagram-panel-unknown">
@@ -102,6 +106,7 @@ export function DiagramPanel({
 
   return (
     <div className="diagram-panel" data-testid="diagram-panel">
+      {stale && <p role="status">Diagram preview is from previous source; current rendering is pending.</p>}
       {render.status === "drawn" && (
         // eslint-disable-next-line react/no-danger -- mermaid's own output,
         // rendered with securityLevel "strict" (no scripts, no click handlers).

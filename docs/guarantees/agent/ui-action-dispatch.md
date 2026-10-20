@@ -414,3 +414,30 @@ component/test checking passed. Cases cover actual human remote-consent failure,
 OS capture refusal, agent self-consent/remote-upload refusal, and local request
 status/cancel while pending. Devices, provider and retention APIs are mocked;
 no real microphone, remote upload or provider billing was exercised.
+
+### Cell, diagram and math readings — 2026-10-19
+
+A shared code-owned reader explicitly pages JSON UTF-8 data in at most 8192 bytes,
+with opaque revision/snapshot identity and no edit-baseline claim. Cell readings
+reflect visible status, diffs and output; collapsed transcript is omitted until
+the real replay state changes. Private full block state guards revisions even
+when visible values happen to match. Diagram readings separate authored input
+from captured renderer input, mark stale SVG previews, and treat assertion state
+as reported rather than independently proven. Math reports renderer/fallback
+state and stages output before promotion; obsolete async renders cannot overwrite
+a newer equation. Source/SVG representations do not certify visual image delivery
+or mathematical/requirement correctness.
+
+Executed focused checks: DiagramPanel (6), CellPanel (7), MathPanel (1), all passed;
+strict targeted checking passed. New cases verify transcript disclosure and stale
+handles, exact Unicode reading, real fallback state, and out-of-order math
+completion. The renderer engines are mocked in the renderer-specific tests; these
+are not real native layout, model vision, provider or screenshot witnesses.
+
+Current rendered-reading evidence fingerprints (SHA-256; the declaration inventory binds its listed source files, not semantic parity):
+
+- `docs/developers/ui-control-inventory.json`: `35e65d1f10642d2fde37f42f327eb1aef637697d411b9f48d3f7728f42656054`
+- `scripts/inventory-ui-actions.mjs`: `fd2cf4881b5c22659ccb67e06c8f61e1b5be77d5bd6b7e4f7a9c59df38c369d8`
+- `apps/web/src/lib/uiReading.ts`: `cc37d833882855bcaf17e8fecbc04830f8304a048efbaebbd7e949b43af0acc0`
+- `apps/web/src/components/MathPanel.test.tsx`: `966bf2b6d29c52c98308815d7af30abd2b4e0910969cda83d59ba71d41652fb5`
+- `apps/web/src/components/CellPanel.test.tsx`: `51bec8f7426917ef4b6e287195a3beab45450428c2bb9961143d79d9bd894b9e`

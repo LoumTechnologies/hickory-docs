@@ -9,8 +9,9 @@
 // the one column that exists to be clicked. See
 // docs/guarantees/authoring/the-gutters-never-skip-a-number.md.
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 
+import { useUiReading } from "../lib/uiReading";
 import { renderMathInto } from "../editor/mathRender";
 
 export interface MathPanelProps {
@@ -19,6 +20,8 @@ export interface MathPanelProps {
 }
 
 export function MathPanel({ source }: MathPanelProps) {
+  const [rendering, setRendering] = useState<{ source: string; status: string; error: string | null } | null>(null);
+  useUiReading("math rendering", { source, display: "block", rendering: !source.trim() ? { status: "empty" } : rendering?.source === source ? rendering : { status: "pending" }, scope: "Authored LaTeX and actual renderer/fallback state; typesetting does not verify mathematical truth" });
   const hostRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
@@ -28,8 +31,16 @@ export function MathPanel({ source }: MathPanelProps) {
     // The source stands in until the engine arrives: nothing flashes empty on
     // a cold load, and a build with no KaTeX still shows something true.
     host.textContent = source.trim();
-    void renderMathInto(host, source, true).then(() => {
-      if (cancelled) host.textContent = source.trim();
+    // Render offscreen; a superseded async completion cannot overwrite the
+    // current equation or report old renderer state under new source.
+    const target = document.createElement("div");
+    void renderMathInto(target, source, true).then(() => {
+      if (cancelled) return;
+      const fallback = target.classList.contains("cm-math--unparsed");
+      host.replaceChildren(...Array.from(target.childNodes));
+      host.classList.toggle("cm-math--unparsed", fallback);
+      if (fallback) host.dataset.tip = target.dataset.tip; else delete host.dataset.tip;
+      setRendering({ source, status: fallback ? "source_fallback" : "rendered", error: fallback ? target.dataset.tip ?? null : null });
     });
     return () => {
       cancelled = true;

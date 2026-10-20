@@ -385,3 +385,13 @@ agent's remote upload. Capture returns its real recording ID; stop/final retenti
 and transcription/cancellation remain distinct states. Reads, disclosure and
 cancellation have separate subjects so a pending transcription does not block its
 own supervision. Closing/reopening the panel retains the current job.
+
+Cell, diagram and math panels now expose explicit bounded controller-owned
+readings. Cell readings include visible status/diff/output and preserve transcript
+collapse; Replay must actually reveal hidden transcript before it is read. Diagram
+readings distinguish current authored input from a stale rendered SVG and report
+assertion states as declarations. Math reports actual rendered/fallback/pending
+state and stages async rendering so an obsolete completion cannot overwrite a
+new equation. The shared reader emits no DOM scrape or edit baseline. Image bytes,
+visual model delivery, editable table/graph gestures and remaining renderers still
+need their own complete adapters.

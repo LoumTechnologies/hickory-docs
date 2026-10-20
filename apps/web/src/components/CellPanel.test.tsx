@@ -138,3 +138,26 @@ describe("CellPanel ingested provenance", () => {
     expect(container.querySelector(".cell-ingested")).toBeNull();
   });
 });
+
+// Guarantee: docs/guarantees/agent/ui-action-dispatch.md
+it("discloses only currently visible transcript and expires reads when replay/source changes", async () => {
+  const { UiActions } = await import("../lib/uiActions");
+  const { UiActionContext } = await import("../lib/uiActionBridge");
+  const registry = new UiActions({ workspace: "p", window: "w" }, () => true, async () => {});
+  const block = cell({ status: "ok", expect: { match: "exact", body: "apple,3\nbanana,5\n" } });
+  const content = (replay: boolean) => <UiActionContext.Provider value={registry}><CellPanel block={block} replay={replay} /></UiActionContext.Provider>;
+  const view = render(content(false));
+  const parent = registry.groups().groups.find(g => g.startsWith("reading:"))!;
+  const action = registry.observe(parent).actions[0];
+  expect(JSON.stringify(registry.observe(parent))).not.toContain("apple,3");
+  const reading = await registry.act(registry.scope, { id: "python:turn", kind: "agent" }, { handle: action.handle, arguments: { offset: 0, limit: 8192 }, request_id: "read" });
+  if (reading.status !== "result" || reading.outcome.status !== "completed") throw Error("Expected bytes");
+  const decoded = new TextDecoder().decode(new Uint8Array((reading.outcome.value as { bytes: number[] }).bytes));
+  expect(decoded).not.toContain("apple,3"); expect(JSON.parse(decoded).transcript_hidden).toBe(true);
+  view.rerender(content(true));
+  expect(await registry.act(registry.scope, { id: "python:turn", kind: "agent" }, { handle: action.handle, arguments: { offset: 0, limit: 8192 }, request_id: "old" })).toMatchObject({ status: "stale" });
+  const current = registry.observe(parent).actions[0];
+  const expanded = await registry.act(registry.scope, { id: "python:turn", kind: "agent" }, { handle: current.handle, arguments: { offset: 0, limit: 8192 }, request_id: "expanded" });
+  if (expanded.status !== "result" || expanded.outcome.status !== "completed") throw Error("Expected replay bytes");
+  expect(new TextDecoder().decode(new Uint8Array((expanded.outcome.value as { bytes: number[] }).bytes))).toContain("apple,3");
+});
