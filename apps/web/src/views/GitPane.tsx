@@ -1,3 +1,4 @@
+import { useGitHistoryActions } from "./uiGitHistoryActions";
 import { openCommit } from "../lib/readingViews";
 // The repository, as something to read.
 //
@@ -58,7 +59,7 @@ export function GitPane({
   useEffect(() => {
     let live = true;
     api.gitLog(limit).then(
-      (answer) => live && setLog(answer),
+      (answer) => { if (live) { setLog(answer); setError(null); } },
       (e: unknown) => live && setError(e instanceof Error ? e.message : String(e)),
     );
     return () => {
@@ -74,6 +75,12 @@ export function GitPane({
       window.removeEventListener("focus", refresh);
     };
   }, [refresh]);
+
+  const historyAction = useGitHistoryActions({ log, error, open, limit,
+    toggle: sha => setOpen(current => { const next = new Set(current); if (!next.delete(sha)) next.add(sha); return next; }),
+    readCommit: openCommit, openFile: onOpenFile, story: onOpenStory, literate: onOpenLiterate,
+    more: () => setLimit(n => n + 120), refresh,
+  });
 
   const rows = useMemo(() => layout(log?.commits ?? []), [log]);
   const width = graphWidth(rows);
@@ -105,7 +112,7 @@ export function GitPane({
   return (
     <div className="git-pane">
       <BisectPane />
-      {onOpenLiterate && <button className="btn" onClick={onOpenLiterate}>Literate views</button>}
+      {onOpenLiterate && <button className="btn" onClick={() => void historyAction("literate")}>Literate views</button>}
       <WorkingTree tick={tick} refresh={refresh} onOpenFile={onOpenFile} head={log.commits[0]} />
       {/* The publication floor, stated rather than felt. Below it commits are
           records — someone else may be holding them; above it they are
@@ -117,7 +124,7 @@ export function GitPane({
           <button
             type="button"
             className="btn"
-            onClick={onOpenStory}
+            onClick={() => void historyAction("story")}
             data-tip="The same commits, oldest first, drawn as cards. A lens: read-only, and on disk nowhere."
           >
             Read as a story
@@ -173,13 +180,7 @@ export function GitPane({
                   type="button"
                   className="git-commit__summary"
                   aria-expanded={expanded}
-                  onClick={() =>
-                    setOpen((current) => {
-                      const next = new Set(current);
-                      if (!next.delete(commit.sha)) next.add(commit.sha);
-                      return next;
-                    })
-                  }
+                  onClick={() => void historyAction(`toggle:${commit.sha}`)}
                 >
                   <span className="git-commit__subject">{commit.subject}</span>
                   {commit.draft && (
@@ -206,7 +207,7 @@ export function GitPane({
 
               {expanded && (
                 <div className="git-commit__detail">
-                  <button className="btn" onClick={() => openCommit(commit.sha)}>Read commit</button>
+                  <button className="btn" onClick={() => void historyAction(`commit:${commit.sha}`)}>Read commit</button>
                   {commit.body && <pre className="git-commit__body">{commit.body}</pre>}
                   {commit.files.length === 0 ? (
                     <p className="muted git-commit__nofiles">
@@ -216,12 +217,12 @@ export function GitPane({
                     </p>
                   ) : (
                     <ul className="git-files">
-                      {commit.files.map((file) => (
+                      {commit.files.map((file, fileIndex) => (
                         <li key={file.path}>
                           <button
                             type="button"
                             className="git-file"
-                            onClick={() => onOpenFile?.(file.path)}
+                            onClick={() => void historyAction(`file:${commit.sha}:${fileIndex}`)}
                             data-tip={`Open ${file.path}`}
                           >
                             <span className={`git-file__status git-file__status--${file.status}`}>
@@ -249,7 +250,7 @@ export function GitPane({
         <button
           type="button"
           className="btn btn-small git-pane__more"
-          onClick={() => setLimit((n) => n + 120)}
+          onClick={() => void historyAction("more")}
         >
           Show older commits
         </button>

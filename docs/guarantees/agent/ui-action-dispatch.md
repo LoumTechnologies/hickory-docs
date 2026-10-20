@@ -538,3 +538,5 @@ and the affected cases rerun. Trace source-key/type checking also caught adapter
 hooks placed in the effect cleanup scope; they were moved to component scope
 before any passing execution was claimed. The tests mock the formula host and do
 not establish native pointer geometry, interpreter execution or provider evidence.
+
+Git history uses the same human navigation handlers for expanding/collapsing commits, opening an actual commit reading or current working file, loading older history, and opening story/literate views. Bounded JSON byte reads include only loaded summaries plus explicitly expanded bodies/files. The opaque revision includes loaded history and disclosure state; changed revisions refuse old handles and removed controls become unavailable. File navigation opens the current file, not its historical contents or an edit baseline. A successful history refresh clears a previous displayed fetch error. Focused evidence: strict TypeScript and the history disclosure/navigation/changed-and-removed-handle test. Working-tree mutations remain separately outstanding.
