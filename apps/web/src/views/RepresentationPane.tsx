@@ -8,7 +8,7 @@ import { DocumentComparison } from "./DocumentReading";
 import { viewBuffers } from "../lib/viewBuffers";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { EditorView } from "@codemirror/view";
-import { foldEffect, unfoldAll } from "@codemirror/language";
+import { RepresentationVersions } from "./RepresentationVersions";
 import { DocumentEditor } from "../editor/DocumentEditor";
 import { LocalRealtime, getWorkspaceRealtime } from "../api/realtime";
 import { representations, type Comparison, type Representation } from "../api/representations";
@@ -19,7 +19,6 @@ import { lspSupport, setLspDiagnostics, type DiagnosticSpan } from "../lsp/cmLsp
 import { debugEditor, setBreakpointMarks, setPausedLine, type BreakpointMark } from "../debug/cmDebug";
 import type { DebugSession } from "../debug/useDebugger";
 import { filePosition, representationOffset } from "../lsp/representationMapping";
-import { comparisonChanges } from "../editor/comparison";
 import { FILES_CHANGED_EVENT } from "../shell/FolderTreePane";
 import { openLiterate, showRepresentation } from "../lib/openRepresentation";
 import { isAction } from "../lib/keymap";
@@ -164,22 +163,23 @@ export function RepresentationPane({ id, initialBase = "", initialTarget = "", b
     }
     editor.dispatch({ effects: [setBreakpointMarks.of(marks), setPausedLine.of(paused)] });
   }, [editor, files, source, mappedSource, debugTick, comparison?.target]);
-  const compare = async () => {
+  const compare = async (): Promise<UiOutcome> => {
     const now = { ...current.current };
-    if (now.busy || ownerRef.current !== owner) return;
-    if (now.record && now.source !== now.record.source && (!now.comparison || now.comparison.editable)) { setNotice("Save your edits before changing the comparison."); return; }
+    if (now.busy || ownerRef.current !== owner) return { status: "unavailable", reason: "Comparison view changed or request pending" };
+    if (now.record && now.source !== now.record.source && (!now.comparison || now.comparison.editable)) { setNotice("Save your edits before changing the comparison."); return { status: "unavailable", reason: "Save your edits before changing the comparison" }; }
     current.current.busy = true; setBusy(true);
     try {
       const next = await representations.compare(id, base || "HEAD", target || undefined);
-      if (!mounted.current || ownerRef.current !== owner) return;
+      if (!mounted.current || ownerRef.current !== owner) return { status: "unavailable", reason: "Owning comparison view closed or changed" };
       if (current.current.source !== now.source || current.current.comparison !== now.comparison) {
-        setNotice("Source changed while comparing. Your newer edits were kept; request the comparison again."); return;
+        setNotice("Source changed while comparing. Your newer edits were kept; request the comparison again."); return { status: "unavailable", reason: "Source changed while comparing; newer edits preserved" };
       }
       current.current.comparison = next; current.current.source = next.target_source;
       setComparison(next); setSource(next.target_source);
       const view = viewRef.current;
       if (view && view.state.doc.toString() !== next.target_source) view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: next.target_source } });
-    } catch (e) { if (ownerRef.current === owner && mounted.current) setNotice(message(e)); }
+      return { status: "completed", value: { base: next.base, target: next.target, editable: next.editable, revision: next.revision, scope: "Actual comparison response; no execution verdict" } };
+    } catch (e) { if (ownerRef.current === owner && mounted.current) setNotice(message(e)); return { status: "unavailable", reason: message(e) }; }
     finally { if (ownerRef.current === owner) { current.current.busy = false; if (mounted.current) setBusy(false); } }
   };
   useEffect(() => { if (record && initialBase) void compare(); /* opening comparison */ }, [record?.id]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -199,27 +199,15 @@ export function RepresentationPane({ id, initialBase = "", initialTarget = "", b
         <DocumentComparison id={`${id}:preview:${file.path}`} path={file.path} before={record.files.find(base => base.path === file.path)?.content ?? ""} after={file.content} />
       </section>)}
     </ChangePreview>}
-    <PaneHeaderContent part="actions"><details className="representation-versions"><summary data-tip="Compare revisions; current code stays editable">{comparison ? `${comparison.base.slice(0, 8)} → ${comparison.target?.slice(0, 8) ?? "current"}` : "Compare revisions…"}</summary>
-    <div className="representation-versions__menu"><form className="representation-comparison" onSubmit={e => { e.preventDefault(); void compare(); }}>
-      <label>Earlier revision <input aria-label="Comparison base" value={base} placeholder="HEAD, branch, or commit" onChange={e => setBase(e.target.value)} /></label>
-      <label>Compare with <input aria-label="Comparison target" value={target} placeholder="Current code (editable)" onChange={e => setTarget(e.target.value)} /></label>
-      <button className="btn" disabled={dirty}>Show diff</button>
-      {comparison && <button type="button" className="btn" disabled={dirty} onClick={() => { setComparison(null); setTarget(""); buffers.delete(id); accept(record); }}>Return to current code</button>}
-      {comparison && <button type="button" className="btn" onClick={() => {
-        if (!editor) return; unfoldAll(editor);
-        const changes = comparisonChanges(comparison.source, source);
-        let previous = 0;
-        for (const change of [...changes, { from: source.length, to: source.length, removed: "" }]) {
-          const start = editor.state.doc.lineAt(previous).number + 3, end = editor.state.doc.lineAt(change.from).number - 3;
-          if (end > start) editor.dispatch({ effects: foldEffect.of({ from: editor.state.doc.line(start).to, to: editor.state.doc.line(end).to }) });
-          previous = change.to;
-        }
-      }}>Fold unchanged regions</button>}
-    <p className="muted">Leave the second revision empty to compare with editable current code. A historical target is read-only; use a worktree to run it.</p>
-    </form>
-    {comparison && record.backing.kind === "files" && <p className="muted">Explanations belong to this reading arrangement; they are not evidence from the compared commit.</p>}
-    {comparison && <p className="muted">{comparison.base.slice(0, 12)} → {comparison.target?.slice(0, 12) ?? "working tree"}{historical ? " · historical, read-only; open a worktree to run this revision" : " · current side is editable"}</p>}
-    </div></details></PaneHeaderContent>
+    <PaneHeaderContent part="actions"><RepresentationVersions id={id} base={base} target={target} comparison={comparison} filesBacking={record.backing.kind === "files"}
+      source={source} editor={editor} dirty={dirty} busy={busy} live={() => [ownerRef.current === owner, current.current.source, current.current.comparison, current.current.busy]}
+      setBase={setBase} setTarget={setTarget} compare={compare} onError={setNotice}
+      reset={() => {
+        const now = current.current;
+        if (now.busy || ownerRef.current !== owner || !now.record || (now.comparison?.editable && now.source !== now.record.source)) return { status: "unavailable", reason: "Save/discard edits and wait for the current view request" };
+        current.current.comparison = null; setComparison(null); setTarget(""); buffers.delete(id); accept(now.record);
+        return { status: "completed", value: { current_view_revision: now.record.revision, scope: "Returned to loaded current code; use Refresh for newer disk changes" } };
+      }} /></PaneHeaderContent>
     {record.explanation_stale && <p role="status">Stale explanation — source changed. Review or regenerate the explanation; this is not an execution verdict.</p>}
     {record.local_warning && <p role="alert">{record.local_warning}</p>}
     {notice && <p role="alert">{notice}</p>}

@@ -91,3 +91,14 @@ it("keeps later typing when a revision comparison completes", async () => {
   expect((editor as HTMLTextAreaElement).readOnly).toBe(false);
   expect(screen.getByText(/Source changed while comparing/)).toBeTruthy();
 });
+
+it("honors a read-only comparison reply and returns to loaded current code", async () => {
+  vi.spyOn(representations, "compare").mockResolvedValue({ base: "resolved", target: null, source: "base", target_source: "old", editable: false, revision: "r2" });
+  const { editor } = await mount();
+  fireEvent.click(screen.getByText("Compare revisions…"));
+  fireEvent.click(screen.getByRole("button", { name: "Show diff" }));
+  await waitFor(() => expect((editor as HTMLTextAreaElement).readOnly).toBe(true));
+  fireEvent.click(screen.getByRole("button", { name: "Return to current code" }));
+  await waitFor(() => expect((editor as HTMLTextAreaElement).readOnly).toBe(false));
+  expect(screen.getByText("Saved")).toBeTruthy();
+});
