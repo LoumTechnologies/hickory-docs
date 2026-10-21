@@ -1,6 +1,7 @@
 import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import { navigate, useRoute, newDocument } from "./router";
 import { WorkspaceView, type WorkspaceRoute } from "./views/WorkspaceView";
+import { requestApplicationClose, requestWorkspaceClose } from "./lib/windowClose";
 import { api } from "./api/client";
 import { insertTarget, onMenuAction, type MenuAction } from "./lib/menuBridge";
 import { UiActionsVisibility, useUiCommands } from "./lib/uiActionBridge";
@@ -36,14 +37,9 @@ export function App() {
     : requestedRoute;
   const inWorkspace = route.name === "doc" || route.name === "new" || route.name === "scratchpad";
   const workspace = useRef<{ route: WorkspaceRoute; hash: string } | null>(null);
-  const pendingWorkspaceClose = useRef(false);
   if (inWorkspace) workspace.current = { route: route as WorkspaceRoute, hash: location.hash || "#/" };
   if (route.name === "blank") workspace.current = null;
-  useEffect(() => {
-    if (!inWorkspace || !pendingWorkspaceClose.current) return;
-    pendingWorkspaceClose.current = false;
-    window.dispatchEvent(new Event("hickory-workspace-close-request"));
-  }, [inWorkspace]);
+
 
   // The desktop shell's native menu, arriving as DOM events (menuBridge).
   // Navigation is answered here; Save / Save As need the focused document,
@@ -180,7 +176,27 @@ export function App() {
   };
   const menuHandler = useRef(handleMenuAction); menuHandler.current = handleMenuAction;
   useEffect(() => onMenuAction(action => menuHandler.current(action)), []);
+  const pendingApplicationClose = useRef<ReturnType<typeof requestApplicationClose> | null>(null);
+  const closeApplication = (signal?: AbortSignal) => {
+    if (pendingApplicationClose.current) return pendingApplicationClose.current;
+    const current = routeRef.current;
+    const pending = requestApplicationClose({ workspace: workspace.current?.hash.replace(/^#/, "") ?? null,
+      inWorkspace: current.name === "doc" || current.name === "new" || current.name === "scratchpad", signal,
+      reveal: navigate, workspaceClose: requestWorkspaceClose, hostClose: api.closeWindow });
+    pendingApplicationClose.current = pending;
+    void pending.then(outcome => {
+      if (pendingApplicationClose.current === pending) pendingApplicationClose.current = null;
+      if (outcome.status === "unavailable") setNotice(outcome.reason);
+    });
+    return pending;
+  };
+  const closeApplicationRef = useRef(closeApplication); closeApplicationRef.current = closeApplication;
   useUiCommands([
+    { key: "application-navigation/close-window", command: { label: "Close current window", parent: "application-navigation", subject: "application-window:close", parameters: {},
+      prerequisites: ["Reveals the retained workspace for source-bound close decisions. Host acknowledgement is not a witness of window destruction; shutdown can prevent reply delivery."],
+      read: () => ({ revision: JSON.stringify([route, workspace.current?.hash, newProject, !!pendingApplicationClose.current]), enabled: !pendingApplicationClose.current, reason: pendingApplicationClose.current ? "A window close flow is pending; inspect its prompt or workspace close status" : undefined }),
+      execute: async (_args, _actor, signal) => closeApplicationRef.current(signal),
+    } },
     ...([['new', 'Create untitled document'], ['new-project', 'Open new project dialog'], ['files', 'Show workspace Files'], ['show-agent', 'Show workspace agent'], ['settings', 'Open settings']] as const).map(([action, label]) => ({
       key: `application-navigation/${action}`, command: {
         label, parent: 'application-navigation', subject: 'application-navigation', parameters: {}, prerequisites: ['An open workspace is required'],
@@ -205,22 +221,11 @@ export function App() {
     return () => window.removeEventListener("hickory-open-path", onOpenPath);
   }, []);
   useEffect(() => {
-    const onClose = () => {
-      const current = routeRef.current;
-      if (workspace.current && current.name !== "doc" && current.name !== "new" && current.name !== "scratchpad") {
-        pendingWorkspaceClose.current = true;
-        navigate(workspace.current.hash.replace(/^#/, ""));
-        return;
-      }
-      if (current.name === "doc" || current.name === "new" || current.name === "scratchpad") {
-        window.dispatchEvent(new Event("hickory-workspace-close-request"));
-      } else {
-        void api.closeWindow();
-      }
-    };
+    const onClose = () => { void closeApplicationRef.current(); };
     window.addEventListener("hickory-window-close-request", onClose);
     return () => window.removeEventListener("hickory-window-close-request", onClose);
   }, []);
+
   useEffect(() => {
     if (notice === null) return;
     const timer = setTimeout(() => setNotice(null), 2500);

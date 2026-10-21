@@ -2,6 +2,8 @@ import { act, cleanup, fireEvent, render, waitFor, within } from "@testing-libra
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { EditorView } from "@codemirror/view";
 import { App } from "./App";
+import { UiActions } from "./lib/uiActions";
+import { UiActionContext } from "./lib/uiActionBridge";
 import { newDocument } from "./router";
 import { api } from "./api/client";
 import { installMockApi } from "./mock/mockApi";
@@ -67,6 +69,28 @@ it("checks unsaved work visibly when closing the app from Settings", async () =>
   fireEvent.click(within(dialog).getAllByRole("button", { name: "Cancel" })[0]);
   expect(editor(app.container)).toBe(view);
   expect(view.state.doc.toString()).toContain("Unsaved work");
+});
+
+// Guarantee: docs/guarantees/authoring/unsaved-work-survives-closing-the-app.md
+it("lets an agent request the same visible window-close decision from Settings", async () => {
+  const registry = new UiActions({ workspace: "fixture", window: "fixture-window" }, () => true, async () => {});
+  const close = vi.spyOn(api, "closeWindow").mockResolvedValue({ ok: true });
+  const app = render(<UiActionContext.Provider value={registry}><App /></UiActionContext.Provider>);
+  await waitFor(() => expect(editor(app.container).hasFocus).toBe(true));
+  const view = editor(app.container);
+  act(() => view.dispatch({ changes: { from: 0, insert: "Retained agent-close draft " } }));
+  fireEvent(window, new CustomEvent("hickory-menu", { detail: "settings" }));
+  await app.findByRole("heading", { name: /^Settings$/ });
+  const action = registry.observe("application-navigation", 64).actions.find(action => action.label === "Close current window")!;
+  expect(action).toBeDefined();
+  let pending!: ReturnType<typeof registry.act>;
+  await act(async () => { pending = registry.act(registry.scope, { id: "python:test", kind: "agent" }, { handle: action.handle, arguments: {}, request_id: "close-from-settings" }); });
+  const dialog = await app.findByRole("dialog", { name: /^Save changes before closing Hickory Docs\?/ });
+  expect(app.queryByRole("heading", { name: /^Settings$/ })).toBeNull();
+  fireEvent.click(within(dialog).getAllByRole("button", { name: "Cancel" })[0]);
+  await act(async () => { expect(await pending).toMatchObject({ status: "result", outcome: { status: "completed", value: { cancelled: true, host_close_submitted: false } } }); });
+  expect(close).not.toHaveBeenCalled(); expect(editor(app.container)).toBe(view);
+  expect(view.state.doc.toString()).toContain("Retained agent-close draft");
 });
 
 describe("the startup workspace", () => {
@@ -384,4 +408,17 @@ it("restores a folder's open document without adding the startup introduction", 
   await app.findByRole("tab", { name: /quickstart.md/ });
   expect(app.queryByRole("tab", { name: /Untitled/ })).toBeNull();
   expect(app.getByRole("tab", { name: /Files/, hidden: true })).toBeTruthy();
+});
+
+// Guarantee: docs/guarantees/authoring/unsaved-work-survives-closing-the-app.md
+it("joins repeated native close requests in a blank window while the host reply is pending", async () => {
+  window.history.replaceState(null, "", "/#/blank");
+  let finish!: (value: { ok: true }) => void;
+  const close = vi.spyOn(api, "closeWindow").mockImplementation(() => new Promise(resolve => { finish = resolve; }));
+  const app = render(<App />);
+  fireEvent(window, new Event("hickory-window-close-request"));
+  fireEvent(window, new Event("hickory-window-close-request"));
+  expect(close).toHaveBeenCalledTimes(1);
+  await act(async () => { finish({ ok: true }); });
+  expect(app.queryByRole("dialog", { name: /^Save changes/ })).toBeNull();
 });

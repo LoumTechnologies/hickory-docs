@@ -947,3 +947,20 @@ cases, four named recovery cases and two unnamed recovery cases. Targeted TypeSc
 and file/whitespace checks pass. APIs/save operations are fixtures where noted;
 whole-window closure, OS lifecycle and native/provider/release witnesses remain
 uncertified. See the unsaved-work guarantee's continuation for exact scope.
+
+
+Window closure now shares the actual mounted workspace owner across native and
+agent requests, including return from Settings to its visible close decision.
+Source/lifetime and session/terminal-anchor guards surround preparation and UI
+flushing. Save/discard preparation retains tabs; later refusals explicitly retain
+earlier possible effects. Pending status has its own paged reading and request
+identity. Missing owners never trigger a fallback host close. Duplicate native
+requests join the current call, including windows without a workspace.
+
+Nineteen lifecycle cases, three transport cases and four separately selected App
+cases pass, including an actual registry-driven agent request and real CodeMirror
+draft retention on Cancel. Strict affected TypeScript passes. Callback
+acknowledgement does not certify window destruction; browser-only engines retain
+their existing host refusal. Native/provider/release/deployed witnesses and the
+other outstanding parity work remain open. See the unsaved-work guarantee for
+scope, assumptions and evidence fingerprints.

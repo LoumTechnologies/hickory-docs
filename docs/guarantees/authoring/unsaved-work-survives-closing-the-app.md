@@ -192,3 +192,65 @@ Evidence dependencies (SHA-256; changed inputs invalidate this checkpoint):
 - `apps/web/src/lib/outputSave.ts`: `8f758f5833ecb52926857dfd701e3b3be9488916b256c3c127f422be91196604`
 - `apps/web/src/lib/drafts.ts`: `0b7b8f235b2ab1d6598053e38e4c08003102d9986f71919d683d504d648226ff`
 - `apps/web/src/views/useUntitledRecovery.ts`: `c5aaf657a3c801a6c52c7fc238936330d7512425224ab29f955a1db9b9b13641`
+
+## Shared whole-window close preparation — 2026-10-21
+
+Native close requests and the shared application/window actions now use the same
+mounted workspace owner. Closing from Settings first reveals the retained
+workspace so its real Save all / Close without saving / Cancel prompt is visible.
+A missing owner or a refused decision never falls back to an unguarded host close.
+An application with no workspace invokes the existing host callback directly;
+concurrent native requests join the pending application call.
+
+Window preparation captures all tab lifetimes and live source revisions, session
+identities and terminal anchors. It rechecks that capture before preparation and
+after UI/response-recovery flushing. Save/discard uses the shared tab controller
+without removing tabs or forgetting cached unnamed source. Each successful save
+updates its expected captured revision. A changed buffer, replacement tab, failed
+save, owner disposal or cancellation prevents host submission. Earlier save,
+discard or recovery effects remain possible when a later preparation refuses;
+this flow does not promise rollback. Changes after host submission and OS shutdown
+are outside the frontend guard's atomicity.
+
+The shared close status reader remains available while the operation waits. Its
+bounded UTF-8 JSON identifies the current request and separately retains the last
+settled result, marking whether that result belongs to the current request.
+A valid host response acknowledges only the callback, never physical window
+destruction. Shutdown may prevent response/receipt delivery. Browser-only engines
+return the existing actionable refusal rather than an invented native success.
+
+Origin: #72/#74/#75 universal interaction/reading parity, continuing the tab-close
+work above. Assumptions: App retains one mounted workspace owner; production buffer
+owners provide the live source/dirty getters reviewed in the earlier section.
+The lifecycle guard covers session identities and terminal anchors, not arbitrary
+external processes or a promise to drain background jobs. Rejected alternative:
+submit host close after an owner timeout/refusal, or remove all tabs while merely
+preparing an unacknowledged window shutdown.
+
+LLM implementation review: partially verified. Inspected `App`, `windowClose`,
+`useUnsavedLifecycle`, the WorkspaceView guard, host `shell::close_window` and its
+browser-only refusal. Native window destruction and the released provider flow
+remain unwitnessed. Computer-use inventory exposed no native apps or Hickory tab
+in this session. Human judgment: not supplied.
+
+Executed focused checks: 19 lifecycle cases and three application-close transport
+cases pass, including serial saves, later-save refusal with earlier effects,
+new edits/lifecycle changes during flushing, stale decisions before recovery
+cleanup, cancellation during save, pending status reading and duplicate requests.
+Real App/CodeMirror cases were run separately: native Settings-close/cancel,
+agent Settings-close/cancel, unnamed recovery discard before window approval,
+and duplicate blank-window requests. Each passed. Host APIs are fixtures;
+these are controller witnesses, not native/provider execution. Targeted strict
+TypeScript includes App, WorkspaceView and the affected tests; the first command
+used a nonexistent interpreter declaration path and was corrected before passing.
+Broad regressions and post-commit monitoring were not run.
+
+Evidence dependencies (SHA-256; earlier fingerprints above remain historical):
+- `apps/web/src/App.tsx`: `0d5f87a1c4ca8c13e9d62ac75865f5ad31c5a938780b2ba1da2a0f29bb25d92a`
+- `apps/web/src/App.test.tsx`: `25f885a247431d1d0f865a5c7462ba2ef299ce231ea61b33ed2e207df9bce375`
+- `apps/web/src/lib/windowClose.ts`: `9e992ac7c0b354ab922a3ada79af9e445a8edb30d6a7927a27c0c91803102f4a`
+- `apps/web/src/lib/windowClose.test.ts`: `0c12f2092525754b58a110f0c2660aa6f652583e35c2353dee7c065697c49e9d`
+- `apps/web/src/views/useUnsavedLifecycle.ts`: `5a146eb67295040b22e5d5890bc401fdf50278d3acf4c7e44c7e454013bad525`
+- `apps/web/src/views/useUnsavedLifecycle.test.tsx`: `518608027b16d7d4254c8c7f3abbc843bf0130e16c3ebb7bc0fa1fd263c95cdb`
+- `apps/web/src/views/WorkspaceView.tsx`: `412bc95d63f028b9c796f8f8e8c3f675bff630dc1262fda59332be4b459dc659`
+- `crates/hickory-cli/src/serve/shell.rs`: `7cf34c944a7a567d6e5e1fd87280a80e501f571349f79607e8c262689565c320`

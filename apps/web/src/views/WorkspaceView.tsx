@@ -1437,7 +1437,7 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
     untitledSourcesRef,
     forgetUntitled,
     saveUntitled,
-    prompt: shellPrompt, onError: setInsertNotice,
+    prompt: shellPrompt, onError: setInsertNotice, windowGuard: () => [sessionsRef.current.map(session => session.id).sort(), Object.entries(terminals.anchors).map(([id, anchor]) => [id, anchor.doc, anchor.container]).sort()],
     plainDirtyTabs,
     plainUnsavedActions,
   });
