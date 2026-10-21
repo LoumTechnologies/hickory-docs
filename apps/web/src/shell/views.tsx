@@ -294,7 +294,7 @@ export function GeneratedFileView({
       }}
       />
       {debuggerContext && file && <GeneratedDebugTools view={debugView} file={file} {...debuggerContext} />}
-      {range && <SamplePicker path={path} range={range} />}
+      {range && <SamplePicker path={path} range={range} contents={outputView.current?.state.doc.toString() ?? file?.content ?? ""} />}
       {saveError && (
         <ActionNotice kind="fail" retry={{ label: "Retry Save", run: () => { void saver.flushNow(); } }}>
           Could not save into the owning document. Your edits remain in this buffer: {saveError}

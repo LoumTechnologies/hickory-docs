@@ -70,6 +70,15 @@ pub(super) fn validate_source(
     scratch: &Path,
     private_volume: bool,
 ) -> Result<(CaptureSpec, u32)> {
+    validate_bounded(request, source, scratch, private_volume, false)
+}
+pub(super) fn validate_bounded(
+    request: &DebuggerRequest,
+    source: &str,
+    scratch: &Path,
+    private_volume: bool,
+    interactive: bool,
+) -> Result<(CaptureSpec, u32)> {
     use sha2::{Digest, Sha256};
     ensure!(request.identity.source == format!("{:x}", Sha256::digest(source.as_bytes())));
     ensure!(request.identity.dependencies.is_empty());
@@ -106,7 +115,11 @@ pub(super) fn validate_source(
     let spec = captures[0].specs[0].clone();
     ensure!(
         spec.expressions == [expression.clone()]
-            && spec.max as u64 == *hit
+            && if interactive {
+                spec.max as u64 >= *hit && spec.max <= 100
+            } else {
+                spec.max as u64 == *hit
+            }
             && spec.file.ends_with(".py")
     );
     hick_lang::validate_project_path(&spec.file).map_err(anyhow::Error::msg)?;
@@ -167,6 +180,7 @@ pub(super) fn selected(
         .ok_or_else(|| anyhow::anyhow!("Frame unavailable"))?;
     ensure!(
         selected.index as u64 == *hit
+            && !context.run.is_empty()
             && context.function == *function
             && context.document_line == Some(line)
             && context.frame > 0
@@ -182,6 +196,7 @@ pub(super) fn selected(
         prior.index == index + 1
             && prior.context.as_ref().is_some_and(|prior| {
                 prior.thread == context.thread
+                    && prior.run == context.run
                     && prior.frame > 0
                     && prior.function == *function
                     && prior.document_line == Some(line)
@@ -200,3 +215,6 @@ pub(super) fn selected(
 
 #[cfg(test)]
 mod tests;
+
+#[path = "interactive.rs"]
+pub mod interactive;

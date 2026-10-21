@@ -261,3 +261,93 @@ LLM implementation review: **partially verified** for these host-library seams;
 authoritative application isolation, future-stop prediction and selected browser
 publication remain incomplete. Executed checks and exact reviewed hashes are
 recorded in the continuation handoff. Human judgment: **not supplied**.
+
+### Selected recorded debugger coordinates
+
+Capture contexts now retain a distinct observation-run identity. Every prior hit
+counted toward selected-hit settlement must belong to that run as well as the
+same source/line/thread/function. A synthetic cross-run hit challenge and the
+real configured Python witness pass. Selected publication retains only whitelisted
+run/thread/frame/source/function/hit metadata from private captures; values,
+evaluation errors, arbitrary context fields and problem text are excluded.
+Selection checks its ledger generation again before reading that private metadata.
+Public selection never records a reveal or returns current certification.
+
+The explicit authorization evidence example now records runtime-code fingerprints
+before/after its actual output/DAP runs. This is captured environment evidence,
+not an immutable environment or complete OS fingerprint. Its exported predictions
+are host-fixture declarations; they are not decisions by a paid model. The existing
+publisher/viewer now displays that recorded pair without executing its target or
+publishing actual answers, diagnostics, cell transcripts or assets. Missing
+settlement evidence is refused, and source-revision navigation remains bound to
+the selected index. Application strict mode and future-stop integration remain
+separate outstanding work. See the active handoff for actual focused checks.
+
+### Retained stops and shared document Verify — October 21
+
+`RetainedDebugger` owns one host-private DAP session. Its initial seal precedes
+launch and first observation. `seal_next` records the host's prior visible state
+privately, its digest and the paused run/thread/frame/hit identity; the next seal
+selects the immediately following hit. `resume` passes that exact binding through
+`prediction/gate.rs` before Continue. An initial adapter cannot consume a future
+seal. Changed context, another run or another owner refuses before dispatch.
+Settled request retries return the retained summary without another Continue.
+The existing capture evaluator and a bounded session time/hit budget remain in use.
+
+An otherwise fresh successful future prediction is `informed_prediction_verified`,
+never an independent first prediction. Existing correction, changed-expectation,
+requirement and exposure rules still apply. Public history/selection retains only
+answer-free stop coordinates and the prior-context digest; private prior visible
+state and capture values remain withheld. The host must supply context actually
+visible to the predictor and recognize scenario correspondence. Renaming an
+already exposed question does not establish fresh evidence. The library cannot
+independently establish that absence of prior exposure.
+
+`EditSession::open_prediction` opens without weaving/importing caches. Its
+host-selected policy routes Verify through the existing output/debugger/combined
+gate. Generated file reads/edits/previews, general file reads and alternate tool
+execution refuse under that policy. Source reads and captured source edits remain
+available. A repair requires a new host-installed seal; tool arguments cannot
+replace the policy. Verify returns only bounded comparisons and publishes no
+runtime files, including after success. Promotion remains a separate exact-source
+host action. Out-of-band source mutation refuses reads/verification/preview;
+source metadata reports the approved captured hash and a current/unavailable
+boolean, never the hash or content of the unapproved replacement.
+
+LLM implementation review: **partially verified** for these seams. Inspected
+`interactive_capture.rs`, `prediction/interactive.rs`, the shared gate and ledger,
+and `hickory-agent/src/tools/{prediction,dispatch,preview}.rs`. The real Python
+witness checks first/second-hit ordering, changed-context refusal, initial-adapter
+refusal, unchanged-prediction repair and idempotent resume. Sixteen focused ledger
+cases and the shared-tool real-executor witness pass. These are not attached
+Python/MCP/ACP, native application, browser-worker or universal context quarantine
+witnesses. Application enablement and strict coach remain unfinished. Ordinary
+non-strict verification still follows its existing behavior. Human judgment is
+not supplied. Exact dependency hashes and checks are retained in the handoff.
+
+### Startup-bound authoritative HTTP service — October 21
+
+`serve::prepare_with_prediction` accepts a trusted host binding before constructing
+its router. Its existing document Run/Check handlers dispatch through the private
+shared document gate, never the ordinary streaming/cache/publication path. Run
+records retain typed, answer-free comparison summaries and bounded failure text.
+Captured source tools reuse `EditSession`; out-of-band source writes refuse.
+History is explicitly historical and grants no current certification.
+
+The service's outer middleware refuses every ordinary API surface except the
+bound Run/Check routes, its safe run-record reader, captured-source tools and
+withheld history/state. Outputs/files, context/session/cache/report routes,
+WebSocket streams, terminal/launch/debug and provider starts are unavailable.
+There is no HTTP policy toggle or model-supplied actor. A repaired source requires
+a new host seal and startup binding. This bounded host API is not an application
+flag and does not automatically quarantine a separate engine/MCP process or
+external tools. Those integrations remain required before product enablement.
+
+LLM implementation review: partially verified for `serve/private_predictions.rs`,
+`bootstrap.rs`, `LocalState::start_run_expected` and the outer router middleware.
+A real HTTP/process witness rejects the faulty run, refuses alternate routes,
+permits captured source repair, blocks stale/unsealed checking, refuses injected
+source bytes and accepts the unchanged prediction after a reviewed host restart.
+Failure/repair share the durable ledger; neither creates the runtime output file.
+It does not witness an attached provider, native app or deployed session. Human
+judgment is not supplied. The handoff retains exact dependency hashes.

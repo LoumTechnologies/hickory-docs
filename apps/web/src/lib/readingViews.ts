@@ -12,7 +12,7 @@ export interface ReadingView {
   location?: {line:number;character:number};
   dispose?: () => void;
   project?: import("../editor/hickLang").ProjectEntry[];
-  decide?: (accepted: boolean, newText?: string) => Promise<void>;
+  decide?: (accepted: boolean, newText?: string) => Promise<void | import("./uiActions").UiOutcome>;
 }
 export const OPEN_READING = "hickory.open-reading";
 const readings = new Map<string, ReadingView>();

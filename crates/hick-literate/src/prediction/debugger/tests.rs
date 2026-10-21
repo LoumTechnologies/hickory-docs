@@ -30,6 +30,7 @@ fn captured() -> Captured {
             .map(|index| Hit {
                 index,
                 context: Some(CaptureContext {
+                    run: "fixture-capture-run".into(),
                     thread: 1,
                     frame: index as i64,
                     function: "retry".into(),
@@ -83,6 +84,9 @@ fn selected_capture_requires_exact_frame_source_hit_binding_and_successful_evalu
     invalid.push(value);
     let mut value = good.clone();
     value.hits[0].context.as_mut().unwrap().thread = 2;
+    invalid.push(value);
+    let mut value = good.clone();
+    value.hits[0].context.as_mut().unwrap().run = "different-adapter-run".into();
     invalid.push(value);
     let mut value = good.clone();
     value.hits[0].context.as_mut().unwrap().source = Some("other.py".into());
@@ -249,4 +253,233 @@ async fn real_python_second_hit_fault_and_repair_use_the_existing_private_captur
             .current_certification
     );
     assert_eq!(ledger.history(None).unwrap().attempts.len(), 2);
+}
+
+// Guarantee: docs/guarantees/verification/predictions-precede-managed-observation.md
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "requires configured Python debugpy; explicitly run the focused witness"]
+async fn retained_session_requires_future_seal_before_resume_and_keeps_answers_private() {
+    use super::interactive::RetainedDebugger;
+    let project = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
+    assert!(hick_dap::discover("python", &project).is_some());
+    let root = tempfile::tempdir().unwrap();
+    let ledger = Ledger::open(root.path()).unwrap();
+    for corrected in [false, true] {
+        let text = source(corrected);
+        let template = request(
+            &ledger,
+            &text,
+            if corrected {
+                "repair-template"
+            } else {
+                "fault-template"
+            },
+        );
+        let history = ledger.history(None).unwrap();
+        let future: Seal = serde_json::from_value(
+            history
+                .ordering
+                .iter()
+                .find(|entry| entry["event"]["id"] == template.seal)
+                .unwrap()["event"]["seal"]
+                .clone(),
+        )
+        .unwrap();
+        let mut initial = future.clone();
+        initial.scenario.family = "retry-budget/initial-allowance".into();
+        initial.scenario.requirement_reference =
+            "initial allowance is the full 100ms budget".into();
+        initial.predicted = Predicate::Equals(json!(100));
+        initial.scenario.requirement = initial.predicted.clone();
+        if let Target::Debugger { hit, .. } = &mut initial.target {
+            *hit = 1;
+        }
+        let receipt = ledger
+            .seal(history.generation, initial.clone(), template.actor.clone())
+            .unwrap();
+        let first = DebuggerRequest {
+            seal: receipt.id,
+            request_id: format!("initial-{corrected}"),
+            actor: template.actor.clone(),
+            identity: initial.identity,
+            target: initial.target,
+        };
+        let (session, result) = RetainedDebugger::start(&ledger, &first, &text, &project)
+            .await
+            .unwrap();
+        assert!(result.summary.prediction_matched.unwrap());
+        let mut session = session.unwrap();
+        let visible = json!({"source_review":"two attempts with a single total deadline", "prior_verdict":"matched"});
+        // An unbound initial seal cannot resume this retained process.
+        assert!(session.resume(&template, &visible).await.is_err());
+        let next = session
+            .seal_next(future, format!("future-{corrected}"), visible.clone())
+            .unwrap();
+        // Neither an initial adapter nor changed context can consume the seal.
+        assert!(run(&ledger, &next, &text, &project).await.is_err());
+        assert!(
+            session
+                .resume(&next, &json!({"changed":true}))
+                .await
+                .is_err()
+        );
+        let result = session.resume(&next, &visible).await.unwrap();
+        let retry = session.resume(&next, &visible).await.unwrap();
+        assert!(!retry.dispatched);
+        assert_eq!(retry.summary.attempt, result.summary.attempt);
+        assert!(
+            session
+                .resume(&next, &json!({"changed":true}))
+                .await
+                .is_err()
+        );
+
+        assert_eq!(
+            result.summary.classification,
+            if corrected {
+                Classification::VerifiedAfterCorrection
+            } else {
+                Classification::Mismatch
+            }
+        );
+        let feedback = serde_json::to_string(&result).unwrap();
+        assert!(!feedback.contains("values") && !feedback.contains("captures"));
+        if corrected {
+            assert!(
+                ledger
+                    .promote(&result.summary.attempt, &next.identity, next.actor)
+                    .unwrap()
+                    .current_certification
+            );
+        } else {
+            assert!(
+                ledger
+                    .promote(&result.summary.attempt, &next.identity, next.actor)
+                    .is_err()
+            );
+        }
+        session.shutdown().await;
+    }
+    let public = serde_json::to_string(&ledger.history(None).unwrap()).unwrap();
+    assert!(
+        public.contains("future_stop")
+            && !public.contains("two attempts with a single total deadline")
+    );
+    // Fresh correct future-stop success must never claim an independent first prediction.
+    let fresh_root = tempfile::tempdir().unwrap();
+    let fresh = Ledger::open(fresh_root.path()).unwrap();
+    let text = source(true);
+    let template = request(&fresh, &text, "informed-template");
+    let history = fresh.history(None).unwrap();
+    let seal: Seal = serde_json::from_value(history.ordering[0]["event"]["seal"].clone()).unwrap();
+    let prior = json!({"previous_stop":"reviewed source"});
+    let stop = hick_observe::prediction::FutureStop {
+        run: "host-run".into(),
+        thread: 1,
+        frame: 1,
+        hit: 1,
+        prior_visible_digest: digest(&prior).unwrap(),
+    };
+    let receipt = fresh
+        .seal_future(
+            history.generation,
+            seal,
+            template.actor.clone(),
+            stop.clone(),
+            prior,
+        )
+        .unwrap();
+    assert!(
+        fresh
+            .admit_target(
+                &receipt.id,
+                "wrong",
+                &template.identity,
+                false,
+                template.actor.clone(),
+                &template.target
+            )
+            .is_err()
+    );
+    let admission = fresh
+        .admit_future_target(
+            &receipt.id,
+            "informed",
+            &template.identity,
+            template.actor.clone(),
+            &template.target,
+            &stop,
+        )
+        .unwrap();
+    let observation = hick_observe::prediction::ObservedResult {
+        identity: template.identity,
+        target: template.target,
+        actual: json!(20),
+        evidence: json!({}),
+    };
+    assert!(
+        fresh
+            .finish(&admission.receipt.id, observation.clone())
+            .is_err()
+    );
+    let result = fresh
+        .finish_future_checked(&admission.receipt.id, observation, true, &stop)
+        .unwrap();
+    assert_eq!(
+        result.classification,
+        Classification::InformedPredictionVerified
+    );
+}
+
+// Guarantee: docs/guarantees/verification/predictions-precede-managed-observation.md
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "requires configured Python debugpy; explicitly run the focused witness"]
+async fn retained_session_missing_future_hit_is_unknown_and_never_promotable() {
+    use super::interactive::RetainedDebugger;
+    let project = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
+    assert!(hick_dap::discover("python", &project).is_some());
+    let root = tempfile::tempdir().unwrap();
+    let ledger = Ledger::open(root.path()).unwrap();
+    let text = source(true).replace("    return elapsed", "        return elapsed");
+    let template = request(&ledger, &text, "early-return-template");
+    let history = ledger.history(None).unwrap();
+    let future: Seal =
+        serde_json::from_value(history.ordering[0]["event"]["seal"].clone()).unwrap();
+    let mut initial = future.clone();
+    initial.scenario.family = "retry-budget/initial-allowance".into();
+    initial.scenario.requirement_reference = "initial allowance is 100ms".into();
+    initial.predicted = Predicate::Equals(json!(100));
+    initial.scenario.requirement = initial.predicted.clone();
+    if let Target::Debugger { hit, .. } = &mut initial.target {
+        *hit = 1;
+    }
+    let receipt = ledger
+        .seal(history.generation, initial.clone(), template.actor.clone())
+        .unwrap();
+    let first = DebuggerRequest {
+        seal: receipt.id,
+        request_id: "first".into(),
+        actor: template.actor.clone(),
+        identity: initial.identity,
+        target: initial.target,
+    };
+    let (session, result) = RetainedDebugger::start(&ledger, &first, &text, &project)
+        .await
+        .unwrap();
+    assert_eq!(result.summary.prediction_matched, Some(true));
+    let mut session = session.unwrap();
+    let visible = json!({"previous_stop":"source reviewed"});
+    let next = session
+        .seal_next(future, "missing-second-hit".into(), visible.clone())
+        .unwrap();
+    let result = session.resume(&next, &visible).await.unwrap();
+    assert_eq!(result.summary.classification, Classification::Unknown);
+    assert_eq!(result.summary.prediction_matched, None);
+    assert!(
+        ledger
+            .promote(&result.summary.attempt, &next.identity, next.actor)
+            .is_err()
+    );
+    assert!(!serde_json::to_string(&result).unwrap().contains("captures"));
+    session.shutdown().await;
 }

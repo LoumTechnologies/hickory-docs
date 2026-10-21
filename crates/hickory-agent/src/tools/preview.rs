@@ -27,6 +27,13 @@ impl EditSession {
         )
     }
     pub fn source_snapshots(&self) -> Vec<serde_json::Value> {
+        if self.prediction.is_some() {
+            return vec![
+                serde_json::json!({"path":self.doc_path.display().to_string(),
+                "sha256":sha256_hex(self.source.as_bytes()), "captured":true,
+                "current":std::fs::read_to_string(&self.doc_path).ok().as_ref() == Some(&self.source)}),
+            ];
+        }
         let mut paths = vec![self.doc_path.clone()];
         paths.extend(self.upstream.keys().cloned());
         paths.sort();
@@ -62,6 +69,9 @@ impl EditSession {
         &mut self,
         inv: &ToolInvocation,
     ) -> Result<(String, String, String), String> {
+        if self.prediction.is_some() && inv.name != "edit_doc" {
+            return Err("Private prediction policy withholds generated output previews".into());
+        }
         let resynced = self.sync_with_disk().await?;
         let (path, content) = if inv.name == "edit_output" {
             let path = inv.arg("path").ok_or("Pass an output path.")?;

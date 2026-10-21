@@ -88,3 +88,23 @@ Last LLM verification:
   document changes) has no browser test; the server half and the line
   arithmetic are covered separately and the wiring between them was verified
   by hand.
+
+## Selected-byte dispatch checkpoint — October 21
+
+The sample picker now shares caption, selection reading and insertion commands
+with the agent registry. Its action revision includes the selected output bytes,
+path and line range. It hashes those bytes before dispatch and refuses if selection
+changed during hashing. The server checks the supplied hash against the confined,
+saved generated output before modifying the owning source. Unsaved/stale output
+returns a conflict with no source edit. Existing direct callers without the
+optional hash retain their previous behavior. A late completion for an earlier
+selection cannot populate a replacement selection's local status.
+
+LLM implementation review: partially verified for `SamplePicker.tsx`, its
+`views.tsx` adapter and `serve/sample.rs::create`. The focused UI lifecycle test
+and real HTTP stale/current-output witness pass, alongside the three existing
+selection cases. This is not an atomic transaction against external filesystem
+writers: the server serializes cooperating source writers, while an external
+process can still mutate files after inspection. Samples remain live windows;
+they are not immutable captured bytes or runtime certification. Human judgment is
+not supplied. Exact inspected hashes are retained in the issue-72 handoff.

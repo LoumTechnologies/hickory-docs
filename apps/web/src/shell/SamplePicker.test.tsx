@@ -1,6 +1,6 @@
 // Which lines a selection means — the arithmetic behind "Lines 11–18".
 //
-// Protects docs/guarantees/documents/a-sample-shows-generated-lines-without-storing-them.md
+// Protects docs/guarantees/authoring/a-sample-shows-generated-lines-without-storing-them.md
 
 import { describe, expect, it } from "vitest";
 import { EditorState } from "@codemirror/state";

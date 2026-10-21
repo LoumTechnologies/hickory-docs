@@ -60,6 +60,25 @@ export function byteToChar(text: string, byteIndex: number): number {
   return text.length;
 }
 
+/** Convert a provenance list in one forward scan, retaining input order.
+ * Repeated byteToChar calls rescan a Unicode session from its beginning for
+ * every link, which can block token-bound UI replies as a session grows. */
+export function bytesToChars(text: string, offsets: readonly number[]): number[] {
+  if (isAscii(text)) return offsets.map(offset => Math.max(0, Math.min(offset, text.length)));
+  const ordered = offsets.map((offset, index) => ({ offset: Number.isNaN(offset) ? Infinity : offset, index }))
+    .sort((left, right) => left.offset - right.offset);
+  const result = new Array<number>(offsets.length);
+  let bytes = 0, units = 0;
+  for (const target of ordered) {
+    while (units < text.length && bytes < target.offset) {
+      const next = byteLenAt(text, units);
+      bytes += next.bytes; units += next.units;
+    }
+    result[target.index] = units;
+  }
+  return result;
+}
+
 /** Total UTF-8 byte length of `text`. */
 export function byteLength(text: string): number {
   return charToByte(text, text.length);

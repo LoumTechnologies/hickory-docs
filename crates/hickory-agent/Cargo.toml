@@ -16,6 +16,7 @@ futures = "0.3"
 hick-exec.workspace = true
 hick-lang.workspace = true
 hick-project-env = { path = "../hick-project-env" }
+hick-observe = { path = "../hick-observe" }
 hick-literate = { path = "../hick-literate" }
 hickory-executor = { path = "../hickory-executor" }
 hickory-lineage = { path = "../hickory-lineage" }

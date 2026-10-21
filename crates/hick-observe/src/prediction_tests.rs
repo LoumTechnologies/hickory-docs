@@ -62,7 +62,10 @@ fn selected_history_preserves_failure_and_repair_without_exporting_private_answe
         &ledger,
         &first.id,
         json!(160),
-        json!({"stderr":"private-held-out-diagnostic"}),
+        json!({"stderr":"private-held-out-diagnostic", "adapter":"combined_live_v1", "captures":[{
+            "spec":{"file":"fixture.py","line":5},"truncated":true,"problem":"private-capture-problem","moved":null,
+            "hits":[{"index":1,"values":[{"value":"private-target-value"}],"context":{"run":"recorded-run","thread":1,"frame":2,"function":"retry","document_line":7,"source":"fixture.py","source_line":4,"breakpoint_bound":true,"private":"private-context-value"}}]
+        }]}),
     )?;
     let repaired = seal(100, 'b');
     let sealed = ledger.seal(
@@ -97,14 +100,30 @@ fn selected_history_preserves_failure_and_repair_without_exporting_private_answe
     );
     assert!(!selected.history.attempts[1].current_certification);
     assert_eq!(selected.omitted_events, 2);
+    assert_eq!(selected.debugger_contexts.len(), 1);
+    assert_eq!(
+        selected.debugger_contexts[0]["hits"][0]["context"]["run"],
+        "recorded-run"
+    );
     assert_eq!(selected.omitted_context_observations, 2);
     assert_eq!(selected.history.ordering[0]["sequence"], 3);
+    assert!(
+        selected
+            .history
+            .ordering
+            .iter()
+            .filter(|entry| entry["event"]["kind"] != "sealed")
+            .all(|entry| entry["event"].get("context").is_none())
+    );
     let text = serde_json::to_string(&selected)?;
     for private in [
         "private-held-out-diagnostic",
         "private-debugger-state",
         "private-unselected-family",
         "private-human-view",
+        "private-capture-problem",
+        "private-target-value",
+        "private-context-value",
     ] {
         assert!(!text.contains(private));
     }
@@ -840,6 +859,127 @@ fn guessing_a_replacement_expectation_cannot_earn_verification_credit() -> Resul
     assert!(
         ledger
             .promote(&next.id, &replacement.identity, actor("agent"))
+            .is_err()
+    );
+    Ok(())
+}
+
+// Guarantee: docs/guarantees/verification/predictions-precede-managed-observation.md
+#[test]
+fn future_seals_bind_prior_stop_and_context_and_never_claim_independent_first_success() -> Result<()>
+{
+    let root = tempfile::tempdir()?;
+    let ledger = Ledger::open(root.path())?;
+    let mut question = seal(20, 'a');
+    question.target = Target::Debugger {
+        source: "root".into(),
+        source_revision: question.identity.source.clone(),
+        start_byte: 0,
+        end_byte: 10,
+        expression: "allowance".into(),
+        hit: 2,
+        frame: Some("retry".into()),
+    };
+    let visible = json!({"prior_visible":"private previous discussion"});
+    let stop = FutureStop {
+        run: "retained-run".into(),
+        thread: 1,
+        frame: 2,
+        hit: 1,
+        prior_visible_digest: digest(&visible)?,
+    };
+    let receipt = ledger.seal_future(
+        0,
+        question.clone(),
+        actor("agent"),
+        stop.clone(),
+        visible.clone(),
+    )?;
+    assert!(
+        ledger
+            .begin(
+                &receipt.id,
+                "initial",
+                &question.identity,
+                false,
+                actor("agent")
+            )
+            .is_err()
+    );
+    let mut wrong = stop.clone();
+    wrong.run = "another-process".into();
+    assert!(
+        ledger
+            .admit_future_target(
+                &receipt.id,
+                "wrong",
+                &question.identity,
+                actor("agent"),
+                &question.target,
+                &wrong
+            )
+            .is_err()
+    );
+    let admission = ledger.admit_future_target(
+        &receipt.id,
+        "future",
+        &question.identity,
+        actor("agent"),
+        &question.target,
+        &stop,
+    )?;
+    assert!(admission.dispatch);
+    assert!(
+        !ledger
+            .admit_future_target(
+                &receipt.id,
+                "future",
+                &question.identity,
+                actor("agent"),
+                &question.target,
+                &stop
+            )?
+            .dispatch
+    );
+    let observation = ObservedResult {
+        identity: question.identity.clone(),
+        target: question.target.clone(),
+        actual: json!(20),
+        evidence: json!({}),
+    };
+    assert!(
+        ledger
+            .finish(&admission.receipt.id, observation.clone())
+            .is_err()
+    );
+    assert!(
+        ledger
+            .finish_future_checked(&admission.receipt.id, observation.clone(), true, &wrong)
+            .is_err()
+    );
+    let summary = ledger.finish_future_checked(&admission.receipt.id, observation, true, &stop)?;
+    assert_eq!(
+        summary.classification,
+        Classification::InformedPredictionVerified
+    );
+    assert!(
+        ledger
+            .promote(&summary.attempt, &question.identity, actor("agent"))?
+            .current_certification
+    );
+    let public = serde_json::to_string(&ledger.select_history(&[question.scenario.key()?])?)?;
+    assert!(public.contains("future_stop"));
+    assert!(!public.contains("private previous discussion"));
+    // Context digest and next-hit claims are checked before writing any seal.
+    assert!(
+        ledger
+            .seal_future(
+                ledger.history(None)?.generation,
+                question,
+                actor("agent"),
+                stop,
+                json!({"changed":true})
+            )
             .is_err()
     );
     Ok(())

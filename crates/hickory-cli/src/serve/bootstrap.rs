@@ -13,15 +13,27 @@ pub struct Prepared {
 /// test over a real socket on an ephemeral port, and so the desktop app can
 /// mount this router on a listener it owns.
 pub async fn prepare(opts: ServeOptions) -> Result<Prepared> {
-    prepare_inner(opts, None).await
+    prepare_inner(opts, None, None).await
 }
 
 /// An editor-only window: the target is internal session storage, not an open folder.
 pub async fn prepare_without_folder(opts: ServeOptions) -> Result<Prepared> {
-    prepare_inner(opts, Some(false)).await
+    prepare_inner(opts, Some(false), None).await
 }
 
-async fn prepare_inner(opts: ServeOptions, folder_open: Option<bool>) -> Result<Prepared> {
+/// A startup-only, bounded private service. Unsupported ordinary surfaces refuse;
+/// this does not enable a native application flag or attach an unguarded agent.
+pub async fn prepare_with_prediction(
+    opts: ServeOptions,
+    binding: PrivatePredictionBinding,
+) -> Result<Prepared> {
+    prepare_inner(opts, None, Some(binding)).await
+}
+async fn prepare_inner(
+    opts: ServeOptions,
+    folder_open: Option<bool>,
+    prediction: Option<PrivatePredictionBinding>,
+) -> Result<Prepared> {
     let target = opts
         .target
         .canonicalize()
@@ -66,7 +78,8 @@ async fn prepare_inner(opts: ServeOptions, folder_open: Option<bool>) -> Result<
     let term_config = hick_term::TermConfig::from_env()?;
 
     let store = FileDocStore::new(index.clone());
-    let state = LocalState {
+    let mut state = LocalState {
+        private_prediction: None,
         ui_actions: Arc::new(ui_actions::Hub::default()),
         fleet_pairings: Arc::new(fleet_pairings::Pairings::default()),
         opened_files: Arc::new(std::sync::RwLock::new(std::collections::HashSet::new())),
@@ -105,6 +118,14 @@ async fn prepare_inner(opts: ServeOptions, folder_open: Option<bool>) -> Result<
         engine_woven: None,
     };
 
+    if let Some(binding) = prediction {
+        anyhow::ensure!(
+            target.is_file(),
+            "A private prediction session needs one exact source file"
+        );
+        state.private_prediction =
+            Some(private_predictions::Bound::open(&state, target, binding).await?);
+    }
     Ok(Prepared {
         router: router(state.clone()),
         state,

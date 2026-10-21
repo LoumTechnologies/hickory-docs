@@ -41,6 +41,8 @@ mod changeset_drafts;
 pub mod commit_reading;
 pub mod dataset;
 pub mod debug_bridge;
+mod private_predictions;
+pub use private_predictions::Binding as PrivatePredictionBinding;
 mod engineer_tour;
 pub mod environments;
 pub mod files_ops;
@@ -151,6 +153,7 @@ pub struct RunRecord {
 /// Everything a request handler needs.
 #[derive(Clone)]
 pub struct LocalState {
+    pub(crate) private_prediction: Option<Arc<private_predictions::Bound>>,
     pub(crate) ui_actions: Arc<ui_actions::Hub>,
     pub(crate) fleet_pairings: Arc<fleet_pairings::Pairings>,
     /// Text files explicitly opened outside the workspace.
@@ -470,6 +473,9 @@ impl LocalState {
         check_only: bool,
         expected: Option<String>,
     ) -> ApiResult<String> {
+        if let Some(bound) = &self.private_prediction {
+            return bound.start(self, id, expected);
+        }
         let path = self
             .index
             .absolute(id)
@@ -609,6 +615,9 @@ impl LocalState {
 /// them on load. It is not shared any more.
 pub(crate) fn router(state: LocalState) -> Router {
     let api = Router::new()
+        .route("/prediction/state", get(private_predictions::status))
+        .route("/prediction/history", get(private_predictions::history))
+        .route("/prediction/tool", post(private_predictions::source_tool))
         .merge(ui_actions::routes())
         .merge(fleet_pairings::routes())
         .route("/projects", get(api::projects))
@@ -884,11 +893,17 @@ pub(crate) fn router(state: LocalState) -> Router {
         )
         .route("/ws", get(socket::ws_handler));
 
-    Router::new().nest("/api", api).with_state(state)
+    Router::new()
+        .nest("/api", api)
+        .layer(axum::middleware::from_fn_with_state(
+            state.clone(),
+            private_predictions::quarantine,
+        ))
+        .with_state(state)
 }
 
 mod bootstrap;
-pub use bootstrap::{Prepared, prepare, prepare_without_folder, serve};
+pub use bootstrap::{Prepared, prepare, prepare_with_prediction, prepare_without_folder, serve};
 
 // ---------------------------------------------------------------------------
 // Small helpers

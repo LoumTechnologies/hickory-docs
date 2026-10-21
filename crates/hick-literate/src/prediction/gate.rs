@@ -1,7 +1,7 @@
 //! One private admission/retry/settlement boundary for every observation adapter.
 use super::{ManagedOutput, OutputEncoding, output_target};
 use anyhow::{Result, ensure};
-use hick_observe::prediction::{Actor, Identity, Ledger, ObservedResult, Target};
+use hick_observe::prediction::{Actor, FutureStop, Identity, Ledger, ObservedResult, Target};
 use serde_json::Value;
 
 pub(super) enum Admission<'a> {
@@ -14,6 +14,7 @@ pub(super) struct Gate<'a> {
     attempt: String,
     identity: Identity,
     target: Target,
+    future: Option<FutureStop>,
 }
 
 pub(super) fn admit<'a>(
@@ -24,11 +25,37 @@ pub(super) fn admit<'a>(
     actor: &Actor,
     target: &Target,
 ) -> Result<Admission<'a>> {
-    let admission = ledger
-        .admit_target(seal, key, identity, false, actor.clone(), target)
-        .map_err(|_| {
-            anyhow::anyhow!("Managed prediction admission refused; inspect current sealed history")
-        })?;
+    admit_inner(ledger, seal, key, identity, actor, target, None)
+}
+pub(super) fn admit_future<'a>(
+    ledger: &'a Ledger,
+    seal: &str,
+    key: &str,
+    identity: &Identity,
+    actor: &Actor,
+    target: &Target,
+    future: &FutureStop,
+) -> Result<Admission<'a>> {
+    admit_inner(ledger, seal, key, identity, actor, target, Some(future))
+}
+fn admit_inner<'a>(
+    ledger: &'a Ledger,
+    seal: &str,
+    key: &str,
+    identity: &Identity,
+    actor: &Actor,
+    target: &Target,
+    future: Option<&FutureStop>,
+) -> Result<Admission<'a>> {
+    let admission = match future {
+        Some(future) => {
+            ledger.admit_future_target(seal, key, identity, actor.clone(), target, future)
+        }
+        None => ledger.admit_target(seal, key, identity, false, actor.clone(), target),
+    }
+    .map_err(|_| {
+        anyhow::anyhow!("Managed prediction admission refused; inspect current sealed history")
+    })?;
     let attempt = admission.receipt.id;
     if !admission.dispatch {
         let summary = ledger
@@ -47,6 +74,7 @@ pub(super) fn admit<'a>(
         attempt,
         identity: identity.clone(),
         target: target.clone(),
+        future: future.cloned(),
     }))
 }
 
@@ -82,10 +110,18 @@ impl Gate<'_> {
             actual,
             evidence,
         };
-        match self
-            .ledger
-            .finish_checked(&self.attempt, observation, execution_accepted)
-        {
+        let result = match &self.future {
+            Some(future) => self.ledger.finish_future_checked(
+                &self.attempt,
+                observation,
+                execution_accepted,
+                future,
+            ),
+            None => self
+                .ledger
+                .finish_checked(&self.attempt, observation, execution_accepted),
+        };
+        match result {
             Ok(summary) => Ok(ManagedOutput {
                 summary,
                 dispatched: true,

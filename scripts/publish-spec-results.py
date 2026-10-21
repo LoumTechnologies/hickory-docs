@@ -13,6 +13,11 @@ from pathlib import Path
 import platform
 import subprocess
 import tempfile
+import importlib.util
+
+_prediction_spec = importlib.util.spec_from_file_location('prediction_publication', Path(__file__).with_name('prediction-publication.py'))
+_prediction_module = importlib.util.module_from_spec(_prediction_spec)
+_prediction_spec.loader.exec_module(_prediction_module)
 
 
 def digest(data):
@@ -71,15 +76,26 @@ def publish(root, selection, destination, hick, runner=subprocess.run):
         if entry.get('reviewed_output') is not True:
             raise ValueError('Each published document/output must be explicitly reviewed')
         path = entry['path']
+        expected_status = entry.get('expected_status', 'passed')
+        if expected_status not in ('passed', 'failed') or expected_status == 'failed' and not entry.get('expected_status_reason'):
+            raise ValueError('An expected negative fixture needs an explicit reviewed reason; unavailable/stale evidence cannot be waived')
         source = selected(root, path).read_bytes()
         inputs = {path: source}
         for p in [*entry.get('dependencies', []), *entry.get('assets', [])]:
             inputs[p] = selected(root, p).read_bytes()
+        prediction_path = entry.get('prediction_history')
+        if prediction_path is not None:
+            if prediction_path in inputs:
+                raise ValueError('Prediction history must be selected separately from executable inputs/assets')
+            inputs[prediction_path] = selected(root, prediction_path).read_bytes()
         if any(entry.get('reviewed_inputs', {}).get(p) != digest(data) for p, data in inputs.items()):
             raise ValueError('Selected input changed since publication review; review bytes and update reviewed_inputs before publishing')
         dependencies = {p: digest(inputs[p]) for p in entry.get('dependencies', [])}
         assets = {p: digest(inputs[p]) for p in entry.get('assets', [])}
         demo = demonstration(entry, assets)
+        predictions = _prediction_module.selected_history(json.loads(inputs[prediction_path])) if prediction_path is not None else None
+        if predictions is not None and (assets or demo):
+            raise ValueError('Answer-withheld prediction publication cannot include media or other assets')
         identity = digest(path.encode())[:16]
         with tempfile.TemporaryDirectory(prefix='hickory-publication-') as temporary:
             scratch = Path(temporary)
@@ -90,11 +106,11 @@ def publish(root, selection, destination, hick, runner=subprocess.run):
             # These selected examples run locally; no inherited keys/provider config.
             environment = {'PATH': os.environ.get('PATH', ''), 'HOME': str(scratch / 'home'),
                            'HICKORY_EXECUTOR': 'local', 'HICKORY_ENGINE_WORKER': '1', 'LANG': 'C.UTF-8'}
-            commands = [[str(hick), 'weave', path], [str(hick), 'test', path, '--json']]
+            commands = [] if predictions is not None else [[str(hick), 'weave', path], [str(hick), 'test', path, '--json']]
             results = []
             blocks = []
             execution_evidence = None
-            status = 'not_run'
+            status = _prediction_module.reported_status(predictions, digest(source)) if predictions is not None else 'not_run'
             try:
                 for command in commands:
                     result = runner(command, cwd=scratch, env=environment, capture_output=True, text=True, timeout=180)
@@ -117,12 +133,12 @@ def publish(root, selection, destination, hick, runner=subprocess.run):
                 status = 'unavailable'
                 results.append(dict(command=commands[len(results)], error=str(error)))
             cells = [b for b in blocks if b.get('kind') == 'exec']
-            if status == 'passed':
+            if status == 'passed' and predictions is None:
                 if not cells:
                     status = 'not_run'
                 elif any(not isinstance(i, int) or i < 0 or i >= len(cells) or not cells[i].get('expect') for r in entry.get('requirements', []) for i in r['witnesses']):
                     status = 'unavailable'
-            failed |= status != 'passed'
+            failed |= status != expected_status
             text = source.decode('utf-8')
             snapshot = dict(format='hickory-viewer-snapshot', version=1, path=path,
                 source=text, source_hash=digest(source), captured_at_ms=int(datetime.now(timezone.utc).timestamp()*1000),
@@ -135,6 +151,17 @@ def publish(root, selection, destination, hick, runner=subprocess.run):
                     scope='Only listed witnesses; deterministic allocation is not real network timing or arbitrary prose verification.'))
             if demo is not None:
                 snapshot['demonstration'] = demo
+            if predictions is not None:
+                snapshot['prediction_history'] = predictions
+                snapshot['cells'] = []
+                snapshot['verification']['commands'] = [{k: result[k] for k in ('command', 'exit_code') if k in result} for result in results]
+                snapshot['verification']['execution_evidence'] = None
+                snapshot['verification']['origin'] = 'recorded host-ledger comparisons; no publication-time target execution'
+                snapshot['verification']['environment'] = dict(publication_platform=platform.platform(), comparison_environment='See independently captured sealed runtime identities; publication executes no target', inherited_credentials=False)
+                snapshot['execution'] = 'Recorded private output/debugger comparisons; publication does not execute the target or expose actual values.'
+                snapshot['verification']['scope'] += ' Runtime transcripts, target values, errors and assets are intentionally withheld. Selected prediction verdicts are historical host reports, not current certification.'
+            if expected_status == 'failed':
+                snapshot['verification']['scope'] += ' Expected negative fixture: ' + entry['expected_status_reason']
             # Asset references remain relative to the original document path.
             # Host an isolated publication subtree and use a matching snapshot path.
             artifact = destination / identity
@@ -145,7 +172,7 @@ def publish(root, selection, destination, hick, runner=subprocess.run):
                 output.write_bytes(inputs[p])
             filename = f'{identity}/snapshot.json'
             (destination / filename).write_text(json.dumps(snapshot, indent=2) + '\n')
-            index['documents'].append(dict(path=path, status=status, snapshot=filename, revision=revision,
+            index['documents'].append(dict(path=path, status=status, expected_status=expected_status, snapshot=filename, revision=revision,
                                             source_hash=digest(source)))
     (destination / 'index.json').write_text(json.dumps(index, indent=2) + '\n')
     return not failed

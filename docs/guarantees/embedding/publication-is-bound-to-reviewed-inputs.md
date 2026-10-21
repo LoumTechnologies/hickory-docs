@@ -67,3 +67,32 @@ Issue 72 reviewed recording extension (2026-10-19):
   synthetic test bytes, not native/provider footage or playable-video evidence.
 - No video has been selected or published; native/provider/deployed playback
   remains unverified. No deployment or regression status was monitored.
+
+## Selected answer-withheld prediction reports
+
+A separately selected prediction export must match its reviewed SHA-256. The
+publisher accepts the ledger's historical verdicts without re-comparing private
+actual values or granting promotion. It does not execute the held-out target for
+that projection. Cell transcripts, command diagnostics, recording payloads and
+assets are excluded. Private capture values/errors are excluded by the host
+exporter; only whitelisted observed debugger coordinates may be selected.
+
+The authorization negative fixture explicitly expects failure while retaining a
+visible failed result. That declaration needs a reason and cannot waive missing,
+stale or unavailable source evidence. The repaired source has its own exact hash.
+Both share stable scenario/requirement/input identities and preserve failure next
+to repair. Source-revision navigation uses the existing index identity checks.
+
+The browser validates ordered seal/admission/settlement references and refuses
+comparison summaries whose settlement is missing. Supplied verdicts remain
+historical host reports, not authenticated semantic truth or current certification.
+Absent debugger metadata and unavailable/ambiguous revision navigation stay
+explicit. No public report provides execution authority.
+
+Executed focused checks: six publisher cases, eight snapshot/history/controller
+cases, real Chrome backend-unavailable paired navigation/missing-evidence refusal,
+and local full selected publication passed. The pair comes from actual host
+process/DAP execution with synthetic fixture predictions; it is not a provider
+or packaged/deployed witness. No private QA footage was selected. Human judgment
+and a new deployed witness have not been supplied. Broad regressions and their
+monitoring remain with the user.

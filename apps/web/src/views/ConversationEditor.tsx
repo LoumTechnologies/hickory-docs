@@ -47,7 +47,11 @@ export function ConversationEditor({ branch, path, running, stream, reasoning, d
       api.sessionView(path).then(next => { if (live) setData(next); }, () => {}).finally(() => { pending = false; });
     };
     refresh();
-    const timer = window.setInterval(refresh, running ? 1000 : 5000);
+    // Retain one recorded capture during a running turn; live output is
+    // streamed below. Repeatedly parsing/transferring its growing context
+    // journal can obstruct the editor-capture replies needed for completion.
+    // The separate session-opening path still exposes current recorded work.
+    const timer = running ? undefined : window.setInterval(refresh, 5000);
     return () => { live = false; window.clearInterval(timer); };
   }, [path, running, stamp]);
   const reading = useMemo(() => conversationReading(data, branch, running, stream, reasoning), [data, branch, running, stream, reasoning]);
@@ -135,6 +139,7 @@ export function ConversationEditor({ branch, path, running, stream, reasoning, d
   }, [view, path, reading, draft, showCollapsedLineage]);
   useEffect(() => () => realtime.close(), [realtime]);
   return <div className="conversation-document">
+    {running && path && <p className="muted">Recorded history is held at its last loaded capture during this turn. Current text streams below; open the session to inspect recorded work.</p>}
     {path && data && <VerificationStanding records={data.audit ?? []} turn={branch.at(-1)?.id} running={!!running} />}
     {path && data && <AssumptionAudit records={data.audit ?? []} path={path} source={data.source} />}
     <DocumentEditor docId="conversation-reading" initialSource="" realtime={realtime}

@@ -8,7 +8,7 @@
 // Menu-bar actions are the shell's, built at launch, so a change to one of
 // them is said to land at the next launch rather than pretended live. See
 // docs/guarantees/editor-intelligence/every-shortcut-is-a-setting.md.
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useId, useMemo, useState } from "react";
 import type { KeyboardEvent } from "react";
 
 import {
@@ -24,6 +24,9 @@ import {
   resolve,
   saveKeymap,
 } from "../lib/keymap";
+import { useUiCommands, useUiRevision } from "../lib/uiActionBridge";
+import { useUiReading } from "../lib/uiReading";
+import type { UiCommand, UiOutcome } from "../lib/uiActions";
 import type { ActionSpec, KeymapSettings, Profile, Scope } from "../lib/keymap";
 
 const SCOPES: { id: Scope; title: string; note?: string }[] = [
@@ -47,6 +50,8 @@ export function bindingFromEvent(event: KeyboardEvent, mac = isMac()): string | 
 }
 
 export function KeyboardSection() {
+  const parent = `keyboard:${useId()}`;
+  const [saving, setSaving] = useState(false);
   const [settings, setSettings] = useState<KeymapSettings>(() => keymapSettings());
   const [error, setError] = useState<string | null>(null);
   /** The action whose next keystroke is being recorded, and the first
@@ -58,19 +63,40 @@ export function KeyboardSection() {
   const clashes = useMemo(() => conflicts(bindings), [bindings]);
   const clashing = new Set(clashes.flat());
 
-  const save = (next: KeymapSettings) => {
-    setError(null);
-    setSettings(next);
-    saveKeymap(next).catch((e: unknown) => setError(e instanceof Error ? e.message : String(e)));
+  const save = async (next: KeymapSettings): Promise<boolean> => {
+    setError(null); setRecording(null); setSaving(true); setSettings(next);
+    try { await saveKeymap(next); return true; }
+    catch (e) { setError(e instanceof Error ? e.message : String(e)); return false; }
+    finally { setSaving(false); }
   };
   const setProfile = (profile: Profile) => save({ profile, overrides: settings.overrides });
-  const override = (id: string, binding: string) =>
-    save({ ...settings, overrides: { ...settings.overrides, [id]: binding } });
+  const override = (id: string, binding: string) => save({ ...settings, overrides: { ...settings.overrides, [id]: binding } });
   const reset = (id: string) => {
-    const overrides = { ...settings.overrides };
-    delete overrides[id];
-    save({ ...settings, overrides });
+    const overrides = { ...settings.overrides }; delete overrides[id];
+    return save({ ...settings, overrides });
   };
+  const revision = useUiRevision(() => [settings, recording, saving, error]);
+  useUiReading("keyboard settings", { profile: settings.profile, saving, error, recording, conflicts: clashes,
+    bindings: ACTIONS.map(spec => ({ id: spec.id, label: spec.label, scope: spec.scope, binding: bindings.get(spec.id) ?? "", overridden: spec.id in settings.overrides })), menu_changes: "next desktop launch" });
+  const result = async (pending: Promise<boolean>): Promise<UiOutcome> => await pending
+    ? { status: "completed", value: { persisted: true, menu_changes: "next desktop launch" } }
+    : { status: "unavailable", reason: "Keyboard preference persistence failed; inspect current settings error" };
+  const command = (key: string, label: string, enabled: boolean, parameters: UiCommand["parameters"], execute: UiCommand["execute"]) => ({ key: `${parent}:${key}`, command: {
+    label, parent, subject: `${parent}:${key}`, parameters, prerequisites: [], read: () => ({ revision: revision(), enabled: enabled && !saving, reason: saving ? "Keyboard preferences are saving" : undefined }), execute,
+  } });
+  useUiCommands([
+    command("profile", "Set keyboard profile", true, { profile: { type: "string", maxLength: 32, choices: PROFILES.map(p => p.id) } }, args => result(setProfile(args.profile as Profile))),
+    command("reset-all", "Reset all keyboard overrides", Object.keys(settings.overrides).length > 0, {}, () => result(save({ profile: settings.profile, overrides: {} }))),
+    ...ACTIONS.flatMap(spec => [
+      command(`binding:${spec.id}`, `Change key for ${spec.label}`, true, { binding: { type: "string", maxLength: 128 } }, async args => {
+        const binding = args.binding as string; const parsed = parseBinding(binding);
+        if (binding && (!parsed || spec.scope === "menu" && parsed.length > 1)) return { status: "unavailable", reason: "Binding is unreadable or uses an unsupported menu chord" };
+        return result(override(spec.id, binding));
+      }),
+      command(`reset:${spec.id}`, `Reset key for ${spec.label}`, spec.id in settings.overrides, {}, () => result(reset(spec.id))),
+    ]),
+    ...(recording ? [command("cancel", "Cancel keyboard recording", true, {}, async () => { setRecording(null); return { status: "completed", value: { recording: false } }; })] : []),
+  ]);
 
   const onRecordKey = (spec: ActionSpec, event: KeyboardEvent) => {
     event.preventDefault();
@@ -122,6 +148,7 @@ export function KeyboardSection() {
           <div className="settings-row__actions">
             <select
               id="keymap-profile"
+              disabled={saving}
               value={settings.profile}
               onChange={(event) => setProfile(event.target.value as Profile)}
             >
@@ -133,7 +160,7 @@ export function KeyboardSection() {
             </select>
             <button
               type="button"
-              disabled={Object.keys(settings.overrides).length === 0}
+              disabled={saving || Object.keys(settings.overrides).length === 0}
               onClick={() => save({ profile: settings.profile, overrides: {} })}
             >
               Reset all
@@ -165,6 +192,7 @@ export function KeyboardSection() {
                       <td className="keymap-table__key">
                         <button
                           type="button"
+                          disabled={saving}
                           className={`keymap-key${isRecording ? " keymap-key--recording" : ""}`}
                           aria-label={`Change key for ${spec.label}`}
                           onClick={() => setRecording({ id: spec.id, first: null })}
@@ -182,13 +210,14 @@ export function KeyboardSection() {
                       </td>
                       <td className="keymap-table__actions">
                         {binding && !isRecording && (
-                          <button type="button" onClick={() => override(spec.id, "")}>
+                          <button type="button" disabled={saving} onClick={() => override(spec.id, "")}>
                             Unbind
                           </button>
                         )}
                         {overridden && (
                           <button
                             type="button"
+                            disabled={saving}
                             onClick={() => reset(spec.id)}
                             data-tip={`Back to ${profileBinding(spec, settings.profile) || "unbound"}`}
                           >

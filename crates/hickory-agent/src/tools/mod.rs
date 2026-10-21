@@ -11,7 +11,10 @@
 //! content comparison before every edit and absorbed by one automatic
 //! re-weave; anchors that no longer resolve after that produce a structured
 //! error, never a silently misapplied edit.
+mod dispatch;
 pub mod hashline;
+mod prediction;
+pub use dispatch::execute_tool;
 mod preview;
 mod verify;
 mod verify_publish;
@@ -129,6 +132,7 @@ pub struct EditSession {
     source: String,
     weave: WeaveState,
     verified_publication: bool,
+    prediction: Option<prediction::PredictionVerification>,
     /// Where `read_file` may look: the git repository containing the
     /// document, or its directory when there is none. Nothing above it is
     /// readable — the tool surface is the agent's only view of the project,
@@ -153,6 +157,7 @@ impl EditSession {
             source,
             weave,
             verified_publication: false,
+            prediction: None,
             root,
         })
     }
@@ -168,6 +173,12 @@ impl EditSession {
     async fn sync_with_disk(&mut self) -> Result<bool, String> {
         let disk = std::fs::read_to_string(&self.doc_path)
             .map_err(|e| format!("cannot read {}: {e}", self.doc_path.display()))?;
+        if self.prediction.is_some() {
+            if disk != self.source {
+                return Err("Private source changed outside the captured edit session; host review and a new source-bound session are required".into());
+            }
+            return Ok(false);
+        }
         let upstream = upstream_closure(&self.doc_path);
         if disk == self.source && upstream == self.upstream {
             return Ok(false);
@@ -189,6 +200,14 @@ impl EditSession {
 
     /// Re-weave from the in-memory source, refreshing files and provenance.
     async fn reweave(&mut self) -> Result<()> {
+        if self.prediction.is_some() {
+            prediction::private_source(&self.source)?;
+            self.weave = WeaveState {
+                files: HashMap::new(),
+                provenance: HashMap::new(),
+            };
+            return Ok(());
+        }
         self.weave =
             weave_source(&self.doc_path, &self.doc_name, &self.source, &self.params).await?;
         Ok(())
@@ -757,47 +776,6 @@ impl EditSession {
             ),
         )
         .with_wrote(wrote)
-    }
-}
-
-/// Execute one tool invocation against the session. Failures are tool
-/// results (observations), never process errors.
-pub async fn execute_tool(
-    session: &mut EditSession,
-    executor: Arc<dyn Executor>,
-    inv: &ToolInvocation,
-) -> ToolOutcome {
-    if matches!(inv.name.as_str(), "read_doc" | "read_output" | "verify")
-        && let Err(error) = session.sync_with_disk().await
-    {
-        return ToolOutcome::err(&inv.name, error);
-    }
-    match inv.name.as_str() {
-        "read_doc" => session.read_doc(inv),
-        "read_output" => session.read_output(inv),
-        "read_file" => read_file(
-            &session.root,
-            session.doc_path.parent().unwrap_or(Path::new(".")),
-            inv,
-        ),
-        "edit_output" => session.edit_output(inv).await,
-        "edit_doc" => session.edit_doc(inv).await,
-        "verify" => {
-            let before = session.revision();
-            let mut result = session.verify(executor).await;
-            if before != session.revision() {
-                result.ok = false;
-                result.text.push_str("\nSource closure changed during verification; this result does not establish a pass for the current sources.");
-            }
-            result
-        }
-        other => ToolOutcome::err(
-            other,
-            format!(
-                "unknown tool '{other}' — available: read_doc, read_output, read_file, \
-                 edit_output, edit_doc, verify"
-            ),
-        ),
     }
 }
 

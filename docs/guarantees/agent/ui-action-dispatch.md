@@ -708,3 +708,30 @@ Human judgment remains unrecorded.
 - Dependency `apps/web/src/components/UiCheckbox.tsx` SHA-256: `f298bfb97c7bd881a342d73685caa4f1ae1e1e73bfe7f792ae0d7a7365473d73`.
 
 - Dependency `apps/web/src/components/UiCheckbox.test.tsx` SHA-256: `c116afe87c0a7b748a239f03669d39df8a2588d489cfad1ceaa9c2f10b4c20b4`.
+
+### Additional shared surfaces — October 21
+
+Keyboard settings expose current profiles, bindings, conflicts, recording and
+persistence errors. Profile changes, finite binding overrides/unbinds and resets
+reuse the native save path; both adapters disable edits during persistence.
+Unsupported menu chords refuse. Success means the save request completed; native
+menu changes still require the next desktop launch. Welcome actions and the
+visible eight recent documents reuse their callbacks; preference writes reuse
+local storage and request results do not claim a completed downstream operation.
+Surface information has shared disclosure with its existing readable identity.
+
+The standalone document-change pane exposes Accept/Reject as addressable human
+review requests for agent callers. It never grants self-approval. A human uses
+the same decision handler. The actual handler outcome is retained, including a
+failed/stale host decision; returning from the callback is not itself acceptance
+or verification. Comparison drafts bind their reading ID and exact before/after
+bytes, so replacement readings cannot inherit an old draft.
+
+LLM implementation review: partially verified for the named controllers. Focused
+checks: keyboard persistence/native-state/invalid-menu/stale-handle case, two
+welcome/disclosure cases, document-review authority/failure case and nine existing
+AgentChanges cases pass. The scripted real browser review/recovery/stop workflow
+also passes (17 seconds). It is distinct from the earlier actual provider witness
+and does not establish a current packaged/deployed flow. Universal parity remains
+incomplete; source inventory declarations are review aids. Human judgment is not
+supplied. See the active issue-72 handoff for dependency hashes.

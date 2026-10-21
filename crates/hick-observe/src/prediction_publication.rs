@@ -11,6 +11,8 @@ pub struct SelectedPredictionHistory {
     pub omitted_attempts: usize,
     pub omitted_context_observations: usize,
     pub history: History,
+    #[serde(default)]
+    pub debugger_contexts: Vec<Value>,
     pub scope: String,
 }
 
@@ -57,6 +59,58 @@ impl Ledger {
             .iter()
             .map(|attempt| attempt.attempt.clone())
             .collect();
+        let debugger_contexts = self.transaction(|journal| {
+            generation(journal, history.generation)?;
+            let mut contexts = Vec::new();
+            for attempt in &attempts {
+                let Some((_, evidence)) = finished(journal, attempt) else {
+                    continue;
+                };
+                if ![Some("private_capture_v1"), Some("combined_live_v1")]
+                    .contains(&evidence["adapter"].as_str())
+                {
+                    continue;
+                }
+                let Some(captures) = evidence["captures"].as_array() else {
+                    continue;
+                };
+                for capture in captures {
+                    let hits: Vec<_> = capture["hits"]
+                        .as_array()
+                        .into_iter()
+                        .flatten()
+                        .map(|hit| {
+                            let context =
+                                hit.get("context").and_then(Value::as_object).map(|raw| {
+                                    [
+                                        "run",
+                                        "thread",
+                                        "frame",
+                                        "function",
+                                        "document_line",
+                                        "source",
+                                        "source_line",
+                                        "breakpoint_bound",
+                                    ]
+                                    .into_iter()
+                                    .filter_map(|key| {
+                                        raw.get(key).map(|value| (key.to_owned(), value.clone()))
+                                    })
+                                    .collect::<serde_json::Map<_, _>>()
+                                });
+                            serde_json::json!({"index": hit["index"], "context":context})
+                        })
+                        .collect();
+                    contexts.push(
+                        serde_json::json!({"attempt":attempt,"adapter":evidence["adapter"],
+                        "file":capture["spec"]["file"],"line":capture["spec"]["line"],
+                        "problem":!capture["problem"].is_null(),"moved":!capture["moved"].is_null(),
+                        "truncated":capture["truncated"],"hits":hits}),
+                    );
+                }
+            }
+            Ok(contexts)
+        })?;
         let total_events = history.ordering.len();
         // Retain original global sequence and hash references. Gaps are declared,
         // not renumbered into a fabricated complete journal. These commitments
@@ -76,7 +130,11 @@ impl Ledger {
         });
         let mut omitted_context_observations = 0;
         for entry in &mut history.ordering {
-            if let Some(context) = entry["event"]["context"].as_array_mut() {
+            if let Some(context) = entry
+                .get_mut("event")
+                .and_then(|event| event.get_mut("context"))
+                .and_then(Value::as_array_mut)
+            {
                 let before = context.len();
                 context.retain(|observation| {
                     observation["scenario"]
@@ -93,6 +151,7 @@ impl Ledger {
             omitted_attempts: total_attempts - history.attempts.len(),
             omitted_context_observations,
             history,
+            debugger_contexts,
             scope: "Selected historical host declarations; actual values and private evidence withheld. No current-source certification, human review, upload or authenticity is established by serialization.".into(),
         })
     }

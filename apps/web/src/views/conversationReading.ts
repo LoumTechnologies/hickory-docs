@@ -1,5 +1,5 @@
 import type { AgentTurn, SessionLink, SessionViewResponse } from "../api/types";
-import { byteToChar } from "../lib/offsets";
+import { bytesToChars } from "../lib/offsets";
 
 /** Preserve the recorded bytes of the selected branch; remap receipts, never invent evidence. */
 export function conversationReading(data: SessionViewResponse | null, branch: AgentTurn[], running: string | null, stream: string, reasoning: string) {
@@ -7,6 +7,7 @@ export function conversationReading(data: SessionViewResponse | null, branch: Ag
   const links: SessionLink[] = [];
   const lines = data?.source.split(/(?<=\n)/) ?? [];
   const recorded = data?.view.turns ?? [];
+  const offsets = data ? bytesToChars(data.source, data.links.flatMap(link => link.span)) : [];
   for (const turn of branch) {
     const index = recorded.findIndex(t => t.id === turn.id);
     // A running or interrupted turn may have durable work but not its final speech yet.
@@ -18,8 +19,8 @@ export function conversationReading(data: SessionViewResponse | null, branch: Ag
       const to = from + chunk.length;
       const offset = source.length;
       const lineOffset = source.split("\n").length - startLine;
-      for (const link of data.links) {
-        const start = byteToChar(data.source, link.span[0]), end = byteToChar(data.source, link.span[1]);
+      for (const [index, link] of data.links.entries()) {
+        const start = offsets[index * 2], end = offsets[index * 2 + 1];
         if (start < from || end > to) continue;
         links.push({ ...link, span: [offset + start - from, offset + end - from],
           lines: [link.lines[0] + lineOffset, link.lines[1] + lineOffset] });

@@ -1050,3 +1050,21 @@ The ordinary live-provider browser witness reached the actual failed run, but
 its turn did not complete within the focused test deadline; that test failed and
 is not a successful provider workflow witness. Its private recording is not
 selected publication evidence.
+
+### Continued acceptance work — October 21
+
+Keyboard settings now share profile/binding/reset persistence and explicit error
+reading. Native and agent changes are disabled during saving. The welcome page
+shares its actions, visible recent-document callbacks and startup preference.
+Surface information shares its existing disclosure. The document-review pane
+returns an addressable human-review request to agents and preserves actual host
+failure results; it does not let a proposer approve its own edit. Comparison
+drafts retire when the captured reading bytes change.
+
+The generated sample picker shares caption and insertion. Its selected-output
+hash is checked by the server before source mutation; unsaved or stale selections
+refuse. Replaced selections cannot receive an earlier operation's local result.
+These controllers have focused behavior/safety witnesses; they do not complete
+the remaining inventory or application strict prediction policy. The current
+scripted real-browser review/recovery/stop flow passes separately from the real
+provider investigation/correction witness. See the issue-72 handoff.

@@ -10,10 +10,14 @@
 // See crates/hickory-cli/src/serve/sample.rs, and the `hick:sample` arm in
 // crates/hick-literate/src/weave.rs.
 
-import { useEffect, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import type { EditorState } from "@codemirror/state";
 
 import { api } from "../api/client";
+import { sha256 } from "../lib/reviews";
+import { useUiCommands, useUiRevision } from "../lib/uiActionBridge";
+import { useUiReading } from "../lib/uiReading";
+import type { UiOutcome } from "../lib/uiActions";
 
 export interface LineRange {
   from: number;
@@ -38,7 +42,10 @@ export function selectedLines(state: EditorState): LineRange | null {
   return { from, to: state.doc.lineAt(endPos).number };
 }
 
-export function SamplePicker({ path, range }: { path: string; range: LineRange }) {
+export function SamplePicker({ path, range, contents }: { path: string; range: LineRange; contents: string }) {
+  const parent = `sample:${useId()}`;
+  const selection = JSON.stringify([path, range.from, range.to, contents]);
+  const current = useRef(selection); current.current = selection;
   const [caption, setCaption] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -49,23 +56,32 @@ export function SamplePicker({ path, range }: { path: string; range: LineRange }
   useEffect(() => {
     setError(null);
     setLanded(null);
-  }, [path, range.from, range.to]);
+  }, [selection]);
 
   const count = range.to - range.from + 1;
 
-  const pick = async () => {
-    setBusy(true);
-    setError(null);
+  const pick = async (): Promise<UiOutcome> => {
+    setBusy(true); setError(null);
     try {
-      const created = await api.createSample(path, range.from, range.to, caption.trim());
-      setLanded(created.doc_path);
-      setCaption("");
+      const hash = await sha256(contents);
+      if (current.current !== selection) return { status: "unavailable", reason: "Selected output bytes changed before sample dispatch" };
+      const created = await api.createSample(path, range.from, range.to, caption.trim(), hash);
+      if (current.current === selection) { setLanded(created.doc_path); setCaption(""); }
+      return { status: "completed", value: { doc_path: created.doc_path, output_hash: hash, from: range.from, to: range.to, selection_still_current: current.current === selection, execution_certified: false } };
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setBusy(false);
-    }
+      const reason = e instanceof Error ? e.message : String(e);
+      if (current.current === selection) setError(reason);
+      return { status: "unavailable", reason };
+    } finally { setBusy(false); }
   };
+  const revision = useUiRevision(() => [selection, caption, busy, error, landed]);
+  useUiReading("generated sample selection", { path, from: range.from, to: range.to, caption, busy, error, added_to: landed });
+  useUiCommands([
+    { key: `${parent}:caption`, command: { label: "Set caption for this sample", parent, subject: parent, parameters: { caption: { type: "string", maxLength: 8192 } }, prerequisites: [],
+      read: () => ({ revision: revision(), enabled: !busy, value: caption }), execute: async args => { setCaption(args.caption as string); return { status: "completed", value: args.caption }; } } },
+    { key: `${parent}:pick`, command: { label: "Show selected generated lines in document", parent, subject: parent, parameters: {}, prerequisites: [],
+      read: () => ({ revision: revision(), enabled: !busy }), execute: pick } },
+  ]);
 
   return (
     <div className="sample-picker" data-testid="sample-picker">
@@ -76,6 +92,7 @@ export function SamplePicker({ path, range }: { path: string; range: LineRange }
       <input
         className="sample-picker__caption"
         value={caption}
+        disabled={busy}
         placeholder="What does this show? (optional)"
         onChange={(e) => setCaption(e.target.value)}
         onKeyDown={(e) => {

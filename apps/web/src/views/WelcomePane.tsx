@@ -16,7 +16,11 @@
 //    annoyed by it.
 
 import { loadShowWelcome, saveShowWelcome } from "../lib/welcomePref";
-import { useState } from "react";
+import { useId, useState } from "react";
+
+import { useUiCommands, useUiRevision } from "../lib/uiActionBridge";
+import { useUiReading } from "../lib/uiReading";
+import type { UiCommand } from "../lib/uiActions";
 
 export interface WelcomeAction {
   id: string;
@@ -38,6 +42,21 @@ export function WelcomePane({
   version?: string;
 }) {
   const [show, setShow] = useState(loadShowWelcome);
+  const parent = `welcome:${useId()}`;
+  const setPreference = (next: boolean) => { setShow(next); saveShowWelcome(next); };
+  const visibleRecent = recent.slice(0, 8);
+  const revision = useUiRevision(() => [actions, visibleRecent, show, version]);
+  useUiReading("welcome page", { version: version ?? null, show_when_folder_opens: show,
+    actions: actions.map(({ id, label, hint }) => ({ id, label, hint })), recent: visibleRecent });
+  const command = (id: string, label: string, execute: UiCommand["execute"], parameters: UiCommand["parameters"] = {}) => ({ key: `${parent}:${id}`, command: {
+    label, parent, subject: `${parent}:${id}`, parameters, prerequisites: [], read: () => ({ revision: revision(), enabled: true }), execute,
+  } });
+  useUiCommands([
+    ...actions.map(action => command(`start:${action.id}`, action.label, async () => { action.run(); return { status: "completed", value: { requested: action.id, operation_completed: false } }; })),
+    ...visibleRecent.map(doc => command(`recent:${doc.id}`, `Open recent document ${doc.path}`, async () => { onOpenRecent(doc.id); return { status: "completed", value: { document_open_requested: doc.id } }; })),
+    command("preference", "Show this page when a folder opens", async args => { setPreference(args.show as boolean); return { status: "completed", value: { show: args.show } }; }, { show: { type: "boolean" } }),
+  ]);
+
 
   return (
     <section className="welcome" aria-label="Welcome">
@@ -74,7 +93,7 @@ export function WelcomePane({
               </p>
             ) : (
               <ul className="welcome__list">
-                {recent.slice(0, 8).map((doc) => (
+                {visibleRecent.map((doc) => (
                   <li key={doc.id}>
                     <button
                       type="button"
@@ -97,8 +116,7 @@ export function WelcomePane({
               type="checkbox"
               checked={show}
               onChange={(event) => {
-                setShow(event.target.checked);
-                saveShowWelcome(event.target.checked);
+                setPreference(event.target.checked);
               }}
             />
             Show this page when a folder opens

@@ -355,12 +355,13 @@ export const api = {
    * onto a few of its lines, shown in the weave and never stored in the
    * document. `path` is root-relative; the server finds the owning cell.
    * See crates/hickory-cli/src/serve/sample.rs. */
-  createSample: (path: string, from: number, to: number, caption?: string) =>
+  createSample: (path: string, from: number, to: number, caption?: string, expectedOutputHash?: string) =>
     request<SampleCreated>("POST", "/api/samples", {
       path,
       from,
       to,
       ...(caption ? { caption } : {}),
+      ...(expectedOutputHash ? { expected_output_hash: expectedOutputHash } : {}),
     }),
 
   /** Write an image dropped or pasted into a note to disk, into an `assets/`

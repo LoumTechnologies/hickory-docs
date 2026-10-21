@@ -20,8 +20,58 @@
       ],
       "reviewed_inputs": {
         "examples/ai-engineer-deadline.md": "636ddbd13794d41faa0907e64e96bcf6d213a466f2dfd44423ae2b17a767099a",
-        "Cargo.lock": "8844e87839a560dfff1c2597924ee93bed9498006a4a5ab1d22a89f025e3ac7e",
+        "Cargo.lock": "9b1d6f85f884dd271adf6c6b2dc97cf3d649345b237f3dc94eed254a99a55694",
         "rust-toolchain.toml": "4d0674575b116a100c7d0ad754308dc6dea178b4808c760afc43136db967c7a6"
+      }
+    },
+    {
+      "path": "examples/security-authorization/vulnerable.md",
+      "reviewed_output": true,
+      "prediction_history": "examples/security-authorization/predictions.json",
+      "expected_status": "failed",
+      "expected_status_reason": "The synthetic existence-only authorization predicate must fail R-AUTH-1 before its tenant-ownership patch.",
+      "requirements": [
+        {
+          "id": "R-AUTH-1",
+          "text": "A tenant cannot access another tenant\u2019s record.",
+          "witnesses": []
+        },
+        {
+          "id": "R-LEGIT-1",
+          "text": "Own-record access succeeds and missing records remain denied on both revisions.",
+          "witnesses": []
+        }
+      ],
+      "dependencies": [],
+      "assets": [],
+      "reviewed_inputs": {
+        "examples/security-authorization/vulnerable.md": "20a184766b132a6f783e162d42546b70986c5d4c46807bd39d37a5728f87ffd9",
+        "examples/security-authorization/predictions.json": "3111069cf15a8a14c7d5748bf4542415752783487b9003953d4f7d0f547cf94b"
+      }
+    },
+    {
+      "path": "examples/security-authorization/patched.md",
+      "reviewed_output": true,
+      "prediction_history": "examples/security-authorization/predictions.json",
+      "expected_status": "passed",
+      "expected_status_reason": "",
+      "requirements": [
+        {
+          "id": "R-AUTH-1",
+          "text": "A tenant cannot access another tenant\u2019s record.",
+          "witnesses": []
+        },
+        {
+          "id": "R-LEGIT-1",
+          "text": "Own-record access succeeds and missing records remain denied on both revisions.",
+          "witnesses": []
+        }
+      ],
+      "dependencies": [],
+      "assets": [],
+      "reviewed_inputs": {
+        "examples/security-authorization/patched.md": "b60f7ed89deae86c9026c7dfe1535e68f3f39d4cf8fb37fd186876f33db12102",
+        "examples/security-authorization/predictions.json": "3111069cf15a8a14c7d5748bf4542415752783487b9003953d4f7d0f547cf94b"
       }
     }
   ]

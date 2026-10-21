@@ -31,6 +31,10 @@ use crate::build::{BuildOutput, build};
 use crate::program::{adapter_for, entry_point, weave_into};
 use crate::{Breakpoint, Launch, Mapping, Session, Step};
 
+#[path = "interactive_capture.rs"]
+mod interactive;
+pub use interactive::PrivateCaptureSession;
+
 /// How long the whole capture run may take before it is abandoned.
 ///
 /// Generous, because it covers starting an adapter and running the program,
@@ -71,6 +75,8 @@ pub struct Hit {
 /// Private selected-frame evidence from the same stop used for evaluation.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CaptureContext {
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub run: String,
     pub thread: i64,
     pub frame: i64,
     pub function: String,
@@ -142,33 +148,7 @@ async fn run_inner(
     if specs.is_empty() {
         return Ok(Vec::new());
     }
-    let scratch = tempfile::tempdir().context("making a scratch directory for the capture run")?;
-    let files = weave_into(source, scratch.path())?;
-    // `entry_point` names the SOURCE file and `adapter_for` reads the
-    // language from it — both unchanged, because the source is what has a
-    // language. What that source *produces* is what gets launched, and for
-    // Python, Node and Go the two are the same path.
-    let entry = entry_point(&files)?;
-    let adapter = adapter_for(&entry, project)?;
-    // A capture has no terminal to watch a build in, so the build's own words
-    // go to the log. That is weaker than the interactive path on purpose
-    // rather than by oversight: `hick test` is not a person watching, and the
-    // failure message points at the log the way the session's points at the
-    // terminal.
-    let program = build(&entry, scratch.path(), project, &mut |line| {
-        if private {
-            return;
-        }
-        match line {
-            BuildOutput::Cmd(text) | BuildOutput::Note(text) | BuildOutput::Out(text) => {
-                tracing::info!(target: "hick_dap::build", "{text}")
-            }
-            BuildOutput::Err(text) => tracing::warn!(target: "hick_dap::build", "{text}"),
-            BuildOutput::Exit(code) => tracing::info!(target: "hick_dap::build", "exit {code}"),
-        }
-    })
-    .await?;
-    let mapping = Arc::new(Mapping::for_document(document, source, scratch.path())?);
+    let (scratch, mapping, launch) = prepare(document, source, project, private).await?;
 
     // A capture names a location in a generated file; a breakpoint is set in
     // document lines. Resolving here means a bad `at` is reported against the
@@ -216,15 +196,13 @@ async fn run_inner(
         return Ok(out);
     }
 
-    let launch = Launch {
-        transport: adapter.transport,
-        multi_session: adapter.multi_session,
-        adapter_extra: adapter.launch_extra.clone(),
-        adapter: adapter.command,
-        program,
-        cwd: scratch.path().to_path_buf(),
-        extra: serde_json::json!({}),
-    };
+    let capture_run = hick_observe::Run::new(
+        mapping.observation_source().into_iter().collect(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis() as u64,
+    );
     let (session, statuses) = if private {
         Session::start_private(launch, mapping.clone(), &breakpoints).await?
     } else {
@@ -259,7 +237,16 @@ async fn run_inner(
         }
     }
 
-    let result = drive(&session, &mapping, &resolved, specs, &mut out, private).await;
+    let result = drive(
+        &session,
+        &mapping,
+        &resolved,
+        specs,
+        &mut out,
+        private,
+        &capture_run.id,
+    )
+    .await;
 
     // Anything still unconfirmed once the program has ended really did never
     // bind, and NOW it can be said. Asking before the run would have been
@@ -291,6 +278,52 @@ async fn run_inner(
     Ok(out)
 }
 
+/// One scratch/build/mapping/launch preparation shared by batch and retained capture.
+async fn prepare(
+    document: &Path,
+    source: &str,
+    project: &Path,
+    private: bool,
+) -> Result<(tempfile::TempDir, Arc<Mapping>, Launch)> {
+    let scratch = tempfile::tempdir().context("making a scratch directory for the capture run")?;
+    let files = weave_into(source, scratch.path())?;
+    // `entry_point` names the SOURCE file and `adapter_for` reads the
+    // language from it — both unchanged, because the source is what has a
+    // language. What that source *produces* is what gets launched, and for
+    // Python, Node and Go the two are the same path.
+    let entry = entry_point(&files)?;
+    let adapter = adapter_for(&entry, project)?;
+    // A capture has no terminal to watch a build in, so the build's own words
+    // go to the log. That is weaker than the interactive path on purpose
+    // rather than by oversight: `hick test` is not a person watching, and the
+    // failure message points at the log the way the session's points at the
+    // terminal.
+    let program = build(&entry, scratch.path(), project, &mut |line| {
+        if private {
+            return;
+        }
+        match line {
+            BuildOutput::Cmd(text) | BuildOutput::Note(text) | BuildOutput::Out(text) => {
+                tracing::info!(target: "hick_dap::build", "{text}")
+            }
+            BuildOutput::Err(text) => tracing::warn!(target: "hick_dap::build", "{text}"),
+            BuildOutput::Exit(code) => tracing::info!(target: "hick_dap::build", "exit {code}"),
+        }
+    })
+    .await?;
+    let mapping = Arc::new(Mapping::for_document(document, source, scratch.path())?);
+    let launch = Launch {
+        transport: adapter.transport,
+        multi_session: adapter.multi_session,
+        adapter_extra: adapter.launch_extra.clone(),
+        adapter: adapter.command,
+        program,
+        cwd: scratch.path().to_path_buf(),
+        extra: serde_json::json!({}),
+    };
+    Ok((scratch, mapping, launch))
+}
+
 /// Run the program to the end, recording every hit on the way.
 async fn drive(
     session: &Session,
@@ -299,6 +332,7 @@ async fn drive(
     specs: &[CaptureSpec],
     out: &mut [Captured],
     private: bool,
+    run: &str,
 ) -> Result<()> {
     let deadline = tokio::time::Instant::now() + RUN_BUDGET;
     loop {
@@ -324,6 +358,7 @@ async fn drive(
 
         if let Some(slot) = slot_for(frame.line, mapping, resolved) {
             let context = CaptureContext {
+                run: run.to_owned(),
                 thread: stopped.thread_id,
                 frame: frame.id,
                 function: frame.name.clone(),

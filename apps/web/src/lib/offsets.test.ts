@@ -2,7 +2,7 @@
 // — the ASCII fast path must answer exactly what the byte walk answers, or
 // a ribbon anchored through it lands on the wrong character.
 import { describe, expect, it } from "vitest";
-import { byteLength, byteToChar, charToByte } from "./offsets";
+import { byteLength, byteToChar, bytesToChars, charToByte } from "./offsets";
 
 /** The plain walk, kept here as the oracle the fast path is checked against. */
 function slowByteToChar(text: string, byteIndex: number): number {
@@ -18,6 +18,13 @@ function slowByteToChar(text: string, byteIndex: number): number {
 }
 
 describe("byte ↔ char offsets", () => {
+  // Guarantee: docs/guarantees/agent/an-answer-in-the-agent-pane-has-ribbons.md
+  it("projects unordered repeated Unicode link endpoints without splitting surrogate pairs", () => {
+    expect(bytesToChars("a📝漢λz", [8, 2, -1, 11, 1, 5, 50, 2, 0])).toEqual([4, 3, 0, 6, 1, 3, 6, 3, 0]);
+    expect(bytesToChars("a📝漢λz", [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11])).toEqual([0, 1, 3, 3, 3, 3, 4, 4, 4, 5, 5, 6]);
+    expect(bytesToChars("abc", [3, -2, 1, 99])).toEqual([3, 0, 1, 3]);
+    expect(bytesToChars("", [0, 10])).toEqual([0, 0]);
+  });
   it("agrees with the byte walk on pure ASCII, where the two scales coincide", () => {
     const text = "def f(x):\n    return x + 1\n";
     for (let b = 0; b <= text.length + 2; b++) {

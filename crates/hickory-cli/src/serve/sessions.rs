@@ -49,15 +49,6 @@ pub async fn session_view(
             q.path
         )));
     }
-    let source = std::fs::read_to_string(&canon)
-        .map_err(|e| ApiError::not_found(format!("cannot read {}: {e}", q.path)))?;
-    if !hick_lang::is_session_source(&source) {
-        return Err(ApiError::bad_request(format!(
-            "{} is not a hick:session document",
-            q.path
-        )));
-    }
-    let view = hickory_agent::session_view::session_view(&source);
     let rel_path = canon
         .strip_prefix(&root_canon)
         .map(|p| p.display().to_string())
@@ -66,19 +57,44 @@ pub async fn session_view(
     // element declares — context for what the model was shown, lineage for
     // what a turn wrote, declared for what the prose points at. See
     // docs/guarantees/agent/an-answer-in-the-agent-pane-has-ribbons.md.
-    let blocks = hick_literate::session_elements::session_blocks(&source, Some(&root_canon));
-    let links = hick_literate::session_elements::session_links(&source, Some(&root_canon));
-    let mut links = serde_json::to_value(links).unwrap_or_default();
+    // A growing provider session can contain megabytes of recorded context.
+    // Parsing it on the request executor starves token-bound editor capture
+    // acknowledgements and makes independent freshness checks time out.
+    let parse_root = root_canon.clone();
+    let (source, view, blocks, mut links) = tokio::task::spawn_blocking(move || {
+        let source = std::fs::read_to_string(&canon)
+            .map_err(|e| ApiError::not_found(format!("cannot read {}: {e}", q.path)))?;
+        if !hick_lang::is_session_source(&source) {
+            return Err(ApiError::bad_request(format!(
+                "{} is not a hick:session document",
+                q.path
+            )));
+        }
+        let view = hickory_agent::session_view::session_view(&source);
+        let blocks = hick_literate::session_elements::session_blocks(&source, Some(&parse_root));
+        let links = hick_literate::session_elements::session_links(&source, Some(&parse_root));
+        Ok((
+            source,
+            view,
+            blocks,
+            serde_json::to_value(links).unwrap_or_default(),
+        ))
+    })
+    .await
+    .map_err(|_| ApiError::internal("Session parsing task failed"))??;
     let evidence = output_evidence(&state, &root_canon, &source, &links).await;
     if let Some(links) = links.as_array_mut() {
         links.extend(evidence);
     }
-    let mut audit = hickory_agent::audit::timeline(&source);
-    super::audit_evidence::enrich(&root_canon, &mut audit, &links);
-    super::audit_evidence::attach_passages(&root_canon, &source, &audit, &mut links);
-    Ok(Json(
-        json!({ "path": rel_path, "source": source, "view": view, "blocks": blocks, "links": links, "audit": audit }),
-    ))
+    let payload = tokio::task::spawn_blocking(move || {
+        let mut audit = hickory_agent::audit::timeline(&source);
+        super::audit_evidence::enrich(&root_canon, &mut audit, &links);
+        super::audit_evidence::attach_passages(&root_canon, &source, &audit, &mut links);
+        json!({ "path": rel_path, "source": source, "view": view, "blocks": blocks, "links": links, "audit": audit })
+    })
+    .await
+    .map_err(|_| ApiError::internal("Session evidence task failed"))?;
+    Ok(Json(payload))
 }
 
 #[derive(Deserialize)]

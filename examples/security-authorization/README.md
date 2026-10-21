@@ -26,15 +26,39 @@ record and a missing record. Another witness correctly predicts the vulnerable
 behavior and verifies that it still cannot satisfy the security requirement.
 
 The ordinary executor and scratch DAP capture run the same document revision in
-separate processes. The host fixture declares its environment identity; this is
-not a fingerprint of an immutable toolchain or a sandbox certification.
-Missing debugger evidence stays non-passing. Tests requiring DAP are explicitly
-ignored by default rather than treating an unavailable adapter as a pass.
+separate processes. Missing debugger evidence stays non-passing. DAP tests are
+ignored by default; the command above explicitly runs them.
 
-These files are reusable source templates. They are not uploaded reports,
-reviewed publication assets or an application strict-mode workflow. To publish
-them, use the existing explicit publication selection with exact revision and
-source/dependency/environment identities, retain both failed and repaired
-results, and label captured stops as recorded. Human-only actual values need an
-isolation boundary from predictor context before publication. A static viewer
-does not execute these sources or start a live debugger.
+Inspect the recorded pair through the existing publication pipeline:
+
+```sh
+cargo build -p hickory-cli --bin hick
+python3 scripts/publish-spec-results.py --hick target/debug/hick --output /tmp/hickory-selected-reports
+```
+
+Serve the generated directory alongside the snapshot viewer, then open
+`snapshot.html?index=publications/index.json` using that index's served URL.
+The index keeps the vulnerable report visibly failed and the patch passed. Each
+report retains both attempts, exact source identities, sealed expectations and
+recorded debugger coordinates. Revision navigation requires the selected index;
+importing one report alone cannot navigate to another revision. Missing settlement
+is unavailable. The viewer does not run a live debugger or grant current certification.
+
+The checked-in `predictions.json` is a selected, answer-withheld host recording.
+To make a new recording with Python and the configured debugpy adapter, choose a
+new output path:
+
+```sh
+cargo run -p hick-literate --example authorization_evidence -- /tmp/authorization-predictions.json
+```
+
+The exporter fingerprints the configured interpreter/debugpy code before and
+after both runs. This does not freeze the host or fingerprint every OS dependency.
+Predictions are synthetic fixture declarations, not model decisions. Review the
+new metadata before replacing the selected export and its SHA-256 pins in
+`publications/selected.json`. The publisher refuses changed selected bytes.
+
+No upload occurs in these commands. Actual values and private diagnostics stay
+out of the selected recording, reports and predictor feedback. Human-only answer
+publication needs a separate isolation boundary. This example is not yet an
+application strict-mode workflow or a security audit.

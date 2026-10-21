@@ -76,6 +76,15 @@ export function SnapshotPage() {
   ]);
   return <><header className="snapshot-header"><h1>Hickory Docs snapshot viewer</h1><label>Open exported snapshot <input type="file" accept=".json,application/json" onChange={event => { const file = event.target.files?.[0]; if (file) void importText(() => file.text()); }} /></label>{busy && <button onClick={cancel}>Cancel publication loading</button>}</header>
     {index && <main className="published-snapshot"><h2>Published executable specifications</h2><p>Selected public evidence at {index.revision}; each result is revision-bound.</p><ul>{index.documents.map((d, i) => { let src: URL; try { src = publicationUrl(d.snapshot, indexUrl); } catch { return <li key={i}>External artifact refused</li>; } return <li key={i}>{src.origin === location.origin ? <a href={`?src=${encodeURIComponent(src.href)}`} onClick={event => { event.preventDefault(); void loadUrl(src.href, "snapshot", undefined, d); }}>{d.path} · {d.status}</a> : <span>External artifact refused</span>} · {d.source_hash}</li>; })}</ul></main>}
-    {error && <p role="alert">{error}</p>}{snapshot && <PublishedSnapshot key={capture} snapshot={snapshot} artifactUrl={artifactUrl} />}</>;
+    {error && <p role="alert">{error}</p>}{snapshot && <PublishedSnapshot key={capture} snapshot={snapshot} artifactUrl={artifactUrl} predictionNavigation={{
+      available: (index?.documents ?? []).filter(document => index!.documents.filter(candidate => candidate.source_hash === document.source_hash).length === 1).map(document => document.source_hash),
+      open: async hash => {
+        if (busy) return { status: "unavailable", reason: "A publication is loading; wait or cancel before navigating" };
+        const matching = index?.documents.filter(document => document.source_hash === hash) ?? [];
+        if (matching.length !== 1) return { status: "unavailable", reason: "The selected source revision is missing or ambiguous in this publication index" };
+        const document = matching[0];
+        return loadUrl(new URL(document.snapshot, indexUrl).href, "snapshot", undefined, document);
+      },
+    }} />}</>;
 }
 

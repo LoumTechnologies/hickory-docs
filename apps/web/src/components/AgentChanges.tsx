@@ -41,7 +41,7 @@ export function AgentChanges({ doc, state, running, apply, update }: {
       const id = `proposal:${doc}:${change.id}`;
       publishReading(id, { title: "Proposed change", path: change.path ?? change.name,
         before: change.oldText, after: change.newText, status: change.status,
-        editable: change.status === "pending", decide: async (accepted, text) => { await latest.current(change, accepted, text); } });
+        editable: change.status === "pending", decide: (accepted, text) => latest.current(change, accepted, text) });
       if (change.status === "pending" && !opened.current.has(id)) {
         opened.current.add(id);
       }

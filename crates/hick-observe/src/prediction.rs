@@ -28,6 +28,10 @@ enum Event {
         actor: Actor,
         seal: Seal,
         context: Vec<PriorObservation>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        future: Option<FutureStop>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        prior_visible: Option<Value>,
     },
     Started {
         id: String,
@@ -95,6 +99,7 @@ pub enum Classification {
     ExecutionRejected,
     RequirementChanged,
     FirstAttemptVerified,
+    InformedPredictionVerified,
     VerifiedAfterCorrection,
     VerifiedAfterPriorAttempt,
     AdjustedAfterObservation,
@@ -210,6 +215,50 @@ impl Ledger {
         Ok(result)
     }
     pub fn seal(&self, expected_generation: u64, seal: Seal, actor: Actor) -> Result<Receipt> {
+        self.seal_inner(expected_generation, seal, actor, None, None)
+    }
+    /// Host-only seal while paused. Prior visible state is retained privately;
+    /// only its digest and answer-free stop identity enter public history.
+    pub fn seal_future(
+        &self,
+        expected_generation: u64,
+        seal: Seal,
+        actor: Actor,
+        future: FutureStop,
+        prior_visible: Value,
+    ) -> Result<Receipt> {
+        future.validate()?;
+        ensure!(
+            future.prior_visible_digest == digest(&prior_visible)?,
+            "Prior visible state identity differs"
+        );
+        ensure!(
+            serde_json::to_vec(&prior_visible)?.len() <= 65536,
+            "Prior visible context exceeds the private bound"
+        );
+        let Target::Debugger { hit, .. } = &seal.target else {
+            anyhow::bail!("Future seal needs a debugger target")
+        };
+        ensure!(
+            *hit == future.hit + 1,
+            "Future seal must select the next hit"
+        );
+        self.seal_inner(
+            expected_generation,
+            seal,
+            actor,
+            Some(future),
+            Some(prior_visible),
+        )
+    }
+    fn seal_inner(
+        &self,
+        expected_generation: u64,
+        seal: Seal,
+        actor: Actor,
+        future: Option<FutureStop>,
+        prior_visible: Option<Value>,
+    ) -> Result<Receipt> {
         actor.validate()?;
         seal.identity.validate()?;
         seal.target.validate(&seal.identity)?;
@@ -254,6 +303,8 @@ impl Ledger {
                     actor,
                     seal,
                     context,
+                    future,
+                    prior_visible,
                 },
             )?;
             Ok(Receipt {
@@ -283,7 +334,7 @@ impl Ledger {
         replay: bool,
         actor: Actor,
     ) -> Result<Admission> {
-        self.admit_inner(seal_id, key, identity, replay, actor, None)
+        self.admit_inner(seal_id, key, identity, replay, actor, None, None)
     }
     /// Bind the authoritative adapter's selected target before dispatch as well
     /// as at result intake. A seal for a different hit/expression cannot run.
@@ -296,7 +347,28 @@ impl Ledger {
         actor: Actor,
         target: &Target,
     ) -> Result<Admission> {
-        self.admit_inner(seal_id, key, identity, replay, actor, Some(target))
+        self.admit_inner(seal_id, key, identity, replay, actor, Some(target), None)
+    }
+    /// A future-stop seal can dispatch only on its retained paused session.
+    pub fn admit_future_target(
+        &self,
+        seal_id: &str,
+        key: &str,
+        identity: &Identity,
+        actor: Actor,
+        target: &Target,
+        future: &FutureStop,
+    ) -> Result<Admission> {
+        future.validate()?;
+        self.admit_inner(
+            seal_id,
+            key,
+            identity,
+            false,
+            actor,
+            Some(target),
+            Some(future),
+        )
     }
     fn admit_inner(
         &self,
@@ -306,6 +378,7 @@ impl Ledger {
         replay: bool,
         actor: Actor,
         target: Option<&Target>,
+        future: Option<&FutureStop>,
     ) -> Result<Admission> {
         actor.validate()?;
         identity.validate()?;
@@ -315,6 +388,7 @@ impl Ledger {
         );
         self.transaction(|journal| {
             let (_, seal) = find_seal(journal, seal_id)?;
+            ensure!(future_binding(journal, seal_id) == future, "Prediction belongs to a different paused session or requires future-stop admission");
             ensure!(target.is_none_or(|target| target == &seal.target), "Execution target differs from the sealed prediction");
             ensure!(&seal.identity == identity, "Prediction is stale; seal the current captured inputs before execution");
             for entry in &journal.entries {
@@ -349,6 +423,24 @@ impl Ledger {
         observation: ObservedResult,
         execution_accepted: bool,
     ) -> Result<Summary> {
+        self.finish_inner(attempt, observation, execution_accepted, None)
+    }
+    pub fn finish_future_checked(
+        &self,
+        attempt: &str,
+        observation: ObservedResult,
+        execution_accepted: bool,
+        future: &FutureStop,
+    ) -> Result<Summary> {
+        self.finish_inner(attempt, observation, execution_accepted, Some(future))
+    }
+    fn finish_inner(
+        &self,
+        attempt: &str,
+        observation: ObservedResult,
+        execution_accepted: bool,
+        future: Option<&FutureStop>,
+    ) -> Result<Summary> {
         let ObservedResult {
             identity,
             target,
@@ -363,6 +455,10 @@ impl Ledger {
         );
         self.transaction(|journal| {
             let (_, seal, _) = find_attempt(journal, attempt)?;
+            let seal_id = journal.entries.iter().find_map(|e| match &e.event {
+                Event::Started { id, seal, .. } if id == attempt => Some(seal.as_str()), _ => None
+            }).context("Missing attempt seal")?;
+            ensure!(future_binding(journal, seal_id) == future, "Result belongs to a different retained session");
             ensure!(!interrupted(journal, attempt), "The attempt was interrupted; a late result cannot replace that outcome");
             ensure!(identity == seal.identity && target == seal.target, "Observed source, expression/location or hit differs from the sealed prediction; no certification was recorded");
             if let Some((old_actual, old_evidence)) = finished(journal, attempt) {
@@ -496,7 +592,11 @@ impl Ledger {
                 .map(|id| summarize(journal, id, current)).collect::<Result<Vec<_>>>()?;
             let ordering = journal.entries.iter().map(|entry| {
                 let event = match &entry.event {
-                    Event::Sealed { id, actor, seal, context } => serde_json::json!({"kind":"sealed", "id":id, "actor":actor, "seal":seal, "context":context}),
+                    Event::Sealed { id, actor, seal, context, future, .. } => {
+                        let mut value = serde_json::json!({"kind":"sealed", "id":id, "actor":actor, "seal":seal, "context":context});
+                        if let Some(future) = future { value["future_stop"] = serde_json::to_value(future).expect("stop metadata serializes"); }
+                        value
+                    },
                     Event::Started { id, seal, replay, actor, .. } => serde_json::json!({"kind":"started", "id":id, "seal":seal, "replay":replay, "actor":actor}),
                     Event::Finished { attempt, .. } => serde_json::json!({"kind":"finished", "attempt":attempt, "actual":"withheld from agents"}),
                     Event::Uncertain { attempt, actor } => serde_json::json!({"kind":"evidence_unavailable", "attempt":attempt, "actor":actor}),
@@ -514,7 +614,7 @@ impl Ledger {
         current.validate()?;
         self.transaction(|journal| {
             let summary = summarize(journal, attempt, Some(current))?;
-            ensure!(matches!(summary.classification, Classification::FirstAttemptVerified | Classification::VerifiedAfterCorrection | Classification::VerifiedAfterPriorAttempt), "Promotion blocked: {:?}; inspect prediction/requirement/history and reverify the current source", summary.classification);
+            ensure!(matches!(summary.classification, Classification::FirstAttemptVerified | Classification::InformedPredictionVerified | Classification::VerifiedAfterCorrection | Classification::VerifiedAfterPriorAttempt), "Promotion blocked: {:?}; inspect prediction/requirement/history and reverify the current source", summary.classification);
             if !summary.promoted { append(journal, Event::Promoted { attempt: attempt.into(), identity: current.clone(), actor })?; }
             summarize(journal, attempt, Some(current))
         })
@@ -565,6 +665,14 @@ fn find_seal<'a>(journal: &'a Journal, id: &str) -> Result<(u64, &'a Seal)> {
             }
         })
         .context("No host-sealed prediction exists")
+}
+fn future_binding<'a>(journal: &'a Journal, id: &str) -> Option<&'a FutureStop> {
+    journal.entries.iter().find_map(|entry| match &entry.event {
+        Event::Sealed {
+            id: found, future, ..
+        } if found == id => future.as_ref(),
+        _ => None,
+    })
 }
 fn find_attempt<'a>(journal: &'a Journal, id: &str) -> Result<(u64, &'a Seal, bool)> {
     let (sequence, seal, replay) = journal
@@ -722,6 +830,8 @@ fn summarize(journal: &Journal, attempt: &str, current: Option<&Identity>) -> Re
         Classification::VerifiedAfterCorrection
     } else if prior_attempt {
         Classification::VerifiedAfterPriorAttempt
+    } else if future_binding(journal, &seal_id).is_some() {
+        Classification::InformedPredictionVerified
     } else {
         Classification::FirstAttemptVerified
     };
@@ -734,6 +844,7 @@ fn summarize(journal: &Journal, attempt: &str, current: Option<&Identity>) -> Re
         && matches!(
             classification,
             Classification::FirstAttemptVerified
+                | Classification::InformedPredictionVerified
                 | Classification::VerifiedAfterCorrection
                 | Classification::VerifiedAfterPriorAttempt
         );

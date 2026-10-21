@@ -61,7 +61,8 @@ pub struct OutputRequest {
     pub encoding: OutputEncoding,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ManagedOutput {
     pub summary: Summary,
     /// False for an idempotent retry, whether running, settled or interrupted.

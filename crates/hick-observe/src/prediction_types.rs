@@ -256,3 +256,34 @@ pub struct Seal {
     pub predicted: Predicate,
     pub rationale: String,
 }
+
+/// Host-captured prior stop. Contains no variable values or evaluation text.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct FutureStop {
+    pub run: String,
+    pub thread: i64,
+    pub frame: i64,
+    pub hit: u64,
+    pub prior_visible_digest: String,
+}
+impl FutureStop {
+    pub(super) fn validate(&self) -> Result<()> {
+        ensure!(
+            !self.run.is_empty()
+                && self.run.len() <= 256
+                && self.thread > 0
+                && self.frame > 0
+                && (1..100).contains(&self.hit),
+            "Invalid retained stop identity"
+        );
+        ensure!(
+            self.prior_visible_digest.len() == 64
+                && self
+                    .prior_visible_digest
+                    .bytes()
+                    .all(|b| b.is_ascii_hexdigit() && !b.is_ascii_uppercase()),
+            "Invalid prior visible context digest"
+        );
+        Ok(())
+    }
+}

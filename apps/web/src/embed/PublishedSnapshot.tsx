@@ -6,6 +6,7 @@ import type { ExecBlock } from "../api/types";
 import { DocumentEmbed } from "./DocumentEmbed";
 import { CellPanel } from "../components/CellPanel";
 import { sha256 } from "../lib/reviews";
+import { PredictionEvidence, predictionWitnesses, validatePredictionHistory, type PredictionHistory, type PredictionRevisionNavigation } from "./PredictionHistory";
 
 export interface Verification {
   status: "passed" | "failed" | "not_run" | "unavailable" | "stale";
@@ -18,6 +19,7 @@ export interface ViewerSnapshot {
   demonstration?: { capture_kind: "native-provider"; captured_revision: string; recording_asset: string; session_asset?: string; cuts?: string[] };
   format: "hickory-viewer-snapshot"; version: 1; path: string; source: string;
   verification?: Verification;
+  prediction_history?: PredictionHistory;
   source_hash: string; captured_at_ms: number; execution: string; cells: ExecBlock[];
 }
 /** Validate external snapshots before supplying them to product components. */
@@ -26,6 +28,11 @@ export async function decodeSnapshot(value: unknown): Promise<ViewerSnapshot> {
   const v = value as ViewerSnapshot;
   if (v.format !== "hickory-viewer-snapshot" || v.version !== 1 || typeof v.source !== "string" || typeof v.path !== "string" || typeof v.execution !== "string" || !Number.isFinite(v.captured_at_ms) || !Array.isArray(v.cells)) throw new Error("Unsupported viewer snapshot");
   if (await sha256(v.source) !== v.source_hash) throw new Error("Snapshot source hash does not match");
+  if (v.prediction_history !== undefined) {
+    validatePredictionHistory(v.prediction_history);
+    if (v.cells.length || v.demonstration || Object.keys(v.verification?.assets ?? {}).length || v.verification?.execution_evidence ||
+        v.verification?.commands.some(command => command.stdout || command.stderr || command.error)) throw Error("Selected prediction snapshots must withhold target diagnostics and assets");
+  }
   if (v.demonstration) {
     const demo = v.demonstration;
     if (demo.capture_kind !== "native-provider" || !/^[a-f0-9]{40}$/.test(demo.captured_revision) || typeof demo.recording_asset !== "string" || !/\.(mp4|webm)$/.test(demo.recording_asset) || !v.verification?.assets?.[demo.recording_asset] || demo.session_asset !== undefined && !v.verification?.assets?.[demo.session_asset] || demo.cuts !== undefined && (!Array.isArray(demo.cuts) || demo.cuts.some(note => typeof note !== "string"))) throw Error("Invalid reviewed demonstration assets");
@@ -60,12 +67,12 @@ export async function verifiedPublicationAsset(snapshot: ViewerSnapshot, artifac
   if (hash !== expected) throw Error("Published asset hash mismatch");
   return URL.createObjectURL(new Blob([bytes], { type: response.headers.get("Content-Type") ?? "application/octet-stream" }));
 }
-type SnapshotProps = { snapshot: ViewerSnapshot; artifactUrl?: string };
+type SnapshotProps = { snapshot: ViewerSnapshot; artifactUrl?: string; predictionNavigation?: PredictionRevisionNavigation };
 export function PublishedSnapshot(props: SnapshotProps) {
   const owner = useMemo(() => crypto.randomUUID(), [props.snapshot, props.artifactUrl]);
   return <CapturedPublishedSnapshot key={owner} {...props} />;
 }
-function CapturedPublishedSnapshot({ snapshot, artifactUrl }: SnapshotProps) {
+function CapturedPublishedSnapshot({ snapshot, artifactUrl, predictionNavigation }: SnapshotProps) {
   const assets = useMemo(() => ({ urls: new Set<string>(), disposed: false }), [snapshot, artifactUrl]);
   useEffect(() => { assets.disposed = false; return () => { assets.disposed = true; for (const url of assets.urls) URL.revokeObjectURL(url); assets.urls.clear(); }; }, [assets]);
   const host = useMemo(() => ({ resolveAsset: async (path: string, signal: AbortSignal) => {
@@ -101,9 +108,10 @@ function CapturedPublishedSnapshot({ snapshot, artifactUrl }: SnapshotProps) {
       <SnapshotDisclosure label="Recording/replay evidence" value={snapshot.verification.execution_evidence ?? "Recording origin unavailable"}><pre>{JSON.stringify(snapshot.verification.execution_evidence ?? "Recording origin unavailable", null, 2)}</pre></SnapshotDisclosure><p>{snapshot.verification.scope}</p>
       <p>Historical success certifies only these source/dependency hashes; changed inputs need a new run.</p>
       <SnapshotDisclosure label="Environment and dependency identities" value={{ environment: snapshot.verification.environment, dependencies: snapshot.verification.dependencies, assets: snapshot.verification.assets }}><pre>{JSON.stringify({ environment: snapshot.verification.environment, dependencies: snapshot.verification.dependencies, assets: snapshot.verification.assets }, null, 2)}</pre></SnapshotDisclosure>
-      {snapshot.verification.requirements.map((r, n) => <section key={`${r.id}:${n}`} id={`requirement-${n}`}><h3>{r.id}</h3><p>{r.text}</p>{r.witnesses.map(i => snapshot.cells[i] ? <UiLink key={i} href={`#witness-${i}`}>Witness {snapshot.cells[i].id} </UiLink> : <p key={i}>Witness {i} unavailable · not verified</p>)}</section>)}
+      {snapshot.verification.requirements.map((r, n) => <section key={`${r.id}:${n}`} id={`requirement-${n}`}><h3>{r.id}</h3><p>{r.text}</p>{r.witnesses.map(i => snapshot.cells[i] ? <UiLink key={i} href={`#witness-${i}`}>Witness {snapshot.cells[i].id} </UiLink> : <p key={i}>Witness {i} unavailable · not verified</p>)}{snapshot.prediction_history && predictionWitnesses(snapshot.prediction_history, r.id).map(attempt => <UiLink key={attempt} href={`#prediction-${attempt}`}>Recorded prediction attempt {attempt}</UiLink>)}</section>)}
       {snapshot.verification.commands.map((c, i) => <SnapshotDisclosure key={i} initialOpen={snapshot.verification!.status !== "passed"} label={`${c.command.join(" ")} · ${c.exit_code === undefined ? "unavailable" : `exit ${c.exit_code}`}`} value={{ stdout: c.stdout ?? "", stderr: c.stderr ?? c.error ?? "" }}><pre>{c.stdout}</pre><pre>{c.stderr ?? c.error}</pre></SnapshotDisclosure>)}
     </section>}
+    {snapshot.prediction_history && <PredictionEvidence value={snapshot.prediction_history} sourceHash={snapshot.source_hash} navigation={predictionNavigation} />}
     <DocumentEmbed source={snapshot.source} revision={snapshot.source_hash} path={snapshot.path} host={host} readOnly />
     <h2>Recorded cell results</h2>
     <label><input type="checkbox" checked={replay} onChange={event => setReplay(event.target.checked)} /> Show execution transcripts</label>

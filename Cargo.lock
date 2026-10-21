@@ -3471,6 +3471,7 @@ dependencies = [
  "hick-exec",
  "hick-lang",
  "hick-literate",
+ "hick-observe",
  "hick-project-env",
  "hickory-executor",
  "hickory-lineage",
