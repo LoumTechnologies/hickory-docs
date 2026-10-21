@@ -174,3 +174,28 @@ it("Save fails while a generated edit is refused, then retries the same pending 
   expect(remote).toBe("changed\n");
   expect(s.hasPendingEdits()).toBe(false);
 });
+// Guarantee: docs/guarantees/authoring/unsaved-work-survives-closing-the-app.md
+it("does not discard generated edits typed while an earlier save is settling", async () => {
+  let finish!: () => void, calls = 0, remote = "base";
+  const saver = createOutputSaver({ debounceMs: 60000, onError: () => {}, post: async edits => {
+    if (++calls === 1) await new Promise<void>(resolve => { finish = resolve; });
+    remote = applyEdits(remote, edits);
+  } });
+  saver.load("base"); saver.changed("first save");
+  const saving = saver.flushNow(); await Promise.resolve();
+  const discarding = saver.discardPending("first save");
+  const refused = expect(discarding).rejects.toThrow("newer draft remains pending");
+  saver.changed("newer bytes"); finish();
+  expect(await saving).toBe(false); await refused;
+  expect(saver.hasPendingEdits()).toBe(true); expect(remote).toBe("first save");
+  expect(await saver.flushNow()).toBe(true); expect(remote).toBe("newer bytes"); saver.dispose();
+});
+// Guarantee: docs/guarantees/authoring/unsaved-work-survives-closing-the-app.md
+it("refuses an already-stale expected generated discard without clearing its pending edit", async () => {
+  let remote = "base";
+  const saver = createOutputSaver({ debounceMs: 60000, onError: () => {}, post: async edits => { remote = applyEdits(remote, edits); } });
+  saver.load("base"); saver.changed("new draft");
+  await expect(saver.discardPending("stale draft")).rejects.toThrow("changed before discard");
+  expect(saver.hasPendingEdits()).toBe(true);
+  expect(await saver.flushNow()).toBe(true); expect(remote).toBe("new draft"); saver.dispose();
+});

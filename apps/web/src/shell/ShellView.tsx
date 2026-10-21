@@ -1,3 +1,4 @@
+import type { UiOutcome } from "../lib/uiActions";
 import { bufferTarget } from "../lib/editorBufferTargets";
 import { workspaceIsVisible } from "../lib/workspaceVisibility";
 // The shell: the tile tree, rendered.
@@ -74,7 +75,7 @@ export interface ShellViewProps {
   /** Tab ids whose buffers differ from their last explicit Save. */
   dirtyTabIds?: ReadonlySet<string>;
   /** Give the owner a chance to ask before removing a tab. */
-  onRequestCloseTab?: (paneId: string, tabId: string) => void;
+  onRequestCloseTab?: (paneId: string, tabId: string, signal?: AbortSignal) => void | Promise<UiOutcome>;
 }
 
 export function ShellView({
@@ -359,7 +360,7 @@ function TabChip({
   side: boolean;
   depth?: number;
   dirtyTabIds?: ReadonlySet<string>;
-  onRequestCloseTab?: (paneId: string, tabId: string) => void;
+  onRequestCloseTab?: (paneId: string, tabId: string, signal?: AbortSignal) => void | Promise<UiOutcome>;
 }) {
   // Middle-click is a press and a release on the same tab; between them this
   // remembers that the press was ours (see onPointerDown below).
@@ -900,7 +901,7 @@ export function useShellKeys(
   layout: Layout,
   onLayout: (next: Layout) => void,
   onSearch?: () => void,
-  onRequestCloseTab?: (paneId: string, tabId: string) => void,
+  onRequestCloseTab?: (paneId: string, tabId: string, signal?: AbortSignal) => void | Promise<UiOutcome>,
 ) {
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {

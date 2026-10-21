@@ -99,10 +99,12 @@ export function useDraftKeeper({
 }): () => void {
   const readRef = useRef(read);
   readRef.current = read;
+  const activePath = useRef(path); activePath.current = path;
   // A buffer can become a real file immediately before its component
   // unmounts. Remember that transition outside React state, so the cleanup
   // below cannot race it by writing the just-saved buffer back as a draft.
   const discardedRef = useRef(false);
+  const discardedContents = useRef<string | null>(null);
 
   useEffect(() => {
     if (!enabled || !path) return;
@@ -114,17 +116,22 @@ export function useDraftKeeper({
     const onDiscarded = (event: Event) => {
       const request = (event as CustomEvent<DiscardRequest>).detail;
       if (request.path !== path) return;
-      discardedRef.current = true;
-      request.waitUntil(pending.catch(() => {}).then(() => api.discardDraft(path)));
+      discardedRef.current = true; discardedContents.current = readRef.current().contents;
+      pending = pending.catch(() => {}).then(() => api.discardDraft(path));
+      request.waitUntil(pending);
     };
 
     const flush = () => {
-      if (discardedRef.current) return;
+      if (activePath.current !== path) return;
       const { contents, base } = readRef.current();
+      if (discardedRef.current) {
+        if (contents === discardedContents.current) return;
+        discardedRef.current = false; written = null;
+      }
       if (contents === base) {
         if (written !== null) {
           written = null;
-          void api.discardDraft(path).catch(() => {});
+          pending = pending.catch(() => {}).then(() => api.discardDraft(path)).catch(() => { written = contents; });
         }
         return;
       }
@@ -154,7 +161,7 @@ export function useDraftKeeper({
 
   return useCallback(() => {
     if (!path) return;
-    discardedRef.current = true;
-    void api.discardDraft(path).catch(() => {});
+    if (activePath.current === path) { discardedRef.current = true; discardedContents.current = readRef.current().contents; }
+    void discardRecoveryDraft(path).catch(() => {});
   }, [path]);
 }

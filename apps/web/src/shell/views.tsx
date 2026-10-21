@@ -158,9 +158,12 @@ export function GeneratedFileView({
           else if (state === "saved" && pending) pending.base = saver.baselineContent();
           if (bufferOwners.get(bufferId) !== saver) return;
           setSaveState(state);
-          viewBuffers.set(bufferId, { dirty: state !== "saved", save: () => saver.flushNow(), discard: async () => {
+          viewBuffers.set(bufferId, { dirty: state !== "saved", revision: () => outputView.current?.state.doc.toString() ?? pendingOutputs.get(pendingKey)?.contents ?? saver.baselineContent(), isDirty: () => saver.hasPendingEdits(), save: () => saver.flushNow(), discard: async () => {
+            const expected = outputView.current?.state.doc.toString() ?? pendingOutputs.get(pendingKey)?.contents ?? saver.baselineContent();
             const fresh = changedWhileAway.current ? await api.outputFile(docId, path) : null;
-            const text = await saver.discardPending(); pendingOutputs.delete(pendingKey);
+            const text = await saver.discardPending(expected);
+            if (outputView.current && outputView.current.state.doc.toString() !== expected) throw Error("Generated source changed during discard; newer editor bytes were retained.");
+            pendingOutputs.delete(pendingKey);
             const restored = fresh?.content ?? text;
             changedWhileAway.current = false;
             saver.load(restored);

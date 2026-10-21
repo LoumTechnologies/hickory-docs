@@ -1,5 +1,5 @@
 import { UiActionsVisibility, useUiCommands, useUiRevision } from "../lib/uiActionBridge";
-import type { UiCommand, UiField } from "../lib/uiActions";
+import type { UiCommand, UiField, UiOutcome } from "../lib/uiActions";
 import { PRIMARY, dockTile, pruneTiles, tileRects, type DockEdge } from "./spatialTiles";
 import { SPATIAL_RIBBON_OPEN, type SpatialRibbonOpen } from "./spatialNavigation";
 import { PaneHeaderProvider, PaneHeaderSlots } from "./PaneHeader";
@@ -230,7 +230,11 @@ export function SpatialShellView(props: Props) {
   };
   const click = (action: () => void) => { if (!controller.suppressClick) action(); };
   const begin = (entry: Entry, event: PointerEvent, kind: "drag" | "top" | "bottom" = "drag") => { if (!(event.target as HTMLElement).closest(".spatial-window-controls, .spatial-tab-close")) controller.begin(entry.key, event, kind); };
-  const close = (entry: Entry) => { if (!entry.tab || !entry.pane) return; if (props.onRequestCloseTab) props.onRequestCloseTab(entry.pane.id, entry.tab.id); else props.onLayout(closeTab(layout, entry.pane.id, entry.tab.id)); };
+  const close = async (entry: Entry, signal?: AbortSignal): Promise<UiOutcome> => {
+    if (!entry.tab || !entry.pane) return { status: "unavailable", reason: "This view has no closeable tab" };
+    if (props.onRequestCloseTab) return await (signal ? props.onRequestCloseTab(entry.pane.id, entry.tab.id, signal) : props.onRequestCloseTab(entry.pane.id, entry.tab.id)) ?? requested();
+    props.onLayout(closeTab(layout, entry.pane.id, entry.tab.id)); return requested();
+  };
   const showDrawer = (side: Side) => {
     controller.preserveSelections(); setDrawerOpen({ left: side === "left", right: side === "right" });
     requestAnimationFrame(() => root.current?.querySelector<HTMLButtonElement>(`[data-drawer-toolbar=${side}] button[aria-label="Close ${side} drawer"]`)?.focus());
@@ -272,8 +276,8 @@ export function SpatialShellView(props: Props) {
   const actionParent = `spatial-layout:${instance}`;
   const revision = useUiRevision(() => [layout, sceneRef.current, drawerOpen, visible, pinned, [...controller.frames]]);
   const commands: { key: string; command: UiCommand }[] = [];
-  function add(id: string, label: string, parameters: Record<string, UiField>, execute: UiCommand["execute"]) {
-    commands.push({ key: `${actionParent}/${id}`, command: { label, parent: actionParent, subject: actionParent, parameters, prerequisites: ["Current window layout and mounted view identity; dirty-close decisions remain in the normal prompt"], read: () => ({ revision: revision(), enabled: !!root.current && !controller.suppressClick }), execute } });
+  function add(id: string, label: string, parameters: Record<string, UiField>, execute: UiCommand["execute"], subject = actionParent) {
+    commands.push({ key: `${actionParent}/${id}`, command: { label, parent: actionParent, subject, parameters, prerequisites: ["Current window layout and mounted view identity; dirty-close decisions remain in the normal prompt"], read: () => ({ revision: revision(), enabled: !!root.current && !controller.suppressClick }), execute } });
   }
   const requested = () => ({ status: "completed" as const, value: { dispatch: "requested", result: "Observe actual layout, frame or unsaved-close prompt" } });
   add("read", "Read spatial layout bytes", { offset: { type: "number", minimum: 0, maximum: 100000000, integer: true }, limit: { type: "number", minimum: 1, maximum: 8192, integer: true } }, async args => {
@@ -282,18 +286,18 @@ export function SpatialShellView(props: Props) {
     if (offset > bytes.length) return { status: "unavailable", reason: "Offset exceeds current layout state" };
     return { status: "completed", value: { encoding: "JSON encoded as UTF-8 bytes", bytes: [...bytes.slice(offset, end)], span: [offset, end], total_bytes: bytes.length, next: end < bytes.length ? end : null } };
   });
-  for (const operation of ["center", "pin", "expand", "close"] as const) add(operation, operation === "expand" ? "Toggle spatial view expansion" : operation === "pin" ? "Toggle spatial view pin" : `${operation[0].toUpperCase() + operation.slice(1)} spatial view`, { key: { type: "string", maxLength: 8192 } }, async args => {
+  for (const operation of ["center", "pin", "expand", "close"] as const) add(operation, operation === "expand" ? "Toggle spatial view expansion" : operation === "pin" ? "Toggle spatial view pin" : `${operation[0].toUpperCase() + operation.slice(1)} spatial view`, { key: { type: "string", maxLength: 8192 } }, async (args, _actor, signal) => {
     const entry = entries.find(entry => entry.key === args.key);
     if (!entry) return { status: "unavailable", reason: "View does not belong to this window's current layout" };
     if (operation === "center") centerOn(entry);
-    else if (operation === "close") { if (!entry.tab || !entry.pane) return { status: "unavailable", reason: "This reading port has no closeable tab" }; close(entry); }
+    else if (operation === "close") { if (!entry.tab || !entry.pane) return { status: "unavailable", reason: "This reading port has no closeable tab" }; return close(entry, signal); }
     else {
       if (!controller.frames.has(entry.key)) return { status: "unavailable", reason: "Open this view's drawer before changing its frame" };
       if (operation === "pin") { if (entry.key === center?.key) pinCentered(entry); else pinView(entry); }
       else { if (entry.key === center?.key || tiledKeys.has(entry.key)) return { status: "unavailable", reason: "Centered and tiled views already occupy their full frame" }; controller.toggle(entry.key); }
     }
     return requested();
-  });
+  }, operation === "close" ? `${actionParent}:close` : actionParent);
   add("resize", "Resize spatial view", { key: { type: "string", maxLength: 8192 }, delta: { type: "number", minimum: -2000, maximum: 2000 }, edge: { type: "string", maxLength: 16, choices: ["top", "bottom"] } }, async args => {
     const key = String(args.key);
     if (!entries.some(entry => entry.key === key) || !controller.frames.has(key) || key === center?.key || tiledKeys.has(key)) return { status: "unavailable", reason: "Choose a mounted drawer view with an actual frame" };

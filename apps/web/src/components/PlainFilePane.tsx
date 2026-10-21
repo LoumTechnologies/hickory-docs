@@ -103,7 +103,7 @@ export function PlainFilePane({
     actions: {
       save: () => Promise<boolean>;
       discard: () => void;
-      retain: () => Promise<void>;
+      retain: () => Promise<void>; revision?: () => unknown; isDirty?: () => boolean;
     },
   ) => void;
 }) {
@@ -156,7 +156,7 @@ export function PlainFilePane({
   const actionsRef = useRef<{
     save: () => Promise<boolean>;
     discard: () => void;
-    retain: () => Promise<void>;
+    retain: () => Promise<void>; revision?: () => unknown; isDirty?: () => boolean;
   }>({ save: async () => true, discard: () => {}, retain: async () => {} });
   // What the language server was last told — a refused rename, a code action
   // this editor cannot run — shown in the toolbar until the next one.
@@ -231,6 +231,7 @@ export function PlainFilePane({
     [path],
   );
   actionsRef.current = {
+    revision: () => viewRef.current?.state.doc.toString() ?? lastTextRef.current, isDirty: () => saver.hasPendingEdits(),
     save: () => saver.flushNow(),
     discard: () => {
       const base = saver.discardPending();

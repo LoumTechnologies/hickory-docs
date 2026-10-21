@@ -299,7 +299,7 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
   const plainUnsavedActions = useRef(
     new Map<
       string,
-      { save: () => Promise<boolean>; discard: () => void; retain: () => Promise<void> }
+      { save: () => Promise<boolean>; discard: () => void; retain: () => Promise<void>; revision?: () => unknown; isDirty?: () => boolean }
     >(),
   );
   const environments = useEnvironments();
@@ -1437,7 +1437,7 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
     untitledSourcesRef,
     forgetUntitled,
     saveUntitled,
-    prompt: shellPrompt,
+    prompt: shellPrompt, onError: setInsertNotice,
     plainDirtyTabs,
     plainUnsavedActions,
   });

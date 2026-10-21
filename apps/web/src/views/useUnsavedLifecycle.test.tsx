@@ -1,7 +1,7 @@
 import { viewBuffers } from "../lib/viewBuffers";
 // @vitest-environment jsdom
 
-import { act, renderHook, waitFor } from "@testing-library/react";
+import { act, cleanup, renderHook, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { api } from "../api/client";
@@ -11,7 +11,7 @@ import { SessionRegistry } from "./documentSession";
 import { openUntitledTab } from "./workspaceState";
 import { useUnsavedLifecycle } from "./useUnsavedLifecycle";
 
-afterEach(() => vi.restoreAllMocks());
+afterEach(() => { cleanup(); viewBuffers.ids().forEach(id => viewBuffers.forget(id)); vi.restoreAllMocks(); });
 
 describe("closing unsaved work", () => {
   // Guarantees:
@@ -46,7 +46,7 @@ describe("closing unsaved work", () => {
       }),
     );
 
-    act(() => result.current.requestCloseTab(pane.id, tab.id));
+    await act(async () => { await result.current.requestCloseTab(pane.id, tab.id); });
 
     await waitFor(() => expect(setLayout).toHaveBeenCalledTimes(1));
     expect(askChoice.mock.calls[0][0]).toContain(
@@ -75,7 +75,7 @@ describe("closing unsaved work", () => {
       forgetUntitled: vi.fn(), saveUntitled: vi.fn(), prompt: { askChoice: vi.fn().mockResolvedValue("close") } as never,
       plainDirtyTabs: new Set([file.id]), plainUnsavedActions: { current: new Map([[file.id, { save: vi.fn(), discard, retain }]]) },
     }));
-    act(() => result.current.requestCloseTab(pane.id, file.id));
+    await act(async () => { await result.current.requestCloseTab(pane.id, file.id); });
     await waitFor(() => expect(setLayout).toHaveBeenCalledTimes(1));
     expect(discard).toHaveBeenCalledOnce();
     expect(discardDraft).toHaveBeenCalledWith("note.txt");
@@ -98,7 +98,7 @@ it("keeps an inactive view open when its attempted Save fails", async () => {
     forgetUntitled: vi.fn(), saveUntitled: vi.fn(), prompt: { askChoice } as never,
     plainDirtyTabs: new Set(), plainUnsavedActions: { current: new Map() },
   }));
-  act(() => result.current.requestCloseTab(pane.id, workingTab.id));
+  await act(async () => { await result.current.requestCloseTab(pane.id, workingTab.id); });
   await waitFor(() => expect(save).toHaveBeenCalledTimes(1));
   expect(askChoice.mock.calls[0][0]).toContain("discards these changes");
   expect(setLayout).not.toHaveBeenCalled();
@@ -124,4 +124,72 @@ it("waits for the latest layout write before approving a clean window close", as
   await act(async () => finish());
   expect(close).toHaveBeenCalledTimes(1);
   hook.unmount();
+});
+// Guarantee: docs/guarantees/authoring/unsaved-work-survives-closing-the-app.md
+it("refuses changed unnamed bytes and duplicate close requests while a decision is pending", async () => {
+  const layout = openUntitledTab(freeform()), pane = panes(layout.root)[0], tab = pane.tabs[0];
+  const sources = { current: { [tab.id]: "captured" } };
+  let choose!: (value: string) => void;
+  const askChoice = vi.fn((_title: string, _options: unknown[], _policy?: unknown) => new Promise<string>(resolve => { choose = resolve; }));
+  const setLayout = vi.fn(), forget = vi.fn(), error = vi.fn(), discard = vi.spyOn(api, "discardDraft").mockResolvedValue({ ok: true });
+  const { result } = renderHook(() => useUnsavedLifecycle({ layout, layoutRef: { current: layout }, setLayout, registry: new SessionRegistry(), retainSavedDrafts: false,
+    untitledSources: sources.current, untitledSourcesRef: sources, forgetUntitled: forget, saveUntitled: vi.fn(), prompt: { askChoice } as never,
+    plainDirtyTabs: new Set(), plainUnsavedActions: { current: new Map() }, onError: error }));
+  let pending!: ReturnType<typeof result.current.requestCloseTab>;
+  await act(async () => { pending = result.current.requestCloseTab(pane.id, tab.id); });
+  const policy = askChoice.mock.calls[0][2] as unknown as { agent: boolean; currentRevision: () => unknown };
+  expect(policy.agent).toBe(true); const observed = policy.currentRevision();
+  await act(async () => { expect(await result.current.requestCloseTab(pane.id, tab.id)).toMatchObject({ status: "unavailable" }); });
+  sources.current[tab.id] = "new unseen bytes";
+  expect(policy.currentRevision()).not.toBe(observed);
+  await act(async () => { choose("close"); expect(await pending).toMatchObject({ status: "unavailable", reason: expect.stringContaining("No save or discard was submitted") }); });
+  expect(setLayout).not.toHaveBeenCalled(); expect(discard).not.toHaveBeenCalled(); expect(forget).not.toHaveBeenCalled(); expect(error).toHaveBeenCalled();
+});
+// Guarantee: docs/guarantees/authoring/unsaved-work-survives-closing-the-app.md
+it("keeps newer plain-file edits open after an acknowledged discard and delayed recovery cleanup", async () => {
+  const layout = open(freeform(), tab("file", "note.txt")), pane = panes(layout.root)[0], file = pane.tabs[0];
+  let source = "original dirty", dirty = true, finish!: (value: { ok: true }) => void;
+  const discard = vi.fn(() => { source = "saved base"; dirty = false; });
+  vi.spyOn(api, "discardDraft").mockImplementation(() => new Promise(resolve => { finish = resolve; }));
+  const setLayout = vi.fn(), actions = { save: vi.fn(), discard, retain: vi.fn(), revision: () => source, isDirty: () => dirty };
+  const { result } = renderHook(() => useUnsavedLifecycle({ layout, layoutRef: { current: layout }, setLayout, registry: new SessionRegistry(), retainSavedDrafts: false,
+    untitledSources: {}, untitledSourcesRef: { current: {} }, forgetUntitled: vi.fn(), saveUntitled: vi.fn(), prompt: { askChoice: vi.fn().mockResolvedValue("close") } as never,
+    plainDirtyTabs: new Set([file.id]), plainUnsavedActions: { current: new Map([[file.id, actions]]) } }));
+  let pending!: ReturnType<typeof result.current.requestCloseTab>;
+  await act(async () => { pending = result.current.requestCloseTab(pane.id, file.id); });
+  expect(discard).toHaveBeenCalledTimes(1); source = "new edits during cleanup"; dirty = true;
+  await act(async () => { finish({ ok: true }); expect(await pending).toMatchObject({ status: "unavailable", reason: expect.stringContaining("newer edits") }); });
+  expect(setLayout).not.toHaveBeenCalled(); expect(source).toBe("new edits during cleanup");
+});
+// Guarantee: docs/guarantees/authoring/unsaved-work-survives-closing-the-app.md
+it("refuses a same-id same-source tab replacement while its decision is open", async () => {
+  const layout = openUntitledTab(freeform()), pane = panes(layout.root)[0], entry = pane.tabs[0], layoutRef = { current: layout };
+  let choose!: (value: string) => void;
+  const askChoice = vi.fn(() => new Promise<string>(resolve => { choose = resolve; }));
+  const setLayout = vi.fn(), discard = vi.spyOn(api, "discardDraft").mockResolvedValue({ ok: true });
+  const { result } = renderHook(() => useUnsavedLifecycle({ layout, layoutRef, setLayout, registry: new SessionRegistry(), retainSavedDrafts: false,
+    untitledSources: { [entry.id]: "same source" }, untitledSourcesRef: { current: { [entry.id]: "same source" } }, forgetUntitled: vi.fn(), saveUntitled: vi.fn(), prompt: { askChoice } as never,
+    plainDirtyTabs: new Set(), plainUnsavedActions: { current: new Map() } }));
+  let pending!: ReturnType<typeof result.current.requestCloseTab>;
+  await act(async () => { pending = result.current.requestCloseTab(pane.id, entry.id); });
+  layoutRef.current = { ...layout, root: { ...pane, tabs: pane.tabs.map(tab => ({ ...tab })) } };
+  await act(async () => { choose("close"); expect(await pending).toMatchObject({ status: "unavailable" }); });
+  expect(discard).not.toHaveBeenCalled(); expect(setLayout).not.toHaveBeenCalled();
+});
+// Guarantee: docs/guarantees/authoring/unsaved-work-survives-closing-the-app.md
+it("keeps a tab open when cancellation arrives after its save callback started", async () => {
+  const layout = open(freeform(), tab("generated", "out.py")), pane = panes(layout.root)[0], entry = pane.tabs[0];
+  let finish!: (value: boolean) => void;
+  const save = vi.fn(() => new Promise<boolean>(resolve => { finish = resolve; }));
+  viewBuffers.set(entry.id, { dirty: true, revision: () => "captured", save, discard: vi.fn() });
+  const setLayout = vi.fn(), controller = new AbortController();
+  const { result } = renderHook(() => useUnsavedLifecycle({ layout, layoutRef: { current: layout }, setLayout, registry: new SessionRegistry(), retainSavedDrafts: false,
+    untitledSources: {}, untitledSourcesRef: { current: {} }, forgetUntitled: vi.fn(), saveUntitled: vi.fn(), prompt: { askChoice: vi.fn().mockResolvedValue("save") } as never,
+    plainDirtyTabs: new Set(), plainUnsavedActions: { current: new Map() } }));
+  let pending!: ReturnType<typeof result.current.requestCloseTab>;
+  await act(async () => { pending = result.current.requestCloseTab(pane.id, entry.id, controller.signal); });
+  expect(save).toHaveBeenCalledTimes(1);
+  controller.abort();
+  await act(async () => { finish(true); expect(await pending).toMatchObject({ status: "unavailable", reason: expect.stringContaining("not rollback") }); });
+  expect(setLayout).not.toHaveBeenCalled();
 });

@@ -3,8 +3,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useUiCommands, useUiRevision } from "../lib/uiActionBridge";
 import type { UiCommand, UiOutcome } from "../lib/uiActions";
 
-type PromptPolicy = { agent?: boolean; currentRevision?: () => unknown };
-type PromptBase = { id: string; title: string; agent: boolean; currentRevision?: () => unknown; baseline: unknown };
+type PromptPolicy = { signal?: AbortSignal; agent?: boolean; currentRevision?: () => unknown };
+type PromptBase = { id: string; title: string; agent: boolean; currentRevision?: () => unknown; baseline: unknown; cleanup?: () => void };
 interface TextPrompt extends PromptBase { kind: "text"; initial: string; resolve: (value: string | null) => void }
 interface ChoicePrompt<T> extends PromptBase { kind: "choice"; options: { label: string; value: T }[]; resolve: (value: T | null) => void }
 type Prompt = TextPrompt | ChoicePrompt<unknown>;
@@ -13,22 +13,26 @@ const base = (title: string, policy: PromptPolicy): PromptBase => ({ id: crypto.
 export function usePrompt() {
   const [prompt, setPrompt] = useState<Prompt | null>(null);
   const pending = useRef<Prompt | null>(null);
-  const replace = useCallback((next: Prompt) => {
-    pending.current?.resolve(null);
-    pending.current = next; setPrompt(next);
+  const replace = useCallback((next: Prompt, signal?: AbortSignal) => {
+    if (signal?.aborted) { next.resolve(null); return; }
+    pending.current?.cleanup?.(); pending.current?.resolve(null);
+    pending.current = next;
+    const cancel = () => { if (pending.current !== next) return; next.cleanup?.(); pending.current = null; setPrompt(null); next.resolve(null); };
+    if (signal) { signal.addEventListener("abort", cancel, { once: true }); next.cleanup = () => signal.removeEventListener("abort", cancel); }
+    setPrompt(next);
   }, []);
   const askText = useCallback((title: string, initial: string, policy: PromptPolicy = {}): Promise<string | null> => new Promise(resolve => {
-    replace({ ...base(title, policy), kind: "text", initial, resolve });
+    replace({ ...base(title, policy), kind: "text", initial, resolve }, policy.signal);
   }), [replace]);
   const askChoice = useCallback(<T,>(title: string, options: { label: string; value: T }[], policy: PromptPolicy = {}): Promise<T | null> => new Promise(resolve => {
-    replace({ ...base(title, policy), kind: "choice", options, resolve: resolve as (value: unknown) => void });
+    replace({ ...base(title, policy), kind: "choice", options, resolve: resolve as (value: unknown) => void }, policy.signal);
   }), [replace]);
   const settle = useCallback((value: unknown, expectedId?: string) => {
     const current = pending.current;
     if (expectedId && current?.id !== expectedId) return;
-    pending.current = null; setPrompt(null); current?.resolve(value as never);
+    pending.current = null; setPrompt(null); current?.cleanup?.(); current?.resolve(value as never);
   }, []);
-  useEffect(() => () => { const current = pending.current; pending.current = null; current?.resolve(null); }, []);
+  useEffect(() => () => { const current = pending.current; pending.current = null; current?.cleanup?.(); current?.resolve(null); }, []);
   return { prompt, askText, askChoice, settle };
 }
 

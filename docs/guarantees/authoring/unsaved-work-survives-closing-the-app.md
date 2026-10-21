@@ -130,3 +130,65 @@ Last LLM verification:
 > actual file now count as saved; recovery drafts never do. See
 > `saved-means-the-displayed-bytes-reached-the-file.md`. The earlier verification
 > account above is historical and does not validate this amended contract.
+
+## Source-bound tab close and resumed recovery — 2026-10-20
+
+A tab-close decision belongs to its exact tab lifetime and live source. Ordinary
+Save/Discard/Cancel choices are agent-accessible under that source revision; they
+are not human attestations. A changed source or identical-ID replacement before
+the decision resumes refuses saving/discarding. Save refusal leaves the tab open.
+Newer pending edits after save/discard/recovery cleanup also keep the tab open;
+completed earlier effects are not rolled back or described as untouched. Layout
+updates check the final tab identity again instead of closing a replacement.
+
+Spatial close actions await that actual result, including cancellation, with a
+separate operation subject so reading remains addressable while a prompt waits.
+An owning AbortSignal cancels its exact prompt, including cleanup of listeners;
+it cannot dismiss a replacement. Cancellation after a save/discard starts leaves
+the tab open and reports possible effects rather than rollback.
+
+A generated discard checks expected text before and after waiting for earlier
+saves. Newer edits stay pending. Recovery discard suppression applies to the
+observed bytes, rather than every future edit in that mounted writer. Named and
+unnamed recovery writes/deletes are ordered; edits after discard or undo-to-base
+cleanup queue behind that cleanup. Unnamed suppression also binds tab identity.
+Old-path save cleanup cannot suppress the replacement path's recovery. A changed
+unnamed source during deletion is retained before metadata is forgotten.
+
+Retrospective correction: waiting for a generated save used to clear newer
+`latest` text. Recovery writers also suppressed later work for an entire mounted
+lifetime, and some deletes were not chained with earlier/later writes. Those
+paths could undermine the newer-edit refusal during tab close. This continuation
+corrects that interaction; it does not erase the earlier historical reviews.
+
+LLM implementation review: partially verified. Inspected `useUnsavedLifecycle`,
+`SpatialShellView`, PromptPanel, `viewBuffers`, PlainFilePane, RepresentationPane,
+generated `shell/views`, outputSave, drafts and useUntitledRecovery. Production
+buffer owners supply live revision/dirty getters; third-party owners without them
+retain conservative fallback behavior and are not certified for exact races.
+Whole-window closure's separate save/discard policy and OS shutdown/response-loss
+paths remain unverified and are not represented as completed #72 parity.
+
+Executed focused checks: five existing and four new lifecycle cases; five prompt
+cases; one spatial pending-close/read/cancel case; two generated saver race cases;
+two existing generated remount/discard cases; four named recovery-writer cases;
+and two unnamed recovery-writer cases. Paused fixture replies distinguish actual
+old cleanup effects from later retained input. Checks include same-ID/same-source
+replacement, duplicate close, source changes during decision/cleanup, cancellation
+after save start, abort-owned prompt replacement and serialized old-write/delete/
+new-write ordering. Targeted TypeScript included the containing WorkspaceView;
+whitespace/file-length checks passed. Broad regressions and post-commit monitoring
+were not run. UI/API callbacks are fixtures; no native/provider/release/deployed
+witness or human acceptance is claimed.
+
+Evidence dependencies (SHA-256; changed inputs invalidate this checkpoint):
+- `apps/web/src/views/useUnsavedLifecycle.ts`: `df6bedc5b85ef5f1cdaf35d97ec38a288ffbe24456b0a31a518d9be67dc08939`
+- `apps/web/src/shell/SpatialShellView.tsx`: `cf8ba7f420ef3fe9a9e8043375bc03f49c0a6121c32c27ec5eb53ba42de4c740`
+- `apps/web/src/components/PromptPanel.tsx`: `317c2924c369f672d0f77fa9c447fd183a88ec305ce43e7b0fdca146e4a918de`
+- `apps/web/src/lib/viewBuffers.ts`: `5c9aa309e8d994f51ee0ba6b84fa7fa92eaed310a3f96b532457473fdfc75c39`
+- `apps/web/src/components/PlainFilePane.tsx`: `fda5a8e2ec87ca2f4019e612494f05d360c80c248582c64bbb2affb703052336`
+- `apps/web/src/views/RepresentationPane.tsx`: `f2921c1c26e154bc52df0f38ff96ecc6da48780337ea16b2f8b08f3885ada0ff`
+- `apps/web/src/shell/views.tsx`: `555147f13e5f0c6944ea92bd8c18cdae54939c669c1187bf9f31404134ef5267`
+- `apps/web/src/lib/outputSave.ts`: `8f758f5833ecb52926857dfd701e3b3be9488916b256c3c127f422be91196604`
+- `apps/web/src/lib/drafts.ts`: `0b7b8f235b2ab1d6598053e38e4c08003102d9986f71919d683d504d648226ff`
+- `apps/web/src/views/useUntitledRecovery.ts`: `c5aaf657a3c801a6c52c7fc238936330d7512425224ab29f955a1db9b9b13641`

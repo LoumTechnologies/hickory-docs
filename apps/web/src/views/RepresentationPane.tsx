@@ -104,7 +104,7 @@ export function RepresentationPane({ id, initialBase = "", initialTarget = "", b
       if (current.current.source === now.source) buffers.delete(id);
       else buffers.set(id, current.current.source);
       accept(next);
-      viewBuffers.set(bufferId, { dirty: buffers.has(id), save, discard });
+      viewBuffers.set(bufferId, { dirty: buffers.has(id), revision: () => current.current.source, isDirty: () => buffers.has(id), save, discard });
       setNotice(`Saved to ${next.backing.kind === "files" ? next.files.map(file => file.path).join(", ") : "the owning document"}.`);
       window.dispatchEvent(new Event(FILES_CHANGED_EVENT));
       saveResult.current = { status: "completed", value: { id: next.id, revision: next.revision, clean: !buffers.has(id), files: next.files.map(({ path, hash }) => ({ path, hash })), source_save_acknowledged: true, verified: false } };
@@ -117,9 +117,9 @@ export function RepresentationPane({ id, initialBase = "", initialTarget = "", b
     const now = current.current;
     if (now.record) accept(now.record);
     setNotice("");
-    viewBuffers.set(bufferId, { dirty: false, save, discard });
+    viewBuffers.set(bufferId, { dirty: false, revision: () => current.current.source, isDirty: () => buffers.has(id), save, discard });
   }, [id, bufferId, accept, save]);
-  useEffect(() => { viewBuffers.set(bufferId, { dirty, save, discard }); }, [bufferId, dirty, save, discard]);
+  useEffect(() => { viewBuffers.set(bufferId, { dirty, revision: () => current.current.source, isDirty: () => buffers.has(id), save, discard }); }, [bufferId, dirty, save, discard]);
   useEffect(() => { const key = (event: KeyboardEvent) => { if (viewRef.current?.hasFocus && isAction(event, "file.save")) { event.preventDefault(); void save(); } }; window.addEventListener("keydown", key); return () => window.removeEventListener("keydown", key); }, [save]);
   const change = useCallback((text: string) => { current.current.source = text; setSource(text); if (!current.current.comparison?.target) buffers.set(id, text); }, [id]);
   const extensions = useMemo(() => [

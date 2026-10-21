@@ -23,6 +23,7 @@ export function useUntitledRecovery({ hydrated, layoutRef, setLayout, sourcesRef
   initialBaselines: Record<string, string>;
 }) {
   const [ready, setReady] = useState(false);
+  const clearClean = useRef<(() => void) | null>(null);
   const [baselines, setBaselines] = useState(initialBaselines);
   const baselinesRef = useRef(baselines);
   baselinesRef.current = baselines;
@@ -95,29 +96,45 @@ export function useUntitledRecovery({ hydrated, layoutRef, setLayout, sourcesRef
   useEffect(() => {
     if (!ready) return;
     const written = new Map<string, string>();
-    const saved = new Set<string>();
+    const saved = new Map<string, { contents: string; tab: object | undefined }>();
+    const suppress = (id: string) => saved.set(id, { contents: sourcesRef.current[id] ?? baselinesRef.current[id] ?? "", tab: panes(layoutRef.current.root).flatMap(pane => pane.tabs).find(tab => tab.id === id) });
     const pending = new Map<string, Promise<unknown>>();
+    const cleaned = new Map<string, { base: string; tab: object }>();
+    const clear = (id: string, base: string, tab: object) => {
+      if (cleaned.get(id)?.base === base && cleaned.get(id)?.tab === tab) return;
+      cleaned.set(id, { base, tab }); written.delete(id);
+      const cleanup = (pending.get(id) ?? Promise.resolve()).catch(() => {}).then(() => api.discardDraft(untitledDraftKey(id))).catch(() => { cleaned.delete(id); });
+      pending.set(id, cleanup);
+    };
+    const clearCurrent = () => {
+      for (const tab of panes(layoutRef.current.root).flatMap(pane => pane.tabs).filter(tab => tab.kind === "untitled")) {
+        const base = baselinesRef.current[tab.id] ?? "";
+        if ((sourcesRef.current[tab.id] ?? base) === base) clear(tab.id, base, tab); else cleaned.delete(tab.id);
+      }
+    };
+    clearClean.current = clearCurrent;
     const onSaved = (event: Event) => {
       const id = (event as CustomEvent<string>).detail;
-      saved.add(id);
-      void api.discardDraft(untitledDraftKey(id)).catch(() => {});
+      suppress(id);
+      const cleanup = (pending.get(id) ?? Promise.resolve()).catch(() => {}).then(() => api.discardDraft(untitledDraftKey(id)));
+      pending.set(id, cleanup); void cleanup.catch(() => {});
     };
     const onDiscarded = (event: Event) => {
       const { id, waitUntil } = (event as CustomEvent<{ id: string; waitUntil: (operation: Promise<unknown>) => void }>).detail;
-      saved.add(id);
-      waitUntil((pending.get(id) ?? Promise.resolve()).catch(() => {}).then(() => api.discardDraft(untitledDraftKey(id))));
+      suppress(id);
+      const cleanup = (pending.get(id) ?? Promise.resolve()).catch(() => {}).then(() => api.discardDraft(untitledDraftKey(id)));
+      pending.set(id, cleanup); waitUntil(cleanup);
     };
     const flush = () => {
       for (const tab of panes(layoutRef.current.root).flatMap(pane => pane.tabs).filter(tab => tab.kind === "untitled")) {
-        if (saved.has(tab.id)) continue;
+        const suppressed = saved.get(tab.id);
+        if (suppressed?.tab === tab && suppressed.contents === (sourcesRef.current[tab.id] ?? baselinesRef.current[tab.id] ?? "")) continue;
+        if (suppressed) { saved.delete(tab.id); written.delete(tab.id); }
         const base = baselinesRef.current[tab.id] ?? "";
         const contents = sourcesRef.current[tab.id] ?? base;
-        if (contents === base) {
-          if (written.has(tab.id)) {
-            written.delete(tab.id);
-            void api.discardDraft(untitledDraftKey(tab.id)).catch(() => {});
-          }
-        } else if (written.get(tab.id) !== contents) {
+        if (contents === base) clear(tab.id, base, tab);
+        else if (written.get(tab.id) !== contents) {
+          cleaned.delete(tab.id);
           written.set(tab.id, contents);
           const write = (pending.get(tab.id) ?? Promise.resolve()).then(() =>
             api.saveDraft({ path: untitledDraftKey(tab.id), contents, base, saved_at: Date.now() })
@@ -131,6 +148,7 @@ export function useUntitledRecovery({ hydrated, layoutRef, setLayout, sourcesRef
     window.addEventListener("hickory-untitled-saved", onSaved);
     window.addEventListener("hickory-untitled-discarded", onDiscarded);
     return () => {
+      if (clearClean.current === clearCurrent) clearClean.current = null;
       window.clearInterval(timer);
       window.removeEventListener("pagehide", flush);
       window.removeEventListener("hickory-untitled-saved", onSaved);
@@ -138,12 +156,7 @@ export function useUntitledRecovery({ hydrated, layoutRef, setLayout, sourcesRef
       flush();
     };
   }, [ready, layoutRef, sourcesRef]);
-  // Clear a persisted draft immediately when undo returns its buffer to base.
-  useEffect(() => {
-    if (!ready) return;
-    for (const [id, contents] of Object.entries(sourcesRef.current)) {
-      if (contents === (baselinesRef.current[id] ?? "")) void api.discardDraft(untitledDraftKey(id)).catch(() => {});
-    }
-  });
+  // Serialize undo-to-base cleanup with earlier writes and later new drafts.
+  useEffect(() => { if (ready) clearClean.current?.(); });
   return { ready, baselines };
 }

@@ -5,6 +5,8 @@ import { useSyncExternalStore } from "react";
  * closed tabs. A recovery policy must be declared, never assumed. */
 export interface ViewBuffer {
   dirty: boolean;
+  revision?: () => unknown;
+  isDirty?: () => boolean;
   save: () => Promise<boolean>;
   discard: () => void | Promise<void>;
 }

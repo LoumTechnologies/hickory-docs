@@ -61,3 +61,19 @@ it("retires identically labelled replaced prompts and settles replacement/unmoun
   expect(await app.registry.act(app.registry.scope, { id: "python:turn", kind: "agent" }, { handle: old.handle, arguments: {}, request_id: "replaced" })).toMatchObject({ status: "unavailable" });
   app.view.unmount(); expect(await second).toBeNull();
 });
+// Guarantee: docs/guarantees/authoring/unsaved-work-survives-closing-the-app.md
+it("cancels only the exact abort-owned prompt and leaves a replacement untouched", async () => {
+  const app = setup(), first = new AbortController(), second = new AbortController(), already = new AbortController();
+  let old!: Promise<string | null>, current!: Promise<string | null>, refused!: Promise<string | null>;
+  act(() => { old = app.controller.askText("First", "one", { signal: first.signal }); });
+  act(() => { current = app.controller.askText("Replacement", "two", { signal: second.signal }); });
+  expect(await old).toBeNull();
+  act(() => first.abort());
+  expect(screen.getByRole("textbox", { name: "Replacement" })).toBeTruthy();
+  already.abort();
+  act(() => { refused = app.controller.askChoice("Already cancelled", [{ label: "Discard", value: "discard" }], { signal: already.signal }); });
+  expect(await refused).toBeNull();
+  expect(screen.getByRole("textbox", { name: "Replacement" })).toBeTruthy();
+  act(() => second.abort());
+  expect(await current).toBeNull(); expect(app.registry.groups().groups).toEqual([]);
+});

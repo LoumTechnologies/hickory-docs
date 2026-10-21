@@ -931,3 +931,19 @@ observable. Return records only the callback's completion, with printed/cancelle
 ignored request, printer choice and physical output explicitly unobserved. Seven
 workspace-menu and six mocked-print cases pass; targeted TypeScript includes
 WorkspaceView. Actual OS dialogs and physical printing are not witnessed.
+
+Tab closure now returns the actual choice/save/discard result to spatial actions
+and keeps layout reading outside the pending-close lock. Ordinary source-bound
+close choices allow either actor; existing attestation policies elsewhere remain
+unchanged. Live buffer getters and tab-lifetime identities refuse stale decisions,
+replacement tabs, newer edits during cleanup and post-start cancellation without
+claiming rollback. Owned prompt cancellation cannot dismiss a replacement prompt.
+
+The audit also fixed generated discard while an earlier save settles, and recovery
+suppression/deletion ordering for newer named/unnamed drafts and replacement tabs.
+Focused checks passed: five existing plus four new close cases, five prompt cases,
+one pending spatial-close/cancel case, two saver races, two generated remount/discard
+cases, four named recovery cases and two unnamed recovery cases. Targeted TypeScript
+and file/whitespace checks pass. APIs/save operations are fixtures where noted;
+whole-window closure, OS lifecycle and native/provider/release witnesses remain
+uncertified. See the unsaved-work guarantee's continuation for exact scope.

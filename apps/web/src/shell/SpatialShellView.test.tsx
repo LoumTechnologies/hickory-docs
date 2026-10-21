@@ -24,9 +24,9 @@ function Buffer({ entry }: { entry: Tab }) {
   useEffect(() => { const view = new EditorView({ parent: parent.current!, state: EditorState.create({ doc: `${entry.target}\nsecond line`, extensions: [lineNumbers(), history()] }) }); live.set(entry.target, view); return () => { view.destroy(); live.delete(entry.target); }; }, [entry.id]);
   return <div ref={parent} />;
 }
-function Harness({ mixed = false, related = false, files = false }: { mixed?: boolean; related?: boolean; files?: boolean }) {
+function Harness({ mixed = false, related = false, files = false, onClose }: { mixed?: boolean; related?: boolean; files?: boolean; onClose?: React.ComponentProps<typeof SpatialShellView>["onRequestCloseTab"] }) {
   const [layout, setLayout] = useState<Layout>(() => { const pane = emptyPane(); return { root: { ...pane, tabs: [tab("document", "main.md"), tab("document", "related.md"), ...(mixed ? [tab("file", "app.py"), tab("chat", "conversation", "Agent")] : []), tab("tree", "folder")], active: 0 }, focus: pane.id }; });
-  return <><button onClick={() => { publishReading("proposal", { title: "Review", path: "note.md", before: "old", after: "new", status: "pending" }); setLayout(current => open(current, tab("tool", "reading:proposal", "Review"))); }}>Open review</button><SpatialShellView layout={layout} onLayout={setLayout} sources={[]} files={[]} hasFiles={files} links={related ? [{ key: "related", title: "Related file", family: "declared", from: { path: "main.md", lines: [1, 1] }, to: { path: "related.md" } }] : []} render={entry => <Buffer entry={entry} />} /></>;
+  return <><button onClick={() => { publishReading("proposal", { title: "Review", path: "note.md", before: "old", after: "new", status: "pending" }); setLayout(current => open(current, tab("tool", "reading:proposal", "Review"))); }}>Open review</button><SpatialShellView layout={layout} onRequestCloseTab={onClose} onLayout={setLayout} sources={[]} files={[]} hasFiles={files} links={related ? [{ key: "related", title: "Related file", family: "declared", from: { path: "main.md", lines: [1, 1] }, to: { path: "related.md" } }] : []} render={entry => <Buffer entry={entry} />} /></>;
 }
 it("uses registered center and restore commands without replacing the editor or accepting old layout handles", async () => {
   const registry = new UiActions({ workspace: "practice", window: "one" }, () => true, async () => {});
@@ -276,4 +276,23 @@ it("hides Files windows immediately while preserving the file list and editor bu
   expect(live.get("related.md")).toBe(original);
   act(() => saveFilesWindows(true));
   await waitFor(() => expect(related.hidden).toBe(false));
+});
+
+// Guarantee: docs/guarantees/authoring/unsaved-work-survives-closing-the-app.md
+it("returns the actual pending close outcome and keeps layout reading addressable", async () => {
+  const registry = new UiActions({ workspace: "p", window: "w" }, () => true, async () => {});
+  let finish!: (value: import("../lib/uiActions").UiOutcome) => void;
+  const calls: string[][] = []; let closeSignal: AbortSignal | undefined;
+  const onClose = (pane: string, tab: string, signal?: AbortSignal) => { closeSignal = signal; calls.push([pane, tab]); return new Promise<import("../lib/uiActions").UiOutcome>(resolve => { finish = resolve; }); };
+  render(<UiActionContext.Provider value={registry}><Harness onClose={onClose} /></UiActionContext.Provider>);
+  const parent = registry.groups().groups.find(group => group.startsWith("spatial-layout:"))!;
+  const action = (label: string) => registry.observe(parent, 64).actions.find(action => action.label === label)!;
+  let pending!: ReturnType<typeof registry.act>;
+  await act(async () => { pending = registry.act(registry.scope, { id: "python:fixture", kind: "agent" }, { handle: action("Close spatial view").handle, arguments: { key: "document:main.md" }, request_id: "close" }); });
+  expect(calls).toHaveLength(1);
+  await act(async () => { expect(await registry.act(registry.scope, { id: "python:fixture", kind: "agent" }, { handle: action("Read spatial layout bytes").handle, arguments: { offset: 0, limit: 8192 }, request_id: "read-pending" })).toMatchObject({ status: "result" }); });
+  expect(registry.cancel(registry.scope, { id: "python:fixture", kind: "agent" }, "close")).toBe(true);
+  expect(closeSignal?.aborted).toBe(true);
+  await act(async () => { finish({ status: "completed", value: { tab_close_requested: false, cancelled: true } }); expect(await pending).toMatchObject({ status: "result", outcome: { value: { tab_close_requested: false, cancelled: true } } }); });
+  expect(live.has("main.md")).toBe(true);
 });

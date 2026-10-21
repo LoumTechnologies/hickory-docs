@@ -41,7 +41,7 @@ export interface OutputSaver {
   hasPendingEdits(): boolean;
   baselineContent(): string;
   flushNow(): Promise<boolean>;
-  discardPending(): Promise<string>;
+  discardPending(expected?: string): Promise<string>;
   /** Cancel the pending debounce (unmount). In-flight POSTs settle alone. */
   dispose(): void;
 }
@@ -102,10 +102,12 @@ export function createOutputSaver(options: OutputSaverOptions): OutputSaver {
       await chain;
       return latest === null || latest === baseline;
     },
-    async discardPending() {
+    async discardPending(expected = latest ?? baseline) {
+      if ((latest ?? baseline) !== expected) throw Error("The generated buffer changed before discard; inspect its current bytes and retry.");
       if (timer !== null) clearTimeout(timer);
       timer = null;
       await chain;
+      if ((latest ?? baseline) !== expected) throw Error("The generated buffer changed during discard; its newer draft remains pending.");
       latest = null;
       options.onError(null);
       options.onState?.("saved");
