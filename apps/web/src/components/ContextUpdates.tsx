@@ -1,5 +1,5 @@
 import { useState, useEffect, useId, useRef } from "react";
-import { useUiCommands, useUiRevision } from "../lib/uiActionBridge";
+import { UiActionsVisibility, useUiCommands, useUiRevision } from "../lib/uiActionBridge";
 import type { UiCommand, UiField } from "../lib/uiActions";
 import { request } from "../api/client";
 import type { AgentEditorContext } from "../api/agentTypes";
@@ -9,6 +9,7 @@ import { DiffView } from "./DiffView";
 type Item = { reference: string; path: string; before: string; after: string | null; status: string; revision: string; eligible: boolean; role: string; scope: string; request: string };
 type View = { items: Item[]; updates: { id: string; old: string; state: string; request: string | null; source: { revision: string } }[]; coverage: string };
 export function ContextUpdates({ doc, branch, getContext }: { doc: string; branch: string | null; getContext?: () => Promise<AgentEditorContext> }) {
+  const captureContext = useRef(getContext); captureContext.current = getContext;
   const instance = useId(); const parent = `context-updates:${instance}`;
   const disclosure = useRef<HTMLDetailsElement>(null);
   const [open, setOpen] = useState(false);
@@ -38,18 +39,22 @@ export function ContextUpdates({ doc, branch, getContext }: { doc: string; branc
   }
   useEffect(() => {
     let active = true;
+    let pending = false;
     async function refresh() {
-      if (!branch) return;
+      if (!branch || pending) return;
+      pending = true;
       try {
-        const context = getContext ? await getContext() : { buffers: [] };
+        const context = captureContext.current ? await captureContext.current() : { buffers: [] };
+        if (!active) return;
         const result = await request<View>("POST", `/api/docs/${encodeURIComponent(doc)}/agent/python/context`, { branch, context });
         if (active) setView(result);
       } catch (e) { if (active) setError(String(e)); }
+      finally { pending = false; }
     }
     void refresh();
     const timer = setInterval(() => void refresh(), 5000);
     return () => { active = false; clearInterval(timer); };
-  }, [doc, branch, getContext]);
+  }, [doc, branch]);
   const changed = view?.items.filter(i => i.status !== "unchanged") ?? [];
   const select = (item: Item, checked: boolean) => {
     if (!item.eligible) return;
@@ -99,7 +104,7 @@ export function ContextUpdates({ doc, branch, getContext }: { doc: string; branc
       <summary>{item.path} · {item.status}</summary>
       <p>{item.role} · {item.scope} · last supplied in {item.request}</p>
       <label><input type="checkbox" disabled={!item.eligible} checked={selected.includes(item.reference)} onChange={e => select(item, e.target.checked)} /> Select update</label>
-      <DiffView path={item.path} diff={unifiedDiff(item.path, item.before, item.after ?? "")} binary={false} staged={false} label="last supplied → candidate" />
+      <UiActionsVisibility visible={open && !!expanded[item.reference]}><DiffView path={item.path} diff={unifiedDiff(item.path, item.before, item.after ?? "")} binary={false} staged={false} label="last supplied → candidate" /></UiActionsVisibility>
       {view.updates.filter(u => u.old === item.reference).map(u => <p key={u.id}>{u.state}{u.request ? ` in request ${u.request}` : ""}{u.source.revision !== item.revision ? " · changed again" : ""}</p>)}
     </details>)}
     <button className="btn" disabled={busy || !selected.length} onClick={() => void inspect(true)}>Queue selected updates</button>

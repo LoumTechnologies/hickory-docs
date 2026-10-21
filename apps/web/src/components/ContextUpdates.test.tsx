@@ -49,3 +49,42 @@ it("shows the candidate patch and queues explicitly selected unsaved bytes witho
   expect(screen.queryByText("Included")).toBeNull();
   expect(document.querySelector(".diff-line--add")?.textContent).toContain("new");
 });
+// Guarantee: docs/guarantees/agent/explicit-context-updates.md
+it("polls at its interval using the current capture callback without a rerender request flood", async () => {
+  vi.useFakeTimers();
+  vi.mocked(request).mockClear();
+  vi.mocked(request).mockResolvedValue({ items: [], updates: [], coverage: "fixture" });
+  const first = vi.fn(async () => ({ buffers: [] }));
+  const latest = vi.fn(async () => ({ buffers: [{ name: "fresh", path: null, content: "new", focused: true }] }));
+  const ui = render(<ContextUpdates doc="workspace" branch="a" getContext={first} />);
+  try {
+    await act(async () => {});
+    expect(request).toHaveBeenCalledTimes(1);
+    for (let i = 0; i < 10; i++) ui.rerender(<ContextUpdates doc="workspace" branch="a" getContext={latest} />);
+    await act(async () => {});
+    expect(request).toHaveBeenCalledTimes(1);
+    await act(async () => { await vi.advanceTimersByTimeAsync(5000); });
+    expect(request).toHaveBeenCalledTimes(2);
+    expect(latest).toHaveBeenCalledTimes(1);
+    expect(request).toHaveBeenLastCalledWith("POST", "/api/docs/workspace/agent/python/context", { branch: "a", context: await latest() });
+  } finally { ui.unmount(); vi.useRealTimers(); }
+});
+
+// Guarantee: docs/guarantees/agent/explicit-context-updates.md
+it("does not overlap slow captures or post a retired branch capture", async () => {
+  vi.useFakeTimers();
+  vi.mocked(request).mockClear();
+  vi.mocked(request).mockResolvedValue({ items: [], updates: [], coverage: "fixture" });
+  let resolve!: (context: { buffers: [] }) => void;
+  const capture = vi.fn(() => new Promise<{ buffers: [] }>(done => { resolve = done; }));
+  const ui = render(<ContextUpdates doc="workspace" branch="a" getContext={capture} />);
+  try {
+    await act(async () => { await vi.advanceTimersByTimeAsync(15000); });
+    expect(capture).toHaveBeenCalledTimes(1);
+    expect(request).not.toHaveBeenCalled();
+    ui.rerender(<ContextUpdates doc="workspace" branch="b" getContext={async () => ({ buffers: [] })} />);
+    await act(async () => { resolve({ buffers: [] }); });
+    expect(request).toHaveBeenCalledTimes(1);
+    expect(request).toHaveBeenCalledWith("POST", "/api/docs/workspace/agent/python/context", { branch: "b", context: { buffers: [] } });
+  } finally { ui.unmount(); vi.useRealTimers(); }
+});

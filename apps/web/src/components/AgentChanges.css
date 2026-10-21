@@ -1,5 +1,5 @@
 .agent-changes {
-  flex: 0 1 auto;
+  flex: 0 0 auto;
   min-height: 0;
   padding: .5rem .75rem;
   border-bottom: 1px solid var(--border);
@@ -8,3 +8,6 @@
 .agent-changes > .agent-change-link { margin-top: .5rem; }
 .agent-changes .agent-change-link > span { overflow-wrap: anywhere; }
 .agent-changes .btn { margin: .35rem .35rem .35rem 0; }
+/* Inline previews own their content height. Shrinking them lets later turns
+   paint over pending review controls and intercept the reviewer's pointer. */
+.agent-changes .document-reading { height: auto; }

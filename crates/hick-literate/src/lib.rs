@@ -18,7 +18,9 @@ pub mod needs;
 pub mod output_cleanup;
 mod patch_element;
 pub mod pipeline;
+pub mod prediction;
 pub mod project;
+mod run_transcripts;
 pub use project::{file_content_entry, freeze_outputs, pipeline as generate_project_pipeline};
 pub mod promote;
 pub mod render;
@@ -1780,6 +1782,9 @@ pub type VolumeFlushHook = Arc<dyn Fn(&str, &HashMap<String, FileContent>) + Sen
 pub struct PipelineConfig {
     /// Working directory for resolving relative paths in volume declarations.
     pub working_dir: Option<PathBuf>,
+    /// Suppress actual values in expectation log messages. This alone does not
+    /// isolate results, caches, hooks, or an executor; use the managed adapter.
+    pub withhold_actual_diagnostics: bool,
     /// Maximum pipeline rounds. `1` (default) preserves single-pass behavior.
     /// Higher values enable reactive re-evaluation of paste selectors that
     /// reference content from container-generated `.md` files.
@@ -1788,6 +1793,9 @@ pub struct PipelineConfig {
     pub on_exec: Option<ExecEventHook>,
     /// Optional per-volume incremental flush hook — see [`VolumeFlushHook`].
     pub on_volume_flush: Option<VolumeFlushHook>,
+    /// Host-private capture delivery instead of appending answer-bearing tables.
+    /// Only a trusted host may own this sink; ordinary runs leave it unset.
+    pub private_capture: Option<capture::PrivateCapture>,
     /// Restrict execution to this subgraph of the document's own DAG, when
     /// set. A cell whose [`hick_exec::dag::ExecId`] is not in the set is
     /// treated as absent — not run, not required to succeed, and not a
@@ -1864,6 +1872,7 @@ pub async fn run_pipeline_live(
     if let Some(result) = project::supplied(sources)? {
         return Ok(result);
     }
+    let transcript_scope = run_transcripts::Scope::capture(executor.as_ref());
     let mut root_key = [0u8; 32];
     rand::thread_rng().fill_bytes(&mut root_key);
     let authority = Arc::new(TokenAuthority::new(&root_key));
@@ -2515,10 +2524,9 @@ pub async fn run_pipeline_live(
                 // Evaluate stdin children if present
                 let stdin_content = if !exec_info.stdin_children.is_empty() {
                     let stdin_registry = create_tag_registry();
-                    let current_transcripts = convert_transcripts(&assign_source_lines(
-                        executor.transcripts(),
-                        &exec_lines,
-                    ));
+                    let current_transcripts = convert_transcripts(
+                        &transcript_scope.current_lines(executor.as_ref(), &exec_lines),
+                    );
                     let mut parts = Vec::new();
                     for child in &exec_info.stdin_children {
                         match child {
@@ -2605,24 +2613,18 @@ pub async fn run_pipeline_live(
                     capture_specs.get(&CellId::exec(&exec_info.container, exec_info.source_line))
                     && let Some(source) = doc_sources.get(doc_name)
                 {
-                    let table =
-                        capture::run_cell(Path::new(doc_name), source, &working_dir, specs).await;
-                    if !table.is_empty() {
-                        // Appended to the cell's recorded output, which is
-                        // what makes `<hick:expect>` able to pin a value from
-                        // inside a function.
-                        output.push('\n');
-                        output.push_str(&table);
-                        executor.inject_transcript_entry(
-                            &exec_info.container,
-                            hickory_executor::ExecTranscriptEntry {
-                                commands: Vec::new(),
-                                output: table,
-                                events: Vec::new(),
-                                source_line: Some(exec_info.source_line),
-                            },
-                        );
-                    }
+                    capture::append_or_deliver(
+                        executor.as_ref(),
+                        &exec_info.container,
+                        exec_info.source_line,
+                        Path::new(doc_name),
+                        source,
+                        &working_dir,
+                        specs,
+                        config.private_capture.as_ref(),
+                        &mut output,
+                    )
+                    .await?;
                 }
                 exec_lines
                     .entry(exec_info.container.clone())
@@ -2660,12 +2662,7 @@ pub async fn run_pipeline_live(
                     expect_specs.get(&CellId::exec(&exec_info.container, exec_info.source_line))
                 {
                     let outcome = expect::evaluate(spec, doc_name, &output);
-                    if !outcome.passed {
-                        warn!(
-                            "expectation failed in '{}' at {}:{}: {}",
-                            exec_info.container, doc_name, exec_info.source_line, outcome.detail
-                        );
-                    }
+                    prediction::log_expectation(&outcome, config.withhold_actual_diagnostics);
                     expectations.push(outcome);
                 }
 
@@ -2827,7 +2824,7 @@ pub async fn run_pipeline_live(
         }
     }
 
-    let transcripts = assign_source_lines(executor.transcripts(), &exec_lines);
+    let transcripts = transcript_scope.current_lines(executor.as_ref(), &exec_lines);
     let resource_stats = executor.resource_stats();
     executor.shutdown().await?;
 
@@ -2858,22 +2855,6 @@ pub async fn run_pipeline_live(
         from_document: std::collections::BTreeSet::new(),
         span_files,
     })
-}
-
-/// Assign per-exec source lines to executor transcript entries, zipping each
-/// container's entries with the lines recorded in execution order.
-fn assign_source_lines(
-    mut transcripts: Transcripts,
-    exec_lines: &HashMap<String, Vec<usize>>,
-) -> Transcripts {
-    for (container, entries) in transcripts.iter_mut() {
-        if let Some(lines) = exec_lines.get(container) {
-            for (entry, line) in entries.iter_mut().zip(lines.iter()) {
-                entry.source_line = Some(*line);
-            }
-        }
-    }
-    transcripts
 }
 
 /// Run the pipeline in weave mode: NEVER executes commands. Cached transcript

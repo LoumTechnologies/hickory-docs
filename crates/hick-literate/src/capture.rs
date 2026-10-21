@@ -26,6 +26,49 @@ use hick_lang::{HickNode, HickTag};
 
 use crate::{CellId, tag_attr};
 
+/// Host-private destination for actual capture values. This is not a UI/tool
+/// result callback; consumers must keep it outside predictor context.
+pub struct PrivateCapture {
+    pub project: std::path::PathBuf,
+    pub receive:
+        std::sync::Arc<dyn Fn(&[hick_dap::capture::Captured]) -> anyhow::Result<()> + Send + Sync>,
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(crate) async fn append_or_deliver(
+    executor: &dyn hickory_executor::Executor,
+    container: &str,
+    line: usize,
+    document: &std::path::Path,
+    source: &str,
+    project: &std::path::Path,
+    specs: &[CaptureSpec],
+    private: Option<&PrivateCapture>,
+    output: &mut String,
+) -> anyhow::Result<()> {
+    if let Some(private) = private {
+        let captured =
+            hick_dap::capture::run_private(document, source, &private.project, specs).await?;
+        (private.receive)(&captured)?;
+    } else {
+        let table = run_cell(document, source, project, specs).await;
+        if !table.is_empty() {
+            output.push('\n');
+            output.push_str(&table);
+            executor.inject_transcript_entry(
+                container,
+                hickory_executor::ExecTranscriptEntry {
+                    commands: Vec::new(),
+                    output: table,
+                    events: Vec::new(),
+                    source_line: Some(line),
+                },
+            );
+        }
+    }
+    Ok(())
+}
+
 /// Every capture one cell declared, in document order.
 #[derive(Debug, Clone)]
 pub struct CellCaptures {

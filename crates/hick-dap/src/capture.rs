@@ -25,6 +25,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::{Context, Result};
+use serde::{Deserialize, Serialize};
 
 use crate::build::{BuildOutput, build};
 use crate::program::{adapter_for, entry_point, weave_into};
@@ -40,7 +41,7 @@ const RUN_BUDGET: Duration = Duration::from_secs(120);
 pub const DEFAULT_MAX_HITS: usize = 20;
 
 /// One `<hick:capture>`, resolved to coordinates the adapter understands.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CaptureSpec {
     /// Generated file the location names, as written in `at` (`pricing.py`).
     pub file: String,
@@ -55,18 +56,32 @@ pub struct CaptureSpec {
 }
 
 /// What one hit recorded.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Hit {
     /// 1-based hit index — the run's own ordering, not wall-clock, so a table
     /// is stable between runs.
     pub index: usize,
+    #[serde(default)]
+    pub context: Option<CaptureContext>,
     /// One entry per expression, in the order they were written. The value is
     /// the adapter's own rendering, or the error it gave for that expression.
     pub values: Vec<Recorded>,
 }
 
+/// Private selected-frame evidence from the same stop used for evaluation.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CaptureContext {
+    pub thread: i64,
+    pub frame: i64,
+    pub function: String,
+    pub document_line: Option<u32>,
+    pub source: Option<String>,
+    pub source_line: Option<u32>,
+    pub breakpoint_bound: bool,
+}
+
 /// The result of evaluating one expression at one hit.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Recorded {
     pub expression: String,
     /// What the adapter returned, or the message it failed with. A failure is
@@ -77,7 +92,7 @@ pub struct Recorded {
 }
 
 /// Everything one capture recorded across a run.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Captured {
     pub spec: CaptureSpec,
     pub hits: Vec<Hit>,
@@ -102,6 +117,28 @@ pub async fn run(
     project: &Path,
     specs: &[CaptureSpec],
 ) -> Result<Vec<Captured>> {
+    run_inner(document, source, project, specs, false).await
+}
+
+/// Host-private capture: same evaluator and mapping, with build diagnostics kept
+/// out of logs. Returned values/errors must never enter predictor context.
+/// Scratch launch is not an OS sandbox; the caller retains execution authority.
+pub async fn run_private(
+    document: &Path,
+    source: &str,
+    project: &Path,
+    specs: &[CaptureSpec],
+) -> Result<Vec<Captured>> {
+    run_inner(document, source, project, specs, true).await
+}
+
+async fn run_inner(
+    document: &Path,
+    source: &str,
+    project: &Path,
+    specs: &[CaptureSpec],
+    private: bool,
+) -> Result<Vec<Captured>> {
     if specs.is_empty() {
         return Ok(Vec::new());
     }
@@ -118,12 +155,17 @@ pub async fn run(
     // rather than by oversight: `hick test` is not a person watching, and the
     // failure message points at the log the way the session's points at the
     // terminal.
-    let program = build(&entry, scratch.path(), project, &mut |line| match line {
-        BuildOutput::Cmd(text) | BuildOutput::Note(text) | BuildOutput::Out(text) => {
-            tracing::info!(target: "hick_dap::build", "{text}")
+    let program = build(&entry, scratch.path(), project, &mut |line| {
+        if private {
+            return;
         }
-        BuildOutput::Err(text) => tracing::warn!(target: "hick_dap::build", "{text}"),
-        BuildOutput::Exit(code) => tracing::info!(target: "hick_dap::build", "exit {code}"),
+        match line {
+            BuildOutput::Cmd(text) | BuildOutput::Note(text) | BuildOutput::Out(text) => {
+                tracing::info!(target: "hick_dap::build", "{text}")
+            }
+            BuildOutput::Err(text) => tracing::warn!(target: "hick_dap::build", "{text}"),
+            BuildOutput::Exit(code) => tracing::info!(target: "hick_dap::build", "exit {code}"),
+        }
     })
     .await?;
     let mapping = Arc::new(Mapping::for_document(document, source, scratch.path())?);
@@ -174,20 +216,20 @@ pub async fn run(
         return Ok(out);
     }
 
-    let (session, statuses) = Session::start(
-        Launch {
-            transport: adapter.transport,
-            multi_session: adapter.multi_session,
-            adapter_extra: adapter.launch_extra.clone(),
-            adapter: adapter.command,
-            program,
-            cwd: scratch.path().to_path_buf(),
-            extra: serde_json::json!({}),
-        },
-        mapping.clone(),
-        &breakpoints,
-    )
-    .await?;
+    let launch = Launch {
+        transport: adapter.transport,
+        multi_session: adapter.multi_session,
+        adapter_extra: adapter.launch_extra.clone(),
+        adapter: adapter.command,
+        program,
+        cwd: scratch.path().to_path_buf(),
+        extra: serde_json::json!({}),
+    };
+    let (session, statuses) = if private {
+        Session::start_private(launch, mapping.clone(), &breakpoints).await?
+    } else {
+        Session::start(launch, mapping.clone(), &breakpoints).await?
+    };
 
     for (slot, (index, line)) in resolved.iter_mut().enumerate() {
         let Some(asked) = *line else { continue };
@@ -217,7 +259,7 @@ pub async fn run(
         }
     }
 
-    let result = drive(&session, &mapping, &resolved, specs, &mut out).await;
+    let result = drive(&session, &mapping, &resolved, specs, &mut out, private).await;
 
     // Anything still unconfirmed once the program has ended really did never
     // bind, and NOW it can be said. Asking before the run would have been
@@ -256,6 +298,7 @@ async fn drive(
     resolved: &[(usize, Option<u32>)],
     specs: &[CaptureSpec],
     out: &mut [Captured],
+    private: bool,
 ) -> Result<()> {
     let deadline = tokio::time::Instant::now() + RUN_BUDGET;
     loop {
@@ -280,13 +323,35 @@ async fn drive(
         };
 
         if let Some(slot) = slot_for(frame.line, mapping, resolved) {
-            record(session, frame.id, &specs[slot], &mut out[slot]).await;
+            let context = CaptureContext {
+                thread: stopped.thread_id,
+                frame: frame.id,
+                function: frame.name.clone(),
+                document_line: frame.line,
+                source: frame.adapter_source.clone(),
+                source_line: frame.adapter_line,
+                breakpoint_bound: session
+                    .breakpoint_statuses()
+                    .iter()
+                    .any(|status| Some(status.line) == frame.line && status.state.is_bound()),
+            };
+            record(session, frame.id, &specs[slot], &mut out[slot], context).await;
             if out[slot].hits.len() >= specs[slot].max.max(1) {
                 out[slot].truncated = true;
                 // Removing the breakpoint would be tidier, but changing the
                 // set mid-run costs a round trip per capture and can move the
                 // others; stepping past it costs nothing.
             }
+        }
+        // Private selected-hit capture ends at the bound and shuts down its
+        // debuggee; do not continue pausing an unbounded number of times after
+        // the requested target has already been captured.
+        if private
+            && out.iter().all(|capture| {
+                capture.problem.is_some() || capture.hits.len() >= capture.spec.max.max(1)
+            })
+        {
+            return Ok(());
         }
         // Stopped somewhere no capture asked about — an exception, most
         // likely. Nothing to record, and continuing lets the adapter report it
@@ -315,7 +380,13 @@ fn slot_for(
 }
 
 /// Evaluate one capture's expressions in the frame it stopped in.
-async fn record(session: &Session, frame_id: i64, spec: &CaptureSpec, into: &mut Captured) {
+async fn record(
+    session: &Session,
+    frame_id: i64,
+    spec: &CaptureSpec,
+    into: &mut Captured,
+    context: CaptureContext,
+) {
     if into.hits.len() >= spec.max.max(1) {
         return;
     }
@@ -342,6 +413,7 @@ async fn record(session: &Session, frame_id: i64, spec: &CaptureSpec, into: &mut
     }
     into.hits.push(Hit {
         index: into.hits.len() + 1,
+        context: Some(context),
         values,
     });
 }
@@ -571,6 +643,7 @@ mod tests {
     fn hit(index: usize, a: &str, b: &str) -> Hit {
         Hit {
             index,
+            context: None,
             values: vec![
                 Recorded {
                     expression: "subtotal".into(),

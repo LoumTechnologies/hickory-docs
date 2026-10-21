@@ -7,202 +7,19 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 use std::{
-    collections::BTreeMap,
     fs::{self, File, OpenOptions},
     io::Write,
     path::{Path, PathBuf},
 };
 use uuid::Uuid;
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub struct Actor {
-    pub kind: String,
-    pub id: String,
-}
-impl Actor {
-    fn validate(&self) -> Result<()> {
-        ensure!(
-            ["human", "agent", "host"].contains(&self.kind.as_str())
-                && !self.id.is_empty()
-                && self.id.len() <= 256,
-            "Invalid host actor"
-        );
-        Ok(())
-    }
-}
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub struct Identity {
-    pub source: String,
-    pub inputs: String,
-    pub dependencies: BTreeMap<String, String>,
-    pub environment: BTreeMap<String, String>,
-}
-impl Identity {
-    fn validate(&self) -> Result<()> {
-        for hash in std::iter::once(&self.source)
-            .chain(std::iter::once(&self.inputs))
-            .chain(self.dependencies.values())
-            .chain(self.environment.values())
-        {
-            ensure!(
-                hash.len() == 64
-                    && hash
-                        .bytes()
-                        .all(|b| b.is_ascii_hexdigit() && !b.is_ascii_uppercase()),
-                "Exact SHA-256 identities are required"
-            );
-        }
-        ensure!(
-            !self.environment.is_empty(),
-            "A captured execution environment identity is required"
-        );
-        Ok(())
-    }
-}
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-#[serde(tag = "kind", content = "value", rename_all = "snake_case")]
-pub enum Predicate {
-    Equals(Value),
-    NumberAtMost(f64),
-}
-impl Predicate {
-    fn validate(&self) -> Result<()> {
-        if let Self::NumberAtMost(number) = self {
-            ensure!(number.is_finite(), "Predicate must be finite");
-        }
-        ensure!(
-            serde_json::to_vec(self)?.len() <= 65536,
-            "Predicate is too large"
-        );
-        Ok(())
-    }
-    pub fn matches(&self, actual: &Value) -> bool {
-        match self {
-            Self::Equals(value) => value == actual,
-            Self::NumberAtMost(limit) => actual
-                .as_f64()
-                .is_some_and(|value| value.is_finite() && value <= *limit),
-        }
-    }
-}
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct Scenario {
-    /// A host-recognized semantic family, not a filename, cell position or session.
-    pub family: String,
-    pub inputs: Value,
-    pub requirement_reference: String,
-    pub requirement: Predicate,
-    /// False when prior scenario correspondence/exposure cannot be established.
-    pub identity_known: bool,
-}
-impl Scenario {
-    pub fn key(&self) -> Result<String> {
-        ensure!(
-            !self.family.is_empty()
-                && self.family.len() <= 256
-                && !self.requirement_reference.is_empty(),
-            "Scenario family and requirement reference are required"
-        );
-        self.requirement.validate()?;
-        // Source, filenames, requirement edits and predictions cannot mint a new
-        // scenario. Different concrete inputs remain independent scenarios.
-        digest(&(&self.family, &self.inputs))
-    }
-}
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(tag = "kind", rename_all = "snake_case")]
-pub enum Target {
-    Output {
-        execution: String,
-    },
-    Debugger {
-        source: String,
-        source_revision: String,
-        start_byte: u64,
-        end_byte: u64,
-        expression: String,
-        hit: u64,
-    },
-}
-impl Target {
-    fn validate(&self, identity: &Identity) -> Result<()> {
-        match self {
-            Self::Output { execution } => ensure!(
-                !execution.is_empty() && execution.len() <= 256,
-                "Output prediction requires an execution identity"
-            ),
-            Self::Debugger {
-                source,
-                source_revision,
-                start_byte,
-                end_byte,
-                expression,
-                hit,
-            } => {
-                ensure!(
-                    !source.is_empty()
-                        && start_byte < end_byte
-                        && !expression.trim().is_empty()
-                        && expression.len() <= 8192
-                        && *hit > 0,
-                    "Debugger prediction requires an exact source span, expression and positive hit"
-                );
-                let captured = if source == "root" {
-                    Some(&identity.source)
-                } else {
-                    identity.dependencies.get(source)
-                };
-                ensure!(
-                    captured == Some(source_revision),
-                    "Debugger prediction source is not in the captured source/dependency identities"
-                );
-            }
-        }
-        Ok(())
-    }
-    fn same_question(&self, other: &Self) -> bool {
-        match (self, other) {
-            (Self::Output { .. }, Self::Output { .. }) => true,
-            (
-                Self::Debugger {
-                    expression: left,
-                    hit: left_hit,
-                    ..
-                },
-                Self::Debugger {
-                    expression: right,
-                    hit: right_hit,
-                    ..
-                },
-            ) => left == right && left_hit == right_hit,
-            _ => false,
-        }
-    }
-}
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct ObservedResult {
-    pub identity: Identity,
-    pub target: Target,
-    pub actual: Value,
-    pub evidence: Value,
-}
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct PriorObservation {
-    pub sequence: u64,
-    pub scenario: String,
-    pub actor: Actor,
-    pub surface: String,
-    pub identity: Identity,
-    pub delivered_to_predictor: bool,
-}
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct Seal {
-    pub scenario: Scenario,
-    pub identity: Identity,
-    pub target: Target,
-    pub predicted: Predicate,
-    pub rationale: String,
-}
+#[path = "prediction_types.rs"]
+mod types;
+pub use types::*;
+#[path = "prediction_publication.rs"]
+mod publication;
+pub use publication::SelectedPredictionHistory;
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 enum Event {
@@ -223,6 +40,12 @@ enum Event {
         attempt: String,
         actual: Value,
         evidence: Value,
+        #[serde(default = "accepted", skip_serializing_if = "is_accepted")]
+        execution_accepted: bool,
+    },
+    Uncertain {
+        attempt: String,
+        actor: Actor,
     },
     Interrupted {
         attempt: String,
@@ -269,6 +92,7 @@ pub enum Classification {
     Running,
     Mismatch,
     RequirementFailed,
+    ExecutionRejected,
     RequirementChanged,
     FirstAttemptVerified,
     VerifiedAfterCorrection,
@@ -303,6 +127,14 @@ pub struct History {
 pub struct Receipt {
     pub id: String,
     pub generation: u64,
+}
+
+/// Only the first durable admission may dispatch execution. Retries observe the
+/// same attempt; they must never re-execute even after host restart.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Admission {
+    pub receipt: Receipt,
+    pub dispatch: bool,
 }
 
 pub fn digest(value: &impl Serialize) -> Result<String> {
@@ -438,6 +270,43 @@ impl Ledger {
         replay: bool,
         actor: Actor,
     ) -> Result<Receipt> {
+        Ok(self.admit(seal_id, key, identity, replay, actor)?.receipt)
+    }
+    /// Atomically distinguish a new execution from an idempotent retry.
+    /// A crash after admission leaves Running until the executor confirms
+    /// interruption; retrying a request does not grant another dispatch.
+    pub fn admit(
+        &self,
+        seal_id: &str,
+        key: &str,
+        identity: &Identity,
+        replay: bool,
+        actor: Actor,
+    ) -> Result<Admission> {
+        self.admit_inner(seal_id, key, identity, replay, actor, None)
+    }
+    /// Bind the authoritative adapter's selected target before dispatch as well
+    /// as at result intake. A seal for a different hit/expression cannot run.
+    pub fn admit_target(
+        &self,
+        seal_id: &str,
+        key: &str,
+        identity: &Identity,
+        replay: bool,
+        actor: Actor,
+        target: &Target,
+    ) -> Result<Admission> {
+        self.admit_inner(seal_id, key, identity, replay, actor, Some(target))
+    }
+    fn admit_inner(
+        &self,
+        seal_id: &str,
+        key: &str,
+        identity: &Identity,
+        replay: bool,
+        actor: Actor,
+        target: Option<&Target>,
+    ) -> Result<Admission> {
         actor.validate()?;
         identity.validate()?;
         ensure!(
@@ -446,12 +315,13 @@ impl Ledger {
         );
         self.transaction(|journal| {
             let (_, seal) = find_seal(journal, seal_id)?;
+            ensure!(target.is_none_or(|target| target == &seal.target), "Execution target differs from the sealed prediction");
             ensure!(&seal.identity == identity, "Prediction is stale; seal the current captured inputs before execution");
             for entry in &journal.entries {
                 if let Event::Started { id, seal, key: prior, replay: old_replay, actor: owner } = &entry.event
                     && prior == key {
                     ensure!(seal == seal_id && owner == &actor && *old_replay == replay, "Execution request id was reused for a different operation");
-                    return Ok(Receipt { id: id.clone(), generation: journal.entries.len() as u64 });
+                    return Ok(Admission { receipt: Receipt { id: id.clone(), generation: journal.entries.len() as u64 }, dispatch: false });
                 }
             }
             let scenario = seal.scenario.key()?;
@@ -463,11 +333,22 @@ impl Ledger {
             }
             let id = Uuid::new_v4().to_string();
             append(journal, Event::Started { id: id.clone(), seal: seal_id.into(), key: key.into(), replay, actor })?;
-            Ok(Receipt { id, generation: journal.entries.len() as u64 })
+            Ok(Admission { receipt: Receipt { id, generation: journal.entries.len() as u64 }, dispatch: true })
         })
     }
     /// Host-only actual result intake. No actual values are returned in feedback.
     pub fn finish(&self, attempt: &str, observation: ObservedResult) -> Result<Summary> {
+        self.finish_checked(attempt, observation, true)
+    }
+    /// Atomically retain both the held-out comparison and the existing runner's
+    /// independent acceptance checks. A matching prediction never overrides a
+    /// failed hick:expect or other authoritative execution check.
+    pub fn finish_checked(
+        &self,
+        attempt: &str,
+        observation: ObservedResult,
+        execution_accepted: bool,
+    ) -> Result<Summary> {
         let ObservedResult {
             identity,
             target,
@@ -485,8 +366,34 @@ impl Ledger {
             ensure!(!interrupted(journal, attempt), "The attempt was interrupted; a late result cannot replace that outcome");
             ensure!(identity == seal.identity && target == seal.target, "Observed source, expression/location or hit differs from the sealed prediction; no certification was recorded");
             if let Some((old_actual, old_evidence)) = finished(journal, attempt) {
-                ensure!(old_actual == &actual && old_evidence == &evidence, "A settled attempt cannot be replaced");
-            } else { append(journal, Event::Finished { attempt: attempt.into(), actual, evidence })?; }
+                ensure!(old_actual == &actual && old_evidence == &evidence && execution_check(journal, attempt) == Some(execution_accepted), "A settled attempt cannot be replaced");
+            } else { append(journal, Event::Finished { attempt: attempt.into(), actual, evidence, execution_accepted })?; }
+            summarize(journal, attempt, None)
+        })
+    }
+    /// Evidence failure is not confirmation that an executor stopped. Preserve
+    /// its dispatch claim until explicit host recovery or a late valid result.
+    pub fn mark_unavailable(&self, attempt: &str, actor: Actor) -> Result<Summary> {
+        actor.validate()?;
+        ensure!(
+            actor.kind == "host",
+            "Only the host can mark execution evidence unavailable"
+        );
+        self.transaction(|journal| {
+            find_attempt(journal, attempt)?;
+            ensure!(
+                finished(journal, attempt).is_none(),
+                "A finished result cannot be marked unavailable"
+            );
+            if !uncertain(journal, attempt) && !interrupted(journal, attempt) {
+                append(
+                    journal,
+                    Event::Uncertain {
+                        attempt: attempt.into(),
+                        actor,
+                    },
+                )?;
+            }
             summarize(journal, attempt, None)
         })
     }
@@ -592,6 +499,7 @@ impl Ledger {
                     Event::Sealed { id, actor, seal, context } => serde_json::json!({"kind":"sealed", "id":id, "actor":actor, "seal":seal, "context":context}),
                     Event::Started { id, seal, replay, actor, .. } => serde_json::json!({"kind":"started", "id":id, "seal":seal, "replay":replay, "actor":actor}),
                     Event::Finished { attempt, .. } => serde_json::json!({"kind":"finished", "attempt":attempt, "actual":"withheld from agents"}),
+                    Event::Uncertain { attempt, actor } => serde_json::json!({"kind":"evidence_unavailable", "attempt":attempt, "actor":actor}),
                     Event::Interrupted { attempt, actor, reason } => serde_json::json!({"kind":"interrupted", "attempt":attempt, "actor":actor, "reason":reason}),
                     Event::Observed { attempt, scenario, actor, surface, identity } => serde_json::json!({"kind":"observed", "attempt":attempt, "scenario":scenario, "actor":actor, "surface":surface, "identity":identity}),
                     Event::Promoted { attempt, actor, identity } => serde_json::json!({"kind":"promoted", "attempt":attempt, "actor":actor, "identity":identity}),
@@ -684,6 +592,7 @@ fn finished<'a>(journal: &'a Journal, id: &str) -> Option<(&'a Value, &'a Value)
             attempt,
             actual,
             evidence,
+            ..
         } = &entry.event
         {
             (attempt == id).then_some((actual, evidence))
@@ -691,6 +600,28 @@ fn finished<'a>(journal: &'a Journal, id: &str) -> Option<(&'a Value, &'a Value)
             None
         }
     })
+}
+fn accepted() -> bool {
+    true
+}
+fn is_accepted(value: &bool) -> bool {
+    *value
+}
+fn execution_check(journal: &Journal, id: &str) -> Option<bool> {
+    journal.entries.iter().find_map(|entry| match &entry.event {
+        Event::Finished {
+            attempt,
+            execution_accepted,
+            ..
+        } if attempt == id => Some(*execution_accepted),
+        _ => None,
+    })
+}
+fn uncertain(journal: &Journal, id: &str) -> bool {
+    journal
+        .entries
+        .iter()
+        .any(|entry| matches!(&entry.event, Event::Uncertain { attempt, .. } if attempt == id))
 }
 fn interrupted(journal: &Journal, id: &str) -> bool {
     journal
@@ -755,6 +686,7 @@ fn summarize(journal: &Journal, attempt: &str, current: Option<&Identity>) -> Re
                         && finished(journal, id).is_some_and(|(actual, _)| {
                             !old.predicted.matches(actual)
                                 || !original.scenario.requirement.matches(actual)
+                                || execution_check(journal, id) == Some(false)
                         })
                 }),
                 _ => false,
@@ -766,7 +698,11 @@ fn summarize(journal: &Journal, attempt: &str, current: Option<&Identity>) -> Re
         Classification::Unknown
     } else if replay {
         Classification::Replayed
+    } else if execution_check(journal, attempt) == Some(false) {
+        Classification::ExecutionRejected
     } else if interrupted(journal, attempt) {
+        Classification::Unknown
+    } else if actual.is_none() && uncertain(journal, attempt) {
         Classification::Unknown
     } else if actual.is_none() {
         Classification::Running

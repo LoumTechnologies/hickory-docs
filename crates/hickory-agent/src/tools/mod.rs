@@ -14,6 +14,7 @@
 pub mod hashline;
 mod preview;
 mod verify;
+mod verify_publish;
 mod weave;
 use weave::weave_source;
 mod receipts;
@@ -127,6 +128,7 @@ pub struct EditSession {
     params: Vec<(String, String)>,
     source: String,
     weave: WeaveState,
+    verified_publication: bool,
     /// Where `read_file` may look: the git repository containing the
     /// document, or its directory when there is none. Nothing above it is
     /// readable — the tool surface is the agent's only view of the project,
@@ -150,6 +152,7 @@ impl EditSession {
             params: params.to_vec(),
             source,
             weave,
+            verified_publication: false,
             root,
         })
     }
@@ -755,12 +758,6 @@ impl EditSession {
         )
         .with_wrote(wrote)
     }
-}
-
-/// Result of re-running the upstream documents during `verify`.
-struct UpstreamReport {
-    failures: Vec<String>,
-    note: String,
 }
 
 /// Execute one tool invocation against the session. Failures are tool

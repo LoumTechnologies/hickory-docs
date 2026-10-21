@@ -1,6 +1,128 @@
 //! Guarantee: docs/guarantees/verification/predictions-precede-managed-observation.md
 use super::*;
+use std::collections::BTreeMap;
+
+// Guarantee: docs/guarantees/verification/predictions-precede-managed-observation.md
+#[test]
+fn combined_predicate_requires_every_target_and_rejects_missing_extra_or_unbounded_fields()
+-> Result<()> {
+    let predicate = Predicate::Fields(BTreeMap::from([
+        ("output".into(), Predicate::NumberAtMost(100.0)),
+        ("debugger".into(), Predicate::Equals(json!(20))),
+    ]));
+    assert!(predicate.matches(&json!({"output":100,"debugger":20})));
+    for invalid in [
+        json!({"output":160,"debugger":20}),
+        json!({"output":100,"debugger":100}),
+        json!({"output":100}),
+        json!({"output":100,"debugger":20,"extra":true}),
+        json!(null),
+    ] {
+        assert!(!predicate.matches(&invalid));
+    }
+    assert!(Predicate::Fields(BTreeMap::new()).validate().is_err());
+    let mut nested = predicate;
+    for _ in 0..10 {
+        nested = Predicate::Fields(BTreeMap::from([("nested".into(), nested)]));
+    }
+    assert!(nested.validate().is_err());
+    Ok(())
+}
 use serde_json::json;
+
+// Guarantee: docs/guarantees/verification/predictions-precede-managed-observation.md
+#[test]
+fn selected_history_preserves_failure_and_repair_without_exporting_private_answers() -> Result<()> {
+    let root = tempfile::tempdir()?;
+    let ledger = Ledger::open(root.path())?;
+    let mut unrelated = seal(100, 'c');
+    unrelated.scenario.family = "private-unselected-family".into();
+    ledger.observe(
+        &unrelated.scenario,
+        unrelated.identity.clone(),
+        actor("human"),
+        "private-human-view",
+    )?;
+    ledger.seal(ledger.history(None)?.generation, unrelated, actor("agent"))?;
+    let original = seal(100, 'a');
+    let scenario = original.scenario.key()?;
+    let sealed = ledger.seal(
+        ledger.history(None)?.generation,
+        original.clone(),
+        actor("agent"),
+    )?;
+    let first = ledger.begin(
+        &sealed.id,
+        "fault",
+        &original.identity,
+        false,
+        actor("agent"),
+    )?;
+    finish(
+        &ledger,
+        &first.id,
+        json!(160),
+        json!({"stderr":"private-held-out-diagnostic"}),
+    )?;
+    let repaired = seal(100, 'b');
+    let sealed = ledger.seal(
+        ledger.history(None)?.generation,
+        repaired.clone(),
+        actor("agent"),
+    )?;
+    let second = ledger.begin(
+        &sealed.id,
+        "repair",
+        &repaired.identity,
+        false,
+        actor("agent"),
+    )?;
+    finish(
+        &ledger,
+        &second.id,
+        json!(100),
+        json!({"capture":"private-debugger-state"}),
+    )?;
+    ledger.promote(&second.id, &repaired.identity, actor("agent"))?;
+    let before = ledger.history(None)?.generation;
+    let selected = ledger.select_history(&[scenario.clone()])?;
+    assert_eq!(selected.history.attempts.len(), 2);
+    assert_eq!(
+        selected.history.attempts[0].classification,
+        Classification::Mismatch
+    );
+    assert_eq!(
+        selected.history.attempts[1].classification,
+        Classification::VerifiedAfterCorrection
+    );
+    assert!(!selected.history.attempts[1].current_certification);
+    assert_eq!(selected.omitted_events, 2);
+    assert_eq!(selected.omitted_context_observations, 2);
+    assert_eq!(selected.history.ordering[0]["sequence"], 3);
+    let text = serde_json::to_string(&selected)?;
+    for private in [
+        "private-held-out-diagnostic",
+        "private-debugger-state",
+        "private-unselected-family",
+        "private-human-view",
+    ] {
+        assert!(!text.contains(private));
+    }
+    assert_eq!(
+        serde_json::from_str::<SelectedPredictionHistory>(&text)?.selected_scenarios,
+        [scenario]
+    );
+    assert_eq!(ledger.history(None)?.generation, before);
+    assert!(ledger.select_history(&[]).is_err());
+    assert!(ledger.select_history(&["missing".into()]).is_err());
+    assert!(
+        ledger
+            .reveal(&first.id, actor("agent"), "publication")
+            .is_err()
+    );
+    Ok(())
+}
+
 fn actor(kind: &str) -> Actor {
     Actor {
         kind: kind.into(),
@@ -41,6 +163,162 @@ fn finish(ledger: &Ledger, attempt: &str, actual: Value, evidence: Value) -> Res
         })
     })?;
     ledger.finish(attempt, observation)
+}
+
+// Guarantee: docs/guarantees/verification/predictions-precede-managed-observation.md
+#[test]
+fn admission_has_one_dispatch_owner_across_independent_hosts() -> Result<()> {
+    let directory = tempfile::tempdir()?;
+    let ledger = Ledger::open(directory.path())?;
+    let prediction = seal(100, 'a');
+    let sealed = ledger.seal(0, prediction.clone(), actor("agent"))?;
+    let mut hosts = Vec::new();
+    let barrier = std::sync::Arc::new(std::sync::Barrier::new(8));
+    for _ in 0..8 {
+        let root = directory.path().to_owned();
+        let id = sealed.id.clone();
+        let identity = prediction.identity.clone();
+        let target = prediction.target.clone();
+        let barrier = barrier.clone();
+        hosts.push(std::thread::spawn(move || {
+            barrier.wait();
+            Ledger::open(root)?.admit_target(
+                &id,
+                "dispatch-once",
+                &identity,
+                false,
+                actor("agent"),
+                &target,
+            )
+        }));
+    }
+    let admissions = hosts
+        .into_iter()
+        .map(|host| host.join().unwrap())
+        .collect::<Result<Vec<_>>>()?;
+    assert_eq!(
+        admissions
+            .iter()
+            .filter(|admission| admission.dispatch)
+            .count(),
+        1
+    );
+    assert!(
+        admissions
+            .iter()
+            .all(|admission| admission.receipt.id == admissions[0].receipt.id)
+    );
+    assert!(
+        !Ledger::open(directory.path())?
+            .admit_target(
+                &sealed.id,
+                "dispatch-once",
+                &prediction.identity,
+                false,
+                actor("agent"),
+                &prediction.target
+            )?
+            .dispatch
+    );
+    assert!(
+        ledger
+            .admit_target(
+                &sealed.id,
+                "wrong-target",
+                &prediction.identity,
+                false,
+                actor("agent"),
+                &Target::Output {
+                    execution: "different".into()
+                }
+            )
+            .is_err()
+    );
+    let unknown = ledger.mark_unavailable(&admissions[0].receipt.id, actor("host"))?;
+    assert_eq!(unknown.classification, Classification::Unknown);
+    let reopened = Ledger::open(directory.path())?;
+    assert!(
+        reopened
+            .admit(
+                &sealed.id,
+                "new-execution",
+                &prediction.identity,
+                false,
+                actor("agent")
+            )
+            .is_err()
+    );
+    assert!(
+        !reopened
+            .admit(
+                &sealed.id,
+                "dispatch-once",
+                &prediction.identity,
+                false,
+                actor("agent")
+            )?
+            .dispatch
+    );
+    reopened.interrupt(
+        &admissions[0].receipt.id,
+        actor("host"),
+        Interruption::HostInterrupted,
+    )?;
+    assert!(
+        reopened
+            .admit(
+                &sealed.id,
+                "after-confirmed-stop",
+                &prediction.identity,
+                false,
+                actor("agent")
+            )?
+            .dispatch
+    );
+    Ok(())
+}
+
+// Guarantee: docs/guarantees/verification/predictions-precede-managed-observation.md
+#[test]
+fn independent_execution_check_is_durable_and_cannot_be_replaced() -> Result<()> {
+    let directory = tempfile::tempdir()?;
+    let ledger = Ledger::open(directory.path())?;
+    let prediction = seal(100, 'a');
+    let sealed = ledger.seal(0, prediction.clone(), actor("agent"))?;
+    let attempt = ledger.begin(
+        &sealed.id,
+        "check",
+        &prediction.identity,
+        false,
+        actor("agent"),
+    )?;
+    let result = ObservedResult {
+        identity: prediction.identity.clone(),
+        target: prediction.target.clone(),
+        actual: json!(100),
+        evidence: json!({ "check": "failed" }),
+    };
+    let summary = ledger.finish_checked(&attempt.id, result.clone(), false)?;
+    assert_eq!(summary.classification, Classification::ExecutionRejected);
+    assert_eq!(summary.prediction_matched, Some(true));
+    assert_eq!(summary.original_requirement_satisfied, Some(true));
+    assert!(
+        ledger
+            .finish_checked(&attempt.id, result.clone(), true)
+            .is_err()
+    );
+    assert!(
+        Ledger::open(directory.path())?
+            .promote(&attempt.id, &prediction.identity, actor("agent"))
+            .is_err()
+    );
+    assert_eq!(
+        ledger
+            .finish_checked(&attempt.id, result, false)?
+            .classification,
+        Classification::ExecutionRejected
+    );
+    Ok(())
 }
 #[test]
 fn missing_stale_and_concurrent_seals_refuse_execution_identity() -> Result<()> {
@@ -388,6 +666,7 @@ fn debugger_predictions_bind_expression_exact_source_span_and_hit_and_retain_con
     let mut prediction = seal(20, 'a');
     prediction.scenario.family = "retry-budget.remaining-before-attempt".into();
     prediction.target = Target::Debugger {
+        frame: None,
         source: "root".into(),
         source_revision: prediction.identity.source.clone(),
         start_byte: 20,

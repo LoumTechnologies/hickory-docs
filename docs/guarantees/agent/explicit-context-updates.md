@@ -66,3 +66,29 @@ Issue 72 UI adapter extension (2026-10-19):
 - Executed checks: both focused component tests passed, including exact queued
   reference/revision requests and no hidden patch text in discovery. The existing
   real confined request-boundary integration remains separate evidence.
+
+## October 21 provider-workflow continuation
+
+A real attached-provider correction run exposed an immediate-request flood:
+`ContextUpdates` restarted its polling effect whenever the parent supplied a
+new `getContext` closure. The trace contained nearly 2,000 context POSTs and
+repeated completion-time editor-capture timeouts. The flood is established;
+its causal contribution to those timeouts remains under investigation.
+
+The poll now reads the latest callback through a ref, keeps its five-second
+interval across callback replacement, and allows only one pending automatic
+capture/request per mounted branch. A retired capture cannot post its context
+after its branch changes. Explicit Refresh and Queue retain their separate
+user-requested semantics. The two new focused tests challenge rapid callback
+replacement, fresh callback use, slow captures and retired-branch replies.
+
+The existing disclosure test also found the nested DiffView's generic reading
+adapter registered while its native details were closed. Its reading now follows
+both the outer context disclosure and the individual patch disclosure using the
+shared visibility provider. This is progressive-disclosure parity; it is not a
+#77 target-answer quarantine or permission to deliver held-out values.
+
+LLM implementation review: partially verified for these bounded lifecycle and
+visibility rules. Four ContextUpdates cases and targeted strict TypeScript passed.
+Human judgment: not supplied. The handoff records live-provider results and exact
+source hashes separately; a passing mocked context test is not a provider witness.

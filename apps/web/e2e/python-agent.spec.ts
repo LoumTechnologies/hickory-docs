@@ -56,6 +56,10 @@ test("configure the Python agent, review its edit, recover the conversation and 
   await agent.getByRole("button", { name: "Send", exact: true }).click();
   await page.getByRole("button", { name: "Show left drawer" }).click();
   await expect(review.locator(".comparison-added").filter({ hasText: "This needs approval" })).toBeVisible();
+  // Guarantee: docs/guarantees/agent/conversation-edits-use-the-client-review-policy.md
+  // A completed response must not paint over the next pending review. Trial
+  // performs real pointer hit testing without deciding the proposal we cancel.
+  await review.getByRole("button", { name: "Reject change" }).click({ trial: true, timeout: 10000 });
   await page.getByRole("tablist", { name: "Center views" }).getByRole("tab", { name: "Agent", exact: true }).click();
   await agent.getByRole("button", { name: "Stop the agent" }).click();
   await expect.poll(async () => {

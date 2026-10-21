@@ -12,6 +12,8 @@ path = "src/lib.rs"
 [dependencies]
 ignore = "0.4"
 hickory-executor = { path = "../hickory-executor" }
+hick-observe = { path = "../hick-observe" }
+tempfile = "3"
 hick-case = { path = "../hick-case" }
 hick-condition = { path = "../hick-condition" }
 # `<hick:capture>` runs the document under a debug adapter. hick-dap reaches
@@ -51,6 +53,3 @@ notify = "7"
 futures = "0.3"
 sysinfo = "0.38.0"
 pulldown-cmark = { version = "0.12", default-features = false, features = ["html"] }
-
-[dev-dependencies]
-tempfile = "3"

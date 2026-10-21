@@ -27,3 +27,18 @@ Universal UI parity, a current packaged native/provider run, actual footage and 
 matching deployed-build witness remain acceptance work. Existing prereleases may
 predate these changes. See the [parity inventory](ui-action-parity.md) and
 [capture procedure](engineer-tour-video.md).
+
+For a focused attached-provider development witness, with the configured desktop
+provider key store and installed Python runtime, run from the repository root:
+
+```sh
+HICKORY_KEEP_UI_WITNESS=1 scripts/test-python-agent-ui.sh --live-provider
+```
+
+This explicitly makes paid provider calls in a disposable seeded repository. The
+model investigates an actual failed source-bound check, proposes one exact patch,
+and requests focused verification after the test driver reviews that patch in
+the normal UI. Test-driver acceptance is labelled; it is not human judgment.
+Retained sessions and browser footage are private diagnostics, not automatically
+selected publication assets. Without `--live-provider`, the script uses scripted
+model responses. Neither mode is a packaged desktop-shell or deployed witness.

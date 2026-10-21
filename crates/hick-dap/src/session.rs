@@ -36,6 +36,9 @@ use crate::protocol::Event;
 #[path = "source_breakpoints.rs"]
 mod source_breakpoints;
 
+#[path = "private_capture_session.rs"]
+mod private_capture_session;
+
 /// What this adapter can actually do, read from its `initialize` reply.
 ///
 /// Every control the UI offers is gated on one of these. A button that is
@@ -209,25 +212,9 @@ fn stopped_from(body: &Value) -> Stopped {
     }
 }
 
-/// Where execution is, in the document.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Frame {
-    pub id: i64,
-    pub name: String,
-    /// 0-based document line, when this frame is in a file the document
-    /// generated. `None` for a library frame, which is shown read-only rather
-    /// than pretended to be part of the document.
-    pub line: Option<u32>,
-    /// The file as the adapter named it, for frames outside the document.
-    pub source: Option<String>,
-    /// 0-based line in `source`, as the adapter reported it — the raw
-    /// coordinate, before any mapping. Present for every frame that has a
-    /// source, so a frame in *another* file of the same project (a plain
-    /// file's `src/lib.rs`) can be opened at its line even though it is not
-    /// in the file being debugged.
-    pub source_line: Option<u32>,
-    pub in_document: bool,
-}
+#[path = "stack_frame.rs"]
+mod stack_frame;
+pub use stack_frame::Frame;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Variable {
@@ -409,16 +396,6 @@ async fn wait_for_start_debugging(
 }
 
 impl Session {
-    /// Start an adapter, launch the program, and stop at the first
-    /// breakpoint.
-    pub async fn start(
-        launch: Launch,
-        mapping: Arc<Mapping>,
-        breakpoints: &[Breakpoint],
-    ) -> Result<(Self, Vec<BreakpointStatus>)> {
-        Self::start_with_sources(launch, mapping, breakpoints, &[]).await
-    }
-
     pub async fn start_with_sources(
         launch: Launch,
         mapping: Arc<Mapping>,
@@ -761,6 +738,8 @@ impl Session {
                         .as_ref()
                         .map(|(_, line)| *line)
                         .or_else(|| path.as_ref().map(|_| raw_line)),
+                    adapter_source: path.as_ref().map(|path| path.to_string_lossy().to_string()),
+                    adapter_line: path.as_ref().map(|_| raw_line),
                     source: source_location
                         .map(|(p, _)| p)
                         .or(path)

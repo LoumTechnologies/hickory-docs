@@ -41,3 +41,45 @@ Last LLM verification:
   `verify`, and asserts both the report wording and that `decisions.md` and
   `domain.md` on disk carry the new decision. Confirmed live against
   `docs/todo-app/`: `PASS — … ; also re-wove 3 upstream document(s)`.
+
+## Optional verified publication — October 21, 2026 continuation
+
+The unconditional output-writing wording above describes ordinary verification.
+Hosts can opt an `EditSession` into `require_verified_publication()`. In that
+policy, primary and upstream outputs are provisional in memory until every
+expectation in the editable scope passes. Failure creates no generated files,
+preserves existing generated files, and does not replace session output reads
+with failed execution output. Unavailable/stale execution evidence, an uncaptured
+source dependency, or changed captured source bytes/closure refuses publication.
+Upstream execution uses captured source bytes rather than silently re-reading a
+different revision. Repair followed by verification can publish again.
+
+The native project writer validates each result's whole path inventory and
+existing destination symlinks before writing that inventory. Binaries are pinned
+before writing. Publication across roots/files is not a filesystem transaction:
+I/O errors can leave partial writes, and external writers can race validation.
+Execution side effects are not rolled back. This is **not prediction strict
+mode**: ordinary diagnostics and existing tool reads remain available. Default
+sessions still publish observed outputs after expectation failure, as before.
+
+A pipeline invocation now excludes transcripts retained by the executor from
+earlier invocations, including stdin transcript rendering and final weaving.
+Otherwise an upstream document's answer can be woven into the primary document
+when both use the same container name. This assumes one pipeline at a time per
+executor and append-only transcripts during that invocation; it does not reset
+container files/process state or establish execution isolation.
+
+LLM implementation review: **partially verified**. Inspected
+`tools/verify.rs`, `tools/verify_publish.rs`, `hick-literate/src/run_transcripts.rs`,
+the live pipeline call sites, and `hick-project-env/src/tree.rs`. Origin: #77's
+provisional/accepted-output distinction under #72. A global silent behavior
+change was rejected because #77 explicitly preserves ordinary workflows.
+Tests in `crates/hickory-agent/tests/verify_publication.rs` cover failed existing
+and absent artifacts, repair, upstream failure, distinct upstream/primary output,
+source mutation during real execution, symlink refusal and default behavior.
+The legacy `verify_executes_and_reports_expectations` check also passed.
+These are actual LocalExecutor host-process witnesses, not sandbox/native/provider
+or concurrent-filesystem witnesses. Human judgment: **not supplied**.
+
+Executed focused checks and exact dependency hashes are recorded in the
+[continuation handoff](../../developers/handoffs/2026-10-21-issue-72.md).

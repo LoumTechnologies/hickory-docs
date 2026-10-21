@@ -84,3 +84,21 @@ uses the same `ComparisonEditor` as `.md` patches. `AgentChanges.test.tsx`
 drives Accept/Reject from the Agent pane itself. This is shared comparison
 rendering, not full literate-project patch parity; see
 `../audits/2026-10-17-agent-document-parity.md` for outstanding differences.
+
+## October 21 reachable-review correction
+
+An actual attached-provider correction proposed the exact expected patch, but the
+completed response panel painted over the pending review button and intercepted
+pointer clicks. The run was interrupted after the obstruction was diagnosed;
+no forced click or artificial approval was counted as a successful workflow.
+`AgentChanges.css` now prevents the review section from shrinking beneath its
+content and lets inline document previews use automatic content height.
+
+The focused scripted-provider Chrome flow now performs pointer hit testing on a
+second pending proposal's Reject control after a completed response, then cancels
+that proposal through Stop. This challenges the observed overlap while leaving
+the proposal undecided. The test passed with the real UI/engine/confined worker;
+its model responses remain explicitly scripted. Nine focused AgentChanges cases
+also passed. The separate actual-provider result is recorded in the handoff.
+Human correctness judgment remains not supplied; layout accessibility does not
+verify a patch or establish application strict-mode enforcement.

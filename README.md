@@ -148,8 +148,10 @@ history, not a chat log that evaporated.
   the notebook UI. It runs the same engine in-process (no second
   implementation of weaving, lineage, or output edits) and answers the
   editor's language questions through the same `hick-lsp`. It builds from
-  this repository today, but installable bundles are not yet a published
-  download — the download is the CLI. It is not a client for any server;
+  this repository today; [desktop prerelease bundles](https://github.com/LoumTechnologies/hickory-docs/releases/tag/unstable)
+  are also available. Check their revision before trying a development workflow;
+  package availability does not certify that workflow. See the
+  [desktop installation guide](docs/users/install-desktop.md). It is not a client for any server;
   Hickory is not a hosted service.
 - Execution is **sandboxed by default** (`HICKORY_EXECUTOR=sandbox`): each
   cell may write only its own working directory, your dotfiles and keys are

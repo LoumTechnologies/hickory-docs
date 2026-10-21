@@ -1,6 +1,21 @@
 //! Execution and complete project publication for the same edit closure.
 use super::*;
+
+struct UpstreamReport {
+    failures: Vec<String>,
+    note: String,
+    pending: Vec<(PathBuf, hick_literate::PipelineResult)>,
+}
 impl EditSession {
+    /// Opt into publishing generated files only after the entire editable scope
+    /// passes expectations. This is a publication policy, NOT prediction strict
+    /// mode: ordinary diagnostics and executor side effects remain observable.
+    /// Hosts choose the policy; no model-supplied tool argument can disable it.
+    pub fn require_verified_publication(mut self) -> Self {
+        self.verified_publication = true;
+        self
+    }
+
     pub(super) async fn verify(&mut self, executor: Arc<dyn Executor>) -> ToolOutcome {
         const NAME: &str = "verify";
         if let Err(e) = self.sync_with_disk().await {
@@ -18,12 +33,19 @@ impl EditSession {
             Ok(s) => s,
             Err(e) => return ToolOutcome::err(NAME, format!("Project closure failed: {e:#}")),
         };
+        let mut captured_sources = if declared.is_empty() {
+            self.upstream.clone()
+        } else {
+            declared.clone()
+        };
+        captured_sources.insert(self.doc_path.clone(), self.source.clone());
         let upstream_report = if declared.is_empty() {
             self.verify_upstream(executor.clone()).await
         } else {
             UpstreamReport {
                 failures: vec![],
                 note: String::new(),
+                pending: vec![],
             }
         };
         let project_dir = self
@@ -66,46 +88,66 @@ impl EditSession {
             }
         }
 
-        // Write outputs to disk (like `hick run`), so document and
-        // committed outputs stay in sync.
-        let mut written = Vec::new();
-        if let Some(project) = &result.evaluated_project {
-            match hick_project_env::write_tree(&project_dir, &project.new) {
-                Ok(paths) => written.extend(paths.into_iter().map(|p| {
-                    p.strip_prefix(&project_dir)
-                        .unwrap_or(&p)
-                        .to_string_lossy()
-                        .into_owned()
-                })),
-                Err(e) => failures.push(format!("Could not publish complete project: {e}")),
+        // Execution results remain provisional until the whole editable scope
+        // passes. In particular, do not refresh session reads from a failed run.
+        failures.extend(upstream_report.failures);
+        if self.verified_publication {
+            if captured_sources.iter().any(|(path, captured)| {
+                std::fs::read_to_string(path).ok().as_ref() != Some(captured)
+            }) || upstream_closure(&self.doc_path) != self.upstream
+            {
+                failures.push(
+                    "Source closure changed during verification; rerun against current sources"
+                        .into(),
+                );
             }
-        } else {
-            for (rel_path, content) in &result.files {
-                let full = project_dir.join(rel_path);
-                if let Some(parent) = full.parent()
-                    && !parent.as_os_str().is_empty()
-                    && let Err(e) = std::fs::create_dir_all(parent)
-                {
-                    failures.push(format!("could not create {}: {e}", parent.display()));
-                    continue;
-                }
-                let write_result = match content {
-                    FileContent::Text(s) => std::fs::write(&full, s),
-                    FileContent::Binary(data) => match data.to_bytes() {
-                        Ok(bytes) => std::fs::write(&full, bytes),
-                        Err(e) => {
-                            failures.push(format!("could not encode {rel_path}: {e}"));
-                            continue;
-                        }
-                    },
-                };
-                match write_result {
-                    Ok(()) => written.push(rel_path.clone()),
-                    Err(e) => failures.push(format!("could not write {}: {e}", full.display())),
-                }
+            if std::iter::once(&result)
+                .chain(upstream_report.pending.iter().map(|(_, result)| result))
+                .flat_map(|result| &result.span_files)
+                .any(|path| {
+                    !captured_sources
+                        .keys()
+                        .any(|captured| normalize(captured) == normalize(Path::new(path)))
+                })
+            {
+                failures
+                    .push("Uncaptured source dependencies cannot publish verified outputs".into());
+            }
+            if !result.never_run.is_empty() || !result.stale.is_empty() {
+                failures.push(
+                    "Unavailable or stale execution evidence cannot publish verified outputs"
+                        .into(),
+                );
             }
         }
-        written.sort();
+        if self.verified_publication && !failures.is_empty() {
+            return ToolOutcome::err(
+                NAME,
+                format!(
+                    "FAIL — {} problem(s); no verified outputs published:\n{}",
+                    failures.len(),
+                    failures.join("\n")
+                ),
+            );
+        }
+
+        // Only now publish upstream results and the primary result. Filesystem
+        // errors may still leave partial writes; this is not a multi-root transaction.
+        for (dir, result) in upstream_report.pending {
+            if let Err(error) = super::verify_publish::publish(&dir, &result) {
+                return ToolOutcome::err(
+                    NAME,
+                    format!("FAIL — upstream publication failed: {error}"),
+                );
+            }
+        }
+        // Write accepted outputs so document and committed outputs stay in sync.
+        let written = match super::verify_publish::publish(&project_dir, &result) {
+            Ok(paths) => paths,
+            Err(error) => {
+                return ToolOutcome::err(NAME, format!("FAIL — publication failed: {error}"));
+            }
+        };
 
         // Refresh the session's weave state from the executed result: real
         // transcripts give the freshest provenance.
@@ -123,7 +165,6 @@ impl EditSession {
         self.weave = WeaveState { files, provenance };
 
         let checked = result.expectations.len();
-        failures.extend(upstream_report.failures);
         if failures.is_empty() {
             ToolOutcome::ok(
                 NAME,
@@ -155,7 +196,7 @@ impl EditSession {
         }
     }
 
-    /// Re-run every upstream document and write its outputs.
+    /// Re-run every upstream document, retaining provisional outputs in memory.
     ///
     /// Each is executed on its own, in its own directory, because that is
     /// where its outputs are committed — an upstream document woven into the
@@ -164,8 +205,13 @@ impl EditSession {
     async fn verify_upstream(&self, executor: Arc<dyn Executor>) -> UpstreamReport {
         let mut failures = Vec::new();
         let mut verified = 0usize;
-        for (path, _) in self.upstream.iter() {
-            let Ok(source) = std::fs::read_to_string(path) else {
+        let mut pending = Vec::new();
+        for (path, captured) in self.upstream.iter() {
+            let Ok(source) = (if self.verified_publication {
+                Ok(captured.clone())
+            } else {
+                std::fs::read_to_string(path)
+            }) else {
                 failures.push(format!("upstream {}: could not be read", path.display()));
                 continue;
             };
@@ -201,32 +247,15 @@ impl EditSession {
                     ));
                 }
             }
-            for (rel_path, content) in &result.files {
-                let full = dir.join(rel_path);
-                if let Some(parent) = full.parent()
-                    && !parent.as_os_str().is_empty()
-                    && let Err(e) = std::fs::create_dir_all(parent)
-                {
-                    failures.push(format!("upstream {name}: could not create {parent:?}: {e}"));
-                    continue;
-                }
-                let write = match content {
-                    FileContent::Text(t) => std::fs::write(&full, t),
-                    FileContent::Binary(d) => match d.to_bytes() {
-                        Ok(b) => std::fs::write(&full, b),
-                        Err(e) => {
-                            failures
-                                .push(format!("upstream {name}: could not encode {rel_path}: {e}"));
-                            continue;
-                        }
-                    },
-                };
-                if let Err(e) = write {
+            if self.verified_publication {
+                if !result.never_run.is_empty() || !result.stale.is_empty() {
                     failures.push(format!(
-                        "upstream {name}: could not write {}: {e}",
-                        full.display()
+                        "upstream {name}: unavailable or stale execution evidence"
                     ));
                 }
+                pending.push((dir, result));
+            } else if let Err(error) = super::verify_publish::publish(&dir, &result) {
+                failures.push(format!("upstream {name}: publication failed: {error}"));
             }
             verified += 1;
         }
@@ -235,6 +264,10 @@ impl EditSession {
         } else {
             format!("; also re-wove {verified} upstream document(s)")
         };
-        UpstreamReport { failures, note }
+        UpstreamReport {
+            failures,
+            note,
+            pending,
+        }
     }
 }

@@ -116,8 +116,21 @@ impl Adapter {
         }
     }
 
+    /// Private captures own their adapter process and discard non-protocol
+    /// output instead of inheriting stdout/stderr into predictor-visible logs.
+    pub async fn start_private(command: &[String], transport: Transport) -> Result<Self> {
+        match transport {
+            Transport::Stdio => Self::spawn_inner(command, true).await,
+            Transport::Tcp => Self::connect_tcp_inner(command, true).await,
+            Transport::Attached(_) => bail!("Private attached-adapter capture is unavailable"),
+        }
+    }
+
     /// Spawn `command` and talk to it over its own stdin and stdout.
     pub async fn spawn(command: &[String]) -> Result<Self> {
+        Self::spawn_inner(command, false).await
+    }
+    async fn spawn_inner(command: &[String], private: bool) -> Result<Self> {
         let (program, args) = command
             .split_first()
             .context("a debug adapter command cannot be empty")?;
@@ -129,13 +142,23 @@ impl Adapter {
             // Inherited: an adapter's stderr is where it explains why it will
             // not start, and swallowing that is how "the debugger did
             // nothing" becomes unanswerable.
-            .stderr(Stdio::inherit())
+            .stderr(if private {
+                Stdio::null()
+            } else {
+                Stdio::inherit()
+            })
+            .kill_on_drop(true)
             .spawn()
             .with_context(|| format!("spawning the debug adapter `{program}`"))?;
 
         let stdin = child.stdin.take().context("adapter stdin")?;
         let stdout = child.stdout.take().context("adapter stdout")?;
-        Ok(Adapter::wire(Box::new(stdin), stdout, Some(child)))
+        Ok(Adapter::wire_inner(
+            Box::new(stdin),
+            stdout,
+            Some(child),
+            private,
+        ))
     }
 
     /// Spawn a server that listens, then connect to it.
@@ -145,6 +168,9 @@ impl Adapter {
     /// adapter uses stdout for its own log lines ("Debug server listening
     /// at…"), and reading them as DAP frames would be wrong.
     pub async fn connect_tcp(command: &[String]) -> Result<Self> {
+        Self::connect_tcp_inner(command, false).await
+    }
+    async fn connect_tcp_inner(command: &[String], private: bool) -> Result<Self> {
         let (program, args) = command
             .split_first()
             .context("a debug adapter command cannot be empty")?;
@@ -157,8 +183,17 @@ impl Adapter {
         let child = tokio::process::Command::new(program)
             .args(&args)
             .stdin(Stdio::null())
-            .stdout(Stdio::inherit())
-            .stderr(Stdio::inherit())
+            .stdout(if private {
+                Stdio::null()
+            } else {
+                Stdio::inherit()
+            })
+            .stderr(if private {
+                Stdio::null()
+            } else {
+                Stdio::inherit()
+            })
+            .kill_on_drop(true)
             .spawn()
             .with_context(|| format!("spawning the debug adapter `{program}`"))?;
 
@@ -182,7 +217,7 @@ impl Adapter {
         // for a coalescing buffer reads as a slow debugger.
         let _ = stream.set_nodelay(true);
         let (read, write) = stream.into_split();
-        let mut adapter = Adapter::wire(Box::new(write), read, Some(child));
+        let mut adapter = Adapter::wire_inner(Box::new(write), read, Some(child), private);
         adapter.port = Some(port);
         Ok(adapter)
     }
@@ -227,6 +262,17 @@ impl Adapter {
     where
         R: AsyncRead + Send + Unpin + 'static,
     {
+        Self::wire_inner(writer, reader, child, false)
+    }
+    fn wire_inner<R>(
+        writer: Box<dyn AsyncWrite + Send + Unpin>,
+        reader: R,
+        child: Option<Child>,
+        private: bool,
+    ) -> Self
+    where
+        R: AsyncRead + Send + Unpin + 'static,
+    {
         let stdout = reader;
         let (events, _) = broadcast::channel(EVENT_BUFFER);
         let pending: Arc<Mutex<HashMap<i64, oneshot::Sender<Response>>>> =
@@ -253,11 +299,15 @@ impl Adapter {
                         let _ = reader_events.send(event);
                     }
                     Ok(Incoming::Request(request)) => {
-                        tracing::debug!(command = %request.command, "adapter asked the client for something");
+                        if !private {
+                            tracing::debug!(command = %request.command, "adapter asked the client for something");
+                        }
                         let _ = reader_events.send(reverse_as_event(&request));
                     }
                     Err(error) => {
-                        tracing::debug!(%error, "unparseable message from the adapter");
+                        if !private {
+                            tracing::debug!(%error, "unparseable message from the adapter");
+                        }
                     }
                 }
             }

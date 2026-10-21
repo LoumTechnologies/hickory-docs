@@ -1171,19 +1171,10 @@ async fn run_source(
                 .map(|r| Arc::new(r) as Arc<dyn hick_literate::agent_cell::AgentRunner>);
             let config = PipelineConfig {
                 working_dir: Some(project_dir.to_path_buf()),
-                // A cell may write a `.md` file, and its fragments become
-                // available to the documents in this run — the way a
-                // generator contributes a `using` line to a file somebody
-                // else owns. Only `.md` outputs are read this way: a
-                // generator's ordinary output is bytes, and scanning it for
-                // markup would make `<hick:` unwritable by any program.
-                //
-                // Bounded rather than run to a fixed point: a document that
-                // writes a document that writes a document is a pipeline, and
-                // four rounds is enough of one to be useful without letting a
-                // mistake spin.
+                // Generated Markdown may contribute fragments in later rounds.
+                // Ordinary outputs are bytes: never scan them for markup.
+                // Bound expansion to four rounds rather than a fixed point.
                 max_rounds: 4,
-                on_exec: None,
                 // Best-effort visibility into a cell's real output while a
                 // LATER cell in the same run is still broken — the flush into
                 // `PipelineResult::files` this run will make on success, if
@@ -1197,7 +1188,6 @@ async fn run_source(
                 on_volume_flush: Some(volume_flush_mirror(project_dir.to_path_buf())),
                 subset,
                 agent_runner,
-                max_agent_reprepares: 0,
                 // `check` wants every cell with no baseline reported as
                 // unverifiable; `run` wants the first one to stop the run.
                 collect_unverifiable: mode == RunMode::Verify,
@@ -1208,6 +1198,7 @@ async fn run_source(
                 // a message naming the variable, not mid-document.
                 // docs/guarantees/execution/a-cell-cannot-hang-a-run.md
                 cell_timeout: hick_literate::cell_timeout::CellTimeoutDefault::from_env()?,
+                ..Default::default()
             };
             // The pipeline always gets the project's transcript cache, and
             // always by path rather than only when the directory already
@@ -1732,7 +1723,10 @@ pub fn check_failures(run: &DocRun, out_dir: Option<&Path>) -> Result<Vec<CheckF
 }
 
 mod diagnostics;
-pub use diagnostics::{escaping_warnings, diagram_assertion_warnings, claim_warnings, absolute_mount_warnings, output_collision_warnings, ignored_image_warning};
+pub use diagnostics::{
+    absolute_mount_warnings, claim_warnings, diagram_assertion_warnings, escaping_warnings,
+    ignored_image_warning, output_collision_warnings,
+};
 
 /// Output paths this document declares `volatile="true"`, excluded from
 /// drift comparison.

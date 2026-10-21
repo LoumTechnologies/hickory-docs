@@ -3260,6 +3260,7 @@ dependencies = [
  "hick-handlers",
  "hick-lang",
  "hick-merge",
+ "hick-observe",
  "hick-secrets",
  "hick-store",
  "hick-token",
