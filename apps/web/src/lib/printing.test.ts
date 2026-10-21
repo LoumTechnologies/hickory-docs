@@ -1,3 +1,4 @@
+// Guarantee: docs/guarantees/authoring/print-requests-do-not-attest-physical-output.md
 import { afterEach, describe, expect, it } from "vitest";
 import { printText, printTitleFor } from "./printing";
 

@@ -10,7 +10,7 @@ export type MenuScope = {
 export type MenuHandlers = {
   formatFirst(): Promise<void>;
   saveUntitled(saveAs: boolean, id?: string, destination?: string): Promise<boolean>;
-  flush(): void; print(): void; insert(id: string | null): void; editElement(): void;
+  flush(): void; print(): boolean | void; insert(id: string | null): void; editElement(): void;
 };
 
 /** Capture the target before awaiting formatting/dialogs; never re-read focus. */
@@ -19,8 +19,8 @@ export async function runWorkspaceMenu(action: MenuAction, actor: UiActor, scope
   if (action === "insert" || insertTarget(action) !== null) { handlers.insert(insertTarget(action)); return { status: "completed", value: { insert_panel_requested: true, source_written: false } }; }
   if (action === "edit-element") { handlers.editElement(); return { status: "completed", value: { element_editor_requested: true, source_written: false } }; }
   if (action === "print") {
-    if (actor.kind === "agent") return { status: "requires_input", request: `workspace-print:${scope.target.id ?? "none"}`, reason: "The human opens/completes the actual browser or OS print dialog; no physical output is established" };
-    handlers.print(); return { status: "completed", value: { print_requested: true, physical_output: "not observed" } };
+    if (handlers.print() === false) return { status: "unavailable", reason: "Open a document or file to print; no print callback was submitted" };
+    return { status: "completed", value: { print_callback_returned: true, physical_output: "not observed", dialog_outcome: "This handler cannot distinguish printed, cancelled or an ignored browser request" } };
   }
   if (action === "save-all") {
     if (actor.kind === "agent" && (scope.untitledNeedingDestination ?? scope.untitled).length) return { status: "requires_input", request: `workspace-save-all:${scope.untitled.join(":")}`, reason: "Name each buffer with Save unnamed buffer to specified path, or use native Save dialogs; no partial Save all was submitted" };

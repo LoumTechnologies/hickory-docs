@@ -923,3 +923,11 @@ cannot become the new owner's error; completion explicitly does not certify
 persistence. Two focused native/registry cases and targeted TypeScript checks
 pass. This verifies the generic controller, not every settings backend or product
 form using it.
+
+Print now shares the actual full-buffer callback for both actors; the earlier
+agent-only invocation refusal was an application policy, not an OS limitation.
+The focused pane supplies its active title. Missing-editor/platform failures remain
+observable. Return records only the callback's completion, with printed/cancelled,
+ignored request, printer choice and physical output explicitly unobserved. Seven
+workspace-menu and six mocked-print cases pass; targeted TypeScript includes
+WorkspaceView. Actual OS dialogs and physical printing are not witnessed.

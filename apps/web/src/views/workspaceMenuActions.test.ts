@@ -18,11 +18,10 @@ it("retains the originating unnamed target across async formatting and does not 
   finish(); await pending;
   expect(handlers.saveUntitled).toHaveBeenCalledExactlyOnceWith(false, "first", undefined);
 });
-it("does not open OS print/save dialogs or perform partial writes when an agent needs human input", async () => {
+it("does not open native Save dialogs or perform partial saves without destinations", async () => {
   const { scope, handlers } = setup();
   expect(await runWorkspaceMenu("save", agent, scope, handlers)).toMatchObject({ status: "requires_input", request: "workspace-save:first" });
   expect(await runWorkspaceMenu("save-all", agent, scope, handlers)).toMatchObject({ status: "requires_input" });
-  expect(await runWorkspaceMenu("print", agent, scope, handlers)).toMatchObject({ status: "requires_input" });
   expect(handlers.formatFirst).not.toHaveBeenCalled(); expect(handlers.saveUntitled).not.toHaveBeenCalled(); expect(handlers.print).not.toHaveBeenCalled();
 });
 it("returns real document save acknowledgement and distinguishes copy/flush intent", async () => {
@@ -57,4 +56,15 @@ it("uses an agent-specified destination through the same captured unnamed-save h
   scope.target = { id: "named", kind: "document" };
   expect(await runWorkspaceMenu("save-as", agent, scope, handlers, "other.md")).toMatchObject({ status: "unavailable" });
   expect(handlers.saveUntitled).toHaveBeenCalledTimes(1);
+});
+
+// Guarantee: docs/guarantees/authoring/print-requests-do-not-attest-physical-output.md
+it("shares the actual print callback and reports only its observable return", async () => {
+  const { scope, handlers } = setup();
+  for (const actor of [human, agent]) expect(await runWorkspaceMenu("print", actor, scope, handlers)).toMatchObject({ status: "completed", value: { print_callback_returned: true, physical_output: "not observed" } });
+  expect(handlers.print).toHaveBeenCalledTimes(2);
+  handlers.print = vi.fn(() => false);
+  expect(await runWorkspaceMenu("print", agent, scope, handlers)).toMatchObject({ status: "unavailable" });
+  handlers.print = () => { throw Error("platform printing refused"); };
+  await expect(runWorkspaceMenu("print", agent, scope, handlers)).rejects.toThrow("platform printing refused");
 });

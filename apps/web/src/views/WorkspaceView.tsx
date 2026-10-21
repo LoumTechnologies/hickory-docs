@@ -1184,17 +1184,15 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
     const view = focusedEditor();
     if (!view) {
       setInsertNotice("Open a document or a file to print.");
-      return;
+      return false;
     }
-    const tab = panesOf(layoutRef.current.root)
-      .flatMap((pane) =>
-        pane.tabs[pane.active] ? [pane.tabs[pane.active]] : [],
-      )
-      .find((t) => t.kind !== "tree" && t.kind !== "tool");
+    const pane = panesOf(layoutRef.current.root).find(pane => pane.id === layoutRef.current.focus);
+    const tab = pane?.tabs[pane.active];
     printText({
       title: printTitleFor(tab?.target ?? "document"),
       text: view.state.doc.toString(),
     });
+    return true;
   }, []);
   const welcomed = useRef(false);
   useEffect(() => {

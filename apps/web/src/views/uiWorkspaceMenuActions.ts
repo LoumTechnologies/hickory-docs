@@ -10,7 +10,7 @@ export function useWorkspaceMenuActions(snapshot: () => { visible: boolean; guar
   const parent = `workspace-menu:${useId()}`;
   const last = useRef<UiValue>(null);
   const revision = useUiRevision(() => [snapshot().guard, last.current]);
-  const commands: { key: string; command: UiCommand }[] = actions.map(([action, label]) => ({ key: `${parent}:${action}`, command: { label, parent, subject: parent, parameters: {}, prerequisites: ["Current window, focused buffer and source/UI revision"], read: () => ({ revision: revision(), enabled: snapshot().visible }), execute: async (_args, actor) => {
+  const commands: { key: string; command: UiCommand }[] = actions.map(([action, label]) => ({ key: `${parent}:${action}`, command: { label, parent, subject: parent, parameters: {}, prerequisites: ["Current window, focused buffer and source/UI revision", ...(action === "print" ? ["Opens the same browser/OS print callback as the native menu. Printer selection is OS-owned; printed vs cancelled and physical output are not observable."] : [])], read: () => ({ revision: revision(), enabled: snapshot().visible }), execute: async (_args, actor) => {
     const outcome = await execute(action, actor);
     last.current = JSON.parse(JSON.stringify({ action, actor, outcome })); return outcome;
   } } }));
