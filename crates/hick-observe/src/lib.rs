@@ -6,6 +6,7 @@ use sha2::{Digest, Sha256};
 use std::{collections::BTreeMap, ops::Range};
 
 pub mod reading;
+pub mod prediction;
 mod store;
 pub use store::*;
 

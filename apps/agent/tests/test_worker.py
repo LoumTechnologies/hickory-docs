@@ -33,6 +33,27 @@ class WorkerTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 parse_action(raw)
 
+    # Guarantee: docs/guarantees/agent/ui-action-dispatch.md
+    def test_model_protocol_repair_does_not_misreport_tool_execution(self):
+        seen, observations = [], []
+        class Model:
+            def complete(self, messages):
+                if not observations:
+                    observations.append(None)
+                    return 'I will inspect now.\n```json\n{"python":"tool(\\"list_docs\\", {})"}\n```'
+                observation = json.loads(messages[-1]['content'].split(': ', 1)[1])
+                observations.append(observation)
+                return '{"done":"No tools were executed; protocol repaired"}'
+        tools = Tools()
+        agent = Agent(Model(), tools, lambda code: seen.append(code))
+        self.assertEqual(agent.run(Config('Inspect fixture', max_turns=2)),
+                         'No tools were executed; protocol repaired')
+        self.assertEqual(seen, [])
+        self.assertEqual(observations[1]['kind'], 'model_protocol_error')
+        self.assertFalse(observations[1]['tool_execution_started'])
+        self.assertIn('ONLY one raw JSON object', observations[1]['repair'])
+        self.assertEqual(len(tools.completions), 1)
+
     def test_broker_rejects_wrong_id_and_oversized_frames(self):
         broker = Broker(io.StringIO('{"id":2,"result":"forged"}\n'), io.StringIO())
         with self.assertRaisesRegex(RuntimeError, 'Mismatched'):

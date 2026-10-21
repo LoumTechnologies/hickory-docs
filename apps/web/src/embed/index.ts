@@ -13,3 +13,7 @@ export type { SyncedStorage, SyncState, SyncConflict, SyncResolution } from "./s
 
 export { PublishedSnapshot, decodeSnapshot } from "./PublishedSnapshot";
 export type { ViewerSnapshot } from "./PublishedSnapshot";
+
+export { StaticUiSurface } from "./StaticUiSurface";
+export { createEmbedUiSession } from "./uiHostSession";
+export { UiActionContext as EmbedUiContext } from "../lib/uiActionBridge";

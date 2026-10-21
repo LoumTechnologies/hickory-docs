@@ -59,3 +59,25 @@ provider/native/release/deployed validation or human acceptance is asserted.
 - Dependency `apps/web/src/embed/PublishedSnapshot.tsx` SHA-256: `833964d54137f01c378346246447e0fa314ad534f3364862c49c58c20b4fc8e7`.
 
 - Dependency `apps/web/src/embed/PublishedSnapshot.controls.test.tsx` SHA-256: `2dce032345088d92329d33d669936f93cccf052ee54c31566505ca1eeaa031d8`.
+
+
+## Standalone scoped controls — 2026-10-21
+
+The standalone viewer now owns a local registry and supports explicit concrete
+parent-origin attachment without probing a local engine. SnapshotPage shares
+local JSON import, same-origin snapshot/index loading, cancellation, retained
+status and selected-row navigation. A selected row binds path, source hash and
+tested revision; mismatches refuse adoption. Source decoding remains the existing
+validator. Changed/cancelled/disposed loads cannot adopt late replies. Successful
+capture replacement remounts its child controls; failures retain prior evidence.
+Links use shared browser navigation; anchor downloads report their browser-input
+boundary. No imported JSON becomes authenticated or current execution evidence.
+
+LLM review: partially verified. Three SnapshotPage cases, one static parent
+source/origin/scope case and the two existing captured-view cases pass. A real
+Chrome cross-origin parent imported and rendered a hash-validated snapshot through
+scoped actions with zero engine requests; the same browser run rejected another
+window's scope. These are scripted host requests, not native-agent/provider or
+release witnesses. #77 adds required prediction/exposure semantics that remain
+unintegrated in publication; this continuation does not claim them implemented.
+Human judgment: not supplied. Broader regression checks were not run.

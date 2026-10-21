@@ -6,6 +6,7 @@
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { LandingView } from "./views/LandingView";
+import { StaticUiSurface } from "./embed/StaticUiSurface";
 import { applyStoredTheme } from "./lib/theme";
 import { loadHickLang } from "./editor/hickLang";
 import "./styles.css";
@@ -18,7 +19,7 @@ applyStoredTheme();
 void loadHickLang().then(() => {
   createRoot(document.getElementById("root")!).render(
     <StrictMode>
-      <LandingView />
+      <StaticUiSurface><LandingView /></StaticUiSurface>
     </StrictMode>,
   );
 });

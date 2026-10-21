@@ -9,11 +9,11 @@ const line: UiField = { type: "number", minimum: 0, maximum: 100_000_000, intege
 const json = (value: unknown): UiValue => JSON.parse(JSON.stringify(value));
 
 /** Registers the actual hook controller, shared by gutters, keys and strip. */
-export function useDebugActions(path: string, debug: DebugSession, epoch: () => number, available: boolean) {
+export function useDebugActions(path: string, debug: DebugSession, epoch: () => number, available: boolean, sourceIdentity?: unknown) {
   const instance = useId();
   const parent = `debug:${path}:${instance}`;
   const renderedEpoch = epoch();
-  const revision = useUiRevision(() => [epoch(), debug.status, debug.reading?.source.revision, debug.reading?.scope, debug.selectedFrame, debug.breakpoints, debug.watches, debug.exceptionFilters]);
+  const revision = useUiRevision(() => [sourceIdentity, epoch(), debug.status, debug.reading?.source.revision, debug.reading?.scope, debug.selectedFrame, debug.breakpoints, debug.watches, debug.exceptionFilters]);
   const fresh = () => available && epoch() === renderedEpoch;
   const paused = () => fresh() && debug.status === "paused";
   const commands: { key: string; command: UiCommand }[] = [];

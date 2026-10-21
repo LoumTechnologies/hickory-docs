@@ -964,3 +964,89 @@ acknowledgement does not certify window destruction; browser-only engines retain
 their existing host refusal. Native/provider/release/deployed witnesses and the
 other outstanding parity work remain open. See the unsaved-work guarantee for
 scope, assumptions and evidence fingerprints.
+
+
+### Static surfaces and browser workspace — October 21
+
+The standalone site and snapshot viewer now mount a local action registry. An
+explicit `parentOrigin` iframe attachment uses the `hickory-static-ui` structured
+channel, exact parent source/origin and per-mount window identity. It creates no
+implicit engine/provider connection. Hosts must retain receipt events. The embed
+entry exports StaticUiSurface, createEmbedUiSession and EmbedUiContext for explicit
+host integration. Closing/reloading a surface retires its registry.
+
+Snapshot import, hosted snapshot/index loading, cancellation, retained status and
+index navigation share the real controller. Index selection checks source/path/
+tested revision. Generation checks refuse late replies after cancellation,
+replacement or disposal; failed imports retain prior evidence. Reading remains
+available during a pending load. Imported results remain historical.
+
+Homepage recording/session loads share actual publication selection and digest
+verification, synchronous pending exclusion, cancellation and late-asset cleanup.
+Standard media commands address the actual video element, including playback,
+seeking, sound, rate, tracks, fullscreen and picture in picture. Browser activation
+or unavailable platform APIs return required input; callback completion never
+certifies that someone watched/heard footage. Links share actual browser
+navigation. Standard anchor downloads retain an explicit browser-activation
+request/result boundary rather than asserting file persistence.
+
+The browser tour shares visibility, source-bound step movement, practice objection,
+restart, export and status. Failure/success gates still require the existing real
+interpreter's result callback. Browser debugger restart/pause/watch/variable
+expansion/output reading now have source-bound controllers; generic debugger
+handles also bind the caller's current source identity, independently of stop
+updates. This does not yet implement #77's newly requested strict prediction tour.
+
+Browser workspace save/reload/new/open, note/bundle import/export, saved search,
+remote sync and conflict review/resolution share operation handlers and real
+storage preconditions. Discard choices use the existing source-bound PromptPanel
+instead of a native-only confirm. Current source changes are retained while a
+captured save settles. Storage replacement retires its owner and late replies.
+Conflict bodies/readers/actions retire on collapse, and resolutions retain exact
+local/remote revisions. Export retains a paged historical saved-file snapshot,
+excluding current unsaved text. Cancellation reports possible completed effects.
+
+Focused evidence: 21 frontend cases across nine directly affected test files;
+two real Chrome scoped-static flows (including real counterexample/correction);
+and three real Chrome persistence/import/export/search/quota/sync-conflict flows
+passed. Targeted strict TypeScript includes the site, viewer, embed fixture and
+browser workspace. Initial Chrome startup was blocked by the outer sandbox; the
+passing runs used escalation. A first static tour run overlapped a source edit;
+the subsequent run with explicit action-result assertions passed both flows.
+These browser host requests are scripted, not real model decisions.
+
+A bounded confined OpenRouter CLI run separately completed actual document and
+lineage reads plus the source-output-equality completion gate. Its first run
+exposed malformed model-action feedback; Python now identifies protocol errors,
+explicitly records that no tool ran, and requests raw JSON without loosening the
+parser. Two focused policy checks passed. The successful model explanation also
+contained contradictory reasoning; completion did not certify semantic truth or
+runtime correctness. Raw sessions remain private in the isolated /tmp fixture.
+The existing QA engine launcher now supports explicit --live-provider while
+remaining scripted by default; it is not a packaged desktop-shell witness.
+
+#77 was added to #72 during this work. Its initial host ledger now supports output
+and expression/location/hit targets, prior-observation context, durable attempt
+ordering, reveal-before-return and provenance-aware promotion decisions. Ten
+focused core checks pass. Authoritative shared execution/observation/promotion
+integration is still required before any strict mode can be claimed. See
+`docs/guarantees/verification/predictions-precede-managed-observation.md`.
+
+The current unstable release's assets name revision 5c7d01da, which does not witness
+these changes. No current native-package, publication/recording or deployed-build
+acceptance is claimed. No broad regressions or post-commit monitoring were run.
+
+### Anti-copying correction — October 21
+
+The user's clarification supersedes #77's earlier agent reveal escape hatch.
+Held-out actual values must never be delivered to the predictor for copying into
+expectations. The ledger now refuses agent and host-tool reveal requests; human
+inspection remains separately recorded and must be isolated from agent delivery.
+A replacement prediction cannot be promoted even without a recorded reveal.
+Existing exposure history is retained, not used as permission to disclose more.
+These are focused ledger protections; the authoritative debugger/output/context
+adapters remain unintegrated, so no end-to-end no-leak claim is established.
+The ordinary live-provider browser witness reached the actual failed run, but
+its turn did not complete within the focused test deadline; that test failed and
+is not a successful provider workflow witness. Its private recording is not
+selected publication evidence.

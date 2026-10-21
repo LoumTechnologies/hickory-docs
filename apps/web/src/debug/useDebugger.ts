@@ -290,7 +290,7 @@ export function useWorkspaceDebugger(path: string): DebugSession {
   return useDebuggerOver(client, path);
 }
 
-export function useDebuggerOver(client: DebugClient | null, docPath: string, initialBreakpoints: readonly number[] = [], projectContext = "new"): DebugSession {
+export function useDebuggerOver(client: DebugClient | null, docPath: string, initialBreakpoints: readonly number[] = [], projectContext = "new", uiSource?: unknown): DebugSession {
   const eventEpoch = useRef(0);
   const readingOwner = useRef(Symbol("debugger-capture"));
   const [, renderEventEpoch] = useState(0);
@@ -837,6 +837,6 @@ export function useDebuggerOver(client: DebugClient | null, docPath: string, ini
       removeWatch,
     ],
   );
-  useDebugActions(docPath, controller, () => eventEpoch.current, !!client);
+  useDebugActions(docPath, controller, () => eventEpoch.current, !!client, uiSource);
   return controller;
 }

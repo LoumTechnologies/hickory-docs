@@ -107,7 +107,12 @@ class Agent:
             try:
                 action = parse_action(raw)
             except (ValueError, TypeError) as exc:
-                observe({'ok': False, 'error': str(exc)})
+                observe({'ok': False, 'kind': 'model_protocol_error',
+                         'tool_execution_started': False, 'error': str(exc),
+                         'repair': 'Your response was not an action object. No snippet or tool ran. '
+                                   'Reply with ONLY one raw JSON object: {"python":"snippet"} '
+                                   'or {"done":"summary with limitations"}. '
+                                   'Do not include prose, Markdown fences, or reasoning outside the object.'})
                 action = {}
             return {'action': action, 'turns': state['turns'] + 1}
 

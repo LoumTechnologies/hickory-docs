@@ -14,13 +14,13 @@ function fixture() {
     start: vi.fn(), stop: vi.fn(), step: vi.fn(), selectFrame: vi.fn(), toggleBreakpoint: vi.fn(), setBreakpointCondition: vi.fn(), addWatch: vi.fn(), removeWatch: vi.fn(), toggleExceptionFilter: vi.fn(), jumpTo: vi.fn(), runTo: vi.fn(), query: vi.fn().mockResolvedValue("80"),
     reading: { source: { id: "source", uri: "deadline.md", revision: "source-hash" }, scope: { run: "run-1", stop: "stop-1", frame: 7 }, locations: [], annotations: [{ evidence: "paused-1", payload: { kind: "paused" } }], unsupported: [] },
   } as unknown as DebugSession;
-  let epoch = 1;
+  let epoch = 1, sourceIdentity = "original source";
   const wrapper = ({ children }: { children: ReactNode }) => <UiActionContext.Provider value={registry}>{children}</UiActionContext.Provider>;
-  const hook = renderHook(() => useDebugActions("deadline.md", debug, () => epoch, true), { wrapper });
+  const hook = renderHook(() => useDebugActions("deadline.md", debug, () => epoch, true, sourceIdentity), { wrapper });
   const descriptor = (label: string) => registry.observe(registry.groups().groups[0]).actions.find(item => item.label === label)!;
   let requests = 0;
   const invoke = async (label: string, args = {}) => registry.act(registry.scope, { id: "python:debug", kind: "agent" }, { handle: descriptor(label).handle, arguments: args, request_id: String(++requests) });
-  return { registry, debug, hook, descriptor, invoke, advance: () => { epoch++; } };
+  return { registry, debug, hook, descriptor, invoke, advance: () => { epoch++; }, changeSource: () => { sourceIdentity = "replacement source"; hook.rerender(); } };
 }
 
 // Guarantee: docs/guarantees/agent/ui-action-dispatch.md
@@ -55,4 +55,12 @@ it("validates breakpoint options against the actual adapter and bound target", a
   expect(f.debug.setBreakpointCondition).toHaveBeenCalledWith(12, { condition: "total > 0", hit_condition: "", log_message: "" });
   expect(await f.invoke("Set breakpoint condition, hit count and log message", { ...args, log_message: "secret" })).toMatchObject({ status: "result", outcome: { status: "unavailable" } });
   expect(f.debug.setBreakpointCondition).toHaveBeenCalledOnce();
+});
+
+// Guarantee: docs/guarantees/agent/ui-action-dispatch.md
+it("retires source-bound handles even when debugger stop and controller epoch have not changed", async () => {
+  const f = fixture(), original = f.descriptor("Continue");
+  f.changeSource();
+  expect(await f.registry.act(f.registry.scope, { id: "python:debug", kind: "agent" }, { handle: original.handle, arguments: {}, request_id: "changed-browser-source" })).toMatchObject({ status: "stale" });
+  expect(f.debug.step).not.toHaveBeenCalled();
 });

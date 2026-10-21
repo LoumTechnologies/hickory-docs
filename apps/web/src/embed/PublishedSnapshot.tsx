@@ -1,3 +1,4 @@
+import { UiLink } from "../components/UiLink";
 import { useEffect, useId, useMemo, useState, type ReactNode } from "react";
 import { UiActionsVisibility, useUiCommands, useUiRevision } from "../lib/uiActionBridge";
 import { useUiReading } from "../lib/uiReading";
@@ -95,12 +96,12 @@ function CapturedPublishedSnapshot({ snapshot, artifactUrl }: SnapshotProps) {
     <p>This read-only snapshot displays recorded results. Opening or exporting it does not execute checks. It does not certify the current repository or authenticate the supplied results.</p>
     {snapshot.verification && <section aria-label="Revision-bound verification">
       <h2>Verification: {snapshot.verification.status}</h2>
-      <a href={`https://github.com/LoumTechnologies/hickory-docs/commit/${snapshot.verification.revision}`}>Tested revision {snapshot.verification.revision}</a>
+      <UiLink href={`https://github.com/LoumTechnologies/hickory-docs/commit/${snapshot.verification.revision}`}>Tested revision {snapshot.verification.revision}</UiLink>
       <p>{snapshot.verification.origin}</p>
       <SnapshotDisclosure label="Recording/replay evidence" value={snapshot.verification.execution_evidence ?? "Recording origin unavailable"}><pre>{JSON.stringify(snapshot.verification.execution_evidence ?? "Recording origin unavailable", null, 2)}</pre></SnapshotDisclosure><p>{snapshot.verification.scope}</p>
       <p>Historical success certifies only these source/dependency hashes; changed inputs need a new run.</p>
       <SnapshotDisclosure label="Environment and dependency identities" value={{ environment: snapshot.verification.environment, dependencies: snapshot.verification.dependencies, assets: snapshot.verification.assets }}><pre>{JSON.stringify({ environment: snapshot.verification.environment, dependencies: snapshot.verification.dependencies, assets: snapshot.verification.assets }, null, 2)}</pre></SnapshotDisclosure>
-      {snapshot.verification.requirements.map((r, n) => <section key={`${r.id}:${n}`} id={`requirement-${n}`}><h3>{r.id}</h3><p>{r.text}</p>{r.witnesses.map(i => snapshot.cells[i] ? <a key={i} href={`#witness-${i}`}>Witness {snapshot.cells[i].id} </a> : <p key={i}>Witness {i} unavailable · not verified</p>)}</section>)}
+      {snapshot.verification.requirements.map((r, n) => <section key={`${r.id}:${n}`} id={`requirement-${n}`}><h3>{r.id}</h3><p>{r.text}</p>{r.witnesses.map(i => snapshot.cells[i] ? <UiLink key={i} href={`#witness-${i}`}>Witness {snapshot.cells[i].id} </UiLink> : <p key={i}>Witness {i} unavailable · not verified</p>)}</section>)}
       {snapshot.verification.commands.map((c, i) => <SnapshotDisclosure key={i} initialOpen={snapshot.verification!.status !== "passed"} label={`${c.command.join(" ")} · ${c.exit_code === undefined ? "unavailable" : `exit ${c.exit_code}`}`} value={{ stdout: c.stdout ?? "", stderr: c.stderr ?? c.error ?? "" }}><pre>{c.stdout}</pre><pre>{c.stderr ?? c.error}</pre></SnapshotDisclosure>)}
     </section>}
     <DocumentEmbed source={snapshot.source} revision={snapshot.source_hash} path={snapshot.path} host={host} readOnly />

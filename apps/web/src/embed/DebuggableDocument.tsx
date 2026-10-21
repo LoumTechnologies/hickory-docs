@@ -1,6 +1,8 @@
+import { useUiCommands, useUiRevision } from "../lib/uiActionBridge";
+import { useUiReading } from "../lib/uiReading";
 import { RuntimeHistory, useBrowserRuns } from "../debug/RuntimeRuns";
 import type { RuntimeRun } from "../debug/runtimeObservations";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import type { EditorView } from "@codemirror/view";
 import { DocumentEmbed } from "./DocumentEmbed";
 import type { DocumentEmbedProps } from "./DocumentEmbed";
@@ -51,7 +53,7 @@ export function DebuggableDocument(props: DebuggableDocumentProps) {
   const initial = useRef({ source: props.source, breakpoint: props.startPausedAt });
   const startedOn = useRef<typeof backend>(null);
   const debug = useDebuggerOver(backend?.client ?? null, props.path,
-    initial.current.breakpoint === undefined ? [] : [initial.current.breakpoint]);
+    initial.current.breakpoint === undefined ? [] : [initial.current.breakpoint], "new", [props.revision, props.source]);
   useEffect(() => {
     if (!backend || !view || initial.current.breakpoint === undefined || startedOn.current === backend) return;
     startedOn.current = backend;
@@ -77,10 +79,27 @@ export function DebuggableDocument(props: DebuggableDocumentProps) {
     if (event.event === "started") setSession(event.session);
     if (event.event === "finished" || event.event === "ended") setSession(null);
   }), [backend]);
+  const parent = `browser-document:${props.path}:${useId()}`;
+  const actionRevision = useUiRevision(() => [props.revision, props.source, runRevision, runSource, debug.status, debug.reading?.scope, session, watch, children]);
+  const expandable = new Set<number>();
+  const collect = (values: Variable[], depth = 0) => { for (const variable of values) if (variable.variables_reference > 0 && depth < 5) { expandable.add(variable.variables_reference); if (children[variable.variables_reference]) collect(children[variable.variables_reference], depth + 1); } };
+  collect(debug.variables);
+  const expandVariable = (reference: number) => { if (!session || stale || !expandable.has(reference)) throw Error("Variable is unavailable at the current source/stop"); backend?.client.children(session, reference); };
+  const submitWatch = () => { if (!stale && watch.trim()) { debug.addWatch(watch.trim()); setWatch(""); } };
+  useUiReading("browser document runtime", { path: props.path, revision: props.revision, run_revision: runRevision, stale, status: debug.status, output, watch_draft: debug.status === "paused" ? watch : null, expanded_variables: debug.status === "paused" ? children : {} });
+  useUiCommands([
+    { key: `${parent}:restart`, command: { label: `Restart browser document (${props.path})`, parent, subject: parent, parameters: {}, prerequisites: [], read: () => ({ revision: actionRevision(), enabled: !!backend && debug.status !== "starting" }), execute: async () => { start(); return { status: "completed", value: { restart_requested: true, execution_result: "Observe the actual runtime output and receipt" } }; } } },
+    { key: `${parent}:pause`, command: { label: `Pause browser document (${props.path})`, parent, subject: parent, parameters: {}, prerequisites: [], read: () => ({ revision: actionRevision(), enabled: !!backend && debug.status === "running" }), execute: async () => { backend?.pause(); return { status: "completed", value: { pause_requested: true } }; } } },
+    ...(debug.status === "paused" ? [
+      { key: `${parent}:watch`, command: { label: `Set browser watch draft (${props.path})`, parent, subject: parent, parameters: { expression: { type: "string" as const, maxLength: 8192 } }, prerequisites: [], read: () => ({ revision: actionRevision(), enabled: true }), execute: async (args: Record<string, import("../lib/uiActions").UiValue>) => { setWatch(args.expression as string); return { status: "completed" as const, value: { draft_changed: true } }; } } },
+      { key: `${parent}:submit-watch`, command: { label: `Submit browser watch draft (${props.path})`, parent, subject: parent, parameters: {}, prerequisites: [], read: () => ({ revision: actionRevision(), enabled: !stale && !!watch.trim() }), execute: async () => { submitWatch(); return { status: "completed" as const, value: { watch_requested: true } }; } } },
+      ...[...expandable].map(reference => ({ key: `${parent}:variable:${reference}`, command: { label: `Expand browser variable ${reference} (${props.path})`, parent, subject: parent, parameters: {}, prerequisites: [], read: () => ({ revision: actionRevision(), enabled: !stale && !!session }), execute: async () => { expandVariable(reference); return { status: "completed" as const, value: { expansion_requested: true, reference } }; } } })),
+    ] : []),
+  ]);
   function variables(values: Variable[], depth = 0) {
     return <ul>{values.map((variable) => <li key={variable.name}>
-      {variable.variables_reference > 0 && depth < 5 && <button type="button" aria-label={`Expand ${variable.name}`}
-        onClick={() => { if (session) backend?.client.children(session, variable.variables_reference); }}>▸</button>}
+      {variable.variables_reference > 0 && depth < 5 && <button type="button" disabled={!session || stale} aria-label={`Expand ${variable.name}`}
+        onClick={() => { expandVariable(variable.variables_reference); }}>▸</button>}
       <code>{variable.name} = {variable.value}</code>
       {depth < 5 && children[variable.variables_reference] && variables(children[variable.variables_reference], depth + 1)}
     </li>)}</ul>;
@@ -103,9 +122,9 @@ export function DebuggableDocument(props: DebuggableDocumentProps) {
       <p>Paused on line {(debug.pausedLine ?? 0) + 1}{stale ? " of the previous revision" : ""}</p>
       <h3>Variables</h3>
       <div aria-label="Live variables">{variables(debug.variables)}</div>
-      <form onSubmit={(event) => { event.preventDefault(); if (watch.trim()) { debug.addWatch(watch.trim()); setWatch(""); } }}>
+      <form onSubmit={(event) => { event.preventDefault(); submitWatch(); }}>
         <label>Read-only watch <input id={`watch-${props.path}`} aria-label="Watch expression" value={watch} onChange={(event) => setWatch(event.target.value)} /></label>
-        <button type="submit">Watch</button>
+        <button type="submit" disabled={stale || !watch.trim()}>Watch</button>
       </form>
       <ul aria-label="Watch values">{debug.watches.map((value) => <li key={value.expression}><code>{value.expression} = {value.value ?? "…"}</code></li>)}</ul>
     </div>}
