@@ -114,3 +114,13 @@ New coverage drives structured disclosure/read/dismiss, checks hidden commands
 retire and checks discovery does not leak the practice path. Existing focus,
 Escape, missing-target, retained-evidence and human-criterion checks remain in
 those focused files. These are component witnesses, not visual/native footage.
+
+
+October 22 native-layout correction: before a practice exists, the intro anchors
+to its own launcher rather than a closed agent pane. The private coach's request
+fields fit 825px and 390px browser viewports and its Locate target focuses the
+actual action button without popup overlap of that button. Other form content
+may be overlapped until dismissal. Fifteen focused component cases, one synthetic
+metadata browser layout flow and targeted TypeScript passed. This is partial LLM
+review, not human judgment or a new native package witness. The handoff records
+exact source hashes; changing placement/styles invalidates this layout evidence.

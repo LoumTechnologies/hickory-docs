@@ -7,6 +7,7 @@ import { PredictionEvidence, validatePredictionHistory, type PredictionHistory }
 import { AnchoredCoach } from "./AnchoredCoach";
 import { CodeEditor } from "./ComparisonEditor";
 import { AgentChanges } from "./AgentChanges";
+import "./privatePredictionCoach.css";
 export interface PrivatePredictionState {
   document: string; source: string; source_hash: string; current: boolean;
   question: { requirement_reference: string }; target: unknown; environment_scope: string;
@@ -85,7 +86,7 @@ export function PrivatePredictionCoach({ initial }: { initial: PrivatePrediction
   const failed = attempts.some(attempt => ["mismatch", "requirement_failed", "execution_rejected"].includes(String(attempt.classification)));
   const pending = agent?.edits?.changes.some(change => change.status === "pending");
   const stage = pending ? "Review the proposed correction" : needsFuture ? "Predict before Continue" : repaired ? "Compare retained evidence" : failed ? "Delegate the correction" : "Delegate prediction and investigation";
-  const target = pending ? "#private-review" : needsFuture ? "#private-debugger" : repaired ? "#private-evidence" : "#private-delegate";
+  const target = pending ? "#private-review" : needsFuture ? '[data-private-coach="seal"]' : repaired ? '[data-private-coach="promote"]' : '[data-private-coach="delegate"]';
   useUiReading("private prediction session status", { state, running, stage, request: { prompt, provider, model }, attempts: attempts.length, error, syncError, promotion_at_request: promotion, current_certification: false });
   const revision = useUiRevision(() => [state, agent?.run, prompt, provider, model, prediction, rationale, busy, open, pendingForms]);
   const promptRevision = useUiRevision(() => [initial.document, prompt, busy, running]);
@@ -153,36 +154,38 @@ export function PrivatePredictionCoach({ initial }: { initial: PrivatePrediction
     void invoke(`private:${field}`, { value }).catch(reason => { if (owner.current) setError(String(reason)); })
       .finally(() => { if (owner.current) setPendingForms(count => count - 1); });
   };
-  if (ended) return <main><h1>Private practice ended</h1><p>The prediction history remains retained and this root remains private. Close this window. Reopening the practice starts a fresh context and revalidates its approved source and runtime.</p></main>;
-  return <main style={{ maxWidth: 1100, margin: "auto", padding: 24 }}>
+  if (ended) return <main className="private-prediction-coach"><h1>Private practice ended</h1><p>The prediction history remains retained and this root remains private. Close this window. Reopening the practice starts a fresh context and revalidates its approved source and runtime.</p></main>;
+  return <main className="private-prediction-coach">
     <h1>Predict, investigate and review</h1>
     <p>{state.question.requirement_reference}</p>
     <p>Target answers and runtime diagnostics stay withheld. Current certification is unavailable until host revalidation and promotion. {state.environment_scope}</p>
     {error && <p role="alert">{error}</p>}{syncError && <p role="alert">{syncError}</p>}
     <section id="private-delegate"><h2>Delegate to the agent</h2>
-      <label>Investigation request<textarea maxLength={32768} value={prompt} disabled={busy || running} onChange={event => setRequest("prompt", event.target.value)} /></label>
+      <div className="private-prediction-fields"><label className="private-prediction-request">Investigation request<textarea maxLength={32768} value={prompt} disabled={busy || running} onChange={event => setRequest("prompt", event.target.value)} /></label>
       <label>Provider<input maxLength={128} value={provider} disabled={busy || running} onChange={event => setRequest("provider", event.target.value)} placeholder="Configured default" /></label>
-      <label>Model<input maxLength={1024} value={model} disabled={busy || running} onChange={event => setRequest("model", event.target.value)} placeholder="Provider default" /></label>
-      <button disabled={busy || !!pendingForms || running || !prompt.trim() || state.current !== true} onClick={() => void invoke("private:start")}>Delegate investigation</button>
+      <label>Model<input maxLength={1024} value={model} disabled={busy || running} onChange={event => setRequest("model", event.target.value)} placeholder="Provider default" /></label></div>
+      <div className="private-prediction-controls">
+      <button data-private-coach="delegate" disabled={busy || !!pendingForms || running || !prompt.trim() || state.current !== true} onClick={() => void invoke("private:start")}>Delegate investigation</button>
       <button disabled={!running} onClick={() => void invoke("private:stop")}>Stop investigation</button>
       <button onClick={() => void invoke("private:coach", { open: true })}>Resume coach</button>
-      <button disabled={busy || running} onClick={() => void invoke("private:end")}>End private practice</button>
+      <button disabled={busy || running} onClick={() => void invoke("private:end")}>End private practice</button></div>
       <p role="status">{agent?.run?.status ?? "Ready for a request"}</p><p>{agent?.run?.answer}</p>
     </section>
     <section><h2>Captured source</h2><p>SHA-256: {state.source_hash}</p><CodeEditor path={state.source} item={{ id: initial.document, label: "Captured private source", kind: "authored", text: source }} editable={false} onChange={() => {}} /></section>
     {state.retained_plan && <section id="private-debugger"><h2>Predict the next debugger stop</h2>
       <p>Before launch: {state.retained_plan.initial.requirement_reference}. Before Continue: {state.retained_plan.next.requirement_reference}.</p>
       <p>Phase: {state.retained_debugger?.phase ?? "unavailable"}. Target values stay withheld. A paused capture expires after two minutes; a new sequence retains the earlier history. Output verification runs separately.</p>
-      <label>Debugger predicate JSON<textarea maxLength={32768} value={prediction} disabled={busy} onChange={event => setRequest("prediction", event.target.value)} /></label>
-      <label>Debugger prediction rationale<textarea maxLength={8192} value={rationale} disabled={busy} onChange={event => setRequest("rationale", event.target.value)} /></label>
-      <button disabled={busy || !!pendingForms || !rationale.trim() || !["not_started", "paused_needs_prediction", "expired"].includes(state.retained_debugger?.phase ?? "")} onClick={() => void invoke("private:seal-retained")}>Seal debugger prediction</button>
-      <button disabled={busy || state.retained_debugger?.phase !== "sealed"} onClick={() => void invoke("private:continue-retained")}>Launch or continue private debugger</button>
+      <div className="private-prediction-fields"><label>Debugger predicate JSON<textarea maxLength={32768} value={prediction} disabled={busy} onChange={event => setRequest("prediction", event.target.value)} /></label>
+      <label>Debugger prediction rationale<textarea maxLength={8192} value={rationale} disabled={busy} onChange={event => setRequest("rationale", event.target.value)} /></label></div>
+      <div className="private-prediction-controls">
+      <button data-private-coach="seal" disabled={busy || !!pendingForms || !rationale.trim() || !["not_started", "paused_needs_prediction", "expired"].includes(state.retained_debugger?.phase ?? "")} onClick={() => void invoke("private:seal-retained")}>Seal debugger prediction</button>
+      <button disabled={busy || state.retained_debugger?.phase !== "sealed"} onClick={() => void invoke("private:continue-retained")}>Launch or continue private debugger</button></div>
     </section>}
     <section id="private-review"><AgentChanges doc={`private:${initial.document}`} state={agent} running={!!running} update={value => setAgent(value as Agent)} submitDecision={async body => {
       const actual = await request<Agent>("POST", `${base}/agent/decision`, { id: body.id, accepted: body.accepted, ...(body.new_text !== undefined ? { new_text: body.new_text } : {}) });
       await refresh(); return actual;
     }} /></section>
-    <section id="private-evidence"><button disabled={!canPromote || busy || running || state.current !== true} onClick={() => void invoke("private:promote")}>Revalidate and promote</button>
+    <section id="private-evidence"><button data-private-coach="promote" disabled={!canPromote || busy || running || state.current !== true} onClick={() => void invoke("private:promote")}>Revalidate and promote</button>
       {promotion && <p role="status">Host revalidation at {promotion.checked_at} for source {promotion.source_hash}. {promotion.scope}</p>}{evidence ? <PredictionEvidence value={evidence} sourceHash={state.source_hash} /> : <p>No retained execution attempt yet. The agent must seal a prediction before execution.</p>}</section>
     {open && <AnchoredCoach target={target} title={stage} onDismiss={() => void invoke("private:coach", { open: false })}>
       <p>{pending ? "Review the exact proposed source diff. Accept or reject it yourself; the agent cannot approve its own correction." : needsFuture ? "Before resuming the retained process, seal the next prediction against this source and paused context. Prior verdicts remain visible; selected target values stay withheld." : repaired ? "The repair passed the unchanged prediction. The original failure stays in history. Use Revalidate and promote when the host supplies a supported runtime and fixed input binding; the button remains unavailable otherwise." : failed ? "The comparison failed. Ask the agent to reason from the requirement and captured source, propose a reviewed repair, then repeat the unchanged prediction." : "Delegate the investigation. The agent records its own prediction before the existing runner and debugger compare it privately."}</p>

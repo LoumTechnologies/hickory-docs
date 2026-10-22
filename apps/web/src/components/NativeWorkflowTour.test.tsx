@@ -12,8 +12,16 @@ const owner = Symbol("test-captured-debugger");
 afterEach(() => { cleanup(); vi.clearAllMocks(); localStorage.clear(); retainDebugReading(owner, null); });
 it("creates a separate repository only on the explicit action and never sends a model request", async () => {
   vi.mocked(request).mockImplementation(async (method, path) => path === "/api/tour/practice" && method === "GET" ? { active: false } : { path: "/data/practice", opened: false });
-  render(<NativeWorkflowTour />); fireEvent.click(screen.getByText("AI engineer tour"));
+  render(<NativeWorkflowTour />);
+  const launcher = screen.getByRole("button", { name: "AI engineer tour" });
+  vi.spyOn(launcher, "getClientRects").mockReturnValue([{}] as unknown as DOMRectList);
+  launcher.scrollIntoView = vi.fn();
+  fireEvent.click(launcher);
   await waitFor(() => expect(request).toHaveBeenCalledWith("GET", "/api/tour/practice"));
+  fireEvent.click(screen.getByRole("button", { name: "Locate target" }));
+  expect(document.activeElement).toBe(launcher);
+  expect(launcher.scrollIntoView).toHaveBeenCalled();
+  expect(screen.queryByText(/The target is closed/)).toBeNull();
   expect(vi.mocked(request).mock.calls.filter(call => call[0] === "POST")).toHaveLength(0);
   fireEvent.click(screen.getByText("Create and open an isolated practice repository"));
   await screen.findByText("/data/practice");

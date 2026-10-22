@@ -1,0 +1,9 @@
+.private-prediction-coach { box-sizing: border-box; max-width: 1100px; margin: auto; padding: clamp(12px, 3vw, 24px); overflow-wrap: anywhere; }
+.private-prediction-coach section { margin-block: 1.5rem; min-width: 0; }
+.private-prediction-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1rem; margin-block: 1rem; }
+.private-prediction-fields label { display: flex; flex-direction: column; gap: .35rem; min-width: 0; }
+.private-prediction-request { grid-column: 1 / -1; }
+.private-prediction-fields input, .private-prediction-fields textarea { box-sizing: border-box; width: 100%; min-width: 0; font: inherit; }
+.private-prediction-fields textarea { min-height: 8rem; resize: vertical; }
+.private-prediction-controls { display: flex; flex-wrap: wrap; gap: .5rem; }
+@media (max-width: 540px) { .private-prediction-fields { grid-template-columns: minmax(0, 1fr); } }

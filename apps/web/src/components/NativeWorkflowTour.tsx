@@ -139,9 +139,9 @@ function OrdinaryWorkflowTour({ onOpen }: NativeWorkflowTourProps) {
   }, { offset: { type: "number", minimum: 0, maximum: 1000000000, integer: true }, limit: { type: "number", minimum: 1, maximum: 8192, integer: true } });
   const invoke = useUiCommands(commands);
   const click = (id: string, args: Record<string, UiValue> = {}) => { void invoke(`${parent}/${id}`, args).catch(reason => setError(String(reason))); };
-  const target = phase === 0 || phase === 3 ? '[data-coach-target="agent"]' : phase === 2 || phase === 4 ? '[data-coach-target="review"]' : '.cm-card-rail';
+  const target = !info?.active ? `[data-native-tour-launcher="${encodeURIComponent(instance)}"]` : phase === 0 || phase === 3 ? '[data-coach-target="agent"]' : phase === 2 || phase === 4 ? '[data-coach-target="review"]' : '.cm-card-rail';
   return <div className="workflow-tour-launcher">
-    <button className="btn" disabled={busy} onClick={() => click("toggle")}>{open ? "Close AI engineer tour" : "AI engineer tour"}</button>
+    <button data-native-tour-launcher={encodeURIComponent(instance)} className="btn" disabled={busy} onClick={() => click("toggle")}>{open ? "Close AI engineer tour" : "AI engineer tour"}</button>
     {open && <AnchoredCoach target={target} title="AI engineer tour" onDismiss={() => click("dismiss")}>
       <section className="workflow-tour workflow-tour--app" aria-label="Agent-first practice">
         <p><strong>Customer brief:</strong> A client retries outbound requests. Two 80ms attempts must share a 100ms total deadline, while short attempts and an empty sequence retain their behavior. The missed qualification is “including retries.” This deterministic model does not test network or OS timing.</p>
