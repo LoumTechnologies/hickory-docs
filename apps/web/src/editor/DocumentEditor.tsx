@@ -1,3 +1,4 @@
+import { replaceCapturedBlock } from "./replaceCapturedBlock";
 import type { UiActor } from "../lib/uiActions";
 import { useEditorEditing } from "./useEditorEditing";
 import { DebugLaunchRail } from "../debug/DebugRail";
@@ -826,22 +827,7 @@ export function DocumentEditor({
 
   /** Commit table data in its existing source representation. */
   const replaceBlockContent = useCallback(
-    (slot: RenderedSlot, text: string, userEvent = "input.table") => {
-      const view = viewRef.current;
-      if (!view) return;
-      const structure = structureOf(view.state);
-      const block = renderableBlocks(structure, view.state.doc.toString()).find((b) => b.from === slot.at);
-      if (!block) return;
-      const body = block.name === "markdown-table" ? text : text.endsWith("\n") ? text : `${text}\n`;
-      if (view.state.doc.sliceString(block.contentFrom, block.contentTo) === body) return;
-      view.dispatch({
-        changes: { from: block.contentFrom, to: block.contentTo, insert: body },
-        effects: block.name === "markdown-table" ? renderBlock.of(block.from) : [],
-        // A user event, so the CRDT and the undo history both treat it as
-        // typing — which is what it is.
-        userEvent,
-      });
-    },
+    (slot: RenderedSlot, text: string, userEvent = "input.table") => replaceCapturedBlock(viewRef.current, slot, text, userEvent),
     [],
   );
 

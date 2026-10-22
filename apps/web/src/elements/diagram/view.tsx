@@ -27,14 +27,24 @@ export const diagramView: ElementView = {
       ? (matchBlock({ span: slot.span, index: slot.index }, cx.diagramBlocks)?.body ?? null)
       : null;
     if (slot.renderer === "graph") {
+      const view = cx.view, capturedSource = slot.text;
+      const sourceCurrent = () => {
+        if (!view?.dom.isConnected) return false;
+        const block = structureOf(view.state).blocks.find(block => block.from === slot.at);
+        return !!block && view.state.doc.sliceString(block.contentFrom, block.contentTo) === capturedSource;
+      };
       return (
         <div className="rendered-diagram">
           <Suspense fallback={<div className="graph-editor graph-editor--loading" />}>
             <GraphEditorPanel
               source={slot.text}
+              sourceCurrent={sourceCurrent}
+              sourceWritable={() => !!view && !view.state.readOnly}
+              sourceOwner={view ?? undefined}
+              sourceRevision={() => view?.state.doc ?? null}
               resolved={resolved}
               assertions={states}
-              onCommit={(text) => cx.replaceBlockContent(slot, text, "input.diagram")}
+              onCommit={(text, actor) => sourceCurrent() && !view?.state.readOnly ? cx.replaceBlockContent(slot, text, actor?.kind === "agent" ? "input.uiAgentDiagram" : "input.diagram") : false}
             />
           </Suspense>
         </div>

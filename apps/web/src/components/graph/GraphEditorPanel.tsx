@@ -1,3 +1,5 @@
+import { useWidgetEngagement } from "../useWidgetEngagement";
+import type { UiActor } from "../../lib/uiActions";
 // The interactive graph editor behind a `<hick:diagram renderer="graph">`.
 //
 // The document is the only store. Every committed gesture — a drag ended, an
@@ -66,7 +68,11 @@ export interface GraphEditorPanelProps {
   /** Ids named by `asserts`, with live pass/fail state. */
   assertions?: DiagramPanelProps["assertions"];
   /** Write the scene back into the document — the only save there is. */
-  onCommit: (text: string) => void;
+  onCommit: (text: string, actor?: UiActor) => boolean | void;
+  sourceCurrent?: () => boolean;
+  sourceWritable?: () => boolean;
+  sourceOwner?: object;
+  sourceRevision?: () => object | null;
 }
 
 const NODE_TYPES = { scene: SceneNodeView };
@@ -80,7 +86,7 @@ function edgeKey(edge: SceneEdge): string {
 function flowNodes(
   scene: Scene,
   derived: boolean,
-  onRename: (id: string, label: string) => void,
+  onRename: (id: string, label: string, actor?: UiActor) => boolean | void,
   onResize: SceneNodeData["onResize"],
 ): Node[] {
   const layout = placeMissing(scene.nodes, scene.layout);
@@ -197,18 +203,18 @@ function canvasHeight(scene: Scene): number {
   return Math.min(640, Math.max(280, bottom - top + 140));
 }
 
-function GraphEditor({ source, resolved, assertions, onCommit }: GraphEditorPanelProps) {
+function GraphEditor({ source, resolved, assertions, onCommit, sourceCurrent: hostCurrent, sourceWritable, sourceOwner, sourceRevision }: GraphEditorPanelProps) {
   // The last byte form THIS panel wrote. A source that comes back equal is
   // our own commit echoing through the registry; anything else is an external
   // edit — undo, a collaborator, the agent — and the document wins.
   const lastCommitted = useRef<string | null>(null);
   const sceneRef = useRef<Scene | null>(null);
-  const currentInput = useRef({ source, resolved });
-  currentInput.current = { source, resolved };
+  const currentInput = useRef({ source, resolved, hostCurrent, sourceWritable });
+  currentInput.current = { source, resolved, hostCurrent, sourceWritable };
   const loadedInput = useRef<{ source: string; resolved: string | null | undefined } | null>(null);
   const sourceCurrent = () => {
     const loaded = loadedInput.current, live = currentInput.current;
-    return !!loaded && live.resolved === loaded.resolved &&
+    return (!live.hostCurrent || live.hostCurrent()) && !!loaded && live.resolved === loaded.resolved &&
       (live.source === loaded.source || live.source === lastCommitted.current);
   };
   const [parseError, setParseError] = useState<string | null>(null);
@@ -222,14 +228,14 @@ function GraphEditor({ source, resolved, assertions, onCommit }: GraphEditorPane
   // Node data closures are built when the scene loads; they read the live
   // handlers through these refs so a stale closure cannot commit through an
   // old scene.
-  const renameRef = useRef<(id: string, label: string) => void>(() => {});
+  const renameRef = useRef<(id: string, label: string, actor?: UiActor) => boolean | void>(() => {});
   const resizeRef = useRef<SceneNodeData["onResize"]>(() => {});
   // Whether the reader is WORKING IN the canvas (focus is inside the panel).
   // The wheel belongs to whoever owns the moment: scrolling a document that
   // happens to contain a diagram must scroll the document, and only a canvas
   // you clicked into may turn the same gesture into zoom — the map-embedded-
   // in-a-page rule. Escape hands the wheel back.
-  const [active, setActive] = useState(false);
+  const engagement = useWidgetEngagement("graph canvas"), active = engagement.engaged;
   // What is selected on the canvas, for the inspector row. Ids only — the
   // scene stays the single source of everything else.
   const [selection, setSelection] = useState<{ nodes: string[]; edges: string[] }>({
@@ -238,9 +244,9 @@ function GraphEditor({ source, resolved, assertions, onCommit }: GraphEditorPane
   });
 
   const commitScene = useCallback(
-    (committed: Scene) => {
-      if (!sourceCurrent()) {
-        setRefusal("The document changed; wait for the current scene before editing.");
+    (committed: Scene, actor?: UiActor) => {
+      if (!sourceCurrent() || currentInput.current.sourceWritable?.() === false) {
+        setRefusal("The document changed, closed or is read-only; wait for an editable current scene.");
         return false;
       }
       let scene = committed;
@@ -257,11 +263,13 @@ function GraphEditor({ source, resolved, assertions, onCommit }: GraphEditorPane
       // never moves a line; it keeps the document's refs tidy. A derived
       // scene's edges are the fragment's and are left exactly as pasted.
       if (!scene.paste) scene = { ...scene, edges: renumberSides(scene.edges) };
+      const text = `\n${serializeScene(scene)}`;
+      const accepted = actor?.kind === "agent" ? onCommit(text, actor) : onCommit(text);
+      if (accepted === false) { setRefusal("The document refused this graph edit; reload the current source."); return false; }
       sceneRef.current = scene;
       const nodeIds = new Set(scene.nodes.map(node => node.id));
       const edgeIds = new Set(keyedEdges(scene.edges).map(edge => edge.key));
       setSelection(current => ({ nodes: current.nodes.filter(id => nodeIds.has(id)), edges: current.edges.filter(id => edgeIds.has(id)) }));
-      const text = `\n${serializeScene(scene)}`;
       lastCommitted.current = text;
       // The rebuild must not cost the reader their selection: finishing a
       // resize (or applying a colour) is not "done with this node" — it is
@@ -276,30 +284,29 @@ function GraphEditor({ source, resolved, assertions, onCommit }: GraphEditorPane
         const kept = new Set(current.filter((e) => e.selected).map((e) => e.id));
         return flowEdges(scene).map((e) => (kept.has(e.id) ? { ...e, selected: true } : e));
       });
-      onCommit(text);
       return true;
     },
     [onCommit, setNodes, setEdges],
   );
 
   const rename = useCallback(
-    (id: string, label: string) => {
+    (id: string, label: string, actor?: UiActor) => {
       const scene = sceneRef.current;
       if (!scene || scene.paste || !scene.nodes.some(node => node.id === id)) return;
       return commitScene({
         ...scene,
         nodes: scene.nodes.map((n) => (n.id === id ? { ...n, label } : n)),
-      });
+      }, actor);
     },
     [commitScene],
   );
   renameRef.current = rename;
-  const renameStable = useCallback((id: string, label: string) => renameRef.current(id, label), []);
+  const renameStable = useCallback((id: string, label: string, actor?: UiActor) => renameRef.current(id, label, actor), []);
 
   // A resize ended: snap the box to the grid — size and place both, so two
   // resized boxes line up without anyone squinting — and commit.
   const resize = useCallback(
-    (id: string, at: { x: number; y: number; w: number; h: number }) => {
+    (id: string, at: { x: number; y: number; w: number; h: number }, actor?: UiActor) => {
       const scene = sceneRef.current;
       if (!scene || !scene.nodes.some(node => node.id === id)) return;
       const snapped: NodeLayout = {
@@ -308,7 +315,7 @@ function GraphEditor({ source, resolved, assertions, onCommit }: GraphEditorPane
         w: Math.max(GRID * 6, snap(at.w)),
         h: Math.max(GRID * 3, snap(at.h)),
       };
-      return commitScene({ ...scene, layout: { ...scene.layout, [id]: snapped } });
+      return commitScene({ ...scene, layout: { ...scene.layout, [id]: snapped } }, actor);
     },
     [commitScene],
   );
@@ -352,7 +359,7 @@ function GraphEditor({ source, resolved, assertions, onCommit }: GraphEditorPane
   );
 
   const moveNode = useCallback(
-    (id: string, position: { x: number; y: number }) => {
+    (id: string, position: { x: number; y: number }, actor?: UiActor) => {
       const scene = sceneRef.current;
       if (!scene || !scene.nodes.some(node => node.id === id)) return;
       const before = scene.layout[id];
@@ -366,7 +373,7 @@ function GraphEditor({ source, resolved, assertions, onCommit }: GraphEditorPane
             y: Math.round(position.y),
           },
         },
-      });
+      }, actor);
     },
     [commitScene],
   );
@@ -420,7 +427,7 @@ function GraphEditor({ source, resolved, assertions, onCommit }: GraphEditorPane
   }, []);
 
   const connectNodes = useCallback(
-    (connection: Connection) => {
+    (connection: Connection, actor?: UiActor) => {
       const scene = sceneRef.current;
       if (!scene || scene.paste || !connection.source || !connection.target) return;
       // A flank handle becomes a slot that orders before or after the
@@ -447,7 +454,7 @@ function GraphEditor({ source, resolved, assertions, onCommit }: GraphEditorPane
         while (keys.has(`${edge.from}->${edge.to}#${n}`)) n += 1;
         edge.id = `${edge.from}->${edge.to}#${n}`;
       }
-      return commitScene({ ...scene, edges: [...scene.edges, edge] });
+      return commitScene({ ...scene, edges: [...scene.edges, edge] }, actor);
     },
     [commitScene],
   );
@@ -463,7 +470,7 @@ function GraphEditor({ source, resolved, assertions, onCommit }: GraphEditorPane
   // Topology for a derived scene belongs to its fragment, so there the
   // gesture is off (`edgesReconnectable` below).
   const reconnectEdge = useCallback(
-    (id: string, connection: Connection) => {
+    (id: string, connection: Connection, actor?: UiActor) => {
       const scene = sceneRef.current;
       if (!scene || scene.paste || !connection.source || !connection.target) return;
       // Occupancy WITHOUT the edge being moved: its old seat is not taken
@@ -490,7 +497,7 @@ function GraphEditor({ source, resolved, assertions, onCommit }: GraphEditorPane
               }
             : edge,
         ),
-      });
+      }, actor);
     },
     [commitScene],
   );
@@ -498,7 +505,7 @@ function GraphEditor({ source, resolved, assertions, onCommit }: GraphEditorPane
   const onReconnect = useCallback((edge: Edge, connection: Connection) => reconnectEdge(edge.id, connection), [reconnectEdge]);
 
   const deleteNodes = useCallback(
-    (ids: string[]) => {
+    (ids: string[], actor?: UiActor) => {
       const scene = sceneRef.current;
       if (!scene || scene.paste) return;
       const gone = new Set(ids);
@@ -506,7 +513,7 @@ function GraphEditor({ source, resolved, assertions, onCommit }: GraphEditorPane
         ...scene,
         nodes: scene.nodes.filter((n) => !gone.has(n.id)),
         edges: scene.edges.filter((e) => !gone.has(e.from) && !gone.has(e.to)),
-      });
+      }, actor);
     },
     [commitScene],
   );
@@ -514,7 +521,7 @@ function GraphEditor({ source, resolved, assertions, onCommit }: GraphEditorPane
   const onNodesDelete = useCallback((deleted: Node[]) => deleteNodes(deleted.map(node => node.id)), [deleteNodes]);
 
   const deleteEdges = useCallback(
-    (ids: string[]) => {
+    (ids: string[], actor?: UiActor) => {
       const scene = sceneRef.current;
       if (!scene || scene.paste) return;
       const gone = new Set(ids);
@@ -523,14 +530,14 @@ function GraphEditor({ source, resolved, assertions, onCommit }: GraphEditorPane
         edges: keyedEdges(scene.edges)
           .filter(({ key }) => !gone.has(key))
           .map(({ edge }) => edge),
-      });
+      }, actor);
     },
     [commitScene],
   );
 
   const onEdgesDelete = useCallback((deleted: Edge[]) => deleteEdges(deleted.map(edge => edge.id)), [deleteEdges]);
 
-  const addNode = useCallback(() => {
+  const addNode = useCallback((actor?: UiActor) => {
     const scene = sceneRef.current;
     if (!scene || scene.paste) return;
     let n = scene.nodes.length + 1;
@@ -539,26 +546,26 @@ function GraphEditor({ source, resolved, assertions, onCommit }: GraphEditorPane
     return commitScene({
       ...scene,
       nodes: [...scene.nodes, { id, label: id }],
-    });
+    }, actor);
   }, [commitScene]);
 
-  const applyAutoLayout = useCallback(() => {
+  const applyAutoLayout = useCallback((actor?: UiActor) => {
     const scene = sceneRef.current;
     if (!scene) return;
-    return commitScene({ ...scene, layout: autoLayout(scene) });
+    return commitScene({ ...scene, layout: autoLayout(scene) }, actor);
   }, [commitScene]);
 
   // Restyle every selected node. Styling lives on the node — topology — so a
   // derived scene refuses it (the inspector shows a note instead there).
   const patchNodes = useCallback(
-    (ids: string[], patch: Partial<SceneNode>) => {
+    (ids: string[], patch: Partial<SceneNode>, actor?: UiActor) => {
       const scene = sceneRef.current;
       if (!scene || scene.paste || ids.length === 0) return;
       const chosen = new Set(ids);
       return commitScene({
         ...scene,
         nodes: scene.nodes.map((n) => (chosen.has(n.id) ? { ...n, ...patch } : n)),
-      });
+      }, actor);
     },
     [commitScene],
   );
@@ -566,7 +573,7 @@ function GraphEditor({ source, resolved, assertions, onCommit }: GraphEditorPane
   // Restyle every selected line — colour, dash, arrowheads, label.
   const styleNodes = (patch: Partial<SceneNode>) => patchNodes(selection.nodes, patch);
   const patchEdges = useCallback(
-    (ids: string[], patch: Partial<SceneEdge>) => {
+    (ids: string[], patch: Partial<SceneEdge>, actor?: UiActor) => {
       const scene = sceneRef.current;
       if (!scene || scene.paste || ids.length === 0) return;
       const chosen = new Set(ids);
@@ -575,7 +582,7 @@ function GraphEditor({ source, resolved, assertions, onCommit }: GraphEditorPane
         edges: keyedEdges(scene.edges).map(({ key, edge }) =>
           chosen.has(key) ? { ...edge, ...patch } : edge,
         ),
-      });
+      }, actor);
     },
     [commitScene],
   );
@@ -585,16 +592,17 @@ function GraphEditor({ source, resolved, assertions, onCommit }: GraphEditorPane
   // Commit one line's label from the on-the-line editor. By KEY, not by
   // selection: the double-clicked line need not be the selected one.
   const labelEdge = useCallback(
-    (key: string, label: string) => {
-      setEditingEdge(null);
+    (key: string, label: string, actor?: UiActor) => {
       const scene = sceneRef.current;
       if (!scene || scene.paste) return;
-      commitScene({
+      const applied = commitScene({
         ...scene,
         edges: keyedEdges(scene.edges).map((entry) =>
           entry.key === key ? { ...entry.edge, label: label.trim() || undefined } : entry.edge,
         ),
-      });
+      }, actor);
+      if (applied) setEditingEdge(null);
+      return applied;
     },
     [commitScene],
   );
@@ -619,7 +627,7 @@ function GraphEditor({ source, resolved, assertions, onCommit }: GraphEditorPane
         data: {
           ...e.data,
           editing: e.id === editingEdge,
-          onLabel: (label: string) => labelEdgeRef.current(e.id, label),
+          onLabel: (label: string, actor?: UiActor) => labelEdgeRef.current(e.id, label, actor),
           onCancel: () => cancelLabelRef.current(),
         },
       })),
@@ -634,7 +642,7 @@ function GraphEditor({ source, resolved, assertions, onCommit }: GraphEditorPane
   }, []);
 
   const invokeGraph = useGraphActions({
-    scene: sceneRef.current, current: sourceCurrent, source, resolved, selection,
+    scene: sceneRef.current, current: sourceCurrent, writable: () => currentInput.current.sourceWritable?.() !== false, source, resolved, selection, sourceOwner, sourceRevision,
     assertions, error: parseError ?? refusal, active, viewport, setViewport, commit: commitScene,
     rename, resize, move: moveNode, patchNodes, patchEdges, deleteNodes, deleteEdges,
     connect: connectNodes, reconnect: reconnectEdge, openEdgeLabel: setEditingEdge,
@@ -677,28 +685,8 @@ function GraphEditor({ source, resolved, assertions, onCommit }: GraphEditorPane
       // was looking at. With focus in here, keys target the widget, which
       // both CodeMirror and the rendered-block guard already leave alone.
       tabIndex={-1}
-      onFocus={() => setActive(true)}
-      onBlur={(event) => {
-        if (!event.currentTarget.contains(event.relatedTarget as Element | null)) {
-          setActive(false);
-        }
-      }}
-      onKeyDown={(event) => {
-        // Escape is "I am done in here": the wheel scrolls the document
-        // again. But not when a field inside is using Escape for its own
-        // cancel (the rename input): that Escape means "undo my typing".
-        const target = event.target as HTMLElement;
-        if (event.key === "Escape" && !target.closest("input, textarea")) {
-          (event.currentTarget as HTMLElement).blur();
-        }
-      }}
-      onPointerDownCapture={(event) => {
-        const root = event.currentTarget;
-        const target = event.target as HTMLElement;
-        // Never steal from a field someone is typing in (the rename input).
-        if (target.closest("input, textarea, [contenteditable]")) return;
-        if (!root.contains(document.activeElement)) root.focus({ preventScroll: true });
-      }}
+      ref={engagement.root}
+      {...engagement.handlers}
     >
       <div className="graph-editor__toolbar">
         {!derived && (
@@ -784,7 +772,7 @@ function GraphEditor({ source, resolved, assertions, onCommit }: GraphEditorPane
             </button>
             <GraphInspectorLabel key={edgeKey(selectedEdge)} identity={edgeKey(selectedEdge)}
               value={selectedEdge.label ?? ""}
-              commit={label => patchEdges([edgeKey(selectedEdge)], { label: label || undefined })} />
+              commit={(label, actor) => patchEdges([edgeKey(selectedEdge)], { label: label || undefined }, actor)} />
           </span>
         ) : (
           <span className="graph-inspector__hint muted">

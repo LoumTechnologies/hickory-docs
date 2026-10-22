@@ -1131,3 +1131,14 @@ and the October 22 handoff for exact boundary assumptions and source hashes.
 The actual pinned Codex adapter accepts initialize/HTTP MCP but required
 authentication for session creation in the credential-free setup probe. This is
 not a paid-provider, native-package or universal parity witness.
+
+
+The table's Engaged wrapper is live through elements/table/view.tsx; the earlier
+absence-of-caller inference was insufficient. It and the graph canvas now share
+an explicit focus/wheel controller. Graph source changes retain UiActor through
+the actual block writer, bind live block/source/readonly ownership and preserve
+refused drafts. Source ownership does not disable read-only viewport/selection
+controls. The e11ee036 native package was built/unpacked and its native coach
+setup/lifecycle witnessed, but predates these later widgets. The imperative
+Markdown task checkbox and comparison popover/restore paths are concrete next
+audit integrations. See the active handoff for focused results and exact hashes.

@@ -552,6 +552,7 @@ it("shares graph node mutations and refuses derived topology while retaining lay
   await waitFor(() => expect(actions().some(a => a.label === "Rename graph node api")).toBe(true));
   expect(await run("Rename graph node api", { label: "Service" })).toMatchObject({ status: "result", outcome: { value: { commit_callback_requested: true, saved: false } } });
   expect(onCommit.mock.lastCall![0]).toContain('"label": "Service"');
+  expect(onCommit.mock.lastCall![1]).toEqual({ id: "python:turn", kind: "agent" });
   await run("Resize graph node api", { x: 19, y: 35, w: 100, h: 50 });
   expect(parseSceneSource(onCommit.mock.lastCall![0])).toMatchObject({ ok: true, scene: { layout: { api: { x: 16, y: 32, w: 96, h: 48 } } } });
   await run("Move graph node api", { x: 40.2, y: 22.8 });
@@ -594,10 +595,17 @@ it("shares graph selection, finite inspector palettes and validated connection l
   await waitFor(() => expect(actions().some(a => a.label === "Select graph objects")).toBe(true));
   expect(await run("Set graph viewport", { x: 120, y: -20, zoom: 1.5 })).toMatchObject({ status: "result", outcome: { value: { viewport_changed: true } } });
   expect(setViewportMock).toHaveBeenCalledWith({ x: 120, y: -20, zoom: 1.5 }, { duration: 0 });
+  await run("Set graph canvas engagement", { engaged: true });
+  expect(document.activeElement).toBe(screen.getByTestId("graph-editor"));
+  expect(flowProps.zoomOnScroll).toBe(true);
+  await run("Set graph canvas engagement", { engaged: false });
+  expect(flowProps.zoomOnScroll).toBe(false);
+  expect(onCommit).not.toHaveBeenCalled();
   await run("Select graph objects", { nodes: ["api"], edges: [] });
   expect(screen.getByTestId("node-inspector")).toBeTruthy();
   expect((flowProps.nodes as { id: string; selected: boolean }[]).find(n => n.id === "api")?.selected).toBe(true);
   await run("Set graph node api shape", { value: "diamond" });
+  expect(onCommit.mock.lastCall![1]).toEqual({ id: "acp:turn", kind: "agent" });
   expect((screen.getByRole("combobox", { name: "Shape" }) as HTMLSelectElement).value).toBe("diamond");
   fireEvent.change(screen.getByRole("combobox", { name: "Shape" }), { target: { value: "circle" } });
   expect(parseSceneSource(onCommit.mock.lastCall![0])).toMatchObject({ ok: true, scene: { nodes: [{ id: "api", shape: "circle" }, { id: "db" }] } });
@@ -610,6 +618,71 @@ it("shares graph selection, finite inspector palettes and validated connection l
   await run("Reconnect graph edge api->db#2", { from: "db", to: "api", from_handle: "", to_handle: "" });
   await run("Set graph edge api->db#2 label", { label: "response" });
   expect(parseSceneSource(onCommit.mock.lastCall![0])).toMatchObject({ ok: true, scene: { edges: [{ from: "api", to: "db" }, { id: "api->db#2", from: "db", to: "api", label: "response" }] } });
+  expect(onCommit.mock.lastCall![1]).toEqual({ id: "acp:turn", kind: "agent" });
   await run("Delete graph node api");
   expect(parseSceneSource(onCommit.mock.lastCall![0])).toMatchObject({ ok: true, scene: { nodes: [{ id: "db" }], edges: [] } });
+});
+
+
+// Guarantee: docs/guarantees/agent/scoped-reading-surfaces-share-native-actions.md
+it("refuses parent retirement before React updates and does not accept a refused commit locally", async () => {
+  const { UiActions } = await import("../../lib/uiActions");
+  const { UiActionContext } = await import("../../lib/uiActionBridge");
+  const registry = new UiActions({ workspace: "p", window: "guard" }, () => true, async () => {});
+  let editable = true, writable = true;
+  const onCommit = vi.fn(() => false);
+  render(<UiActionContext.Provider value={registry}><GraphEditorPanel source={HAND_DRAWN} sourceCurrent={() => editable} sourceWritable={() => writable} onCommit={onCommit} /></UiActionContext.Provider>);
+  const actions = () => registry.groups().groups.flatMap(group => registry.observe(group, 64).actions);
+  await waitFor(() => expect(actions().some(action => action.label === "Rename graph node api")).toBe(true));
+  const command = actions().find(action => action.label === "Rename graph node api")!;
+  let result;
+  await act(async () => { result = await registry.act(registry.scope, { id: "agent", kind: "agent" }, { handle: command.handle, arguments: { label: "Refused" }, request_id: "refused" }); });
+  expect(result).toMatchObject({ outcome: { status: "unavailable" } });
+  expect((flowProps.nodes as { data: { node: { label: string } } }[])[0].data.node.label).not.toBe("Refused");
+  onCommit.mockClear(); writable = false;
+  expect(actions().find(action => action.label === "Rename graph node api")!.enabled).toBe(false);
+  const viewport = actions().find(action => action.label === "Set graph viewport")!;
+  expect(viewport.enabled).toBe(true);
+  await act(async () => { result = await registry.act(registry.scope, { id: "agent", kind: "agent" }, { handle: viewport.handle, arguments: { x: 0, y: 0, zoom: 1 }, request_id: "readonly-view" }); });
+  expect(result).toMatchObject({ outcome: { status: "completed" } });
+  expect(onCommit).not.toHaveBeenCalled();
+  editable = false;
+  const latest = actions().find(action => action.label === "Rename graph node api")!;
+  await act(async () => { result = await registry.act(registry.scope, { id: "agent", kind: "agent" }, { handle: latest.handle, arguments: { label: "Stale" }, request_id: "stale-owner" }); });
+  expect(result).not.toMatchObject({ outcome: { status: "completed" } });
+  expect(onCommit).not.toHaveBeenCalled();
+});
+
+// Guarantee: docs/guarantees/agent/scoped-reading-surfaces-share-native-actions.md
+it("writes graph actions through the actual document block with agent attribution and live revision guards", async () => {
+  const { UiActions } = await import("../../lib/uiActions");
+  const { UiActionContext } = await import("../../lib/uiActionBridge");
+  const { EditorState, Transaction } = await import("@codemirror/state");
+  const { EditorView } = await import("@codemirror/view");
+  const { diagramView } = await import("../../elements/diagram/view");
+  const { structureOf } = await import("../../editor/wysiwyg");
+  const { replaceCapturedBlock } = await import("../../editor/replaceCapturedBlock");
+  const registry = new UiActions({ workspace: "doc", window: "graph" }, () => true, async () => {});
+  const parent = document.body.appendChild(document.createElement("div")), events: string[] = [];
+  const editor = new EditorView({ parent, state: EditorState.create({ doc: `# Intro\n\n<hick:diagram renderer="graph">\n${HAND_DRAWN}</hick:diagram>\n`, extensions: [EditorView.updateListener.of(update => { for (const transaction of update.transactions) { const event = transaction.annotation(Transaction.userEvent); if (event) events.push(event); } })] }) });
+  try {
+    const block = structureOf(editor.state).blocks.find(block => block.name === "diagram")!;
+    const slot = { at: block.from, text: editor.state.doc.sliceString(block.contentFrom, block.contentTo), renderer: "graph", asserts: [], index: 0 } as unknown as import("../../editor/rendered").RenderedSlot;
+    render(<UiActionContext.Provider value={registry}>{diagramView.render(slot, { view: editor, path: "doc.md", execBlocks: [], diagramBlocks: [], runningCells: new Set(), replaying: [], replaceBlockContent: (slot, text, event) => replaceCapturedBlock(editor, slot, text, event ?? "input") })}</UiActionContext.Provider>);
+    const actions = () => registry.groups().groups.flatMap(group => registry.observe(group, 64).actions);
+    await waitFor(() => expect(actions().some(action => action.label === "Rename graph node api")).toBe(true));
+    const old = actions().find(action => action.label === "Rename graph node api")!;
+    // An unrelated prose edit expires old handles but needs no widget rerender.
+    act(() => editor.dispatch({ changes: { from: 2, to: 3, insert: "Z" } }));
+    let result;
+    await act(async () => { result = await registry.act(registry.scope, { id: "acp:doc", kind: "agent" }, { handle: old.handle, arguments: { label: "Stale" }, request_id: "old" }); });
+    expect(result).not.toMatchObject({ outcome: { status: "completed" } });
+    const current = actions().find(action => action.label === "Rename graph node api")!;
+    expect(current.enabled).toBe(true);
+    await act(async () => { result = await registry.act(registry.scope, { id: "acp:doc", kind: "agent" }, { handle: current.handle, arguments: { label: "Agent approved source" }, request_id: "current" }); });
+    expect(result).toMatchObject({ outcome: { status: "completed" } });
+    expect(editor.state.doc.toString()).toContain('"label": "Agent approved source"');
+    expect(editor.state.doc.toString()).not.toContain('"label": "Stale"');
+    expect(events).toEqual(["input.uiAgentDiagram"]);
+  } finally { editor.destroy(); parent.remove(); }
 });

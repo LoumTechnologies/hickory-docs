@@ -1,7 +1,8 @@
+import type { UiActor } from "../../lib/uiActions";
 import { useGraphLabelDraft } from "./useGraphLabelDraft";
 
 export function GraphInspectorLabel({ identity, value, commit }: {
-  identity: string; value: string; commit: (value: string) => void;
+  identity: string; value: string; commit: (value: string, actor?: UiActor) => boolean | void;
 }) {
   const label = useGraphLabelDraft({ identity: `inspector:${identity}`, value, initiallyOpen: true, commit });
   return <>

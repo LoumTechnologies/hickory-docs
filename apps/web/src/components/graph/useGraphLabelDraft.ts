@@ -1,3 +1,4 @@
+import type { UiActor } from "../../lib/uiActions";
 import { useId, useRef, useState } from "react";
 import { useUiCommands, useUiRevision } from "../../lib/uiActionBridge";
 import { useUiReading } from "../../lib/uiReading";
@@ -6,7 +7,7 @@ import type { UiOutcome } from "../../lib/uiActions";
 /** A visible label draft is separate from the committed scene. */
 export function useGraphLabelDraft(input: {
   identity: string; value: string; disabled?: boolean; initiallyOpen?: boolean; nonempty?: boolean;
-  commit: (value: string) => void; close?: () => void;
+  commit: (value: string, actor?: UiActor) => boolean | void; close?: () => void;
 }) {
   const parent = `graph-label:${useId()}`;
   type Draft = { identity: string; baseline: string; value: string };
@@ -18,7 +19,7 @@ export function useGraphLabelDraft(input: {
   const revision = useUiRevision(() => [input.identity, input.value, input.disabled, state.current, error]);
   const open = () => { if (input.disabled || state.current) return; setError(null); update({ identity: input.identity, baseline: input.value, value: input.value }); };
   const change = (value: string) => { if (state.current) update({ ...state.current, value }); };
-  const finish = (keep: boolean): UiOutcome => {
+  const finish = (keep: boolean, actor?: UiActor): UiOutcome => {
     const current = state.current;
     if (!current) return { status: "unavailable", reason: "Open the label editor first" };
     if (keep && (input.disabled || current.identity !== input.identity || current.baseline !== input.value)) {
@@ -34,8 +35,11 @@ export function useGraphLabelDraft(input: {
       setError("A diagram label cannot contain </hick:.");
       return { status: "requires_input", reason: "Remove the diagram closing delimiter or cancel", request: `${parent}:delimiter` };
     }
+    if (keep) {
+      const applied = actor?.kind === "agent" ? input.commit(current.value.trim(), actor) : input.commit(current.value.trim());
+      if (applied === false) { setError("The current source refused this label; the draft is retained."); return { status: "unavailable", reason: "The current source refused this label; the draft is retained" }; }
+    } else input.close?.();
     update(null); setError(null);
-    if (keep) input.commit(current.value.trim()); else input.close?.();
     return { status: "completed", value: { draft_closed: true, commit_callback_requested: keep, saved: false } };
   };
   useUiReading(`graph label draft ${input.identity}`, { committed: input.value, draft: draft?.value ?? null,
@@ -51,7 +55,7 @@ export function useGraphLabelDraft(input: {
     ...([true, false] as const).map(keep => ({ key: `${parent}:${keep ? "commit" : "cancel"}`, command: {
       parent, subject: parent, label: `${keep ? "Commit" : "Cancel"} graph label draft ${input.identity}`,
       parameters: {}, prerequisites: [], read: () => ({ revision: revision(), enabled: !!state.current }),
-      execute: async () => finish(keep),
+      execute: async (_args: unknown, actor: UiActor) => finish(keep, actor),
     } })),
   ]);
   return { editing: !!draft, value: draft?.value ?? input.value, error,

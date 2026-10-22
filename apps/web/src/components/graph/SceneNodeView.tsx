@@ -1,3 +1,4 @@
+import type { UiActor } from "../../lib/uiActions";
 // One node on the graph canvas: the shape, the label, and — on double click,
 // when the topology is the author's to edit — the label as an input.
 //
@@ -17,7 +18,7 @@ import type { SceneNode, Side } from "./scene";
 export interface SceneNodeData extends Record<string, unknown> {
   node: SceneNode;
   derived: boolean;
-  onRename: (id: string, label: string) => void;
+  onRename: (id: string, label: string, actor?: UiActor) => boolean | void;
   /** A resize ended: the node's new place and size, to snap and commit. */
   onResize: (id: string, layout: { x: number; y: number; w: number; h: number }) => void;
   /** Which slots each side has lines attached to — decides how many bubbles
@@ -31,7 +32,7 @@ export function SceneNodeView({ data, selected }: NodeProps) {
   // bubbles earn their ink (see below).
   const connecting = useConnection((c) => c.inProgress);
   const label = useGraphLabelDraft({ identity: `node:${node.id}`, value: node.label ?? node.id,
-    disabled: derived, nonempty: true, commit: value => onRename(node.id, value) });
+    disabled: derived, nonempty: true, commit: (value, actor) => onRename(node.id, value, actor) });
   const inputRef = useRef<HTMLInputElement>(null);
   useEffect(() => { if (label.editing) inputRef.current?.select(); }, [label.editing]);
 

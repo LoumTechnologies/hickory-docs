@@ -144,3 +144,26 @@ project-debugger cases and the navigation loader retirement/release case pass;
 targeted TypeScript passes. LLM implementation review is partial; human judgment
 is not supplied. Exact dependency hashes and failures/corrections are in the
 issue-72 handoff. This does not attest current packaged/provider/release behavior.
+
+
+### Embedded widget ownership and graph source attribution — 2026-10-22
+
+The table wrapper and graph canvas share focus/wheel ownership with structured
+engagement actions. Focus changes do not silently blur an unfinished field;
+request completion/cancellation first. Normal focus callbacks can have effects.
+Graph source gestures and label commits forward the actual model actor and mark
+the document transaction input.uiAgentDiagram. A refused commit is not adopted
+as committed local state, and its label draft is retained. Read-only sources
+retain view/selection controls. Document source writes require the current owned
+block, a writable connected view and observed source acceptance after filters.
+Old handles expire on document revision changes; unrelated prose edits do not
+permanently disable newly observed widget controls. These are ordinary source
+edits, not saved/verified results or human approval declarations.
+
+LLM review remains partial. Focused graph/Engaged/CodeMirror cases, two selected
+existing editor cases, the real Chrome scoped graph flow and targeted TypeScript
+passed. The handoff records exact dependencies, intervening fixes and separate
+native e11ee036 package evidence; that historical package does not include this
+later widget slice. Human judgment is absent. Falsifiers include an old handle
+changing new source, a model edit marked native, a refused callback adopting a
+scene, lost draft after refusal, or implicit field blur committing another edit.

@@ -15,44 +15,13 @@
 // engaged, the canvas turns zoom-on-scroll on. This wrapper only owns the
 // signal.
 
-import { useState } from "react";
 import type { ReactNode } from "react";
+import { useWidgetEngagement } from "./useWidgetEngagement";
 
-export function Engaged({
-  className,
-  children,
-}: {
-  className?: string;
-  children: ReactNode;
-}) {
-  const [on, setOn] = useState(false);
-  return (
-    <div
-      className={`engaged-gate${on ? " engaged-gate--on" : ""}${className ? ` ${className}` : ""}`}
-      tabIndex={-1}
-      onFocus={() => setOn(true)}
-      onBlur={(event) => {
-        if (!event.currentTarget.contains(event.relatedTarget as Element | null)) {
-          setOn(false);
-        }
-      }}
-      onKeyDown={(event) => {
-        // Escape disengages — but not when a field inside is using Escape
-        // for its own cancel (a cell edit, a rename): that Escape means
-        // "undo my typing", not "I am done in here".
-        const target = event.target as HTMLElement;
-        if (event.key === "Escape" && !target.closest("input, textarea")) {
-          (event.currentTarget as HTMLElement).blur();
-        }
-      }}
-      onPointerDownCapture={(event) => {
-        const root = event.currentTarget;
-        const target = event.target as HTMLElement;
-        if (target.closest("input, textarea, [contenteditable]")) return;
-        if (!root.contains(document.activeElement)) root.focus({ preventScroll: true });
-      }}
-    >
-      {children}
-    </div>
-  );
+export function Engaged({ className, children }: { className?: string; children: ReactNode }) {
+  const engagement = useWidgetEngagement("embedded widget");
+  return <div ref={engagement.root} {...engagement.handlers} tabIndex={-1}
+    className={`engaged-gate${engagement.engaged ? " engaged-gate--on" : ""}${className ? ` ${className}` : ""}`}>
+    {children}
+  </div>;
 }

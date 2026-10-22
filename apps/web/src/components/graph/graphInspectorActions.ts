@@ -13,7 +13,7 @@ export function graphInspectorActions(scene: Scene | null, controls: GraphContro
   const edges = keyedEdges(scene.edges);
   const choice = (choices: string[]): UiField => ({ type: "string", maxLength: Math.max(1, ...choices.map(s => s.length)), choices });
   const list = (choices: string[]): UiField => ({ type: "array", items: choice(choices), maxItems: choices.length });
-  actions.push({ id: "selection", label: "Select graph objects", parameters: {
+  actions.push({ id: "selection", viewOnly: true, label: "Select graph objects", parameters: {
     nodes: list(ids), edges: list(edges.map(edge => edge.key)),
   }, execute: async args => {
     const selected = { nodes: [...new Set(args.nodes as string[])], edges: [...new Set(args.edges as string[])] };
@@ -24,28 +24,28 @@ export function graphInspectorActions(scene: Scene | null, controls: GraphContro
     for (const [field, choices] of Object.entries({ shape: [...SHAPES], fill: ["", ...FILLS.map(c => c.value)],
       stroke: ["", ...STROKES.map(c => c.value)], text: ["", ...STROKES.map(c => c.value)] })) {
       actions.push({ id: `node:${node.id}:${field}`, label: `Set graph node ${node.id} ${field}`, topology: true,
-        parameters: { value: choice(choices) }, execute: async args => receipt(controls.patchNodes([node.id], {
+        parameters: { value: choice(choices) }, execute: async (args, actor) => receipt(controls.patchNodes([node.id], {
           [field]: args.value === "" || (field === "shape" && args.value === "rect") ? undefined : args.value,
-        })) });
+        }, actor)) });
     }
     actions.push({ id: `delete-node:${node.id}`, label: `Delete graph node ${node.id}`, topology: true,
-      execute: async () => receipt(controls.deleteNodes([node.id])) });
+      execute: async (_args, actor) => receipt(controls.deleteNodes([node.id], actor)) });
   }
   for (const { key } of edges) {
-    actions.push({ id: `label-edge:${key}`, label: `Open graph edge label ${key}`, topology: true,
+    actions.push({ id: `label-edge:${key}`, label: `Open graph edge label ${key}`, viewOnly: true, topology: true,
       execute: async () => { controls.openEdgeLabel(key); return { status: "completed", value: { editing_requested: true } }; } });
     for (const [field, choices] of Object.entries({ color: ["", ...STROKES.map(c => c.value)],
       arrow: ["end", "both", "start", "none"], style: ["solid", "dashed", "dotted"] })) {
       actions.push({ id: `edge:${key}:${field}`, label: `Set graph edge ${key} ${field}`, topology: true,
-        parameters: { value: choice(choices) }, execute: async args => receipt(controls.patchEdges([key], {
+        parameters: { value: choice(choices) }, execute: async (args, actor) => receipt(controls.patchEdges([key], {
           [field]: args.value === "" ? undefined : args.value,
-        })) });
+        }, actor)) });
     }
     actions.push({ id: `edge:${key}:label`, label: `Set graph edge ${key} label`, topology: true,
       parameters: { label: { type: "string", maxLength: 8192 } },
-      execute: async args => receipt(controls.patchEdges([key], { label: (args.label as string).trim() || undefined })) },
+      execute: async (args, actor) => receipt(controls.patchEdges([key], { label: (args.label as string).trim() || undefined }, actor)) },
     { id: `delete-edge:${key}`, label: `Delete graph edge ${key}`, topology: true,
-      execute: async () => receipt(controls.deleteEdges([key])) });
+      execute: async (_args, actor) => receipt(controls.deleteEdges([key], actor)) });
   }
   if (!ids.length) return actions;
   const slots = occupiedSlots(scene.edges);
@@ -60,14 +60,14 @@ export function graphInspectorActions(scene: Scene | null, controls: GraphContro
   const parameters = { from: choice(ids), to: choice(ids),
     from_handle: { type: "string", maxLength: 128 } as UiField, to_handle: { type: "string", maxLength: 128 } as UiField };
   actions.push({ id: "connect", label: "Connect graph nodes", topology: true, parameters,
-    execute: async args => {
+    execute: async (args, actor) => {
       const value = connection(args);
-      return value ? receipt(controls.connect(value)) : { status: "unavailable", reason: "Read the current node connector handles before connecting" };
+      return value ? receipt(controls.connect(value, actor)) : { status: "unavailable", reason: "Read the current node connector handles before connecting" };
     } });
   for (const { key } of edges) actions.push({ id: `reconnect:${key}`, label: `Reconnect graph edge ${key}`, topology: true, parameters,
-    execute: async args => {
+    execute: async (args, actor) => {
       const value = connection(args);
-      return value ? receipt(controls.reconnect(key, value)) : { status: "unavailable", reason: "Read the current node connector handles before reconnecting" };
+      return value ? receipt(controls.reconnect(key, value, actor)) : { status: "unavailable", reason: "Read the current node connector handles before reconnecting" };
     } });
   return actions;
 }

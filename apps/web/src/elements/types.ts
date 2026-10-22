@@ -68,7 +68,7 @@ export interface SlotContext {
   onTableLayout?: (key: string, layout: TableLayout) => void;
   /** Replace the slot's block content in the document; `origin` names the
    * user event for the undo history. */
-  replaceBlockContent: (slot: RenderedSlot, text: string, origin?: string) => void;
+  replaceBlockContent: (slot: RenderedSlot, text: string, origin?: string) => boolean | void;
 }
 
 export interface ElementView {

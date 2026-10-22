@@ -101,5 +101,10 @@ it("shares the visible label draft and refuses to overwrite a changed label", as
   expect((screen.getByRole("textbox") as HTMLInputElement).value).toBe("Changed externally");
   fireEvent.change(screen.getByRole("textbox"), { target: { value: "Native draft" } });
   await run("Commit graph label draft node:api");
-  expect(rename).toHaveBeenCalledExactlyOnceWith("api", "Native draft");
+  expect(rename).toHaveBeenCalledExactlyOnceWith("api", "Native draft", { id: "python:turn", kind: "agent" });
+  rename.mockReturnValueOnce(false);
+  await run("Open graph label node:api");
+  await run("Set graph label draft node:api", { value: "Retain refused draft" });
+  expect(await run("Commit graph label draft node:api")).toMatchObject({ outcome: { status: "unavailable" } });
+  expect((screen.getByRole("textbox") as HTMLInputElement).value).toBe("Retain refused draft");
 });

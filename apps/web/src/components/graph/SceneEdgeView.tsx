@@ -1,3 +1,4 @@
+import type { UiActor } from "../../lib/uiActions";
 // One line on the canvas: colour, label, path — and, on double-click, the
 // label editor right on the line.
 //
@@ -19,7 +20,7 @@ interface SceneEdgeData {
   edge?: SceneEdge;
   /** This line's label is being edited (double-click put it there). */
   editing?: boolean;
-  onLabel?: (label: string) => void;
+  onLabel?: (label: string, actor?: UiActor) => boolean | void;
   onCancel?: () => void;
 }
 
@@ -143,11 +144,11 @@ function LabelInput({
   x: number;
   y: number;
   initial: string;
-  onLabel?: (label: string) => void;
+  onLabel?: (label: string, actor?: UiActor) => boolean | void;
   onCancel?: () => void;
 }) {
   const label = useGraphLabelDraft({ identity, value: initial, initiallyOpen: true,
-    commit: value => onLabel?.(value), close: onCancel });
+    commit: (value, actor) => onLabel?.(value, actor), close: onCancel });
   const ref = useRef<HTMLInputElement>(null);
   useEffect(() => {
     ref.current?.select();
