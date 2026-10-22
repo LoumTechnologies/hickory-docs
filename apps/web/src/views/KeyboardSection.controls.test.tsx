@@ -8,7 +8,7 @@ import { ACTIONS, DEFAULT_SETTINGS, keymapSettings, setKeymapSettings } from "..
 import { api } from "../api/client";
 afterEach(() => { cleanup(); vi.restoreAllMocks(); setKeymapSettings(DEFAULT_SETTINGS); });
 it("shares persistent profiles and individual bindings with native controls, rejects malformed chords and retires handles", async () => {
-  const save = vi.spyOn(api, "saveSettingsUi").mockResolvedValue({});
+  const save = vi.spyOn(api, "saveSettingsUi").mockResolvedValue({ window_title: null, format_on_save: false });
   setKeymapSettings(DEFAULT_SETTINGS);
   const registry = new UiActions({ workspace: "settings", window: "keyboard" }, () => true, async () => {});
   render(<UiActionContext.Provider value={registry}><KeyboardSection /></UiActionContext.Provider>);

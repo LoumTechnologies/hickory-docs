@@ -769,3 +769,17 @@ Retained-controller/native-creation/quarantine exact dependencies (SHA-256):
 | `scripts/test-private-prediction-ui.sh` | `2669b251f44ecfcb3badbe71a2863c11903c7c89b67ee4bda9e7c172b4b03710` |
 
 The two focused ChatDock settings/registered-action cases also passed (27 unrelated cases skipped); the final changed-entrypoint TypeScript check passed.
+
+
+### ACP refusal at internal admission — 2026-10-22
+
+Ordinary ACP process construction and MCP Host startup independently refuse private
+LocalState before executable lookup, capture/recording and executor setup. Global
+private policy also pauses ordinary ACP startup. The existing HTTP quarantine
+remains separate. This is refusal, not isolated ACP support or confinement of
+external provider/harness internals. A prepared-private session safety test now
+challenges direct Client and Host entry; it passes without creating its recorder.
+The ordinary desktop-proxy ACP protocol flow also passes against rebuilt local
+binaries. LLM implementation review is partial; human judgment is not supplied.
+Exact dependency hashes, scope and remaining adapter work are in the issue-72
+handoff. No new paid-provider or packaged-native witness is inferred.

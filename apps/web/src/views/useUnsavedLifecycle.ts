@@ -43,7 +43,6 @@ export function useUnsavedLifecycle({
   layoutRef,
   setLayout,
   registry,
-  retainSavedDrafts,
   untitledSources,
   untitledBaselines = {},
   untitledSourcesRef,

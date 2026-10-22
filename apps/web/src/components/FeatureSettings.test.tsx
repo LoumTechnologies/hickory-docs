@@ -30,9 +30,9 @@ it("waits for a real child preference before Escape unmounts it, without weakeni
   const registry = new UiActions({ workspace: "project", window: "settings" }, () => true, receipt => receipt.stage === "requested" && receipt.action.label === "Select conversation agent" ? new Promise<void>(resolve => { release = resolve; }) : Promise.resolve());
   render(<UiActionContext.Provider value={registry}><FeatureSettings label="Agent settings" owner="doc"><AgentPicker scope="doc" backend="python" agents={[{ id: "python", name: "Python", available: true }, { id: "external", name: "External", available: true }] as never} disabled={false} detecting={false} error={null} onChange={value => changes.push(value)} onRefresh={() => {}} /></FeatureSettings></UiActionContext.Provider>);
   fireEvent.click(screen.getByRole("button", { name: "Agent settings" }));
-  fireEvent.change(screen.getByRole("combobox", { name: "Agent", exact: true }), { target: { value: "external" } });
+  fireEvent.change(screen.getByRole("combobox", { name: "Agent" }), { target: { value: "external" } });
   await waitFor(() => expect(release).toBeTypeOf("function"));
-  fireEvent.keyDown(screen.getByRole("combobox", { name: "Agent", exact: true }), { key: "Escape" });
+  fireEvent.keyDown(screen.getByRole("combobox", { name: "Agent" }), { key: "Escape" });
   expect(screen.getByRole("region", { name: "Agent settings" })).toBeTruthy();
   expect(changes).toEqual([]);
   await act(async () => { release(); });
@@ -51,7 +51,7 @@ it("excludes the visibility command itself while waiting for a pending human pre
   const registry = new UiActions({ workspace: "project", window: "settings-close" }, () => true, receipt => receipt.stage === "requested" && receipt.action.label === "Select conversation agent" ? new Promise<void>(resolve => { release = resolve; }) : Promise.resolve());
   render(<UiActionContext.Provider value={registry}><FeatureSettings label="Agent settings" owner="doc"><AgentPicker scope="doc" backend="python" agents={[{ id: "python", name: "Python", available: true }, { id: "external", name: "External", available: true }] as never} disabled={false} detecting={false} error={null} onChange={value => changed.push(value)} onRefresh={() => {}} /></FeatureSettings></UiActionContext.Provider>);
   fireEvent.click(screen.getByRole("button", { name: "Agent settings" }));
-  fireEvent.change(screen.getByRole("combobox", { name: "Agent", exact: true }), { target: { value: "external" } });
+  fireEvent.change(screen.getByRole("combobox", { name: "Agent" }), { target: { value: "external" } });
   await waitFor(() => expect(release).toBeTypeOf("function"));
   const close = registry.observe("feature-settings").actions[0];
   let closing!: ReturnType<typeof registry.act>;

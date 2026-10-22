@@ -67,7 +67,7 @@ it("allows status and cancellation while an actual local transcription request i
   const registry = new UiActions({ workspace: "p", window: "w" }, () => true, async () => {});
   let reject!: (reason: Error) => void;
   const pendingHost = new Promise((_resolve, reject_) => { reject = reject_; });
-  vi.mocked(request).mockImplementation(async (method, path) => path === "/api/meetings/transcribe" ? pendingHost : path.endsWith("/cancel") ? { cancelled: "record", coverage: "Actual host cancellation response" } : { ...catalogue, adapter: { ...catalogue.adapter, mode: "local" } });
+  vi.mocked(request).mockImplementation(async (_method, path) => path === "/api/meetings/transcribe" ? pendingHost : path.endsWith("/cancel") ? { cancelled: "record", coverage: "Actual host cancellation response" } : { ...catalogue, adapter: { ...catalogue.adapter, mode: "local" } });
   render(<UiActionContext.Provider value={registry}><MeetingRecording /></UiActionContext.Provider>);
   fireEvent.click(screen.getByText("Record a meeting")); await screen.findByText("Transcribe / retry");
   const parent = registry.groups().groups.find(g => g.startsWith("meeting-recording:"))!;

@@ -55,13 +55,13 @@ it("retains consecutive provider/model edits while their separate intents are pe
       ? new Promise<void>(resolve => { waiting.push(resolve); }) : Promise.resolve());
   render(<UiActionContext.Provider value={registry}><PrivatePredictionCoach initial={initial} /></UiActionContext.Provider>);
   await screen.findByText("captured source only");
-  fireEvent.change(screen.getByRole("textbox", { name: "Provider", exact: true }), { target: { value: "openrouter" } });
-  fireEvent.change(screen.getByRole("textbox", { name: "Model", exact: true }), { target: { value: "anthropic/claude-sonnet-4.5" } });
+  fireEvent.change(screen.getByRole("textbox", { name: "Provider" }), { target: { value: "openrouter" } });
+  fireEvent.change(screen.getByRole("textbox", { name: "Model" }), { target: { value: "anthropic/claude-sonnet-4.5" } });
   await waitFor(() => expect(waiting).toHaveLength(2));
   expect((screen.getByRole("button", { name: "Delegate investigation" }) as HTMLButtonElement).disabled).toBe(true);
   await act(async () => { waiting.forEach(release => release()); });
-  expect((screen.getByRole("textbox", { name: "Provider", exact: true }) as HTMLInputElement).value).toBe("openrouter");
-  expect((screen.getByRole("textbox", { name: "Model", exact: true }) as HTMLInputElement).value).toBe("anthropic/claude-sonnet-4.5");
+  expect((screen.getByRole("textbox", { name: "Provider" }) as HTMLInputElement).value).toBe("openrouter");
+  expect((screen.getByRole("textbox", { name: "Model" }) as HTMLInputElement).value).toBe("anthropic/claude-sonnet-4.5");
   fireEvent.click(screen.getByRole("button", { name: "Delegate investigation" }));
   await waitFor(() => expect(vi.mocked(request).mock.calls.find(call => call[0] === "POST" && call[1].endsWith("/agent"))?.[2]).toMatchObject({ provider: "openrouter", model: "anthropic/claude-sonnet-4.5" }));
 });

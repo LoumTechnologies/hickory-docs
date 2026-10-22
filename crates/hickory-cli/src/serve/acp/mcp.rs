@@ -41,6 +41,7 @@ impl Host {
         record: Arc<Mutex<Record>>,
         workspace_gate: Arc<Mutex<()>>,
     ) -> Result<Self> {
+        super::ensure_ordinary(&state)?;
         let executor = state.executor.build().await?;
         let session = record.lock().await.path.clone();
         let server = crate::mcp::Server::embedded(

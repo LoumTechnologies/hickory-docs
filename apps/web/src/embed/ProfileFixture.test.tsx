@@ -23,7 +23,7 @@ it("imports through the shared controller, retains the valid record after refusa
   expect(await load(JSON.stringify(invalid))).toMatchObject({ status: "result", outcome: { status: "unavailable" } });
   expect(screen.getByRole("alert").textContent).toContain("source hash");
   expect(screen.getByTestId("source").textContent).toBe(source);
-  fireEvent.click(screen.getByRole("button", { name: "Pin run", exact: true }));
+  fireEvent.click(screen.getByRole("button", { name: "Pin run" }));
   expect(screen.getByTestId("pinned").textContent).toBe("true");
   fireEvent.click(screen.getByRole("button", { name: "Remove run" }));
   expect(screen.queryByTestId("source")).toBeNull();

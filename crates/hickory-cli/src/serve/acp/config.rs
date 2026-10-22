@@ -150,6 +150,7 @@ fn is_executable(path: &Path) -> bool {
 }
 
 pub fn process(agent: &AgentCommand, state: &LocalState) -> Result<tokio::process::Command> {
+    super::ensure_ordinary(state)?;
     let dir = directory(state);
     let executable = executable(&agent.command, &dir).with_context(|| format!("{} is not installed. Install its adapter here, or set its executable in Settings → Agents.", agent.name))?;
     let managed = matches!(agent.command.as_str(), "codex-acp" | "claude-agent-acp")

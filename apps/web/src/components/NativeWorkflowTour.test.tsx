@@ -86,7 +86,7 @@ it("requires coach disclosure, reads guidance explicitly and retires actions on 
 });
 
 it("keeps private practice creation human-owned and reports the host execution setup request", async () => {
-  vi.mocked(request).mockImplementation(async (method, path) => method === "GET" ? { active: false } : { created: false, requires_input: { request: "private-practice-environment", reason: "Choose the supported host executor explicitly" } });
+  vi.mocked(request).mockImplementation(async (method, _path) => method === "GET" ? { active: false } : { created: false, requires_input: { request: "private-practice-environment", reason: "Choose the supported host executor explicitly" } });
   const registry = new UiActions({ workspace: "ordinary", window: "creation" }, () => true, async () => {});
   render(<UiActionContext.Provider value={registry}><NativeWorkflowTour /></UiActionContext.Provider>);
   fireEvent.click(screen.getByText("AI engineer tour"));

@@ -38,6 +38,19 @@ fn error(e: anyhow::Error) -> ApiError {
     ApiError::unprocessable(format!("{e:#}"))
 }
 
+/// Ordinary harness filesystem/history cannot enter a private predictor context.
+fn ensure_ordinary(state: &LocalState) -> anyhow::Result<()> {
+    anyhow::ensure!(
+        state.private_prediction.is_none(),
+        "Private ACP requires an isolated harness/tool/review adapter; ordinary ACP startup is refused"
+    );
+    anyhow::ensure!(
+        !crate::engine::private_policy::active()?,
+        "Ordinary ACP startup is paused while private prediction policy is active"
+    );
+    Ok(())
+}
+
 pub async fn catalogue(State(state): State<LocalState>) -> ApiResult<Json<Value>> {
     let dir = config::directory(&state);
     let mut agents: Vec<Value> = config::commands(&state).map_err(error)?.into_iter().map(|agent| {
@@ -690,4 +703,38 @@ impl Hub {
             .values()
             .any(|client| !client.closed.load(std::sync::atomic::Ordering::Relaxed))
     }
+}
+
+#[cfg(test)]
+pub(super) async fn assert_private_startup_refused(state: &LocalState) {
+    // Guarantee: docs/guarantees/verification/predictions-precede-managed-observation.md
+    // Called from the real prepared-private-session safety fixture. Neither the
+    // executable lookup nor ordinary MCP recorder/executor may be reached.
+    let record_path = state.index.root().join("must-not-create-acp-record.md");
+    let command = config::AgentCommand {
+        id: "private-refusal".into(),
+        name: "Private refusal challenge".into(),
+        command: "must-not-look-up-private-acp-executable".into(),
+        args: vec![],
+        workspace_filesystem: true,
+    };
+    let error = client::Client::start(state, "private-doc", command, record_path.clone())
+        .await
+        .err()
+        .expect("private ACP must refuse before spawning");
+    assert!(error.to_string().contains("Private ACP"), "{error:#}");
+    let record = Arc::new(tokio::sync::Mutex::new(record::Record::existing(
+        record_path.clone(),
+    )));
+    let error = mcp::Host::start(
+        state.clone(),
+        record_path.clone(),
+        record,
+        Arc::new(tokio::sync::Mutex::new(())),
+    )
+    .await
+    .err()
+    .expect("ordinary ACP MCP must refuse private state");
+    assert!(error.to_string().contains("Private ACP"), "{error:#}");
+    assert!(!record_path.exists());
 }
