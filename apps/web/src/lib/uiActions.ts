@@ -91,7 +91,7 @@ function validField(value: UiValue, field: UiField): boolean {
 export class UiActions {
   private entries = new Map<string, Entry>();
   private handles = new Map<string, { entry: Entry; revision: string }>();
-  private requests = new Map<string, { actor: UiActor; settled: boolean; signature: string; result: Promise<UiResult>; controller: AbortController }>();
+  private requests = new Map<string, { actor: UiActor; subject: string | null; settled: boolean; signature: string; result: Promise<UiResult>; controller: AbortController }>();
   private busy = new Set<string>();
   private sequence = 0;
   private observation = 0;
@@ -173,13 +173,13 @@ export class UiActions {
     const captured = freezeTree(structuredClone(invocation));
     const capturedActor = Object.freeze({ ...actor });
     const result = Promise.resolve().then(() => this.execute(capturedActor, captured, controller.signal)).then(result => Object.isFrozen(result) ? result : snapshot(result)).catch((error): UiResult => Object.freeze({ status: "error", reason: String(error) })).finally(() => { this.requests.get(captured.request_id)!.settled = true; });
-    this.requests.set(invocation.request_id, { actor: capturedActor, settled: false, signature, result, controller });
+    this.requests.set(invocation.request_id, { actor: capturedActor, subject: this.handles.get(captured.handle)?.entry.command.subject ?? null, settled: false, signature, result, controller });
     return result;
   }
 
   /** Trusted UI chrome may retain its controller until a click's journaled actions settle. */
-  pending(actor: UiActor): { id: string; result: Promise<UiResult> }[] {
-    return [...this.requests].filter(([, request]) => !request.settled && request.actor.id === actor.id && request.actor.kind === actor.kind).map(([id, request]) => ({ id, result: request.result }));
+  pending(actor: UiActor, excludingSubject?: string): { id: string; result: Promise<UiResult> }[] {
+    return [...this.requests].filter(([, request]) => !request.settled && (excludingSubject === undefined || request.subject !== excludingSubject) && request.actor.id === actor.id && request.actor.kind === actor.kind).map(([id, request]) => ({ id, result: request.result }));
   }
 
   cancel(scope: UiScope, actor: UiActor, request_id: string): boolean {

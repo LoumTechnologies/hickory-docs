@@ -111,4 +111,4 @@ pub(super) fn load_keys(path: &std::path::Path) -> Result<hickory_agent::KeyStor
     hickory_agent::KeyStore::load(path)
 }
 
-pub(crate) use client::{private_prediction_active, require_ordinary_agent_context};
+pub(crate) use client::{private_prediction_active, require_ordinary_agent_context_at};

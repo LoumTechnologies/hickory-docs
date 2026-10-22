@@ -10,6 +10,7 @@ use std::{collections::HashMap, path::Path};
 pub struct RetainedDebugger {
     ledger: Ledger,
     environment: Option<crate::prediction::environment::Profile>,
+    private_volume: bool,
     live: PrivateCaptureSession,
     identity: Identity,
     actor: Actor,
@@ -45,10 +46,49 @@ impl RetainedDebugger {
         project: &Path,
         profile: Option<&crate::prediction::environment::Profile>,
     ) -> Result<(Option<Self>, ManagedOutput)> {
+        Self::start_inner(ledger, request, source, project, profile, false).await
+    }
+    /// Retain the existing scratch debuggee for a validated combined document.
+    /// The authoritative output check remains a separate combined Verify run.
+    pub async fn start_in_combined_source(
+        ledger: &Ledger,
+        request: &DebuggerRequest,
+        whole: &DebuggerRequest,
+        source: &str,
+        project: &Path,
+        profile: Option<&crate::prediction::environment::Profile>,
+    ) -> Result<(Option<Self>, ManagedOutput)> {
+        ensure!(
+            request.identity == whole.identity && request.actor == whole.actor,
+            "Combined retained identity differs"
+        );
+        let scratch = tempfile::tempdir()?;
+        crate::prediction::combined::validate(whole, source, scratch.path())?;
+        let Target::Combined { debugger, .. } = &whole.target else {
+            anyhow::bail!("Combined source question required");
+        };
+        let mut first = debugger.as_ref().clone();
+        if let Target::Debugger { hit, .. } = &mut first {
+            *hit = 1;
+        }
+        ensure!(
+            first == request.target,
+            "Retained capture differs from the host combined question"
+        );
+        Self::start_inner(ledger, request, source, project, profile, true).await
+    }
+    async fn start_inner(
+        ledger: &Ledger,
+        request: &DebuggerRequest,
+        source: &str,
+        project: &Path,
+        profile: Option<&crate::prediction::environment::Profile>,
+        private_volume: bool,
+    ) -> Result<(Option<Self>, ManagedOutput)> {
         let environment =
             crate::prediction::environment::Profile::begin(profile, &request.identity).await?;
         let scratch = tempfile::tempdir()?;
-        let (spec, line) = validate_bounded(request, source, scratch.path(), false, true)
+        let (spec, line) = validate_bounded(request, source, scratch.path(), private_volume, true)
             .map_err(|_| anyhow::anyhow!("Unsupported retained debugger source or target"))?;
         ensure!(
             matches!(&request.target, Target::Debugger { hit: 1, .. }),
@@ -120,6 +160,7 @@ impl RetainedDebugger {
             Some(Self {
                 ledger: ledger.clone(),
                 environment,
+                private_volume,
                 live,
                 identity: request.identity.clone(),
                 actor: request.actor.clone(),
@@ -166,8 +207,14 @@ impl RetainedDebugger {
             target: seal.target.clone(),
         };
         let scratch = tempfile::tempdir()?;
-        validate_bounded(&request, &self.source, scratch.path(), false, true)
-            .map_err(|_| anyhow::anyhow!("Future capture does not match the retained source"))?;
+        validate_bounded(
+            &request,
+            &self.source,
+            scratch.path(),
+            self.private_volume,
+            true,
+        )
+        .map_err(|_| anyhow::anyhow!("Future capture does not match the retained source"))?;
         let future = self.stop(&prior_visible)?;
         let receipt = self.ledger.seal_future(
             self.ledger.history(None)?.generation,

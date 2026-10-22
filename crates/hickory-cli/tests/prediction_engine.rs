@@ -70,6 +70,7 @@ async fn every_engine_client_inherits_private_policy_and_mcp_and_command_paths_c
         question: None,
         runtime: None,
         inputs: None,
+        retained: None,
     };
     let model_actions = Arc::new(std::sync::Mutex::new(
         std::collections::VecDeque::<String>::new(),
@@ -125,6 +126,32 @@ async fn every_engine_client_inherits_private_policy_and_mcp_and_command_paths_c
     let base = endpoint["url"].as_str().unwrap();
     let token = endpoint["token"].as_str().unwrap();
     let client = reqwest::Client::new();
+    // An already-open ordinary window and debug socket cannot bypass the
+    // private policy after it becomes active, including through native Run.
+    let normal_root = tempfile::tempdir().unwrap();
+    std::fs::write(normal_root.path().join("ordinary.md"), "Ordinary source").unwrap();
+    let mut ordinary_window = Attach::new(normal_root.path().into(), ExecutorChoice::Local);
+    ordinary_window.client = "ordinary-window".into();
+    assert!(
+        client
+            .post(format!("{base}/attach"))
+            .bearer_auth(token)
+            .json(&ordinary_window)
+            .send()
+            .await
+            .unwrap()
+            .status()
+            .is_success()
+    );
+    use tokio_tungstenite::tungstenite::client::IntoClientRequest;
+    let mut websocket = format!("{base}/clients/ordinary-window/api/ws?doc=workspace")
+        .replacen("http:", "ws:", 1)
+        .into_client_request()
+        .unwrap();
+    websocket
+        .headers_mut()
+        .insert("authorization", format!("Bearer {token}").parse().unwrap());
+    let (mut ordinary_socket, _) = tokio_tungstenite::connect_async(websocket).await.unwrap();
     // Failure after acquiring the workspace lock must release it so trusted
     // recovery can immediately attach the corrected profile to the same root.
     let mut unsupported = Attach::new(path.clone(), ExecutorChoice::Local);
@@ -163,6 +190,40 @@ async fn every_engine_client_inherits_private_policy_and_mcp_and_command_paths_c
         "{}",
         attached.text().await.unwrap()
     );
+    use futures::StreamExt;
+    let closed = tokio::time::timeout(Duration::from_secs(2), ordinary_socket.next())
+        .await
+        .expect("Existing ordinary debug socket must close during private admission");
+    assert!(
+        closed.is_none()
+            || closed.as_ref().is_some_and(|message| message.is_err()
+                || matches!(
+                    message,
+                    Ok(tokio_tungstenite::tungstenite::Message::Close(_))
+                ))
+    );
+    for (method, path) in [
+        ("GET", "/files"),
+        ("POST", "/docs/ordinary/run"),
+        ("POST", "/terminals"),
+    ] {
+        assert_eq!(
+            client
+                .request(
+                    method.parse().unwrap(),
+                    format!("{base}/clients/ordinary-window/api{path}")
+                )
+                .bearer_auth(token)
+                .json(&json!({}))
+                .send()
+                .await
+                .unwrap()
+                .status()
+                .as_u16(),
+            422,
+            "{path} must share global private policy"
+        );
+    }
     // An ordinary second attach inherits the binding, rather than opening an escape.
     let mut second = Attach::new(root.path().to_path_buf(), ExecutorChoice::Local);
     second.client = "private-second".into();
@@ -298,7 +359,8 @@ async fn every_engine_client_inherits_private_policy_and_mcp_and_command_paths_c
         .unwrap();
     assert!(!blocked.status.success());
     assert!(
-        String::from_utf8_lossy(&blocked.stderr).contains("agent context path is unavailable"),
+        String::from_utf8_lossy(&blocked.stderr)
+            .contains("Ordinary agent context cannot read a retained private"),
         "{}",
         String::from_utf8_lossy(&blocked.stderr)
     );
@@ -570,8 +632,60 @@ async fn every_engine_client_inherits_private_policy_and_mcp_and_command_paths_c
         "Retired client context cannot reconnect"
     );
     assert_eq!(client.post(format!("{url}/command")).bearer_auth(auth).json(&json!({"executable":"/bin/sh","args":["-c","true"],"cwd":root.path(),"env":[],"input":[]})).send().await.unwrap().status().as_u16(),422,"Ending must not turn the private root into an ordinary execution root");
+    let mut forbidden_store = Attach::new(private.path().into(), ExecutorChoice::Local);
+    forbidden_store.client = "forbidden-evidence-reader".into();
+    assert_eq!(
+        client
+            .post(format!("{url}/attach"))
+            .bearer_auth(auth)
+            .json(&forbidden_store)
+            .send()
+            .await
+            .unwrap()
+            .status()
+            .as_u16(),
+        422,
+        "Ended evidence storage must never become an ordinary workspace"
+    );
+    let mut evidence_reader = Command::new(env!("CARGO_BIN_EXE_hick"))
+        .arg("mcp")
+        .current_dir(private.path())
+        .env("HICKORY_STATE_DIR", state.path())
+        .env("HICKORY_EXECUTOR", "local")
+        .env("HICKORY_ENGINE_WORKER", "1")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    {
+        use std::io::Write;
+        writeln!(
+            evidence_reader.stdin.take().unwrap(),
+            "{}",
+            json!({"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}})
+        )
+        .unwrap();
+    }
+    let denied = evidence_reader.wait_with_output().unwrap();
+    assert!(
+        !denied.status.success(),
+        "The worker marker must not expose an ended private evidence directory"
+    );
+    assert!(denied.stdout.is_empty());
     let normal = tempfile::tempdir().unwrap();
     assert!(client.post(format!("{url}/command")).bearer_auth(auth).json(&json!({"executable":"/bin/sh","args":["-c","true"],"cwd":normal.path(),"env":[],"input":[]})).send().await.unwrap().status().is_success());
+    assert!(
+        client
+            .get(format!("{url}/clients/restored-private/api/files"))
+            .bearer_auth(auth)
+            .send()
+            .await
+            .unwrap()
+            .status()
+            .is_client_error(),
+        "Ended client must not get ordinary reads"
+    );
     ordinary.client = "fresh-private-context".into();
     let reopened = client
         .post(format!("{url}/attach"))
@@ -683,4 +797,188 @@ async fn private_worker_child() {
     assert!(narrative.contains("verified_after_correction"));
     assert!(!narrative.contains("python-verified-changeset"));
     assert!(!narrative.contains("PRIVATE-HELD-CACHE"));
+}
+
+#[tokio::test]
+async fn private_practice_creation_attaches_before_open_and_never_executes_or_starts_a_provider() {
+    let original = tempfile::tempdir().unwrap();
+    let state = tempfile::tempdir().unwrap();
+    std::fs::write(
+        original.path().join("ordinary.md"),
+        "Original human source\n",
+    )
+    .unwrap();
+    let installed = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../../.hick-cache/adapters/python")
+        .canonicalize()
+        .expect("Focused creation witness requires configured debugpy");
+    std::fs::create_dir_all(original.path().join(".hick-cache/adapters")).unwrap();
+    std::os::unix::fs::symlink(
+        installed,
+        original.path().join(".hick-cache/adapters/python"),
+    )
+    .unwrap();
+    let opened = Arc::new(std::sync::Mutex::new(None::<std::path::PathBuf>));
+    let captured = opened.clone();
+    let callback = axum::Router::new().route(
+        "/__shell/open",
+        axum::routing::post(
+            move |headers: axum::http::HeaderMap, axum::Json(body): axum::Json<Value>| {
+                let captured = captured.clone();
+                async move {
+                    assert_eq!(headers["authorization"], "Bearer synthetic-window-token");
+                    *captured.lock().unwrap() = Some(body["path"].as_str().unwrap().into());
+                    axum::Json(json!({}))
+                }
+            },
+        ),
+    );
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let callback_url = format!("http://{}", listener.local_addr().unwrap());
+    let callback_server = tokio::spawn(async move {
+        axum::serve(listener, callback).await.unwrap();
+    });
+    let _daemon = Daemon(
+        Command::new(env!("CARGO_BIN_EXE_hick"))
+            .arg("__engine")
+            .env("HICKORY_STATE_DIR", state.path())
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .unwrap(),
+    );
+    let endpoint = state.path().join("engine/endpoint.json");
+    for _ in 0..250 {
+        if endpoint.exists() {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    let endpoint: Value = serde_json::from_slice(&std::fs::read(endpoint).unwrap()).unwrap();
+    let url = endpoint["url"].as_str().unwrap();
+    let auth = endpoint["token"].as_str().unwrap();
+    let client = reqwest::Client::new();
+    let mut host = Attach::new(original.path().into(), ExecutorChoice::Local);
+    host.client = "creation-host".into();
+    host.callback = Some(callback_url);
+    host.callback_token = "synthetic-window-token".into();
+    assert!(
+        client
+            .post(format!("{url}/attach"))
+            .bearer_auth(auth)
+            .json(&host)
+            .send()
+            .await
+            .unwrap()
+            .status()
+            .is_success()
+    );
+    let result = client
+        .post(format!(
+            "{url}/clients/creation-host/api/tour/private-practice"
+        ))
+        .bearer_auth(auth)
+        .json(&json!({}))
+        .send()
+        .await
+        .unwrap();
+    assert!(
+        result.status().is_success(),
+        "{}",
+        result.text().await.unwrap()
+    );
+    let created: Value = result.json().await.unwrap();
+    assert_eq!(created["created"], true, "{created}");
+    assert_eq!(created["opened"], true);
+    assert_eq!(created["executed"], false);
+    assert_eq!(created["provider_started"], false);
+    let root = std::path::PathBuf::from(created["path"].as_str().unwrap());
+    assert_eq!(opened.lock().unwrap().as_ref(), Some(&root));
+    assert!(!root.starts_with(original.path()));
+    assert_eq!(
+        std::fs::read_to_string(original.path().join("ordinary.md")).unwrap(),
+        "Original human source\n"
+    );
+    assert!(!root.join("deadline.py").exists());
+    let mut window = Attach::new(root.clone(), ExecutorChoice::Local);
+    window.client = "new-private-window".into();
+    let attached = client
+        .post(format!("{url}/attach"))
+        .bearer_auth(auth)
+        .json(&window)
+        .send()
+        .await
+        .unwrap();
+    assert!(
+        attached.status().is_success(),
+        "{}",
+        attached.text().await.unwrap()
+    );
+    assert!(attached.json::<Value>().await.unwrap()["prediction"].is_string());
+    let base = format!("{url}/clients/new-private-window/api/prediction");
+    let status: Value = client
+        .get(format!("{base}/state"))
+        .bearer_auth(auth)
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(status["actual_values"], "withheld");
+    assert!(status["retained_plan"].is_object());
+    let history: Value = client
+        .get(format!("{base}/history"))
+        .bearer_auth(auth)
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert!(history["ordering"].as_array().unwrap().is_empty());
+    let completion: Value = client
+        .get(format!("{base}/completion"))
+        .bearer_auth(auth)
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(completion["ready"], false);
+    assert_eq!(
+        client
+            .get(format!("{url}/clients/creation-host/api/files"))
+            .bearer_auth(auth)
+            .send()
+            .await
+            .unwrap()
+            .status()
+            .as_u16(),
+        422
+    );
+    assert!(
+        client
+            .post(format!("{url}/private/end"))
+            .bearer_auth(auth)
+            .json(&json!({"client":"new-private-window"}))
+            .send()
+            .await
+            .unwrap()
+            .status()
+            .is_success()
+    );
+    assert!(
+        client
+            .get(format!("{url}/clients/creation-host/api/files"))
+            .bearer_auth(auth)
+            .send()
+            .await
+            .unwrap()
+            .status()
+            .is_success()
+    );
+    callback_server.abort();
 }

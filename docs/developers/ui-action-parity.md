@@ -1068,3 +1068,30 @@ These controllers have focused behavior/safety witnesses; they do not complete
 the remaining inventory or application strict prediction policy. The current
 scripted real-browser review/recovery/stop flow passes separately from the real
 provider investigation/correction witness. See the issue-72 handoff.
+
+
+### Private practice and retained debugger continuation — October 22
+
+The native tour now has human-owned private-practice creation and an explicit
+requires_input path for unsupported host execution/runtime setup. Fresh roots
+attach under private policy before the native open callback. The existing coach
+shares predicate/rationale forms, sealing, Launch/Continue, reviewed correction,
+revalidation/promotion and End with registered actions and the engine controllers.
+Conditional Python/MCP capabilities reuse those controllers and the existing DAP
+and prediction gate. Paused-state ownership, current source/runtime, prior safe
+state and future-stop ordering remain bound; target values stay withheld.
+
+The actual scripted-provider browser witness covers six faulty/corrected
+initial/future/combined attempts and End. Creation/open-callback and cross-window
+quarantine have separate actual-process tests. These are not paid-provider,
+packaged-native, human-review or released/deployed witnesses. Private ACP remains
+refused pending isolated integration. Native creation currently requires an
+explicit local executor and available Python/debugpy; it returns a setup request
+instead of overriding the configured executor or platform link permissions.
+
+The historical family table and declaration index remain audit aids. Many
+components delegate registration through hooks or parents; absence of a hook in
+a child is not proof of a gap, and presence in a dependency is not parity proof.
+A per-control/dynamic/native review is still required before universal completion.
+See the issue-72 handoff and prediction guarantee for commands, hashes, failures
+and assurance boundaries.

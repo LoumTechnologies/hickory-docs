@@ -84,6 +84,10 @@ const WORKSPACE_ROOM: &str = "workspace";
 /// and nothing else — no room, no edits. A plain file's pane asks its
 /// language questions and runs its debugger over this one connection.
 async fn run_workspace_socket(state: LocalState, socket: WebSocket) -> anyhow::Result<()> {
+    let _ordinary = crate::engine::private_policy::ordinary();
+    if crate::engine::private_policy::active().unwrap_or(true) {
+        return Ok(());
+    }
     let client_id = NEXT_CLIENT_ID.fetch_add(1, Ordering::Relaxed);
     let (tx, mut rx) = mpsc::unbounded_channel::<Vec<u8>>();
     let (mut sink, mut stream) = socket.split();
@@ -97,7 +101,17 @@ async fn run_workspace_socket(state: LocalState, socket: WebSocket) -> anyhow::R
     state.rooms.attach_runs(client_id, tx.clone());
     let mut subscribed = false;
     let mut debuggers: Option<std::sync::Arc<crate::debug_sessions::Registry>> = None;
-    while let Some(msg) = stream.next().await {
+    loop {
+        let msg = tokio::select! {
+            msg=stream.next()=>match msg {Some(msg)=>msg,None=>break},
+            _=tokio::time::sleep(std::time::Duration::from_millis(100))=>{
+                if crate::engine::private_policy::active().unwrap_or(true) {break;}
+                continue;
+            }
+        };
+        if crate::engine::private_policy::active().unwrap_or(true) {
+            break;
+        }
         let data = match msg {
             Ok(WsMessage::Binary(b)) => b.to_vec(),
             Ok(WsMessage::Text(t)) => t.as_bytes().to_vec(),
@@ -195,6 +209,10 @@ fn forward_debug(
             let root = state.index.root().to_path_buf();
             let tx = tx.clone();
             tokio::spawn(async move {
+                let _ordinary = crate::engine::private_policy::ordinary();
+                if crate::engine::private_policy::active().unwrap_or(true) {
+                    return;
+                }
                 let responses = super::debug_bridge::handle(&registry, &root, request).await;
                 super::debug_bridge::reply(&tx, responses);
             });
@@ -204,6 +222,10 @@ fn forward_debug(
 }
 
 async fn run_socket(state: LocalState, key: String, socket: WebSocket) -> anyhow::Result<()> {
+    let _ordinary = crate::engine::private_policy::ordinary();
+    if crate::engine::private_policy::active().unwrap_or(true) {
+        return Ok(());
+    }
     let room = state.rooms.get_or_create(&key).await?;
     let client_id = NEXT_CLIENT_ID.fetch_add(1, Ordering::Relaxed);
     let (tx, mut rx) = mpsc::unbounded_channel::<Vec<u8>>();
@@ -229,7 +251,17 @@ async fn run_socket(state: LocalState, key: String, socket: WebSocket) -> anyhow
     // window would leak both.
     let mut debuggers: Option<std::sync::Arc<crate::debug_sessions::Registry>> = None;
 
-    while let Some(msg) = stream.next().await {
+    loop {
+        let msg = tokio::select! {
+            msg=stream.next()=>match msg {Some(msg)=>msg,None=>break},
+            _=tokio::time::sleep(std::time::Duration::from_millis(100))=>{
+                if crate::engine::private_policy::active().unwrap_or(true) {break;}
+                continue;
+            }
+        };
+        if crate::engine::private_policy::active().unwrap_or(true) {
+            break;
+        }
         let data = match msg {
             Ok(WsMessage::Binary(b)) => b.to_vec(),
             Ok(WsMessage::Text(t)) => t.as_bytes().to_vec(),

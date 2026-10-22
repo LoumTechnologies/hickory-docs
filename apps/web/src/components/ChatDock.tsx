@@ -593,7 +593,7 @@ export function ChatDock({
             Tree
           </button>
         )}
-        {!collapsed && <FeatureSettings label="Agent settings">
+        {!collapsed && <FeatureSettings label="Agent settings" owner={docId}>
         {backend === "python" && <ConversationModelChoice scope={`${docId}:${tip ?? "root"}:${selectedSession ?? "new"}`} provider={provider} model={model} disabled={running !== null || sending} providers={PROVIDERS} defaultModel={defaultModelFor(provider)} onProvider={setProvider} onModel={setModel} />}
       <AgentPicker scope={`${docId}:${tip ?? "root"}:${selectedSession ?? "new"}`} backend={backend} agents={acp.agents} disabled={running !== null || sending} detecting={acp.detecting} error={acp.catalogueError}
         onRefresh={() => acp.refreshAgents()} onChange={next => {

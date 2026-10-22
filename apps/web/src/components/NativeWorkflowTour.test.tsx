@@ -84,3 +84,20 @@ it("requires coach disclosure, reads guidance explicitly and retires actions on 
   expect(await registry.act(registry.scope, { id: "python:turn", kind: "agent" }, { handle: read.handle, arguments: { offset: 0, limit: 8192 }, request_id: "old" })).toMatchObject({ status: "unavailable" });
   expect(registry.groups().groups.some(g => g.startsWith("coach-popup:"))).toBe(false);
 });
+
+it("keeps private practice creation human-owned and reports the host execution setup request", async () => {
+  vi.mocked(request).mockImplementation(async (method, path) => method === "GET" ? { active: false } : { created: false, requires_input: { request: "private-practice-environment", reason: "Choose the supported host executor explicitly" } });
+  const registry = new UiActions({ workspace: "ordinary", window: "creation" }, () => true, async () => {});
+  render(<UiActionContext.Provider value={registry}><NativeWorkflowTour /></UiActionContext.Provider>);
+  fireEvent.click(screen.getByText("AI engineer tour"));
+  await screen.findByRole("button", { name: "Create a private prediction practice" });
+  const parent = registry.groups().groups.find(group => group.startsWith("coach:"))!;
+  const command = registry.observe(parent).actions.find(action => action.label === "Create a private prediction practice")!;
+  let result: unknown;
+  await act(async () => { result = await registry.act(registry.scope, { kind: "agent", id: "predictor" }, { handle: command.handle, arguments: {}, request_id: "reset-history" }); });
+  expect(result).toMatchObject({ outcome: { status: "requires_input", request: "create-private-practice" } });
+  expect(vi.mocked(request).mock.calls.some(call => call[0] === "POST")).toBe(false);
+  fireEvent.click(screen.getByRole("button", { name: "Create a private prediction practice" }));
+  await screen.findByText("Choose the supported host executor explicitly");
+  expect(vi.mocked(request).mock.calls.filter(call => call[0] === "POST").map(call => call[1])).toEqual(["/api/tour/private-practice"]);
+});

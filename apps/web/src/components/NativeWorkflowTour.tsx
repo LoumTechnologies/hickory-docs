@@ -96,8 +96,8 @@ function OrdinaryWorkflowTour({ onOpen }: NativeWorkflowTourProps) {
   const commands: { key: string; command: UiCommand }[] = [];
   function add(id: string, label: string, enabled: boolean, execute: UiCommand["execute"], parameters: UiCommand["parameters"] = {}) {
     if (id !== "toggle" && !open) return;
-    if (!["toggle", "read", "dismiss", "create"].includes(id) && !info?.active) return;
-    if (id === "create" && info?.active) return;
+    if (!["toggle", "read", "dismiss", "create", "create-private"].includes(id) && !info?.active) return;
+    if (["create", "create-private"].includes(id) && info?.active) return;
     if (id === "task" && ![0, 3].includes(phase)) return;
     if (id === "source" && phase !== 1) return;
     if (id === "publication" && phase !== 5) return;
@@ -107,6 +107,18 @@ function OrdinaryWorkflowTour({ onOpen }: NativeWorkflowTourProps) {
   add("toggle", open ? "Close AI engineer tour" : "AI engineer tour", true, async () => perform(async () => { if (!open) await refresh(true); setOpen(!open); return { open: !open }; }));
   add("refresh", "Refresh observed product evidence", !!info?.active, async () => perform(async () => { await refresh(); return { refreshed: true, verification: "See actual receipts; refresh is not execution" }; }));
   add("create", "Create and open an isolated practice repository", !info?.active, async () => perform(async () => { const result = await request<{ path: string; opened: boolean; open_error?: string }>("POST", "/api/tour/practice", {}); setCreated(result); return JSON.parse(JSON.stringify(result)); }));
+  add("create-private", "Create a private prediction practice", !info?.active, async (_args, actor) => {
+    if (actor.kind === "agent") return { status: "requires_input", request: "create-private-practice", reason: "A human creates the isolated private practice and authorizes its host execution environment; the predictor cannot reset its own history." };
+    setBusy(true); setError("");
+    try {
+      const result = await request<{ path?: string; opened?: boolean; open_error?: string; created: boolean; requires_input?: { request: string; reason: string } }>("POST", "/api/tour/private-practice", {});
+      if (result.requires_input) { setError(result.requires_input.reason); return { status: "requires_input", ...result.requires_input }; }
+      if (!result.created || !result.path) return { status: "unavailable", reason: "Private practice creation did not return a host resource" };
+      setCreated({ path: result.path, opened: result.opened === true, open_error: result.open_error });
+      return { status: "completed", value: JSON.parse(JSON.stringify(result)) };
+    } catch (reason) { setError(String(reason)); return { status: "unavailable", reason: String(reason) }; }
+    finally { setBusy(false); }
+  });
   add("back", "Back", !!info?.active && phase > 0, async () => { setPhase(phase - 1); return { status: "completed", value: { step: phase } }; });
   add("next", "Continue", !!info?.active && !!gates[phase] && phase < COACH_STEPS.length - 1, async () => { setPhase(phase + 1); return { status: "completed", value: { step: phase + 2, completed_operation: false } }; });
   add("skip", "Skip this step", !!info?.active && phase < COACH_STEPS.length - 1, async () => { setSkipped([...new Set([...skipped, phase])]); setPhase(phase + 1); return { status: "completed", value: { skipped: phase + 1, evidence_established: false } }; });
@@ -137,6 +149,8 @@ function OrdinaryWorkflowTour({ onOpen }: NativeWorkflowTourProps) {
         {!info?.active ? <>
           <p>Start in a separate Git repository. Meeting text and the original mistake are labelled fixtures; subsequent provider calls, debugging, edits and checks must be real.</p>
           <button disabled={busy} onClick={() => click("create")}>Create and open an isolated practice repository</button>
+          <button disabled={busy} onClick={() => click("create-private")}>Create a private prediction practice</button>
+          <p>Private practice uses host-sealed predictions and withheld debugger/output comparisons. It pauses other engine surfaces until End and requires an explicitly selected local Python/DAP environment. Creation starts no model request or target execution.</p>
           {created && <p>Created <code>{created.path}</code>. {created.opened ? "Opened in a separate native window." : `Open this folder in another Hickory window. ${created.open_error ?? ""}`}</p>}
         </> : <>
           <p>{info.seed} · <code>{info.path}</code></p>

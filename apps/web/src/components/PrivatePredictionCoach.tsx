@@ -10,13 +10,25 @@ import { AgentChanges } from "./AgentChanges";
 export interface PrivatePredictionState {
   document: string; source: string; source_hash: string; current: boolean;
   question: { requirement_reference: string }; target: unknown; environment_scope: string;
+  retained_plan?: { initial: { requirement_reference: string }; next: { requirement_reference: string } } | null;
+  retained_debugger?: { phase: "not_started" | "sealed" | "paused_needs_prediction" | "complete" | "expired"; actual_values: "withheld"; last: unknown };
   actual_values: "withheld"; application_integration: "incomplete"; runtime_revalidation?: boolean;
+}
+const object = (value: unknown): value is Record<string, unknown> => !!value && typeof value === "object" && !Array.isArray(value);
+const only = (value: object, keys: string[]) => Object.keys(value).every(key => keys.includes(key));
+function safeComparison(value: unknown): boolean {
+  if (value == null) return true;
+  return object(value) && only(value, ["summary", "dispatched"]) && typeof value.dispatched === "boolean" && object(value.summary)
+    && only(value.summary, ["attempt", "scenario", "seal", "classification", "prediction_matched", "original_requirement_satisfied", "observed", "promoted", "current_certification"])
+    && value.summary.current_certification === false;
 }
 export function validatePrivatePredictionState(value: unknown): asserts value is PrivatePredictionState {
   const state = value as Partial<PrivatePredictionState> | null;
-  if (!state || typeof state !== "object" || typeof state.document !== "string" || !state.document
+  if (!state || !object(state) || !only(state, ["document", "source", "source_hash", "sealed_source_hash", "current", "actor", "question", "target", "identities", "actual_values", "runtime_revalidation", "environment_scope", "supported", "application_integration", "retained_debugger", "retained_plan"]) || typeof state.document !== "string" || !state.document
     || typeof state.source !== "string" || typeof state.source_hash !== "string" || !/^[a-f0-9]{64}$/.test(state.source_hash)
     || (state.runtime_revalidation !== undefined && typeof state.runtime_revalidation !== "boolean")
+    || (state.retained_debugger !== undefined && (!state.retained_debugger || !object(state.retained_debugger) || !only(state.retained_debugger, ["phase", "actual_values", "last"]) || !safeComparison(state.retained_debugger.last) || state.retained_debugger.actual_values !== "withheld" || !["not_started", "sealed", "paused_needs_prediction", "complete", "expired"].includes(state.retained_debugger.phase)))
+    || (state.retained_plan != null && (typeof state.retained_plan.initial?.requirement_reference !== "string" || typeof state.retained_plan.next?.requirement_reference !== "string"))
     || typeof state.current !== "boolean" || state.actual_values !== "withheld" || state.application_integration !== "incomplete"
     || !state.question || typeof state.question.requirement_reference !== "string" || typeof state.environment_scope !== "string") {
     throw Error("Invalid private prediction startup response");
@@ -28,9 +40,10 @@ const base = "/api/prediction";
 export function PrivatePredictionCoach({ initial }: { initial: PrivatePredictionState }) {
   const [state, setState] = useState(initial), [source, setSource] = useState("");
   const [agent, setAgent] = useState<Agent | null>(null), [evidence, setEvidence] = useState<PredictionHistory | null>(null);
-  const [prompt, setPrompt] = useState("Investigate the host requirement using captured source. Seal your prediction and rationale before Verify. If it fails, explain and propose a correction for human review, then reseal the unchanged expectation and verify. Keep held-out target answers withheld.");
+  const [prompt, setPrompt] = useState((initial.retained_plan ? "Use the host retained-stop plan: seal the initial debugger prediction before launch, then seal the future-stop prediction while paused before Continue. After reviewed repair repeat the same expectations for both stops and the combined output check. " : "") + "Investigate the host requirement using captured source. Seal your prediction and rationale before Verify. If it fails, explain and propose a correction for human review, then reseal the unchanged expectation and verify. Keep held-out target answers withheld.");
   const [provider, setProvider] = useState(""), [model, setModel] = useState("");
   const [promotion, setPromotion] = useState<{ source_hash: string; checked_at: string; scope: string; summary: unknown } | null>(null);
+  const [prediction, setPrediction] = useState('{"kind":"equals","value":null}'), [rationale, setRationale] = useState("");
   const [pendingForms, setPendingForms] = useState(0);
   const [ended, setEnded] = useState(false);
   const [busy, setBusy] = useState(false), [error, setError] = useState(""), [syncError, setSyncError] = useState("");
@@ -63,29 +76,45 @@ export function PrivatePredictionCoach({ initial }: { initial: PrivatePrediction
   }, [refresh, ended]);
   const running = agent?.run?.status === "running";
   const attempts = evidence?.history.attempts ?? [];
-  const latestAttempt = attempts.at(-1);
+  const latestAttempt = state.retained_plan ? [...attempts].reverse().find(attempt => evidence?.history.ordering.some(entry => entry.event.id === attempt.seal && (entry.event.seal as { target?: { kind?: string } } | undefined)?.target?.kind === "combined")) : attempts.at(-1);
   const latestSeal = evidence?.history.ordering.find(entry => entry.event.id === latestAttempt?.seal)?.event.seal as { identity?: { source?: string } } | undefined;
   const canPromote = !!state.runtime_revalidation && latestSeal?.identity?.source === state.source_hash && !!latestAttempt && ["first_attempt_verified", "informed_prediction_verified", "verified_after_correction", "verified_after_prior_attempt"].includes(String(latestAttempt.classification));
   useEffect(() => { if (promotion && promotion.source_hash !== state.source_hash) setPromotion(null); }, [state.source_hash, promotion]);
-  const repaired = attempts.some(attempt => attempt.classification === "verified_after_correction");
+  const repaired = state.retained_plan ? latestAttempt?.classification === "verified_after_correction" : attempts.some(attempt => attempt.classification === "verified_after_correction");
+  const needsFuture = state.retained_debugger?.phase === "paused_needs_prediction";
   const failed = attempts.some(attempt => ["mismatch", "requirement_failed", "execution_rejected"].includes(String(attempt.classification)));
   const pending = agent?.edits?.changes.some(change => change.status === "pending");
-  const stage = repaired ? "Compare retained evidence" : pending ? "Review the proposed correction" : failed ? "Delegate the correction" : "Delegate prediction and investigation";
-  const target = repaired ? "#private-evidence" : pending ? "#private-review" : "#private-delegate";
+  const stage = pending ? "Review the proposed correction" : needsFuture ? "Predict before Continue" : repaired ? "Compare retained evidence" : failed ? "Delegate the correction" : "Delegate prediction and investigation";
+  const target = pending ? "#private-review" : needsFuture ? "#private-debugger" : repaired ? "#private-evidence" : "#private-delegate";
   useUiReading("private prediction session status", { state, running, stage, request: { prompt, provider, model }, attempts: attempts.length, error, syncError, promotion_at_request: promotion, current_certification: false });
-  const revision = useUiRevision(() => [state, agent?.run, prompt, provider, model, busy, open, pendingForms]);
+  const revision = useUiRevision(() => [state, agent?.run, prompt, provider, model, prediction, rationale, busy, open, pendingForms]);
   const promptRevision = useUiRevision(() => [initial.document, prompt, busy, running]);
   const providerRevision = useUiRevision(() => [initial.document, provider, busy, running]);
   const modelRevision = useUiRevision(() => [initial.document, model, busy, running]);
-  const invoke = useUiCommands(ended ? [] : [
+  const predictionRevision = useUiRevision(() => [initial.document, prediction, busy]);
+  const rationaleRevision = useUiRevision(() => [initial.document, rationale, busy]);
+  const retainedCommand = async (name: string, args: unknown) => {
+    setBusy(true); setError("");
+    try {
+      const actual = await request<{ isError: boolean; structuredContent?: Record<string, import("../lib/uiActions").UiValue> }>("POST", `${base}/debugger`, { name, arguments: args });
+      await refresh();
+      if (!actual.structuredContent) throw Error("Retained debugger request refused; inspect source/runtime, host plan and seal ordering.");
+      return { status: "completed" as const, value: { ...actual.structuredContent, non_passing: actual.isError } };
+    } catch (reason) { setError(String(reason)); return { status: "unavailable" as const, reason: String(reason) }; }
+    finally { setBusy(false); }
+  };
+  const available = (commands: { key: string; command: import("../lib/uiActions").UiCommand }[]) => commands.filter(item => !!state.retained_plan || !["private:prediction", "private:rationale", "private:seal-retained", "private:continue-retained"].includes(item.key));
+  const invoke = useUiCommands(ended ? [] : available([
     ...([
       ["prompt", "Edit private investigation request", 32768, promptRevision, setPrompt],
       ["provider", "Choose private investigation provider", 128, providerRevision, setProvider],
       ["model", "Choose private investigation model", 1024, modelRevision, setModel],
+      ["prediction", "Edit private debugger predicate", 32768, predictionRevision, setPrediction],
+      ["rationale", "Edit private debugger rationale", 8192, rationaleRevision, setRationale],
     ] as const).map(([field, label, maxLength, fieldRevision, setValue]) => ({ key: `private:${field}`, command: {
       label, parent: "private-prediction", subject: `${initial.document}:${field}`,
       parameters: { value: { type: "string" as const, maxLength } }, prerequisites: [],
-      read: () => ({ revision: fieldRevision(), enabled: !busy && !running }),
+      read: () => ({ revision: fieldRevision(), enabled: !busy && (["prediction", "rationale"].includes(field) || !running) }),
       execute: async (args: Record<string, import("../lib/uiActions").UiValue>) => { setValue(String(args.value)); return { status: "completed" as const, value: {} }; },
     } })),
     { key: "private:start", command: { label: "Delegate private investigation", parent: "private-prediction", subject: initial.document, parameters: {}, prerequisites: ["Configured provider and confined Python runtime; exact startup-bound private workspace"],
@@ -105,6 +134,11 @@ export function PrivatePredictionCoach({ initial }: { initial: PrivatePrediction
         finally { if (owner.current) setBusy(false); }
       } } },
     { key: "private:stop", command: { label: "Stop private investigation", parent: "private-prediction", subject: initial.document, parameters: {}, prerequisites: [], read: () => ({ revision: revision(), enabled: !!running }), execute: async () => { await request("POST", `${base}/agent/stop`, {}); await refresh(); return { status: "completed", value: { stop_requested: true } }; } } },
+    { key: "private:seal-retained", command: { label: "Seal debugger prediction", parent: "private-prediction", subject: initial.document, parameters: {}, prerequisites: ["Trusted initial/future question, approved source and current configured runtime"], read: () => ({ revision: revision(), enabled: !!state.retained_plan && !busy && !pendingForms && !!rationale.trim() && ["not_started", "paused_needs_prediction", "expired"].includes(state.retained_debugger?.phase ?? "") }), execute: async () => {
+      let predicted: unknown; try { predicted = JSON.parse(prediction); } catch { return { status: "unavailable", reason: "Enter a supported predicate as JSON" }; }
+      return retainedCommand("seal_debugger_prediction", { expected_source_hash: state.source_hash, predicted, rationale });
+    } } },
+    { key: "private:continue-retained", command: { label: "Launch or continue private debugger", parent: "private-prediction", subject: initial.document, parameters: {}, prerequisites: ["A sealed prediction for this initial or future stop"], read: () => ({ revision: revision(), enabled: !!state.retained_plan && !busy && state.retained_debugger?.phase === "sealed" }), execute: async () => retainedCommand("continue_debugger_prediction", {}) } },
     { key: "private:end", command: { label: "End private practice", parent: "private-prediction", subject: initial.document, parameters: {}, prerequisites: ["Stop the investigation, wait for verification, and close other clients of this practice"], read: () => ({ revision: revision(), enabled: !busy && !running }), execute: async (_args, actor) => {
       if (actor.kind === "agent") return { status: "requires_input", request: "end-private-practice", reason: "A human ends the isolated practice. The active predictor cannot release its own quarantine." };
       setBusy(true); setError("");
@@ -113,8 +147,8 @@ export function PrivatePredictionCoach({ initial }: { initial: PrivatePrediction
       finally { setBusy(false); }
     } } },
     { key: "private:coach", command: { label: "Set private coach visibility", parent: "private-prediction", subject: initial.document, parameters: { open: { type: "boolean" } }, prerequisites: [], read: () => ({ revision: revision(), enabled: true }), execute: async args => { const visible = Boolean(args.open); setOpen(visible); localStorage.setItem(key, visible ? "open" : "dismissed"); return { status: "completed", value: {} }; } } },
-  ]);
-  const setRequest = (field: "prompt" | "provider" | "model", value: string) => {
+  ]));
+  const setRequest = (field: "prompt" | "provider" | "model" | "prediction" | "rationale", value: string) => {
     setPendingForms(count => count + 1);
     void invoke(`private:${field}`, { value }).catch(reason => { if (owner.current) setError(String(reason)); })
       .finally(() => { if (owner.current) setPendingForms(count => count - 1); });
@@ -136,6 +170,14 @@ export function PrivatePredictionCoach({ initial }: { initial: PrivatePrediction
       <p role="status">{agent?.run?.status ?? "Ready for a request"}</p><p>{agent?.run?.answer}</p>
     </section>
     <section><h2>Captured source</h2><p>SHA-256: {state.source_hash}</p><CodeEditor path={state.source} item={{ id: initial.document, label: "Captured private source", kind: "authored", text: source }} editable={false} onChange={() => {}} /></section>
+    {state.retained_plan && <section id="private-debugger"><h2>Predict the next debugger stop</h2>
+      <p>Before launch: {state.retained_plan.initial.requirement_reference}. Before Continue: {state.retained_plan.next.requirement_reference}.</p>
+      <p>Phase: {state.retained_debugger?.phase ?? "unavailable"}. Target values stay withheld. A paused capture expires after two minutes; a new sequence retains the earlier history. Output verification runs separately.</p>
+      <label>Debugger predicate JSON<textarea maxLength={32768} value={prediction} disabled={busy} onChange={event => setRequest("prediction", event.target.value)} /></label>
+      <label>Debugger prediction rationale<textarea maxLength={8192} value={rationale} disabled={busy} onChange={event => setRequest("rationale", event.target.value)} /></label>
+      <button disabled={busy || !!pendingForms || !rationale.trim() || !["not_started", "paused_needs_prediction", "expired"].includes(state.retained_debugger?.phase ?? "")} onClick={() => void invoke("private:seal-retained")}>Seal debugger prediction</button>
+      <button disabled={busy || state.retained_debugger?.phase !== "sealed"} onClick={() => void invoke("private:continue-retained")}>Launch or continue private debugger</button>
+    </section>}
     <section id="private-review"><AgentChanges doc={`private:${initial.document}`} state={agent} running={!!running} update={value => setAgent(value as Agent)} submitDecision={async body => {
       const actual = await request<Agent>("POST", `${base}/agent/decision`, { id: body.id, accepted: body.accepted, ...(body.new_text !== undefined ? { new_text: body.new_text } : {}) });
       await refresh(); return actual;
@@ -143,8 +185,8 @@ export function PrivatePredictionCoach({ initial }: { initial: PrivatePrediction
     <section id="private-evidence"><button disabled={!canPromote || busy || running || state.current !== true} onClick={() => void invoke("private:promote")}>Revalidate and promote</button>
       {promotion && <p role="status">Host revalidation at {promotion.checked_at} for source {promotion.source_hash}. {promotion.scope}</p>}{evidence ? <PredictionEvidence value={evidence} sourceHash={state.source_hash} /> : <p>No retained execution attempt yet. The agent must seal a prediction before execution.</p>}</section>
     {open && <AnchoredCoach target={target} title={stage} onDismiss={() => void invoke("private:coach", { open: false })}>
-      <p>{pending ? "Review the exact proposed source diff. Accept or reject it yourself; the agent cannot approve its own correction." : repaired ? "The repair passed the unchanged prediction. The original failure stays in history. Use Revalidate and promote when the host supplies a supported runtime and fixed input binding; the button remains unavailable otherwise." : failed ? "The comparison failed. Ask the agent to reason from the requirement and captured source, propose a reviewed repair, then repeat the unchanged prediction." : "Delegate the investigation. The agent records its own prediction before the existing runner and debugger compare it privately."}</p>
-      <p>Future-stop debugger coaching and full application integration remain in progress.</p>
+      <p>{pending ? "Review the exact proposed source diff. Accept or reject it yourself; the agent cannot approve its own correction." : needsFuture ? "Before resuming the retained process, seal the next prediction against this source and paused context. Prior verdicts remain visible; selected target values stay withheld." : repaired ? "The repair passed the unchanged prediction. The original failure stays in history. Use Revalidate and promote when the host supplies a supported runtime and fixed input binding; the button remains unavailable otherwise." : failed ? "The comparison failed. Ask the agent to reason from the requirement and captured source, propose a reviewed repair, then repeat the unchanged prediction." : "Delegate the investigation. The agent records its own prediction before the existing runner and debugger compare it privately."}</p>
+      <p>{state.retained_plan ? "Seal before launch, then predict the future stop before Continue. Prior visible verdicts and paused identity remain in the retained evidence." : "This host has not supplied a retained future-stop question plan."} Full application integration remains in progress.</p>
     </AnchoredCoach>}
   </main>;
 }

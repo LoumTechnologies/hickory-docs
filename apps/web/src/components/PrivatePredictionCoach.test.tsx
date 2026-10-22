@@ -42,6 +42,9 @@ it("requires human input for recursive provider delegation and preserves that re
 it("rejects malformed host metadata before rendering source-reading controls", () => {
   expect(() => validatePrivatePredictionState({ ...initial, source: { Unix: [100, 111, 99] } })).toThrow("Invalid private prediction startup response");
   expect(() => validatePrivatePredictionState({ ...initial, actual_values: "available" })).toThrow();
+  expect(() => validatePrivatePredictionState({ ...initial, actual: "unexpected held-out value" })).toThrow();
+  expect(() => validatePrivatePredictionState({ ...initial, retained_debugger: null })).toThrow("Invalid private prediction startup response");
+  expect(() => validatePrivatePredictionState({ ...initial, retained_debugger: { phase: "complete", actual_values: "withheld", last: { summary: { current_certification: false }, dispatched: true, actual: "unexpected" } } })).toThrow();
 });
 
 it("retains consecutive provider/model edits while their separate intents are persisted before Send", async () => {
@@ -81,4 +84,36 @@ it("requires a human to end and retains a real host lifecycle receipt before ret
   await screen.findByRole("heading", { name: "Private practice ended" });
   expect(screen.queryByRole("button", { name: "Delegate investigation" })).toBeNull();
   expect(registry.observe("private-prediction").actions).toHaveLength(0);
+});
+
+it("shares agent sealing and human Continue through the host-bound retained controller", async () => {
+  let current: PrivatePredictionState = { ...initial, retained_plan: { initial: { requirement_reference: "Initial allowance" }, next: { requirement_reference: "Future allowance" } }, retained_debugger: { phase: "not_started", actual_values: "withheld", last: null } };
+  const calls: unknown[] = [];
+  vi.mocked(request).mockImplementation(async (_method, path, body) => {
+    if (path.endsWith("/state")) return current;
+    if (path.endsWith("/tool")) return { ok: true, source: "captured source only" };
+    if (path.endsWith("/evidence")) return { evidence: null };
+    if (path.endsWith("/agent")) return { backend: "python", ready: true, edits: { mode: "review", changes: [] } };
+    if (path.endsWith("/debugger")) {
+      calls.push(body);
+      const seal = (body as { name: string }).name === "seal_debugger_prediction";
+      current = { ...current, retained_debugger: { phase: seal ? "sealed" : "paused_needs_prediction", actual_values: "withheld", last: null } };
+      return { isError: false, structuredContent: seal ? { sealed: "initial", executed: false } : { dispatched: true, summary: { classification: "first_attempt_verified" } } };
+    }
+    throw Error(`Unexpected ${path}`);
+  });
+  const registry = new UiActions({ workspace: "private", window: "retained" }, () => true, async () => {});
+  render(<UiActionContext.Provider value={registry}><PrivatePredictionCoach initial={current} /></UiActionContext.Provider>);
+  await screen.findByText("captured source only");
+  expect((screen.getByRole("button", { name: "Launch or continue private debugger" }) as HTMLButtonElement).disabled).toBe(true);
+  fireEvent.change(screen.getByRole("textbox", { name: "Debugger predicate JSON" }), { target: { value: '{"kind":"equals","value":100}' } });
+  fireEvent.change(screen.getByRole("textbox", { name: "Debugger prediction rationale" }), { target: { value: "Initial budget before launch" } });
+  await waitFor(() => expect((screen.getByRole("button", { name: "Seal debugger prediction" }) as HTMLButtonElement).disabled).toBe(false));
+  const seal = registry.observe("private-prediction").actions.find(action => action.label === "Seal debugger prediction")!;
+  await act(async () => { await registry.act(registry.scope, { id: "predictor", kind: "agent" }, { handle: seal.handle, arguments: {}, request_id: "seal-initial" }); });
+  expect(calls[0]).toEqual({ name: "seal_debugger_prediction", arguments: { expected_source_hash: initial.source_hash, predicted: { kind: "equals", value: 100 }, rationale: "Initial budget before launch" } });
+  fireEvent.click(screen.getByRole("button", { name: "Launch or continue private debugger" }));
+  await waitFor(() => expect(calls).toHaveLength(2));
+  expect(calls[1]).toEqual({ name: "continue_debugger_prediction", arguments: {} });
+  await screen.findByText(/Phase: paused_needs_prediction/);
 });

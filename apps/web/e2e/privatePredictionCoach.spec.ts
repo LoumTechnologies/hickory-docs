@@ -11,10 +11,15 @@ test("private coach retains failure and reviewed repair without publishing targe
   await page.goto("/");
   await expect(page.getByRole("heading", { name: "Predict, investigate and review" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Delegate investigation" })).toBeEnabled();
+  const unsealed = await (await page.request.post("/api/prediction/debugger", { data: { name: "continue_debugger_prediction", arguments: {} } })).json();
+  expect(unsealed.isError).toBe(true);
+  const stale = await (await page.request.post("/api/prediction/debugger", { data: { name: "seal_debugger_prediction", arguments: { expected_source_hash: "0".repeat(64), predicted: { kind: "equals", value: 100 }, rationale: "Stale source must refuse before launch" } } })).json();
+  expect(stale.isError).toBe(true);
+  expect((await (await page.request.get("/api/prediction/history")).json()).attempts).toHaveLength(0);
   if (live) {
     await page.getByRole("textbox", { name: "Provider", exact: true }).fill(process.env.HICKORY_PRIVATE_PROVIDER ?? "openrouter");
     if (process.env.HICKORY_PRIVATE_MODEL) await page.getByRole("textbox", { name: "Model", exact: true }).fill(process.env.HICKORY_PRIVATE_MODEL);
-    await page.getByRole("textbox", { name: "Investigation request" }).fill("Run this coached prediction exercise. First read the current captured source. Before making any edit, seal the specified expected behavior as a Fields predicate: output equals {long:100,short:30,empty:0}, debugger equals 20. This is the required behavior, not a runtime observation. Verify the current implementation and retain its non-passing result. Then investigate from source and the requirement with target answers withheld. Propose a minimal correction to retry's per-attempt allowance for human review. After approval, reread the repaired source and reseal exactly the same expected behavior against its new source hash. Verify the repair and finish with a concise explanation and limitations. Do not change the capture selection, expectation tags, inputs or requirement. Do not print, reveal or fetch actual runtime target values.");
+    await page.getByRole("textbox", { name: "Investigation request" }).fill("Run this coached prediction exercise. First read the current captured source. Before making any edit, use seal_debugger_prediction with equals 100 and a rationale, then continue_debugger_prediction to launch the first stop. While paused, seal_debugger_prediction with equals 20 and a rationale before continue_debugger_prediction resumes to the second stop. These are required expectations, not observed values. Also seal the specified expected behavior as a Fields predicate: output equals {long:100,short:30,empty:0}, debugger equals 20. This is the required behavior, not a runtime observation. Verify the current implementation and retain its non-passing result. Then investigate from source and the requirement with target answers withheld. Propose a minimal correction to retry's per-attempt allowance for human review. After approval, reread the repaired source, repeat the same initial/future debugger expectations (100 before launch, 20 before Continue) through the retained tools, and reseal exactly the same expected behavior against its new source hash. Verify the repair and finish with a concise explanation and limitations. Do not change the capture selection, expectation tags, inputs or requirement. Do not print, reveal or fetch actual runtime target values.");
   } else await page.getByRole("textbox", { name: "Provider", exact: true }).fill("openai");
   const sending = page.waitForRequest(request => request.method() === "POST" && new URL(request.url()).pathname === "/api/prediction/agent");
   await page.getByRole("button", { name: "Delegate investigation" }).click();
@@ -29,16 +34,27 @@ test("private coach retains failure and reviewed repair without publishing targe
   expect(arrived.run.status, arrived.run.answer ?? "Investigation must reach a real review").toBe("running");
   await expect(review).toBeVisible();
   const before = await (await page.request.get("/api/prediction/history")).json();
-  expect(before.attempts).toHaveLength(1);
-  expect(before.attempts[0].classification).toBe("execution_rejected");
+  expect(before.attempts).toHaveLength(3);
+  expect(before.attempts[0].prediction_matched).toBe(true);
+  expect(before.attempts[1].classification).toBe("mismatch");
+  expect(before.attempts[2].classification).toBe("execution_rejected");
   expect((await page.request.get("/api/files")).status()).toBe(422);
   await review.getByRole("button", { name: "Accept change" }).click();
   await expect.poll(async () => (await (await page.request.get("/api/prediction/agent")).json()).run.status, { timeout: live ? 240_000 : 20_000 }).toBe("finished");
   const after = await (await page.request.get("/api/prediction/history")).json();
-  expect(after.attempts.map((attempt: { classification: string }) => attempt.classification)).toEqual(["execution_rejected", "verified_after_correction"]);
+  expect(after.attempts).toHaveLength(6);
+  expect(after.attempts[3].prediction_matched).toBe(true);
+  expect(after.attempts[4].classification).toBe("verified_after_correction");
+  expect(after.attempts[5].classification).toBe("verified_after_correction");
   const seals = after.ordering.filter((entry: { event: { kind: string } }) => entry.event.kind === "sealed");
-  expect(seals[0].event.seal.predicted).toEqual(seals[1].event.seal.predicted);
-  expect(seals[0].event.seal.scenario.requirement).toEqual(seals[1].event.seal.scenario.requirement);
+  for (let index = 0; index < 3; index++) {
+    expect(seals[index].event.seal.predicted).toEqual(seals[index + 3].event.seal.predicted);
+    expect(seals[index].event.seal.scenario.requirement).toEqual(seals[index + 3].event.seal.scenario.requirement);
+  }
+  expect(seals[1].event.future_stop.hit).toBe(1);
+  expect(seals[4].event.future_stop.hit).toBe(1);
+  expect(seals[1].event.future_stop.prior_visible_digest).toMatch(/^[a-f0-9]{64}$/);
+  expect(seals[1].sequence).toBeLessThan(after.ordering.find((entry: { event: { kind: string; seal: string } }) => entry.event.kind === "started" && entry.event.seal === seals[1].event.id).sequence);
   expect(after.attempts.every((attempt: { current_certification: boolean }) => !attempt.current_certification)).toBe(true);
   const revalidated = page.waitForResponse(response => response.request().method() === "POST" && new URL(response.url()).pathname === "/api/prediction/promote");
   await page.getByRole("button", { name: "Revalidate and promote", exact: true }).click();
@@ -54,10 +70,10 @@ test("private coach retains failure and reviewed repair without publishing targe
   const edited = await (await page.request.post("/api/prediction/tool", { data: { name: "edit_doc", args: [["whole", "true"], ["snapshot", captured.source_hash]], input: changedInputs } })).json();
   expect(edited.ok).toBe(true);
   const changed = await (await page.request.get("/api/prediction/state")).json();
-  const refused = await page.request.post("/api/prediction/seal", { data: { expected_source_hash: changed.source_hash, predicted: seals[1].event.seal.predicted, rationale: "Attempt to change the host inputs" } });
+  const refused = await page.request.post("/api/prediction/seal", { data: { expected_source_hash: changed.source_hash, predicted: seals[5].event.seal.predicted, rationale: "Attempt to change the host inputs" } });
   expect(refused.status()).toBe(422);
-  expect((await page.request.post("/api/prediction/promote", { data: { attempt: after.attempts[1].attempt } })).status()).toBe(409);
-  expect((await (await page.request.get("/api/prediction/history")).json()).attempts).toHaveLength(2);
+  expect((await page.request.post("/api/prediction/promote", { data: { attempt: after.attempts[5].attempt } })).status()).toBe(409);
+  expect((await (await page.request.get("/api/prediction/history")).json()).attempts).toHaveLength(6);
   await expect(page.getByRole("button", { name: "Revalidate and promote", exact: true })).toBeDisabled();
   await page.getByRole("button", { name: "End private practice", exact: true }).click();
   await expect(page.getByRole("heading", { name: "Private practice ended" })).toBeVisible();

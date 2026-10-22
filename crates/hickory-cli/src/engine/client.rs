@@ -339,6 +339,13 @@ pub(crate) async fn private_prediction_active() -> Result<bool> {
     );
     Ok(policy["active"] == true)
 }
+pub(crate) async fn require_ordinary_agent_context_at(root: &std::path::Path) -> Result<()> {
+    ensure!(
+        !super::private_policy::overlaps(&root.canonicalize()?)?,
+        "Ordinary agent context cannot read a retained private workspace or evidence store; reopen its guarded private practice"
+    );
+    require_ordinary_agent_context().await
+}
 pub(crate) async fn require_ordinary_agent_context() -> Result<()> {
     ensure!(
         !private_prediction_active().await?,

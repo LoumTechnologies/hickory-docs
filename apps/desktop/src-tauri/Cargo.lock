@@ -2803,6 +2803,7 @@ dependencies = [
  "anyhow",
  "hick-lang",
  "hick-lsp",
+ "hick-observe",
  "serde",
  "serde_json",
  "tempfile",
@@ -2870,6 +2871,7 @@ name = "hick-lang"
 version = "0.1.0"
 dependencies = [
  "serde",
+ "serde_json",
  "sha2 0.10.9",
  "thiserror 2.0.19",
 ]
@@ -2894,6 +2896,7 @@ dependencies = [
  "hick-handlers",
  "hick-lang",
  "hick-merge",
+ "hick-observe",
  "hick-secrets",
  "hick-store",
  "hick-token",
@@ -2912,6 +2915,7 @@ dependencies = [
  "sha2 0.10.9",
  "sysinfo",
  "tar",
+ "tempfile",
  "thiserror 2.0.19",
  "tokio",
  "walkdir",
@@ -2950,6 +2954,19 @@ dependencies = [
  "similar",
  "thiserror 2.0.19",
  "tokio",
+]
+
+[[package]]
+name = "hick-observe"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "fs2",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "tempfile",
+ "uuid",
 ]
 
 [[package]]
@@ -3061,6 +3078,7 @@ dependencies = [
  "hick-exec",
  "hick-lang",
  "hick-literate",
+ "hick-observe",
  "hick-project-env",
  "hickory-executor",
  "hickory-lineage",
@@ -3099,6 +3117,7 @@ dependencies = [
  "graphql-parser",
  "hex",
  "hick-blocks",
+ "hick-context-protocol",
  "hick-context-store",
  "hick-dap",
  "hick-exec",
@@ -3107,6 +3126,7 @@ dependencies = [
  "hick-literate",
  "hick-lsp",
  "hick-merge",
+ "hick-observe",
  "hick-project-env",
  "hick-search",
  "hick-structure",
@@ -3251,11 +3271,13 @@ dependencies = [
  "anyhow",
  "base64 0.22.1",
  "ed25519-dalek 2.2.0",
+ "fs2",
  "hickory-workspace",
  "rand_core 0.6.4",
  "serde",
  "serde_json",
  "sha2 0.10.9",
+ "tempfile",
 ]
 
 [[package]]

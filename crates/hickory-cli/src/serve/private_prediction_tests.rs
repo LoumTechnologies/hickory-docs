@@ -76,6 +76,7 @@ async fn queued_run_refuses_same_source_reseal_before_dispatch() {
             question: None,
             runtime: None,
             inputs: None,
+            retained: None,
         },
     )
     .await

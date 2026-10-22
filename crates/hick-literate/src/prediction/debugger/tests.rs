@@ -500,6 +500,7 @@ async fn retained_session_missing_future_hit_is_unknown_and_never_promotable() {
 }
 
 // Guarantee: docs/guarantees/verification/predictions-precede-managed-observation.md
+#[cfg(unix)]
 #[tokio::test]
 #[ignore = "requires configured Python debugpy; explicitly run the focused witness"]
 async fn retained_runtime_change_refuses_continue_without_dispatch() {

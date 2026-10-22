@@ -607,3 +607,165 @@ Recovery/lifecycle exact dependency hashes (SHA-256; earlier evidence remains hi
 | `crates/hickory-cli/src/serve/private_prediction_tests.rs` | `d910069a45ce748c2c5b5fe1f70c6a3d3b6f3316edf17859b4ffcc132639ecd1` |
 | `crates/hickory-cli/src/serve/private_predictions.rs` | `63f2090d9cf9de0ab73e5af83b7e1dfb3899b8018e3bf98540f6d044587a5dc2` |
 | `crates/hickory-cli/tests/prediction_engine.rs` | `726efb6d2530277623fc387244e9108f448dfc61fc083565e31f029155abb58c` |
+
+
+### October 22 retained-stop controls and native private creation
+
+The existing native tour now offers explicit human creation of a separate private
+Python practice. It seeds a Git repository, independently captures the configured
+runtime and fixed inputs, and installs the trusted engine binding/recovery record
+before invoking the existing native open-window callback. No prediction, target
+execution or provider request is started by creation. The original project is not
+edited. The current supported private DAP profile requires an explicitly selected
+local executor and an already available Python/debugpy environment; unsupported
+executor/platform/environment setup returns an agent-addressable requires_input
+receipt. Creation does not select weaker execution permissions or install packages.
+An agent cannot create a fresh practice to reset its own history. A failed native
+open ends the temporary private context while retaining private-root admission, so
+it does not leave an invisible active context. Fresh fixture Git commits disable
+hooks; this is confined to the newly seeded repository.
+
+The trusted startup may carry a two-stop plan: initial and next semantic question
+families are fixed separately from the combined output question, with the same
+host inputs. The coach, built-in Python and external MCP expose
+seal_debugger_prediction and continue_debugger_prediction only when that plan is
+present. Initial sealing precedes launch; future sealing binds the actual paused
+run/thread/frame/hit before Continue. It reuses RetainedDebugger, PrivateCaptureSession
+and prediction/gate.rs. The combined-source extension first validates the existing
+combined source/volume constraints; it grants no arbitrary-volume/evaluator path.
+Output verification remains its separate authoritative output plus scratch-DAP
+combined run. Completion and promotion also require current passing original
+initial/future questions; a phase named complete is not a passing verdict.
+
+The future seal privately retains the full captured source, host questions/target,
+prior comparison and this actor's selected ledger history at that seal. Its digest
+and stop coordinates are public; the retained private state is not. The confined
+supervisor separately retains request/delivery/session context. External-client
+and provider-internal context remain unestablished: the host-state checkpoint is
+not a proof that every outside prompt, human memory or provider state was captured.
+The existing bounded private-context size may refuse a very large history rather
+than truncate it into a claim of completeness. No held-out target values are
+returned. Source edits terminate the old paused process. A scoped timer expires
+an abandoned paused owner after two minutes and cannot retire a newer sequence;
+End and orderly daemon shutdown also terminate retained owners. Abrupt OS process
+termination is not an independently witnessed process-tree cleanup guarantee.
+
+LLM safety review found two additional alternate paths and corrected them:
+ordinary-window APIs and already-open debug sockets now pause/close while private
+policy is active. Admission drains previously admitted requests/debug operations
+and refuses startup if ordinary jobs, terminals or agent connections remain.
+UI action receipt/owner cleanup remains available, including creation's final
+receipt. Busy admission failure retains the private root/recovery identity but
+releases its active global contribution. Private evidence storage is durably
+protected alongside the source root, including after End. Ordinary workspace,
+command, Python-context and worker-marker MCP paths cannot open it. Older End
+records recover that store identity from trusted recovery metadata; missing or
+corrupt identities fail closed. A private ledger cannot be placed inside an
+already ordinary workspace. This is managed-interface/root admission, not OS
+confinement of arbitrary external shells or opaque provider internals.
+
+Executed focused evidence: the actual browser/engine/confined worker/provider-
+script/review-driver/output/DAP flow passed with six retained attempts: initial and
+future plus combined checks on the faulty revision, then the same expectations
+on the repaired revision. It proves future-seal-before-Continue ordering, retained
+fault/correction, missing-seal/stale-source refusal, promotion, reload, fixed-input
+refusal and End. The latest completed run before the final client-schema change
+passed in 32.1s; the following focused rerun is recorded below. Three engine tests
+with the real confined worker and two HTTP tests passed, including actual trusted
+creation/open-callback/fresh-root attachment, original-source preservation,
+ordinary-socket closure, cross-window Run/terminal refusal, and ended evidence-store
+MCP refusal. Thirteen coach/component cases passed, including mixed agent seal /
+human Continue and human-only creation/setup. Two creation/permission/expiry cases
+passed with the real adapter. The timer callback was challenged directly on an
+actual paused process, including a stale owner; no two-minute wall-clock test is
+claimed. The ordinary browser review/recovery/Stop witness passed in 17.2s before
+the final root-guard change; its focused rerun is recorded below. The existing
+ordinary practice-seed and queued native Run safety tests passed.
+
+Native desktop cargo check --locked initially refused its stale generated lock.
+Offline Cargo resolution added 22 lines for already present local dependency edges
+and hick-observe; no third-party version changed. Native compilation then passed,
+and the repeated --locked check passed. This is compilation, not a packaged/native
+UI/provider/installer witness. No package, upload or release was created.
+
+Remaining issue-72 work still includes the full per-control/dynamic/platform parity
+audit and any uncovered adapters; isolated private ACP integration (currently
+refused, with no unsafe fallback); reviewed selection/recording and current packaged
+native/provider/released/deployed witnesses. The private paid-provider witness
+remains blocked by OpenRouter credit (HTTP 402). No further paid requests were made.
+Human judgment is not supplied. No issue was closed, external issue message sent,
+broad regression run or detached post-commit status monitored.
+
+
+Final focused results for this slice: the private six-attempt browser flow passed
+in 31.3s after the client response-schema guard. The ordinary browser rerun then
+failed on an unhandled retired-command result: Escape could unmount AgentPicker
+while its persisted human preference intent was pending. FeatureSettings now waits
+for pending human form receipts before dismissal, excludes its own visibility
+request to avoid self-wait, and binds late dismissal to the current owner. Picker
+failures are visible and owner-scoped. The registry still refuses removed/stale
+controls; no error is filtered out of the browser test. A deterministic delayed
+preference test confirms the actual change executes before Escape closes it. The
+actual ordinary browser flow then passed in 16.7s, with no page errors, and retained
+its private witness at /tmp/hickory-python-ui.m1coLC (not a publication selection).
+Thirty focused registry/bridge/settings cases passed before the extra own-command
+wait challenge; its result is recorded with the final check below. These changes
+are also a shared UI-parity correction, not a private-only demo workaround.
+
+
+The final settings/registry/bridge challenge passed 31 focused cases, including
+visibility dismissal that excludes its own pending request and waits for the
+actual child preference. Targeted TypeScript passed. The native locked compile
+passed with the generated dependency-only lock update. No broad regression or
+post-commit monitoring was performed. Ending retires the private host context;
+normal-mode unrestricted programs afterwards are not an OS confidentiality
+boundary for same-user ledger bytes. Native private contexts cannot resume as
+ordinary contexts, and ordinary managed root/file/context admission continues to
+refuse retained private source and evidence roots. External client/provider state
+cannot be independently reset or authenticated by those host receipts.
+
+Retained-controller/native-creation/quarantine exact dependencies (SHA-256):
+
+| Dependency | SHA-256 |
+| --- | --- |
+| `apps/desktop/src-tauri/Cargo.lock` | `f7f09fa56912d208b44719e8ba02beb5497c467155fa8698b9ac4906491a6a07` |
+| `apps/web/e2e/privatePredictionCoach.spec.ts` | `6c056c326efa565a3f4e907b9ca92ce029f91fa56ca5e91f345a957d6b7eae9a` |
+| `apps/web/src/components/AgentPicker.tsx` | `e4f94c64b590f3d9ef0e18fa56ecacd6d49ab1d3e934a1afea5a8fd8cdc2b4b1` |
+| `apps/web/src/components/ChatDock.tsx` | `7b0157b7762e1b5ea9bf420cf414bcb5fdd5eb7024a431a675029649e84d6477` |
+| `apps/web/src/components/FeatureSettings.test.tsx` | `423c4559f739f0d09f8a5f2220503a9901ef721df4dd7479a4430d205639cc44` |
+| `apps/web/src/components/FeatureSettings.tsx` | `c2851465b5e59b692d135a3c522ccaeaf57c3e74d138434cb6c63db9f321173f` |
+| `apps/web/src/components/NativeWorkflowTour.test.tsx` | `0d00d15ca8a926002e8ecebd4ebc492e99a0946b0471f4bd931be1867c18ea01` |
+| `apps/web/src/components/NativeWorkflowTour.tsx` | `61c70dd5f62b0517c2a63b1d1d16072271ecbf38658db98414f7d3a758a9c646` |
+| `apps/web/src/components/PrivatePredictionCoach.test.tsx` | `227ee0c06fbde299d711853b4575b355a0c006f7a0f5901b028d0f03bb0ff6d3` |
+| `apps/web/src/components/PrivatePredictionCoach.tsx` | `5f114ddbae10915075e45cf78b1c6b0b1e7688b38643466a742c34795cd5a0b3` |
+| `apps/web/src/lib/uiActionBridge.tsx` | `203c89ebf36a4de6ef502cad14a032cbcf5ae589ed2aee8abb69d4d342b772a1` |
+| `apps/web/src/lib/uiActions.ts` | `2d6cab9feaf0efc115f61935655846145715dbe43ffb8fc98f653e1c77d8070c` |
+| `crates/hick-literate/src/prediction.rs` | `f2c713f85ed453272c5f73aa7d77bef0925d7055e32c680c0de997c33002d3e1` |
+| `crates/hick-literate/src/prediction/debugger/tests.rs` | `63ac4c51344bf2819b37aef53a5ec0012c00ab5fe3284786df94cfd9277b1511` |
+| `crates/hick-literate/src/prediction/interactive.rs` | `883693670d15ce8942b8dcb03e48f823aa11c463bb154d3861cfdca660ec50c0` |
+| `crates/hickory-cli/src/engine/client.rs` | `eaf53259815eab567a92785a7d45f5cc317ce84f034412f8df50d0faf5882eca` |
+| `crates/hickory-cli/src/engine/client_prediction_tests.rs` | `6f84d1aed0854bdb88b9e60114bbf2c2dc2b9844d0f68ecc714526ec54f7441e` |
+| `crates/hickory-cli/src/engine/daemon.rs` | `6e9e162deab3d6931993b4ec78f84ad9e10935d506c0e2f2368141c73b641e76` |
+| `crates/hickory-cli/src/engine/mcp.rs` | `97ac1bc8c47f69b45ce0c919b9be4a4e8a41559f6ff6432ba97007fa3b598b32` |
+| `crates/hickory-cli/src/engine/mod.rs` | `2167ecd65a1ec55bff58c78a15cbd4072c7cb7059a2bc15fda37db3e68e04d7a` |
+| `crates/hickory-cli/src/engine/private_policy.rs` | `7f0751bf38a599571654d54a9f5caeb374589066aab732124ab7c7dcb63bd5ad` |
+| `crates/hickory-cli/src/mcp_stdio.rs` | `bacef15638853c66f7e11dd3571973229cf9b0134a7f1f6ad5403d9baf3a1336` |
+| `crates/hickory-cli/src/python_agent.rs` | `b53f8aa9505330c40d67937492c7e2781ffdbc5417248ec189826f4b19d086fa` |
+| `crates/hickory-cli/src/python_agent/host.rs` | `a5bd64c5a32fdbc85789f959625ba139a8fc1c6aa4ec21db9c4cb9b66f688d6d` |
+| `crates/hickory-cli/src/python_agent/private.rs` | `8c4aa161c9a547b8f65d0054f6b4de0f7564c76bc579934c519de822cd529cda` |
+| `crates/hickory-cli/src/serve/acp/mod.rs` | `9c6639977a46cb1c9e22328b4bb064e92929868fcb778a555705954e321ea4a3` |
+| `crates/hickory-cli/src/serve/agent.rs` | `39b5f089f95194dd08a5107068a7b193f27f7a0affe29dc93abc31ac618b1f46` |
+| `crates/hickory-cli/src/serve/engineer_tour.rs` | `2ad6be952ea53716c7375366cd73b5c52da011c1284f88ca7dac0a04fc3d7fbc` |
+| `crates/hickory-cli/src/serve/mod.rs` | `e250885c05f981227f73c63b709c968c5e5eff780878aeae5c6b3d80fa8fdd33` |
+| `crates/hickory-cli/src/serve/private_practice.rs` | `c8a0186132c1573bf4369774152825f61d605c87b2a8934768a764b7a8a9131b` |
+| `crates/hickory-cli/src/serve/private_prediction_debugger.rs` | `c39cfb2f2b4de1e1636eca8098dee37d7710bb6089bb1a27872c7b513137936d` |
+| `crates/hickory-cli/src/serve/private_prediction_recovery.rs` | `ea4e77588e033124fd06029efa150606c46061fc2d87533a41d6adf6af4c0fc2` |
+| `crates/hickory-cli/src/serve/private_prediction_startup.rs` | `7ad28b3e9fd0bde75e64510c5d0aeabb8bb41231f5b8c0d1fa9b6e71b41bde4f` |
+| `crates/hickory-cli/src/serve/private_prediction_tests.rs` | `d67915d68d7c5eeb2c267a498ac9067bd1915a33381c77ba8a5360e44ea48b15` |
+| `crates/hickory-cli/src/serve/private_predictions.rs` | `365648e436385d1e2e5252d53ecfeb21ae0dcdb1e056c51936d5fb902def9506` |
+| `crates/hickory-cli/src/serve/socket.rs` | `baeb385c0ed99b0df63f66400783b6921b2ce32497761fa5ca51be192a996b5d` |
+| `crates/hickory-cli/tests/prediction_engine.rs` | `4b6c0bd9fdf585212b4a6304f912bb1e782a144aa756962094209f02c2328f64` |
+| `crates/hickory-cli/tests/prediction_http.rs` | `d057a803d0962c9c9b1424c6b024243e68e8c14fa771e5b9167c9a1357b4da6e` |
+| `scripts/test-private-prediction-ui.sh` | `2669b251f44ecfcb3badbe71a2863c11903c7c89b67ee4bda9e7c172b4b03710` |
+
+The two focused ChatDock settings/registered-action cases also passed (27 unrelated cases skipped); the final changed-entrypoint TypeScript check passed.

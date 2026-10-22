@@ -354,7 +354,7 @@ pub async fn run_conversation(
         );
         Some(remote)
     } else {
-        crate::engine::require_ordinary_agent_context().await?;
+        crate::engine::require_ordinary_agent_context_at(&config.root).await?;
         None
     };
     ensure!(
@@ -467,8 +467,8 @@ pub async fn run_conversation(
         executor.clone(),
         session.clone(),
     );
-    let mut catalogue = if private.is_some() {
-        crate::serve::private_predictions::catalogue()
+    let mut catalogue = if let Some(remote) = &private {
+        remote.private_catalogue().await?
     } else {
         server
             .handle("tools/list", &json!({}))

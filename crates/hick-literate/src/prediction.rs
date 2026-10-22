@@ -44,6 +44,7 @@ pub enum OutputEncoding {
 
 /// Host-captured target request shared by debugger and combined observations.
 /// Adapters validate source/target correspondence before the common gate admits it.
+#[derive(Clone)]
 pub struct SealedRequest {
     pub seal: String,
     pub request_id: String,

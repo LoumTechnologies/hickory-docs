@@ -92,7 +92,8 @@ pub async fn serve(default_doc: Option<PathBuf>, params: Vec<(String, String)>) 
         }
 
         let private = if matches!(method.as_str(), "tools/list" | "tools/call") {
-            crate::engine::private_prediction_active().await?
+            crate::engine::private_policy::overlaps(&options.root)?
+                || crate::engine::private_prediction_active().await?
         } else {
             false
         };
@@ -101,7 +102,7 @@ pub async fn serve(default_doc: Option<PathBuf>, params: Vec<(String, String)>) 
                 remote = Some(crate::engine::mcp::Remote::new(options.clone()).await?);
             }
             if remote.as_ref().unwrap().private_mode().await? {
-                Ok(crate::serve::private_predictions::catalogue())
+                Ok(remote.as_ref().unwrap().private_catalogue().await?)
             } else {
                 Ok(
                     json!({"tools":[],"coverage":"This engine retains a private workspace; unrelated MCP capabilities are unavailable"}),

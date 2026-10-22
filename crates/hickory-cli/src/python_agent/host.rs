@@ -266,7 +266,7 @@ impl Host<'_> {
                 "Private prediction binding lost; no ordinary fallback"
             );
         } else {
-            crate::engine::require_ordinary_agent_context().await?;
+            crate::engine::require_ordinary_agent_context_at(&self.config.root).await?;
         }
         ensure!(!self.finished, "The model already stopped");
         if method == "context.updates" && self.private.is_some() {

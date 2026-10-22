@@ -681,3 +681,13 @@ pub async fn edit_decision(
 pub(super) async fn project_review(state: &LocalState, doc: &str) -> ApiResult<Arc<edits::Edits>> {
     Ok(connection(state, doc).await?.host.edits.clone())
 }
+
+impl Hub {
+    pub(crate) async fn connected(&self) -> bool {
+        self.clients
+            .lock()
+            .await
+            .values()
+            .any(|client| !client.closed.load(std::sync::atomic::Ordering::Relaxed))
+    }
+}

@@ -939,3 +939,19 @@ pub(super) fn selected_client_with_limit(
 
     Ok((llm, provider_name, model_name))
 }
+
+impl AgentHub {
+    pub(crate) async fn ordinary_activity(&self) -> bool {
+        if self
+            .turns
+            .lock()
+            .unwrap()
+            .values()
+            .flatten()
+            .any(|turn| turn.status == "running")
+        {
+            return true;
+        }
+        self.acp.connected().await
+    }
+}

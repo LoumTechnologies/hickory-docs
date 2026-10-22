@@ -45,7 +45,15 @@ impl Host<'_> {
         );
         let name = params["name"].as_str().context("Tool name required")?;
         ensure!(
-            ["read_doc", "edit_doc", "seal_prediction", "verify"].contains(&name),
+            [
+                "read_doc",
+                "edit_doc",
+                "seal_prediction",
+                "verify",
+                "seal_debugger_prediction",
+                "continue_debugger_prediction"
+            ]
+            .contains(&name),
             "Tool withheld in private prediction mode"
         );
         let mut args = params.get("arguments").cloned().unwrap_or(json!({}));

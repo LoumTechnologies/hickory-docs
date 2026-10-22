@@ -21,6 +21,8 @@ pub struct Startup {
     pub runtime: Option<hick_literate::prediction::environment::Profile>,
     #[serde(default)]
     pub inputs: Option<hick_literate::prediction::SourceInputs>,
+    #[serde(default)]
+    pub retained: Option<super::PrivatePredictionDebuggerPlan>,
 }
 impl Startup {
     pub(crate) fn fingerprint(&self) -> Result<String> {
@@ -71,6 +73,7 @@ impl Startup {
             question: self.question.clone(),
             runtime: self.runtime.clone(),
             inputs: self.inputs.clone(),
+            retained: self.retained.clone(),
         })
     }
 }

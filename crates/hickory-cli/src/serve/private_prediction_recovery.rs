@@ -34,6 +34,9 @@ impl Recovery {
             executor,
         }
     }
+    pub(crate) fn protected_store(&self) -> &Path {
+        &self.profile.ledger_root
+    }
     pub(crate) fn root(&self) -> &Path {
         self.path.parent().expect("captured absolute document")
     }

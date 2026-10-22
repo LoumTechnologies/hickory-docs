@@ -42,7 +42,9 @@ pub mod commit_reading;
 pub mod dataset;
 pub mod debug_bridge;
 mod private_prediction_agent;
+mod private_prediction_debugger;
 pub(crate) mod private_prediction_recovery;
+pub use private_prediction_debugger::Plan as PrivatePredictionDebuggerPlan;
 mod private_prediction_startup;
 pub(crate) mod private_predictions;
 pub use private_prediction_startup::Startup as PrivatePredictionStartup;
@@ -67,6 +69,7 @@ mod native_projects;
 mod output_resolution;
 pub mod outputs;
 pub mod plain_file;
+mod private_practice;
 mod project_comparison;
 mod project_incorporation;
 mod project_publish;
@@ -628,6 +631,10 @@ pub(crate) fn router(state: LocalState) -> Router {
         .route("/prediction/evidence", get(private_predictions::evidence))
         .route("/prediction/tool", post(private_predictions::source_tool))
         .route("/prediction/seal", post(private_predictions::seal))
+        .route(
+            "/prediction/debugger",
+            post(private_prediction_debugger::command),
+        )
         .route("/prediction/promote", post(private_predictions::promote))
         .route(
             "/prediction/agent",
@@ -762,6 +769,7 @@ pub(crate) fn router(state: LocalState) -> Router {
         .route("/file", get(plain_file::get_file).put(plain_file::put_file))
         .route("/scratchpad", post(plain_file::post_scratchpad))
         .route("/v1/scratchpad", post(plain_file::post_assisted_scratchpad))
+        .route("/tour/private-practice", post(private_practice::create))
         .route(
             "/tour/practice",
             axum::routing::get(engineer_tour::status).post(engineer_tour::create),

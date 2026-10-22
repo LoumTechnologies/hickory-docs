@@ -35,6 +35,7 @@ fn options() -> Attach {
         question: None,
         runtime: None,
         inputs: None,
+        retained: None,
     });
     opts
 }

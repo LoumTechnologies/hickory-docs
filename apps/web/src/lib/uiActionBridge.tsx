@@ -161,7 +161,7 @@ export function useUiCommands(commands: { key: string; command: UiCommand }[]) {
 export const UiActionContext = Context;
 
 /** Snapshot only local human requests; menu dismissal must not retire a click before intent persistence. */
-export function useUiPendingHumanActions() {
+export function useUiPendingHumanActions(excludingSubject?: string) {
   const registry = useContext(Context);
-  return () => registry?.pending({ id: "local-user", kind: "human" }) ?? [];
+  return () => registry?.pending({ id: "local-user", kind: "human" }, excludingSubject) ?? [];
 }

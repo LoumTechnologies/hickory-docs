@@ -82,6 +82,7 @@ async fn native_run_route_uses_private_gate_and_alternate_http_surfaces_refuse_w
             question: None,
             runtime: None,
             inputs: None,
+            retained: None,
         },
     )
     .await
@@ -228,6 +229,7 @@ async fn native_run_route_uses_private_gate_and_alternate_http_surfaces_refuse_w
             question: None,
             runtime: None,
             inputs: None,
+            retained: None,
         },
     )
     .await
@@ -311,6 +313,7 @@ async fn dormant_question_requires_a_submitted_prediction_and_reseals_repair_wit
             question: Some(question.scenario),
             runtime: None,
             inputs: None,
+            retained: None,
         },
     )
     .await

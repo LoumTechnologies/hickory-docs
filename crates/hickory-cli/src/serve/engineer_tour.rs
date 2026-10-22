@@ -48,6 +48,10 @@ fn seed(base: &Path) -> anyhow::Result<PathBuf> {
         root.join("README.md"),
         "# Isolated AI engineer practice\n\nThe meeting and original proposal are transparent seeded examples. Import meeting.vtt with the normal importer, open deadline-spec.md, and use the AI engineer tour. Real model requests require your configured provider and explicit Send action. Profile hotspot.md using the real confined Python runtime. This repository is separate from your original project.\n",
     )?;
+    initialize_git(&root)?;
+    Ok(root)
+}
+pub(super) fn initialize_git(root: &Path) -> anyhow::Result<()> {
     for args in [
         vec!["init", "--initial-branch=master"],
         vec!["add", "."],
@@ -64,8 +68,9 @@ fn seed(base: &Path) -> anyhow::Result<PathBuf> {
         ],
     ] {
         let result = std::process::Command::new("git")
+            .args(["-c", "core.hooksPath="])
             .args(args)
-            .current_dir(&root)
+            .current_dir(root)
             .output()?;
         anyhow::ensure!(
             result.status.success(),
@@ -73,7 +78,7 @@ fn seed(base: &Path) -> anyhow::Result<PathBuf> {
             String::from_utf8_lossy(&result.stderr)
         );
     }
-    Ok(root)
+    Ok(())
 }
 fn failure(error: impl std::fmt::Display) -> ApiError {
     ApiError::unprocessable(error.to_string())

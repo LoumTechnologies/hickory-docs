@@ -65,6 +65,18 @@ impl Remote {
         );
         Ok(true)
     }
+    pub async fn private_catalogue(&self) -> Result<Value> {
+        let state = self
+            .private_request(reqwest::Method::GET, "state", &serde_json::json!({}))
+            .await?;
+        anyhow::ensure!(
+            state["actual_values"] == "withheld",
+            "Invalid private capability response"
+        );
+        Ok(crate::serve::private_predictions::catalogue(
+            state["retained_plan"].is_object(),
+        ))
+    }
     pub async fn private_request(
         &self,
         method: reqwest::Method,

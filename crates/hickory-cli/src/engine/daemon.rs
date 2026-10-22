@@ -153,11 +153,15 @@ async fn run() -> Result<()> {
             let busy = cleanup.workers.load(std::sync::atomic::Ordering::SeqCst) > 0
                 || cleanup.workspaces.lock().await.values().any(|state| {
                     state
-                        .runs
-                        .lock()
-                        .unwrap()
-                        .values()
-                        .any(|r| r.status == "running")
+                        .private_prediction
+                        .as_ref()
+                        .is_some_and(|bound| bound.investigation_busy())
+                        || state
+                            .runs
+                            .lock()
+                            .unwrap()
+                            .values()
+                            .any(|r| r.status == "running")
                         || state
                             .terminals
                             .summaries()
@@ -182,6 +186,11 @@ async fn run() -> Result<()> {
         let _ = stopped.await;
     })
     .await?;
+    for state in engine.workspaces.lock().await.values() {
+        if let Some(bound) = &state.private_prediction {
+            bound.shutdown_retained().await;
+        }
+    }
     engine.watch.woven.lock().await.release_read_only();
     // Keep owner.lock's inode: only the kernel decides when ownership ends.
     let _ = std::fs::remove_file(dir.join("endpoint.json"));
@@ -276,6 +285,17 @@ async fn attach(
             "This root retains private prediction quarantine after restart; a trusted host must restore its private binding",
         ));
     }
+    if let Some(profile) = &opts.prediction {
+        let store = profile.ledger_root.canonicalize().map_err(error)?;
+        if workspaces.iter().any(|(other, state)| {
+            state.private_prediction.is_none()
+                && (store.starts_with(other) || other.starts_with(&store))
+        }) {
+            return Err(error(
+                "Private evidence storage overlaps an ordinary workspace; choose isolated host storage",
+            ));
+        }
+    }
     for (other, state) in workspaces.iter() {
         if other != &root
             && (root.starts_with(other) || other.starts_with(&root))
@@ -347,13 +367,25 @@ async fn attach(
         .map_err(error)?
         .state;
         if let Some(bound) = &state.private_prediction {
-            super::private_policy::retain(&root).map_err(error)?;
+            super::private_policy::retain(&root, &opts.prediction.as_ref().unwrap().ledger_root)
+                .map_err(error)?;
             bound
                 .install_recovery(
                     opts.prediction.clone().expect("private startup"),
                     opts.executor,
                 )
                 .map_err(error)?;
+            let admission=async {
+                super::private_policy::drain().await?;
+                for ordinary in workspaces.values().filter(|state|state.private_prediction.is_none()) {
+                    anyhow::ensure!(!ordinary.runs.lock().unwrap().values().any(|run|run.status=="running") && !ordinary.terminals.summaries().iter().any(|terminal|terminal.exit_code.is_none()) && !ordinary.agent.ordinary_activity().await,"Stop ordinary executions, terminals and agent connections before opening private practice");
+                }
+                Ok::<(),anyhow::Error>(())
+            }.await;
+            if let Err(failure) = admission {
+                super::private_policy::end(&root).map_err(error)?;
+                return Err(error(failure));
+            }
             bound
                 .startup_fingerprint
                 .set(requested_prediction.clone().unwrap())

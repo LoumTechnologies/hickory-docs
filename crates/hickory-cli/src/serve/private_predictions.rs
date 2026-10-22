@@ -32,22 +32,25 @@ pub struct Binding {
     pub question: Option<Scenario>,
     pub runtime: Option<hick_literate::prediction::environment::Profile>,
     pub inputs: Option<hick_literate::prediction::SourceInputs>,
+    pub retained: Option<super::PrivatePredictionDebuggerPlan>,
 }
 pub(crate) struct Bound {
     pub doc: String,
     pub(crate) startup_fingerprint: std::sync::OnceLock<String>,
     pub(super) path: PathBuf,
-    session: tokio::sync::Mutex<EditSession>,
-    ledger: Arc<Ledger>,
+    pub(super) session: tokio::sync::Mutex<EditSession>,
+    pub(super) ledger: Arc<Ledger>,
     pub(super) identity: std::sync::RwLock<Identity>,
     pub(super) question: Scenario,
     pub(super) source_question: SourceQuestion,
     pub(super) recovery: std::sync::OnceLock<super::private_prediction_recovery::Recovery>,
-    runtime: Option<hick_literate::prediction::environment::Profile>,
-    inputs: Option<hick_literate::prediction::SourceInputs>,
-    actor: Actor,
+    pub(super) runtime: Option<hick_literate::prediction::environment::Profile>,
+    pub(super) inputs: Option<hick_literate::prediction::SourceInputs>,
+    pub(super) actor: Actor,
     epoch: AtomicU64,
     retired: AtomicBool,
+    pub(super) retained_plan: Option<super::PrivatePredictionDebuggerPlan>,
+    pub(super) retained: tokio::sync::Mutex<super::private_prediction_debugger::Controller>,
     pub(super) agent: tokio::sync::Mutex<Option<super::private_prediction_agent::Run>>,
     pub(super) edits: Arc<super::acp::edits::Edits>,
 }
@@ -87,6 +90,13 @@ impl Bound {
             "This managed prediction service requires an agent predictor; human-only inspection needs a separately isolated host surface"
         );
         let target = binding.request.target.clone();
+        if let Some(plan) = &binding.retained {
+            plan.validate(&question, &target)?;
+            anyhow::ensure!(
+                binding.runtime.is_some() && binding.inputs.is_some(),
+                "Retained coach needs configured runtime and fixed host inputs"
+            );
+        }
         let mut session = EditSession::open_prediction(
             &path,
             binding.ledger.clone(),
@@ -149,6 +159,8 @@ impl Bound {
             actor,
             epoch: AtomicU64::new(0),
             retired: AtomicBool::new(false),
+            retained_plan: binding.retained,
+            retained: tokio::sync::Mutex::new(Default::default()),
             agent: tokio::sync::Mutex::new(None),
             edits: Default::default(),
         }))
@@ -173,6 +185,7 @@ impl Bound {
             "Wait for private verification to finish before ending"
         );
         self.retired.store(true, Ordering::SeqCst);
+        self.retained.lock().await.reset().await;
         Ok(())
     }
     pub(super) fn source_path(&self) -> &std::path::Path {
@@ -240,7 +253,11 @@ impl Bound {
             json!({"sealed":receipt.id,"source_hash":expected,"generation":receipt.generation,"executed":false,"current_certification":false}),
         )
     }
-    pub(crate) async fn mcp_tool(&self, executor: crate::ExecutorChoice, params: &Value) -> Value {
+    pub(crate) async fn mcp_tool(
+        self: &Arc<Self>,
+        executor: crate::ExecutorChoice,
+        params: &Value,
+    ) -> Value {
         let refuse = || json!({"content":[{"type":"text","text":"Private prediction policy refuses this tool or document; use captured source reading/editing and sealed Verify"}],"isError":true});
         let Some(name) = params["name"].as_str() else {
             return refuse();
@@ -254,6 +271,27 @@ impl Bound {
             if selected.as_ref() != Some(&self.path) {
                 return refuse();
             }
+        }
+        if ["seal_debugger_prediction", "continue_debugger_prediction"].contains(&name) {
+            return match self.debugger_tool(name, arguments).await {
+                Ok(value) => {
+                    let failed = value.get("summary").is_some_and(|summary| {
+                        !matches!(
+                            summary["classification"].as_str(),
+                            Some(
+                                "first_attempt_verified"
+                                    | "informed_prediction_verified"
+                                    | "verified_after_correction"
+                                    | "verified_after_prior_attempt"
+                            )
+                        )
+                    });
+                    json!({"content":[{"type":"text","text":value.to_string()}],"structuredContent":value,"isError":failed})
+                }
+                Err(_) => {
+                    json!({"isError":true,"content":[{"type":"text","text":"Retained prediction unavailable: check host plan, current source/runtime, initial/future seal ordering and bounded predicate. No target values are disclosed."}]})
+                }
+            };
         }
         if name == "seal_prediction" {
             let Ok(body) = serde_json::from_value::<SealRequest>(arguments.clone()) else {
@@ -286,6 +324,9 @@ impl Bound {
         let mut session = self.session.lock().await;
         if self.retired.load(Ordering::SeqCst) {
             return refuse();
+        }
+        if name == "edit_doc" {
+            self.retained.lock().await.reset().await;
         }
         let result = execute_tool(&mut session, executor.clone(), &invocation).await;
         let _ = executor.shutdown().await;
@@ -409,6 +450,24 @@ pub(super) async fn quarantine(
     next: Next,
 ) -> Response {
     let Some(bound) = &state.private_prediction else {
+        let path = request.uri().path().trim_start_matches("/api");
+        // Other windows retain their final UI receipts, but cannot launch a
+        // terminal, debugger, Run or alternative context reader around policy.
+        if path == "/v1/ui/windows" || path.starts_with("/v1/ui/windows/") {
+            return next.run(request).await;
+        }
+        let _ordinary = if path != "/tour/private-practice" {
+            Some(crate::engine::private_policy::ordinary())
+        } else {
+            None
+        };
+        if crate::engine::private_policy::overlaps(state.index.root()).unwrap_or(true)
+            || crate::engine::private_prediction_active()
+                .await
+                .unwrap_or(true)
+        {
+            return ApiError::unprocessable("This ordinary engine surface is paused while a private practice is active. End that private practice to resume; its history remains retained.").into_response();
+        }
         return next.run(request).await;
     };
     if bound.is_retired() {
@@ -450,6 +509,7 @@ pub(super) async fn quarantine(
                 "/prediction/agent/decision",
                 "/prediction/agent/stop",
                 "/prediction/promote",
+                "/prediction/debugger",
             ]
             .contains(&path))
         || (method == "POST"
@@ -472,6 +532,7 @@ pub(super) async fn status(State(state): State<LocalState>) -> ApiResult<Json<Va
         .as_ref()
         .ok_or_else(|| ApiError::unprocessable("No private prediction session"))?;
     let session = bound.session.lock().await;
+    let retained = bound.retained.lock().await.status();
     let captured = session.source_snapshots();
     let sealed_identity = bound.identity.read().unwrap().clone();
     let mut current_identity = sealed_identity.clone();
@@ -483,11 +544,11 @@ pub(super) async fn status(State(state): State<LocalState>) -> ApiResult<Json<Va
         .rebind(&current_identity, session.approved_source())
         .ok();
     Ok(Json(
-        json!({"document":bound.doc,"source":bound.path.file_name().and_then(|name|name.to_str()),"source_hash":current_identity.source,
+        json!({"retained_debugger":retained,"retained_plan":bound.retained_plan,"document":bound.doc,"source":bound.path.file_name().and_then(|name|name.to_str()),"source_hash":current_identity.source,
         "sealed_source_hash":sealed_identity.source,"current":captured[0]["current"],"actor":bound.actor,
         "question":bound.question,"target":target,"identities":current_identity,"actual_values":"withheld","runtime_revalidation":bound.runtime.is_some(),
         "environment_scope":if bound.runtime.is_some(){"Configured Python runtime is revalidated before dispatch and settlement; this status read does not freeze or revalidate the environment"}else{"Host startup identities; this read does not revalidate or freeze the execution environment"},
-        "supported":["read_doc","edit_doc","seal_prediction","verify"],"application_integration":"incomplete"}),
+        "supported":if bound.retained_plan.is_some(){vec!["read_doc","edit_doc","seal_prediction","verify","seal_debugger_prediction","continue_debugger_prediction"]}else{vec!["read_doc","edit_doc","seal_prediction","verify"]},"application_integration":"incomplete"}),
     ))
 }
 pub(super) async fn history(State(state): State<LocalState>) -> ApiResult<Json<Value>> {
@@ -500,10 +561,9 @@ pub(super) async fn history(State(state): State<LocalState>) -> ApiResult<Json<V
         .predictor_history(
             None,
             &bound.actor,
-            &[bound
-                .question
-                .key()
-                .map_err(|_| ApiError::unprocessable("Host question unavailable"))?],
+            &bound
+                .scenario_keys()
+                .map_err(|_| ApiError::unprocessable("Host questions unavailable"))?,
         )
         .map_err(|_| ApiError::unprocessable("Private prediction history unavailable"))?;
     Ok(Json(serde_json::to_value(history).map_err(|_| {
@@ -541,6 +601,9 @@ pub(super) async fn source_tool(
     if bound.retired.load(Ordering::SeqCst) {
         return Err(ApiError::unprocessable("Private session ended"));
     }
+    if invocation.name == "edit_doc" {
+        bound.retained.lock().await.reset().await;
+    }
     let result = execute_tool(&mut session, executor.clone(), &invocation).await;
     let _ = executor.shutdown().await;
     if invocation.name == "edit_doc" && result.ok {
@@ -554,9 +617,9 @@ pub(super) async fn source_tool(
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(super) struct SealRequest {
-    expected_source_hash: String,
-    predicted: Predicate,
-    rationale: String,
+    pub(super) expected_source_hash: String,
+    pub(super) predicted: Predicate,
+    pub(super) rationale: String,
 }
 pub(super) async fn seal(
     State(state): State<LocalState>,
@@ -574,7 +637,7 @@ pub(super) async fn seal(
 }
 
 /// Conditional MCP capabilities for a host-bound private workspace.
-pub(crate) fn catalogue() -> Value {
+pub(crate) fn catalogue(with_retained: bool) -> Value {
     let mut catalogue = crate::mcp_catalogue::tool_catalogue();
     catalogue["tools"].as_array_mut().unwrap().retain(|tool| {
         matches!(
@@ -603,6 +666,23 @@ pub(crate) fn catalogue() -> Value {
         .unwrap();
     seal["inputSchema"]["$defs"] = json!({"predicate":Predicate::schema_definition()});
     seal["inputSchema"]["properties"]["predicted"] = json!({"$ref":"#/$defs/predicate"});
+    if with_retained {
+        let mut retained_seal = catalogue["tools"]
+            .as_array()
+            .unwrap()
+            .last()
+            .unwrap()
+            .clone();
+        retained_seal["name"] = json!("seal_debugger_prediction");
+        retained_seal["description"] = json!(
+            "When the trusted state has retained_plan, seal the initial debugger prediction before launch, or the next prediction while paused before Continue. The host fixes both questions; source/runtime/inputs stay bound and prior visible metadata is retained. No target values are returned."
+        );
+        catalogue["tools"]
+            .as_array_mut()
+            .unwrap()
+            .push(retained_seal);
+        catalogue["tools"].as_array_mut().unwrap().push(json!({"name":"continue_debugger_prediction","description":"Execute the pending initial seal or Continue the retained debugger only after its future-stop seal. Returns only the shared gate verdict, never selected target values. No pending seal returns the previous receipt without execution.","inputSchema":{"type":"object","properties":{},"additionalProperties":false}}));
+    }
     catalogue
 }
 
@@ -654,10 +734,9 @@ pub(super) async fn evidence(State(state): State<LocalState>) -> ApiResult<Json<
         .predictor_history(
             None,
             &bound.actor,
-            &[bound
-                .question
-                .key()
-                .map_err(|_| ApiError::unprocessable("Host question unavailable"))?],
+            &bound
+                .scenario_keys()
+                .map_err(|_| ApiError::unprocessable("Host questions unavailable"))?,
         )
         .map_err(|_| ApiError::unprocessable("Prediction evidence unavailable"))?;
     let scenarios = history
@@ -746,6 +825,14 @@ pub(super) async fn promote(
             "Attempt belongs to another predictor or host question",
         ));
     }
+    if !bound
+        .retained_ready(&identity)
+        .map_err(|_| ApiError::unprocessable("Retained debugger evidence unavailable"))?
+    {
+        return Err(ApiError::conflict(
+            "Original initial/future debugger questions must pass for the current source before promotion",
+        ));
+    }
     let summary=bound.ledger.promote(&body.attempt,&identity,Actor{kind:"host".into(),id:"private_identity_revalidation".into()})
         .map_err(|_|ApiError::conflict("Prediction, original requirement, provenance or current identities do not permit promotion"))?;
     Ok(Json(
@@ -805,15 +892,16 @@ pub(super) async fn completion(State(state): State<LocalState>) -> ApiResult<Jso
                     && entry["event"]["actor"] == actor
             })
     });
-    let ready = latest.is_some_and(|attempt| {
-        matches!(
-            attempt.classification,
-            hick_observe::prediction::Classification::FirstAttemptVerified
-                | hick_observe::prediction::Classification::InformedPredictionVerified
-                | hick_observe::prediction::Classification::VerifiedAfterCorrection
-                | hick_observe::prediction::Classification::VerifiedAfterPriorAttempt
-        )
-    });
+    let ready = bound.retained_ready(&identity).unwrap_or(false)
+        && latest.is_some_and(|attempt| {
+            matches!(
+                attempt.classification,
+                hick_observe::prediction::Classification::FirstAttemptVerified
+                    | hick_observe::prediction::Classification::InformedPredictionVerified
+                    | hick_observe::prediction::Classification::VerifiedAfterCorrection
+                    | hick_observe::prediction::Classification::VerifiedAfterPriorAttempt
+            )
+        });
     Ok(Json(
         json!({"ready":ready,"comparison":latest,"current_certification":false,"reason":if ready {"Original prediction and requirement pass for the revalidated source/runtime; promotion remains separate"}else{"Original prediction and requirement are not passing for this actor's current source/runtime; continue the requested repair or stop for human review"}}),
     ))
