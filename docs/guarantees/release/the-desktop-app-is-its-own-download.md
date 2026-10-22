@@ -126,3 +126,15 @@ Last LLM verification:
   running and on the manual `.deb` verification above — which is the same
   standing as `a-download-runs-without-a-rust-toolchain.md` had before its
   first real matrix run.
+
+
+## Cache-selection correction — 2026-10-22
+
+The earlier collect-every-bundle behavior could rename a stale cached format as
+this build's artifact. Collection now checks the pre-build inventory and refuses
+unchanged cached files, no fresh output and ambiguous formats before replacing
+selection. Three focused stub-build safety tests pass. This is not an actual
+current package, native launch, embedded-version or producer-authentication
+witness; historical evidence above retains its original scope. See
+[the bounded collection contract](desktop-artifacts-come-from-the-current-build.md)
+for assumptions, challenges, exact hashes and separate human-judgment status.

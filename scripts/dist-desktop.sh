@@ -113,6 +113,18 @@ cross_args=()
 if [ "$TARGET" != "$HOST_TARGET" ]; then
   cross_args=(--target "$TARGET")
 fi
+# Snapshot only installable outputs before this invocation. A local target cache
+# may contain other formats or versions from an earlier build; they are not this
+# build's artifacts and must not be renamed with its version.
+if [ "$TARGET" != "$HOST_TARGET" ]; then
+  BUNDLE_DIR="apps/desktop/src-tauri/target/$TARGET/release/bundle"
+else
+  BUNDLE_DIR="apps/desktop/src-tauri/target/release/bundle"
+fi
+bundle_manifest=$(mktemp)
+bundle_candidates=$(mktemp)
+trap 'rm -f "$bundle_manifest" "$bundle_candidates"' EXIT
+node scripts/desktop-bundle-inventory.mjs snapshot "$BUNDLE_DIR" "$bundle_manifest"
 (
   cd apps/desktop/src-tauri
   # `CI=true` is what makes the macOS `.dmg` buildable anywhere.
@@ -147,16 +159,16 @@ fi
 # per-format subdirectory. Collect whatever this platform produced rather than
 # naming formats here: the matrix decides which platform runs, and the
 # platform decides what a bundle looks like.
-# A cross build lands under target/<triple>/release instead.
-if [ "$TARGET" != "$HOST_TARGET" ]; then
-  BUNDLE_DIR="apps/desktop/src-tauri/target/$TARGET/release/bundle"
-else
-  BUNDLE_DIR="apps/desktop/src-tauri/target/release/bundle"
-fi
 if [ ! -d "$BUNDLE_DIR" ]; then
   echo "::error::cargo tauri build reported success but $BUNDLE_DIR does not exist." >&2
   echo "If the bundle output moved, update this script and the release workflow" >&2
   echo "together — the workflow uploads exactly what lands in dist/desktop." >&2
+  exit 1
+fi
+
+node scripts/desktop-bundle-inventory.mjs changed "$BUNDLE_DIR" "$bundle_manifest" > "$bundle_candidates"
+if [ ! -s "$bundle_candidates" ]; then
+  echo "::error::this build produced no new or updated installable bundles; cached installers were not selected." >&2
   exit 1
 fi
 
@@ -170,7 +182,7 @@ mkdir -p "$OUT"
 # in a URL is a paper cut every downloader pays. So every bundle is renamed to
 # one shape:  hickory-docs-<version>-<target>.<ext>
 found=0
-while IFS= read -r bundle; do
+while IFS= read -r -d '' bundle; do
   case "$bundle" in
     *.deb|*.rpm|*.AppImage|*.dmg|*.msi|*.exe) ;;
     *.app.tar.gz) ;;
@@ -182,7 +194,7 @@ while IFS= read -r bundle; do
   esac
   cp "$bundle" "$OUT/hickory-docs-$VERSION-$TARGET.$ext"
   found=$((found + 1))
-done < <(find "$BUNDLE_DIR" -type f)
+done < "$bundle_candidates"
 
 if [ "$found" -eq 0 ]; then
   echo "::error::no installable bundle was produced under $BUNDLE_DIR." >&2
