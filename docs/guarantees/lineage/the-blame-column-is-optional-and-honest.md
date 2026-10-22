@@ -46,10 +46,8 @@ column nobody is looking at.
 
 The column refills when files change on disk (a save, a run, a checkout), not
 as you type. Blame describes what is committed; re-running it per keystroke
-would burn a process per character to move a label that has not changed. The
-consequence is that the column is briefly stale while you type, which is
-correct — the line is not committed yet, and the row above it still says who
-committed the line above it.
+would burn a process per character to move a label that has not changed. An editor change clears its displayed column until a matching attribution
+refresh arrives; saved attribution never follows shifted or replaced unsaved lines.
 
 The toggle is per machine (localStorage), not per project or per tab: it
 follows the job the reader is doing, and two panes disagreeing about whether
@@ -106,3 +104,12 @@ Last LLM verification:
   layout, so "does a 14em cap actually leave room for the code" was checked by
   eye. The refill-on-save path is wired but not tested end to end; the fetch
   and the event are each covered separately.
+
+
+## 2026-10-22 shared display reading
+
+LLM review: partial. Displayed attribution has explicit bounded line and byte
+readers through the installed editor-language facet. Both layers clear on source
+change; provider source text is excluded. Twenty-three focused attribution/gutter
+cases and changed-entrypoint TypeScript passed. Exact dependencies, evidence and
+limitations are in the issue-72 handoff. No human judgment supplied.

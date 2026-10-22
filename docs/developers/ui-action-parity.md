@@ -1152,3 +1152,12 @@ source mutations retain model origin and actual owner/filter refusal. The common
 adapter conceals revision data, supports visibility and forwards the actor. The
 active handoff records the twenty-one focused cases and source hashes. Remaining
 universal/native/provider/release acceptance is not waived by these increments.
+
+
+Spatial excerpt edges and test gutter launches now share installed language
+actions. Test launch admission checks saved bytes (including matching owned CRLF
+serialization); launch status never certifies test success or immutable execution.
+Displayed blame/color metadata has bounded line/detail readers, and source edits
+clear both layers. See the current issue-72 handoff for focused evidence and hashes.
+These additions do not discharge the outstanding dynamic/native/provider and
+selected recording/release/deployment acceptance.

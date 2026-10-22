@@ -37,3 +37,12 @@ Last LLM verification:
 - Human judgment: not recorded; visual accessibility review remains necessary.
 
 - Dependency fingerprint: `apps/web/src/editor/useBlame.ts` SHA-256 `1c9d803dc560607ac94cc0f4ec5dace515a555d59d4cf9fab542ce3caa22bbaa`; changes to this implementation or its cited integration paths require review.
+
+
+## 2026-10-22 shared display reading
+
+LLM review: partial. Displayed attribution has explicit bounded line and byte
+readers through the installed editor-language facet. Both layers clear on source
+change; provider source text is excluded. Twenty-three focused attribution/gutter
+cases and changed-entrypoint TypeScript passed. Exact dependencies, evidence and
+limitations are in the issue-72 handoff. No human judgment supplied.

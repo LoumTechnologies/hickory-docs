@@ -21,6 +21,7 @@ import { RangeSet, StateEffect, StateField } from "@codemirror/state";
 import type { EditorState, Extension } from "@codemirror/state";
 import { GutterMarker, gutter } from "@codemirror/view";
 import { EditorView, Decoration, type DecorationSet } from "@codemirror/view";
+import { editorLanguageActions } from "./languageActions";
 import { authorColor, type TextOrigin } from "../lib/attribution";
 
 /** One line's authorship, as the server reports it. */
@@ -54,7 +55,7 @@ interface BlameState {
 export const blameField = StateField.define<BlameState>({
   create: () => ({ shown: false, byLine: new Map() }),
   update(value, tr) {
-    let next = value;
+    let next = tr.docChanged ? { ...value, byLine: new Map<number, LineBlame>() } : value;
     for (const effect of tr.effects) {
       if (effect.is(setBlame)) {
         next = { ...next, byLine: new Map(effect.value.map((l) => [l.line, l])) };
@@ -172,6 +173,7 @@ export function blameGutter(): Extension {
   return [
     blameField,
     authorshipField,
+    attributionActions(),
     gutter({
       class: "cm-blame-gutter",
       markers: (view) => {
@@ -236,3 +238,41 @@ export const authorshipField = StateField.define<AuthorshipState>({
   },
   provide: field => EditorView.decorations.from(field, value => value.marks),
 });
+
+
+/** Read only the attribution already installed in the displayed editor layers. */
+function attributionActions(): Extension {
+  const active = (view: EditorView) => view.state.field(blameField).shown || view.state.field(authorshipField).shown;
+  const at = (view: EditorView, line: number) => {
+    const blame = view.state.field(blameField), colors = view.state.field(authorshipField);
+    return { gutter: blame.shown ? blame.byLine.get(line) : undefined, color: colors.shown ? colors.lines.find(entry => entry.line === line) : undefined };
+  };
+  const integer = { type: "number" as const, integer: true, minimum: 1, maximum: 100_000_000 };
+  return [editorLanguageActions.of({ id: "attribution:page", label: "Read displayed attribution line page", visible: active, enabled: () => true,
+    parameters: { first_line: integer, count: { ...integer, maximum: 64 } },
+    execute: async (view, args) => {
+      const first = Number(args.first_line), count = Number(args.count);
+      if (first > view.state.doc.lines) return { status: "unavailable", reason: "Line is outside the current editor" };
+      const last = Math.min(view.state.doc.lines, first + count - 1);
+      const lines = Array.from({ length: last - first + 1 }, (_, index) => {
+        const line = first + index, { gutter, color } = at(view, line);
+        return { line, gutter_present: !!gutter, gutter_label: gutter ? rowLabel(gutter, view.state.field(blameField).byLine.get(line - 1)) : null, authorship_present: !!color, author_color: color ? authorColor(color.email || color.author) : null, origin: color?.origin ?? null };
+      });
+      const value = { lines, total_lines: view.state.doc.lines, next: last < view.state.doc.lines ? last + 1 : null, source_read: false };
+      if (new TextEncoder().encode(JSON.stringify(value)).length > 8192) return { status: "unavailable", reason: "Attribution page exceeds 8192 UTF-8 bytes; request fewer lines" };
+      return { status: "completed", value };
+    } }), editorLanguageActions.of({ id: "attribution:detail", label: "Read displayed attribution detail bytes", visible: active, enabled: () => true,
+    parameters: { line: integer, offset: { ...integer, minimum: 0 }, limit: { ...integer, maximum: 8192 } },
+    execute: async (view, args) => {
+      const line = Number(args.line);
+      if (line > view.state.doc.lines) return { status: "unavailable", reason: "Line is outside the current editor" };
+      const { gutter, color } = at(view, line);
+      if (!gutter && !color) return { status: "unavailable", reason: "No attribution is displayed on this line" };
+      // Copy known metadata only: provider records may also contain full source text.
+      const record = (entry: LineBlame) => ({ author: entry.author, email: entry.email, commit: entry.commit, time: entry.time, summary: entry.summary, uncommitted: entry.uncommitted, origin: entry.origin ?? "unknown", provider: entry.provider ?? "Git blame" });
+      const bytes = new TextEncoder().encode(JSON.stringify({ line, gutter: gutter ? { ...record(gutter), tooltip: blameTip(gutter) } : null, authorship: color ? record(color) : null, origin_is_not_authenticated_identity: true }));
+      const offset = Number(args.offset), end = Math.min(bytes.length, offset + Number(args.limit));
+      if (offset > bytes.length) return { status: "unavailable", reason: "Offset exceeds current attribution details" };
+      return { status: "completed", value: { bytes: [...bytes.slice(offset, end)], encoding: "JSON UTF-8", span: [offset, end], next: end < bytes.length ? end : null, total_bytes: bytes.length } };
+    } })];
+}
