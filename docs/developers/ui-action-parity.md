@@ -1196,3 +1196,10 @@ status readers before their normal editors mount. Workspace restoration and
 proposal recovery reasons are readable without disclosing source/recovery bytes.
 Folder listings identify truncation. Focused scope and exact hashes are recorded
 in the current handoff; universal/native/provider acceptance remains open.
+
+
+The [October 22 delegated-control review](issue-72-control-review-2026-10-22.md)
+records the 33-file candidate cohort and exact hashes. It found useShellKeys is
+live through SpatialShellView even though legacy ShellView JSX is uncalled.
+Those keyboard split/search/close handlers now have shared commands and focused
+checks. Static mapping is distinct from every dynamic/platform runtime witness.

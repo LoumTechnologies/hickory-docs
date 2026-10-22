@@ -430,3 +430,14 @@ Spatial excerpt controls expose actual extent and shared edge handlers without c
 LLM review: partial. See the 2026-10-22 excerpt/test-launch checkpoint in
 `docs/developers/handoffs/2026-10-21-issue-72.md` for executed focused evidence,
 exact dependency hashes and boundaries. No human judgment supplied.
+
+
+## 2026-10-22 live keyboard handler review
+
+LLM review: partial. SpatialShellView's useShellKeys export now shares actual
+split/search/focused-close handlers with registered agent commands. Layout and
+workspace visibility guard both adapters, and close preserves the owning
+unsaved-work outcome. Seven focused shell cases and changed-entrypoint TypeScript
+passed. Exact source hashes/delegation paths are in the issue-72 handoff and
+October 22 control review. No human/native keyboard or universal instance
+qualification is supplied by the jsdom cases.

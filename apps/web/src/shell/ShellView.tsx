@@ -1,3 +1,4 @@
+import { useUiCommands, useUiRevision } from "../lib/uiActionBridge";
 import type { UiOutcome } from "../lib/uiActions";
 import { bufferTarget } from "../lib/editorBufferTargets";
 import { workspaceIsVisible } from "../lib/workspaceVisibility";
@@ -11,7 +12,7 @@ import { workspaceIsVisible } from "../lib/workspaceVisibility";
 // See docs/specs/freeform/shell-layouts.md.
 
 import { isAction } from "../lib/keymap";
-import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react";
 
 import {
   activate,
@@ -903,38 +904,40 @@ export function useShellKeys(
   onSearch?: () => void,
   onRequestCloseTab?: (paneId: string, tabId: string, signal?: AbortSignal) => void | Promise<UiOutcome>,
 ) {
+  const parent = `shell-keyboard:${useId()}`;
+  const callbacks = useMemo(() => crypto.randomUUID(), [onLayout, onSearch, onRequestCloseTab]);
+  const revision = useUiRevision(() => [layout, callbacks, workspaceIsVisible()]);
+  const focused = () => panesOf(layout.root).find(pane => pane.id === layout.focus);
+  const selected = () => { const pane = focused(); return pane?.tabs[pane.active]; };
+  const invoke = useUiCommands([
+    { key: `${parent}:split`, command: { parent, subject: parent, label: "Split focused workspace pane", parameters: { axis: { type: "string", maxLength: 8, choices: ["row", "column"] } }, prerequisites: ["Current visible workspace layout and focused pane"],
+      read: () => ({ revision: revision(), enabled: workspaceIsVisible() && !!focused() }),
+      execute: async args => { onLayout(split(layout, layout.focus, args.axis as "row" | "column")); return { status: "completed", value: { layout_change_requested: true, source_changed: false } }; } } },
+    { key: `${parent}:close`, command: { parent, subject: parent, label: "Close focused workspace tab", parameters: {}, prerequisites: ["Current visible focused tab; normal unsaved-work decisions apply"],
+      read: () => ({ revision: revision(), enabled: workspaceIsVisible() && !!selected() }),
+      execute: async (_args, _actor, signal): Promise<UiOutcome> => {
+        const tab = selected(); if (!tab || signal.aborted) return { status: "unavailable", reason: "Focused tab closed or the request was cancelled" };
+        if (onRequestCloseTab) return await onRequestCloseTab(layout.focus, tab.id, signal) ?? { status: "completed", value: { close_callback_completed: true, closed: null } };
+        onLayout(closeTab(layout, layout.focus, tab.id)); return { status: "completed", value: { layout_change_requested: true, source_changed: false } };
+      } } },
+    { key: `${parent}:search`, command: { parent, subject: parent, label: "Open folder search from workspace", parameters: {}, prerequisites: [],
+      read: () => ({ revision: revision(), enabled: workspaceIsVisible() && !!onSearch }),
+      execute: async () => { if (!onSearch) return { status: "unavailable", reason: "Folder search handler unavailable" }; onSearch(); return { status: "completed", value: { search_requested: true } }; } } },
+  ]);
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       if (!workspaceIsVisible()) return;
       if (isAction(event, "search.inFolder")) {
-        // Find in folder asks about the whole folder, so it works from
-        // anywhere in the workspace. Editors keep plain Find for themselves.
         if (!onSearch) return;
-        event.preventDefault();
-        onSearch();
-        return;
+        event.preventDefault(); void invoke(`${parent}:search`); return;
       }
-      const chord = event.metaKey || event.ctrlKey;
-      if (!chord) return;
-      const pane = layout.focus;
+      if (!event.metaKey && !event.ctrlKey) return;
       if (event.key === "\\") {
-        // Cmd-\ splits right, Cmd-Shift-\ splits down: the pair VS Code and
-        // Zed both use, so the muscle memory people arrive with works.
-        event.preventDefault();
-        onLayout(split(layout, pane, event.shiftKey ? "column" : "row"));
-        return;
+        event.preventDefault(); void invoke(`${parent}:split`, { axis: event.shiftKey ? "column" : "row" }); return;
       }
-      if (event.key === "w") {
-        const current = layout.root;
-        const found = panesOf(current).find((candidate) => candidate.id === pane);
-        const tab = found?.tabs[found.active];
-        if (!tab) return;
-        event.preventDefault();
-        if (onRequestCloseTab) onRequestCloseTab(pane, tab.id);
-        else onLayout(closeTab(layout, pane, tab.id));
-      }
+      if (event.key === "w" && selected()) { event.preventDefault(); void invoke(`${parent}:close`); }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [layout, onLayout, onSearch, onRequestCloseTab]);
+  }, [layout, onSearch, invoke, parent]);
 }
