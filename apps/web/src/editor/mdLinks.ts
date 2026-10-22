@@ -64,7 +64,7 @@ class ImageWidget extends WidgetType {
   // every keystroke elsewhere on the line rebuilds the <img> and the image
   // visibly reloads while you type.
   eq(other: ImageWidget): boolean {
-    return other.src === this.src && other.alt === this.alt;
+    return other.src === this.src && other.alt === this.alt && other.target === this.target && other.onOpenSource === this.onOpenSource;
   }
 
   toDOM(): HTMLElement {
@@ -240,12 +240,21 @@ export function mdLinks(config: MdLinksConfig): Extension {
         return link ? followLink(config.docPath(), link.target) : { status: "unavailable", reason: "There is no navigable markdown link at this current source position" };
       },
     }),
-    StateField.define<DecorationSet>({
-      create: (state) => decorationsFor(state, config),
-      // The scan is over the whole buffer, so it runs on a document change
-      // and nothing else: a selection move cannot change where a link is.
-      update: (value, tr) => (tr.docChanged ? decorationsFor(tr.state, config) : value),
-      provide: (f) => EditorView.decorations.from(f),
+    ...(config.images && config.onOpenImageSource ? [editorLanguageActions.of({
+      id: "markdown-image-source", label: "Open generated markdown image source",
+      parameters: { position }, enabled: () => true, revision: () => config.docPath(),
+      execute: async (view, args) => {
+        const link = linkAt(view.state, config, args.position as number);
+        const target = link?.image ? resolveTarget(config.docPath(), link.target) : null;
+        if (!target || !config.onOpenImageSource?.(target)) return { status: "unavailable", reason: "This image has no generating source block in the current document" };
+        return { status: "completed", value: { source_selection_requested: true, target, source_written: false } };
+      },
+    })] : []),
+    StateField.define<{ path: string | null; decorations: DecorationSet }>({
+      create: (state) => ({ path: config.docPath(), decorations: decorationsFor(state, config) }),
+      // Renaming the owning document can change asset resolution without edits.
+      update: (value, tr) => tr.docChanged || value.path !== config.docPath() ? { path: config.docPath(), decorations: decorationsFor(tr.state, config) } : value,
+      provide: (f) => EditorView.decorations.from(f, value => value.decorations),
     }),
     EditorView.domEventHandlers({
       mousedown(event, view) {

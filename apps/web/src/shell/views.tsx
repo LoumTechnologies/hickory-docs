@@ -1,7 +1,7 @@
 import { GeneratedDebugTools } from "../debug/GeneratedDebugTools";
 import type { DebugSession } from "../debug/useDebugger";
 import { viewBuffers } from "../lib/viewBuffers";
-import { ActionNotice } from "../components/ActionNotice";
+import { GeneratedBufferRecovery } from "./GeneratedBufferRecovery";
 import { SurfaceInfo } from "../components/SurfaceInfo";
 // What goes inside a pane.
 //
@@ -295,12 +295,9 @@ export function GeneratedFileView({
       />
       {debuggerContext && file && <GeneratedDebugTools view={debugView} file={file} {...debuggerContext} />}
       {range && <SamplePicker path={path} range={range} contents={outputView.current?.state.doc.toString() ?? file?.content ?? ""} />}
-      {saveError && (
-        <ActionNotice kind="fail" retry={{ label: "Retry Save", run: () => { void saver.flushNow(); } }}>
-          Could not save into the owning document. Your edits remain in this buffer: {saveError}
-          <button type="button" onClick={() => { void viewBuffers.get(bufferId)?.discard(); }}>Discard this buffer and reload</button>
-        </ActionNotice>
-      )}
+      {saveError && <GeneratedBufferRecovery bufferId={bufferId} saver={saver} error={saveError}
+        isCurrent={() => bufferOwners.get(bufferId) === saver && !!outputView.current?.dom.isConnected}
+        source={() => outputView.current?.state.doc.toString() ?? null} />}
     </div>
   );
 }

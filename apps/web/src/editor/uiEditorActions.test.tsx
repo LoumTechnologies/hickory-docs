@@ -110,3 +110,30 @@ it("follows only current prose links through the native navigation handler and r
     expect(await run("Follow markdown link", { position: 2 })).toMatchObject({ outcome: { status: "unavailable" } });
   } finally { open.mockRestore(); window.removeEventListener("hickory-open-path", listener); hook.unmount(); view.destroy(); host.remove(); }
 });
+
+// Guarantee: docs/guarantees/agent/ui-action-dispatch.md
+it("opens only generated prose image sources through the native image callback", async () => {
+  const host = document.createElement("div"); document.body.append(host);
+  const open = vi.fn((target: string) => target === "notes/generated.png");
+  const text = "![generated](generated.png) ![external](external.png) [text](generated.png)";
+  const view = new EditorView({ parent: host, state: EditorState.create({ doc: text, extensions: [mdLinks({ docPath: () => "notes/a.md", images: true, onOpenImageSource: open })] }) });
+  const registry = new UiActions({ workspace: "p", window: "w" }, () => true, async () => {});
+  const wrapper = ({ children }: { children: ReactNode }) => <UiActionContext.Provider value={registry}>{children}</UiActionContext.Provider>;
+  const hook = renderHook(() => useEditorActions(view, "a.md"), { wrapper });
+  let id = 0;
+  const run = (position: number) => {
+    const action = registry.groups().groups.flatMap(g => registry.observe(g).actions).find(a => a.label === "Open generated markdown image source")!;
+    return registry.act(registry.scope, { id: "agent", kind: "agent" }, { handle: action.handle, arguments: { position }, request_id: String(++id) });
+  };
+  try {
+    expect(await run(3)).toMatchObject({ outcome: { value: { source_selection_requested: true, source_written: false } } });
+    expect(open).toHaveBeenLastCalledWith("notes/generated.png");
+    expect(await run(text.indexOf("![external]") + 3)).toMatchObject({ outcome: { status: "unavailable" } });
+    open.mockClear();
+    expect(await run(text.indexOf("[text]") + 2)).toMatchObject({ outcome: { status: "unavailable" } });
+    expect(open).not.toHaveBeenCalled();
+    view.contentDOM.querySelector("img")?.click();
+    expect(open).toHaveBeenLastCalledWith("notes/generated.png");
+    expect(view.state.doc.toString()).toBe(text);
+  } finally { hook.unmount(); view.destroy(); host.remove(); }
+});

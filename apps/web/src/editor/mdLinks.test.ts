@@ -93,3 +93,18 @@ describe("following a link", () => {
     open.mockRestore();
   });
 });
+
+// Guarantee: docs/guarantees/agent/ui-action-dispatch.md
+it("refreshes rendered image ownership when the document path changes without a source edit", () => {
+  let path = "notes/a.md";
+  const clicked: string[] = [];
+  const view = editorWith("![chart](chart.png)", { docPath: () => path, images: true, onOpenImageSource: target => { clicked.push(target); return true; } });
+  try {
+    expect(view.contentDOM.querySelector("img")?.getAttribute("src")).toBe(assetUrl("notes/chart.png"));
+    path = "renamed/a.md";
+    view.dispatch({});
+    expect(view.contentDOM.querySelector("img")?.getAttribute("src")).toBe(assetUrl("renamed/chart.png"));
+    view.contentDOM.querySelector("img")?.click();
+    expect(clicked).toEqual(["renamed/chart.png"]);
+  } finally { view.destroy(); }
+});

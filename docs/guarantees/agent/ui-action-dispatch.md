@@ -771,3 +771,19 @@ LLM implementation review: partially verified for the named paths. Focused
 executed checks and exact dependencies are retained in the workspace-status /
 ribbon section of the issue-72 handoff. Human judgment is not supplied. Universal
 parity and current packaged/provider/release acceptance remain incomplete.
+
+
+### Image source, commit contexts and generated-buffer recovery — 2026-10-22
+
+Generated markdown image navigation shares its native generating-block callback,
+bound to the current prose image/path. A path-only transaction refreshes its image
+widget target. Historical commit-context loads bind the selected commit and refuse
+late replacement results. A failed context load remains retryable. Generated
+buffer Retry/Discard shares the current ordinary saver/entry/source/baseline;
+failed saves retain drafts and stale discards cannot discard newer bytes. Actual
+save results and possible late effects remain explicit, with no verification claim.
+
+LLM implementation review: partially verified for these paths. Focused checks,
+failed assertions/corrections and exact hashes are in the corresponding image /
+context / recovery section of the issue-72 handoff. Human judgment is not supplied.
+Universal parity and current provider/package/release acceptance remain incomplete.
