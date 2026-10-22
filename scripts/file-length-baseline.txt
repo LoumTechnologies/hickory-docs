@@ -2,7 +2,7 @@ apps/web/src/api/types.ts 1105
 apps/web/src/components/TablePanel.tsx 1630
 apps/web/src/debug/cmDebug.ts 1038
 apps/web/src/editor/wysiwyg.ts 1035
-apps/web/src/shell/Ribbons.tsx 1228
+apps/web/src/shell/Ribbons.tsx 1223
 apps/web/src/views/WorkspaceView.tsx 1875
 crates/hick-dap/src/build.rs 1050
 crates/hick-dap/src/session.rs 1119

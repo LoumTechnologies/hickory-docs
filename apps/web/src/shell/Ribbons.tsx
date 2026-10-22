@@ -1,6 +1,8 @@
+import { useRibbonActions } from "./useRibbonActions";
+import type { EditorState } from "@codemirror/state";
 import { sourceRange, bandBetween, linkTitle } from "./ribbonMeasurements";
 export { bandBetween } from "./ribbonMeasurements";
-import { reviewRelationship, reviewError, openReview, type ReviewTarget } from "../lib/reviews";
+import { type ReviewTarget } from "../lib/reviews";
 // Provenance ribbons, drawn between panes — and out to files that are not
 // open yet.
 //
@@ -183,6 +185,7 @@ interface Shape {
   /** The line ranges to tint while hovered, one entry per anchored editor. */
   hl: HlSide[];
   caret: boolean;
+  states: readonly EditorState[];
   alwaysVisible?: boolean;
   target: RibbonTarget;
   /** Whitespace-only attribution: drawn only while the pointer is over the
@@ -201,7 +204,7 @@ interface Shape {
  * is in it, which is one predicate over the finished list rather than a line
  * repeated at all four places a shape is made.
  */
-export type Draft = Omit<Shape, "caret">;
+export type Draft = Omit<Shape, "caret" | "states">;
 
 /** Thickness of the connector bar on a tab terminal's attached edge. */
 const CONNECTOR = 3;
@@ -224,6 +227,8 @@ function sameShapes(a: readonly Shape[], b: readonly Shape[]): boolean {
     const y = b[i];
     if (
       x.key !== y.key ||
+      JSON.stringify([x.target, x.review, x.family]) !== JSON.stringify([y.target, y.review, y.family]) ||
+      x.states.some((state, j) => state !== y.states[j]) ||
       x.color !== y.color ||
       x.clamped !== y.clamped ||
       x.ends !== y.ends ||
@@ -1023,6 +1028,7 @@ export function RibbonOverlay({
     const caretIn = lastFocused.current;
     const shaped: Shape[] = out.map((shape) => ({
       ...shape,
+      states: shape.hl.map(side => side.view.state),
       caret:
         caretIn !== null &&
         shape.hl.some(
@@ -1083,6 +1089,9 @@ export function RibbonOverlay({
     };
   }, [measure, container, sources, files, links]);
 
+  const isShown = (shape: Shape) => !!shape.alwaysVisible || (visibility === "caret" ? shape.caret || revealedKeys.has(shape.key) : shape.ends === "text" && !shape.whitespaceOnly || revealedKeys.has(shape.key));
+  const disclose = (shape: Shape, visible: boolean) => { setHovered(visible ? shape : null); if (visible) reveal.current?.enter(shape.key); else reveal.current?.leave(shape.key); };
+  const act = useRibbonActions(shapes, isShown, disclose, onNavigate ? shape => onNavigate(shape.target, ribbonOpenIntent(container, shape.hl[0]?.view.dom, shape.target)) : undefined);
   if (shapes.length === 0) return null;
   return (
     <svg className="ribbon-layer">
@@ -1107,20 +1116,9 @@ export function RibbonOverlay({
         const modifier = `${shape.clamped ? " ribbon-clamped" : ""}${
           shape.ends === "text" ? "" : ` ribbon-to-${shape.ends}`
         }${shape.family === "lineage" ? "" : ` ribbon-family-${shape.family}`}`;
-        // Chrome-terminated connections draw only while revealed: their
-        // lines would otherwise sit over pane text all the time. The hover
-        // strip below is what reveals them; the revealed shapes themselves
-        // keep the reveal alive so the pointer can travel to the terminal.
-        // Whitespace-only attribution is hover-revealed too (via the
-        // container mousemove over its involved lines): a band whose whole
-        // meaning is "this blank region came from that blank region" is
-        // noise until someone is working exactly there.
         const chrome = shape.ends !== "text";
         const hoverOnly = chrome || shape.whitespaceOnly === true;
-        const shown = shape.alwaysVisible || (
-          visibility === "caret"
-            ? shape.caret || revealedKeys.has(shape.key)
-            : !hoverOnly || revealedKeys.has(shape.key));
+        const shown = isShown(shape);
         return (
           <g
             key={shape.key}
@@ -1131,26 +1129,23 @@ export function RibbonOverlay({
               const side = shape.hl[0];
               if (!side) return;
               event.preventDefault();
-              if (shape.review) openReview(shape.review); else void reviewRelationship(side.view, [side.from, side.to], { family: shape.family, target: shape.target, key: shape.key }).catch(reviewError);
+              act(shape, "review");
             }}
             onKeyDown={event => {
               if (event.key !== "Enter") return;
               event.preventDefault();
               const side = shape.hl[0];
-              if (event.altKey && shape.review) openReview(shape.review);
-              else if (event.altKey && side) void reviewRelationship(side.view, [side.from, side.to], { family: shape.family, target: shape.target, key: shape.key }).catch(reviewError);
-              else onNavigate?.(shape.target, ribbonOpenIntent(container, side?.view.dom, shape.target));
+              if (event.altKey && (shape.review || side)) act(shape, "review");
+              else act(shape, "navigate");
             }}
             className={`ribbon-group${hoverOnly && shown ? " ribbon-group--revealed" : ""}${
               shape.family === "lineage" ? "" : ` ribbon-group--${shape.family}`
             }`}
             onMouseEnter={() => {
-              setHovered(shape);
-              if (hoverOnly) reveal.current?.enter(shape.key);
+              if (hoverOnly) disclose(shape, true); else setHovered(shape);
             }}
             onMouseLeave={() => {
-              setHovered(null);
-              if (hoverOnly) reveal.current?.leave(shape.key);
+              if (hoverOnly) disclose(shape, false); else setHovered(null);
             }}
             onClick={(e) => {
               // Precise controls under the band win the click: the ribbon can
@@ -1162,7 +1157,7 @@ export function RibbonOverlay({
                 beneath.click();
                 return;
               }
-              onNavigate?.(shape.target, ribbonOpenIntent(container, shape.hl[0]?.view.dom, shape.target));
+              act(shape, "navigate");
             }}
           >
             {chrome && shape.reveal && (

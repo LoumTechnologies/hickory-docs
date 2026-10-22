@@ -1095,3 +1095,20 @@ a child is not proof of a gap, and presence in a dependency is not parity proof.
 A per-control/dynamic/native review is still required before universal completion.
 See the issue-72 handoff and prediction guarantee for commands, hashes, failures
 and assurance boundaries.
+
+
+### Static hosts and dynamic workspace controls — October 22
+
+Shipped embedding host controls now share the scoped parent bridge, including
+actual graph/image editors and bounded recorded-profile import/replay. Import
+checks captured source integrity; it does not execute or authenticate a run.
+Markdown links use the installed editor language-action facet and current source/
+path. Clipboard outcomes distinguish actual writes and human permission requests.
+
+Workspace status, provenance, file-list viewport and measured ribbon controls now
+have shared handlers/readings. Ribbon navigation/review binds current measured
+source states and target identity, and requires actual disclosure. Geometry alone
+cannot preserve a stale target. Status/persistence callbacks report requests,
+not completed downstream effects. Focused checks and failures/corrections are in
+the active issue-72 handoff. These increments do not complete universal parity,
+private ACP integration, paid private-provider or packaged/release/deployed proof.

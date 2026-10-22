@@ -1,3 +1,6 @@
+import { useId, useState } from "react";
+import { useUiCommands, useUiRevision } from "../lib/uiActionBridge";
+import { useUiReading } from "../lib/uiReading";
 // Three small toggles — Lineage · Context · Declared — for which provenances
 // the overlay draws. They live in the status bar so they are at hand while
 // reading, not in a settings page: "why is this here?" is asked mid-read.
@@ -26,12 +29,24 @@ export function ProvenanceToggles({
   continuity?: boolean;
   onContinuity?: (enabled: boolean) => void;
 }) {
+  const parent = `provenance-toggles:${useId()}`;
+  const revision = useUiRevision(() => [[...layers].sort(), continuity]);
+  const [error, setError] = useState("");
+  const visible = PROVENANCE_LAYERS.filter(layer => layer !== "continuity" || continuity !== undefined);
+  useUiReading("visible provenance layers", { layers: visible.map(layer => ({ layer, enabled: layer === "continuity" ? !!continuity : layers.has(layer), meaning: LAYER_LABEL[layer].tip })), error });
+  const invoke = useUiCommands(visible.map(layer => ({ key: `${parent}:${layer}`, command: {
+    label: `Toggle ${LAYER_LABEL[layer].short} provenance`, parent, subject: parent, parameters: {}, prerequisites: [layer === "continuity" ? "Changes the project continuity setting through its existing host handler" : "Changes only the existing overlay drawing preference"],
+    read: () => ({ revision: revision(), enabled: layer !== "continuity" || !!onContinuity, value: layer === "continuity" ? !!continuity : layers.has(layer) }),
+    execute: async () => { if (layer === "continuity") { if (!onContinuity) return { status: "unavailable", reason: "No continuity handler is attached" }; await onContinuity(!continuity); } else await onToggle(layer); return { status: "completed", value: { change_requested: true, layer, persistence: "Inspect the resulting project/UI state; no write completion is certified here" } }; },
+  } })));
+  const act = (layer: ProvenanceLayer) => { void invoke(`${parent}:${layer}`).catch(reason => setError(String(reason))); };
   return (
     <span
       className="provenance-toggles"
       role="group"
       aria-label="Provenance layers"
     >
+      {error && <span role="alert">{error}</span>}
       {PROVENANCE_LAYERS.map((layer) => {
         // Continuity is not shown at all until the project has it, because a
         // toggle for a feature that records nothing is a toggle that does
@@ -49,7 +64,8 @@ export function ProvenanceToggles({
             }`}
             aria-pressed={on}
             data-tip={LAYER_LABEL[layer].tip}
-            onClick={() => (isContinuity ? onContinuity?.(!on) : onToggle(layer))}
+            disabled={isContinuity && !onContinuity}
+            onClick={() => act(layer)}
           >
             <span className="provenance-toggle__swatch" aria-hidden />
             {LAYER_LABEL[layer].short}

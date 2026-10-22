@@ -1,3 +1,6 @@
+import { useId } from "react";
+import { useUiCommands, useUiRevision } from "../lib/uiActionBridge";
+import { useUiReading } from "../lib/uiReading";
 import type React from "react";
 // The status bar: the one line that is always true.
 //
@@ -51,9 +54,25 @@ export function StatusBar({
   onGit,
   extra,
 }: StatusBarProps) {
+  const parent = `workspace-status:${useId()}`;
+  const revision = useUiRevision(() => [problems, needsAttention, path, zoom, git]);
+  useUiReading("workspace status", { problems, needsAttention, path, zoom, git: git ?? null });
+  const actions = [
+    { id: "git", label: "Show status branch history", callback: git ? onGit : undefined, visible: !!git },
+    { id: "problems", label: "Show status problems", callback: onProblems, visible: true },
+    { id: "attention", label: "Go to next waiting terminal", callback: onAttention, visible: needsAttention > 0 },
+  ];
+  const invoke = useUiCommands(actions.filter(action => action.visible).map(action => ({ key: `${parent}:${action.id}`, command: {
+    parent, subject: parent, label: action.label, parameters: {}, prerequisites: [],
+    read: () => ({ revision: revision(), enabled: !!action.callback, reason: "No handler is attached to this status control" }),
+    execute: async () => { if (!action.callback) return { status: "unavailable", reason: "This status control has no attached handler" }; await action.callback(); return { status: "completed", value: { view_requested: true, scope: "Callback returned; inspect the resulting view" } }; },
+  } })));
+  const [error, setError] = useState("");
+  const act = (id: string) => { void invoke(`${parent}:${id}`).catch(reason => setError(String(reason))); };
   const clean = problems.errors === 0 && problems.warnings === 0;
   return (
     <footer className="status-bar" role="contentinfo">
+      {error && <span role="alert">{error}</span>}
       <div className="status-bar__left">
         {/* Leftmost, the way every editor puts it — and only when there IS a
             branch. A permanent "no repository" would spend a slot saying
@@ -62,7 +81,7 @@ export function StatusBar({
           <button
             type="button"
             className="status-bar__item"
-            onClick={onGit}
+            onClick={() => act("git")} disabled={!onGit}
             data-tip={
               git.dirty > 0
                 ? `On ${git.branch} — ${git.dirty} file${git.dirty === 1 ? "" : "s"} changed. Show history.`
@@ -82,7 +101,7 @@ export function StatusBar({
         <button
           type="button"
           className={`status-bar__item${clean ? "" : " status-bar__item--loud"}`}
-          onClick={onProblems}
+          onClick={() => act("problems")} disabled={!onProblems}
           data-tip={
             clean
               ? "Nothing is wrong right now"
@@ -106,7 +125,7 @@ export function StatusBar({
           <button
             type="button"
             className="status-bar__item status-bar__item--attention"
-            onClick={onAttention}
+            onClick={() => act("attention")} disabled={!onAttention}
             data-tip="Go to the next terminal that needs you"
             aria-label={`${needsAttention} terminal${needsAttention === 1 ? "" : "s"} needing you`}
           >
@@ -186,6 +205,7 @@ function CaretPosition() {
       if (frame !== null) cancelAnimationFrame(frame);
     };
   }, []);
+  useUiReading("focused caret position", caret);
   if (!caret) return null;
   return (
     <span className="status-bar__item" data-tip="Line and column of the caret">

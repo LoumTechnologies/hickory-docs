@@ -754,3 +754,20 @@ are retained in the 2026-10-22 static-host section of
 [the issue-72 handoff](../../developers/handoffs/2026-10-21-issue-72.md).
 Human judgment is not supplied. These witnesses do not establish universal parity
 or current native/provider/release acceptance.
+
+
+### Workspace status and measured ribbons — 2026-10-22
+
+Status, environment/graph and provenance controls share their real handlers and
+readable current values. Continuity unavailability remains explicit; callback
+return does not establish persisted settings or a loaded view. File-name scroll
+commands bind the mounted editor and real viewport; scrolling reads no file body.
+Measured ribbon actions require disclosure and current editor states before
+navigation or relationship review. Geometry equality includes target, review,
+family and editor-state identities. Neither a requested review nor navigation
+certifies human resolution or downstream completion.
+
+LLM implementation review: partially verified for the named paths. Focused
+executed checks and exact dependencies are retained in the workspace-status /
+ribbon section of the issue-72 handoff. Human judgment is not supplied. Universal
+parity and current packaged/provider/release acceptance remain incomplete.
