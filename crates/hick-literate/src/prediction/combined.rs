@@ -23,6 +23,17 @@ pub async fn run(
     project: &Path,
     executor: Arc<dyn Executor>,
 ) -> Result<ManagedOutput> {
+    run_with_environment(ledger, request, source, project, executor, None).await
+}
+pub async fn run_with_environment(
+    ledger: &Ledger,
+    request: &Request,
+    source: &str,
+    project: &Path,
+    executor: Arc<dyn Executor>,
+    profile: Option<&super::environment::Profile>,
+) -> Result<ManagedOutput> {
+    let environment = super::environment::Profile::begin(profile, &request.identity).await?;
     let scratch = tempfile::tempdir()
         .map_err(|_| anyhow::anyhow!("Private scenario workspace unavailable"))?;
     let (spec, line, debugger_target) =
@@ -93,7 +104,12 @@ pub async fn run(
         Ok(value) => value,
         Err(_) => return gate.unavailable(),
     };
-    let accepted = result.expectations.iter().all(|outcome| outcome.passed);
+    let unchanged =
+        match super::environment::Profile::unchanged(&environment, &request.identity).await {
+            Ok(value) => value,
+            Err(_) => return gate.unavailable(),
+        };
+    let accepted = unchanged && result.expectations.iter().all(|outcome| outcome.passed);
     gate.finish(
         serde_json::json!({"output":output, "debugger":debug_value}),
         serde_json::json!({"adapter":"combined_live_v1", "captures":captures,

@@ -18,6 +18,8 @@ mod types;
 pub use types::*;
 #[path = "prediction_publication.rs"]
 mod publication;
+#[path = "prediction_scope.rs"]
+mod scope;
 pub use publication::SelectedPredictionHistory;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -146,6 +148,7 @@ pub fn digest(value: &impl Serialize) -> Result<String> {
     Ok(format!("{:x}", Sha256::digest(serde_json::to_vec(value)?)))
 }
 
+#[derive(Clone)]
 pub struct Ledger {
     root: PathBuf,
 }
@@ -388,6 +391,7 @@ impl Ledger {
         );
         self.transaction(|journal| {
             let (_, seal) = find_seal(journal, seal_id)?;
+            ensure!(seal_actor(journal,seal_id)?==&actor,"Prediction seal belongs to another predictor");
             ensure!(future_binding(journal, seal_id) == future, "Prediction belongs to a different paused session or requires future-stop admission");
             ensure!(target.is_none_or(|target| target == &seal.target), "Execution target differs from the sealed prediction");
             ensure!(&seal.identity == identity, "Prediction is stale; seal the current captured inputs before execution");
@@ -666,6 +670,18 @@ fn find_seal<'a>(journal: &'a Journal, id: &str) -> Result<(u64, &'a Seal)> {
         })
         .context("No host-sealed prediction exists")
 }
+fn seal_actor<'a>(journal: &'a Journal, id: &str) -> Result<&'a Actor> {
+    journal
+        .entries
+        .iter()
+        .find_map(|entry| match &entry.event {
+            Event::Sealed {
+                id: found, actor, ..
+            } if found == id => Some(actor),
+            _ => None,
+        })
+        .context("Prediction seal owner unavailable")
+}
 fn future_binding<'a>(journal: &'a Journal, id: &str) -> Option<&'a FutureStop> {
     journal.entries.iter().find_map(|entry| match &entry.event {
         Event::Sealed {
@@ -762,6 +778,10 @@ fn summarize(journal: &Journal, attempt: &str, current: Option<&Identity>) -> Re
             }
         })
         .context("Missing attempt seal")?;
+    let owner_changed = journal.entries.iter().find_map(|entry| match &entry.event {
+        Event::Started { id, actor, .. } if id == attempt => Some(actor),
+        _ => None,
+    }) != Some(seal_actor(journal, &seal_id)?);
     let observations: Vec<_> = journal
         .entries
         .iter()
@@ -802,7 +822,11 @@ fn summarize(journal: &Journal, attempt: &str, current: Option<&Identity>) -> Re
     });
     let classification = if current.is_some_and(|current| current != &seal.identity) {
         Classification::Stale
-    } else if !seal.scenario.identity_known || !original.scenario.identity_known || unknown_origin {
+    } else if owner_changed
+        || !seal.scenario.identity_known
+        || !original.scenario.identity_known
+        || unknown_origin
+    {
         Classification::Unknown
     } else if replay {
         Classification::Replayed

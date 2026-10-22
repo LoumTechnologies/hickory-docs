@@ -196,6 +196,19 @@ pub fn client_for(
     model: Option<&str>,
     api_key: Option<&str>,
 ) -> anyhow::Result<Arc<dyn LlmClient>> {
+    client_for_with_limit(selector, model, api_key, None)
+}
+/// Host-selected output budget; ordinary callers retain their provider defaults.
+pub fn client_for_with_limit(
+    selector: &str,
+    model: Option<&str>,
+    api_key: Option<&str>,
+    max_output_tokens: Option<u32>,
+) -> anyhow::Result<Arc<dyn LlmClient>> {
+    anyhow::ensure!(
+        max_output_tokens.is_none_or(|limit| (1..=16384).contains(&limit)),
+        "Output token limit must be between 1 and 16384"
+    );
     let selection = ProviderSelection::parse(selector).ok_or_else(|| {
         anyhow::anyhow!(
             "unknown provider {selector:?}; expected one of: {}",
@@ -222,12 +235,18 @@ pub fn client_for(
             if let Some(m) = model {
                 c = c.with_model(m);
             }
+            if let Some(limit) = max_output_tokens {
+                c = c.with_max_tokens(limit);
+            }
             Arc::new(c)
         }
         ProviderSelection::Compatible(p) => {
             let mut c = OpenAiCompatClient::new(p).with_api_key(key);
             if let Some(m) = model {
                 c = c.with_model(m);
+            }
+            if let Some(limit) = max_output_tokens {
+                c = c.with_max_tokens(limit);
             }
             Arc::new(c)
         }

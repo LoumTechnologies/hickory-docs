@@ -121,19 +121,31 @@ export function useUiCommands(commands: { key: string; command: UiCommand }[]) {
   const registry = useContext(Context);
   const latest = useRef(commands); latest.current = commands;
   const signature = JSON.stringify(commands.map(({ key, command }) => [key, command.label, command.subject, command.parent, command.parameters, command.prerequisites]));
+  const registered = useRef(new Map<string, { signature: string; remove: () => void }>());
   useEffect(() => {
     if (!registry) return;
-    const removals = latest.current.map(({ key, command }) => registry.register(key, {
-      ...command,
-      read: () => latest.current.find(c => c.key === key)?.command.read() ?? { revision: "removed", enabled: false, reason: "Control unavailable" },
-      execute: (args, actor, signal) => {
-        const current = latest.current.find(c => c.key === key);
-        if (!current) return Promise.resolve({ status: "unavailable", reason: "Control unavailable" });
-        return current.command.execute(args, actor, signal);
-      },
-    }));
-    return () => removals.forEach(remove => remove());
+    const keys = new Set(latest.current.map(entry => entry.key));
+    for (const [key, entry] of registered.current) if (!keys.has(key)) { entry.remove(); registered.current.delete(key); }
+    for (const { key, command } of latest.current) {
+      const metadata = JSON.stringify([command.label, command.subject, command.parent, command.parameters, command.prerequisites]);
+      const previous = registered.current.get(key);
+      // A sibling appearing/disappearing must not retire this unchanged owner
+      // while its intent is being persisted. Its live revision still gates execution.
+      if (previous?.signature === metadata) continue;
+      previous?.remove();
+      const remove = registry.register(key, {
+        ...command,
+        read: () => latest.current.find(c => c.key === key)?.command.read() ?? { revision: "removed", enabled: false, reason: "Control unavailable" },
+        execute: (args, actor, signal) => {
+          const current = latest.current.find(c => c.key === key);
+          if (!current) return Promise.resolve({ status: "unavailable", reason: "Control unavailable" });
+          return current.command.execute(args, actor, signal);
+        },
+      });
+      registered.current.set(key, { signature: metadata, remove });
+    }
   }, [registry, signature]);
+  useEffect(() => () => { for (const entry of registered.current.values()) entry.remove(); registered.current.clear(); }, [registry]);
   return async (key: string, arguments_: Record<string, UiValue> = {}): Promise<void> => {
     const current = latest.current.find(c => c.key === key);
     if (!current) return;

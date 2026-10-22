@@ -17,6 +17,10 @@ pub struct Startup {
     pub encoding: OutputEncoding,
     #[serde(default)]
     pub question: Option<hick_observe::prediction::Scenario>,
+    #[serde(default)]
+    pub runtime: Option<hick_literate::prediction::environment::Profile>,
+    #[serde(default)]
+    pub inputs: Option<hick_literate::prediction::SourceInputs>,
 }
 impl Startup {
     pub(crate) fn fingerprint(&self) -> Result<String> {
@@ -46,6 +50,10 @@ impl Startup {
             let seal: hick_observe::prediction::Seal =
                 serde_json::from_value(sealed["event"]["seal"].clone())?;
             ensure!(
+                sealed["event"]["actor"] == serde_json::to_value(&self.actor)?,
+                "Startup seal belongs to another predictor"
+            );
+            ensure!(
                 seal.identity == self.identity && seal.target == self.target,
                 "Startup prediction differs from its durable seal"
             );
@@ -61,6 +69,8 @@ impl Startup {
             },
             encoding: self.encoding,
             question: self.question.clone(),
+            runtime: self.runtime.clone(),
+            inputs: self.inputs.clone(),
         })
     }
 }

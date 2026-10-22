@@ -7,8 +7,9 @@ use hick_observe::prediction::{Actor, FutureStop, Identity, Ledger, Seal, Target
 use serde_json::Value;
 use std::{collections::HashMap, path::Path};
 
-pub struct RetainedDebugger<'a> {
-    ledger: &'a Ledger,
+pub struct RetainedDebugger {
+    ledger: Ledger,
+    environment: Option<crate::prediction::environment::Profile>,
     live: PrivateCaptureSession,
     identity: Identity,
     actor: Actor,
@@ -24,15 +25,28 @@ struct ResumeReceipt {
     visible_digest: String,
     result: ManagedOutput,
 }
-impl<'a> RetainedDebugger<'a> {
+impl RetainedDebugger {
     /// Initial seal precedes launch. An idempotent retry cannot re-create a lost
     /// process. Its receipt is returned without a usable session.
     pub async fn start(
-        ledger: &'a Ledger,
+        ledger: &Ledger,
         request: &DebuggerRequest,
         source: &str,
         project: &Path,
     ) -> Result<(Option<Self>, ManagedOutput)> {
+        Self::start_with_environment(ledger, request, source, project, None).await
+    }
+    /// A configured profile is revalidated before launch, before each Continue,
+    /// and before settling either stop. This does not freeze the operating system.
+    pub async fn start_with_environment(
+        ledger: &Ledger,
+        request: &DebuggerRequest,
+        source: &str,
+        project: &Path,
+        profile: Option<&crate::prediction::environment::Profile>,
+    ) -> Result<(Option<Self>, ManagedOutput)> {
+        let environment =
+            crate::prediction::environment::Profile::begin(profile, &request.identity).await?;
         let scratch = tempfile::tempdir()?;
         let (spec, line) = validate_bounded(request, source, scratch.path(), false, true)
             .map_err(|_| anyhow::anyhow!("Unsupported retained debugger source or target"))?;
@@ -74,6 +88,29 @@ impl<'a> RetainedDebugger<'a> {
                 return Ok((None, gate.unavailable()?));
             }
         };
+        let unchanged = match crate::prediction::environment::Profile::unchanged(
+            &environment,
+            &request.identity,
+        )
+        .await
+        {
+            Ok(value) => value,
+            Err(_) => {
+                live.shutdown().await;
+                return Ok((None, gate.unavailable()?));
+            }
+        };
+        if !unchanged {
+            live.shutdown().await;
+            return Ok((
+                None,
+                gate.finish(
+                    actual,
+                    serde_json::json!({"adapter":"private_capture_v1", "captures":captures}),
+                    false,
+                )?,
+            ));
+        }
         let result = gate.finish(
             actual,
             serde_json::json!({"adapter":"private_capture_v1", "captures":captures}),
@@ -81,7 +118,8 @@ impl<'a> RetainedDebugger<'a> {
         )?;
         Ok((
             Some(Self {
-                ledger,
+                ledger: ledger.clone(),
+                environment,
                 live,
                 identity: request.identity.clone(),
                 actor: request.actor.clone(),
@@ -165,9 +203,19 @@ impl<'a> RetainedDebugger<'a> {
             result.dispatched = false;
             return Ok(result);
         }
+        if !matches!(
+            crate::prediction::environment::Profile::unchanged(&self.environment, &self.identity)
+                .await,
+            Ok(true)
+        ) {
+            self.live.shutdown().await;
+            anyhow::bail!(
+                "Retained runtime identity changed or is unavailable; continuation refused"
+            );
+        }
         let future = self.stop(prior_visible)?;
         let gate = match gate::admit_future(
-            self.ledger,
+            &self.ledger,
             &request.seal,
             &request.request_id,
             &self.identity,
@@ -198,11 +246,26 @@ impl<'a> RetainedDebugger<'a> {
             self.live.shutdown().await;
             return gate.unavailable();
         }
+        let unchanged = match crate::prediction::environment::Profile::unchanged(
+            &self.environment,
+            &self.identity,
+        )
+        .await
+        {
+            Ok(value) => value,
+            Err(_) => {
+                self.live.shutdown().await;
+                return gate.unavailable();
+            }
+        };
+        if !unchanged {
+            self.live.shutdown().await;
+        }
         self.hit += 1;
         let result = gate.finish(
             actual,
             serde_json::json!({"adapter":"private_capture_v1", "captures":captures}),
-            true,
+            unchanged,
         )?;
         self.receipts.insert(
             request.request_id.clone(),

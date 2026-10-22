@@ -59,6 +59,10 @@ impl Remote {
         if value["actual_values"] != "withheld" {
             bail!("Invalid private prediction capability response");
         }
+        anyhow::ensure!(
+            value["actor"]["kind"] == "agent",
+            "Private agent capabilities require an agent-owned prediction binding"
+        );
         Ok(true)
     }
     pub async fn private_request(
@@ -68,7 +72,7 @@ impl Remote {
         body: &Value,
     ) -> Result<Value> {
         anyhow::ensure!(
-            ["state", "history", "preview"].contains(&surface),
+            ["state", "history", "preview", "completion"].contains(&surface),
             "Unsupported private host surface"
         );
         let path = format!(

@@ -114,3 +114,11 @@ it("discloses exact proposals but requires the human decision and cannot self-en
   await waitFor(() => expect(screen.queryByRole("button", { name: "Accept change" })).toBeNull());
   expect(await registry.act(registry.scope, { id: "python:turn", kind: "agent" }, { handle: decision.handle, arguments: { id: "change", accepted: true }, request_id: "old-proposal" })).toMatchObject({ status: "stale" });
 });
+
+it("uses the host-selected private review transport without calling ordinary review APIs", async () => {
+  const submitDecision = vi.fn().mockResolvedValue({ ...state, backend: "python" });
+  render(<AgentChanges doc="private:bound" state={{ ...state, backend: "python", edits: { mode: "review", changes: [{ ...change, editor: false }] } }} running submitDecision={submitDecision} update={() => {}} />);
+  fireEvent.click(screen.getByRole("button", { name: "Reject change" }));
+  await waitFor(() => expect(submitDecision).toHaveBeenCalledWith({ id: "change", accepted: false, error: undefined }));
+  expect(acpApi.edits).not.toHaveBeenCalled();
+});

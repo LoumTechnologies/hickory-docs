@@ -191,3 +191,31 @@ impl SourceQuestion {
         Ok(target)
     }
 }
+
+/// Host-reviewed external-stimulus syntax for the currently supported inline
+/// fixtures. Preserving these anchors does not prove program semantics.
+#[derive(Clone, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct SourceInputs {
+    pub value: serde_json::Value,
+    pub anchors: Vec<String>,
+}
+impl SourceInputs {
+    pub fn validate(&self, identity: &Identity, source: &str) -> Result<()> {
+        ensure!(
+            hick_observe::prediction::digest(&self.value)? == identity.inputs,
+            "Source input identity differs from the host capture"
+        );
+        ensure!(
+            !self.anchors.is_empty() && self.anchors.len() <= 32,
+            "A bounded host input binding is required"
+        );
+        for anchor in &self.anchors {
+            ensure!(
+                !anchor.is_empty() && anchor.len() <= 65536 && source.matches(anchor).count() == 1,
+                "Host-selected input syntax changed or is ambiguous"
+            );
+        }
+        Ok(())
+    }
+}

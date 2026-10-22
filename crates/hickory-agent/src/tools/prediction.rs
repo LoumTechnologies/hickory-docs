@@ -1,14 +1,13 @@
 //! Host-selected private verification for shared Rust document tools.
 use super::*;
-use hick_literate::prediction::{
-    OutputEncoding, OutputRequest, SealedRequest, combined, debugger, run_output,
-};
+use hick_literate::prediction::{OutputEncoding, OutputRequest, SealedRequest, combined, debugger};
 use hick_observe::prediction::{Classification, Ledger, Target};
 
 pub(super) struct PredictionVerification {
     ledger: Arc<Ledger>,
     request: SealedRequest,
     encoding: OutputEncoding,
+    environment: Option<hick_literate::prediction::environment::Profile>,
 }
 impl EditSession {
     /// Open directly under private policy: never load the ordinary transcript
@@ -64,8 +63,20 @@ impl EditSession {
             ledger,
             request,
             encoding,
+            environment: None,
         });
         Ok(self)
+    }
+    /// Trusted host runtime recipe, never a document tool argument.
+    pub fn bind_prediction_environment(
+        &mut self,
+        profile: hick_literate::prediction::environment::Profile,
+    ) -> Result<()> {
+        self.prediction
+            .as_mut()
+            .context("Private policy required")?
+            .environment = Some(profile);
+        Ok(())
     }
     /// Only the host can install the next source-bound seal after a repair.
     pub fn replace_prediction(&mut self, request: SealedRequest) -> Result<()> {
@@ -90,7 +101,7 @@ impl EditSession {
         let request = &policy.request;
         let result = match &request.target {
             Target::Output { .. } => {
-                run_output(
+                hick_literate::prediction::run_output_with_environment(
                     &policy.ledger,
                     &OutputRequest {
                         seal: request.seal.clone(),
@@ -101,14 +112,30 @@ impl EditSession {
                     },
                     &self.source,
                     executor,
+                    policy.environment.as_ref(),
                 )
                 .await
             }
             Target::Debugger { .. } => {
-                debugger::run(&policy.ledger, request, &self.source, project).await
+                debugger::run_with_environment(
+                    &policy.ledger,
+                    request,
+                    &self.source,
+                    project,
+                    policy.environment.as_ref(),
+                )
+                .await
             }
             Target::Combined { .. } => {
-                combined::run(&policy.ledger, request, &self.source, project, executor).await
+                combined::run_with_environment(
+                    &policy.ledger,
+                    request,
+                    &self.source,
+                    project,
+                    executor,
+                    policy.environment.as_ref(),
+                )
+                .await
             }
         };
         let result = match result {

@@ -1,7 +1,7 @@
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { UiActions, type UiReceipt } from "./uiActions";
-import { dispatchUiFrame, UiActionContext, UiActionsVisibility } from "./uiActionBridge";
+import { dispatchUiFrame, UiActionContext, UiActionsVisibility, useUiCommands } from "./uiActionBridge";
 import { MoreActions } from "../components/MoreActions";
 import { CardRail } from "../editor/CardRail";
 import type { DocCard } from "../editor/cards";
@@ -101,4 +101,29 @@ it("reports the known UTF-8 result payload size separately from provider token c
   const handle = actions.observe("reading").actions[0].handle;
   const result = await dispatchUiFrame(actions, { id: "unicode", actor: agent, method: "ui_act", arguments: { handle, arguments: {}, request_id: "unicode" } });
   expect(result).toMatchObject({ status: "result", result_bytes: 78, token_cost: "Provider-specific; not measured here", outcome: { value: { text: "λ😀" } } });
+});
+
+// Guarantee: docs/guarantees/agent/ui-action-dispatch.md
+it("keeps an unchanged command registered while a sibling changes during intent persistence", async () => {
+  let release!: () => void;
+  const retained = new Promise<void>(resolve => { release = resolve; });
+  const actions = new UiActions(scope, () => true, receipt => receipt.stage === "requested" ? retained : Promise.resolve());
+  const execute = vi.fn(async () => ({ status: "completed" as const, value: null }));
+  function Controls({ sibling }: { sibling: boolean }) {
+    const command = { parent: "same", subject: "same", label: "Keep", parameters: {}, prerequisites: [], read: () => ({ revision: "unchanged", enabled: true }), execute };
+    useUiCommands([{ key: "keep", command }, ...(sibling ? [{ key: "sibling", command: { ...command, label: "Sibling" } }] : [])]);
+    return null;
+  }
+  const content = (sibling: boolean) => <UiActionContext.Provider value={actions}><Controls sibling={sibling} /></UiActionContext.Provider>;
+  const view = render(content(false));
+  const handle = actions.descriptor("keep")!.handle;
+  const pending = actions.act(scope, agent, { handle, arguments: {}, request_id: "intent" });
+  await act(async () => { await Promise.resolve(); });
+  view.rerender(content(true));
+  expect(actions.descriptor("keep")!.handle).toBe(handle);
+  release();
+  expect(await pending).toMatchObject({ status: "result", outcome: { status: "completed" } });
+  expect(execute).toHaveBeenCalledOnce();
+  view.unmount();
+  expect(actions.groups().groups).toEqual([]);
 });

@@ -413,42 +413,7 @@ pub async fn start_turn(
     // phrase is a contract with the desktop client: ChatDock matches
     // "agent not available" to render a quiet note instead of a red error
     // (apps/web/src/components/ChatDock.tsx). Change both together.
-    let mut provider_name = selection.provider.clone();
-    let llm: Arc<dyn LlmClient> = {
-        let overridden = state.agent.llm_override.lock().unwrap().clone();
-        match overridden {
-            Some(llm) => llm,
-            None => {
-                // Keys saved in Settings come first, the environment second
-                // — the desktop app has no shell profile to export from, so
-                // the store is its keys' home. A clone, not the lock, is
-                // held across the resolution: nothing here may block a
-                // concurrent PUT /api/settings/keys.
-                let store = state
-                    .keys
-                    .store
-                    .read()
-                    .expect("key store lock poisoned")
-                    .clone();
-                let provider = resolve_selector_with_store(selection.provider.as_deref(), &store)
-                    .map_err(|e| {
-                    ApiError::unavailable(format!("agent not available — {e:#}"))
-                })?;
-                let llm = client_for_with_store(&provider, selection.model.as_deref(), &store)
-                    .map_err(|e| ApiError::unavailable(format!("agent not available — {e:#}")))?;
-                provider_name = Some(provider);
-                llm
-            }
-        }
-    };
-    // What this turn runs on, recorded up front so the listing tells the
-    // truth even while the turn is still streaming. Under the test seam with
-    // no explicit choice the provider is the seam's name, "scripted".
-    let provider_name = provider_name.unwrap_or_else(|| "scripted".to_string());
-    let model_name = selection
-        .model
-        .clone()
-        .unwrap_or_else(|| llm.model_name().to_string());
+    let (llm, provider_name, model_name) = selected_client(&state, &selection)?;
 
     let turn_id = format!("{:016x}", rand_id());
     let session_root = super::agent_context::session_root(&state, &id)?;
@@ -916,4 +881,61 @@ mod tests {
         ];
         assert!(prior_turns_of(&turns, Some("x")).len() <= 2);
     }
+}
+
+/// Resolve the same configured provider for ordinary and private conversations.
+pub(super) fn selected_client(
+    state: &LocalState,
+    selection: &DocSelection,
+) -> ApiResult<(Arc<dyn LlmClient>, String, String)> {
+    selected_client_with_limit(state, selection, None)
+}
+pub(super) fn selected_client_with_limit(
+    state: &LocalState,
+    selection: &DocSelection,
+    max_output_tokens: Option<u32>,
+) -> ApiResult<(Arc<dyn LlmClient>, String, String)> {
+    let mut provider_name = selection.provider.clone();
+    let llm: Arc<dyn LlmClient> = {
+        let overridden = state.agent.llm_override.lock().unwrap().clone();
+        match overridden {
+            Some(llm) => llm,
+            None => {
+                // Keys saved in Settings come first, the environment second
+                // — the desktop app has no shell profile to export from, so
+                // the store is its keys' home. A clone, not the lock, is
+                // held across the resolution: nothing here may block a
+                // concurrent PUT /api/settings/keys.
+                let store = state
+                    .keys
+                    .store
+                    .read()
+                    .expect("key store lock poisoned")
+                    .clone();
+                let provider = resolve_selector_with_store(selection.provider.as_deref(), &store)
+                    .map_err(|e| {
+                    ApiError::unavailable(format!("agent not available — {e:#}"))
+                })?;
+                let llm = hickory_agent::client_for_with_limit(
+                    &provider,
+                    selection.model.as_deref(),
+                    store.key_for(&provider).as_deref(),
+                    max_output_tokens,
+                )
+                .map_err(|e| ApiError::unavailable(format!("agent not available — {e:#}")))?;
+                provider_name = Some(provider);
+                llm
+            }
+        }
+    };
+    // What this turn runs on, recorded up front so the listing tells the
+    // truth even while the turn is still streaming. Under the test seam with
+    // no explicit choice the provider is the seam's name, "scripted".
+    let provider_name = provider_name.unwrap_or_else(|| "scripted".to_string());
+    let model_name = selection
+        .model
+        .clone()
+        .unwrap_or_else(|| llm.model_name().to_string());
+
+    Ok((llm, provider_name, model_name))
 }

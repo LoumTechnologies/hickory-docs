@@ -113,6 +113,18 @@ impl Host<'_> {
         Ok(result)
     }
     pub(super) async fn private_complete(&mut self, summary: &str) -> Result<Value> {
+        if self.require_private_verification {
+            let status = self
+                .private
+                .as_ref()
+                .unwrap()
+                .private_request(reqwest::Method::GET, "completion", &json!({}))
+                .await?;
+            ensure!(
+                status["ready"] == true,
+                "The host repair-and-verify completion gate is non-passing. Inspect Verify's structuredContent.summary and isError; continue the requested correction or stop for human review. No passing or current-certification claim is accepted."
+            );
+        }
         let history = self
             .private
             .as_ref()
@@ -144,5 +156,55 @@ impl Host<'_> {
         });
         self.finished = true;
         Ok(json!({"accepted":true,"current_certification":false,"ordinary_changeset":false}))
+    }
+}
+
+/// Answer-free setup/transport classifications; raw provider bodies remain private.
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Failure {
+    ProviderCredits,
+    ProviderAuthentication,
+    ProviderRateLimit,
+    ProviderUnavailable,
+}
+impl Failure {
+    pub(super) fn provider(error: &str) -> Self {
+        if error.contains(" API error 402 ") {
+            Self::ProviderCredits
+        } else if error.contains(" API error 401 ") || error.contains(" API error 403 ") {
+            Self::ProviderAuthentication
+        } else if error.contains(" API error 429 ") {
+            Self::ProviderRateLimit
+        } else {
+            Self::ProviderUnavailable
+        }
+    }
+}
+impl std::fmt::Display for Failure {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            Self::ProviderCredits=>"The provider rejected this request for insufficient credit. Configure billing or choose another model.",
+            Self::ProviderAuthentication=>"Provider authentication failed. Check the configured provider credentials.",
+            Self::ProviderRateLimit=>"The provider rate limit blocked this request. Retry after the provider permits another request.",
+            Self::ProviderUnavailable=>"The provider request did not complete. Check provider availability and retry the investigation.",
+        })
+    }
+}
+impl std::error::Error for Failure {}
+#[cfg(test)]
+mod tests {
+    // Guarantee: docs/guarantees/verification/predictions-precede-managed-observation.md
+    #[test]
+    fn public_provider_failure_never_copies_the_private_response_body() {
+        let failure = super::Failure::provider(
+            "openrouter API error 402 Payment Required: PRIVATE-TARGET-ANSWER",
+        );
+        assert!(matches!(failure, super::Failure::ProviderCredits));
+        assert!(!failure.to_string().contains("PRIVATE-TARGET-ANSWER"));
+        assert_eq!(
+            serde_json::to_string(&failure).unwrap(),
+            "\"provider_credits\""
+        );
     }
 }

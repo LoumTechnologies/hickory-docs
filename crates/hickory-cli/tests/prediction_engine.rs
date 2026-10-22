@@ -9,6 +9,7 @@ use sha2::{Digest, Sha256};
 use std::{
     collections::BTreeMap,
     process::{Child, Command, Stdio},
+    sync::Arc,
     time::Duration,
 };
 struct Daemon(Child);
@@ -67,11 +68,46 @@ async fn every_engine_client_inherits_private_policy_and_mcp_and_command_paths_c
         actor,
         encoding: OutputEncoding::Json,
         question: None,
+        runtime: None,
+        inputs: None,
     };
+    let model_actions = Arc::new(std::sync::Mutex::new(
+        std::collections::VecDeque::<String>::new(),
+    ));
+    let actions = model_actions.clone();
+    let model_router = axum::Router::new().route(
+        "/",
+        axum::routing::post(move |axum::Json(body): axum::Json<Value>| {
+            let actions = actions.clone();
+            async move {
+                assert!(!body.to_string().contains("PRIVATE-HELD-CACHE"));
+                assert_eq!(body["max_completion_tokens"], 2048);
+                let raw = actions
+                    .lock()
+                    .unwrap()
+                    .pop_front()
+                    .expect("Unexpected provider request");
+                (
+                    [("content-type", "text/event-stream")],
+                    format!(
+                        "data: {}\n\ndata: [DONE]\n\n",
+                        json!({"choices":[{"delta":{"content":raw},"finish_reason":"stop"}]})
+                    ),
+                )
+            }
+        }),
+    );
+    let model_listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let model_url = format!("http://{}/", model_listener.local_addr().unwrap());
+    let model_server = tokio::spawn(async move {
+        axum::serve(model_listener, model_router).await.unwrap();
+    });
     let mut daemon = Daemon(
         Command::new(env!("CARGO_BIN_EXE_hick"))
             .arg("__engine")
             .env("HICKORY_STATE_DIR", state.path())
+            .env("OPENAI_API_KEY", "synthetic-test-key-not-a-credential")
+            .env("OPENAI_BASE_URL", &model_url)
             .stdin(Stdio::null())
             .stdout(Stdio::null())
             .stderr(Stdio::null())
@@ -89,9 +125,32 @@ async fn every_engine_client_inherits_private_policy_and_mcp_and_command_paths_c
     let base = endpoint["url"].as_str().unwrap();
     let token = endpoint["token"].as_str().unwrap();
     let client = reqwest::Client::new();
+    // Failure after acquiring the workspace lock must release it so trusted
+    // recovery can immediately attach the corrected profile to the same root.
+    let mut unsupported = Attach::new(path.clone(), ExecutorChoice::Local);
+    let mut bad_profile = profile.clone();
+    bad_profile.inputs = Some(hick_literate::prediction::SourceInputs {
+        value: json!([80, 80]),
+        anchors: vec![std::fs::read_to_string(&path).unwrap()],
+    });
+    bad_profile.runtime = Some(
+        hick_literate::prediction::environment::Profile::PythonDebugpy {
+            project: root.path().into(),
+        },
+    );
+    unsupported.prediction = Some(bad_profile);
+    let refused = client
+        .post(format!("{base}/attach"))
+        .bearer_auth(token)
+        .json(&unsupported)
+        .send()
+        .await
+        .unwrap();
+    assert!(!refused.status().is_success());
     let mut first = Attach::new(path.clone(), ExecutorChoice::Local);
     first.client = "private-first".into();
     first.prediction = Some(profile);
+    first.python_runtime_path = std::env::var_os("HICKORY_AGENT_TEST_PYTHON").map(Into::into);
     let attached = client
         .post(format!("{base}/attach"))
         .bearer_auth(token)
@@ -258,12 +317,67 @@ async fn every_engine_client_inherits_private_policy_and_mcp_and_command_paths_c
             String::from_utf8_lossy(&worker.stderr)
         );
         assert_eq!(ledger.history(None).unwrap().attempts.len(), 2);
+        let current = std::fs::read_to_string(&path).unwrap();
+        let proposal = json!({"snapshot":hickory_agent::hashline::LineIndex::new(&current).snapshot,"whole":"true","input":format!("# Proposed\n{current}")});
+        model_actions.lock().unwrap().extend([
+            json!({"python":"tool('read_doc', {})"}).to_string(),
+            json!({"python":format!("import json\ntool('edit_doc', json.loads({:?}))",proposal.to_string())}).to_string(),
+            json!({"done":"The human declined the source proposal; no current certification is claimed."}).to_string(),
+        ]);
+        let private_api = format!("{base}/clients/private-second/api/prediction");
+        let started=client.post(format!("{private_api}/agent")).bearer_auth(token).json(&json!({"prompt":"Investigate the retained evidence and propose a source note","provider":"openai"})).send().await.unwrap();
+        assert!(
+            started.status().is_success(),
+            "{}",
+            started.text().await.unwrap()
+        );
+        let mut reviewed = false;
+        let mut finished = false;
+        for _ in 0..300 {
+            let status: Value = client
+                .get(format!("{private_api}/agent"))
+                .bearer_auth(token)
+                .send()
+                .await
+                .unwrap()
+                .json()
+                .await
+                .unwrap();
+            assert!(!status.to_string().contains("PRIVATE-HELD-CACHE"));
+            if !reviewed
+                && let Some(change) = status["edits"]["changes"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .find(|change| change["status"] == "pending")
+            {
+                let decision = client
+                    .post(format!("{private_api}/agent/decision"))
+                    .bearer_auth(token)
+                    .json(&json!({"id":change["id"],"accepted":false}))
+                    .send()
+                    .await
+                    .unwrap();
+                assert!(decision.status().is_success());
+                reviewed = true;
+            }
+            if status["run"]["status"] == "finished" {
+                finished = true;
+                break;
+            }
+            assert_ne!(status["run"]["status"], "failed", "{status}");
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+        assert!(reviewed && finished);
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), current);
+        assert!(model_actions.lock().unwrap().is_empty());
     } else {
         eprintln!(
             "Private worker witness not run: set HICKORY_AGENT_TEST_PYTHON to the installed confined worker"
         );
         assert_eq!(ledger.history(None).unwrap().attempts.len(), 1);
     }
+    model_server.abort();
     daemon.0.kill().unwrap();
     daemon.0.wait().unwrap();
     std::fs::remove_file(state.path().join("engine/endpoint.json")).unwrap();
@@ -366,6 +480,7 @@ async fn private_worker_child() {
     let edit = json!({"doc":"doc.md","snapshot":hickory_agent::hashline::LineIndex::new(&before).snapshot,"whole":"true","input":after});
     let seal = json!({"expected_source_hash":format!("{:x}",Sha256::digest(after.as_bytes())),"predicted":{"kind":"equals","value":100},"rationale":"The unchanged total-budget prediction follows the shared requirement"});
     let model = Model(std::sync::Mutex::new(std::collections::VecDeque::from([
+        json!({"done":"The implementation already meets the requirement"}).to_string(),
         json!({"python":"tool('read_doc', {})"}).to_string(),
         json!({"python":"tool('verify', {})"}).to_string(),
         json!({"python":format!("import json\ntool('edit_doc', json.loads({:?}))",edit.to_string())}).to_string(),
@@ -388,6 +503,7 @@ async fn private_worker_child() {
         &mut AcceptCaptured,
         Conversation {
             private_prediction: true,
+            require_private_verification: true,
             session_storage: Some(storage.path().into()),
             ..Default::default()
         },

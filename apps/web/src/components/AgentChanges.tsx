@@ -7,8 +7,9 @@ import { publishReading, forgetReading, openReading } from "../lib/readingViews"
 import { DocumentReading } from "../views/DocumentReading";
 import { AgentEditConflict } from "../lib/agentEdit";
 
-export function AgentChanges({ doc, state, running, apply, update }: {
+export function AgentChanges({ doc, state, running, apply, update, submitDecision }: {
   doc: string; state: AcpState | null; running: boolean;
+  submitDecision?: (body: Parameters<typeof acpApi.edits>[1]) => Promise<AcpState>;
   apply?: (change: AgentChange) => void | Promise<void>;
   update: (state: AcpState) => void;
 }) {
@@ -27,7 +28,8 @@ export function AgentChanges({ doc, state, running, apply, update }: {
       }
     } catch (e) { failure = e instanceof Error ? e.message : String(e); currentText = e instanceof AgentEditConflict ? e.currentText : undefined; setError(failure); }
     try {
-      const actual = await acpApi.edits(doc, { id: change.id, accepted: accepted && !failure, error: failure, ...(replacement !== undefined ? { new_text: replacement } : {}), ...(currentText !== undefined ? { current_text: currentText } : {}) }, state?.backend);
+      const body = { id: change.id, accepted: accepted && !failure, error: failure, ...(replacement !== undefined ? { new_text: replacement } : {}), ...(currentText !== undefined ? { current_text: currentText } : {}) };
+      const actual = await (submitDecision ? submitDecision(body) : acpApi.edits(doc, body, state?.backend));
       update(actual);
       return failure ? { status: "unavailable", reason: failure } : { status: "completed", value: { id: change.id, status: actual.edits?.changes.find(c => c.id === change.id)?.status ?? "not present in returned host state", verification: "not established" } };
     }

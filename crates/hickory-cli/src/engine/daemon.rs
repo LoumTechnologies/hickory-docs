@@ -296,11 +296,7 @@ async fn attach(
             .map(|profile| profile.binding(&root))
             .transpose()
             .map_err(error)?;
-        engine
-            .locks
-            .lock()
-            .await
-            .push(crate::up::DirectoryLock::acquire(&root).map_err(error)?);
+        let directory_lock = crate::up::DirectoryLock::acquire(&root).map_err(error)?;
         let options = ServeOptions {
             target: if opts.prediction.is_some() {
                 opts.target.clone()
@@ -339,6 +335,7 @@ async fn attach(
             state.engine_woven = Some(engine.watch.woven.clone());
         }
         state.writes = engine.writes.clone();
+        engine.locks.lock().await.push(directory_lock);
         workspaces.insert(root.clone(), state.clone());
         state
     };

@@ -59,6 +59,16 @@ pub enum Predicate {
     Fields(BTreeMap<String, Predicate>),
 }
 impl Predicate {
+    /// Tool-schema definition; install under the root's `$defs.predicate`.
+    /// Runtime admission additionally enforces UTF-8 byte, depth and size bounds.
+    pub fn schema_definition() -> Value {
+        serde_json::json!({"oneOf":[
+            {"type":"object","properties":{"kind":{"const":"equals"},"value":{}},"required":["kind","value"],"additionalProperties":false},
+            {"type":"object","properties":{"kind":{"const":"number_at_most"},"value":{"type":"number"}},"required":["kind","value"],"additionalProperties":false},
+            {"type":"object","properties":{"kind":{"const":"fields"},"value":{"type":"object","minProperties":1,"maxProperties":16,"propertyNames":{"minLength":1,"maxLength":128},"additionalProperties":{"$ref":"#/$defs/predicate"}}},"required":["kind","value"],"additionalProperties":false}
+        ]})
+    }
+
     pub(super) fn validate(&self) -> Result<()> {
         self.validate_depth(0)?;
         ensure!(

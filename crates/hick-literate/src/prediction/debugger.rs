@@ -23,6 +23,16 @@ pub async fn run(
     source: &str,
     project: &Path,
 ) -> Result<ManagedOutput> {
+    run_with_environment(ledger, request, source, project, None).await
+}
+pub async fn run_with_environment(
+    ledger: &Ledger,
+    request: &DebuggerRequest,
+    source: &str,
+    project: &Path,
+    profile: Option<&super::environment::Profile>,
+) -> Result<ManagedOutput> {
+    let environment = super::environment::Profile::begin(profile, &request.identity).await?;
     let scratch = tempfile::tempdir()
         .map_err(|_| anyhow::anyhow!("Private debugger workspace unavailable"))?;
     let (spec, document_line) = validate(request, source, scratch.path()).map_err(|_| anyhow::anyhow!(
@@ -54,10 +64,15 @@ pub async fn run(
         Ok(actual) => actual,
         Err(_) => return gate.unavailable(),
     };
+    let unchanged =
+        match super::environment::Profile::unchanged(&environment, &request.identity).await {
+            Ok(value) => value,
+            Err(_) => return gate.unavailable(),
+        };
     gate.finish(
         actual,
         serde_json::json!({ "adapter": "private_capture_v1", "captures": captures }),
-        true,
+        unchanged,
     )
 }
 

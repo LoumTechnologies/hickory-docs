@@ -33,6 +33,8 @@ fn options() -> Attach {
         },
         encoding: hick_literate::prediction::OutputEncoding::Json,
         question: None,
+        runtime: None,
+        inputs: None,
     });
     opts
 }

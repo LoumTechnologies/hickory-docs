@@ -14,9 +14,10 @@ use std::sync::Arc;
 
 pub mod combined;
 pub mod debugger;
+pub mod environment;
 mod gate;
 mod source_question;
-pub use source_question::SourceQuestion;
+pub use source_question::{SourceInputs, SourceQuestion};
 
 pub(crate) fn log_expectation(outcome: &ExpectationOutcome, withheld: bool) {
     if !outcome.passed {
@@ -81,6 +82,17 @@ pub async fn run_output(
     source: &str,
     executor: Arc<dyn Executor>,
 ) -> Result<ManagedOutput> {
+    run_output_with_environment(ledger, request, source, executor, None).await
+}
+/// Revalidate a host-selected runtime before dispatch and before private settlement.
+pub async fn run_output_with_environment(
+    ledger: &Ledger,
+    request: &OutputRequest,
+    source: &str,
+    executor: Arc<dyn Executor>,
+    profile: Option<&environment::Profile>,
+) -> Result<ManagedOutput> {
+    let environment = environment::Profile::begin(profile, &request.identity).await?;
     // Parse failures can quote source text. Keep all refusal feedback bounded.
     let target = validate(request, source).map_err(|_| {
         anyhow::anyhow!(
@@ -126,7 +138,11 @@ pub async fn run_output(
     };
     // Store diagnostics only inside the private ledger. In particular there is
     // no PipelineResult or publishable output capability in the return value.
-    let execution_accepted = result.expectations.iter().all(|outcome| outcome.passed);
+    let unchanged = match environment::Profile::unchanged(&environment, &request.identity).await {
+        Ok(value) => value,
+        Err(_) => return gate.unavailable(),
+    };
+    let execution_accepted = unchanged && result.expectations.iter().all(|outcome| outcome.passed);
     gate.finish(
         actual,
         serde_json::json!({ "transcripts": result.transcripts,

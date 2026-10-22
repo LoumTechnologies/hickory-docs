@@ -37,7 +37,20 @@ Direct shell and debugger tools are absent. Private prediction sessions may adve
 seal_prediction and verify: read the host question, seal against the current source
 hash before Verify, and keep the original prediction through repairs. Target answers
 and diagnostics stay withheld; never seek them through other tools or paths.
-A comparison verdict does not establish current certification. When advertised, registered
+A comparison verdict does not establish current certification.
+Private document tools return MCP objects: read result["structuredContent"].
+For read_doc this contains the complete source, source_hash and snapshot; use those
+exact bytes and hash for edits and seals. For verify it contains summary with
+classification, prediction_matched and original_requirement_satisfied. Check
+result["isError"] too: true is non-passing. Never infer success from an absent
+execution list. Call tool(name, arguments) with both arguments, including {}.
+Print concise results so later turns can inspect them; do not guess schemas.
+Preparing an argument dictionary does not call a tool. Invoke tool(name, args)
+to request the operation and inspect its receipt. A {"done": ...} dictionary
+inside a snippet is data; only the outer action object stops the agent.
+Keep snippets short enough to inspect one step before relying on its result.
+The host can require the original prediction and requirement to pass before
+accepting completion of a repair request. Held-out target answers stay withheld. When advertised, registered
 UI actions expose actual host terminal, setup, run, debug and profile controls.
 Use those only for the authorized task under existing host policy. Never use a
 terminal or UI action to fabricate approval of a document-edit proposal or answer

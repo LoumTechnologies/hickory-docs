@@ -15,7 +15,13 @@ use hick_observe::prediction::{Actor, Identity, Ledger, Predicate, Scenario, Sea
 use hickory_agent::{EditSession, ToolInvocation, execute_tool};
 use serde::Deserialize;
 use serde_json::{Value, json};
-use std::{path::PathBuf, sync::Arc};
+use std::{
+    path::PathBuf,
+    sync::{
+        Arc,
+        atomic::{AtomicU64, Ordering},
+    },
+};
 
 /// Supplied by a trusted startup host, never decoded from model/HTTP arguments.
 /// The host captures inputs/environment and scenario correspondence independently.
@@ -24,6 +30,8 @@ pub struct Binding {
     pub request: SealedRequest,
     pub encoding: OutputEncoding,
     pub question: Option<Scenario>,
+    pub runtime: Option<hick_literate::prediction::environment::Profile>,
+    pub inputs: Option<hick_literate::prediction::SourceInputs>,
 }
 pub(crate) struct Bound {
     pub doc: String,
@@ -34,7 +42,12 @@ pub(crate) struct Bound {
     identity: std::sync::RwLock<Identity>,
     question: Scenario,
     source_question: SourceQuestion,
+    runtime: Option<hick_literate::prediction::environment::Profile>,
+    inputs: Option<hick_literate::prediction::SourceInputs>,
     actor: Actor,
+    epoch: AtomicU64,
+    pub(super) agent: tokio::sync::Mutex<Option<super::private_prediction_agent::Run>>,
+    pub(super) edits: Arc<super::acp::edits::Edits>,
 }
 impl Bound {
     pub(super) async fn open(
@@ -67,14 +80,47 @@ impl Bound {
         };
         let identity = binding.request.identity.clone();
         let actor = binding.request.actor.clone();
+        anyhow::ensure!(
+            actor.kind == "agent",
+            "This managed prediction service requires an agent predictor; human-only inspection needs a separately isolated host surface"
+        );
         let target = binding.request.target.clone();
-        let session = EditSession::open_prediction(
+        let mut session = EditSession::open_prediction(
             &path,
             binding.ledger.clone(),
             binding.request,
             binding.encoding,
         )
         .await?;
+        if let Some(inputs) = &binding.inputs {
+            inputs.validate(&identity, session.approved_source())?;
+            anyhow::ensure!(
+                inputs.value == question.inputs,
+                "Host question inputs differ from source binding"
+            );
+        }
+        if let Some(runtime) = &binding.runtime {
+            anyhow::ensure!(
+                binding.inputs.is_some(),
+                "Current runtime certification requires host-reviewed input anchors"
+            );
+            anyhow::ensure!(
+                state.executor == crate::ExecutorChoice::Local
+                    && !matches!(target, hick_observe::prediction::Target::Output { .. }),
+                "This runtime profile supports local Python capture/combined targets only"
+            );
+            let hick_literate::prediction::environment::Profile::PythonDebugpy { project } =
+                runtime;
+            anyhow::ensure!(
+                project.canonicalize()? == path.parent().unwrap().canonicalize()?,
+                "Runtime capture must use this document's actual adapter-discovery project"
+            );
+            anyhow::ensure!(
+                runtime.capture().await? == identity.environment,
+                "Runtime differs from startup identity"
+            );
+            session.bind_prediction_environment(runtime.clone())?;
+        }
         let source_question = SourceQuestion::capture(
             &SealedRequest {
                 seal: String::new(),
@@ -95,8 +141,16 @@ impl Bound {
             identity: std::sync::RwLock::new(identity),
             question,
             source_question,
+            runtime: binding.runtime,
+            inputs: binding.inputs,
             actor,
+            epoch: AtomicU64::new(0),
+            agent: tokio::sync::Mutex::new(None),
+            edits: Default::default(),
         }))
+    }
+    pub(super) fn source_path(&self) -> &std::path::Path {
+        &self.path
     }
     async fn seal_prediction(
         &self,
@@ -110,7 +164,22 @@ impl Bound {
             .await
             .map_err(|_| "Captured source changed outside this session".to_owned())?;
         let mut identity = self.identity.read().unwrap().clone();
+        if let Some(runtime) = &self.runtime {
+            if runtime
+                .capture()
+                .await
+                .map_err(|_| "Runtime identity unavailable")?
+                != identity.environment
+            {
+                return Err("Runtime changed; trusted host recovery is required".into());
+            }
+        }
         let source = session.approved_source();
+        if let Some(inputs) = &self.inputs {
+            inputs
+                .validate(&identity, source)
+                .map_err(|_| "Host-selected inputs changed; trusted host review is required")?;
+        }
         use sha2::{Digest, Sha256};
         let captured = format!("{:x}", Sha256::digest(source.as_bytes()));
         if expected != captured {
@@ -137,6 +206,7 @@ impl Bound {
             })
             .map_err(|_| "Prediction policy replacement refused".to_owned())?;
         *self.identity.write().unwrap() = identity;
+        self.epoch.fetch_add(1, Ordering::SeqCst);
         Ok(
             json!({"sealed":receipt.id,"source_hash":expected,"generation":receipt.generation,"executed":false,"current_certification":false}),
         )
@@ -158,14 +228,14 @@ impl Bound {
         }
         if name == "seal_prediction" {
             let Ok(body) = serde_json::from_value::<SealRequest>(arguments.clone()) else {
-                return refuse();
+                return json!({"isError":true,"structuredContent":{"error_code":"invalid_prediction_schema"},"content":[{"type":"text","text":"Invalid prediction arguments. Provide expected_source_hash, rationale and predicted. Every fields value must itself be a predicate, for example {kind: fields, value: {output: {kind: equals, value: YOUR_EXPECTED_JSON}, debugger: {kind: equals, value: YOUR_EXPECTED_VALUE}}}. Do not put raw output/debugger scalars directly under fields.value. Nothing executed."}]});
             };
             return match self
                 .seal_prediction(&body.expected_source_hash, body.predicted, body.rationale)
                 .await
             {
                 Ok(value) => {
-                    json!({"content":[{"type":"text","text":value.to_string()}],"isError":false})
+                    json!({"content":[{"type":"text","text":value.to_string()}],"structuredContent":value,"isError":false})
                 }
                 Err(reason) => json!({"content":[{"type":"text","text":reason}],"isError":true}),
             };
@@ -187,7 +257,19 @@ impl Bound {
         let mut session = self.session.lock().await;
         let result = execute_tool(&mut session, executor.clone(), &invocation).await;
         let _ = executor.shutdown().await;
-        json!({"content":[{"type":"text","text":result.text}],"isError":!result.ok})
+        let structured = if name == "read_doc" && result.ok {
+            result.reads.first().map(|read|json!({"source":read.content,"source_hash":read.sha256,"snapshot":read.sha256,"edit_baseline":true})).unwrap_or_else(||json!({}))
+        } else if name == "verify" {
+            serde_json::from_str::<hick_literate::prediction::ManagedOutput>(&result.text)
+                .ok()
+                .and_then(|value| serde_json::to_value(value).ok())
+                .unwrap_or_else(
+                    || json!({"accepted":false,"reason":"Private prediction verification refused"}),
+                )
+        } else {
+            json!({"accepted":result.ok})
+        };
+        json!({"content":[{"type":"text","text":result.text}],"structuredContent":structured,"isError":!result.ok})
     }
     pub(super) fn start(
         self: &Arc<Self>,
@@ -201,6 +283,7 @@ impl Bound {
             ));
         }
         let identity = self.identity.read().unwrap().clone();
+        let epoch = self.epoch.load(Ordering::SeqCst);
         if expected
             .as_ref()
             .is_some_and(|hash| hash.trim_start_matches("sha256:") != identity.source)
@@ -227,15 +310,25 @@ impl Bound {
         let key = run.clone();
         tokio::spawn(async move {
             let mut session = bound.session.lock().await;
-            let result = match state.executor.build().await {
-                Ok(executor) => {
-                    let invocation = ToolInvocation::synthetic("verify", vec![], None)
-                        .expect("fixed private Verify invocation");
-                    let result = execute_tool(&mut session, executor.clone(), &invocation).await;
-                    let _ = executor.shutdown().await;
-                    Some(result)
+            use sha2::{Digest, Sha256};
+            let current_identity = bound.identity.read().unwrap().clone();
+            let admitted = bound.epoch.load(Ordering::SeqCst) == epoch
+                && current_identity == identity
+                && format!("{:x}", Sha256::digest(session.approved_source())) == identity.source;
+            let result = if !admitted {
+                None
+            } else {
+                match state.executor.build().await {
+                    Ok(executor) => {
+                        let invocation = ToolInvocation::synthetic("verify", vec![], None)
+                            .expect("fixed private Verify invocation");
+                        let result =
+                            execute_tool(&mut session, executor.clone(), &invocation).await;
+                        let _ = executor.shutdown().await;
+                        Some(result)
+                    }
+                    Err(_) => None,
                 }
-                Err(_) => None,
             };
             let mut runs = state.runs.lock().unwrap();
             if let Some(record) = runs.get_mut(&key) {
@@ -276,12 +369,26 @@ pub(super) async fn quarantine(
     };
     let path = request.uri().path().trim_start_matches("/api");
     let method = request.method().as_str();
-    let allowed = (method == "GET" && ["/prediction/state", "/prediction/history"].contains(&path))
+    let allowed = path == "/v1/ui/windows"
+        || path.starts_with("/v1/ui/windows/")
+        || (method == "GET"
+            && [
+                "/prediction/state",
+                "/prediction/history",
+                "/prediction/agent",
+                "/prediction/evidence",
+                "/prediction/completion",
+            ]
+            .contains(&path))
         || (method == "POST"
             && [
                 "/prediction/tool",
                 "/prediction/seal",
                 "/prediction/preview",
+                "/prediction/agent",
+                "/prediction/agent/decision",
+                "/prediction/agent/stop",
+                "/prediction/promote",
             ]
             .contains(&path))
         || (method == "POST"
@@ -315,10 +422,10 @@ pub(super) async fn status(State(state): State<LocalState>) -> ApiResult<Json<Va
         .rebind(&current_identity, session.approved_source())
         .ok();
     Ok(Json(
-        json!({"document":bound.doc,"source":bound.path.file_name(),"source_hash":current_identity.source,
+        json!({"document":bound.doc,"source":bound.path.file_name().and_then(|name|name.to_str()),"source_hash":current_identity.source,
         "sealed_source_hash":sealed_identity.source,"current":captured[0]["current"],"actor":bound.actor,
-        "question":bound.question,"target":target,"identities":current_identity,"actual_values":"withheld",
-        "environment_scope":"Host startup identities; this read does not revalidate or freeze the execution environment",
+        "question":bound.question,"target":target,"identities":current_identity,"actual_values":"withheld","runtime_revalidation":bound.runtime.is_some(),
+        "environment_scope":if bound.runtime.is_some(){"Configured Python runtime is revalidated before dispatch and settlement; this status read does not freeze or revalidate the environment"}else{"Host startup identities; this read does not revalidate or freeze the execution environment"},
         "supported":["read_doc","edit_doc","seal_prediction","verify"],"application_integration":"incomplete"}),
     ))
 }
@@ -329,7 +436,14 @@ pub(super) async fn history(State(state): State<LocalState>) -> ApiResult<Json<V
         .ok_or_else(|| ApiError::unprocessable("No private prediction session"))?;
     let history = bound
         .ledger
-        .history(None)
+        .predictor_history(
+            None,
+            &bound.actor,
+            &[bound
+                .question
+                .key()
+                .map_err(|_| ApiError::unprocessable("Host question unavailable"))?],
+        )
         .map_err(|_| ApiError::unprocessable("Private prediction history unavailable"))?;
     Ok(Json(serde_json::to_value(history).map_err(|_| {
         ApiError::internal("Private prediction history unavailable")
@@ -401,8 +515,27 @@ pub(crate) fn catalogue() -> Value {
             Some("read_doc" | "edit_doc" | "verify")
         )
     });
+    for tool in catalogue["tools"].as_array_mut().unwrap() {
+        if tool["name"] == "read_doc" {
+            tool["description"] = json!(
+                "Read the complete approved source. The MCP result's structuredContent contains source, source_hash and snapshot for a full edit baseline; content[0].text is a hashline presentation. Never guess field locations."
+            );
+        }
+        if tool["name"] == "verify" {
+            tool["description"] = json!(
+                "Run the shared sealed private gate. Read structuredContent.summary.classification, prediction_matched and original_requirement_satisfied, and isError. isError=true is non-passing. Absence of an execution list never means success. Target values and diagnostics stay withheld."
+            );
+        }
+    }
     catalogue["tools"].as_array_mut().unwrap().push(json!({"name":"seal_prediction","description":"Seal a prediction and rationale against the current captured source before private Verify. The host owns the question, requirement, inputs, actor and environment. Source repairs need a new seal with the original expectation; changed expectations cannot earn promotion. No actual target value is returned.",
         "inputSchema":{"type":"object","properties":{"expected_source_hash":{"type":"string","pattern":"^[a-f0-9]{64}$"},"rationale":{"type":"string","minLength":1,"maxLength":8192},"predicted":{"type":"object","description":"A bounded predicate: {kind: equals, value: JSON}, {kind: number_at_most, value: number}, or {kind: fields, value: map of predicates}."}},"required":["expected_source_hash","predicted","rationale"],"additionalProperties":false}}));
+    let seal = catalogue["tools"]
+        .as_array_mut()
+        .unwrap()
+        .last_mut()
+        .unwrap();
+    seal["inputSchema"]["$defs"] = json!({"predicate":Predicate::schema_definition()});
+    seal["inputSchema"]["properties"]["predicted"] = json!({"$ref":"#/$defs/predicate"});
     catalogue
 }
 
@@ -443,3 +576,179 @@ pub(super) async fn preview(
         json!({"surface":surface,"before":before,"after":after,"revision":session.revision(),"sources":session.source_snapshots()}),
     ))
 }
+
+pub(super) async fn evidence(State(state): State<LocalState>) -> ApiResult<Json<Value>> {
+    let bound = state
+        .private_prediction
+        .as_ref()
+        .ok_or_else(|| ApiError::unprocessable("No private prediction session"))?;
+    let history = bound
+        .ledger
+        .predictor_history(
+            None,
+            &bound.actor,
+            &[bound
+                .question
+                .key()
+                .map_err(|_| ApiError::unprocessable("Host question unavailable"))?],
+        )
+        .map_err(|_| ApiError::unprocessable("Prediction evidence unavailable"))?;
+    let scenarios = history
+        .attempts
+        .iter()
+        .map(|attempt| attempt.scenario.clone())
+        .collect::<std::collections::BTreeSet<_>>()
+        .into_iter()
+        .collect::<Vec<_>>();
+    let selected = if scenarios.is_empty() {
+        None
+    } else {
+        Some(
+            bound
+                .ledger
+                .select_predictor_history(&scenarios, &bound.actor)
+                .map_err(|_| ApiError::unprocessable("Prediction evidence unavailable"))?,
+        )
+    };
+    Ok(Json(json!({"evidence":selected})))
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(super) struct PromotionRequest {
+    attempt: String,
+}
+/// Revalidate the host-owned identities; callers cannot supply or waive them.
+pub(super) async fn promote(
+    State(state): State<LocalState>,
+    Json(body): Json<PromotionRequest>,
+) -> ApiResult<Json<Value>> {
+    let bound = state
+        .private_prediction
+        .as_ref()
+        .ok_or_else(|| ApiError::unprocessable("No private prediction session"))?;
+    let runtime = bound.runtime.as_ref().ok_or_else(|| {
+        ApiError::unprocessable(
+            "Current certification requires a configured runtime revalidation profile",
+        )
+    })?;
+    let mut session = bound.session.lock().await;
+    session
+        .refresh_source()
+        .await
+        .map_err(|_| ApiError::conflict("Captured source changed outside the session"))?;
+    let identity = bound.identity.read().unwrap().clone();
+    bound
+        .inputs
+        .as_ref()
+        .ok_or_else(|| ApiError::unprocessable("Host input binding unavailable"))?
+        .validate(&identity, session.approved_source())
+        .map_err(|_| ApiError::conflict("Host-selected inputs changed"))?;
+    use sha2::{Digest, Sha256};
+    if format!("{:x}", Sha256::digest(session.approved_source())) != identity.source
+        || runtime
+            .capture()
+            .await
+            .map_err(|_| ApiError::unprocessable("Runtime identity unavailable"))?
+            != identity.environment
+        || session
+            .source_snapshots()
+            .iter()
+            .any(|source| source["current"] != true)
+    {
+        return Err(ApiError::conflict(
+            "Source or runtime differs from the sealed identities; promotion refused",
+        ));
+    }
+    let scenario = bound
+        .question
+        .key()
+        .map_err(|_| ApiError::unprocessable("Host question unavailable"))?;
+    if !bound
+        .ledger
+        .predictor_history(Some(&identity), &bound.actor, &[scenario])
+        .map_err(|_| ApiError::unprocessable("Prediction history unavailable"))?
+        .attempts
+        .iter()
+        .any(|attempt| attempt.attempt == body.attempt)
+    {
+        return Err(ApiError::conflict(
+            "Attempt belongs to another predictor or host question",
+        ));
+    }
+    let summary=bound.ledger.promote(&body.attempt,&identity,Actor{kind:"host".into(),id:"private_identity_revalidation".into()})
+        .map_err(|_|ApiError::conflict("Prediction, original requirement, provenance or current identities do not permit promotion"))?;
+    Ok(Json(
+        json!({"summary":summary,"source_hash":identity.source,"checked_at":super::now_rfc3339(),"scope":"Host source/runtime identity revalidation at this request; before/after runtime fingerprints do not freeze the OS or certify every dependency"}),
+    ))
+}
+
+/// Completion check for the coach's explicit repair-and-verify contract.
+pub(super) async fn completion(State(state): State<LocalState>) -> ApiResult<Json<Value>> {
+    let bound = state
+        .private_prediction
+        .as_ref()
+        .ok_or_else(|| ApiError::unprocessable("No private prediction session"))?;
+    let mut session = bound.session.lock().await;
+    if session.refresh_source().await.is_err() {
+        return Ok(Json(
+            json!({"ready":false,"reason":"Captured source is unavailable or changed outside the session"}),
+        ));
+    }
+    let mut identity = bound.identity.read().unwrap().clone();
+    use sha2::{Digest, Sha256};
+    identity.source = format!("{:x}", Sha256::digest(session.approved_source()));
+    if let Some(inputs) = &bound.inputs {
+        if inputs
+            .validate(&identity, session.approved_source())
+            .is_err()
+        {
+            return Ok(Json(
+                json!({"ready":false,"reason":"Host input binding changed"}),
+            ));
+        }
+    }
+    if let Some(runtime) = &bound.runtime {
+        match runtime.capture().await {
+            Ok(environment) => identity.environment = environment,
+            Err(_) => {
+                return Ok(Json(
+                    json!({"ready":false,"reason":"Runtime revalidation unavailable"}),
+                ));
+            }
+        }
+    }
+    let history = bound
+        .ledger
+        .history(Some(&identity))
+        .map_err(|_| ApiError::unprocessable("Prediction history unavailable"))?;
+    let scenario = bound
+        .question
+        .key()
+        .map_err(|_| ApiError::unprocessable("Host question unavailable"))?;
+    let actor = serde_json::to_value(&bound.actor).unwrap();
+    let latest = history.attempts.iter().rev().find(|attempt| {
+        attempt.scenario == scenario
+            && history.ordering.iter().any(|entry| {
+                entry["event"]["kind"] == "started"
+                    && entry["event"]["id"] == attempt.attempt
+                    && entry["event"]["actor"] == actor
+            })
+    });
+    let ready = latest.is_some_and(|attempt| {
+        matches!(
+            attempt.classification,
+            hick_observe::prediction::Classification::FirstAttemptVerified
+                | hick_observe::prediction::Classification::InformedPredictionVerified
+                | hick_observe::prediction::Classification::VerifiedAfterCorrection
+                | hick_observe::prediction::Classification::VerifiedAfterPriorAttempt
+        )
+    });
+    Ok(Json(
+        json!({"ready":ready,"comparison":latest,"current_certification":false,"reason":if ready {"Original prediction and requirement pass for the revalidated source/runtime; promotion remains separate"}else{"Original prediction and requirement are not passing for this actor's current source/runtime; continue the requested repair or stop for human review"}}),
+    ))
+}
+
+#[cfg(test)]
+#[path = "private_prediction_tests.rs"]
+mod tests;

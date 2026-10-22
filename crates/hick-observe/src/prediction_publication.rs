@@ -1,6 +1,6 @@
 //! Explicit scenario selection without releasing private actuals or diagnostics.
 use super::*;
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct SelectedPredictionHistory {
@@ -22,12 +22,43 @@ impl Ledger {
     /// human-answer publication needs separate isolation; selection grants no
     /// disclosure or upload capability. There is no model-facing export tool.
     pub fn select_history(&self, scenarios: &[String]) -> Result<SelectedPredictionHistory> {
+        self.select_history_inner(scenarios, None)
+    }
+    /// Actor-scoped metadata for an active predictor; human selections keep the
+    /// separate complete-scenario publication path above.
+    pub fn select_predictor_history(
+        &self,
+        scenarios: &[String],
+        actor: &Actor,
+    ) -> Result<SelectedPredictionHistory> {
+        self.select_history_inner(scenarios, Some(actor))
+    }
+    fn select_history_inner(
+        &self,
+        scenarios: &[String],
+        actor: Option<&Actor>,
+    ) -> Result<SelectedPredictionHistory> {
         let selected: BTreeSet<_> = scenarios.iter().cloned().collect();
         ensure!(
             !selected.is_empty() && selected.len() <= 64,
             "Select one to 64 scenarios"
         );
         let mut history = self.history(None)?;
+        let total_attempts = history.attempts.len();
+        let total_events = history.ordering.len();
+        let original_contexts: BTreeMap<_, _> = history
+            .ordering
+            .iter()
+            .map(|entry| {
+                (
+                    entry["sequence"].as_u64().unwrap_or(0),
+                    entry["event"]["context"].as_array().map_or(0, Vec::len),
+                )
+            })
+            .collect();
+        if let Some(actor) = actor {
+            history = super::scope::project(history, actor, scenarios)?;
+        }
         let mut seals = BTreeSet::new();
         let mut found = BTreeSet::new();
         for entry in &history.ordering {
@@ -50,7 +81,6 @@ impl Ledger {
             found == selected,
             "Selected prediction scenario is unavailable"
         );
-        let total_attempts = history.attempts.len();
         history
             .attempts
             .retain(|attempt| selected.contains(&attempt.scenario));
@@ -111,7 +141,6 @@ impl Ledger {
             }
             Ok(contexts)
         })?;
-        let total_events = history.ordering.len();
         // Retain original global sequence and hash references. Gaps are declared,
         // not renumbered into a fabricated complete journal. These commitments
         // alone are not an authentication or public journal-validation proof.
@@ -130,12 +159,15 @@ impl Ledger {
         });
         let mut omitted_context_observations = 0;
         for entry in &mut history.ordering {
+            let original_context = original_contexts
+                .get(&entry["sequence"].as_u64().unwrap_or(0))
+                .copied();
             if let Some(context) = entry
                 .get_mut("event")
                 .and_then(|event| event.get_mut("context"))
                 .and_then(Value::as_array_mut)
             {
-                let before = context.len();
+                let before = original_context.unwrap_or(context.len());
                 context.retain(|observation| {
                     observation["scenario"]
                         .as_str()
@@ -152,7 +184,7 @@ impl Ledger {
             omitted_context_observations,
             history,
             debugger_contexts,
-            scope: "Selected historical host declarations; actual values and private evidence withheld. No current-source certification, human review, upload or authenticity is established by serialization.".into(),
+            scope: if actor.is_some(){"Predictor-scoped historical declarations; foreign predictions and rationales are omitted. Global commitments have declared gaps; actuals remain withheld and no current certification or human judgment is established."}else{"Selected historical host declarations; actual values and private evidence withheld. No current-source certification, human review, upload or authenticity is established by serialization."}.into(),
         })
     }
 }

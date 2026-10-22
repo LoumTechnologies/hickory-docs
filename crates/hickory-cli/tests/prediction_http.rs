@@ -80,6 +80,8 @@ async fn native_run_route_uses_private_gate_and_alternate_http_surfaces_refuse_w
             request: request(&ledger, &faulty, "fault"),
             encoding: OutputEncoding::Json,
             question: None,
+            runtime: None,
+            inputs: None,
         },
     )
     .await
@@ -224,6 +226,8 @@ async fn native_run_route_uses_private_gate_and_alternate_http_surfaces_refuse_w
             request: request(&ledger, &corrected, "repair"),
             encoding: OutputEncoding::Json,
             question: None,
+            runtime: None,
+            inputs: None,
         },
     )
     .await
@@ -305,6 +309,8 @@ async fn dormant_question_requires_a_submitted_prediction_and_reseals_repair_wit
             request: initial,
             encoding: OutputEncoding::Json,
             question: Some(question.scenario),
+            runtime: None,
+            inputs: None,
         },
     )
     .await

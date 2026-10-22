@@ -48,7 +48,12 @@ impl Host<'_> {
         })
     }
     async fn tool(&mut self, params: &Value) -> Result<Value> {
-        if self.private.is_some() {
+        if self.private.is_some()
+            && !matches!(
+                params["name"].as_str(),
+                Some("ui_observe" | "ui_act" | "ui_cancel")
+            )
+        {
             return self.private_tool(params).await;
         }
         self.tools += 1;
@@ -461,7 +466,10 @@ impl Host<'_> {
                 self.active_delivery = Some(delivery.clone());
                 let outcome = tokio::time::timeout(Duration::from_secs(180), request).await;
                 let (raw, usage, reasoning) = match outcome {
-                    Ok(Ok(value)) => value,
+                    Ok(Ok(value)) => {
+                        self.private_failure = None;
+                        value
+                    }
                     result => {
                         delivery["state"] = json!(if result.is_err() {
                             "cancelled_uncertain"
@@ -472,8 +480,20 @@ impl Host<'_> {
                         context_delivery(self.review.context_inbox(), &bundle.request, &delivery);
                         self.active_delivery = None;
                         return match result {
-                            Ok(Err(error)) => Err(error),
-                            Err(error) => Err(error.into()),
+                            Ok(Err(error)) => {
+                                if self.private.is_some() {
+                                    self.private_failure =
+                                        Some(PrivateFailure::provider(&error.to_string()));
+                                }
+                                Err(error)
+                            }
+                            Err(error) => {
+                                if self.private.is_some() {
+                                    self.private_failure =
+                                        Some(PrivateFailure::ProviderUnavailable);
+                                }
+                                Err(error.into())
+                            }
                             _ => unreachable!(),
                         };
                     }

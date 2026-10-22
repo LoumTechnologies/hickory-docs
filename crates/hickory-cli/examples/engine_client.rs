@@ -13,6 +13,24 @@ async fn run(args: Vec<String>) -> anyhow::Result<()> {
     let root = std::path::PathBuf::from(&args[0]);
     let name = args.get(1).cloned().unwrap_or_else(|| "window".into());
     let mut opts = engine::Attach::new(root.clone(), ExecutorChoice::Local);
+    if let Some(profile) = std::env::var_os("HICKORY_TEST_PRIVATE_PROFILE") {
+        anyhow::ensure!(
+            std::env::var_os("HICKORY_STATE_DIR").is_some(),
+            "Private fixture requires isolated engine state"
+        );
+        let mut profile: hickory_cli::serve::PrivatePredictionStartup =
+            serde_json::from_slice(&std::fs::read(profile)?)?;
+        if profile.seal.is_empty()
+            && let Some(runtime) = &profile.runtime
+        {
+            profile.identity.environment = runtime.capture().await?;
+        }
+        opts.prediction = Some(profile);
+        if std::env::var_os("HICKORY_TEST_LIVE_PROVIDER").is_some() {
+            opts.key_store_path = hickory_agent::KeyStore::desktop_path();
+        }
+        opts.python_runtime_path = std::env::var_os("HICKORY_AGENT_TEST_PYTHON").map(Into::into);
+    }
     opts.callback = Some(format!("http://{}", listener.local_addr()?));
     opts.callback_token = engine::window_token();
     let token = opts.callback_token.clone();

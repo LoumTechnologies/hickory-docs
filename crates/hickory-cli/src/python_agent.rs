@@ -29,6 +29,7 @@ pub struct Config {
 pub struct Conversation {
     /// Trusted host opt-in; requires an already bound engine workspace and fresh context.
     pub private_prediction: bool,
+    pub require_private_verification: bool,
     pub session: Option<PathBuf>,
     /// Host-selected storage root; never supplied by a model or worker.
     pub session_storage: Option<PathBuf>,
@@ -250,6 +251,8 @@ struct Host<'a> {
     review: &'a mut dyn Review,
     server: Server,
     private: Option<crate::engine::mcp::Remote>,
+    private_failure: Option<PrivateFailure>,
+    require_private_verification: bool,
     context_store: hick_context_store::host::Service,
     deliveries: std::collections::BTreeMap<String, (String, Option<Value>)>,
     active_delivery: Option<Value>,
@@ -265,6 +268,7 @@ struct Host<'a> {
 }
 mod host;
 mod private;
+pub use private::Failure as PrivateFailure;
 
 struct ChildGuard {
     child: tokio::process::Child,
@@ -476,16 +480,16 @@ pub async fn run_conversation(
             .as_array_mut()
             .unwrap()
             .retain(|tool| tool["name"].as_str().is_some_and(allowed));
-        catalogue["tools"]
-            .as_array_mut()
-            .unwrap()
-            .extend(review.ui_tools());
         if let Some(contract) = conversation.changeset {
             server.agent_set_changeset(contract);
         } else {
             server.agent_begin_changeset()?;
         }
     }
+    catalogue["tools"]
+        .as_array_mut()
+        .unwrap()
+        .extend(review.ui_tools());
     let mut bootstrap = json!({
         "prompt":config.prompt,"max_turns":config.max_turns,"context":conversation.context,
         "document":config.doc.as_ref().map(|doc| doc.strip_prefix(&config.root).unwrap_or(doc).display().to_string()),
@@ -577,9 +581,12 @@ pub async fn run_conversation(
         let state = remote
             .private_request(reqwest::Method::GET, "state", &json!({}))
             .await?;
+        let history = remote
+            .private_request(reqwest::Method::GET, "history", &json!({}))
+            .await?;
         bootstrap["context"] = json!(format!(
-            "Private prediction session. Read captured source, seal your prediction and rationale before Verify. Actual target values stay withheld. Host question and target: {}",
-            state
+            "Private prediction session. Read captured source, seal your prediction and rationale before Verify. Actual target values stay withheld. Host question and target: {}\nRetained prior prediction and comparison history (not independent first-attempt evidence): {}",
+            state, history
         ));
     }
     bootstrap["context_references"] = json!(bootstrap_references);
@@ -589,6 +596,8 @@ pub async fn run_conversation(
         review,
         server,
         private,
+        private_failure: None,
+        require_private_verification: conversation.require_private_verification,
         context_store,
         deliveries: Default::default(),
         active_delivery: None,
@@ -721,7 +730,12 @@ pub async fn run_conversation(
             &json!({"error":format!("{error:#}"),"cancellation":if error.to_string() == hickory_agent::STOPPED_BY_USER { Some("Python agent cancelled") } else { None },"verification":"unrun"}),
         )?;
     }
-    result?;
+    if let Err(error) = result {
+        if let Some(failure) = host.private_failure {
+            return Err(failure.into());
+        }
+        return Err(error);
+    }
     let artifact = if host.private.is_some() {
         None
     } else {

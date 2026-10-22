@@ -1,4 +1,4 @@
-"""Fingerprint host runtime code for the explicit synthetic fixture exporter.
+"""Fingerprint the explicitly supported private Python runtime.
 
 This does not freeze the host or certify all environment/OS behavior. It emits
 hashes only; paths, process environment values and package contents stay local.

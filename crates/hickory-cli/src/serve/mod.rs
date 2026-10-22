@@ -41,6 +41,7 @@ mod changeset_drafts;
 pub mod commit_reading;
 pub mod dataset;
 pub mod debug_bridge;
+mod private_prediction_agent;
 mod private_prediction_startup;
 pub(crate) mod private_predictions;
 pub use private_prediction_startup::Startup as PrivatePredictionStartup;
@@ -619,8 +620,26 @@ pub(crate) fn router(state: LocalState) -> Router {
     let api = Router::new()
         .route("/prediction/state", get(private_predictions::status))
         .route("/prediction/history", get(private_predictions::history))
+        .route(
+            "/prediction/completion",
+            get(private_predictions::completion),
+        )
+        .route("/prediction/evidence", get(private_predictions::evidence))
         .route("/prediction/tool", post(private_predictions::source_tool))
         .route("/prediction/seal", post(private_predictions::seal))
+        .route("/prediction/promote", post(private_predictions::promote))
+        .route(
+            "/prediction/agent",
+            get(private_prediction_agent::status).post(private_prediction_agent::start),
+        )
+        .route(
+            "/prediction/agent/decision",
+            post(private_prediction_agent::decide),
+        )
+        .route(
+            "/prediction/agent/stop",
+            post(private_prediction_agent::stop),
+        )
         .route("/prediction/preview", post(private_predictions::preview))
         .merge(ui_actions::routes())
         .merge(fleet_pairings::routes())

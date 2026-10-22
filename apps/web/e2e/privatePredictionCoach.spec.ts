@@ -1,0 +1,63 @@
+import { expect, test } from "@playwright/test";
+// Guarantee: verification/predictions-precede-managed-observation.md.
+// Actual daemon/worker/process/browser; provider and review decisions are scripted.
+test("private coach retains failure and reviewed repair without publishing target answers", async ({ page }) => {
+  const live = process.env.HICKORY_PRIVATE_LIVE_PROVIDER === "1";
+  test.setTimeout(live ? 600_000 : 60_000);
+  test.skip(!process.env.HICKORY_PRIVATE_UI_FIXTURE, "Use scripts/test-private-prediction-ui.sh.");
+  const errors: string[] = [], paths: string[] = [];
+  page.on("pageerror", error => errors.push(error.message));
+  page.on("request", request => { const path = new URL(request.url()).pathname; if (path.startsWith("/api/")) paths.push(path); });
+  await page.goto("/");
+  await expect(page.getByRole("heading", { name: "Predict, investigate and review" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Delegate investigation" })).toBeEnabled();
+  if (live) {
+    await page.getByRole("textbox", { name: "Provider", exact: true }).fill(process.env.HICKORY_PRIVATE_PROVIDER ?? "openrouter");
+    if (process.env.HICKORY_PRIVATE_MODEL) await page.getByRole("textbox", { name: "Model", exact: true }).fill(process.env.HICKORY_PRIVATE_MODEL);
+    await page.getByRole("textbox", { name: "Investigation request" }).fill("Run this coached prediction exercise. First read the current captured source. Before making any edit, seal the specified expected behavior as a Fields predicate: output equals {long:100,short:30,empty:0}, debugger equals 20. This is the required behavior, not a runtime observation. Verify the current implementation and retain its non-passing result. Then investigate from source and the requirement with target answers withheld. Propose a minimal correction to retry's per-attempt allowance for human review. After approval, reread the repaired source and reseal exactly the same expected behavior against its new source hash. Verify the repair and finish with a concise explanation and limitations. Do not change the capture selection, expectation tags, inputs or requirement. Do not print, reveal or fetch actual runtime target values.");
+  } else await page.getByRole("textbox", { name: "Provider", exact: true }).fill("openai");
+  const sending = page.waitForRequest(request => request.method() === "POST" && new URL(request.url()).pathname === "/api/prediction/agent");
+  await page.getByRole("button", { name: "Delegate investigation" }).click();
+  if (live && process.env.HICKORY_PRIVATE_MODEL) expect((await sending).postDataJSON()).toMatchObject({ model: process.env.HICKORY_PRIVATE_MODEL });
+  else await sending;
+  const review = page.getByRole("region", { name: "Document change review" });
+  await expect.poll(async () => {
+    const current = await (await page.request.get("/api/prediction/agent")).json();
+    return current.edits.changes.some((change: { status: string }) => change.status === "pending") ? "pending" : current.run.status;
+  }, { timeout: live ? 240_000 : 20_000 }).not.toBe("running");
+  const arrived = await (await page.request.get("/api/prediction/agent")).json();
+  expect(arrived.run.status, arrived.run.answer ?? "Investigation must reach a real review").toBe("running");
+  await expect(review).toBeVisible();
+  const before = await (await page.request.get("/api/prediction/history")).json();
+  expect(before.attempts).toHaveLength(1);
+  expect(before.attempts[0].classification).toBe("execution_rejected");
+  expect((await page.request.get("/api/files")).status()).toBe(422);
+  await review.getByRole("button", { name: "Accept change" }).click();
+  await expect.poll(async () => (await (await page.request.get("/api/prediction/agent")).json()).run.status, { timeout: live ? 240_000 : 20_000 }).toBe("finished");
+  const after = await (await page.request.get("/api/prediction/history")).json();
+  expect(after.attempts.map((attempt: { classification: string }) => attempt.classification)).toEqual(["execution_rejected", "verified_after_correction"]);
+  const seals = after.ordering.filter((entry: { event: { kind: string } }) => entry.event.kind === "sealed");
+  expect(seals[0].event.seal.predicted).toEqual(seals[1].event.seal.predicted);
+  expect(seals[0].event.seal.scenario.requirement).toEqual(seals[1].event.seal.scenario.requirement);
+  expect(after.attempts.every((attempt: { current_certification: boolean }) => !attempt.current_certification)).toBe(true);
+  const revalidated = page.waitForResponse(response => response.request().method() === "POST" && new URL(response.url()).pathname === "/api/prediction/promote");
+  await page.getByRole("button", { name: "Revalidate and promote", exact: true }).click();
+  const promotion = await (await revalidated).json();
+  expect(promotion.summary.current_certification).toBe(true);
+  expect(promotion.summary.promoted).toBe(true);
+  await page.reload();
+  await expect(page.getByText(/The repair passed the unchanged prediction/)).toBeVisible();
+  expect(paths.filter(path => path !== "/api/files").every(path => path.startsWith("/api/prediction/") || path.startsWith("/api/v1/ui/windows"))).toBe(true);
+  const captured = await (await page.request.post("/api/prediction/tool", { data: { name: "read_doc", args: [] } })).json();
+  const changedInputs = captured.source.replace("retry([10, 20], 100)", "retry([11, 20], 100)");
+  expect(changedInputs).not.toBe(captured.source);
+  const edited = await (await page.request.post("/api/prediction/tool", { data: { name: "edit_doc", args: [["whole", "true"], ["snapshot", captured.source_hash]], input: changedInputs } })).json();
+  expect(edited.ok).toBe(true);
+  const changed = await (await page.request.get("/api/prediction/state")).json();
+  const refused = await page.request.post("/api/prediction/seal", { data: { expected_source_hash: changed.source_hash, predicted: seals[1].event.seal.predicted, rationale: "Attempt to change the host inputs" } });
+  expect(refused.status()).toBe(422);
+  expect((await page.request.post("/api/prediction/promote", { data: { attempt: after.attempts[1].attempt } })).status()).toBe(409);
+  expect((await (await page.request.get("/api/prediction/history")).json()).attempts).toHaveLength(2);
+  await expect(page.getByRole("button", { name: "Revalidate and promote", exact: true })).toBeDisabled();
+  expect(errors).toEqual([]);
+});

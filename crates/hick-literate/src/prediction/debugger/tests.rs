@@ -262,6 +262,10 @@ async fn retained_session_requires_future_seal_before_resume_and_keeps_answers_p
     use super::interactive::RetainedDebugger;
     let project = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
     assert!(hick_dap::discover("python", &project).is_some());
+    let profile = crate::prediction::environment::Profile::PythonDebugpy {
+        project: project.clone(),
+    };
+    let environment = profile.capture().await.unwrap();
     let root = tempfile::tempdir().unwrap();
     let ledger = Ledger::open(root.path()).unwrap();
     for corrected in [false, true] {
@@ -276,7 +280,7 @@ async fn retained_session_requires_future_seal_before_resume_and_keeps_answers_p
             },
         );
         let history = ledger.history(None).unwrap();
-        let future: Seal = serde_json::from_value(
+        let mut future: Seal = serde_json::from_value(
             history
                 .ordering
                 .iter()
@@ -285,6 +289,7 @@ async fn retained_session_requires_future_seal_before_resume_and_keeps_answers_p
                 .clone(),
         )
         .unwrap();
+        future.identity.environment = environment.clone();
         let mut initial = future.clone();
         initial.scenario.family = "retry-budget/initial-allowance".into();
         initial.scenario.requirement_reference =
@@ -304,9 +309,19 @@ async fn retained_session_requires_future_seal_before_resume_and_keeps_answers_p
             identity: initial.identity,
             target: initial.target,
         };
-        let (session, result) = RetainedDebugger::start(&ledger, &first, &text, &project)
-            .await
-            .unwrap();
+        // The application can retain the paused owner after its temporary
+        // ledger handle goes away; the journal still has one lock/authority.
+        let temporary_handle = ledger.clone();
+        let (session, result) = RetainedDebugger::start_with_environment(
+            &temporary_handle,
+            &first,
+            &text,
+            &project,
+            Some(&profile),
+        )
+        .await
+        .unwrap();
+        drop(temporary_handle);
         assert!(result.summary.prediction_matched.unwrap());
         let mut session = session.unwrap();
         let visible = json!({"source_review":"two attempts with a single total deadline", "prior_verdict":"matched"});
@@ -481,5 +496,85 @@ async fn retained_session_missing_future_hit_is_unknown_and_never_promotable() {
             .is_err()
     );
     assert!(!serde_json::to_string(&result).unwrap().contains("captures"));
+    session.shutdown().await;
+}
+
+// Guarantee: docs/guarantees/verification/predictions-precede-managed-observation.md
+#[tokio::test]
+#[ignore = "requires configured Python debugpy; explicitly run the focused witness"]
+async fn retained_runtime_change_refuses_continue_without_dispatch() {
+    use super::interactive::RetainedDebugger;
+    let project = tempfile::tempdir().unwrap();
+    let parent = project.path().join(".hick-cache/adapters");
+    std::fs::create_dir_all(&parent).unwrap();
+    let adapter = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../../.hick-cache/adapters/python")
+        .canonicalize()
+        .unwrap();
+    let link = parent.join("python");
+    std::os::unix::fs::symlink(adapter, &link).unwrap();
+    let profile = crate::prediction::environment::Profile::PythonDebugpy {
+        project: project.path().into(),
+    };
+    let private = tempfile::tempdir().unwrap();
+    let ledger = Ledger::open(private.path()).unwrap();
+    let text = source(true);
+    let template = request(&ledger, &text, "template");
+    let mut future: Seal = serde_json::from_value(
+        ledger
+            .history(None)
+            .unwrap()
+            .ordering
+            .iter()
+            .find(|entry| entry["event"]["id"] == template.seal)
+            .unwrap()["event"]["seal"]
+            .clone(),
+    )
+    .unwrap();
+    future.identity.environment = profile.capture().await.unwrap();
+    let mut initial = future.clone();
+    initial.scenario.family = "runtime-retained-initial".into();
+    initial.predicted = Predicate::Equals(json!(100));
+    initial.scenario.requirement = initial.predicted.clone();
+    if let Target::Debugger { hit, .. } = &mut initial.target {
+        *hit = 1;
+    }
+    let receipt = ledger
+        .seal(
+            ledger.history(None).unwrap().generation,
+            initial.clone(),
+            template.actor.clone(),
+        )
+        .unwrap();
+    let first = DebuggerRequest {
+        seal: receipt.id,
+        request_id: "initial".into(),
+        actor: template.actor,
+        identity: initial.identity,
+        target: initial.target,
+    };
+    let (session, result) = RetainedDebugger::start_with_environment(
+        &ledger,
+        &first,
+        &text,
+        project.path(),
+        Some(&profile),
+    )
+    .await
+    .unwrap();
+    assert!(result.summary.prediction_matched.unwrap());
+    let mut session = session.unwrap();
+    let visible = json!({"prior_verdict":"matched"});
+    let next = session
+        .seal_next(future, "future".into(), visible.clone())
+        .unwrap();
+    let attempts = ledger.history(None).unwrap().attempts.len();
+    std::fs::remove_file(link).unwrap();
+    assert!(session.resume(&next, &visible).await.is_err());
+    assert_eq!(
+        ledger.history(None).unwrap().attempts.len(),
+        attempts,
+        "Runtime refusal must precede future dispatch"
+    );
     session.shutdown().await;
 }

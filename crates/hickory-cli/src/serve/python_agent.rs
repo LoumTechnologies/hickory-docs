@@ -389,6 +389,7 @@ pub(super) async fn run_turn(
     };
     let conversation = crate::python_agent::Conversation {
         private_prediction: false,
+        require_private_verification: false,
         session: Some(identity.session),
         session_storage: Some(
             super::agent_context::session_root(state, doc)

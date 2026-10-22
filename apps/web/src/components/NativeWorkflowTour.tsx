@@ -1,3 +1,4 @@
+import { PrivatePredictionCoach, type PrivatePredictionState } from "./PrivatePredictionCoach";
 import { useEffect, useId, useState } from "react";
 import type { EditorView } from "@codemirror/view";
 import { request } from "../api/client";
@@ -15,7 +16,11 @@ type Turn = { id: string; parent_id?: string | null; status: string };
 type Pause = { run: string; stop: string; evidence: string[] };
 const key = (id: string) => `hickory.aiEngineerCoach.v2:${id}`;
 const counterexample = (run: Execution, hash: string) => run.status === "failed" && run.source_hash?.replace(/^sha256:/, "") === hash && `${run.error ?? ""}${JSON.stringify(run.blocks.map(block => block.transcript ?? []))}`.includes("R1 failed: expected 100, got 160");
-export function NativeWorkflowTour({ onOpen }: { onOpen?: (path: string, line?: number) => void; focused?: { path?: string; source?: string; view?: EditorView | null } }) {
+type NativeWorkflowTourProps = { onOpen?: (path: string, line?: number) => void; focused?: { path?: string; source?: string; view?: EditorView | null }; privateSession?: PrivatePredictionState };
+export function NativeWorkflowTour(props: NativeWorkflowTourProps) {
+  return props.privateSession ? <PrivatePredictionCoach key={props.privateSession.document} initial={props.privateSession} /> : <OrdinaryWorkflowTour {...props} />;
+}
+function OrdinaryWorkflowTour({ onOpen }: NativeWorkflowTourProps) {
   const instance = useId(); const parent = `coach:${instance}`;
   const [open, setOpen] = useState(false);
   const [info, setInfo] = useState<Practice | null>(null);

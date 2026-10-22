@@ -984,3 +984,6 @@ fn future_seals_bind_prior_stop_and_context_and_never_claim_independent_first_su
     );
     Ok(())
 }
+
+#[path = "prediction_scope_tests.rs"]
+mod scoped;

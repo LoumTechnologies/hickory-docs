@@ -5,47 +5,10 @@
 mod fixture;
 use anyhow::{Result, ensure};
 use hick_literate::prediction::combined;
-use hick_observe::prediction::{Classification, Ledger, digest};
+use hick_literate::prediction::environment::capture_python;
+use hick_observe::prediction::{Classification, Ledger};
 use hickory_executor::LocalExecutor;
-use std::{
-    collections::BTreeMap,
-    io::Write,
-    path::{Path, PathBuf},
-    sync::Arc,
-};
-
-fn environment(project: &Path) -> Result<BTreeMap<String, String>> {
-    let adapter = hick_dap::discover("python", project)
-        .ok_or_else(|| anyhow::anyhow!("Python adapter unavailable"))?;
-    ensure!(
-        adapter.command.len() == 3
-            && adapter.command[1] == "-m"
-            && adapter.command[2] == "debugpy.adapter",
-        "This exporter requires the configured debugpy module recipe"
-    );
-    let mut identities = BTreeMap::new();
-    identities.insert("adapter_recipe".into(), digest(&adapter.command)?);
-    for (name, program, is_adapter) in [
-        ("output_python", "python3", false),
-        ("adapter_python", adapter.command[0].as_str(), true),
-    ] {
-        let mut command = std::process::Command::new(program);
-        command
-            .current_dir(project)
-            .args(["-c", include_str!("python_identity.py")]);
-        if is_adapter {
-            command.arg("--adapter");
-        }
-        let result = command.output()?;
-        ensure!(
-            result.status.success(),
-            "Runtime fingerprint unavailable; no evidence export permitted"
-        );
-        let captured: serde_json::Value = serde_json::from_slice(&result.stdout)?;
-        identities.insert(name.into(), digest(&captured)?);
-    }
-    Ok(identities)
-}
+use std::{io::Write, path::PathBuf, sync::Arc};
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -66,7 +29,7 @@ async fn main() -> Result<()> {
     );
     let private = tempfile::tempdir()?;
     let ledger = Ledger::open(private.path())?;
-    let captured_environment = environment(&project)?;
+    let captured_environment = capture_python(&project)?;
     let mut scenarios = Vec::new();
     for (source, key, classification) in [
         (
@@ -81,7 +44,7 @@ async fn main() -> Result<()> {
         ),
     ] {
         ensure!(
-            environment(&project)? == captured_environment,
+            capture_python(&project)? == captured_environment,
             "Runtime changed before dispatch; no export written"
         );
         let request = fixture::request_with_environment(
@@ -104,7 +67,7 @@ async fn main() -> Result<()> {
             "Required fixture evidence is unavailable or differs; no export written"
         );
         ensure!(
-            environment(&project)? == captured_environment,
+            capture_python(&project)? == captured_environment,
             "Runtime changed during execution; no export written"
         );
         if classification == Classification::VerifiedAfterCorrection {

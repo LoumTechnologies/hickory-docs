@@ -402,3 +402,141 @@ Inspected continuation dependencies (changed bytes stale this review):
 | `crates/hick-literate/src/prediction/source_question.rs` | `21b56092b5639ac8455b2032210a94f18a3e29688dab579b715f18168df2be2a` |
 | `crates/hick-context-store/src/host.rs` | `d03c0330dbef16802b4ef3488bb828440151d4e54b564fc264877551690d549c` |
 | `crates/hickory-cli/tests/prediction_engine.rs` | `7734deaf0b5bdac6433d0ea624eec6e6dacbb2599b12bc474ecd6655198b0ca2` |
+
+## October 22 private coach/runtime review
+
+The startup-bound UI branch establishes private policy before mounting ordinary
+workspace/context readers. Native private Review adapts the existing mandatory
+Edits queue without ordinary editor capture. Source and gate receipts have bounded
+MCP structuredContent; the coach's repair completion checks original prediction,
+requirement, actor and current source/host identities rather than model assertions.
+Ordinary completion and generic investigation reporting retain distinct policies.
+
+Optional PythonDebugpy profiles revalidate the captured runtime before dispatch
+and settlement through the same gate. Native promotion additionally requires
+host-reviewed input anchors/value identity and rechecks the actual approved source
+and runtime. The API accepts an attempt, not caller-declared current identities.
+This is a scoped at-request witness. It does not freeze the host, prove program
+semantics, certify every dependency or prevent transient same-user mutation.
+Unknown runtime evidence and changed pinned inputs remain non-passing. Actuals
+stay private after promotion. Shared UI descriptions/history are metadata; viewing
+them cannot certify current execution.
+
+Executed witnesses: private browser/engine/confined-worker/real output plus DAP
+fault→reviewed correction→unchanged expectation→promotion→pinned-input refusal;
+configured runtime drift/unavailable challenge; native engine/MCP and early false
+completion refusal; ordinary browser review/recovery/Stop; focused component and
+shared-control safety cases. Scripted provider/review choices are labeled. Failed
+paid-provider attempts and provider-credit rejection are retained in the handoff;
+no successful new private paid/native-package witness is inferred. LLM review:
+these changed paths inspected, remaining application/future-stop/parity work not
+verified. Human judgment: not supplied. No normal product enable flag is exposed.
+
+Assumptions/alternatives: host scenario/input correspondence and runtime admission
+remain trusted; private managed interfaces are the assurance boundary. Reusing the
+shared gate, review queue and existing coach was chosen over a new evaluator or
+demo loop. Copying provider/runtime error bodies to explain setup failures,
+accepting a model's missing `execution` field as a pass, relaxing stale-handle
+checks, or publishing held-out files for changeset equality were rejected.
+Falsifiers include accepting a non-passing repair completion, changing input
+anchors then resealing/promoting, post-run runtime loss yielding a pass, raw
+private values entering structured receipts/UI, or ordinary readers mounting after
+a failed private-policy handshake. Uncaptured dependencies and native lifecycle/
+retained-stop/external-agent coverage remain explicit gaps, not waived criteria.
+
+
+### October 22 safety review and final focused continuation checks
+
+The live private-provider workflow remains blocked by OpenRouter HTTP 402
+(insufficient credit), including the last Qwen coding-model request with the
+2048-token reservation. The intervening smaller-model attempt misconstructed the
+nested predicate and attempted repeated premature completion; the host refused it.
+Recursive predicate schema, structured tool receipts and worker instructions now
+make the actual protocol explicit. These failed witnesses are not passes. No
+further paid requests were made after the credit failure; a funded provider or
+credit restoration is required. Human judgment and selected publication assets
+remain absent.
+
+LLM implementation review found and corrected cross-predictor seal reuse and
+history disclosure: admission binds the durable seal owner, legacy mismatched
+owners stay Unknown, and active predictor history omits foreign predicates and
+rationales plus unrelated exposure metadata. Complete human audit remains
+retained. The first actual browser run after projection failed because filtering
+inserted null context fields into non-seal events. The projection now preserves
+those event schemas; a dedicated assertion and the repeated browser flow pass.
+Queued native Run also captures a policy epoch: even an identical-source reseal
+retires the queued intent before dispatch. Failed private startup releases its
+workspace lock so corrected trusted startup can retry. Human-owned bindings cannot
+be used as agent capabilities.
+
+Retained debugger owners now hold a cloned journal handle and can outlive the
+startup handle. Optional configured runtime profiles revalidate before launch,
+before each Continue and before settlement. Changed/unavailable runtime refuses
+Continue before creating a new attempt and terminates the retained process.
+This is still a scoped fingerprint observation, not immutable OS certification.
+
+Executed focused checks: 18 ledger behavior/safety cases; the queued native Run
+same-source reseal refusal; two engine tests with the installed confined worker
+(including failed startup then same-root recovery), two HTTP cases; three live
+retained-debugger cases including runtime loss before Continue; four standalone
+debugger cases and one live runtime challenge in preceding focused runs; 48 UI
+cases and targeted changed-entrypoint TypeScript. The repeated actual private
+browser/provider-script/review-driver/runner/DAP flow passed in 14.4 seconds after
+the history projection fix. File-length, whitespace and UI inventory generation
+passed. No broad regression or post-commit monitoring was run.
+
+These are executed checks and LLM review, not human judgment or current packaged
+native/provider/release/deployed evidence. The remaining engineering list above
+continues to apply; this checkpoint does not complete issue 72.
+
+Exact implementation dependencies for this continuation (SHA-256; changes make these check results historical):
+
+| Dependency | SHA-256 |
+| --- | --- |
+| `apps/agent/src/hickory_agent_worker/instructions.py` | `840b7c5500a4437dea9353ff2dc8c233d7ac1e2e7f46cb0d6e8749646b298887` |
+| `apps/web/e2e/privatePredictionCoach.spec.ts` | `db08698e7cd1ed5319c6df405983e5fe3cc1662d97c550edfd1ed18405a844a6` |
+| `apps/web/src/components/AgentChanges.test.tsx` | `4d105c6d4742635820f40b90b0272067f4a05f23102c682acf50dbd8a05909ad` |
+| `apps/web/src/components/AgentChanges.tsx` | `936e4674f45e71e28636e8f04305386e42fee9ab7a6f64ab5b7d9f29f9e23e16` |
+| `apps/web/src/components/NativeWorkflowTour.tsx` | `3ce321ec6b82200fb606e1911f015eb9fd02b1db14b78483a021c3745acffb09` |
+| `apps/web/src/components/PrivatePredictionCoach.test.tsx` | `16ca0305ea294a94b831ce940f2d70f7cae5746f2d1760decb5a703f7ea37767` |
+| `apps/web/src/components/PrivatePredictionCoach.tsx` | `3ecf7a6df3d552b31ec6583edb642457e3bdebb5beccdf18312dc7eaa9f33381` |
+| `apps/web/src/lib/uiActionBridge.test.tsx` | `c6e12f05c5f3d96b8f9c5ca20dab241f2ad52bf1e5eddfe72c597a46fdc37971` |
+| `apps/web/src/lib/uiActionBridge.tsx` | `80ad2279c40a1e3317261560e946deb967391530ca9b45437bafb651e07e7c2b` |
+| `apps/web/src/main.tsx` | `800efa23eb7688bf4f76bb4303a10f56c575f45d5d25b1c760c790e5c5f96c43` |
+| `crates/hick-literate/examples/authorization_evidence.rs` | `49fb5ab598cb122465a0a73a09afa2374ace5c07beec0fec279587da5fd35387` |
+| `crates/hick-literate/src/prediction.rs` | `f20953d10517ff6661568a9ad1db6d30a936170d80ff8a10ab63b33814bbc09f` |
+| `crates/hick-literate/src/prediction/combined.rs` | `03e1a1f125ed280d713a0a2b624622c41797fa74f1fffef3543c23f672eb68ef` |
+| `crates/hick-literate/src/prediction/debugger.rs` | `2b21652dbdac17f0b67445699c881b9b1b9c70c3a75bd3ff4542c19dbe558db9` |
+| `crates/hick-literate/src/prediction/debugger/tests.rs` | `aa994c6e6f393702cede1862c54ce0dc4f93b186dadd03b65095d93639eaccf5` |
+| `crates/hick-literate/src/prediction/environment.rs` | `eb83a1e715b2fbda4fe104236c649464e8e43fb0e707c43293e0d585c8e7d790` |
+| `crates/hick-literate/src/prediction/interactive.rs` | `4b588c988adf56f021e7b4e1327e40c80639e03f3afcb6452f7708870f569366` |
+| `crates/hick-literate/src/prediction/python_identity.py` | `c78466ed1976c51baf85815843741ee52b505afa20fb0c88d70c08fb4ae2cdc3` |
+| `crates/hick-literate/src/prediction/source_question.rs` | `64f834243136b489bc3ad11b74d717aad84817e855cceef25ad314405adef0bb` |
+| `crates/hick-literate/tests/prediction_environment.rs` | `c27d8d2492964ee78d2959aa2bad779f699f9b10578e1bf2f0347d1644045058` |
+| `crates/hick-observe/src/prediction.rs` | `6ee4b2bae923dba57d65488871554b631bb43f62e6962a849c473ff047579f1e` |
+| `crates/hick-observe/src/prediction_publication.rs` | `c26f0da40d4aeb566197dbd42df5d5e3e8a41e9acb7224c1c6f3803758667dcd` |
+| `crates/hick-observe/src/prediction_scope.rs` | `ef7fe0a165c27a087e4e5b027b90805accdd2b31949a8436e6bfe3c80dbed156` |
+| `crates/hick-observe/src/prediction_scope_tests.rs` | `ae154fa68bda6e1b954aa98ea24a1250dc677acbb9b56c62efaa8aa553d8f2ff` |
+| `crates/hick-observe/src/prediction_tests.rs` | `8c47ece5604b7f5e0b8ca294c0eae9c7ceeaac5b756c25337ea0dc6a327163ac` |
+| `crates/hick-observe/src/prediction_types.rs` | `8eca89c4b79c86da4fdd58a0316611ffd34180d4514a6595051e6eb3587ca0fd` |
+| `crates/hickory-agent/src/lib.rs` | `186b7498a0dfbbd355aa2b55c82ab742b9a11c461b9d331ecaf1db03ecdd7b52` |
+| `crates/hickory-agent/src/provider.rs` | `900412af7b8019c463482d5320d58873c172541798337b89778329d0e6227e95` |
+| `crates/hickory-agent/src/tools/prediction.rs` | `785f553cc53399995cb252b3dbf2a95803b203fee21696d703c68fc29cfefb68` |
+| `crates/hickory-cli/examples/engine_client.rs` | `45c0d65cf0799b2d61770672265ff4f4fac33206f73fd8cb00749c410968ac46` |
+| `crates/hickory-cli/src/engine/client_prediction_tests.rs` | `759f252e9e5fe6c178965646a125a2364d020c4da57feebcab7d667da7e668cf` |
+| `crates/hickory-cli/src/engine/daemon.rs` | `a4a90970b493fd96f685c09f3454a9bb127e029355631aa79e7f17849edc9ac2` |
+| `crates/hickory-cli/src/engine/mcp.rs` | `4d79ff7dbf735fe95c33e7c7011d9636a3fca7c3038d84d94dc4f3e3107fa434` |
+| `crates/hickory-cli/src/python_agent.rs` | `2d45ce0ac85a2efa7fb87bef4869c53d9fabee4d5ab066520b2ffdbed8e2a52a` |
+| `crates/hickory-cli/src/python_agent/host.rs` | `ff508325fa4682acc710736acfdba959653e8af47e2519f09aa41f8155d79a51` |
+| `crates/hickory-cli/src/python_agent/private.rs` | `13072740bea99a198ebc2d840700f3f602f17648e31d8bf8cc70b8e0ec00915e` |
+| `crates/hickory-cli/src/serve/agent.rs` | `48a0ee253d961df7d3af258138b0696890ade045ab452ac6c8f3ab4107b07fcf` |
+| `crates/hickory-cli/src/serve/mod.rs` | `e16e672fbd076a90b136bc4e5c689af93d2120947b798e55638b36dcf52d0e0b` |
+| `crates/hickory-cli/src/serve/private_prediction_agent.rs` | `78494700ff7bd5f4071f304ae4fcb1c61f4c31bf92ea7817deac55f59ab1ae86` |
+| `crates/hickory-cli/src/serve/private_prediction_startup.rs` | `a34c8ce68ee360b5c9e4154aaa574cb56192f1c5ab4bbfcafbc487c2c4192302` |
+| `crates/hickory-cli/src/serve/private_prediction_tests.rs` | `07053a9e7dba435167328935538ece716948b045fcbd0ce55353dfab0b69068d` |
+| `crates/hickory-cli/src/serve/private_predictions.rs` | `254c7c034a7bd4c7a64d3e0652a267d6edb1b056b02e11915d2e6a0f92ce73ed` |
+| `crates/hickory-cli/src/serve/python_agent.rs` | `d627b9c264bb9a86ec7c18cc2e8ee19afc99b6267fe4ff65b3ced1cdc95f2bb8` |
+| `crates/hickory-cli/tests/prediction_engine.rs` | `de89b1cd118a886689d7ff659acad3e57e99da17fcc5381bb125064852650cf1` |
+| `crates/hickory-cli/tests/prediction_http.rs` | `13d8227621c1a39b352c0c4891077dc6fbd97d930a1f229af098f2eb51d1cd5d` |
+| `examples/ai-engineer-private-deadline.md` | `ae61814fa3292518be29ea788df39d2195aa2eb5de6d9673301c43024d230b3c` |
+| `scripts/test-private-prediction-ui.sh` | `e9f50afd5f6339605fa50c5e0e7f78e6653e6b91bba36196f6d8883f7e1e870e` |
