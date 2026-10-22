@@ -2,6 +2,8 @@ import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { act } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { UiActions } from "../lib/uiActions";
+import { UiActionContext } from "../lib/uiActionBridge";
 import { TooltipLayer } from "./TooltipLayer";
 
 // The show is a timer, so these tests drive it with `act` — which React only
@@ -76,4 +78,31 @@ describe("TooltipLayer", () => {
     act(() => void vi.advanceTimersByTime(600));
     expect(document.querySelector(".tip")).toBeNull();
   });
+});
+
+// Guarantee: docs/guarantees/agent/ui-action-dispatch.md
+it("explicitly discloses visible tooltips, uses the native show controller and refuses replaced owners", async () => {
+  vi.useRealTimers();
+  const registry = new UiActions({ workspace: "tooltips", window: "one" }, () => true, async () => {});
+  render(<UiActionContext.Provider value={registry}><button aria-label="Help" data-tip="Private detailed help">?</button><button aria-label="Hidden" data-tip="hidden body" hidden>hidden</button><TooltipLayer /></UiActionContext.Provider>);
+  const target = screen.getByRole("button", { name: "Help" });
+  vi.spyOn(target, "getBoundingClientRect").mockReturnValue({ x: 10, y: 10, left: 10, top: 10, right: 70, bottom: 30, width: 60, height: 20, toJSON: () => ({}) });
+  const group = registry.groups().groups.find(group => group.startsWith("tooltips:"))!;
+  let sequence = 0;
+  const invoke = async (label: string, args = {}) => {
+    const command = registry.observe(group).actions.find(action => action.label === label)!;
+    let result: unknown;
+    await act(async () => { result = await registry.act(registry.scope, { kind: "agent", id: "test" }, { handle: command.handle, arguments: args, request_id: String(++sequence) }); });
+    return result;
+  };
+  expect(JSON.stringify(registry.observe(group))).not.toContain("Private detailed help");
+  expect(await invoke("Disclose visible tooltip targets", { offset: 0, limit: 64 })).toMatchObject({ outcome: { value: { disclosed: 1 } } });
+  expect(JSON.stringify(registry.observe(group))).not.toContain("Private detailed help");
+  expect(await invoke("Show tooltip: Help")).toMatchObject({ outcome: { value: { shown: true, activated_control: false } } });
+  expect(document.querySelector(".tip")?.textContent).toBe("Private detailed help");
+  await invoke("Dismiss shown tooltip");
+  expect(document.querySelector(".tip")).toBeNull();
+  target.setAttribute("data-tip", "Replacement help");
+  expect(await invoke("Show tooltip: Help")).toMatchObject({ status: "disabled" });
+  expect(document.querySelector(".tip")).toBeNull();
 });

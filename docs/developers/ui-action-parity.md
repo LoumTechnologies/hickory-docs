@@ -1233,3 +1233,7 @@ later integrations. The generated declaration index is current; registration and
 static delegation do not establish every dynamic instance or platform. Universal
 qualification remains unclaimed. Real funded/authenticated provider, selected
 human-reviewed recording and matching released/deployed proof remain absent.
+
+The shared tooltip layer now has bounded visible-target disclosure, the actual
+shared show/dismiss controller and explicit displayed-text byte pages. Hidden/
+replaced targets refuse. Tooltip geometry is not proof of pointer operability.

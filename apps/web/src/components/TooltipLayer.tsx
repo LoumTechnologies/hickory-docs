@@ -1,6 +1,8 @@
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { placeTip, tipTargetOf, type Placement } from "../lib/tooltip";
+import { useUiCommands, useUiRevision } from "../lib/uiActionBridge";
+import { useUiReading } from "../lib/uiReading";
+import { placeTip, tipTargetOf, TIP_ATTR, type Placement } from "../lib/tooltip";
 
 /** How long the pointer has to rest before a tooltip appears. */
 const DELAY = 450;
@@ -29,16 +31,52 @@ export function TooltipLayer() {
   const card = useRef<HTMLDivElement | null>(null);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  const parent = `tooltips:${useId()}`;
+  const shownRevision = useUiRevision(() => shown);
+  type Target = { el: HTMLElement; text: string; label: string; token: string };
+  const [targets, setTargets] = useState<Target[]>([]);
+  const cancel = () => { if (timer.current !== null) clearTimeout(timer.current); timer.current = null; };
+  const hide = () => { cancel(); setShown(null); setPlacement(null); };
+  const show = (found: { el: HTMLElement; text: string }) => {
+    if (!found.el.isConnected || tipTargetOf(found.el)?.text !== found.text) return false;
+    cancel(); setPlacement(null);
+    setShown({ text: found.text, anchor: found.el.getBoundingClientRect() });
+    return true;
+  };
+  const visible = (el: HTMLElement) => {
+    if (!el.isConnected || el.closest('[hidden], [inert], [aria-hidden="true"]')) return false;
+    const style = getComputedStyle(el), rect = el.getBoundingClientRect();
+    return style.visibility !== "hidden" && style.display !== "none" && rect.width > 0 && rect.height > 0 && rect.bottom > 0 && rect.right > 0 && rect.top < window.innerHeight && rect.left < window.innerWidth;
+  };
+  const current = (target: Target) => visible(target.el) && tipTargetOf(target.el)?.text === target.text;
+  useUiReading("shown tooltip", { text: shown?.text ?? null, scope: "Currently displayed tooltip snapshot; not a source-edit baseline" });
+  useUiCommands([
+    { key: `${parent}:targets`, command: {
+      label: "Disclose visible tooltip targets", parent, subject: `${parent}:index`,
+      parameters: { offset: { type: "number", integer: true, minimum: 0, maximum: 1000000 }, limit: { type: "number", integer: true, minimum: 1, maximum: 64 } }, prerequisites: [],
+      read: () => ({ revision: "explicit-current-tooltip-index", enabled: true }),
+      execute: async args => {
+        // data-tip is this controller's explicit declarative input. No caller
+        // selector, arbitrary element text, hidden subtree or synthetic event.
+        const all = [...document.querySelectorAll<HTMLElement>(`[${TIP_ATTR}]`)].filter(el => visible(el) && !!tipTargetOf(el));
+        const offset = Number(args.offset), limit = Number(args.limit);
+        if (offset > all.length) return { status: "unavailable", reason: "Tooltip page outside the current visible list" };
+        const page = all.slice(offset, offset + limit).map(el => ({ el, text: tipTargetOf(el)!.text, label: (el.getAttribute("aria-label") || el.tagName.toLowerCase()).slice(0, 120), token: crypto.randomUUID() }));
+        setTargets(page);
+        return { status: "completed", value: { disclosed: page.length, total: all.length, next_offset: offset + page.length < all.length ? offset + page.length : null, text_delivery: "Explicit Show then Read shown tooltip bytes; opening is not control activation" } };
+      },
+    } },
+    { key: `${parent}:hide`, command: { label: "Dismiss shown tooltip", parent, subject: parent, parameters: {}, prerequisites: [], read: () => ({ revision: shownRevision(), enabled: !!shown }), execute: async () => { hide(); return { status: "completed", value: { shown: false } }; } } },
+    ...targets.map(target => ({ key: `${parent}:${target.token}`, command: {
+      label: `Show tooltip: ${target.label}`, parent, subject: `${parent}:${target.token}`, parameters: {}, prerequisites: ["Explicitly disclosed visible target; target/text replacement requires redisclosure"],
+      read: () => ({ revision: target.token, enabled: current(target), reason: current(target) ? undefined : "Tooltip target changed or left the viewport; redisclose targets" }),
+      execute: async () => {
+        if (!current(target) || !show(target)) return { status: "unavailable" as const, reason: "Tooltip target changed or left the viewport; redisclose targets" };
+        return { status: "completed" as const, value: { shown: true, text_bytes: new TextEncoder().encode(target.text).length, activated_control: false } };
+      },
+    } })),
+  ]);
   useEffect(() => {
-    const cancel = () => {
-      if (timer.current !== null) clearTimeout(timer.current);
-      timer.current = null;
-    };
-    const hide = () => {
-      cancel();
-      setShown(null);
-      setPlacement(null);
-    };
     const arm = (event: Event) => {
       const found = tipTargetOf(event.target);
       cancel();
@@ -50,9 +88,7 @@ export function TooltipLayer() {
       timer.current = setTimeout(() => {
         // Re-read the rect at show time: the row may have scrolled or the
         // element may be gone by the time the delay expires.
-        if (!found.el.isConnected) return;
-        setPlacement(null);
-        setShown({ text: found.text, anchor: found.el.getBoundingClientRect() });
+        show(found);
       }, DELAY);
     };
     const onKey = (event: KeyboardEvent) => {

@@ -937,3 +937,38 @@ unchanged. LLM review remains partial; human judgment remains absent.
 Current recovery dependencies (SHA-256):
 - `apps/web/src/components/PrivatePredictionCoach.tsx`: `3c289c11702eb623a8fc169202f844fd667130995f5eb60401999ca8d527e9d9`.
 - `apps/web/src/components/PrivatePredictionCoach.test.tsx`: `ecef641a955243bea19b7262cffdc7231390c0143a55384358dfe2abe1e023de`.
+
+## 2026-10-22: shared tooltip disclosure
+
+Requirement: #72/#74 covers information revealed by pointer/focus, not only
+button activation. The shared TooltipLayer had no agent disclosure. It now
+explicitly pages up to 64 visible targets from its own declarative data-tip
+contract, exposing compact accessible labels without tooltip body text. Each
+opaque target invokes the same show controller as pointer/focus; Dismiss uses
+the same hide controller. Only the current displayed text is available through
+the existing bounded UTF-8 reading adapter. No arbitrary selector, synthetic
+DOM event, underlying button activation or complete source baseline is provided.
+
+Assumptions: the layer owns data-tip declarations in its document; viewport
+geometry/computed visibility define eligibility, not proof of unobstructed pointer
+hit-testing. This layer is mounted by ordinary App, not the private predictor
+branch. Hidden/inert/aria-hidden ancestors, absent geometry, disconnected nodes
+and changed tooltip text refuse agent reveal and require redisclosure. Native
+delayed reveal also rejects a removed/replaced tooltip owner. No browser tooltip
+or platform-wide accessibility authority is inferred from this adapter.
+
+LLM implementation review: partial. Executed checks: five focused actual-layer
+cases passed (four existing native pointer/focus lifetime cases and one actual
+registry visibility/disclosure/show/dismiss/stale-owner challenge); targeted strict
+TypeScript passed. The first new fixture incorrectly treated group strings as
+objects; correcting the fixture resolved its failure. Falsifiers include hidden
+body text in index output, revealing a changed owner, activating its button or
+calling a removed layer listener. Human judgment and universal visual/platform
+qualification remain absent. No broad regression or status monitoring ran.
+
+Dependencies (SHA-256):
+- `apps/web/src/components/TooltipLayer.tsx`: `7a2da625148fff6c45d701a7646a14cb3e28a9e3295bbf25e43d33d864061c56`.
+- `apps/web/src/components/TooltipLayer.test.tsx`: `09735618bfe5c0f9f0f252556ce920cd5146d80474de114a18956cc827c51c2f`.
+- `apps/web/src/lib/tooltip.ts`: `e468bdcbccc63c620b6040a9919fa267ee98a9e20f5939885432081ccbd27490`.
+- `apps/web/src/lib/uiReading.ts`: `cc37d833882855bcaf17e8fecbc04830f8304a048efbaebbd7e949b43af0acc0`.
+- `apps/web/src/lib/uiActionBridge.tsx`: `ad5ddfecc981c32de3f284e466ca34c1bc48645c23519d20311f9bb16873e561`.
