@@ -37,3 +37,24 @@ CodeMirror tooltip. Editing, changing comparison and Escape dismiss the preview;
 removed text remains outside the buffer. `comparison.test.ts` covers the marker,
 unchanged current bytes and explicit restoration. Review and browser-flow tests
 now open the gutter preview instead of expanding an inserted historical row.
+
+
+### Shared removed-source disclosure and restore — 2026-10-22
+
+The actual gutter/tooltip now shares marker metadata, open/close, bounded
+historical-byte reading and restore actions. Historical body bytes remain absent
+from discovery, even while the explicit preview is open; reading is separately
+requested in pages of at most 8192 bytes. Closing or changing its source,
+selection, comparison or read-only owner retires its children and old handles.
+A retained native restore callback cannot apply after retirement. Current source
+and base identities, live editability and the actual post-filter buffer decide
+restore acceptance. Model restoration uses input.uiAgentRestore and does not
+claim save, human approval or verification.
+
+LLM review is partial. Three existing comparison cases and two actual
+CodeMirror/registry flows passed, challenging Unicode paging, closed/stale reads,
+actor origin, stale native button callbacks and readonly historical restoration.
+Targeted TypeScript passed. The handoff records exact dependency hashes and the
+recursive-field inference correction. Human judgment and current packaged/native
+visual acceptance are absent. Automatic historical disclosure, stale restoration
+or restored bytes treated as verified output would falsify the stated scope.

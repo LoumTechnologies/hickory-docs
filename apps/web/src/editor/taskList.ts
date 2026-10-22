@@ -20,6 +20,9 @@
 // scans itself, while a `.md` document must use its own structure parse so
 // a `- [ ]` inside an exec cell's payload stays a command and not a checkbox.
 
+import { foldedRanges } from "@codemirror/language";
+import { editorLanguageActions } from "./languageActions";
+import type { UiActor, UiOutcome } from "../lib/uiActions";
 import { StateField } from "@codemirror/state";
 import type { EditorState, Extension, Range } from "@codemirror/state";
 import { Decoration, EditorView, WidgetType } from "@codemirror/view";
@@ -74,7 +77,7 @@ function activeLines(state: EditorState): Set<number> {
 }
 
 class CheckboxWidget extends WidgetType {
-  constructor(private readonly checked: boolean) {
+  constructor(private readonly checked: boolean, private readonly source: TaskSource, private readonly readOnly: boolean) {
     super();
   }
 
@@ -82,7 +85,7 @@ class CheckboxWidget extends WidgetType {
   // moves every box below it, and rebuilding all of them would throw away the
   // DOM (and any focus ring) for a change that alters nothing visible.
   eq(other: CheckboxWidget) {
-    return other.checked === this.checked;
+    return other.checked === this.checked && other.source === this.source && other.readOnly === this.readOnly;
   }
 
   toDOM(view: EditorView) {
@@ -90,6 +93,7 @@ class CheckboxWidget extends WidgetType {
     box.className = `cm-md-checkbox${this.checked ? " cm-md-checkbox--on" : ""}`;
     box.setAttribute("role", "checkbox");
     box.setAttribute("aria-checked", String(this.checked));
+    box.setAttribute("aria-disabled", String(this.readOnly));
     box.setAttribute("aria-label", this.checked ? "Done" : "Not done");
     // The glyph is text rather than a background image so it inherits the
     // editor's colour, scales with the zoom level, and survives a theme swap.
@@ -99,8 +103,7 @@ class CheckboxWidget extends WidgetType {
     // from under the pointer mid-gesture.
     box.addEventListener("mousedown", (event) => {
       event.preventDefault();
-      const change = toggleTaskAt(view.state.doc.toString(), view.posAtDOM(box));
-      if (change) view.dispatch({ changes: change, userEvent: "input.toggleTask" });
+      changeTask(view, this.source, view.posAtDOM(box));
     });
     return box;
   }
@@ -121,7 +124,7 @@ function buildCheckboxes(state: EditorState, source: TaskSource): DecorationSet 
     if (live.has(state.doc.lineAt(task.from).number)) continue;
     if (task.boxTo > task.boxFrom && task.boxTo <= state.doc.length) {
       ranges.push(
-        Decoration.replace({ widget: new CheckboxWidget(task.checked) }).range(
+        Decoration.replace({ widget: new CheckboxWidget(task.checked, source, state.readOnly) }).range(
           task.boxFrom,
           task.boxTo,
         ),
@@ -140,12 +143,52 @@ function buildCheckboxes(state: EditorState, source: TaskSource): DecorationSet 
  * height map describing a document that no longer exists.
  */
 export function taskCheckboxes(source: TaskSource = markdownTasks): Extension {
-  return StateField.define<DecorationSet>({
+  const field = StateField.define<DecorationSet>({
     create: (state) => buildCheckboxes(state, source),
     update: (value, tr) =>
       // Selection matters as much as content here: moving the caret onto a
       // task line is what reveals its source.
-      tr.docChanged || tr.selection ? buildCheckboxes(tr.state, source) : value,
+      tr.docChanged || tr.selection || tr.startState.readOnly !== tr.state.readOnly ? buildCheckboxes(tr.state, source) : value,
     provide: (f) => EditorView.decorations.from(f),
   });
+  const id = crypto.randomUUID();
+  const position = { type: "number" as const, integer: true, minimum: 0, maximum: 100_000_000 };
+  return [field,
+    editorLanguageActions.of({ id: `${id}:tasks-read`, label: "Read Markdown task checkbox page", visible: view => availableTasks(view.state, source).length > 0,
+      parameters: { first: position, count: { ...position, minimum: 1, maximum: 64 } }, enabled: () => true,
+      execute: async (view, args) => {
+        const tasks = availableTasks(view.state, source), first = Number(args.first), count = Number(args.count);
+        if (first > tasks.length) return { status: "unavailable", reason: "Task page is outside the current rendered checkbox list" };
+        const page = tasks.slice(first, first + count).map(task => ({ position: task.boxFrom, checked: task.checked, line: view.state.doc.lineAt(task.from).number, text: view.state.doc.lineAt(task.from).text }));
+        if (new TextEncoder().encode(JSON.stringify(page)).length > 8192) return { status: "unavailable", reason: "Task page exceeds 8192 UTF-8 bytes; request fewer tasks or read source bytes" };
+        return { status: "completed", value: { tasks: page, total: tasks.length, next: first + count < tasks.length ? first + count : null, coordinate_unit: "UTF-16 code units", edit_baseline: false } };
+      } }),
+    editorLanguageActions.of({ id: `${id}:tasks-set`, label: "Set Markdown task checkbox", visible: view => availableTasks(view.state, source).length > 0,
+      parameters: { position, checked: { type: "boolean" } }, enabled: view => !view.state.readOnly,
+      execute: async (view, args, _signal, actor) => changeTask(view, source, Number(args.position), Boolean(args.checked), actor) }),
+  ];
+}
+
+
+function availableTasks(state: EditorState, source: TaskSource): readonly TaskItem[] {
+  const active = activeLines(state), folded = foldedRanges(state);
+  return source(state).filter(task => {
+    if (active.has(state.doc.lineAt(task.from).number) || task.boxFrom < 0 || task.boxTo > state.doc.length) return false;
+    let hidden = false; folded.between(task.boxFrom, task.boxTo, (from, to) => { if (from <= task.boxFrom && task.boxFrom < to) hidden = true; });
+    return !hidden;
+  });
+}
+function changeTask(view: EditorView, source: TaskSource, position: number, checked?: boolean, actor?: UiActor): UiOutcome {
+  if (!view.dom.isConnected || view.state.readOnly) return { status: "unavailable", reason: "Task source is closed or read-only" };
+  const before = view.state.doc.toString(), task = availableTasks(view.state, source).find(task => position >= task.boxFrom && position < task.boxTo);
+  if (!task) return { status: "unavailable", reason: "No rendered task checkbox at that current position; unfold it or move the caret off its source line" };
+  const marker = before.slice(task.boxFrom, task.boxTo);
+  if (!/^\[[ xX]\]$/.test(marker)) return { status: "unavailable", reason: "The captured task marker is unavailable or malformed" };
+  const actual = marker[1].toLowerCase() === "x", desired = checked ?? !actual;
+  if (desired === actual) return { status: "completed", value: { checked: desired, source_changed: false, saved: false, verified: false } };
+  const change = { from: task.boxFrom + 1, to: task.boxFrom + 2, insert: desired ? "x" : " " };
+  const expected = before.slice(0, change.from) + change.insert + before.slice(change.to);
+  view.dispatch({ changes: change, userEvent: actor?.kind === "agent" ? "input.uiAgentTask" : "input.toggleTask" });
+  if (view.state.doc.toString() !== expected) return { status: "unavailable", reason: "The source owner refused or transformed the checkbox edit; inspect current source before retrying" };
+  return { status: "completed", value: { checked: desired, source_changed: true, saved: false, verified: false } };
 }

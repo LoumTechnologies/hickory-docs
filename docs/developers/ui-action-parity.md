@@ -1142,3 +1142,13 @@ controls. The e11ee036 native package was built/unpacked and its native coach
 setup/lifecycle witnessed, but predates these later widgets. The imperative
 Markdown task checkbox and comparison popover/restore paths are concrete next
 audit integrations. See the active handoff for focused results and exact hashes.
+
+
+Imperative Markdown checkboxes and comparison removed-line gutter/tooltip controls
+now register through their actual installed editor-language extensions. Checkbox
+operations use the scoped prose parser and mapped current position; comparison
+body reads require actual disclosure and retire on close/source changes. Both
+source mutations retain model origin and actual owner/filter refusal. The common
+adapter conceals revision data, supports visibility and forwards the actor. The
+active handoff records the twenty-one focused cases and source hashes. Remaining
+universal/native/provider/release acceptance is not waived by these increments.

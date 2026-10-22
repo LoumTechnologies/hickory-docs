@@ -50,3 +50,19 @@ it("tracks late language providers, shares mapped navigation and retains bounded
     await waitFor(() => expect(actions().some(a => a.label.startsWith("Go to definition"))).toBe(false));
   } finally { cleanup(); view.destroy(); host.remove(); }
 });
+
+it("keeps provider revisions opaque and forwards the actual actor", async () => {
+  const { editorLanguageActions } = await import("./languageActions");
+  const host = document.body.appendChild(document.createElement("div"));
+  const view = new EditorView({ parent: host, state: EditorState.create({ doc: "current", extensions: [editorLanguageActions.of({ id: "private-revision", label: "Read public provider status", parameters: {}, enabled: () => true, revision: () => "HIDDEN-PROVIDER-REVISION", execute: async (_view, _args, _signal, actor) => ({ status: "completed", value: { actor: actor?.id ?? null } }) })] }) });
+  const registry = new UiActions({ workspace: "p", window: "revision" }, () => true, async () => {});
+  function Bridge() { useEditorActions(view, "opaque"); return null; }
+  try {
+    render(<UiActionContext.Provider value={registry}><Bridge /></UiActionContext.Provider>);
+    const actions = registry.groups().groups.flatMap(group => registry.observe(group, 64).actions);
+    expect(JSON.stringify(actions)).not.toContain("HIDDEN-PROVIDER-REVISION");
+    let result: unknown;
+    await act(async () => { result = await registry.act(registry.scope, { id: "acp:actual", kind: "agent" }, { handle: actions.find(action => action.label === "Read public provider status")!.handle, arguments: {}, request_id: "actor" }); });
+    expect(result).toMatchObject({ outcome: { status: "completed", value: { actor: "acp:actual" } } });
+  } finally { cleanup(); view.destroy(); host.remove(); }
+});

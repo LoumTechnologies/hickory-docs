@@ -848,3 +848,17 @@ Targeted strict TypeScript passed. Exact hashes, failed fixture corrections and
 remaining package/provider/publication acceptance are in the issue-72 handoff.
 Human judgment is not supplied. The separately building native checkpoint does
 not include this later slice and cannot witness it.
+
+
+### Imperative editor controls — 2026-10-22
+
+Installed editor-language providers can declare actual visibility. Hidden
+controls withdraw, pending jobs retire, and invisible value callbacks are not
+read. Per-owner/action revision tokens conceal provider revision data. The actual
+UiActor is forwarded to controllers; task checkbox and removed-source restore
+commands retain their model mutation origin. Existing providers without the
+visibility option remain installed under their prior enabled checks.
+
+LLM review: partial. Twenty-one directly focused task/comparison/language checks
+and targeted TypeScript passed; no human/provider/package judgment follows.
+Exact source dependencies and intervening failures are in the issue-72 handoff.

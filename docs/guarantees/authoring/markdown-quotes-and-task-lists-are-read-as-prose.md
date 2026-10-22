@@ -101,3 +101,22 @@ Last LLM verification:
   Lazy continuation (a quote paragraph whose second line omits its `>`) is
   not implemented: such a line is styled as ordinary prose, which is what the
   source literally says but not what CommonMark renders.
+
+
+### Shared checkbox controller — 2026-10-22
+
+The installed task extension now shares its actual prose TaskSource, current
+mapped checkbox and single-character mutation with structured task-page/set
+commands. Caret-line source and folded tasks are not offered as rendered boxes.
+Read-only native widgets advertise disabled state and refuse mutation. A model
+set records input.uiAgentTask, checks actual post-filter bytes and never claims
+save or verification. The source provider travels with retained native widgets;
+its identity participates in widget equality while position remains live.
+
+LLM review is partial. The existing thirteen scan/toggle/native cases and one
+actual editor/registry flow passed, including native/model origins, readonly
+refusal and folded-action retirement. Targeted TypeScript passed. Exact source
+hashes and the initial failed constructor witness are in the active issue-72
+handoff. Human judgment and a browser/native-package visual witness for this
+extension are absent. A source/parser mismatch, mutation through a read-only box
+or a folded body disclosed by checkbox discovery would falsify these rules.
