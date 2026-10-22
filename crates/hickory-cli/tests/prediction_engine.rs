@@ -377,6 +377,34 @@ async fn every_engine_client_inherits_private_policy_and_mcp_and_command_paths_c
         );
         assert_eq!(ledger.history(None).unwrap().attempts.len(), 1);
     }
+    let refused_end = client
+        .post(format!("{base}/private/end"))
+        .bearer_auth(token)
+        .json(&json!({"client":"private-first"}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(
+        refused_end.status().as_u16(),
+        422,
+        "Other clients must be closed before ending"
+    );
+    // Retain an approved, not-yet-resealed repair revision through the same
+    // source controller. Restart must restore it unsealed, never execute the old seal.
+    let approved = format!(
+        "{}\n\nApproved source-only continuation.\n",
+        std::fs::read_to_string(&path).unwrap()
+    );
+    let current_hash = format!("{:x}", Sha256::digest(std::fs::read(&path).unwrap()));
+    let edited=client.post(format!("{base}/clients/private-first/api/prediction/tool")).bearer_auth(token)
+        .json(&json!({"name":"edit_doc","args":[["whole","true"],["snapshot",current_hash]],"input":approved})).send().await.unwrap();
+    assert!(
+        edited.status().is_success(),
+        "{}",
+        edited.text().await.unwrap()
+    );
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), approved);
+    let before_restart = ledger.history(None).unwrap().attempts.len();
     model_server.abort();
     daemon.0.kill().unwrap();
     daemon.0.wait().unwrap();
@@ -410,7 +438,124 @@ async fn every_engine_client_inherits_private_policy_and_mcp_and_command_paths_c
         .await
         .unwrap();
     assert_eq!(policy["active"], true);
-    let ordinary = Attach::new(root.path().into(), ExecutorChoice::Local);
+    let mut ordinary = Attach::new(root.path().into(), ExecutorChoice::Local);
+    ordinary.client = "restored-private".into();
+    // Disk changes without an approved controller receipt are never adopted.
+    std::fs::write(&path, format!("{approved}External mutation\n")).unwrap();
+    let refused = client
+        .post(format!("{url}/attach"))
+        .bearer_auth(auth)
+        .json(&ordinary)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(refused.status().as_u16(), 422);
+    assert!(
+        refused
+            .text()
+            .await
+            .unwrap()
+            .contains("outside the approved session")
+    );
+    std::fs::write(&path, &approved).unwrap();
+    let restored = client
+        .post(format!("{url}/attach"))
+        .bearer_auth(auth)
+        .json(&ordinary)
+        .send()
+        .await
+        .unwrap();
+    assert!(
+        restored.status().is_success(),
+        "{}",
+        restored.text().await.unwrap()
+    );
+    let acknowledged: Value = restored.json().await.unwrap();
+    assert!(acknowledged["prediction"].is_string());
+    let restored_api = format!("{url}/clients/restored-private/api/prediction");
+    let captured: Value = client
+        .post(format!("{restored_api}/tool"))
+        .bearer_auth(auth)
+        .json(&json!({"name":"read_doc","args":[]}))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(captured["source"], approved);
+    let restored_state: Value = client
+        .get(format!("{restored_api}/state"))
+        .bearer_auth(auth)
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let run: Value = client
+        .post(format!(
+            "{url}/clients/restored-private/api/docs/{}/run",
+            restored_state["document"].as_str().unwrap()
+        ))
+        .bearer_auth(auth)
+        .json(&json!({}))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let run_id = run["run_id"].as_str().unwrap();
+    let mut stopped = false;
+    for _ in 0..100 {
+        let result: Value = client
+            .get(format!("{url}/clients/restored-private/api/runs/{run_id}"))
+            .bearer_auth(auth)
+            .send()
+            .await
+            .unwrap()
+            .json()
+            .await
+            .unwrap();
+        if result["status"] != "running" {
+            assert_eq!(result["status"], "failed");
+            stopped = true;
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    assert!(stopped, "Restored unsealed Run must terminate");
+    assert_eq!(
+        ledger.history(None).unwrap().attempts.len(),
+        before_restart,
+        "Recovery must not execute an old seal against the repaired source"
+    );
+    assert_eq!(client.post(format!("{url}/command")).bearer_auth(auth).json(&json!({"executable":"/bin/sh","args":["-c","true"],"cwd":root.path(),"env":[],"input":[]})).send().await.unwrap().status().as_u16(),422);
+    let ended = client
+        .post(format!("{url}/private/end"))
+        .bearer_auth(auth)
+        .json(&json!({"client":"restored-private"}))
+        .send()
+        .await
+        .unwrap();
+    assert!(
+        ended.status().is_success(),
+        "{}",
+        ended.text().await.unwrap()
+    );
+    let receipt: Value = ended.json().await.unwrap();
+    assert_eq!(receipt["root_still_private"], true);
+    let inactive: Value = client
+        .get(format!("{url}/prediction-policy"))
+        .bearer_auth(auth)
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(inactive["active"], false);
     assert_eq!(
         client
             .post(format!("{url}/attach"))
@@ -421,9 +566,27 @@ async fn every_engine_client_inherits_private_policy_and_mcp_and_command_paths_c
             .unwrap()
             .status()
             .as_u16(),
-        422
+        422,
+        "Retired client context cannot reconnect"
     );
-    assert_eq!(client.post(format!("{url}/command")).bearer_auth(auth).json(&json!({"executable":"/bin/sh","args":["-c","true"],"cwd":root.path(),"env":[],"input":[]})).send().await.unwrap().status().as_u16(),422);
+    assert_eq!(client.post(format!("{url}/command")).bearer_auth(auth).json(&json!({"executable":"/bin/sh","args":["-c","true"],"cwd":root.path(),"env":[],"input":[]})).send().await.unwrap().status().as_u16(),422,"Ending must not turn the private root into an ordinary execution root");
+    let normal = tempfile::tempdir().unwrap();
+    assert!(client.post(format!("{url}/command")).bearer_auth(auth).json(&json!({"executable":"/bin/sh","args":["-c","true"],"cwd":normal.path(),"env":[],"input":[]})).send().await.unwrap().status().is_success());
+    ordinary.client = "fresh-private-context".into();
+    let reopened = client
+        .post(format!("{url}/attach"))
+        .bearer_auth(auth)
+        .json(&ordinary)
+        .send()
+        .await
+        .unwrap();
+    assert!(
+        reopened.status().is_success(),
+        "{}",
+        reopened.text().await.unwrap()
+    );
+    assert!(reopened.json::<Value>().await.unwrap()["prediction"].is_string());
+    assert_eq!(ledger.history(None).unwrap().attempts.len(), before_restart);
 }
 
 #[tokio::test]

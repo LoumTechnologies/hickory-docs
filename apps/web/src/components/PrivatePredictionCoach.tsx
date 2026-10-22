@@ -32,6 +32,7 @@ export function PrivatePredictionCoach({ initial }: { initial: PrivatePrediction
   const [provider, setProvider] = useState(""), [model, setModel] = useState("");
   const [promotion, setPromotion] = useState<{ source_hash: string; checked_at: string; scope: string; summary: unknown } | null>(null);
   const [pendingForms, setPendingForms] = useState(0);
+  const [ended, setEnded] = useState(false);
   const [busy, setBusy] = useState(false), [error, setError] = useState(""), [syncError, setSyncError] = useState("");
   const key = `hickory.privateCoach:${initial.document}`;
   const [open, setOpen] = useState(() => localStorage.getItem(key) !== "dismissed");
@@ -54,11 +55,12 @@ export function PrivatePredictionCoach({ initial }: { initial: PrivatePrediction
     setSyncError("");
   }, [initial.document]);
   useEffect(() => {
+    if (ended) return;
     owner.current = true;
     const poll = () => void refresh().catch(reason => { if (owner.current) setSyncError(String(reason)); });
     poll(); const timer = setInterval(poll, 1000);
     return () => { owner.current = false; sequence.current++; clearInterval(timer); };
-  }, [refresh]);
+  }, [refresh, ended]);
   const running = agent?.run?.status === "running";
   const attempts = evidence?.history.attempts ?? [];
   const latestAttempt = attempts.at(-1);
@@ -75,7 +77,7 @@ export function PrivatePredictionCoach({ initial }: { initial: PrivatePrediction
   const promptRevision = useUiRevision(() => [initial.document, prompt, busy, running]);
   const providerRevision = useUiRevision(() => [initial.document, provider, busy, running]);
   const modelRevision = useUiRevision(() => [initial.document, model, busy, running]);
-  const invoke = useUiCommands([
+  const invoke = useUiCommands(ended ? [] : [
     ...([
       ["prompt", "Edit private investigation request", 32768, promptRevision, setPrompt],
       ["provider", "Choose private investigation provider", 128, providerRevision, setProvider],
@@ -103,6 +105,13 @@ export function PrivatePredictionCoach({ initial }: { initial: PrivatePrediction
         finally { if (owner.current) setBusy(false); }
       } } },
     { key: "private:stop", command: { label: "Stop private investigation", parent: "private-prediction", subject: initial.document, parameters: {}, prerequisites: [], read: () => ({ revision: revision(), enabled: !!running }), execute: async () => { await request("POST", `${base}/agent/stop`, {}); await refresh(); return { status: "completed", value: { stop_requested: true } }; } } },
+    { key: "private:end", command: { label: "End private practice", parent: "private-prediction", subject: initial.document, parameters: {}, prerequisites: ["Stop the investigation, wait for verification, and close other clients of this practice"], read: () => ({ revision: revision(), enabled: !busy && !running }), execute: async (_args, actor) => {
+      if (actor.kind === "agent") return { status: "requires_input", request: "end-private-practice", reason: "A human ends the isolated practice. The active predictor cannot release its own quarantine." };
+      setBusy(true); setError("");
+      try { const actual = await request<{ ended: boolean; history_retained: boolean; root_still_private: boolean }>("POST", `${base}/end`, {}); if (actual.ended !== true || actual.history_retained !== true || actual.root_still_private !== true) throw Error("Invalid private lifecycle receipt"); setEnded(true); return { status: "completed", value: { ended: true, history_retained: true, root_still_private: true, context_reusable: false } }; }
+      catch (reason) { setError(String(reason)); return { status: "unavailable", reason: String(reason) }; }
+      finally { setBusy(false); }
+    } } },
     { key: "private:coach", command: { label: "Set private coach visibility", parent: "private-prediction", subject: initial.document, parameters: { open: { type: "boolean" } }, prerequisites: [], read: () => ({ revision: revision(), enabled: true }), execute: async args => { const visible = Boolean(args.open); setOpen(visible); localStorage.setItem(key, visible ? "open" : "dismissed"); return { status: "completed", value: {} }; } } },
   ]);
   const setRequest = (field: "prompt" | "provider" | "model", value: string) => {
@@ -110,6 +119,7 @@ export function PrivatePredictionCoach({ initial }: { initial: PrivatePrediction
     void invoke(`private:${field}`, { value }).catch(reason => { if (owner.current) setError(String(reason)); })
       .finally(() => { if (owner.current) setPendingForms(count => count - 1); });
   };
+  if (ended) return <main><h1>Private practice ended</h1><p>The prediction history remains retained and this root remains private. Close this window. Reopening the practice starts a fresh context and revalidates its approved source and runtime.</p></main>;
   return <main style={{ maxWidth: 1100, margin: "auto", padding: 24 }}>
     <h1>Predict, investigate and review</h1>
     <p>{state.question.requirement_reference}</p>
@@ -122,6 +132,7 @@ export function PrivatePredictionCoach({ initial }: { initial: PrivatePrediction
       <button disabled={busy || !!pendingForms || running || !prompt.trim() || state.current !== true} onClick={() => void invoke("private:start")}>Delegate investigation</button>
       <button disabled={!running} onClick={() => void invoke("private:stop")}>Stop investigation</button>
       <button onClick={() => void invoke("private:coach", { open: true })}>Resume coach</button>
+      <button disabled={busy || running} onClick={() => void invoke("private:end")}>End private practice</button>
       <p role="status">{agent?.run?.status ?? "Ready for a request"}</p><p>{agent?.run?.answer}</p>
     </section>
     <section><h2>Captured source</h2><p>SHA-256: {state.source_hash}</p><CodeEditor path={state.source} item={{ id: initial.document, label: "Captured private source", kind: "authored", text: source }} editable={false} onChange={() => {}} /></section>

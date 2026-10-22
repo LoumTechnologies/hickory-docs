@@ -46,7 +46,8 @@ struct Engine {
     subscriptions: Arc<std::sync::RwLock<HashMap<String, Attach>>>,
     workers: std::sync::atomic::AtomicUsize,
     mcp: Mutex<HashMap<String, crate::mcp::Server>>,
-    locks: Mutex<Vec<crate::up::DirectoryLock>>,
+    locks: Mutex<HashMap<PathBuf, crate::up::DirectoryLock>>,
+    ended_clients: Mutex<std::collections::HashSet<String>>,
 }
 
 pub fn run_argv(args: &[String]) -> Option<Result<()>> {
@@ -94,7 +95,8 @@ async fn run() -> Result<()> {
         subscriptions,
         workers: 0.into(),
         mcp: Mutex::new(HashMap::new()),
-        locks: Mutex::new(Vec::new()),
+        locks: Mutex::new(HashMap::new()),
+        ended_clients: Mutex::new(Default::default()),
     });
     let router = Router::new()
         .route(
@@ -104,6 +106,7 @@ async fn run() -> Result<()> {
             }),
         )
         .route("/prediction-policy", get(prediction_policy))
+        .route("/private/end", post(end_private))
         .route("/attach", post(attach))
         .route("/command", post(command))
         .route("/tool", post(tool))
@@ -218,6 +221,11 @@ async fn attach(
     Json(mut opts): Json<Attach>,
 ) -> Api<Json<Attached>> {
     let _attach = engine.attaching.lock().await;
+    if engine.ended_clients.lock().await.contains(&opts.client) {
+        return Err(error(
+            "This private client ended; open a new window for a fresh context",
+        ));
+    }
     opts.target = opts.target.canonicalize().map_err(error)?;
     let root = if opts.target.is_dir() {
         opts.target.clone()
@@ -228,6 +236,18 @@ async fn attach(
         let url: reqwest::Url = callback.parse().map_err(error)?;
         if url.scheme() != "http" || url.host_str() != Some("127.0.0.1") || url.port().is_none() {
             return Err(error("window callback must use loopback"));
+        }
+    }
+    // Restore only host-retained approved bytes, never adopt arbitrary disk state.
+    // Existing live workspaces continue to inherit their current binding below.
+    if opts.prediction.is_none() && !engine.workspaces.lock().await.contains_key(&root) {
+        if let Some(recovery) = super::private_policy::binding(&root).map_err(error)? {
+            if !opts.params.is_empty() {
+                return Err(error("Private recovery refuses uncaptured parameters"));
+            }
+            let (path, profile) = recovery.restore(&root, opts.executor).map_err(error)?;
+            opts.target = path;
+            opts.prediction = Some(profile);
         }
     }
     let requested_prediction = opts
@@ -268,6 +288,11 @@ async fn attach(
     }
     let mut state = if let Some(state) = workspaces.get(&root) {
         if let Some(bound) = &state.private_prediction {
+            if bound.is_retired() {
+                return Err(error(
+                    "Private practice is ending; finish End before opening a fresh window",
+                ));
+            }
             if opts.run
                 || requested_prediction
                     .as_ref()
@@ -324,6 +349,12 @@ async fn attach(
         if let Some(bound) = &state.private_prediction {
             super::private_policy::retain(&root).map_err(error)?;
             bound
+                .install_recovery(
+                    opts.prediction.clone().expect("private startup"),
+                    opts.executor,
+                )
+                .map_err(error)?;
+            bound
                 .startup_fingerprint
                 .set(requested_prediction.clone().unwrap())
                 .map_err(|_| error("Private startup binding already installed"))?;
@@ -335,7 +366,11 @@ async fn attach(
             state.engine_woven = Some(engine.watch.woven.clone());
         }
         state.writes = engine.writes.clone();
-        engine.locks.lock().await.push(directory_lock);
+        engine
+            .locks
+            .lock()
+            .await
+            .insert(root.clone(), directory_lock);
         workspaces.insert(root.clone(), state.clone());
         state
     };
@@ -433,6 +468,60 @@ async fn attach(
         log_offset,
         prediction: requested_prediction.or_else(|| state_prediction),
     }))
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct EndPrivate {
+    client: String,
+}
+/// Trusted host lifecycle transport, absent from model/MCP/tool catalogues.
+async fn end_private(
+    State(engine): State<Arc<Engine>>,
+    Json(body): Json<EndPrivate>,
+) -> Api<Json<Value>> {
+    let _attach = engine.attaching.lock().await;
+    if engine.ended_clients.lock().await.contains(&body.client) {
+        return Ok(Json(
+            json!({"ended":true,"history_retained":true,"root_still_private":true,"context_reusable":false}),
+        ));
+    }
+    let clients = engine.clients.lock().await;
+    let client = clients
+        .get(&body.client)
+        .ok_or_else(|| error("Private client unavailable"))?;
+    let root = client.root.clone();
+    if clients.iter().any(|(id, client)| {
+        id != &body.client
+            && client.root == root
+            && !client
+                .state
+                .private_prediction
+                .as_ref()
+                .is_some_and(|bound| bound.is_retired())
+    }) {
+        return Err(error(
+            "Close the other windows and clients of this private practice before ending",
+        ));
+    }
+    let state = client.state.clone();
+    let bound = state
+        .private_prediction
+        .as_ref()
+        .ok_or_else(|| error("This is not a private practice"))?;
+    bound.retire(&state).await.map_err(error)?;
+    // A failed durable write retains global quarantine. This client is retired
+    // and can retry End; no ordinary fallback or loss of history is allowed.
+    super::private_policy::end(&root).map_err(error)?;
+    // Keep this retired router through its ordinary lease solely for the final
+    // immutable UI action receipt and window cleanup. Its admission is closed.
+    engine.ended_clients.lock().await.insert(body.client);
+    drop(clients);
+    engine.workspaces.lock().await.remove(&root);
+    engine.locks.lock().await.remove(&root);
+    Ok(Json(
+        json!({"ended":true,"history_retained":true,"root_still_private":true,"context_reusable":false}),
+    ))
 }
 
 async fn lease(State(engine): State<Arc<Engine>>, Path(id): Path<String>) -> StatusCode {
@@ -555,6 +644,11 @@ async fn command(
     {
         return Err(error(
             "Managed command execution is unavailable while a private prediction workspace is active; use sealed Verify",
+        ));
+    }
+    if super::private_policy::overlaps(&opts.cwd.canonicalize().map_err(error)?).map_err(error)? {
+        return Err(error(
+            "Ordinary commands cannot execute in a retained private root; reopen its private practice",
         ));
     }
     engine

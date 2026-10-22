@@ -42,6 +42,7 @@ pub mod commit_reading;
 pub mod dataset;
 pub mod debug_bridge;
 mod private_prediction_agent;
+pub(crate) mod private_prediction_recovery;
 mod private_prediction_startup;
 pub(crate) mod private_predictions;
 pub use private_prediction_startup::Startup as PrivatePredictionStartup;

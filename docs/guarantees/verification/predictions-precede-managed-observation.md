@@ -540,3 +540,70 @@ Exact implementation dependencies for this continuation (SHA-256; changes make t
 | `crates/hickory-cli/tests/prediction_http.rs` | `13d8227621c1a39b352c0c4891077dc6fbd97d930a1f229af098f2eb51d1cd5d` |
 | `examples/ai-engineer-private-deadline.md` | `ae61814fa3292518be29ea788df39d2195aa2eb5de6d9673301c43024d230b3c` |
 | `scripts/test-private-prediction-ui.sh` | `e9f50afd5f6339605fa50c5e0e7f78e6653e6b91bba36196f6d8883f7e1e870e` |
+
+
+### October 22 private restart and End lifecycle
+
+Continuation after commit `940554a5`: trusted recovery metadata now lives under
+engine private state, outside the predictor root. It retains the host question,
+source-selection anchor, original actor/inputs/runtime/executor and last
+controller-approved source hash. Ordinary opening of a known private root restores
+that private binding before weaving. It selects only this actor's exact matching
+seal; an approved repair without a new seal reopens unsealed and cannot execute
+the old prediction. Changed disk bytes, inputs, capture selection, runtime or
+executor refuse recovery; no execution-permission fallback is allowed. Interrupted
+attempts remain historical and no execution is triggered by reopening. A crash
+between source persistence and recovery-receipt persistence can require trusted
+host recovery; arbitrary disk contents are never adopted as approval. Existing
+root-only quarantine records without recovery metadata still refuse ordinary
+fallback. Explicit stale startup profiles may still require a fresh host opening;
+they are not silently acknowledged as a different profile.
+
+The existing coach now has a human End command through the same action registry.
+Agent invocation returns requires_input. The host refuses End while an
+investigation, verification or source operation is busy, or another live client
+holds the practice. Successful End retires execution/edit/seal admission and that
+client identity, releases its workspace lock/global context quarantine, and keeps
+the root's private admission and complete ledger. The connection stops its
+heartbeat/reconnect loop. A fresh opening restores private policy and starts a
+fresh context; the ended client cannot reconnect. Ordinary commands in a retained
+private root remain refused after End. This controls known managed roots and
+contexts; it does not confine arbitrary external shells or provider internals.
+
+An actual browser challenge initially found that retiring the client too early
+prevented retaining the End action result. The retired router now permits only
+immutable action receipts and window cleanup through its normal remaining lease;
+all other private readers/tools refuse. The repeated focused browser flow passes
+in 14.9s, including End, with no page errors. This does not claim native-package
+footage. Focused engine tests with the installed worker (2), HTTP tests (2), queued
+Run/busy End/retired-context safety test (1), private coach cases (5), targeted
+TypeScript including Vite/browser declarations, file-length, whitespace and
+inventory generation pass. These are executed checks plus LLM implementation
+review, not human judgment. Broader regression/post-commit monitoring remains with
+the user.
+
+Native creation of a new private practice, in-product retained future-stop
+controllers, remaining universal UI/external-agent parity and the real
+native/provider/released/deployed witnesses remain open. The provider-credit
+blocker does not account for that independent engineering work. Issue 72 remains
+incomplete.
+
+Recovery/lifecycle exact dependency hashes (SHA-256; earlier evidence remains historical):
+
+| Dependency | SHA-256 |
+| --- | --- |
+| `apps/web/e2e/privatePredictionCoach.spec.ts` | `46087f5b29f22ec328897400311506b727857c857a94b50056bb43eed881eba7` |
+| `apps/web/src/components/PrivatePredictionCoach.test.tsx` | `eeb8ceca842c2efd6e065b11eb9b64f5388b23f2c51875e95f8d39b5cdce8526` |
+| `apps/web/src/components/PrivatePredictionCoach.tsx` | `4f2ad0fcde9e8f463b9e7a2d9bf9069a9e2b6d85b7c797ced46020f48751615a` |
+| `crates/hick-literate/src/prediction/source_question.rs` | `06462887b0739637fdf473b77ff22b82364829f55653c24956c6e1e61b97b81a` |
+| `crates/hickory-cli/src/engine/client.rs` | `5f2f12e36b1bf88e3b9081448c733f65465a0bcb3f67897879c913299487baa1` |
+| `crates/hickory-cli/src/engine/daemon.rs` | `e93d26fa02d51ad10fee9ceb9f8ca1705f22dedf7aaba204a3a56ff8d85c7eb3` |
+| `crates/hickory-cli/src/engine/mod.rs` | `55c842e4ea9cb4cecae7ece75ed4037ffaa7c068e345367a0f9fc77f6a348a27` |
+| `crates/hickory-cli/src/engine/private_policy.rs` | `179bc1522be5a8a61d9c0712a6eb8d15f0116e869133bd5f5bae57a47c6e4ae5` |
+| `crates/hickory-cli/src/engine/proxy.rs` | `26ccae4b3955e63fbadbcca28aec3838941a73de228ca3d765d6f4e61b42590c` |
+| `crates/hickory-cli/src/serve/mod.rs` | `e3c700d3a1a1defbe441eac6c2773fded0a85d2874e6309d4100d0466b75b999` |
+| `crates/hickory-cli/src/serve/private_prediction_agent.rs` | `9bf2a29677465668213c28b4bbb95a70ba315b83e0e59293760f2365a45f79d4` |
+| `crates/hickory-cli/src/serve/private_prediction_recovery.rs` | `5fe2036c1f569afea80f1c500b0a3a212d4a4c56706563058ea1c009c88a2194` |
+| `crates/hickory-cli/src/serve/private_prediction_tests.rs` | `d910069a45ce748c2c5b5fe1f70c6a3d3b6f3316edf17859b4ffcc132639ecd1` |
+| `crates/hickory-cli/src/serve/private_predictions.rs` | `63f2090d9cf9de0ab73e5af83b7e1dfb3899b8018e3bf98540f6d044587a5dc2` |
+| `crates/hickory-cli/tests/prediction_engine.rs` | `726efb6d2530277623fc387244e9108f448dfc61fc083565e31f029155abb58c` |

@@ -3,7 +3,7 @@
 mod client;
 mod daemon;
 pub(crate) mod mcp;
-mod private_policy;
+pub(crate) mod private_policy;
 mod proxy;
 mod startup;
 mod watch;

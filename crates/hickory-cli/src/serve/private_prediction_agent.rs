@@ -19,6 +19,9 @@ pub(super) struct Run {
     error: Option<crate::python_agent::PrivateFailure>,
     cancel: Arc<AtomicBool>,
 }
+pub(super) fn running(run: Option<&Run>) -> bool {
+    run.is_some_and(|run| run.status == "running")
+}
 struct Review {
     edits: Arc<super::acp::edits::Edits>,
     accepted: Option<String>,
@@ -152,6 +155,9 @@ pub(super) async fn start(
         Some(2048),
     )?;
     let mut current = bound.agent.lock().await;
+    if bound.is_retired() {
+        return Err(ApiError::unprocessable("Private session ended"));
+    }
     if current.as_ref().is_some_and(|run| run.status == "running") {
         return Err(ApiError::conflict(
             "A private investigation is already running",

@@ -99,7 +99,7 @@ async fn queued_run_refuses_same_source_reseal_before_dispatch() {
     });
     waiting.await.unwrap();
     let run = bound
-        .start(&state, &bound.doc, Some(identity.source))
+        .start(&state, &bound.doc, Some(identity.source.clone()))
         .unwrap();
     tokio::task::yield_now().await;
     drop(guard);
@@ -119,5 +119,23 @@ async fn queued_run_refuses_same_source_reseal_before_dispatch() {
     assert!(
         !marker.exists(),
         "A retired native Run intent must never execute"
+    );
+    let held = bound.session.lock().await;
+    assert!(
+        bound.retire(&state).await.is_err(),
+        "Busy source admission cannot end"
+    );
+    drop(held);
+    bound.retire(&state).await.unwrap();
+    assert!(bound.start(&state, &bound.doc, None).is_err());
+    assert!(
+        bound
+            .seal_prediction(
+                &identity.source,
+                Predicate::Equals(json!(100)),
+                "Retired context".into()
+            )
+            .await
+            .is_err()
     );
 }

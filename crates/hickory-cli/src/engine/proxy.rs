@@ -107,6 +107,23 @@ async fn forward(State(proxy): State<Proxy>, req: Request) -> Response {
             return StatusCode::FORBIDDEN.into_response();
         }
     }
+    if req.uri().path() == "/api/prediction/end" && req.method() == axum::http::Method::POST {
+        let body = match to_bytes(req.into_body(), 4096).await {
+            Ok(bytes) => bytes,
+            Err(_) => return StatusCode::PAYLOAD_TOO_LARGE.into_response(),
+        };
+        if serde_json::from_slice::<Value>(&body).ok() != Some(json!({})) {
+            return StatusCode::BAD_REQUEST.into_response();
+        }
+        return match proxy.connection.end_private().await {
+            Ok(value) => Json(value).into_response(),
+            Err(error) => (
+                StatusCode::UNPROCESSABLE_ENTITY,
+                Json(json!({"error":error.to_string()})),
+            )
+                .into_response(),
+        };
+    }
     let path = req.uri().to_string();
     if req.headers().contains_key("upgrade") {
         let (mut parts, body) = req.into_parts();

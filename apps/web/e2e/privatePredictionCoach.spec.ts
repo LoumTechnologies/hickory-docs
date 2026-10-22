@@ -59,5 +59,7 @@ test("private coach retains failure and reviewed repair without publishing targe
   expect((await page.request.post("/api/prediction/promote", { data: { attempt: after.attempts[1].attempt } })).status()).toBe(409);
   expect((await (await page.request.get("/api/prediction/history")).json()).attempts).toHaveLength(2);
   await expect(page.getByRole("button", { name: "Revalidate and promote", exact: true })).toBeDisabled();
+  await page.getByRole("button", { name: "End private practice", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "Private practice ended" })).toBeVisible();
   expect(errors).toEqual([]);
 });

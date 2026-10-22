@@ -19,7 +19,7 @@ use std::{
     path::PathBuf,
     sync::{
         Arc,
-        atomic::{AtomicU64, Ordering},
+        atomic::{AtomicBool, AtomicU64, Ordering},
     },
 };
 
@@ -36,16 +36,18 @@ pub struct Binding {
 pub(crate) struct Bound {
     pub doc: String,
     pub(crate) startup_fingerprint: std::sync::OnceLock<String>,
-    path: PathBuf,
+    pub(super) path: PathBuf,
     session: tokio::sync::Mutex<EditSession>,
     ledger: Arc<Ledger>,
-    identity: std::sync::RwLock<Identity>,
-    question: Scenario,
-    source_question: SourceQuestion,
+    pub(super) identity: std::sync::RwLock<Identity>,
+    pub(super) question: Scenario,
+    pub(super) source_question: SourceQuestion,
+    pub(super) recovery: std::sync::OnceLock<super::private_prediction_recovery::Recovery>,
     runtime: Option<hick_literate::prediction::environment::Profile>,
     inputs: Option<hick_literate::prediction::SourceInputs>,
     actor: Actor,
     epoch: AtomicU64,
+    retired: AtomicBool,
     pub(super) agent: tokio::sync::Mutex<Option<super::private_prediction_agent::Run>>,
     pub(super) edits: Arc<super::acp::edits::Edits>,
 }
@@ -141,13 +143,37 @@ impl Bound {
             identity: std::sync::RwLock::new(identity),
             question,
             source_question,
+            recovery: std::sync::OnceLock::new(),
             runtime: binding.runtime,
             inputs: binding.inputs,
             actor,
             epoch: AtomicU64::new(0),
+            retired: AtomicBool::new(false),
             agent: tokio::sync::Mutex::new(None),
             edits: Default::default(),
         }))
+    }
+    pub(crate) fn is_retired(&self) -> bool {
+        self.retired.load(Ordering::SeqCst)
+    }
+    pub(crate) async fn retire(&self, state: &LocalState) -> anyhow::Result<()> {
+        let agent = self.agent.lock().await;
+        anyhow::ensure!(
+            !super::private_prediction_agent::running(agent.as_ref()),
+            "Stop the private investigation and wait for it to finish before ending"
+        );
+        let _session=self.session.try_lock().map_err(|_|anyhow::anyhow!("Private source or verification operation is busy; wait for completion before ending"))?;
+        anyhow::ensure!(
+            !state
+                .runs
+                .lock()
+                .unwrap()
+                .values()
+                .any(|run| run.status == "running"),
+            "Wait for private verification to finish before ending"
+        );
+        self.retired.store(true, Ordering::SeqCst);
+        Ok(())
     }
     pub(super) fn source_path(&self) -> &std::path::Path {
         &self.path
@@ -159,6 +185,9 @@ impl Bound {
         rationale: String,
     ) -> Result<Value, String> {
         let mut session = self.session.lock().await;
+        if self.retired.load(Ordering::SeqCst) {
+            return Err("Private session ended; reopen with a fresh context".into());
+        }
         session
             .refresh_source()
             .await
@@ -255,8 +284,19 @@ impl Bound {
             Err(_) => return refuse(),
         };
         let mut session = self.session.lock().await;
+        if self.retired.load(Ordering::SeqCst) {
+            return refuse();
+        }
         let result = execute_tool(&mut session, executor.clone(), &invocation).await;
         let _ = executor.shutdown().await;
+        if name == "edit_doc"
+            && result.ok
+            && self
+                .retain_approved_source(session.approved_source())
+                .is_err()
+        {
+            return json!({"isError":true,"content":[{"type":"text","text":"Source edit applied, but durable recovery receipt could not be retained; trusted host recovery is required before reopening"}]});
+        }
         let structured = if name == "read_doc" && result.ok {
             result.reads.first().map(|read|json!({"source":read.content,"source_hash":read.sha256,"snapshot":read.sha256,"edit_baseline":true})).unwrap_or_else(||json!({}))
         } else if name == "verify" {
@@ -277,6 +317,9 @@ impl Bound {
         id: &str,
         expected: Option<String>,
     ) -> ApiResult<String> {
+        if self.retired.load(Ordering::SeqCst) {
+            return Err(ApiError::unprocessable("Private session ended"));
+        }
         if id != self.doc {
             return Err(ApiError::unprocessable(
                 "Private prediction belongs to a different document",
@@ -312,7 +355,8 @@ impl Bound {
             let mut session = bound.session.lock().await;
             use sha2::{Digest, Sha256};
             let current_identity = bound.identity.read().unwrap().clone();
-            let admitted = bound.epoch.load(Ordering::SeqCst) == epoch
+            let admitted = !bound.retired.load(Ordering::SeqCst)
+                && bound.epoch.load(Ordering::SeqCst) == epoch
                 && current_identity == identity
                 && format!("{:x}", Sha256::digest(session.approved_source())) == identity.source;
             let result = if !admitted {
@@ -367,6 +411,23 @@ pub(super) async fn quarantine(
     let Some(bound) = &state.private_prediction else {
         return next.run(request).await;
     };
+    if bound.is_retired() {
+        // Retain the End action's immutable result after execution admission has
+        // closed. This is receipt/owner cleanup only, never a tool or read path.
+        let path = request.uri().path().trim_start_matches("/api");
+        let receipt = request.method() == "POST"
+            && path.starts_with("/v1/ui/windows/")
+            && path.ends_with("/receipts");
+        let close = request.method() == "DELETE"
+            && path
+                .strip_prefix("/v1/ui/windows/")
+                .is_some_and(|id| !id.is_empty() && !id.contains('/'));
+        if receipt || close {
+            return next.run(request).await;
+        }
+        return ApiError::unprocessable("Private session ended; open a fresh window to resume")
+            .into_response();
+    }
     let path = request.uri().path().trim_start_matches("/api");
     let method = request.method().as_str();
     let allowed = path == "/v1/ui/windows"
@@ -477,8 +538,14 @@ pub(super) async fn source_tool(
         .await
         .map_err(|_| ApiError::unprocessable("Private tool executor unavailable"))?;
     let mut session = bound.session.lock().await;
+    if bound.retired.load(Ordering::SeqCst) {
+        return Err(ApiError::unprocessable("Private session ended"));
+    }
     let result = execute_tool(&mut session, executor.clone(), &invocation).await;
     let _ = executor.shutdown().await;
+    if invocation.name == "edit_doc" && result.ok {
+        bound.retain_approved_source(session.approved_source()).map_err(|_|ApiError::unprocessable("Source edit applied, but durable recovery receipt unavailable; trusted host recovery is required"))?;
+    }
     Ok(Json(
         json!({"ok":result.ok,"text":result.text,"source":result.reads.first().map(|read|&read.content),"source_hash":result.reads.first().map(|read|&read.sha256)}),
     ))
@@ -633,6 +700,9 @@ pub(super) async fn promote(
         )
     })?;
     let mut session = bound.session.lock().await;
+    if bound.is_retired() {
+        return Err(ApiError::unprocessable("Private session ended"));
+    }
     session
         .refresh_source()
         .await

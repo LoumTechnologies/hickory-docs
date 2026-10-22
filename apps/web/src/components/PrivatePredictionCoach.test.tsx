@@ -62,3 +62,23 @@ it("retains consecutive provider/model edits while their separate intents are pe
   fireEvent.click(screen.getByRole("button", { name: "Delegate investigation" }));
   await waitFor(() => expect(vi.mocked(request).mock.calls.find(call => call[0] === "POST" && call[1].endsWith("/agent"))?.[2]).toMatchObject({ provider: "openrouter", model: "anthropic/claude-sonnet-4.5" }));
 });
+
+it("requires a human to end and retains a real host lifecycle receipt before retiring the coach", async () => {
+  responses();
+  const ordinary = vi.mocked(request).getMockImplementation()!;
+  vi.mocked(request).mockImplementation(async (method, path, body) => path.endsWith("/end")
+    ? { ended: true, history_retained: true, root_still_private: true }
+    : ordinary(method, path, body));
+  const registry = new UiActions({ workspace: "private", window: "ending" }, () => true, async () => {});
+  render(<UiActionContext.Provider value={registry}><PrivatePredictionCoach initial={initial} /></UiActionContext.Provider>);
+  await screen.findByText("captured source only");
+  const command = registry.observe("private-prediction").actions.find(action => action.label === "End private practice")!;
+  let result: unknown;
+  await act(async () => { result = await registry.act(registry.scope, { id: "predictor", kind: "agent" }, { handle: command.handle, arguments: {}, request_id: "end-own-quarantine" }); });
+  expect(result).toMatchObject({ status: "result", outcome: { status: "requires_input" } });
+  expect(vi.mocked(request).mock.calls.some(call => call[1].endsWith("/end"))).toBe(false);
+  fireEvent.click(screen.getByRole("button", { name: "End private practice" }));
+  await screen.findByRole("heading", { name: "Private practice ended" });
+  expect(screen.queryByRole("button", { name: "Delegate investigation" })).toBeNull();
+  expect(registry.observe("private-prediction").actions).toHaveLength(0);
+});

@@ -5,6 +5,8 @@ use anyhow::{Result, ensure};
 use hick_dap::CaptureSpec;
 use hick_observe::prediction::{Identity, Target};
 use std::path::Path;
+#[derive(Clone, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct SourceQuestion {
     template: Target,
     capture: Option<CaptureSpec>,

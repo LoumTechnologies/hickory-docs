@@ -7,6 +7,7 @@ use tokio::sync::RwLock;
 #[derive(Clone)]
 pub struct Connection {
     endpoint: Arc<RwLock<Endpoint>>,
+    ended: Arc<std::sync::atomic::AtomicBool>,
     pub(crate) attach: Attach,
     pub slot: String,
     pub log_offset: u64,
@@ -31,6 +32,10 @@ impl Connection {
             .await
     }
     pub async fn reconnect(&self) -> Result<()> {
+        ensure!(
+            !self.ended.load(std::sync::atomic::Ordering::SeqCst),
+            "Private session ended; open a new window for a fresh context"
+        );
         let endpoint = discover().await?;
         let _ = attach(&self.http, &endpoint, &self.attach).await?;
         *self.endpoint.write().await = endpoint;
@@ -46,11 +51,34 @@ impl Connection {
         .await?;
         Ok(())
     }
+    /// Human host lifecycle; this is deliberately absent from model catalogues.
+    pub(crate) async fn end_private(&self) -> Result<serde_json::Value> {
+        let response = self
+            .request(reqwest::Method::POST, "/private/end")
+            .await
+            .json(&serde_json::json!({"client":self.attach.client}))
+            .send()
+            .await?;
+        let success = response.status().is_success();
+        let value: serde_json::Value = response.json().await?;
+        ensure!(
+            success && value["ended"] == true,
+            "{}",
+            value["error"]
+                .as_str()
+                .unwrap_or("Private session could not end")
+        );
+        self.ended.store(true, std::sync::atomic::Ordering::SeqCst);
+        Ok(value)
+    }
     pub fn guard(&self) -> ClientGuard {
         let connection = self.clone();
         let task = tokio::spawn(async move {
             loop {
                 tokio::time::sleep(HEARTBEAT).await;
+                if connection.ended.load(std::sync::atomic::Ordering::SeqCst) {
+                    break;
+                }
                 let lease = connection
                     .request(
                         reqwest::Method::POST,
@@ -98,6 +126,7 @@ pub async fn connect(attach_opts: Attach) -> Result<Connection> {
     let attached = attach(&http, &endpoint, &attach_opts).await?;
     Ok(Connection {
         endpoint: Arc::new(RwLock::new(endpoint)),
+        ended: Arc::new(std::sync::atomic::AtomicBool::new(false)),
         attach: attach_opts,
         slot: attached.slot,
         log_offset: attached.log_offset,
