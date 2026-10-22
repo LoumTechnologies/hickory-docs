@@ -128,3 +128,29 @@ it("dispatches an explicitly chosen private ACP adapter without inventing a pass
   await waitFor(() => expect(vi.mocked(request).mock.calls.find(call => call[0] === "POST" && call[1].endsWith("/agent"))?.[2]).toMatchObject({ acp_agent: "isolated-qa" }));
   expect(screen.getByText(/Current certification is unavailable/)).toBeTruthy();
 });
+
+it("requires End before native close and closes after End independently of retired receipts", async () => {
+  responses();
+  const ordinary = vi.mocked(request).getMockImplementation()!;
+  vi.mocked(request).mockImplementation(async (method, path, body) => {
+    if (path.endsWith("/end")) return { ended: true, history_retained: true, root_still_private: true };
+    if (path === "/api/window/close") return { ok: true };
+    return ordinary(method, path, body);
+  });
+  let retired = false;
+  const registry = new UiActions({ workspace: "private", window: "close" }, () => true, async () => { if (retired) throw Error("retired receipt endpoint"); });
+  render(<UiActionContext.Provider value={registry}><PrivatePredictionCoach initial={initial} /></UiActionContext.Provider>);
+  await screen.findByText("captured source only");
+  await act(async () => { window.dispatchEvent(new Event("hickory-window-close-request")); });
+  expect(screen.getByText(/End private practice before closing/)).toBeTruthy();
+  expect(vi.mocked(request).mock.calls.some(call => call[1] === "/api/window/close")).toBe(false);
+  const command = registry.observe("private-window").actions[0];
+  let result: unknown;
+  await act(async () => { result = await registry.act(registry.scope, { kind: "agent", id: "predictor" }, { handle: command.handle, arguments: {}, request_id: "close-quarantine" }); });
+  expect(result).toMatchObject({ outcome: { status: "requires_input" } });
+  fireEvent.click(screen.getByRole("button", { name: "End private practice" }));
+  await screen.findByRole("heading", { name: "Private practice ended" });
+  retired = true;
+  fireEvent.click(screen.getByRole("button", { name: "Close window" }));
+  await waitFor(() => expect(request).toHaveBeenCalledWith("POST", "/api/window/close", {}));
+});

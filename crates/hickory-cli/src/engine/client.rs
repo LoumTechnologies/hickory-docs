@@ -15,6 +15,9 @@ pub struct Connection {
 }
 
 impl Connection {
+    pub(crate) fn private_ended(&self) -> bool {
+        self.ended.load(std::sync::atomic::Ordering::SeqCst)
+    }
     pub(crate) async fn url(&self, path: &str) -> (String, String) {
         let endpoint = self.endpoint.read().await;
         (format!("{}{}", endpoint.url, path), endpoint.token.clone())

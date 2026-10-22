@@ -118,6 +118,7 @@ async fn start_inner(with_shell: bool) -> Session {
         let chooser = picker.clone();
         let saver = picker.clone();
         prepared.state.set_shell(Shell {
+            window: std::sync::Arc::new(|_| anyhow::bail!("No native window in this fixture")),
             pick_folder: std::sync::Arc::new(move |start| {
                 let mut held = chooser.lock().unwrap();
                 held.started_at = Some(start.to_path_buf());

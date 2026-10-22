@@ -1,3 +1,4 @@
+import { registerNativeWindowActions } from "./nativeWindowActions";
 import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from "react";
 import { request } from "../api/client";
 import { UiActions, type UiActor, type UiCommand, type UiInvocation, type UiValue } from "./uiActions";
@@ -76,6 +77,7 @@ export function UiActionsProvider({ children }: { children: ReactNode }) {
         // actor policy and returns required human input for privileged decisions.
         () => true,
         receipt => request("POST", `/api/v1/ui/windows/${scope.window}/receipts`, receipt).then(() => {}));
+      if ("__TAURI_INTERNALS__" in globalThis) registerNativeWindowActions(actions);
       activeWindow = scope.window;
       settle(scope.window);
       connection = actions;

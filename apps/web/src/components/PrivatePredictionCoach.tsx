@@ -1,3 +1,4 @@
+import type { UiActor, UiOutcome } from "../lib/uiActions";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { request } from "../api/client";
 import type { AcpState } from "../api/acp";
@@ -107,7 +108,29 @@ export function PrivatePredictionCoach({ initial }: { initial: PrivatePrediction
     finally { setBusy(false); }
   };
   const available = (commands: { key: string; command: import("../lib/uiActions").UiCommand }[]) => commands.filter(item => !!state.retained_plan || !["private:prediction", "private:rationale", "private:seal-retained", "private:continue-retained"].includes(item.key));
-  const invoke = useUiCommands(ended ? [] : available([
+  const closing = useRef(false);
+  const closePrivateWindow = async (actor: UiActor): Promise<UiOutcome> => {
+    if (actor.kind === "agent") return { status: "requires_input", request: "private-window-close", reason: "A human ends and closes the isolated practice; the active predictor cannot release its own window/quarantine" };
+    if (!ended) { const reason = "End private practice before closing this window. Stop any investigation first; its retained history will remain protected."; setError(reason); return { status: "requires_input", request: "private-end-before-close", reason }; }
+    if (closing.current) return { status: "unavailable", reason: "A native close request is pending" };
+    closing.current = true; setBusy(true); setError("");
+    try {
+      const actual = await request<{ ok: boolean }>("POST", "/api/window/close", {});
+      if (actual.ok !== true) throw Error("Native host did not acknowledge this close request");
+      return { status: "completed", value: { host_acknowledged: true, window_destruction_unverified: true } };
+    } catch { const reason = "This host could not confirm window closure. Use its browser/OS close control; the private history and root remain protected."; if (owner.current) setError(reason); return { status: "requires_input", request: "private-window-host-close", reason }; }
+    finally { closing.current = false; if (owner.current) setBusy(false); }
+  };
+  const latestClose = useRef(closePrivateWindow); latestClose.current = closePrivateWindow;
+  useEffect(() => {
+    const close = () => { void latestClose.current({ id: "local-user", kind: "human" }); };
+    window.addEventListener("hickory-window-close-request", close);
+    return () => window.removeEventListener("hickory-window-close-request", close);
+  }, []);
+  const invoke = useUiCommands([
+    { key: "private:close-window", command: { label: "Close private practice window", parent: "private-window", subject: initial.document, parameters: {}, prerequisites: ["Human-owned lifecycle; End must finish before host close. Window closure is independent of an expired retired project router."],
+      read: () => ({ revision: JSON.stringify([ended, busy, closing.current]), enabled: !busy && !closing.current }), execute: (_args, actor) => closePrivateWindow(actor) } },
+    ...(ended ? [] : available([
     ...([
       ["prompt", "Edit private investigation request", 32768, promptRevision, setPrompt],
       ["provider", "Choose private investigation provider", 128, providerRevision, setProvider],
@@ -151,13 +174,18 @@ export function PrivatePredictionCoach({ initial }: { initial: PrivatePrediction
       finally { setBusy(false); }
     } } },
     { key: "private:coach", command: { label: "Set private coach visibility", parent: "private-prediction", subject: initial.document, parameters: { open: { type: "boolean" } }, prerequisites: [], read: () => ({ revision: revision(), enabled: true }), execute: async args => { const visible = Boolean(args.open); setOpen(visible); localStorage.setItem(key, visible ? "open" : "dismissed"); return { status: "completed", value: {} }; } } },
-  ]));
+  ])),
+  ]);
   const setRequest = (field: "prompt" | "provider" | "model" | "acp" | "prediction" | "rationale", value: string) => {
     setPendingForms(count => count + 1);
     void invoke(`private:${field}`, { value }).catch(reason => { if (owner.current) setError(String(reason)); })
       .finally(() => { if (owner.current) setPendingForms(count => count - 1); });
   };
-  if (ended) return <main className="private-prediction-coach"><h1>Private practice ended</h1><p>The prediction history remains retained and this root remains private. Close this window. Reopening the practice starts a fresh context and revalidates its approved source and runtime.</p></main>;
+  if (ended) return <main className="private-prediction-coach"><h1>Private practice ended</h1><p>The prediction history remains retained and this root remains private. Reopening the practice starts a fresh context and revalidates its approved source and runtime.</p>
+    {error && <p role="alert">{error}</p>}
+    {/* The project lease is retired: human host close must not depend on its receipt endpoint. */}
+    <button disabled={busy || closing.current} onClick={() => { void latestClose.current({ id: "local-user", kind: "human" }); }}>Close window</button>
+  </main>;
   return <main className="private-prediction-coach">
     <h1>Predict, investigate and review</h1>
     <p>{state.question.requirement_reference}</p>

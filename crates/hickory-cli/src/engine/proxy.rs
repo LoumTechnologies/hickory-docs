@@ -1,7 +1,7 @@
 //! Each desktop serves its UI and proxies engine requests on one origin.
 //! Only native shell actions live here; no documents or watchers are created.
 use super::Connection;
-use crate::serve::{OpenWhere, Shell};
+use crate::serve::{OpenWhere, Shell, WindowOperation, WindowStatus};
 use anyhow::{Result, bail};
 use axum::{
     Json, Router,
@@ -80,6 +80,7 @@ async fn callback(State(proxy): State<Proxy>, req: Request) -> Response {
             "save" => Ok(json!({"path": (shell.save_file)(&path, value["name"].as_str().unwrap_or_default())?})),
             "open" => { (shell.open_folder)(&path, serde_json::from_value(value["where"].clone())?)?; Ok(json!({})) }
             "close" => { (shell.close_window)()?; Ok(json!({})) }
+            "window" => Ok(serde_json::to_value((shell.window)(serde_json::from_value(value["operation"].clone())?)?)?),
             _ => bail!("unknown native window action"),
         }
     }).await;
@@ -106,6 +107,34 @@ async fn forward(State(proxy): State<Proxy>, req: Request) -> Response {
         if origin != own && proxy.ui_origin.as_deref() != Some(origin) {
             return StatusCode::FORBIDDEN.into_response();
         }
+    }
+    let local_window = match (req.method().as_str(), req.uri().path()) {
+        ("GET", "/api/window/status") => Some(Some(WindowOperation::Inspect)),
+        ("POST", "/api/window/minimize") => Some(Some(WindowOperation::Minimize)),
+        ("POST", "/api/window/restore") => Some(Some(WindowOperation::Restore)),
+        ("POST", "/api/window/close") if proxy.connection.private_ended() => Some(None),
+        _ => None,
+    };
+    if let Some(operation) = local_window {
+        if req.method() == axum::http::Method::POST {
+            let bytes = match to_bytes(req.into_body(), 4096).await {
+                Ok(bytes) => bytes,
+                Err(_) => return StatusCode::PAYLOAD_TOO_LARGE.into_response(),
+            };
+            if serde_json::from_slice::<Value>(&bytes).ok() != Some(json!({})) {
+                return StatusCode::BAD_REQUEST.into_response();
+            }
+        }
+        let Some(shell) = proxy.shell else { return (StatusCode::NOT_IMPLEMENTED, Json(json!({"error":"This client has no native window host"}))).into_response(); };
+        // Host-only window state is not a project route. After successful End,
+        // closing must survive expiry/loss of the retired project router.
+        return match tokio::task::spawn_blocking(move || -> Result<Value> {
+            if let Some(operation) = operation { Ok(serde_json::to_value((shell.window)(operation)?)?) }
+            else { (shell.close_window)()?; Ok(json!({"ok":true})) }
+        }).await {
+            Ok(Ok(value)) => Json(value).into_response(),
+            _ => (StatusCode::UNPROCESSABLE_ENTITY, Json(json!({"error":"Native window request failed; an effect may already have occurred. Inspect its current state before retrying"}))).into_response(),
+        };
     }
     if req.uri().path() == "/api/prediction/end" && req.method() == axum::http::Method::POST {
         let body = match to_bytes(req.into_body(), 4096).await {
@@ -261,7 +290,12 @@ pub(super) fn remote_shell(url: String, token: String) -> Shell {
     let pick = call.clone();
     let save = call.clone();
     let open = call.clone();
+    let window = call.clone();
     Shell {
+        window: Arc::new(move |operation| {
+            let value = window("window", json!({"operation":operation}))?;
+            Ok(serde_json::from_value::<WindowStatus>(value)?)
+        }),
         pick_folder: Arc::new(move |path: &Path| {
             let v = pick("pick", json!({"path":path}))?;
             Ok(v["path"].as_str().map(PathBuf::from))

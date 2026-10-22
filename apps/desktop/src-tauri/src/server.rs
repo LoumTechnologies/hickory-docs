@@ -142,7 +142,9 @@ pub fn shell_hooks(handle: &tauri::AppHandle, config_dir: Option<&Path>) -> Shel
     let picker = handle.clone();
     let saver = handle.clone();
     let closer = handle.clone();
+    let window_host = handle.clone();
     Shell {
+        window: std::sync::Arc::new(move |operation| super::native_window_operation(&window_host, operation)),
         // The same picker File → Open Folder uses, reached from the page
         // rather than from the menu bar. `blocking_pick_folder` blocks the
         // thread it is called on, and the route calls this on a blocking one:

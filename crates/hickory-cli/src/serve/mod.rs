@@ -116,7 +116,7 @@ use crate::{ExecutorChoice, RunMode};
 use api::{ApiError, ApiResult};
 use store::{DocIndex, FileDocStore};
 
-pub use shell::{OpenWhere, Shell};
+pub use shell::{OpenWhere, Shell, WindowOperation, WindowStatus};
 
 /// How a local session was asked to run.
 ///

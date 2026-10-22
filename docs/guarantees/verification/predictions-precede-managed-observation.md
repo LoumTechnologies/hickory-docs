@@ -815,3 +815,54 @@ ACP-visible result. Exact dependency hashes, failures and fixture paths are in
 the handoff's separate managed private ACP checkpoint. Later source changes stale
 that evidence; native/released/deployed and real authenticated-provider acceptance
 remain distinct required witnesses.
+
+## 2026-10-22: native window controls and post-End close
+
+Requirement: issue 72/#74 requires actual shared OS controls or an explicit
+tracked OS limitation, and #77 retains a human-owned End/quarantine boundary.
+The native Window menu and UI registry now invoke the same current-window
+minimize/restore controller. Explicit status reads return host-observed platform
+and minimized state only. No caller selects another window, file or arbitrary IPC.
+Browser/missing callbacks return a required-input result; uncertain host failures
+are not successful closure/minimization claims. Predefined macOS About, Services,
+Hide, Hide Others and Show All remain a tracked #74 platform limitation, with an
+addressable operation request and retained pending result. Human conversation
+reports are not authenticated OS completion. macOS execution is unavailable on
+this Linux host and must be qualified separately.
+
+Review discovered that the private page bypasses App's close listener. It now
+shares a close controller between the native event, ended-page button and registry.
+An agent cannot end/close its own quarantine. Human close before End is refused.
+After durable End, local host close bypasses the retired project router/receipt
+lease; it does not reopen project capabilities. The human button/event call the
+same controller directly because persisting an action receipt through an expired
+project lease would prevent closing. An agent-visible close request still returns
+requires_input. Host acknowledgment does not prove window destruction.
+
+LLM implementation review: partial, covering the finite callbacks, origin/body
+validation, ended-only local close and retired-router independence. Assumption:
+the current native host owns the one main window; SDK state is a point-in-time
+report and OS scheduling can change it immediately. Falsifiers include a foreign
+origin closing a window, active quarantine closing, arbitrary target parameters,
+a late receipt preventing human close, or a held-out field entering window output.
+Executed checks: 12 focused frontend cases (window responses, OS requests, private
+coach), 7 existing bridge cases, one real local proxy/Connection lifecycle test;
+CLI and native desktop cargo check and targeted strict TypeScript passed.
+The first frontend invocation used the repository root and lacked jsdom; rerunning
+from apps/web passed. The first standalone TypeScript command omitted dom.iterable;
+including that configured DOM library passed. No broad regression was run.
+Human judgment: not supplied. These checks do not establish paid-provider,
+reviewed footage/publication, deployed or other-platform acceptance.
+
+Dependencies (SHA-256; edits stale this review):
+- `apps/web/src/lib/nativeWindowActions.ts`: `8d673546ea02e309bb03bcb68bb6e3c0a62cfe8a16e23e72913c4d156872c9b5`.
+- `apps/web/src/lib/nativeWindowActions.test.ts`: `d6e41286eb25d2013435967ae489774e769ea68621317c04a00d55de79c6468c`.
+- `apps/web/src/components/PrivatePredictionCoach.tsx`: `f52c09d0da7e16b44509e166fcb18b54e3bd3fd86950714e0fbf97c14036a71a`.
+- `apps/web/src/components/PrivatePredictionCoach.test.tsx`: `f49321378846ac4355ec43e1e1f0556b82af284a4966f5d40899858ae240ab37`.
+- `apps/web/src/lib/uiActionBridge.tsx`: `ad5ddfecc981c32de3f284e466ca34c1bc48645c23519d20311f9bb16873e561`.
+- `crates/hickory-cli/src/engine/client.rs`: `bc4caa99206d1fc157ddfdbf5a4917007ed3b957bd9488914081bf48afbd2b7b`.
+- `crates/hickory-cli/src/engine/proxy.rs`: `46cb41135332a9b6cdabedde7d4b60aab39c3730950bd804912c950a45608e23`.
+- `crates/hickory-cli/src/engine/client_prediction_tests.rs`: `01aaaef8922155f615732939a69e11db40f5468b368d87ea246791997d653158`.
+- `crates/hickory-cli/src/serve/shell.rs`: `2f3be29957046bc545826b92892ade11077c5e59f924b40dbceebfd8871b9eed`.
+- `apps/desktop/src-tauri/src/lib.rs`: `d8ce0cd736db0f367e9560e797e46efdb265b954333a694c7425868243e6ad73`.
+- `apps/desktop/src-tauri/src/server.rs`: `1b82b61fea2c1f12cc417e823881ccfe19fa91fcd1dde9c4f9b78cf41b2abb6b`.
