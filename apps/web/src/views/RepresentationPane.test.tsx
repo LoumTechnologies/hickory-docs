@@ -3,6 +3,8 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-libra
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { representations, type Representation } from "../api/representations";
 import { viewBuffers } from "../lib/viewBuffers";
+import { UiActions } from "../lib/uiActions";
+import { UiActionContext } from "../lib/uiActionBridge";
 import { RepresentationPane } from "./RepresentationPane";
 
 vi.mock("../editor/DocumentEditor", () => ({ DocumentEditor: ({ docId, initialSource, onChange, readOnly }: {
@@ -101,4 +103,17 @@ it("honors a read-only comparison reply and returns to loaded current code", asy
   fireEvent.click(screen.getByRole("button", { name: "Return to current code" }));
   await waitFor(() => expect((editor as HTMLTextAreaElement).readOnly).toBe(false));
   expect(screen.getByText("Saved")).toBeTruthy();
+});
+
+// Guarantee: docs/guarantees/lenses/a-view-declares-where-edits-land.md
+it("exposes the opening failure before a literate view record/editor is available", async () => {
+  vi.spyOn(representations, "get").mockRejectedValue(new Error("Literate view is unavailable"));
+  const registry = new UiActions({ workspace: "p", window: "literate-loading" }, () => true, async () => {});
+  render(<UiActionContext.Provider value={registry}><RepresentationPane id="v" bufferId="failed-view" /></UiActionContext.Provider>);
+  await screen.findByText("Literate view is unavailable");
+  const action = registry.groups().groups.flatMap(group => registry.observe(group, 64).actions).find(action => action.label === "Read literate view load state bytes")!;
+  let reply: any;
+  await act(async () => { reply = await registry.act(registry.scope, { id: "acp:status", kind: "agent" }, { handle: action.handle, arguments: { offset: 0, limit: 8192 }, request_id: "failure" }); });
+  expect(JSON.parse(new TextDecoder().decode(new Uint8Array(reply.outcome.value.bytes)))).toMatchObject({ id: "v", loaded: false, notice: "Literate view is unavailable", source_read: false });
+  expect(screen.queryByRole("textbox")).toBeNull();
 });

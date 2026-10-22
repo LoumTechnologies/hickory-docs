@@ -15,6 +15,8 @@ import { act, cleanup, render, waitFor } from "@testing-library/react";
 import type { EditorView } from "@codemirror/view";
 import { installMockHandler } from "../api/client";
 import type { OutputFile, SourceEdit } from "../api/types";
+import { UiActions } from "../lib/uiActions";
+import { UiActionContext } from "../lib/uiActionBridge";
 import { GeneratedFileView } from "./views";
 import { viewBuffers } from "../lib/viewBuffers";
 
@@ -210,4 +212,28 @@ describe("removed chrome stays removed", () => {
     expect(utils.container.querySelector(".generated-view__lineage")).toBeNull();
     expect(utils.container.querySelector(".output-pane-status")).toBeNull();
   });
+});
+
+// Guarantee: docs/guarantees/authoring/the-editor-keeps-its-space.md
+it("reads the actual generated-file loading/failure path before its editor mounts", async () => {
+  let fail!: (cause: Error) => void;
+  installMockHandler(async (method, path) => {
+    if (method === "GET" && path.includes("/outputs/file")) return new Promise((_resolve, reject) => { fail = reject; });
+    if (method === "GET" && path.endsWith("/diverged")) return { diverged: {} };
+    throw new Error(`Unexpected ${method} ${path}`);
+  });
+  const registry = new UiActions({ workspace: "p", window: "generated-loading" }, () => true, async () => {});
+  const mounted = render(<UiActionContext.Provider value={registry}><GeneratedFileView docId="load-owner" path="missing.py" bufferId="loading-status-only" /></UiActionContext.Provider>);
+  let id = 0;
+  const read = async () => {
+    const action = registry.groups().groups.flatMap(group => registry.observe(group, 64).actions).find(action => action.label === "Read generated file load and save status bytes")!;
+    let reply: any;
+    await act(async () => { reply = await registry.act(registry.scope, { id: "acp:status", kind: "agent" }, { handle: action.handle, arguments: { offset: 0, limit: 8192 }, request_id: String(++id) }); });
+    return JSON.parse(new TextDecoder().decode(new Uint8Array(reply.outcome.value.bytes)));
+  };
+  expect(await read()).toMatchObject({ loading: true, loaded: false, message: "Loading missing.py…", source_read: false });
+  await act(async () => fail(new Error("Generated file is unavailable")));
+  await waitFor(() => expect(mounted.getByText("Generated file is unavailable")).toBeTruthy());
+  expect(await read()).toMatchObject({ loading: false, error: "Generated file is unavailable", source_read: false });
+  expect(mounted.container.querySelector(".cm-editor")).toBeNull();
 });

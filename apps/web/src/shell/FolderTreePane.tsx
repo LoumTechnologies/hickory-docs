@@ -1,3 +1,4 @@
+import { useUiReading } from "../lib/uiReading";
 // The folder tree: the open folder's files, as a pane.
 //
 // There is no "list of documents" anywhere in this app — a folder was opened,
@@ -428,6 +429,7 @@ export function FolderTreePane({
     );
     return () => cancelAnimationFrame(frame);
   }, [focusRequest, roots]);
+  useUiReading("Files pane load state", { root_count: roots.length, error: error || null, message: error || (roots.length ? null : "Reading folder…"), file_contents_read: false });
   if (error) return <p className="error folder-tree__error">{error}</p>;
   if (roots.length === 0) return <p className="muted folder-tree__loading">Reading folder…</p>;
   return (
@@ -649,7 +651,7 @@ function FolderRoot({
       const nodes = directory ? node!.children ?? [] : folder.tree;
       const offset = Number(args.offset), limit = Number(args.limit);
       if (offset > nodes.length) return { status: "unavailable", reason: "Offset exceeds this directory's entry count" };
-      return { status: "completed", value: { root: folder.root, directory, total: nodes.length, next: offset + limit < nodes.length ? offset + limit : null, notice, entries: nodes.slice(offset, offset + limit).map(item => ({ path: item.path, name: item.name, directory: item.dir, document: item.doc_id ?? null, generated_by: item.generated_by ?? null, dirty: dirtyPaths.has(item.path), children: item.children?.length ?? 0 })) } };
+      return { status: "completed", value: { root: folder.root, directory, truncated: !!folder.truncated, total: nodes.length, next: offset + limit < nodes.length ? offset + limit : null, notice, entries: nodes.slice(offset, offset + limit).map(item => ({ path: item.path, name: item.name, directory: item.dir, document: item.doc_id ?? null, generated_by: item.generated_by ?? null, dirty: dirtyPaths.has(item.path), children: item.children?.length ?? 0 })) } };
     } } },
     { key: `${actionParent}/open`, command: { label: "Open observed workspace file", parent: actionParent, subject: actionParent, parameters: { path: { type: "string", maxLength: 8192 } }, prerequisites: ["File must belong to the current observed folder tree"], read: actionRead, execute: async args => {
       const node = fileNodeAt(folder.tree, String(args.path));

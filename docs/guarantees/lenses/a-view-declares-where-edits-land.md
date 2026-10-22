@@ -31,3 +31,14 @@ Last LLM implementation review:
   adjustment also passed all 8 `workspaceTabs.test.tsx` tests. See the audit
   for coverage gaps and earlier failed witnesses.
 - Human judgment: not recorded.
+
+
+## 2026-10-22 early pane status review
+
+LLM review: partial. Load/error/restoration metadata remains explicitly readable
+when a document/generated/literate editor cannot mount. Files-pane and changeset
+rendering failures have bounded readers; source/recovery/project bytes are
+excluded. Eighty-one focused cases and changed-entrypoint TypeScript passed,
+with three selected final loading/failure checks. Exact dependencies and limits
+are in the issue-72 handoff. No human judgment or current native/provider
+completion witness supplied.

@@ -1,3 +1,4 @@
+import { useUiReading } from "../lib/uiReading";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { EditorView } from "@codemirror/view";
 import { computeEdits } from "../lib/diff";
@@ -25,6 +26,7 @@ export function ChangesetDocument({ entry, sources, input, tools = true, filesys
     try { materializeProject(entry,sources,input); return ""; }
     catch (e) { return e instanceof Error ? e.message : String(e); }
   },[entry,sources,input]);
+  useUiReading("final changeset rendering status", { identity, entry, error: error || null, message: error ? `Could not render final changeset: ${error}` : null, source_read: false }, identity);
   if (error) return <p role="alert">Could not render final changeset: {error}</p>;
   return <section aria-label="Final literate changeset">
     {documents.map(({document,project}) => <div key={document}>

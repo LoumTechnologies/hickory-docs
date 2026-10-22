@@ -153,6 +153,8 @@ export function DocTabBody({
   // Before the early returns: hooks may not be conditional, and the baseline
   // outlives whatever the session is doing.
   const baseline = useBaseline(docId);
+  const loadMessage = session?.fatalError || (!session?.doc || !session.blocks ? "Loading document…" : null);
+  useUiReading("document tab load state", { doc_id: docId, phase: session?.fatalError ? "failed" : loadMessage ? "loading" : "loaded", message: loadMessage });
   if (!session) return <p className="muted">Loading document…</p>;
   if (session.fatalError) return <p className="error">{session.fatalError}</p>;
   const { doc, blocks, debug } = session;
@@ -264,6 +266,7 @@ export function GeneratedTabBody({
   onSource?: (path: string, source: string) => void;
 }) {
   const session = useDocSession(registry, docId);
+  useUiReading("generated tab session state", { doc_id: docId, path, session_loaded: !!session, message: session ? null : `Loading ${path}…` });
   // The session appears one tick after its host mounts; the file fetch is
   // cheap enough to wait for the LSP wiring rather than mount without it.
   if (!session) return <p className="muted">Loading {path}…</p>;

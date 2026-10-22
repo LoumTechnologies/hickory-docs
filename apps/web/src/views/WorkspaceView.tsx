@@ -1,3 +1,4 @@
+import { useUiReading } from "../lib/uiReading";
 import { runWorkspaceMenu } from "./workspaceMenuActions";
 import { useWorkspaceMenuActions } from "./uiWorkspaceMenuActions";
 import { NativeRuntimeHistory } from "../debug/RuntimeRuns";
@@ -400,6 +401,7 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
     sourcesRef: untitledSourcesRef, setSources: setUntitledSources,
     initialBaselines: introductionTab ? { [introductionTab]: STARTUP_INTRODUCTION } : {},
   });
+  useUiReading("workspace restoration state", { layout_hydrated: workspaceUi.hydrated, untitled_buffers_restored: untitledRecovery.ready, message: untitledRecovery.ready ? null : "Restoring document…", source_read: false }, folderRoots.map(root => root.root));
   // ⌘+ / ⌘- / ⌘0 size the whole window; adding Alt sizes only the focused
   // tab. See views/useZoom.ts for why that split, and why it is the root's
   // font size rather than a transform.

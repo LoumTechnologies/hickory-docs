@@ -1189,3 +1189,10 @@ Generic debugger commands alone did not establish that affordance parity.
 Current source/stop/frame/configuration guards retire their stale forms; late
 query results and cancellation never imply verification. The issue-72 handoff
 records seventy focused cases and exact native-package revision boundaries.
+
+
+Early document/generated/literate/Files/changeset load failures now have explicit
+status readers before their normal editors mount. Workspace restoration and
+proposal recovery reasons are readable without disclosing source/recovery bytes.
+Folder listings identify truncation. Focused scope and exact hashes are recorded
+in the current handoff; universal/native/provider acceptance remains open.

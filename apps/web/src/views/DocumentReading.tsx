@@ -29,7 +29,7 @@ export function DocumentReading({ id }: { id: string }) {
   const parent = `document-review:${useId()}`;
   const revision = useUiRevision(() => [id, reading, draft, busy, error]);
   useUiReading("document change review", reading && !reading.codeUri ? { path: reading.path, title: reading.title, status: reading.status,
-    editable: !!reading.editable, busy, error, draft_modified: draft !== null } : { available: false });
+    editable: !!reading.editable, busy, error, draft_modified: draft !== null } : { available: false, reason: !reading ? "This proposal is no longer connected. Reopen its conversation to review changes." : "Captured code has its own source reading" });
   const decide = async (accepted: boolean): Promise<UiOutcome> => {
     if (!reading?.decide || reading.status !== "pending" || busy) return { status: "unavailable", reason: "This captured proposal is not available for decision" };
     setBusy(true); setError("");

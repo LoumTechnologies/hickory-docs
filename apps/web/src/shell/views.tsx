@@ -1,3 +1,4 @@
+import { useUiReading } from "../lib/uiReading";
 import { GeneratedDebugTools } from "../debug/GeneratedDebugTools";
 import type { DebugSession } from "../debug/useDebugger";
 import { viewBuffers } from "../lib/viewBuffers";
@@ -229,6 +230,7 @@ export function GeneratedFileView({
     };
   }, [path]);
 
+  useUiReading("generated file load and save status", { doc_id: docId, path, loading: !file && !error, loaded: !!file, error, save_state: saveState, save_error: saveError, recovery_error: wayError, message: error || (!file ? `Loading ${path}…` : null), source_read: false });
   if (error) return <p className="error">{error}</p>;
   if (!file) return <p className="muted">Loading {path}…</p>;
 

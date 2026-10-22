@@ -214,3 +214,15 @@ it("shares the document header launcher and disclosed menu callback with agent r
   expect(session.runAll).toHaveBeenCalledTimes(1);
   expect(await registry.act(registry.scope, { id: "acp:tabs", kind: "agent" }, { handle: old.handle, arguments: {}, request_id: "old" })).not.toMatchObject({ outcome: { status: "completed" } });
 });
+
+it("reads actual loading/fatal states before the document editor exists without including source", async () => {
+  const sessions = new SessionRegistry(), registry = new UiActions({ workspace: "p", window: "loading" }, () => true, async () => {});
+  const mounted = render(<UiActionContext.Provider value={registry}><DocTabBody registry={sessions} docId="d1" /></UiActionContext.Provider>);
+  let id = 0;
+  const read = async () => { const action = registry.groups().groups.flatMap(group => registry.observe(group, 64).actions).find(action => action.label === "Read document tab load state bytes")!; let reply: any; await act(async () => { reply = await registry.act(registry.scope, { id: "acp:status", kind: "agent" }, { handle: action.handle, arguments: { offset: 0, limit: 8192 }, request_id: String(++id) }); }); return new TextDecoder().decode(new Uint8Array(reply.outcome.value.bytes)); };
+  expect(JSON.parse(await read())).toMatchObject({ phase: "loading", message: "Loading document…" });
+  await act(async () => sessions.publish(makeSession({ fatalError: "Document cannot be opened", liveSource: "NEVER INCLUDE SOURCE" })));
+  expect(mounted.getByText("Document cannot be opened")).toBeTruthy();
+  const failed = await read(); expect(JSON.parse(failed)).toMatchObject({ phase: "failed", message: "Document cannot be opened" });
+  expect(failed).not.toContain("NEVER INCLUDE SOURCE");
+});

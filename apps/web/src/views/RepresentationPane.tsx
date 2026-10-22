@@ -1,3 +1,4 @@
+import { useUiReading } from "../lib/uiReading";
 import { registerDebugSurface, preferDebugSurface, representedFrameOffset } from "../debug/preferredDebugLocation";
 import { PaneHeaderContent } from "../shell/PaneHeader";
 import { SurfaceInfo } from "../components/SurfaceInfo";
@@ -182,6 +183,7 @@ export function RepresentationPane({ id, initialBase = "", initialTarget = "", b
     finally { if (ownerRef.current === owner) { current.current.busy = false; if (mounted.current) setBusy(false); } }
   };
   useEffect(() => { if (record && initialBase) void compare(); /* opening comparison */ }, [record?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+  useUiReading("literate view load state", { id, loaded: !!record, notice, message: record ? null : notice || "Opening literate view…", source_read: false }, id);
   if (!record) return <p role={notice ? "alert" : "status"}>{notice || "Opening literate view…"}</p>;
   const historical = !!comparison && !comparison.editable;
   return <section className="representation-pane" aria-label="Literate editor">
