@@ -46,9 +46,17 @@ pub enum OpenWhere {
 /// Current-window operations only: no caller-selected window or filesystem authority.
 #[derive(Clone, Copy, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
-pub enum WindowOperation { Inspect, Minimize, Restore }
+pub enum WindowOperation {
+    Inspect,
+    Minimize,
+    Restore,
+}
 #[derive(Debug, Deserialize, Serialize)]
-pub struct WindowStatus { pub native: bool, pub platform: String, pub minimized: bool }
+pub struct WindowStatus {
+    pub native: bool,
+    pub platform: String,
+    pub minimized: bool,
+}
 
 /// The host's powers, as closures.
 pub struct Shell {

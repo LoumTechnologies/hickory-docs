@@ -84,7 +84,8 @@ describe("TooltipLayer", () => {
 it("explicitly discloses visible tooltips, uses the native show controller and refuses replaced owners", async () => {
   vi.useRealTimers();
   const registry = new UiActions({ workspace: "tooltips", window: "one" }, () => true, async () => {});
-  render(<UiActionContext.Provider value={registry}><button aria-label="Help" data-tip="Private detailed help">?</button><button aria-label="Hidden" data-tip="hidden body" hidden>hidden</button><TooltipLayer /></UiActionContext.Provider>);
+  const activated = vi.fn();
+  render(<UiActionContext.Provider value={registry}><button aria-label="Help" onClick={activated} data-tip="Private detailed help">?</button><button aria-label="Hidden" data-tip="hidden body" hidden>hidden</button><TooltipLayer /></UiActionContext.Provider>);
   const target = screen.getByRole("button", { name: "Help" });
   vi.spyOn(target, "getBoundingClientRect").mockReturnValue({ x: 10, y: 10, left: 10, top: 10, right: 70, bottom: 30, width: 60, height: 20, toJSON: () => ({}) });
   const group = registry.groups().groups.find(group => group.startsWith("tooltips:"))!;
@@ -100,6 +101,7 @@ it("explicitly discloses visible tooltips, uses the native show controller and r
   expect(JSON.stringify(registry.observe(group))).not.toContain("Private detailed help");
   expect(await invoke("Show tooltip: Help")).toMatchObject({ outcome: { value: { shown: true, activated_control: false } } });
   expect(document.querySelector(".tip")?.textContent).toBe("Private detailed help");
+  expect(activated).not.toHaveBeenCalled();
   await invoke("Dismiss shown tooltip");
   expect(document.querySelector(".tip")).toBeNull();
   target.setAttribute("data-tip", "Replacement help");

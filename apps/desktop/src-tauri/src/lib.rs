@@ -136,15 +136,27 @@ fn item(
     builder.build(handle)
 }
 
-fn native_window_operation(handle: &AppHandle, operation: hickory_cli::serve::WindowOperation) -> anyhow::Result<hickory_cli::serve::WindowStatus> {
+fn native_window_operation(
+    handle: &AppHandle,
+    operation: hickory_cli::serve::WindowOperation,
+) -> anyhow::Result<hickory_cli::serve::WindowStatus> {
     use hickory_cli::serve::{WindowOperation, WindowStatus};
-    let window = handle.get_webview_window("main").ok_or_else(|| anyhow::anyhow!("Current native window closed"))?;
+    let window = handle
+        .get_webview_window("main")
+        .ok_or_else(|| anyhow::anyhow!("Current native window closed"))?;
     match operation {
-        WindowOperation::Inspect => {},
+        WindowOperation::Inspect => {}
         WindowOperation::Minimize => window.minimize()?,
-        WindowOperation::Restore => { window.show()?; window.unminimize()?; },
+        WindowOperation::Restore => {
+            window.show()?;
+            window.unminimize()?;
+        }
     }
-    Ok(WindowStatus { native: true, platform: std::env::consts::OS.to_owned(), minimized: window.is_minimized()? })
+    Ok(WindowStatus {
+        native: true,
+        platform: std::env::consts::OS.to_owned(),
+        minimized: window.is_minimized()?,
+    })
 }
 
 fn app_menu(handle: &AppHandle) -> tauri::Result<Menu<Wry>> {
@@ -338,7 +350,17 @@ fn app_menu(handle: &AppHandle) -> tauri::Result<Menu<Wry>> {
     let insert = insert_menu(handle, &keys)?;
 
     let window = SubmenuBuilder::new(handle, "Window")
-        .item(&item(handle, &keys, "minimize-window", "Minimize", if cfg!(target_os = "macos") { "Cmd+M" } else { "" })?)
+        .item(&item(
+            handle,
+            &keys,
+            "minimize-window",
+            "Minimize",
+            if cfg!(target_os = "macos") {
+                "Cmd+M"
+            } else {
+                ""
+            },
+        )?)
         .close_window()
         .build()?;
 
@@ -457,10 +479,15 @@ fn insert_menu(
 fn on_menu(app: &AppHandle, id: &str) {
     match id {
         "minimize-window" => {
-            if let Err(error) = native_window_operation(app, hickory_cli::serve::WindowOperation::Minimize) {
-                app.dialog().message(error.to_string()).title("Could not minimize window").show(|_| {});
+            if let Err(error) =
+                native_window_operation(app, hickory_cli::serve::WindowOperation::Minimize)
+            {
+                app.dialog()
+                    .message(error.to_string())
+                    .title("Could not minimize window")
+                    .show(|_| {});
             }
-        },
+        }
         "new-window" => {
             if let Err(e) = open_blank_window() {
                 fail(app, &format!("Could not open a new window.\n\n{e:#}"));

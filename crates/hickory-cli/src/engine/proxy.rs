@@ -125,7 +125,13 @@ async fn forward(State(proxy): State<Proxy>, req: Request) -> Response {
                 return StatusCode::BAD_REQUEST.into_response();
             }
         }
-        let Some(shell) = proxy.shell else { return (StatusCode::NOT_IMPLEMENTED, Json(json!({"error":"This client has no native window host"}))).into_response(); };
+        let Some(shell) = proxy.shell else {
+            return (
+                StatusCode::NOT_IMPLEMENTED,
+                Json(json!({"error":"This client has no native window host"})),
+            )
+                .into_response();
+        };
         // Host-only window state is not a project route. After successful End,
         // closing must survive expiry/loss of the retired project router.
         return match tokio::task::spawn_blocking(move || -> Result<Value> {

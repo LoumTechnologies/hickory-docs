@@ -894,3 +894,19 @@ unchanged. LLM review remains partial; human judgment remains absent.
 Current recovery dependencies (SHA-256):
 - `apps/web/src/components/PrivatePredictionCoach.tsx`: `3c289c11702eb623a8fc169202f844fd667130995f5eb60401999ca8d527e9d9`.
 - `apps/web/src/components/PrivatePredictionCoach.test.tsx`: `ecef641a955243bea19b7262cffdc7231390c0143a55384358dfe2abe1e023de`.
+
+### Focused formatting follow-up
+
+The touched Rust files were formatted with rustfmt (edition 2024, skip_children),
+without changing behavior. The same scoped format check and real local proxy/
+Connection lifecycle test passed afterward. Declaration hashes were regenerated.
+Native package source remains exactly 7416bacf, before this formatting-only
+follow-up and the stronger tooltip test; that package is never relabelled as
+bytes from a later source revision. LLM review of the formatter diff found only
+layout and re-export ordering. Current formatted dependencies:
+- `crates/hickory-cli/src/engine/proxy.rs`: `aefad888f7841ec1a3cccf2f6538860d8a13aac7ff5a12ddd66f99410360f8d4`.
+- `crates/hickory-cli/src/engine/client_prediction_tests.rs`: `05ab1091f9a5d7826d3039385ef956bd67c6ec646792b22b7ff2f1796b01b9eb`.
+- `crates/hickory-cli/src/serve/mod.rs`: `6fa158641145b0fe63cb37c163fafa9a784b9d0142fd6c2070edce3d1ffd47a0`.
+- `crates/hickory-cli/src/serve/shell.rs`: `8bb748027516fdc23bbfaae230013bbda01bda2735d01a3927fdeb7e77d10797`.
+- `apps/desktop/src-tauri/src/lib.rs`: `290f7444cf8658dd9e5174d57f8cfa872ed376da00a38fe8d34f9727ca2ee503`.
+- `apps/desktop/src-tauri/src/server.rs`: `b27cd771f3f723a462a24db6df7321d917498f3a67780c05f9b4f00041c8db39`.
