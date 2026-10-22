@@ -7,3 +7,5 @@
 .private-prediction-fields textarea { min-height: 8rem; resize: vertical; }
 .private-prediction-controls { display: flex; flex-wrap: wrap; gap: .5rem; }
 @media (max-width: 540px) { .private-prediction-fields { grid-template-columns: minmax(0, 1fr); } }
+/* Long captured lines scroll inside CodeMirror, not the entire private page. */
+.private-prediction-coach .comparison-code .cm-editor { flex: 1; min-width: 0; max-width: 100%; }

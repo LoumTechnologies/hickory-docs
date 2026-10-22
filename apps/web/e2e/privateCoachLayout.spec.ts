@@ -12,7 +12,7 @@ test("private coach form fits native and narrow viewports without covering its t
     const path = new URL(route.request().url()).pathname;
     if (!path.startsWith("/api/")) { await route.fallback(); return; }
     if (route.request().method() === "POST") posts.push(path);
-    const json = path === "/api/prediction/state" ? state : path === "/api/prediction/tool" ? { ok: true, source: "# Captured layout fixture\n" }
+    const json = path === "/api/prediction/state" ? state : path === "/api/prediction/tool" ? { ok: true, source: `# Captured layout fixture\n${"long_source_token_".repeat(100)}\n` }
       : path === "/api/prediction/agent" ? { ready: true, backend: "python", edits: { mode: "review", changes: [] }, run: null }
       : path === "/api/prediction/evidence" ? { evidence: null } : {};
     await route.fulfill({ json });
