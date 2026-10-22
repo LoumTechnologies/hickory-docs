@@ -626,3 +626,28 @@ describe("ingest from the tree", () => {
     expect(screen.queryByText(/Make literate/)).toBeNull();
   });
 });
+
+// Guarantee: docs/guarantees/terminal/a-session-appears-where-it-is-working.md
+it("shares folder header/root terminal menu disclosure and retires a removed terminal's menu", async () => {
+  const registry = new UiActions({ workspace: "practice", window: "root-menus" }, () => true, async () => {});
+  const onOpenTerminal = vi.fn(), onCloseTerminal = vi.fn(), onNewDocument = vi.fn();
+  const terminal = session("root-t", "/home/me/notebook", { title: "root witness" });
+  const renderPane = (sessions: TreeSession[]) => <UiActionContext.Provider value={registry}><FolderTreePane roots={[RESPONSE]} sessions={sessions} openable={new Set()} onOpen={() => {}} onNewDocument={onNewDocument} onOpenTerminal={onOpenTerminal} onCloseTerminal={onCloseTerminal} /></UiActionContext.Provider>;
+  const mounted = render(renderPane([terminal]));
+  await screen.findByRole("button", { name: /root witness/ });
+  const actions = () => registry.groups().groups.flatMap(group => registry.observe(group, 64).actions);
+  let id = 0;
+  const invoke = async (label: string, args = {}) => { let reply: unknown; await act(async () => { reply = await registry.act(registry.scope, { id: "acp:root", kind: "agent" }, { handle: actions().find(action => action.label === label)!.handle, arguments: args, request_id: String(++id) }); }); return reply; };
+  expect(await invoke("Read root terminal row page", { first: 0, count: 64 })).toMatchObject({ outcome: { value: { rows: [{ id: "root-t", title: "root witness" }], output_read: false } } });
+  await invoke("New document from folder header"); expect(onNewDocument).toHaveBeenCalledTimes(1);
+  await invoke("Open workspace folder header menu"); expect(screen.getByRole("menuitem", { name: "New folder…" })).toBeTruthy();
+  await invoke("Open root terminal row", { id: "root-t" }); expect(onOpenTerminal).toHaveBeenCalledWith("root-t");
+  await invoke("Open root terminal row menu", { id: "root-t" });
+  expect(screen.getByText("Close root witness")).toBeTruthy();
+  const old = actions().find(action => action.label === "Close root witness")!;
+  mounted.rerender(renderPane([]));
+  expect(screen.queryByText("Close root witness")).toBeNull();
+  expect(await registry.act(registry.scope, { id: "acp:root", kind: "agent" }, { handle: old.handle, arguments: {}, request_id: "retired" })).not.toMatchObject({ outcome: { status: "completed" } });
+  expect(onCloseTerminal).not.toHaveBeenCalled();
+  expect(await invoke("Open root terminal row menu", { id: "root-t" })).toMatchObject({ outcome: { status: "unavailable" } });
+});

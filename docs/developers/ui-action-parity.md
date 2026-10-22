@@ -1175,3 +1175,9 @@ opening controllers and disclose the existing menu descriptors. File-tab/folder
 replacement retires the current menu. Target pages are bounded and explicit;
 filesystem prompts/results still belong to the existing Dired controller.
 The current handoff records focused evidence and current package boundaries.
+
+
+Folder header menus/New and root terminal-row metadata/open/menu controllers now
+have registered shared actions. Source/folder/row changes withdraw old menus.
+Nested terminal text entries retain Files row activation. Current focused results
+and package revision boundaries are recorded in the active issue-72 handoff.

@@ -171,3 +171,13 @@ Last LLM verification:
     does not, the row says "bash" while `cargo test` is what is running. The
     title is already carried in `SessionSummary` and is not derived from OSC
     0/2 here.
+
+
+## 2026-10-22 root-row parity review
+
+LLM review: partial. The real root-row context menu, terminal-opening callback
+and bounded explicit metadata reader are agent-addressable. Removed/moved rows
+and changed folder owners retire their menus. No output is read implicitly, and
+absent host callbacks return required input. Forty-four focused folder cases and
+changed-entrypoint TypeScript passed; the issue-72 handoff records hashes and
+boundaries. No human judgment or current native/provider witness supplied.

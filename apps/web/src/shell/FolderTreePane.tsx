@@ -536,7 +536,9 @@ function FolderRoot({
     [folder.root_path, folder.separator, folder.file_manager],
   );
 
+  const menuOwner = JSON.stringify([folder, activeDocId, [...openable], atRoot]);
   const [menu, setMenu] = useState<{
+    owner: string;
     x: number;
     y: number;
     path: string;
@@ -549,12 +551,13 @@ function FolderRoot({
   const [notice, setNotice] = useState<string | null>(null);
   const [issueAssociation, setIssueAssociation] = useState<{ folder: string; error?: string; busy?: boolean } | null>(null);
 
+  const showMenu = useCallback((position: { x: number; y: number }, path: string, dir: boolean, plainText = false) => {
+    setTermMenu(null); setNotice(null); setMenu({ owner: menuOwner, ...position, path, dir, plainText });
+  }, [menuOwner]);
   const openMenu = useCallback<OnRowMenu>((event, path, dir, plainText = false) => {
-    event.preventDefault();
-    event.stopPropagation();
-    setNotice(null);
-    setMenu({ x: event.clientX, y: event.clientY, path, dir, plainText });
-  }, []);
+    event.preventDefault(); event.stopPropagation();
+    showMenu({ x: event.clientX, y: event.clientY }, path, dir, plainText);
+  }, [showMenu]);
 
   // Dired: the marks, the prompt a verb asks through, and the verbs.
   const dired = useDired(setNotice);
@@ -571,15 +574,24 @@ function FolderRoot({
 
   /** A right-click on a terminal node: its own short menu, not the folder's. */
   const [termMenu, setTermMenu] = useState<{
+    owner: string;
     x: number;
     y: number;
     session: TreeSession;
   } | null>(null);
-  const openTermMenu = useCallback((event: MouseEvent, session: TreeSession) => {
-    event.preventDefault();
-    event.stopPropagation();
-    setTermMenu({ x: event.clientX, y: event.clientY, session });
-  }, []);
+  const showTermMenu = (position: { x: number; y: number }, id: string) => {
+    const session = atRoot.find(session => session.id === id);
+    if (!session) return false;
+    setMenu(null); setTermMenu({ owner: menuOwner, ...position, session }); return true;
+  };
+  const openTermMenu = (event: MouseEvent, session: TreeSession) => {
+    event.preventDefault(); event.stopPropagation();
+    showTermMenu({ x: event.clientX, y: event.clientY }, session.id);
+  };
+  const priorMenuOwner = useRef(menuOwner);
+  useEffect(() => {
+    if (priorMenuOwner.current !== menuOwner) { priorMenuOwner.current = menuOwner; setMenu(null); setTermMenu(null); }
+  }, [menuOwner]);
 
   const runItem = useCallback((item: TreeMenuItem) => {
     setMenu(null);
@@ -605,11 +617,29 @@ function FolderRoot({
     }
   }, [onNewTerminal, onNewWorktree, onCloseTerminal, onOpen, dired]);
 
+  const newFromHeader = () => { setMenu(null); setTermMenu(null); onNewDocument(); };
   const name = folder.root.replace(/\/+$/, "").split("/").pop() || folder.root;
   const actionParent = `folder-tree:${instance}`;
-  const treeRevision = useUiRevision(() => [folder, [...dirtyPaths], [...openable], notice]);
+  const treeRevision = useUiRevision(() => [folder, [...dirtyPaths], [...openable], notice, atRoot, menu, termMenu]);
   const actionRead = () => ({ revision: treeRevision(), enabled: true });
   useUiCommands([
+    { key: `${actionParent}/root-menu`, command: { label: "Open workspace folder header menu", parent: actionParent, subject: actionParent, parameters: {}, prerequisites: [], read: actionRead, execute: async () => { showMenu({ x: 16, y: 16 }, "", true); return { status: "completed", value: { menu_open_requested: true } }; } } },
+    { key: `${actionParent}/new-document`, command: { label: "New document from folder header", parent: actionParent, subject: actionParent, parameters: {}, prerequisites: [], read: actionRead, execute: async () => { newFromHeader(); return { status: "completed", value: { callback_requested: true, document_created: null } }; } } },
+    { key: `${actionParent}/read-terminals`, command: { label: "Read root terminal row page", parent: actionParent, subject: `${actionParent}:terminal-reading`, parameters: { first: { type: "number", integer: true, minimum: 0, maximum: 100000000 }, count: { type: "number", integer: true, minimum: 1, maximum: 64 } }, prerequisites: [], read: actionRead, execute: async args => {
+      const first = Number(args.first), count = Number(args.count), rows = rankSessions(atRoot);
+      if (first > rows.length) return { status: "unavailable", reason: "Index exceeds terminal rows in this root" };
+      const value = { rows: rows.slice(first, first + count).map(session => ({ id: session.id, title: session.title, state: session.state, cwd: session.cwd, cwd_is_live: session.cwdIsLive, monitor: session.monitor })), total: rows.length, next: first + count < rows.length ? first + count : null, output_read: false };
+      if (new TextEncoder().encode(JSON.stringify(value)).length > 8192) return { status: "unavailable", reason: "Terminal row page exceeds 8192 UTF-8 bytes; request fewer rows" };
+      return { status: "completed", value };
+    } } },
+    ...[false, true].map(menu => ({ key: `${actionParent}/terminal-${menu ? "menu" : "open"}`, command: { label: menu ? "Open root terminal row menu" : "Open root terminal row", parent: actionParent, subject: actionParent, parameters: { id: { type: "string" as const, maxLength: 4096 } }, prerequisites: ["Current terminal row placed in this folder root"], read: actionRead, execute: async (args: Record<string, import("../lib/uiActions").UiValue>) => {
+      const session = atRoot.find(session => session.id === args.id);
+      if (!session) return { status: "unavailable" as const, reason: "Terminal moved, closed or is outside this root" };
+      if (menu) showTermMenu({ x: 16, y: 16 }, session.id);
+      else if (onOpenTerminal) onOpenTerminal(session.id);
+      else return { status: "requires_input" as const, reason: "This host has no terminal-opening callback", request: "workspace-terminal-owner" };
+      return { status: "completed" as const, value: { callback_requested: true, menu_open_requested: menu } };
+    } } })),
     { key: `${actionParent}/read`, command: { label: `Read folder entries: ${name}`, parent: actionParent, subject: actionParent, parameters: {
       directory: { type: "string", maxLength: 8192 }, offset: { type: "number", minimum: 0, maximum: 1000000, integer: true }, limit: { type: "number", minimum: 1, maximum: 64, integer: true },
     }, prerequisites: ["Explicit directory disclosure; returns only immediate children and no file content"], read: actionRead, execute: async args => {
@@ -645,7 +675,7 @@ function FolderRoot({
           className="folder-tree__new"
           data-tip="New document"
           aria-label="New document"
-          onClick={onNewDocument}
+          onClick={newFromHeader}
         >
           +
         </button>
@@ -721,8 +751,7 @@ function FolderRoot({
           if (action.kind !== "inert") onOpen(action);
         }}
         onContextPath={(event, path, dir) => {
-          setNotice(null);
-          setMenu({ x: event.clientX, y: event.clientY, path, dir, plainText: !dir && !isLikelyBinaryPath(path) });
+          showMenu({ x: event.clientX, y: event.clientY }, path, dir, !dir && !isLikelyBinaryPath(path));
         }}
         kindOfPath={(path, dir) => {
           if (dir) return "directory";
@@ -735,7 +764,7 @@ function FolderRoot({
       {detailFolder !== null && <ul className="folder-tree__list" role="tree">
         <GithubIssueRows workspace={github.value} folder={detailFolder} onChanged={github.refresh} />
       </ul>}
-      {menu && (
+      {menu && menu.owner === menuOwner && (
         <TreeContextMenu
           x={menu.x}
           y={menu.y}
@@ -749,7 +778,7 @@ function FolderRoot({
           onClose={() => setMenu(null)}
         />
       )}
-      {termMenu && (
+      {termMenu && termMenu.owner === menuOwner && (
         <TreeContextMenu
           x={termMenu.x}
           y={termMenu.y}
