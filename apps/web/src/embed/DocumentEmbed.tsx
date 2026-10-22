@@ -1,3 +1,4 @@
+import { AssetPreviewImage } from "./AssetPreviewImage";
 import { useEffect, useState } from "react";
 import type { EditorView } from "@codemirror/view";
 import type { Extension } from "@codemirror/state";
@@ -61,6 +62,6 @@ function AssetPreview({ source, resolve }: { source: string; resolve: NonNullabl
     return () => controller.abort();
   }, [source, resolve]);
   return <div className="hickory-assets">{assets.map((asset) => asset.url
-    ? <img key={asset.path} src={asset.url} alt={asset.path} />
+    ? <AssetPreviewImage key={`${asset.path}:${asset.url}`} path={asset.path} url={asset.url} />
     : <span role="alert" key={asset.path}>{asset.path}: {asset.error}</span>)}</div>;
 }

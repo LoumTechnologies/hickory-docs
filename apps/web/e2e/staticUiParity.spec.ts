@@ -150,3 +150,18 @@ test("review fixture context inspection shares its native handler", async ({ pag
   await expect(frame.getByLabel("Selected GitHub context")).toHaveText("[]");
   expect(engine).toEqual([]);
 });
+
+test("host-supplied embedded image pixels reach the scoped parent as a real PNG", async ({ page }) => {
+  const { invoke, act, frame, engine } = await connect(page, "embed");
+  await expect(frame.getByRole("img", { name: "images/mark.svg", exact: true })).toBeVisible();
+  const groups = (await invoke("ui_observe", { limit: 64 })).data.result.groups;
+  const disclosed = await Promise.all(groups.map(async (parent: string) => ({ parent, actions: (await invoke("ui_observe", { parent, limit: 64 })).data.result.actions })));
+  const preview = disclosed.find((group: { actions: { label: string }[] }) => group.actions.some(action => action.label === "Read embedded image images/mark.svg"));
+  expect(preview).toBeTruthy();
+  const result = await act(preview.parent, "Read embedded image images/mark.svg", { max_dimension: 256 });
+  const value = result.outcome.value, bytes = Buffer.from(value.ui_image.data, "base64");
+  expect(value).toMatchObject({ path: "images/mark.svg", original_width: 40, original_height: 40, width: 40, height: 40 });
+  expect([...bytes.subarray(0, 8)]).toEqual([137, 80, 78, 71, 13, 10, 26, 10]);
+  expect(createHash("sha256").update(bytes).digest("hex")).toBe(value.ui_image.digest);
+  expect(engine).toEqual([]);
+});

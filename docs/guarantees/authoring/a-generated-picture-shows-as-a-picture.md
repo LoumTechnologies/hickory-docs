@@ -125,3 +125,20 @@ Last LLM verification:
   in both themes, and that the `▨` icon lands beside the block it belongs to,
   are all unverified. The extension list is a judgement call too: a `.pdf` a
   cell produces is not offered as a picture, though a browser could draw one.
+
+
+### Host preview visual parity — 2026-10-22
+
+Host-supplied DocumentEmbed previews and PicturePanel share bounded explicit
+capture of actual browser-loaded pixels. Capture binds the current image owner,
+source/path and load epoch; retirement/abort cannot deliver the old raster as a
+replacement view. Browser CORS/secure-context refusal is requires_input, with no
+security bypass. Host image failures do not claim a missing cell recording.
+Pixel capture is not original-file equality or program execution evidence.
+
+LLM implementation review: partial. Two focused owner/CORS component cases and
+two actual Chrome parent-bridge PNG/digest flows passed, with no engine requests.
+Targeted strict TypeScript passed. Exact hashes, failed fixture corrections and
+remaining package/provider/publication acceptance are in the issue-72 handoff.
+Human judgment is not supplied. The separately building native checkpoint does
+not include this later slice and cannot witness it.

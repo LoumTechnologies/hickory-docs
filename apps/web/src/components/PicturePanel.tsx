@@ -1,3 +1,4 @@
+import { imageRaster } from "../lib/imageRaster";
 import { useUiCommands, useUiRevision } from "../lib/uiActionBridge";
 import { useUiReading } from "../lib/uiReading";
 // A `<hick:file>` that writes a chart, shown as the chart.
@@ -75,21 +76,12 @@ export function PicturePanel({ src, path }: PicturePanelProps) {
       const element = image.current, capturedVersion = version.current;
       if (!ready() || !element || signal.aborted) return { status: "unavailable", reason: "Picture is not available for capture" };
       try {
-        const scale = Math.min(1, (args.max_dimension as number) / Math.max(element.naturalWidth, element.naturalHeight));
-        const canvas = document.createElement("canvas");
-        canvas.width = Math.max(1, Math.round(element.naturalWidth * scale)); canvas.height = Math.max(1, Math.round(element.naturalHeight * scale));
-        const context = canvas.getContext("2d");
-        if (!context) throw new Error("This browser has no image canvas context");
-        context.drawImage(element, 0, 0, canvas.width, canvas.height);
-        const blob = await new Promise<Blob>((resolve, reject) => canvas.toBlob(value => value ? resolve(value) : reject(new Error("PNG encoding unavailable")), "image/png"));
-        if (blob.size > 393216) return { status: "unavailable", reason: "PNG exceeds 384 KiB; read again with a smaller max_dimension" };
-        const bytes = new Uint8Array(await blob.arrayBuffer());
-        const digest = [...new Uint8Array(await crypto.subtle.digest("SHA-256", bytes))].map(byte => byte.toString(16).padStart(2, "0")).join("");
-        if (signal.aborted || image.current !== element || currentSource.current !== src || version.current !== capturedVersion || !element.isConnected) return { status: "unavailable", reason: "Displayed image changed or closed while capturing; read the current picture again" };
-        let binary = ""; for (const byte of bytes) binary += String.fromCharCode(byte);
+        const result = await imageRaster(element, args.max_dimension as number, signal, () => image.current === element && currentSource.current === src && version.current === capturedVersion);
+        if (!result.ok) return { status: "unavailable", reason: result.reason };
         setCaptureError(null);
-        return { status: "completed", value: { path, resource, original_width: element.naturalWidth, original_height: element.naturalHeight, width: canvas.width, height: canvas.height, ui_image: { media_type: "image/png", data: btoa(binary), digest, byte_length: bytes.length }, scope: "Actual captured raster pixels, potentially downscaled; not source-file equality or a verification verdict" } };
+        return { status: "completed", value: { path, resource, ...result.capture, scope: "Actual captured raster pixels, potentially downscaled; not source-file equality or a verification verdict" } };
       } catch (error) {
+        if (signal.aborted || image.current !== element || currentSource.current !== src || version.current !== capturedVersion || !element.isConnected) return { status: "unavailable", reason: "Displayed image changed or closed while capturing" };
         const reason = error instanceof Error ? error.message : String(error); setCaptureError(reason);
         return { status: "requires_input", request: `${parent}:capture-access`, reason: `Image capture unavailable: ${reason}. Use an accessible same-origin image with browser CORS access in a secure browser context, then read the current image again.` };
       }
