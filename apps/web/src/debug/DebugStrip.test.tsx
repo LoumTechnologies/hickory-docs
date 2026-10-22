@@ -1,5 +1,7 @@
+import { UiActions } from "../lib/uiActions";
+import { UiActionContext } from "../lib/uiActionBridge";
 import { isAction } from "../lib/keymap";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { DebugStrip, debugKeysActive, frameLabel, stepForKey } from "./DebugStrip";
 import type { DebugStripProps } from "./DebugStrip";
@@ -374,4 +376,48 @@ describe("automatic debugger setup", () => {
     await waitFor(() => expect(screen.getByRole("alert").textContent).toContain("still unavailable"));
     expect(onInstall).toHaveBeenCalledOnce();
   });
+});
+
+// Guarantee: docs/guarantees/agent/ui-action-dispatch.md
+it("shares actual installer retry and refuses to restart a replacement target after a late installation", async () => {
+  const registry = new UiActions({ workspace: "p", window: "w" }, () => true, async () => {});
+  let release!: () => void;
+  const install = vi.fn().mockRejectedValueOnce(Error("first download failed")).mockImplementationOnce(() => new Promise<void>(resolve => { release = resolve; }));
+  const start = vi.fn();
+  const ui = (program: string) => <UiActionContext.Provider value={registry}><DebugStrip {...base({ program, status: "failed", offerInstall: { kind: "dap", language: "python" }, onInstall: install, onStart: start })} /></UiActionContext.Provider>;
+  const rendered = render(ui("first.py"));
+  const action = () => registry.groups().groups.flatMap(group => registry.observe(group).actions).find(action => action.label === "Retry python debugger installation")!;
+  try {
+    await waitFor(() => expect(screen.getByRole("alert").textContent).toContain("first download failed"));
+    const descriptor = action(); let pending!: ReturnType<typeof registry.act>;
+    await act(async () => { pending = registry.act(registry.scope, { id: "agent", kind: "agent" }, { handle: descriptor.handle, arguments: {}, request_id: "retry" }); });
+    expect(install).toHaveBeenCalledTimes(2); expect(start).not.toHaveBeenCalled();
+    rendered.rerender(ui("second.py"));
+    await act(async () => { release(); expect(await pending).toMatchObject({ outcome: { status: "unavailable", reason: expect.stringContaining("source/setup owner") } }); });
+    expect(start).not.toHaveBeenCalled();
+    expect(screen.getByRole("alert").textContent).toContain("no debugger restart was requested");
+    expect(await registry.act(registry.scope, { id: "agent", kind: "agent" }, { handle: descriptor.handle, arguments: {}, request_id: "old-target" })).toMatchObject({ status: "unavailable" });
+    install.mockResolvedValue(undefined);
+    await act(async () => expect(await registry.act(registry.scope, { id: "agent", kind: "agent" }, { handle: action().handle, arguments: {}, request_id: "current-target" })).toMatchObject({ outcome: { value: { installation_completed: true, debugger_restart_requested: true, running_debuggee: "not established" } } }));
+    expect(start).toHaveBeenCalledTimes(1);
+  } finally { rendered.unmount(); }
+});
+
+// Guarantee: docs/guarantees/agent/ui-action-dispatch.md
+it("cancels the originating setup request without claiming to undo a shared download", async () => {
+  const registry = new UiActions({ workspace: "p", window: "w" }, () => true, async () => {});
+  let release!: () => void;
+  const install = vi.fn().mockRejectedValueOnce(Error("download failed")).mockImplementationOnce(() => new Promise<void>(resolve => { release = resolve; }));
+  const start = vi.fn();
+  const rendered = render(<UiActionContext.Provider value={registry}><DebugStrip {...base({ status: "failed", offerInstall: { kind: "dap", language: "python" }, onInstall: install, onStart: start })} /></UiActionContext.Provider>);
+  try {
+    await waitFor(() => expect(screen.getByRole("alert").textContent).toContain("download failed"));
+    const descriptor = registry.groups().groups.flatMap(group => registry.observe(group).actions).find(action => action.label === "Retry python debugger installation")!;
+    const actor = { id: "agent", kind: "agent" as const }; let pending!: ReturnType<typeof registry.act>;
+    await act(async () => { pending = registry.act(registry.scope, actor, { handle: descriptor.handle, arguments: {}, request_id: "cancel-setup" }); });
+    expect(registry.cancel(registry.scope, actor, "cancel-setup")).toBe(true);
+    await act(async () => { release(); expect(await pending).toMatchObject({ outcome: { status: "unavailable", reason: expect.stringContaining("no debugger restart") } }); });
+    expect(start).not.toHaveBeenCalled(); expect(install).toHaveBeenCalledTimes(2);
+    expect(screen.getByRole("alert").textContent).toContain("Installation may have completed");
+  } finally { rendered.unmount(); }
 });

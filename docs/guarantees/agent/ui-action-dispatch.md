@@ -820,3 +820,14 @@ prompt/dired cases and the existing native delete-confirmation case passed;
 targeted TypeScript passed. Host filesystem operations are injected, so this is
 not a current native-platform witness. Dependencies, assumptions and remaining
 issue-72 work are in the active handoff. Human judgment is not supplied.
+
+
+### Debugger setup retry — 2026-10-22
+
+Missing-debugger installation retry shares the actual installer and progress/error
+reading. It binds the originating source/target and refuses automatic restart after
+replacement, cancellation or dismissal. A completed shared download may retain its
+effects; installation completion does not establish a running debuggee. Six
+focused setup cases and targeted TypeScript pass; installers are injected, not a
+native package witness. LLM implementation review is partial, human judgment is
+not supplied, and exact hashes/caveats are in the issue-72 handoff.

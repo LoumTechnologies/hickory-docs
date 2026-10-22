@@ -1,3 +1,6 @@
+import { useUiCommands, useUiRevision } from "../lib/uiActionBridge";
+import { useUiReading } from "../lib/uiReading";
+import type { UiOutcome } from "../lib/uiActions";
 import { ObservationReading } from "./ObservationReading";
 import { MoreActions } from "../components/MoreActions";
 // The debugger's chrome, dissolved into the block it debugs.
@@ -16,7 +19,7 @@ import { DebugGutterControls, debugViewFocused } from "./DebugRail";
 import type { EditorView } from "@codemirror/view";
 import { PaneHeaderContent } from "../shell/PaneHeader";
 import { bindingOf, formatBinding, isAction } from "../lib/keymap";
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import type { TranscriptEvent } from "../api/types";
 import { WatchingTerminal } from "../terminal/WatchingTerminal";
 import type { DebugCapabilities, Frame, Step } from "./client";
@@ -65,24 +68,33 @@ export function debugKeysActive(status: DebugStripProps["status"]): boolean {
 // Missing catalogue adapters are a prerequisite of Debug. Share downloads and
 // resume only the request whose setup is still on screen.
 const installations = new Map<string, Promise<void>>();
-function MissingTool({ offer, detail, onInstall, onReady, attempted }: {
+const setupEditors = new WeakMap<object, string>();
+function setupEditorId(view?: EditorView | null) { if (!view) return null; let id = setupEditors.get(view); if (!id) { id = crypto.randomUUID(); setupEditors.set(view, id); } return id; }
+function MissingTool({ offer, detail, onInstall, onReady, attempted, sourceIdentity }: {
   offer: { kind: string; language: string };
   detail: string | null;
   onInstall?: (offer: { kind: string; language: string }) => Promise<void>;
   onReady: () => void;
   attempted: Set<string>;
+  sourceIdentity: () => string;
 }) {
+  const parent = `debugger-setup:${useId()}`;
   const [busy, setBusy] = useState(true);
   const [failed, setFailed] = useState<string | null>(null);
   const callbacks = useRef({ onInstall, onReady });
   callbacks.current = { onInstall, onReady };
   const active = useRef(false);
   const attempt = useRef(0);
-  const run = () => {
+  const inFlight = useRef(false);
+  const currentOffer = useRef(offer); currentOffer.current = offer;
+  const currentSource = useRef(sourceIdentity); currentSource.current = sourceIdentity;
+  const run = async (signal?: AbortSignal): Promise<UiOutcome> => {
+    if (inFlight.current || signal?.aborted) return { status: "unavailable", reason: "Debugger setup is already pending or this request was cancelled" };
     const install = callbacks.current.onInstall;
-    if (!install) { setBusy(false); return; }
+    if (!install) { setBusy(false); return { status: "unavailable", reason: "This debugger has no automatic installation handler" }; }
+    const capturedSource = currentSource.current();
     const id = ++attempt.current;
-    setBusy(true); setFailed(null);
+    inFlight.current = true; setBusy(true); setFailed(null);
     const key = `${offer.kind}:${offer.language}`;
     let pending = installations.get(key);
     if (!pending) {
@@ -91,13 +103,22 @@ function MissingTool({ offer, detail, onInstall, onReady, attempted }: {
       const remove = () => { if (installations.get(key) === pending) installations.delete(key); };
       void pending.then(remove, remove);
     }
-    void pending.then(() => {
-      if (active.current && attempt.current === id) callbacks.current.onReady();
-    }, e => {
-      if (active.current && attempt.current === id) setFailed(e instanceof Error ? e.message : String(e));
-    }).finally(() => {
-      if (active.current && attempt.current === id) setBusy(false);
-    });
+    try {
+      await pending;
+      if (!active.current || attempt.current !== id || signal?.aborted || currentSource.current() !== capturedSource) {
+        const reason = "Installation may have completed, but its source/setup owner was dismissed, changed or cancelled; no debugger restart was requested";
+        if (active.current && attempt.current === id) setFailed(reason);
+        return { status: "unavailable", reason };
+      }
+      callbacks.current.onReady();
+      return { status: "completed", value: { installation_completed: true, debugger_restart_requested: true, running_debuggee: "not established" } };
+    } catch (cause) {
+      const reason = cause instanceof Error ? cause.message : String(cause);
+      if (active.current && attempt.current === id) setFailed(reason);
+      return { status: "unavailable", reason };
+    } finally {
+      if (attempt.current === id) { inFlight.current = false; if (active.current) setBusy(false); }
+    }
   };
   useEffect(() => {
     active.current = true;
@@ -107,15 +128,23 @@ function MissingTool({ offer, detail, onInstall, onReady, attempted }: {
       setFailed("The debugger is still unavailable. Retry installation to try again.");
     } else {
       attempted.add(key);
-      run();
+      void run();
     }
-    return () => { active.current = false; attempt.current++; };
+    return () => { active.current = false; attempt.current++; inFlight.current = false; };
   }, [offer.kind, offer.language]);
+  const revision = useUiRevision(() => [offer.kind, offer.language, detail, currentSource.current(), busy, failed, attempt.current, active.current, inFlight.current]);
+  useUiReading("debugger setup", { offer, detail, busy, error: failed, attempt: attempt.current, available: !!onInstall, scope: "Installation status; automatic restart is a request, not a running-session witness" });
+  const invoke = useUiCommands(failed ? [{ key: parent, command: {
+    label: `Retry ${offer.language} debugger installation`, parent, subject: parent, parameters: {}, prerequisites: ["Current failed debugger setup; existing host installer and configured execution policy apply"],
+    read: () => ({ revision: revision(), enabled: active.current && !!callbacks.current.onInstall && !busy && !inFlight.current }),
+    execute: async (_args, _actor, signal) => run(signal),
+  } }] : []);
+  const retry = () => { const captured = currentOffer.current; void invoke(parent).catch(cause => { if (active.current && currentOffer.current === captured) setFailed(cause instanceof Error ? cause.message : String(cause)); }); };
   const pretty = offer.language.charAt(0).toUpperCase() + offer.language.slice(1);
   return <span className="debug-strip__missing" role={failed ? "alert" : "status"}>
     <span data-tip={detail ?? undefined}>{busy ? `Installing ${pretty} debugger…` : failed ? `${pretty} debugger installation failed.` : `No ${pretty} debugger on this machine.`}</span>
     {failed && <><span className="debug-strip__error">{failed}</span>
-      <button type="button" className="btn debug-strip__install" onClick={run}>Retry installation</button></>}
+      <button type="button" className="btn debug-strip__install" disabled={busy} onClick={retry}>Retry installation</button></>}
   </span>;
 }
 
@@ -435,6 +464,7 @@ export function DebugStrip(props: DebugStripProps) {
           onInstall={props.onInstall}
           onReady={props.onStart}
           attempted={attemptedInstallations.current}
+          sourceIdentity={() => JSON.stringify([props.program, props.launchTarget, props.reading?.source.revision, props.reading?.scope, setupEditorId(props.editorView), props.editorView?.state.doc.toString()])}
         />
       )}
     </div>
