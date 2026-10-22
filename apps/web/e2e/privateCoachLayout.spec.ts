@@ -36,3 +36,41 @@ test("private coach form fits native and narrow viewports without covering its t
   }
   expect(posts.every(path => path === "/api/prediction/tool" || path.startsWith("/api/v1/ui/windows"))).toBe(true);
 });
+
+// Guarantee: docs/guarantees/authoring/the-engineer-tour-distinguishes-replay-from-execution.md
+// Exercises the actual native tour and shipped CSS, with synthetic inactive metadata.
+test("native intro remains inside its anchored popup with clickable chrome", async ({ page }) => {
+  const posts: string[] = [];
+  const createdPath = `/synthetic-layout-workspace/${"long-folder-".repeat(30)}/practice`;
+  await page.route("**/api/**", async route => {
+    const path = new URL(route.request().url()).pathname;
+    if (!path.startsWith("/api/")) { await route.fallback(); return; }
+    if (route.request().method() === "POST") posts.push(path);
+    await route.fulfill({ json: route.request().method() === "POST" && path === "/api/tour/practice" ? { path: createdPath, opened: false, open_error: "Synthetic layout response; no repository was created" } : { active: false } });
+  });
+  for (const width of [1100, 390]) {
+    await page.setViewportSize({ width, height: 780 });
+    await page.goto("/embed.html?native-coach");
+    await page.getByRole("button", { name: "AI engineer tour", exact: true }).click();
+    const popup = page.getByRole("region", { name: "AI engineer tour", exact: true });
+    const chrome = popup.locator(":scope > header"), content = popup.getByRole("region", { name: "Agent-first practice" });
+    const outer = (await popup.boundingBox())!, header = (await chrome.boundingBox())!, body = (await content.boundingBox())!;
+    expect(body.x).toBeGreaterThanOrEqual(outer.x);
+    expect(body.x + body.width).toBeLessThanOrEqual(outer.x + outer.width);
+    expect(body.y).toBeGreaterThanOrEqual(header.y + header.height);
+    expect(await popup.evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true);
+    await popup.getByRole("button", { name: "Locate target", exact: true }).click();
+    await expect(page.getByRole("button", { name: "Close AI engineer tour", exact: true })).toBeFocused();
+    await expect(popup.getByText("The target is closed", { exact: false })).toHaveCount(0);
+    const create = popup.getByRole("button", { name: "Create a private prediction practice", exact: true });
+    await create.scrollIntoViewIfNeeded(); await expect(create).toBeVisible();
+    await popup.getByRole("button", { name: "Create and open an isolated practice repository", exact: true }).click();
+    await expect(popup.locator("code")).toHaveText(createdPath);
+    expect(await popup.evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true);
+    await page.screenshot({ path: test.info().outputPath(`native-intro-${width}.png`) });
+    await popup.getByRole("button", { name: "Dismiss coach", exact: true }).click();
+    await expect(popup).toHaveCount(0);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  }
+  expect(posts).toEqual(["/api/tour/practice", "/api/tour/practice"]);
+});

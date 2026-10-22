@@ -1,3 +1,4 @@
+import { NativeCoachFixture } from "./NativeCoachFixture";
 import { StaticUiSurface } from "./StaticUiSurface";
 import { GraphFixture } from "./GraphFixture";
 import { PictureFixture } from "./PictureFixture";
@@ -34,4 +35,4 @@ function LocalFixture() {
   }, []);
   return storage ? <BrowserWorkspace storage={storage} /> : <p>{error || "Loading local storage…"}</p>;
 }
-createRoot(document.getElementById("root")!).render(<StaticUiSurface>{location.search.includes("graph") ? <GraphFixture /> : location.search.includes("picture") ? <PictureFixture /> : location.search.includes("profile") ? <ProfileFixture /> : location.search.includes("review") ? <ReviewFixture /> : location.search.includes("workspace") ? <LocalFixture /> : <EmbeddingFixture />}</StaticUiSurface>);
+createRoot(document.getElementById("root")!).render(<StaticUiSurface>{location.search.includes("native-coach") ? <NativeCoachFixture /> : location.search.includes("graph") ? <GraphFixture /> : location.search.includes("picture") ? <PictureFixture /> : location.search.includes("profile") ? <ProfileFixture /> : location.search.includes("review") ? <ReviewFixture /> : location.search.includes("workspace") ? <LocalFixture /> : <EmbeddingFixture />}</StaticUiSurface>);

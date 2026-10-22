@@ -124,3 +124,16 @@ may be overlapped until dismissal. Fifteen focused component cases, one syntheti
 metadata browser layout flow and targeted TypeScript passed. This is partial LLM
 review, not human judgment or a new native package witness. The handoff records
 exact source hashes; changing placement/styles invalidates this layout evidence.
+
+
+## 2026-10-22 anchored native layout correction
+
+The native tour content stays in its anchored popup's normal flow and scroll
+bounds; long creation labels and returned paths wrap. Its header, Locate and
+Dismiss remain operable instead of being covered by a legacy fixed-position
+child. LLM review: partial. Two focused actual-component Chromium layout cases
+passed at native/narrow widths; targeted TypeScript passed. The preceding
+packaged native creation/End check found the defect and is not proof of the fix.
+The issue-72 handoff records exact hashes, native process boundaries and the
+synthetic browser responses. No human judgment, paid provider or launch-readiness
+claim follows from these checks.

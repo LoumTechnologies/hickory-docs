@@ -1203,3 +1203,10 @@ records the 33-file candidate cohort and exact hashes. It found useShellKeys is
 live through SpatialShellView even though legacy ShellView JSX is uncalled.
 Those keyboard split/search/close handlers now have shared commands and focused
 checks. Static mapping is distinct from every dynamic/platform runtime witness.
+
+
+The packaged native check exposed legacy fixed positioning inside the anchored
+tour. Its content now stays in the popup's flow/scroll bounds, with long labels
+and paths wrapping. Real Chromium pointer/geometry checks cover the actual
+component; this is separate from the preceding package's setup/End witness.
+The current handoff records the defect, fix, exact hashes and witness limits.
