@@ -1,3 +1,4 @@
+import { testGutterActions, type TestScan } from "./testGutterActions";
 // A run mark beside every test, in the gutter.
 //
 // Finding a test is a line-shaped question with a per-language answer —
@@ -87,10 +88,10 @@ export function findTests(language: string, text: string): TestMark[] {
   return marks;
 }
 
-const setTestMarks = StateEffect.define<TestMark[]>();
+const setTestMarks = StateEffect.define<TestScan>();
 
-const testMarksField = StateField.define<TestMark[]>({
-  create: () => [],
+const testMarksField = StateField.define<TestScan>({
+  create: () => ({ marks: [], source: null }),
   update(marks, tr) {
     for (const effect of tr.effects) if (effect.is(setTestMarks)) marks = effect.value;
     return marks;
@@ -100,24 +101,27 @@ const testMarksField = StateField.define<TestMark[]>({
 class RunMarker extends GutterMarker {
   constructor(
     private readonly mark: TestMark,
-    private readonly onRun: (mark: TestMark) => void,
+    private readonly onRun: (view: EditorView, mark: TestMark) => void,
+    private readonly disabled: boolean,
   ) {
     super();
   }
   eq(other: RunMarker) {
-    return other.mark.name === this.mark.name && other.mark.line === this.mark.line;
+    return other.mark.name === this.mark.name && other.mark.line === this.mark.line && other.onRun === this.onRun && other.disabled === this.disabled;
   }
-  toDOM() {
+  toDOM(view: EditorView) {
     const el = document.createElement("span");
     el.className = "cm-test-run";
     el.textContent = "▶";
     el.dataset.tip = `Run ${this.mark.name}`;
     el.setAttribute("role", "button");
+    el.setAttribute("aria-label", `Run ${this.mark.name}`);
+    el.setAttribute("aria-disabled", String(this.disabled));
     // The mark answers its own click, rather than the gutter resolving a
     // line from the pointer's height: the mark knows which test it is.
     el.addEventListener("mousedown", (event) => {
       event.preventDefault();
-      this.onRun(this.mark);
+      if (!this.disabled) this.onRun(view, this.mark);
     });
     return el;
   }
@@ -133,22 +137,25 @@ const SPACER = new (class extends GutterMarker {
 })();
 
 /** Marks at their lines' starts, clamped to the document. */
-function markerSet(state: EditorState, onRun: (mark: TestMark) => void) {
+function markerSet(state: EditorState, onRun: (view: EditorView, mark: TestMark) => void, disabled: boolean) {
   const builder = new RangeSetBuilder<GutterMarker>();
-  const marks = [...state.field(testMarksField)].sort((a, b) => a.line - b.line);
+  const marks = [...state.field(testMarksField).marks].sort((a, b) => a.line - b.line);
   for (const mark of marks) {
     if (mark.line < 1 || mark.line > state.doc.lines) continue;
     const at = state.doc.line(mark.line).from;
-    builder.add(at, at, new RunMarker(mark, onRun));
+    builder.add(at, at, new RunMarker(mark, onRun, disabled));
   }
   return builder.finish();
 }
 
 export interface TestGutterOptions {
+  /** Owned raw file serialization; used only when it matches the captured editor text. */
+  serializedSource?: () => string | undefined;
   /** The file's language id, which decides what a test looks like. */
   language: string;
   /** Run this one. */
-  onRun: (mark: TestMark) => void;
+  onRun: (mark: TestMark, expectedSourceHash: string, current: () => boolean) => unknown | Promise<unknown>;
+  onError?: (reason: string) => void;
 }
 
 const RESCAN_MS = 300;
@@ -174,10 +181,12 @@ export function testGutter(options: TestGutterOptions): Extension[] {
   if (!HAS_TESTS.has(options.language)) return [];
   const scan = (view: EditorView) => {
     const marks = findTests(options.language, view.state.doc.toString());
-    view.dispatch({ effects: setTestMarks.of(marks) });
+    view.dispatch({ effects: setTestMarks.of({ marks, source: view.state.doc }) });
   };
+  const controls = testGutterActions(options, testMarksField);
+  const nativeRun = (view: EditorView, mark: TestMark) => { void controls.run(view, mark, new AbortController().signal); };
   return [
-    testMarksField,
+    testMarksField, controls.extensions,
     ViewPlugin.fromClass(
       class {
         private timer: ReturnType<typeof setTimeout> | null = null;
@@ -198,7 +207,7 @@ export function testGutter(options: TestGutterOptions): Extension[] {
     ),
     gutter({
       class: "cm-test-gutter",
-      markers: (view) => markerSet(view.state, options.onRun),
+      markers: (view) => markerSet(view.state, nativeRun, controls.pending() || view.state.field(testMarksField).source !== view.state.doc),
       initialSpacer: () => SPACER,
     }),
     EditorView.theme({

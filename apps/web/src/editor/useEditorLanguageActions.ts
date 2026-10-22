@@ -34,7 +34,7 @@ export function useEditorLanguageActions(view: EditorView | null, subject: strin
     return retained.token;
   };
   useUiCommands(view ? actions.map(action => ({ key: `${parent}:${action.id}`, command: {
-    parent, subject: parent, label: action.label, parameters: action.parameters,
+    parent, subject: action.subject ? `${parent}:${action.subject}` : parent, label: action.label, parameters: action.parameters,
     prerequisites: ["Current editor source, selection and installed language provider; mapped-source positions only"],
     read: () => ({ revision: revision(action), value: current(action) ? action.value?.(view) : undefined, enabled: current(action) && action.enabled(view), reason: "Language provider must be installed and the selected position mapped to current source" }),
     execute: async (args, actor, signal) => {

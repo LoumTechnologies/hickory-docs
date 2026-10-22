@@ -24,6 +24,7 @@ use axum::Json;
 use axum::extract::State;
 use serde::Deserialize;
 use serde_json::{Value, json};
+use sha2::{Digest, Sha256};
 
 use super::LocalState;
 use super::api::{ApiError, ApiResult};
@@ -38,6 +39,8 @@ pub struct RunBody {
     pub name: String,
     /// The language id the editor routed the file to.
     pub language: String,
+    /// Optional current-buffer fingerprint; checked against saved bytes before admission.
+    pub expected_source_hash: Option<String>,
 }
 
 /// What will run, and where.
@@ -126,7 +129,7 @@ pub fn test_command(
                 ],
             })
         }
-        "typescript" | "javascript" | "typescriptreact" | "javascriptreact" => {
+        "typescript" | "javascript" | "typescriptreact" | "javascriptreact" | "tsx" | "jsx" => {
             let dir = nearest(root, file, "package.json").ok_or_else(|| {
                 format!("{rel} is not inside a package: no package.json above it")
             })?;
@@ -223,7 +226,11 @@ pub async fn run(
     State(state): State<LocalState>,
     Json(body): Json<RunBody>,
 ) -> ApiResult<Json<Value>> {
-    let root = state.index.root().to_path_buf();
+    let root = state
+        .index
+        .root()
+        .canonicalize()
+        .map_err(|_| ApiError::unprocessable("Workspace is unavailable"))?;
     if body.path.is_empty()
         || Path::new(&body.path).is_absolute()
         || body.path.split('/').any(|p| p == "..")
@@ -240,6 +247,29 @@ pub async fn run(
             body.path
         )));
     }
+    let real_file = file
+        .canonicalize()
+        .map_err(|_| ApiError::unprocessable("Test source is unavailable"))?;
+    if !real_file.starts_with(&root) {
+        return Err(ApiError::unprocessable(
+            "Test source resolves outside the open folder",
+        ));
+    }
+    let source = std::fs::read(&real_file)
+        .map_err(|_| ApiError::unprocessable("Test source is unreadable"))?;
+    let source_hash = format!("{:x}", Sha256::digest(&source));
+    if let Some(expected) = &body.expected_source_hash {
+        if expected.len() != 64 || !expected.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+            return Err(ApiError::bad_request(
+                "A SHA-256 source fingerprint is required",
+            ));
+        }
+        if !source_hash.eq_ignore_ascii_case(expected) {
+            return Err(ApiError::conflict(
+                "The editor differs from the saved test source. Save or reload before running this test",
+            ));
+        }
+    }
     let command =
         test_command(&root, &file, &body.name, &body.language).map_err(ApiError::unprocessable)?;
     let cwd = command
@@ -255,9 +285,13 @@ pub async fn run(
         if cwd.is_empty() { ".".into() } else { cwd },
         "test gutter",
     );
-    let summary = super::launch_profiles::open_run(&state, &profile, &root, &root, None)
+    let summary = super::launch_profiles::open_run(&state, &profile, &root, &root, None, Some(profile.definition.name.clone()))
         .map_err(|e| ApiError::unprocessable(format!("{e:#}")))?;
-    Ok(Json(json!(summary)))
+    let mut reply = json!(summary);
+    reply["source_hash"] = json!(source_hash);
+    reply["source_checked_at_admission"] = json!(body.expected_source_hash.is_some());
+    reply["source_frozen"] = json!(false);
+    Ok(Json(reply))
 }
 
 #[cfg(test)]
@@ -285,6 +319,19 @@ mod tests {
         std::fs::create_dir_all(root.join("tests")).unwrap();
         std::fs::write(root.join("tests/test_x.py"), "").unwrap();
         (dir, root)
+    }
+
+    #[test]
+    fn jsx_and_tsx_aliases_retain_the_focused_test_filter() {
+        let (_dir, root) = project();
+        for language in ["jsx", "tsx"] {
+            let command =
+                test_command(&root, &root.join("web/src/a.test.ts"), "focused", language).unwrap();
+            assert_eq!(
+                command.argv,
+                vec!["npx", "vitest", "run", "src/a.test.ts", "-t", "focused"]
+            );
+        }
     }
 
     #[test]

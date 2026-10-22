@@ -218,13 +218,13 @@ export function OutputEditorPane({
           // for; a click runs that test in a terminal named after it.
           ...testGutter({
             language: initial.language,
-            onRun: (mark) =>
-              void api
-                .runTest({ path: initial.path, name: mark.name, language: initial.language })
-                .then(
-                  (session) => showTerminalRequest(session.id, session.title),
-                  (e) => setTestNotice(e instanceof Error ? e.message : String(e)),
-                ),
+            onError: setTestNotice,
+            serializedSource: () => fileRef.current?.content,
+            onRun: async (mark, expected_source_hash, current) => {
+              const session = await api.runTest({ path: initial.path, name: mark.name, language: initial.language, expected_source_hash });
+              if (current() && session.source_checked_at_admission && session.source_hash === expected_source_hash) showTerminalRequest(session.id, session.title);
+              return session;
+            },
           }),
           // A generated .md file gets the document editor's Typora-style
           // markdown look (big headings, styled bold/em/code). Display-only

@@ -1,5 +1,6 @@
 // Protects docs/guarantees/execution/a-test-runs-from-the-line-it-is-written-on.md
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+vi.mock("../lib/reviews", () => ({ sha256: async () => "0".repeat(64) }));
 import { EditorState } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
 import { findTests, testGutter } from "./testGutter";
@@ -62,7 +63,7 @@ describe("the gutter", () => {
     expect(marks).toHaveLength(1);
     expect((marks[0] as HTMLElement).dataset.tip).toBe("Run adds");
     marks[0].dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
-    expect(runs).toEqual(["adds"]);
+    await vi.waitFor(() => expect(runs).toEqual(["adds"]));
     view.destroy();
   });
 });

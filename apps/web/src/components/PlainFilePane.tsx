@@ -394,13 +394,13 @@ export function PlainFilePane({
           // for; a click runs that test in a terminal named after it.
           ...testGutter({
             language: initial.language,
-            onRun: (mark) =>
-              void api
-                .runTest({ path: initial.path, name: mark.name, language: initial.language })
-                .then(
-                  (session) => showTerminalRequest(session.id, session.title),
-                  (e) => setNotice(e instanceof Error ? e.message : String(e)),
-                ),
+            onError: setNotice,
+            serializedSource: () => saver.baseContent(),
+            onRun: async (mark, expected_source_hash, current) => {
+              const session = await api.runTest({ path: initial.path, name: mark.name, language: initial.language, expected_source_hash });
+              if (current() && session.source_checked_at_admission && session.source_hash === expected_source_hash) showTerminalRequest(session.id, session.title);
+              return session;
+            },
           }),
           ...(isMarkdownPath(initial.path) ? [markdownStyling(), taskCheckboxes(), renderedMath()] : []),
           history(),

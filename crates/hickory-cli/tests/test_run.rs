@@ -8,6 +8,7 @@ use std::time::{Duration, Instant};
 use hickory_cli::ExecutorChoice;
 use hickory_cli::serve::{ServeOptions, prepare};
 use serde_json::{Value, json};
+use sha2::{Digest, Sha256};
 
 #[tokio::test]
 async fn a_rust_test_runs_in_a_terminal_named_after_it() {
@@ -35,7 +36,7 @@ async fn a_rust_test_runs_in_a_terminal_named_after_it() {
     .unwrap();
     std::fs::write(
         root.join("lib/src/lib.rs"),
-        "pub fn add(a: u32, b: u32) -> u32 { a + b }\n\n#[cfg(test)]\nmod tests {\n    #[test]\n    fn adds() { assert_eq!(super::add(1, 2), 3); }\n}\n",
+        "pub fn add(a: u32, b: u32) -> u32 { a + b }\n\n#[cfg(test)]\nmod tests {\n    #[test]\n    fn adds() { assert_eq!(super::add(1, 2), 3); }\n}\n".replace('\n', "\r\n"),
     )
     .unwrap();
 
@@ -73,15 +74,59 @@ async fn a_rust_test_runs_in_a_terminal_named_after_it() {
         .unwrap();
     assert_eq!(refused.status().as_u16(), 422);
 
+    let source_hash = format!(
+        "{:x}",
+        Sha256::digest(std::fs::read(root.join("lib/src/lib.rs")).unwrap())
+    );
+    for (expected, status) in [("0".repeat(64), 409), ("invalid".into(), 400)] {
+        let refused = client.post(format!("{base}/api/tests/run")).json(&json!({"path":"lib/src/lib.rs","name":"adds","language":"rust","expected_source_hash":expected})).send().await.unwrap();
+        assert_eq!(refused.status().as_u16(), status);
+    }
+    #[cfg(unix)]
+    {
+        let outside = tempfile::tempdir().unwrap();
+        std::fs::write(
+            outside.path().join("escape.rs"),
+            "#[test] fn escaped() {}\n",
+        )
+        .unwrap();
+        std::os::unix::fs::symlink(
+            outside.path().join("escape.rs"),
+            root.join("lib/src/escape.rs"),
+        )
+        .unwrap();
+        let refused = client
+            .post(format!("{base}/api/tests/run"))
+            .json(&json!({"path":"lib/src/escape.rs","name":"escaped","language":"rust"}))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(refused.status().as_u16(), 422);
+    }
+    let empty: Value = client
+        .get(format!("{base}/api/terminals"))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert!(
+        empty["sessions"].as_array().unwrap().is_empty(),
+        "Refused admission must not start a terminal"
+    );
     let response = client
         .post(format!("{base}/api/tests/run"))
-        .json(&json!({ "path": "lib/src/lib.rs", "name": "adds", "language": "rust" }))
+        .json(&json!({ "path": "lib/src/lib.rs", "name": "adds", "language": "rust", "expected_source_hash":source_hash }))
         .send()
         .await
         .unwrap();
     assert_eq!(response.status().as_u16(), 200);
     let session: Value = response.json().await.unwrap();
     assert_eq!(session["title"], "test: adds");
+    assert_eq!(session["source_hash"], source_hash);
+    assert_eq!(session["source_checked_at_admission"], true);
+    assert_eq!(session["source_frozen"], false);
     assert!(
         session["cwd"].as_str().unwrap().ends_with("lib"),
         "ran in the wrong directory: {session}"

@@ -60,7 +60,7 @@ pub async fn run(State(state): State<LocalState>, Json(body): Json<Run>) -> ApiR
         let context = context(&state, &body.context)?;
         let profile = context.selected(&body.profile)?;
         let (root, scratch) = context.prepare()?;
-        open_run(&state, &profile, &context.root, &root, scratch)
+        open_run(&state, &profile, &context.root, &root, scratch, None)
     })();
     result
         .map(|s| Json(json!(s)))
@@ -74,6 +74,7 @@ pub(super) fn open_run(
     workspace: &std::path::Path,
     root: &std::path::Path,
     scratch: Option<tempfile::TempDir>,
+    title: Option<String>,
 ) -> anyhow::Result<hick_term::SessionSummary> {
     let cwd = crate::debug_sessions::safe_cwd(root, &profile.definition.cwd)?;
     let mut argv = profile.run_argv(root).map_err(anyhow::Error::msg)?;
@@ -84,7 +85,7 @@ pub(super) fn open_run(
     }
     let command = terminal_command(profile, &argv);
     let session = state.terminals.open(hick_term::SessionSpec {
-        title: format!("Run {}", profile.definition.name),
+        title: title.unwrap_or_else(|| format!("Run {}", profile.definition.name)),
         cwd,
         argv: command,
         monitor: false,

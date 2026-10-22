@@ -45,3 +45,12 @@ Last LLM verification:
   endpoint, watched to completion).
 - Caveats: the gutter's click is exercised in jsdom on the mark's own
   element; the terminal tab opening is by review.
+
+
+## 2026-10-22 focused issue 72 review
+
+Test gutter launch admission and progressive marker/status actions share native callbacks. Saved-byte matching is checked before terminal creation; execution is not frozen or verified.
+
+LLM review: partial. See the 2026-10-22 excerpt/test-launch checkpoint in
+`docs/developers/handoffs/2026-10-21-issue-72.md` for executed focused evidence,
+exact dependency hashes and boundaries. No human judgment supplied.

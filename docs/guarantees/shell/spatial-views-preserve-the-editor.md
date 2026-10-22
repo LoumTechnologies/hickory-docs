@@ -421,3 +421,12 @@ Issue 72 adapter extension (2026-10-19):
 - Transient hover previews and remaining pointer/minimap gestures still require
   adapters and native visual evidence. These tests do not establish complete layout
   parity or native geometry/accessibility correctness.
+
+
+## 2026-10-22 focused issue 72 review
+
+Spatial excerpt controls expose actual extent and shared edge handlers without changing source or selection; stale edges refuse.
+
+LLM review: partial. See the 2026-10-22 excerpt/test-launch checkpoint in
+`docs/developers/handoffs/2026-10-21-issue-72.md` for executed focused evidence,
+exact dependency hashes and boundaries. No human judgment supplied.

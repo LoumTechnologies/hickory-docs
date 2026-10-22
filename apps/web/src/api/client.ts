@@ -763,8 +763,8 @@ export const api = {
   terminals: () => request<TerminalsResponse>("GET", "/api/terminals"),
   /** Run one test (or a file's tests) in a terminal session named after it.
    * See crates/hickory-cli/src/serve/test_run.rs. */
-  runTest: (body: { path: string; name: string; language: string }) =>
-    request<TerminalSession>("POST", "/api/tests/run", body),
+  runTest: (body: { path: string; name: string; language: string; expected_source_hash?: string }) =>
+    request<TerminalSession & { source_hash: string; source_checked_at_admission: boolean; source_frozen: false }>("POST", "/api/tests/run", body),
   openTerminal: (spec: OpenTerminal = {}) =>
     request<TerminalSession>("POST", "/api/terminals", spec),
   closeTerminal: (id: string) =>
