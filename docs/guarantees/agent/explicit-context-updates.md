@@ -92,3 +92,14 @@ LLM implementation review: partially verified for these bounded lifecycle and
 visibility rules. Four ContextUpdates cases and targeted strict TypeScript passed.
 Human judgment: not supplied. The handoff records live-provider results and exact
 source hashes separately; a passing mocked context test is not a provider witness.
+
+
+October 22 lifecycle extension: keyed document/branch owners retire the old view
+before replacement. Manual requests use synchronous admission and a request
+version; retired captures refuse before POST. Earlier automatic responses cannot
+replace a newer manual queue result. Already dispatched branch-local requests
+can still have effects. Six focused component tests and targeted TypeScript
+passed; LLM review remains partial and human judgment absent. Exact dependencies
+are recorded in the October 22 handoff context-ownership checkpoint. A queued
+selection appearing on a replacement branch or an older response replacing its
+queue receipt would falsify this bounded lifecycle claim.

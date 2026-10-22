@@ -8,7 +8,11 @@ import { DiffView } from "./DiffView";
 
 type Item = { reference: string; path: string; before: string; after: string | null; status: string; revision: string; eligible: boolean; role: string; scope: string; request: string };
 type View = { items: Item[]; updates: { id: string; old: string; state: string; request: string | null; source: { revision: string } }[]; coverage: string };
-export function ContextUpdates({ doc, branch, getContext }: { doc: string; branch: string | null; getContext?: () => Promise<AgentEditorContext> }) {
+type ContextUpdateProps = { doc: string; branch: string | null; getContext?: () => Promise<AgentEditorContext> };
+export function ContextUpdates(props: ContextUpdateProps) {
+  return <OwnedContextUpdates key={JSON.stringify([props.doc, props.branch])} {...props} />;
+}
+function OwnedContextUpdates({ doc, branch, getContext }: ContextUpdateProps) {
   const captureContext = useRef(getContext); captureContext.current = getContext;
   const instance = useId(); const parent = `context-updates:${instance}`;
   const disclosure = useRef<HTMLDetailsElement>(null);
@@ -20,35 +24,38 @@ export function ContextUpdates({ doc, branch, getContext }: { doc: string; branc
   const [selectedRevisions, setSelectedRevisions] = useState<Record<string, string>>({});
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const activeOwner = useRef(true), admission = useRef(false), requestVersion = useRef(0);
+  useEffect(() => { activeOwner.current = true; return () => { activeOwner.current = false; requestVersion.current++; }; }, []);
   useEffect(() => { setView(null); setSelected([]); setSelectedRevisions({}); setExpanded({}); setError(""); setBusy(false); }, [doc, branch]);
   async function inspect(queue = false) {
-    if (!branch || busy) return { error: "Select a branch and wait for the current context operation" };
-    const requestedScope = scope;
-    setBusy(true); setError("");
+    if (!branch || admission.current) return { error: "Select a branch and wait for the current context operation" };
+    const requestedScope = scope, ticket = ++requestVersion.current;
+    admission.current = true; setBusy(true); setError("");
     try {
       const context = getContext ? await getContext() : { buffers: [] };
+      if (!activeOwner.current || scopeRef.current !== requestedScope || requestVersion.current !== ticket) return { error: "The originating context branch was retired before dispatch; no update was submitted" };
       const result = await request<View>("POST", `/api/docs/${encodeURIComponent(doc)}/agent/python/context`, {
         branch, context, selected: queue ? selected : [],
         revisions: queue ? selectedRevisions : {},
       });
-      if (scopeRef.current !== requestedScope) return { error: "Branch changed while the context operation was in flight; inspect that originating branch before retrying a queued update" };
+      if (!activeOwner.current || scopeRef.current !== requestedScope || requestVersion.current !== ticket) return { error: "Branch changed while the context operation was in flight; inspect that originating branch before retrying a queued update" };
       setView(result);
       if (queue) setSelected([]);
       return { result };
-    } catch (e) { if (scopeRef.current === requestedScope) setError(String(e)); return { error: String(e) }; } finally { if (scopeRef.current === requestedScope) setBusy(false); }
+    } catch (e) { if (activeOwner.current && scopeRef.current === requestedScope && requestVersion.current === ticket) setError(String(e)); return { error: String(e) }; } finally { if (requestVersion.current === ticket) { admission.current = false; if (activeOwner.current && scopeRef.current === requestedScope) setBusy(false); } }
   }
   useEffect(() => {
     let active = true;
     let pending = false;
     async function refresh() {
-      if (!branch || pending) return;
-      pending = true;
+      if (!branch || pending || admission.current) return;
+      const ticket = ++requestVersion.current; pending = true;
       try {
         const context = captureContext.current ? await captureContext.current() : { buffers: [] };
-        if (!active) return;
+        if (!active || !activeOwner.current || ticket !== requestVersion.current) return;
         const result = await request<View>("POST", `/api/docs/${encodeURIComponent(doc)}/agent/python/context`, { branch, context });
-        if (active) setView(result);
-      } catch (e) { if (active) setError(String(e)); }
+        if (active && activeOwner.current && ticket === requestVersion.current) setView(result);
+      } catch (e) { if (active && activeOwner.current && ticket === requestVersion.current) setError(String(e)); }
       finally { pending = false; }
     }
     void refresh();
@@ -57,15 +64,15 @@ export function ContextUpdates({ doc, branch, getContext }: { doc: string; branc
   }, [doc, branch]);
   const changed = view?.items.filter(i => i.status !== "unchanged") ?? [];
   const select = (item: Item, checked: boolean) => {
-    if (!item.eligible) return;
+    if (!item.eligible || admission.current) return;
     setSelected(s => checked ? [...new Set([...s, item.reference])] : s.filter(id => id !== item.reference));
     setSelectedRevisions(s => ({ ...s, [item.reference]: item.revision }));
   };
-  const selectAll = () => { setSelected(view?.items.filter(i => i.eligible).map(i => i.reference) ?? []); setSelectedRevisions(Object.fromEntries((view?.items.filter(i => i.eligible) ?? []).map(i => [i.reference, i.revision]))); };
-  const revision = useUiRevision(() => [scope, open, expanded, view, selected, selectedRevisions, busy, error]);
+  const selectAll = () => { if (admission.current) return; setSelected(view?.items.filter(i => i.eligible).map(i => i.reference) ?? []); setSelectedRevisions(Object.fromEntries((view?.items.filter(i => i.eligible) ?? []).map(i => [i.reference, i.revision]))); };
+  const revision = useUiRevision(() => [scope, open, expanded, view, selected, selectedRevisions, busy, admission.current, error]);
   const commands: { key: string; command: UiCommand }[] = [];
   function add(id: string, label: string, parameters: Record<string, UiField>, execute: UiCommand["execute"], enabled = !!branch && !busy, group = parent) {
-    commands.push({ key: `${parent}/${id}`, command: { label, parent: group, subject: parent, parameters, prerequisites: ["Updates retain confirmed branch/reference/revision lineage; queuing is not provider delivery"], read: () => ({ revision: revision(), enabled, reason: enabled ? undefined : "Select a branch and wait for the current context operation" }), execute } });
+    commands.push({ key: `${parent}/${id}`, command: { label, parent: group, subject: parent, parameters, prerequisites: ["Updates retain confirmed branch/reference/revision lineage; queuing is not provider delivery"], read: () => ({ revision: revision(), enabled: enabled && (!admission.current || id.startsWith("read") || id === "disclosure"), reason: enabled && (!admission.current || id.startsWith("read") || id === "disclosure") ? undefined : "Select a branch and wait for the current context operation" }), execute } });
   }
   add("disclosure", "Set changed agent context visibility", { open: { type: "boolean" } }, async args => { if (!disclosure.current) return { status: "unavailable", reason: "Context disclosure is not mounted" }; disclosure.current.open = Boolean(args.open); setOpen(Boolean(args.open)); return { status: "completed", value: { open: Boolean(args.open) } }; }, true, "agent-context-disclosures");
   if (open) {
@@ -103,7 +110,7 @@ export function ContextUpdates({ doc, branch, getContext }: { doc: string; branc
     {view?.items.filter(i => i.status !== "unchanged").map(item => <details key={item.reference} open={!!expanded[item.reference]} onToggle={event => { const open = event.currentTarget.open; setExpanded(current => current[item.reference] === open ? current : { ...current, [item.reference]: open }); }}>
       <summary>{item.path} · {item.status}</summary>
       <p>{item.role} · {item.scope} · last supplied in {item.request}</p>
-      <label><input type="checkbox" disabled={!item.eligible} checked={selected.includes(item.reference)} onChange={e => select(item, e.target.checked)} /> Select update</label>
+      <label><input type="checkbox" disabled={busy || !item.eligible} checked={selected.includes(item.reference)} onChange={e => select(item, e.target.checked)} /> Select update</label>
       <UiActionsVisibility visible={open && !!expanded[item.reference]}><DiffView path={item.path} diff={unifiedDiff(item.path, item.before, item.after ?? "")} binary={false} staged={false} label="last supplied → candidate" /></UiActionsVisibility>
       {view.updates.filter(u => u.old === item.reference).map(u => <p key={u.id}>{u.state}{u.request ? ` in request ${u.request}` : ""}{u.source.revision !== item.revision ? " · changed again" : ""}</p>)}
     </details>)}

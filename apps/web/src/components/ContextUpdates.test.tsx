@@ -88,3 +88,55 @@ it("does not overlap slow captures or post a retired branch capture", async () =
     expect(request).toHaveBeenCalledWith("POST", "/api/docs/workspace/agent/python/context", { branch: "b", context: { buffers: [] } });
   } finally { ui.unmount(); vi.useRealTimers(); }
 });
+
+// Guarantee: docs/guarantees/agent/explicit-context-updates.md
+it("does not submit a manual context capture after its originating branch retires", async () => {
+  const view = { items: [], updates: [], coverage: "current fixture" };
+  vi.mocked(request).mockResolvedValue(view);
+  let release!: (value: { buffers: [] }) => void;
+  const capture = vi.fn().mockResolvedValue({ buffers: [] }).mockImplementationOnce(async () => ({ buffers: [] })).mockImplementationOnce(() => new Promise(resolve => { release = resolve; }));
+  const registry = new UiActions({ workspace: "p", window: "w" }, () => true, async () => {});
+  const ui = (branch: string) => <UiActionContext.Provider value={registry}><ContextUpdates doc="workspace" branch={branch} getContext={capture} /></UiActionContext.Provider>;
+  const rendered = render(ui("a"));
+  await waitFor(() => expect(request).toHaveBeenCalledTimes(1));
+  const open = registry.observe("agent-context-disclosures").actions[0];
+  await act(async () => { await registry.act(registry.scope, { id: "agent", kind: "agent" }, { handle: open.handle, arguments: { open: true }, request_id: "open" }); });
+  await waitFor(() => expect(release).toBeTypeOf("function"));
+  rendered.rerender(ui("b"));
+  await waitFor(() => expect(vi.mocked(request).mock.calls.some(call => (call[2] as { branch: string }).branch === "b")).toBe(true));
+  const calls = vi.mocked(request).mock.calls.length;
+  await act(async () => { release({ buffers: [] }); });
+  expect(request).toHaveBeenCalledTimes(calls);
+  expect(vi.mocked(request).mock.calls.filter(call => (call[2] as { branch: string }).branch === "a")).toHaveLength(1);
+});
+
+// Guarantee: docs/guarantees/agent/explicit-context-updates.md
+it("keeps a newer explicit queue result when an older background refresh completes late", async () => {
+  vi.useFakeTimers();
+  const item = { reference: "old", path: "note.md", before: "before", after: "after", status: "changed_observed_passage", revision: "r2", eligible: true, role: "user", scope: "root", request: "r1" };
+  const initial = { items: [item], updates: [], coverage: "initial candidate" };
+  let background = false, release!: (value: typeof initial) => void;
+  vi.mocked(request).mockImplementation(async (_method, _path, body) => {
+    if ((body as { selected?: string[] }).selected?.length) return { ...initial, coverage: "queued candidate", updates: [{ id: "u1", old: "old", state: "queued", request: null, source: { revision: "r2" } }] };
+    if (background) return new Promise(resolve => { release = resolve; });
+    return initial;
+  });
+  const rendered = render(<ContextUpdates doc="workspace" branch="a" />);
+  try {
+    await act(async () => {});
+    const outer = document.querySelector("details")!;
+    await act(async () => { outer.open = true; fireEvent(outer, new Event("toggle")); });
+    const patch = outer.querySelector("details")!;
+    await act(async () => { patch.open = true; fireEvent(patch, new Event("toggle")); });
+    fireEvent.click(screen.getByLabelText("Select update"));
+    await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+    background = true;
+    await act(async () => { await vi.advanceTimersByTimeAsync(5000); });
+    expect(release).toBeTypeOf("function");
+    await act(async () => fireEvent.click(screen.getByText("Queue selected updates")));
+    expect(screen.getByText("queued candidate")).toBeTruthy();
+    await act(async () => { release({ ...initial, coverage: "stale background" }); });
+    expect(screen.getByText("queued candidate")).toBeTruthy();
+    expect(screen.queryByText("stale background")).toBeNull();
+  } finally { rendered.unmount(); vi.useRealTimers(); }
+});
