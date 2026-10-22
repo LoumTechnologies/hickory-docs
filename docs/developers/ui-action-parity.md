@@ -1161,3 +1161,10 @@ Displayed blame/color metadata has bounded line/detail readers, and source edits
 clear both layers. See the current issue-72 handoff for focused evidence and hashes.
 These additions do not discharge the outstanding dynamic/native/provider and
 selected recording/release/deployment acceptance.
+
+
+Inline runtime annotations now supply bounded index/expanded reading and share
+native disclosure/context selection/log-navigation handlers. Source replacement
+retires the actual widgets and their selection owners. Navigation remains an
+acknowledged request; details remain captured evidence. Focused results and
+limitations are recorded in the issue-72 handoff.

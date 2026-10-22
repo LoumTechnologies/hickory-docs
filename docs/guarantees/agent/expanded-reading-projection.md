@@ -64,3 +64,15 @@ Last LLM verification:
   passed. Broad regression checks and post-commit status monitoring are left to
   the user. See issue handoff for exact commands.
 - Human judgment: not recorded.
+
+
+## 2026-10-22 inline runtime disclosure review
+
+LLM review: partial. `debug/cmRuntime.ts` now shares actual widget disclosure,
+context selection and log-navigation controllers with installed language actions.
+Its body reader requires current explicit expansion and pages at most 8192 UTF-8
+bytes. Source replacement destroys selection and stale native/agent callbacks.
+Replacement widgets begin collapsed; previous model exposure remains historical.
+Seven focused inline/ObservationReading cases and changed-entrypoint TypeScript
+passed. The issue-72 handoff records exact hashes and exclusions. No human
+judgment or browser/native scrolling witness supplied.
