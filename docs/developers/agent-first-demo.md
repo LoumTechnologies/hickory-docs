@@ -28,6 +28,13 @@ matching deployed-build witness remain acceptance work. Existing prereleases may
 predate these changes. See the [parity inventory](ui-action-parity.md) and
 [capture procedure](engineer-tour-video.md).
 
+For the optional strict version, create a **private prediction practice** instead
+of using the ordinary workspace. It adds initial/future-stop sealing, withheld
+target values, retained failure, human-reviewed correction, unchanged-expectation
+promotion and explicit End. See the [private capture procedure](engineer-tour-video.md#record-the-optional-private-prediction-workflow).
+The private ACP adapter has a separate managed profile; ordinary ACP settings do
+not grant private access. Neither path claims confinement of provider internals.
+
 For a focused attached-provider development witness, with the configured desktop
 provider key store and installed Python runtime, run from the repository root:
 

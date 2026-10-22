@@ -866,3 +866,31 @@ Dependencies (SHA-256; edits stale this review):
 - `crates/hickory-cli/src/serve/shell.rs`: `2f3be29957046bc545826b92892ade11077c5e59f924b40dbceebfd8871b9eed`.
 - `apps/desktop/src-tauri/src/lib.rs`: `d8ce0cd736db0f367e9560e797e46efdb265b954333a694c7425868243e6ad73`.
 - `apps/desktop/src-tauri/src/server.rs`: `1b82b61fea2c1f12cc417e823881ccfe19fa91fcd1dde9c4f9b78cf41b2abb6b`.
+
+### Executed ACP continuation after fixture correction
+
+The actual engine/worker/MCP/DAP/browser private ACP flow passed (18.3s case,
+19.0s reported total). Six initial/future/combined faulty/corrected attempts,
+review, unchanged-expectation promotion, changed-input refusal and End ran with
+scripted provider responses. `/tmp/hickory-private-ui.zL2PZf` and
+`/tmp/hickory-issue72-window-private-acp-retry.log` retain private diagnostics.
+This is not real authenticated-provider or human-review/publication evidence.
+The package being built is functional code checkpoint `49a2a491`; no source
+changes follow it, only focused safety tests/documentation.
+
+### Close failure recovery correction
+
+The post-End native-close failure witness initially failed: polling cleanup had
+set its owner flag false, suppressing the visible close error and busy cleanup.
+A separate mounted close-controller owner now outlives polling and is withdrawn
+only at unmount. The focused challenge verifies actual failure visibility, no
+raw host-error disclosure, no automatic replay, restored button availability
+and removal of the native listener at unmount. Thirteen focused frontend cases
+and targeted strict TypeScript passed after the fix. The 49a2a491 package build
+precedes this final recovery fix and cannot attest it. The scripted ACP witness
+above also precedes this recovery-only change; its execution/gate paths are
+unchanged. LLM review remains partial; human judgment remains absent.
+
+Current recovery dependencies (SHA-256):
+- `apps/web/src/components/PrivatePredictionCoach.tsx`: `3c289c11702eb623a8fc169202f844fd667130995f5eb60401999ca8d527e9d9`.
+- `apps/web/src/components/PrivatePredictionCoach.test.tsx`: `ecef641a955243bea19b7262cffdc7231390c0143a55384358dfe2abe1e023de`.

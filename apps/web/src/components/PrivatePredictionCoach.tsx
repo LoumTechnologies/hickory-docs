@@ -108,7 +108,8 @@ export function PrivatePredictionCoach({ initial }: { initial: PrivatePrediction
     finally { setBusy(false); }
   };
   const available = (commands: { key: string; command: import("../lib/uiActions").UiCommand }[]) => commands.filter(item => !!state.retained_plan || !["private:prediction", "private:rationale", "private:seal-retained", "private:continue-retained"].includes(item.key));
-  const closing = useRef(false);
+  const closing = useRef(false), closeOwner = useRef(false);
+  useEffect(() => { closeOwner.current = true; return () => { closeOwner.current = false; }; }, []);
   const closePrivateWindow = async (actor: UiActor): Promise<UiOutcome> => {
     if (actor.kind === "agent") return { status: "requires_input", request: "private-window-close", reason: "A human ends and closes the isolated practice; the active predictor cannot release its own window/quarantine" };
     if (!ended) { const reason = "End private practice before closing this window. Stop any investigation first; its retained history will remain protected."; setError(reason); return { status: "requires_input", request: "private-end-before-close", reason }; }
@@ -118,8 +119,8 @@ export function PrivatePredictionCoach({ initial }: { initial: PrivatePrediction
       const actual = await request<{ ok: boolean }>("POST", "/api/window/close", {});
       if (actual.ok !== true) throw Error("Native host did not acknowledge this close request");
       return { status: "completed", value: { host_acknowledged: true, window_destruction_unverified: true } };
-    } catch { const reason = "This host could not confirm window closure. Use its browser/OS close control; the private history and root remain protected."; if (owner.current) setError(reason); return { status: "requires_input", request: "private-window-host-close", reason }; }
-    finally { closing.current = false; if (owner.current) setBusy(false); }
+    } catch { const reason = "This host could not confirm window closure. Use its browser/OS close control; the private history and root remain protected."; if (closeOwner.current) setError(reason); return { status: "requires_input", request: "private-window-host-close", reason }; }
+    finally { closing.current = false; if (closeOwner.current) setBusy(false); }
   };
   const latestClose = useRef(closePrivateWindow); latestClose.current = closePrivateWindow;
   useEffect(() => {

@@ -920,3 +920,20 @@ The first actual ACP-script rerun failed to compile because the engine_client
 example also constructs Shell. Its browser-only callback now explicitly refuses
 native window operations. No model/target flow ran in that failed attempt.
 Dependency: `crates/hickory-cli/examples/engine_client.rs`: `1aefd5ece10978301bb4933d37058309f04ca6b13720c361585b332a3086253d`.
+
+### Close failure recovery correction
+
+The post-End native-close failure witness initially failed: polling cleanup had
+set its owner flag false, suppressing the visible close error and busy cleanup.
+A separate mounted close-controller owner now outlives polling and is withdrawn
+only at unmount. The focused challenge verifies actual failure visibility, no
+raw host-error disclosure, no automatic replay, restored button availability
+and removal of the native listener at unmount. Thirteen focused frontend cases
+and targeted strict TypeScript passed after the fix. The 49a2a491 package build
+precedes this final recovery fix and cannot attest it. The scripted ACP witness
+above also precedes this recovery-only change; its execution/gate paths are
+unchanged. LLM review remains partial; human judgment remains absent.
+
+Current recovery dependencies (SHA-256):
+- `apps/web/src/components/PrivatePredictionCoach.tsx`: `3c289c11702eb623a8fc169202f844fd667130995f5eb60401999ca8d527e9d9`.
+- `apps/web/src/components/PrivatePredictionCoach.test.tsx`: `ecef641a955243bea19b7262cffdc7231390c0143a55384358dfe2abe1e023de`.

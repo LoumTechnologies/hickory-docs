@@ -154,3 +154,26 @@ it("requires End before native close and closes after End independently of retir
   fireEvent.click(screen.getByRole("button", { name: "Close window" }));
   await waitFor(() => expect(request).toHaveBeenCalledWith("POST", "/api/window/close", {}));
 });
+
+it("reports uncertain native closure without disclosing host errors or retrying automatically", async () => {
+  responses();
+  const ordinary = vi.mocked(request).getMockImplementation()!;
+  vi.mocked(request).mockImplementation(async (method, path, body) => {
+    if (path.endsWith("/end")) return { ended: true, history_retained: true, root_still_private: true };
+    if (path === "/api/window/close") throw Error("private-host-secret");
+    return ordinary(method, path, body);
+  });
+  const registry = new UiActions({ workspace: "private", window: "failed-close" }, () => true, async () => {});
+  const rendered = render(<UiActionContext.Provider value={registry}><PrivatePredictionCoach initial={initial} /></UiActionContext.Provider>);
+  await screen.findByText("captured source only");
+  fireEvent.click(screen.getByRole("button", { name: "End private practice" }));
+  await screen.findByRole("heading", { name: "Private practice ended" });
+  await act(async () => { window.dispatchEvent(new Event("hickory-window-close-request")); });
+  await screen.findByText(/This host could not confirm window closure/);
+  expect(screen.queryByText(/private-host-secret/)).toBeNull();
+  expect(vi.mocked(request).mock.calls.filter(call => call[1] === "/api/window/close")).toHaveLength(1);
+  expect((screen.getByRole("button", { name: "Close window" }) as HTMLButtonElement).disabled).toBe(false);
+  rendered.unmount();
+  window.dispatchEvent(new Event("hickory-window-close-request"));
+  expect(vi.mocked(request).mock.calls.filter(call => call[1] === "/api/window/close")).toHaveLength(1);
+});

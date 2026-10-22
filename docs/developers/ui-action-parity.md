@@ -1210,3 +1210,26 @@ tour. Its content now stays in the popup's flow/scroll bounds, with long labels
 and paths wrapping. Real Chromium pointer/geometry checks cover the actual
 component; this is separate from the preceding package's setup/End witness.
 The current handoff records the defect, fix, exact hashes and witness limits.
+
+
+### Current native boundary and qualification — October 22
+
+Current-window Inspect/Minimize/Restore now share the actual desktop controller
+with the Window menu. No other window or arbitrary IPC is addressable. Native
+private close uses a human-owned controller, requires durable End and survives
+retirement of the engine's project/receipt router. The agent receives a human-input
+request rather than permission to release its own quarantine.
+
+Predefined macOS About/Services/Hide/Hide Others/Show All are tracked under #74 as
+OS-owned limitations. The native-window group exposes a finite operation request
+and retained pending status; it does not invent OS completion from a conversation
+reply. Browser-only hosts have no native application menu. Missing callbacks and
+uncertain callback failure have distinct required-input/unavailable outcomes.
+
+The historical “remaining” lists above describe their checkpoints, not a current
+assertion that every listed control is still missing. Subsequent sections and the
+[33-file delegated-control audit](issue-72-control-review-2026-10-22.md) map the
+later integrations. The generated declaration index is current; registration and
+static delegation do not establish every dynamic instance or platform. Universal
+qualification remains unclaimed. Real funded/authenticated provider, selected
+human-reviewed recording and matching released/deployed proof remain absent.

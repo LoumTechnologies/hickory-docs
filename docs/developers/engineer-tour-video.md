@@ -33,6 +33,51 @@ Optionally profile hotspot.md through Runtime observations before and after a
 reviewed optimization. Show separate source/run IDs, call counts, timing scope and
 profiler overhead. Do not promise a fixed speedup.
 
+## Record the optional private prediction workflow
+
+Use **Create a private prediction practice** in the native coach for the strict
+version. The earlier ordinary-workspace instructions do not enable strict policy.
+Choose the local executor and install the configured Python/debugpy runtime first;
+creation reports a setup request if either is unavailable. Keep the ordinary
+workspace, the new private window and their identities visible in the recording.
+
+1. Inspect the private request, source and explicit withholding notice. Choose a
+   configured provider/model (or a separately configured private ACP profile),
+   then explicitly Delegate. Let the agent investigate and seal the output and
+   initial debugger predicates before execution. Do not enter held-out answers
+   in its prompt or copy human-only evidence back into its context.
+2. Show the retained non-passing attempt and blocked promotion. If demonstrating
+   the future stop, seal the next predicate before Continue. A prior stop informs
+   this prediction; it is not a pristine first-run prediction. Predictor-visible
+   diagnostics withhold target values, including stdout/errors and variables.
+3. Review the proposed remaining-budget correction in the actual private review
+   controls. Human approval must be real and separately attributed. Let the agent
+   revalidate unchanged predicates against the corrected source. Retain the
+   original failure, corrected source identity and requirement/prediction results;
+   changing an expectation cannot promote the repair.
+4. Inspect selected evidence as a human through its separate evidence path.
+   Include the 100ms requirement and faulty 160ms outcome in public footage only
+   after selection/review; never deliver those human-only actuals to the predictor.
+   Keep raw sessions, credentials and private roots out of the public assets.
+5. End explicitly. Show retained history/private-root status. Then use Close window
+   or the native close control. Active native close requests require End first;
+   an agent cannot end/close its own quarantine. The post-End close path works
+   independently of the retired project router. If a host cannot close, its
+   explicit OS input request remains unresolved rather than claiming success.
+
+A local scripted acceptance run is available without paid provider calls:
+
+```sh
+HICKORY_KEEP_UI_WITNESS=1 scripts/test-private-prediction-ui.sh --acp-fixture
+```
+
+This exercises the actual engine, ACP/MCP, debugger and browser with scripted
+provider responses and test-driver review. Its retained footage is diagnostic,
+not human-reviewed native/provider footage. A real paid Python attempt previously
+received OpenRouter HTTP 402; the real Codex ACP setup requires authentication.
+Supply a working supported configuration before attempting that acceptance run.
+The managed private ACP profile is not an OS sandbox; see [its boundary](private-acp.md).
+
 ## Publish reviewed footage
 
 Review footage and any redacted public session export for private content. Keep
