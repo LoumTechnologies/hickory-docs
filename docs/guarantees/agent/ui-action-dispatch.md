@@ -735,3 +735,22 @@ also passes (17 seconds). It is distinct from the earlier actual provider witnes
 and does not establish a current packaged/deployed flow. Universal parity remains
 incomplete; source inventory declarations are review aids. Human judgment is not
 supplied. See the active issue-72 handoff for dependency hashes.
+
+
+### Static hosts and markdown navigation — 2026-10-22
+
+The shipped embedding host controls and actual graph/image editors share the
+parent scoped broker. Recorded-profile import validates bounded schema/source
+integrity and keeps pin/remove local to the page. It does not execute, authenticate
+or certify a run. Markdown navigation is supplied by the installed editor
+extension and binds current source/path; skipped code cannot be navigated.
+Browser/shell open results report requests, not loaded destinations. Review copy
+uses the native clipboard handler and returns requires_input on denial. The
+file-menu clipboard fallback refuses a false browser copy result.
+
+LLM implementation review: partially verified for these paths. Executed checks,
+failed challenges/corrections, dependency hashes and unresolved acceptance work
+are retained in the 2026-10-22 static-host section of
+[the issue-72 handoff](../../developers/handoffs/2026-10-21-issue-72.md).
+Human judgment is not supplied. These witnesses do not establish universal parity
+or current native/provider/release acceptance.

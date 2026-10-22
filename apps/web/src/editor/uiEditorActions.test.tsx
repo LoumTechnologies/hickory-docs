@@ -1,7 +1,8 @@
+import { mdLinks } from "./mdLinks";
 import { codeFolding, foldEffect } from "@codemirror/language";
 import { useEditorEditing } from "./useEditorEditing";
 import { act, cleanup, renderHook } from "@testing-library/react";
-import { afterEach, expect, it } from "vitest";
+import { afterEach, expect, it, vi } from "vitest";
 import type { ReactNode } from "react";
 import { EditorSelection, EditorState } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
@@ -79,4 +80,33 @@ it("selects and reads normalized multiple ranges and replaces them through the a
   expect(view.state.doc.toString()).toBe("X bb X");
   expect(view.state.selection.ranges).toHaveLength(2);
   hook.unmount(); view.destroy(); host.remove();
+});
+
+// Guarantee: docs/guarantees/agent/ui-action-dispatch.md
+it("follows only current prose links through the native navigation handler and retires changed path handles", async () => {
+  const host = document.createElement("div"); document.body.append(host);
+  let path = "notes/a.md";
+  const text = "[plan](../plan.md) [web](https://example.com) [code](secret.md)";
+  const view = new EditorView({ parent: host, state: EditorState.create({ doc: text, extensions: [mdLinks({ docPath: () => path, skip: () => [[text.indexOf("[code]"), text.length]] })] }) });
+  const registry = new UiActions({ workspace: "p", window: "w" }, () => true, async () => {});
+  const wrapper = ({ children }: { children: ReactNode }) => <UiActionContext.Provider value={registry}>{children}</UiActionContext.Provider>;
+  const hook = renderHook(() => useEditorActions(view, "a.md"), { wrapper });
+  const action = (label: string) => registry.groups().groups.flatMap(g => registry.observe(g).actions).find(a => a.label === label)!;
+  let id = 0;
+  const run = (label: string, args: Record<string, number>) => registry.act(registry.scope, { id: "agent", kind: "agent" }, { handle: action(label).handle, arguments: args, request_id: String(++id) });
+  const seen: string[] = []; const listener = (event: Event) => seen.push((event as CustomEvent<string>).detail);
+  window.addEventListener("hickory-open-path", listener);
+  const open = vi.spyOn(window, "open").mockReturnValue(null);
+  try {
+    expect(await run("Read markdown link page", { first: 0, count: 1 })).toMatchObject({ outcome: { value: { total: 2, next: 1, links: [{ target: "../plan.md" }] } } });
+    expect(await run("Follow markdown link", { position: 2 })).toMatchObject({ outcome: { value: { navigation_requested: true, path: "plan.md" } } });
+    expect(seen).toEqual(["/plan.md"]);
+    expect(await run("Follow markdown link", { position: text.indexOf("[code]") + 2 })).toMatchObject({ outcome: { status: "unavailable" } });
+    expect(await run("Follow markdown link", { position: text.indexOf("[web]") + 2 })).toMatchObject({ outcome: { value: { navigation_requested: true, tab_handle_returned: false } } });
+    expect(open).toHaveBeenCalledWith("https://example.com", "_blank", "noopener,noreferrer");
+    const old = action("Follow markdown link"); path = "other/a.md";
+    expect(await registry.act(registry.scope, { id: "agent", kind: "agent" }, { handle: old.handle, arguments: { position: 2 }, request_id: "old-path" })).toMatchObject({ status: "stale" });
+    act(() => { view.dispatch({ changes: { from: 0, to: text.length, insert: "no links" } }); });
+    expect(await run("Follow markdown link", { position: 2 })).toMatchObject({ outcome: { status: "unavailable" } });
+  } finally { open.mockRestore(); window.removeEventListener("hickory-open-path", listener); hook.unmount(); view.destroy(); host.remove(); }
 });

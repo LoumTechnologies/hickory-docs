@@ -9,6 +9,8 @@ import { installAttributionProvider } from "../lib/attribution";
 import { blameGutter } from "../editor/blameGutter";
 import { useBlame } from "../editor/useBlame";
 import "../styles.css";
+import { useUiCommands, useUiRevision } from "../lib/uiActionBridge";
+import { useUiReading } from "../lib/uiReading";
 export function ReviewFixture() {
   const [githubContext, setGithubContext] = useState("");
   const [view, setView] = useState<EditorView | null>(null);
@@ -19,8 +21,11 @@ export function ReviewFixture() {
     {line:2,text:"Agent claim about total deadline",author:"Sam",email:"sam@example.com",commit:"one",time:0,summary:"",uncommitted:false,origin:"agent",provider:"Recorded agent write"},
   ] }), []);
   useBlame(view, "spec.md");
+  const revision = useUiRevision(() => [source, githubContext]);
+  useUiReading("review acceptance selected GitHub context", githubContext);
+  const invoke = useUiCommands([{ key: "review-fixture:context", command: { label: "Inspect selected GitHub context", parent: "review-fixture", subject: "review-fixture:context", parameters: {}, prerequisites: [], read: () => ({ revision: revision(), enabled: true }), execute: async () => { const context = JSON.stringify(providerObservationContext("spec.md", source)); setGithubContext(context); return { status: "completed", value: { context, scope: "Recorded provider selection; no runtime execution" } }; } } }]);
   return <main style={{padding:24}}><h1>Review acceptance workspace</h1><ReviewPanel document="spec.md" source={source} view={view} /><LineageSettings />
-    <button onClick={() => setGithubContext(JSON.stringify(providerObservationContext("spec.md", source)))}>Inspect selected GitHub context</button><output aria-label="Selected GitHub context">{githubContext}</output>
+    <button onClick={() => void invoke("review-fixture:context").catch(reason => setGithubContext(String(reason)))}>Inspect selected GitHub context</button><output aria-label="Selected GitHub context">{githubContext}</output>
     <DocumentEmbed path="spec.md" revision={source} source={source} onChange={change => setSource(change.source)} onViewReady={setView} extensions={extensions} />
   </main>;
 }

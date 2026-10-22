@@ -24,6 +24,8 @@
 // are both in lib/mdLinks.ts, shared with the weaver's own rule so the editor
 // and the woven file cannot come to disagree about where a link goes.
 
+import { editorLanguageActions } from "./languageActions";
+import type { UiOutcome } from "../lib/uiActions";
 import { RangeSetBuilder, StateField } from "@codemirror/state";
 import type { EditorState, Extension, Range } from "@codemirror/state";
 import { Decoration, EditorView, WidgetType } from "@codemirror/view";
@@ -186,18 +188,20 @@ function decorationsFor(state: EditorState, config: MdLinksConfig): DecorationSe
  * down from the workspace. A URL goes to the browser, which is where a link
  * to the web has always gone.
  */
-export function followLink(docPath: string | null, target: string): void {
+export function followLink(docPath: string | null, target: string): UiOutcome {
   if (!isLocalTarget(target)) {
     if (/^(https?|mailto|tel):/i.test(target)) {
-      window.open(target, "_blank", "noopener,noreferrer");
+      const opened = window.open(target, "_blank", "noopener,noreferrer");
+      return { status: "completed", value: { navigation_requested: true, tab_handle_returned: !!opened, target, scope: "Browser request only; no page-load witness" } };
     }
-    return;
+    return { status: "unavailable", reason: "This link has no supported navigation target" };
   }
   const resolved = resolveTarget(docPath, target);
-  if (!resolved) return;
+  if (!resolved) return { status: "unavailable", reason: "This link cannot resolve against the current document" };
   window.dispatchEvent(
     new CustomEvent<string>("hickory-open-path", { detail: `/${resolved}` }),
   );
+  return { status: "completed", value: { navigation_requested: true, path: resolved, scope: "Shell open request only; no loaded-document witness" } };
 }
 
 /** The link whose text covers `pos`, or null. */
@@ -214,7 +218,28 @@ export function linkAt(
 
 /** Links styled, followed on Mod-click, and images drawn. */
 export function mdLinks(config: MdLinksConfig): Extension {
+  const position = { type: "number" as const, integer: true, minimum: 0, maximum: 100_000_000 };
   return [
+    editorLanguageActions.of({
+      id: "markdown-links", label: "Read markdown link page",
+      parameters: { first: position, count: { ...position, minimum: 1, maximum: 64 } },
+      enabled: () => true, revision: () => config.docPath(),
+      execute: async (view, args) => {
+        const links = linksIn(view.state, config), first = args.first as number, count = args.count as number;
+        if (first > links.length) return { status: "unavailable", reason: "Link page is outside current source" };
+        const page = links.slice(first, first + count).map(({ link }) => ({ ...link }));
+        if (new TextEncoder().encode(JSON.stringify(page)).length > 8192) return { status: "unavailable", reason: "Link page exceeds 8192 UTF-8 bytes; read the bounded editor source instead" };
+        return { status: "completed", value: { links: page, total: links.length, next: first + count < links.length ? first + count : null, coordinate_unit: "UTF-16 code units" } };
+      },
+    }),
+    editorLanguageActions.of({
+      id: "follow-markdown-link", label: "Follow markdown link",
+      parameters: { position }, enabled: () => true, revision: () => config.docPath(),
+      execute: async (view, args) => {
+        const link = linkAt(view.state, config, args.position as number);
+        return link ? followLink(config.docPath(), link.target) : { status: "unavailable", reason: "There is no navigable markdown link at this current source position" };
+      },
+    }),
     StateField.define<DecorationSet>({
       create: (state) => decorationsFor(state, config),
       // The scan is over the whole buffer, so it runs on a document change

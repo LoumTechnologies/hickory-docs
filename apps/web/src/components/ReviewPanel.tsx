@@ -82,6 +82,19 @@ export function ReviewPanel({ document, source, view }: { document?: string; sou
       return { event };
     } catch (e) { setError(String(e)); return { error: String(e) }; } finally { setBusy(false); }
   };
+  const copyPrompt = async (): Promise<import("../lib/uiActions").UiOutcome> => {
+    if (!prompt) return { status: "unavailable", reason: "Prepare the investigation prompt first" };
+    setError("");
+    try {
+      if (!navigator.clipboard?.writeText) throw Error("Clipboard is unavailable");
+      await navigator.clipboard.writeText(prompt);
+      return { status: "completed", value: { copied: true, investigation_sent: false } };
+    } catch (cause) {
+      const reason = `${String(cause)}. Browser clipboard access may require a human gesture; the prepared prompt remains readable in the review draft.`;
+      setError(reason);
+      return { status: "requires_input", request: "review-prompt-clipboard", reason };
+    }
+  };
   const parent = `reviews:${instance}`;
   const revision = useUiRevision(() => [shown, target, history, thread, body, error, busy, prompt, conversation, conversations]);
   const commands: { key: string; command: UiCommand }[] = [];
@@ -109,6 +122,7 @@ export function ReviewPanel({ document, source, view }: { document?: string; sou
     if (root) {
       register("source", "Open selected review source", async () => { openLocation(root.path, root.lines[0]); return done(); });
       register("prepare", "Prepare selected review investigation", async () => { const text = investigationPrompt(root, entries); setPrompt(text); return done({ text, sent: false }); }, {}, !!thread, "Save the original review thread first");
+      if (prompt) register("copy-prompt", "Copy prepared investigation prompt", copyPrompt, {}, !busy, "Wait for the current review operation");
       register("conversation", "Select investigation conversation", async args => {
         const id = String(args.conversation);
         if (!conversations.some(item => item.id === id)) return { status: "unavailable", reason: "Choose a currently open conversation" };
@@ -130,7 +144,7 @@ export function ReviewPanel({ document, source, view }: { document?: string; sou
       }, {}, !!thread && !busy && !!body.trim(), "Select a saved thread and enter the review reason");
     }
   }
-  useUiCommands(commands);
+  const invoke = useUiCommands(commands);
   return <div className="review-tools">
     <button className="btn-link" onMouseDown={event => event.preventDefault()} onClick={() => void reviewSelection().catch(e => { setError(String(e)); setShown(true); })}>Comment on selection</button>
     <button className="btn-link" onClick={() => setShown(!shown)}>Review threads</button>
@@ -155,7 +169,7 @@ export function ReviewPanel({ document, source, view }: { document?: string; sou
         {thread && <button disabled={busy} onClick={() => {
           const text = investigationPrompt(root, entries); setPrompt(text);
         }}>Prepare agent investigation</button>}
-        {prompt && <label>Investigation prompt · review and send in the agent pane<textarea readOnly value={prompt} /><button onClick={() => void navigator.clipboard.writeText(prompt).catch(e => setError(String(e)))}>Copy prompt</button></label>}
+        {prompt && <label>Investigation prompt · review and send in the agent pane<textarea readOnly value={prompt} /><button disabled={busy} onClick={() => void invoke(`${parent}/copy-prompt`).catch(e => setError(String(e)))}>Copy prompt</button></label>}
         {thread && <section aria-label="Agent investigations">
           <label>Investigation conversation <select value={conversation} disabled={busy} onChange={event => setConversation(event.target.value)}>
             <option value="">Choose an open agent conversation</option>

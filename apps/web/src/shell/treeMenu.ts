@@ -252,7 +252,7 @@ export async function copyText(text: string): Promise<void> {
   document.body.appendChild(field);
   field.select();
   try {
-    document.execCommand("copy");
+    if (!document.execCommand("copy")) throw new Error("Clipboard permission is unavailable; copy the visible path manually");
   } finally {
     field.remove();
   }

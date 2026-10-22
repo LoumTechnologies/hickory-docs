@@ -70,3 +70,34 @@ it("dispatches only to the explicitly selected conversation and keeps human revi
       (call[2] as { action: string }).action === "resolve")).toBe(false);
   } finally { unregisterA(); unregisterB(); }
 });
+
+// Guarantee: docs/guarantees/agent/ui-action-dispatch.md
+it("shares prepared-prompt copying and retains an explicit browser-permission request", async () => {
+  const originalClipboard = Object.getOwnPropertyDescriptor(navigator, "clipboard");
+  const copy = vi.fn().mockRejectedValue(new Error("Permission denied"));
+  Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText: copy } });
+  try {
+    const target = { kind: "claim", path: "spec.md", quote: "Claim", source_hash: "a".repeat(64), lines: [1, 1] };
+    request.mockResolvedValue({ scope: "workspace", events: [{ id: "original", thread: "thread", target, action: "comment", body: "Human criterion", actor: "user-declared", recorded_at: "1" }], targets: [] });
+    const registry = new UiActions({ workspace: "practice", window: "copy-prompt" }, () => true, async () => {});
+    render(<UiActionContext.Provider value={registry}><ReviewPanel /></UiActionContext.Provider>);
+    fireEvent.click(screen.getByRole("button", { name: "Review threads" }));
+    fireEvent.click(await screen.findByRole("button", { name: "spec.md: Human criterion" }));
+    fireEvent.click(screen.getByRole("button", { name: "Prepare agent investigation" }));
+    const parent = registry.groups().groups.find(group => group.startsWith("reviews:"))!;
+    const command = registry.observe(parent, 64).actions.find(action => action.label === "Copy prepared investigation prompt")!;
+    let result: unknown;
+    await act(async () => { result = await registry.act(registry.scope, { kind: "agent", id: "predictor" }, { handle: command.handle, arguments: {}, request_id: "copy-requires-gesture" }); });
+    expect(result).toMatchObject({ status: "result", outcome: { status: "requires_input", request: "review-prompt-clipboard" } });
+    expect(screen.getByRole("alert").textContent).toContain("Permission denied");
+    copy.mockResolvedValue(undefined);
+    fireEvent.click(screen.getByRole("button", { name: "Copy prompt" }));
+    await waitFor(() => expect(copy).toHaveBeenCalledTimes(2));
+    expect(copy.mock.calls[0][0]).toBe(copy.mock.calls[1][0]);
+    expect(copy.mock.calls[1][0]).toContain("Human criterion");
+    expect(request.mock.calls.every(call => call[0] === "GET")).toBe(true);
+  } finally {
+    if (originalClipboard) Object.defineProperty(navigator, "clipboard", originalClipboard);
+    else Reflect.deleteProperty(navigator, "clipboard");
+  }
+});
