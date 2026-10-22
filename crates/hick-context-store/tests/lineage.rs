@@ -708,3 +708,39 @@ fn retained_artifacts_reopen_exact_bytes_and_refuse_forged_descriptors_and_tampe
     fs::write(&path, serde_json::to_vec(&data).unwrap()).unwrap();
     assert!(Service::open(root.path(), &path, "branch").is_err());
 }
+
+// Guarantees: docs/guarantees/agent/immutable-context-lineage.md;
+// docs/guarantees/verification/predictions-precede-managed-observation.md
+#[test]
+fn private_snapshot_context_never_refreshes_from_files_or_editors() {
+    let root = tempfile::tempdir().unwrap();
+    let path = root.path().join("private.json");
+    fs::write(root.path().join("note"), "held-out answer").unwrap();
+    let mut service = Service::open_snapshots(root.path(), &path, "private").unwrap();
+    assert!(service.saved("note").is_err());
+    assert!(service.editor("buffer", "held-out answer").is_err());
+    let node = service
+        .snapshots("saved_file", "note", "approved source", "approved")
+        .unwrap()
+        .remove(0);
+    let hello = service.call("context.hello", &Service::offer()).unwrap();
+    assert!(!hello.to_string().contains("held-out answer"));
+    let source = service.store.sources().remove(0);
+    let request = json!({"idempotency_key":"fresh-live-read","source":source,"max_bytes":100});
+    assert!(
+        service
+            .call("context.capture", &request)
+            .unwrap_err()
+            .to_string()
+            .contains("live capture withheld")
+    );
+    service.poll().unwrap();
+    assert_eq!(
+        service.store.node(&node.id).unwrap().text.as_deref(),
+        Some("approved source")
+    );
+    let recovered = service.recovery_references(&[node.id]).unwrap();
+    assert!(!recovered.to_string().contains("held-out answer"));
+    drop(service);
+    assert!(Service::open_snapshots(root.path(), &path, "private").is_err());
+}

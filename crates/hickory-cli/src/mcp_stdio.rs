@@ -91,7 +91,24 @@ pub async fn serve(default_doc: Option<PathBuf>, params: Vec<(String, String)>) 
             continue;
         }
 
-        let result = if method == "tools/call" && std::env::var_os(crate::engine::WORKER).is_none()
+        let private = if matches!(method.as_str(), "tools/list" | "tools/call") {
+            crate::engine::private_prediction_active().await?
+        } else {
+            false
+        };
+        let result = if method == "tools/list" && private {
+            if remote.is_none() {
+                remote = Some(crate::engine::mcp::Remote::new(options.clone()).await?);
+            }
+            if remote.as_ref().unwrap().private_mode().await? {
+                Ok(crate::serve::private_predictions::catalogue())
+            } else {
+                Ok(
+                    json!({"tools":[],"coverage":"This engine retains a private workspace; unrelated MCP capabilities are unavailable"}),
+                )
+            }
+        } else if method == "tools/call"
+            && (private || std::env::var_os(crate::engine::WORKER).is_none())
         {
             if remote.is_none() {
                 remote = Some(crate::engine::mcp::Remote::new(options.clone()).await?);

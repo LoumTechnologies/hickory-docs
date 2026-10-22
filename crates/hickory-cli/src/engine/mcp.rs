@@ -36,6 +36,56 @@ impl Remote {
             options,
         })
     }
+    pub async fn private_mode(&self) -> Result<bool> {
+        let path = format!(
+            "/clients/{}/api/prediction/state",
+            self.connection.attach.client
+        );
+        let response = self
+            .connection
+            .request(reqwest::Method::GET, &path)
+            .await
+            .send()
+            .await?;
+        if response.status() == reqwest::StatusCode::UNPROCESSABLE_ENTITY
+            || response.status() == reqwest::StatusCode::NOT_FOUND
+        {
+            return Ok(false);
+        }
+        if !response.status().is_success() {
+            bail!("Private prediction capability unavailable");
+        }
+        let value: Value = response.json().await?;
+        if value["actual_values"] != "withheld" {
+            bail!("Invalid private prediction capability response");
+        }
+        Ok(true)
+    }
+    pub async fn private_request(
+        &self,
+        method: reqwest::Method,
+        surface: &str,
+        body: &Value,
+    ) -> Result<Value> {
+        anyhow::ensure!(
+            ["state", "history", "preview"].contains(&surface),
+            "Unsupported private host surface"
+        );
+        let path = format!(
+            "/clients/{}/api/prediction/{surface}",
+            self.connection.attach.client
+        );
+        let mut request = self.connection.request(method.clone(), &path).await;
+        if method == reqwest::Method::POST {
+            request = request.json(body);
+        }
+        let response = request.send().await?;
+        anyhow::ensure!(
+            response.status().is_success(),
+            "Private host request refused"
+        );
+        Ok(response.json().await?)
+    }
     pub async fn call(&self, params: &Value) -> Result<Value> {
         let body = Call {
             client: self.connection.attach.client.clone(),

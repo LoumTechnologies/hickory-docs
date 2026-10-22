@@ -102,7 +102,7 @@ pub async fn run(
     )
 }
 
-fn validate(
+pub(super) fn validate(
     request: &Request,
     source: &str,
     scratch: &Path,

@@ -388,6 +388,7 @@ pub(super) async fn run_turn(
         max_turns: 20,
     };
     let conversation = crate::python_agent::Conversation {
+        private_prediction: false,
         session: Some(identity.session),
         session_storage: Some(
             super::agent_context::session_root(state, doc)
@@ -436,7 +437,7 @@ pub(super) async fn run_turn(
     result
         .map(|outcome| {
             if let Some(capture) = state.agent.projects.lock().unwrap().get_mut(&identity_turn) {
-                capture.artifact = Some(outcome.artifact);
+                capture.artifact = outcome.artifact;
             }
             (outcome.summary, outcome.usage)
         })

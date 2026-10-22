@@ -99,8 +99,11 @@ async fn run() -> Result<()> {
     let router = Router::new()
         .route(
             "/health",
-            get(|| async { Json(json!({"protocol":PROTOCOL})) }),
+            get(|| async {
+                Json(json!({"protocol":PROTOCOL,"capabilities":[super::PREDICTION_PROTOCOL]}))
+            }),
         )
+        .route("/prediction-policy", get(prediction_policy))
         .route("/attach", post(attach))
         .route("/command", post(command))
         .route("/tool", post(tool))
@@ -199,6 +202,17 @@ async fn authenticate(
     next.run(req).await
 }
 
+async fn prediction_policy(State(engine): State<Arc<Engine>>) -> Json<Value> {
+    let active = super::private_policy::active().unwrap_or(true)
+        || engine
+            .workspaces
+            .lock()
+            .await
+            .values()
+            .any(|state| state.private_prediction.is_some());
+    Json(json!({"active":active,"scope":"engine-managed-context","version":1}))
+}
+
 async fn attach(
     State(engine): State<Arc<Engine>>,
     Json(mut opts): Json<Attach>,
@@ -216,8 +230,59 @@ async fn attach(
             return Err(error("window callback must use loopback"));
         }
     }
+    let requested_prediction = opts
+        .prediction
+        .as_ref()
+        .map(|profile| profile.fingerprint())
+        .transpose()
+        .map_err(error)?;
+    if opts.prediction.is_some()
+        && (!opts.target.is_file()
+            || opts.run
+            || engine.workers.load(std::sync::atomic::Ordering::SeqCst) > 0)
+    {
+        return Err(error(
+            "Private prediction startup needs an exact source file, no ordinary run, and no active managed command",
+        ));
+    }
     let mut workspaces = engine.workspaces.lock().await;
+    if opts.prediction.is_none()
+        && super::private_policy::overlaps(&root).map_err(error)?
+        && !workspaces
+            .get(&root)
+            .is_some_and(|state| state.private_prediction.is_some())
+    {
+        return Err(error(
+            "This root retains private prediction quarantine after restart; a trusted host must restore its private binding",
+        ));
+    }
+    for (other, state) in workspaces.iter() {
+        if other != &root
+            && (root.starts_with(other) || other.starts_with(&root))
+            && (state.private_prediction.is_some() || opts.prediction.is_some())
+        {
+            return Err(error(
+                "Overlapping ordinary/private workspace attachments are unavailable",
+            ));
+        }
+    }
     let mut state = if let Some(state) = workspaces.get(&root) {
+        if let Some(bound) = &state.private_prediction {
+            if opts.run
+                || requested_prediction
+                    .as_ref()
+                    .is_some_and(|requested| Some(requested) != bound.startup_fingerprint.get())
+            {
+                return Err(error(
+                    "This workspace retains a different private prediction startup binding",
+                ));
+            }
+        } else if requested_prediction.is_some() {
+            return Err(error(
+                "An ordinary workspace cannot be converted in place; start a fresh private workspace",
+            ));
+        }
+
         if state.executor != opts.executor || *state.params != opts.params {
             return Err(error(
                 "This workspace is using different execution settings. Use the same executor and parameters as its existing session.",
@@ -225,28 +290,55 @@ async fn attach(
         }
         state.clone()
     } else {
+        let private_binding = opts
+            .prediction
+            .as_ref()
+            .map(|profile| profile.binding(&root))
+            .transpose()
+            .map_err(error)?;
         engine
             .locks
             .lock()
             .await
             .push(crate::up::DirectoryLock::acquire(&root).map_err(error)?);
-        let mut state = serve::prepare(ServeOptions {
-            target: root.clone(),
+        let options = ServeOptions {
+            target: if opts.prediction.is_some() {
+                opts.target.clone()
+            } else {
+                root.clone()
+            },
             port: 0,
             params: opts.params.clone(),
             executor: opts.executor,
             key_store_path: opts.key_store_path.clone(),
             ui_settings_path: opts.ui_settings_path.clone(),
-        })
-        .await
+        };
+        let mut state = match &opts.prediction {
+            Some(_) => {
+                serve::prepare_with_prediction(
+                    options,
+                    private_binding.expect("validated private binding"),
+                )
+                .await
+            }
+            None => serve::prepare(options).await,
+        }
         .map_err(error)?
         .state;
-        state.index = Arc::new(DocIndex::shared_from(&state.index));
-        state.store = engine.store.clone();
-        state.store.register(&state.index);
-        state.rooms = engine.rooms.clone();
+        if let Some(bound) = &state.private_prediction {
+            super::private_policy::retain(&root).map_err(error)?;
+            bound
+                .startup_fingerprint
+                .set(requested_prediction.clone().unwrap())
+                .map_err(|_| error("Private startup binding already installed"))?;
+        } else {
+            state.index = Arc::new(DocIndex::shared_from(&state.index));
+            state.store = engine.store.clone();
+            state.store.register(&state.index);
+            state.rooms = engine.rooms.clone();
+            state.engine_woven = Some(engine.watch.woven.clone());
+        }
         state.writes = engine.writes.clone();
-        state.engine_woven = Some(engine.watch.woven.clone());
         workspaces.insert(root.clone(), state.clone());
         state
     };
@@ -306,19 +398,28 @@ async fn attach(
     let log_offset = std::fs::metadata(directory().map_err(error)?.join("engine.log"))
         .map(|m| m.len())
         .unwrap_or(0);
-    engine
-        .subscriptions
-        .write()
-        .unwrap()
-        .insert(opts.client.clone(), opts.clone());
-    let startup = engine
-        .watch
-        .register(state.clone(), opts.clone())
-        .await
-        .map_err(error)?;
+    let startup = if state.private_prediction.is_some() {
+        super::startup::Startup::complete()
+    } else {
+        engine
+            .subscriptions
+            .write()
+            .unwrap()
+            .insert(opts.client.clone(), opts.clone());
+        engine
+            .watch
+            .register(state.clone(), opts.clone())
+            .await
+            .map_err(error)?
+    };
     // This is a window property, even when file and folder views share an engine.
     state.folder_open = opts.target.is_dir();
     let router = serve::router(state.clone());
+    let state_prediction = state
+        .private_prediction
+        .as_ref()
+        .and_then(|bound| bound.startup_fingerprint.get())
+        .cloned();
     engine.clients.lock().await.insert(
         opts.client,
         Client {
@@ -330,7 +431,11 @@ async fn attach(
             startup,
         },
     );
-    Ok(Json(Attached { slot, log_offset }))
+    Ok(Json(Attached {
+        slot,
+        log_offset,
+        prediction: requested_prediction.or_else(|| state_prediction),
+    }))
 }
 
 async fn lease(State(engine): State<Arc<Engine>>, Path(id): Path<String>) -> StatusCode {
@@ -442,9 +547,23 @@ async fn command(
     State(engine): State<Arc<Engine>>,
     Json(opts): Json<CommandRequest>,
 ) -> Api<Json<CommandResult>> {
+    let attaching = engine.attaching.lock().await;
+    if super::private_policy::active().map_err(error)?
+        || engine
+            .workspaces
+            .lock()
+            .await
+            .values()
+            .any(|state| state.private_prediction.is_some())
+    {
+        return Err(error(
+            "Managed command execution is unavailable while a private prediction workspace is active; use sealed Verify",
+        ));
+    }
     engine
         .workers
         .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+    drop(attaching);
     let result = async {
         let _write = engine.writes.lock().await;
         // Flush live room text before the CLI reads the working tree.
@@ -507,6 +626,26 @@ async fn tool(
         .get(&call.client)
         .map(|c| c.state.clone())
         .ok_or_else(|| error("MCP client disconnected; reconnect before editing"))?;
+    if let Some(bound) = &state.private_prediction {
+        return Ok(Json(bound.mcp_tool(state.executor, &call.params).await));
+    }
+    if super::private_policy::active().map_err(error)?
+        || engine
+            .workspaces
+            .lock()
+            .await
+            .values()
+            .any(|state| state.private_prediction.is_some())
+    {
+        return Err(error(
+            "MCP tools for another workspace are unavailable while the engine retains a private prediction workspace",
+        ));
+    }
+    if call.options.root.canonicalize().map_err(error)?
+        != state.index.root().canonicalize().map_err(error)?
+    {
+        return Err(error("MCP options do not match the attached workspace"));
+    }
     super::writes::during(&engine.writes, async {
         let before = engine.watch.woven.lock().await.snapshot();
         for (id, _) in state.index.entries() {

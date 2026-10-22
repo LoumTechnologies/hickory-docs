@@ -15,6 +15,8 @@ use std::sync::Arc;
 pub mod combined;
 pub mod debugger;
 mod gate;
+mod source_question;
+pub use source_question::SourceQuestion;
 
 pub(crate) fn log_expectation(outcome: &ExpectationOutcome, withheld: bool) {
     if !outcome.passed {

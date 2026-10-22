@@ -3,6 +3,7 @@
 mod client;
 mod daemon;
 pub(crate) mod mcp;
+mod private_policy;
 mod proxy;
 mod startup;
 mod watch;
@@ -18,6 +19,7 @@ use std::path::PathBuf;
 
 // A protocol version, not a release version: compatible releases may attach.
 const PROTOCOL: u32 = 1;
+const PREDICTION_PROTOCOL: &str = "private_prediction_v1";
 pub(crate) const WORKER: &str = "HICKORY_ENGINE_WORKER";
 const HEARTBEAT: std::time::Duration = std::time::Duration::from_secs(2);
 const LEASE: std::time::Duration = std::time::Duration::from_secs(10);
@@ -32,6 +34,9 @@ struct Endpoint {
 
 #[derive(Clone, Serialize, Deserialize)]
 pub struct Attach {
+    /// Trusted host startup profile; inherited by every client of this workspace.
+    #[serde(default)]
+    pub prediction: Option<crate::serve::PrivatePredictionStartup>,
     pub target: PathBuf,
     pub params: Vec<(String, String)>,
     pub executor: crate::ExecutorChoice,
@@ -55,6 +60,7 @@ pub struct Attach {
 impl Attach {
     pub fn new(target: PathBuf, executor: crate::ExecutorChoice) -> Self {
         Self {
+            prediction: None,
             target,
             executor,
             params: Vec::new(),
@@ -72,6 +78,8 @@ impl Attach {
 
 #[derive(Serialize, Deserialize)]
 struct Attached {
+    #[serde(default)]
+    prediction: Option<String>,
     slot: String,
     log_offset: u64,
 }
@@ -102,3 +110,5 @@ pub(crate) fn secret() -> String {
 pub(super) fn load_keys(path: &std::path::Path) -> Result<hickory_agent::KeyStore> {
     hickory_agent::KeyStore::load(path)
 }
+
+pub(crate) use client::{private_prediction_active, require_ordinary_agent_context};

@@ -8,9 +8,13 @@ pub struct Editors(pub BTreeMap<String, String>);
 struct Adapters<'a> {
     files: &'a mut Files,
     editors: &'a Editors,
+    snapshots_only: bool,
 }
 impl SourceAdapter for Adapters<'_> {
     fn head(&mut self, source: &Source) -> Result<Head> {
+        if self.snapshots_only {
+            return Ok(Head::Unavailable);
+        }
         if source.kind == "editor_buffer" {
             return Ok(match self.editors.0.get(&source.id) {
                 Some(text) => Head::Present {
@@ -32,6 +36,7 @@ pub struct Service {
     files: Files,
     branch: String,
     negotiated: Option<Negotiated>,
+    snapshots_only: bool,
 }
 impl Service {
     pub fn open(root: &Path, path: &Path, branch: &str) -> Result<Self> {
@@ -41,7 +46,21 @@ impl Service {
             editors: Editors::default(),
             branch: branch.into(),
             negotiated: None,
+            snapshots_only: false,
         })
+    }
+    /// A fresh host-fed context with no live file/editor adapters or imported history.
+    /// Callers must import only receipts already approved by their private policy.
+    pub fn open_snapshots(root: &Path, path: &Path, branch: &str) -> Result<Self> {
+        let mut service = Self::open(root, path, branch)?;
+        ensure!(
+            service.store.sources().is_empty()
+                && service.store.nodes().is_empty()
+                && service.store.productions().is_empty(),
+            "private context requires a fresh store"
+        );
+        service.snapshots_only = true;
+        Ok(service)
     }
     pub fn offer() -> Value {
         json!({"versions":[1],"capabilities":["context.capture","context.derive","context.changes","context.compare"],
@@ -51,16 +70,25 @@ impl Service {
         self.store.reconcile(&mut Adapters {
             files: &mut self.files,
             editors: &self.editors,
+            snapshots_only: self.snapshots_only,
         })
     }
     /// Host discovery supplies source identities; untrusted workers cannot mint adapter identities.
     pub fn saved(&mut self, locator: &str) -> Result<Source> {
+        ensure!(
+            !self.snapshots_only,
+            "capability_missing: live files withheld"
+        );
         let text = self.files.read(locator)?;
         let mut source = self.store.register("saved_file", locator)?;
         source.revision = digest(text.as_bytes());
         Ok(source)
     }
     pub fn editor(&mut self, identity: &str, text: &str) -> Result<Source> {
+        ensure!(
+            !self.snapshots_only,
+            "capability_missing: live editors withheld"
+        );
         let mut source = self.store.register("editor_buffer", identity)?;
         source.revision = digest(text.as_bytes());
         self.editors.0.insert(source.id.clone(), text.into());
@@ -208,6 +236,10 @@ impl Service {
                         .unwrap();
                     return Ok(json!({"node":node,"receipt":receipt}));
                 }
+                ensure!(
+                    !self.snapshots_only,
+                    "capability_missing: live capture withheld; use approved receipts"
+                );
                 let known = self
                     .store
                     .data

@@ -6,6 +6,11 @@ use tokio::sync::watch;
 pub(super) struct Startup(watch::Receiver<Option<Result<(), String>>>);
 
 impl Startup {
+    pub fn complete() -> Self {
+        let (sender, startup) = Self::channel();
+        let _ = sender.send(Some(Ok(())));
+        startup
+    }
     pub fn result(&self) -> Option<Result<(), String>> {
         self.0.borrow().clone().or_else(|| {
             self.0

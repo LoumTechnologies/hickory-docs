@@ -472,7 +472,7 @@ impl Server {
     /// "doc" already means "which document is this call about". Two things
     /// called `doc` meaning different things is exactly the kind of seam an
     /// agent gets wrong, so the MCP surface renames the rarer one.
-    fn invocation(name: &str, args: &Value) -> Result<ToolInvocation, String> {
+    pub(crate) fn invocation(name: &str, args: &Value) -> Result<ToolInvocation, String> {
         let mut tool_args: Vec<(String, String)> = Vec::new();
         if let Some(u) = args.get("upstream").and_then(Value::as_str) {
             tool_args.push(("doc".into(), u.to_string()));

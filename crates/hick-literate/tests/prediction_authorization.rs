@@ -96,3 +96,33 @@ async fn correctly_predicting_the_vulnerability_does_not_accept_the_security_req
             .is_err()
     );
 }
+
+// Guarantee: docs/guarantees/verification/predictions-precede-managed-observation.md
+#[test]
+fn source_question_rebinds_a_repair_but_refuses_retargeted_capture_metadata_or_statement() {
+    use hick_literate::prediction::{OutputEncoding, SourceQuestion};
+    use sha2::{Digest, Sha256};
+    let root = tempfile::tempdir().unwrap();
+    let ledger = Ledger::open(root.path()).unwrap();
+    let original = request(&ledger, VULNERABLE, "question", 0);
+    let question = SourceQuestion::capture(&original, VULNERABLE, OutputEncoding::Json).unwrap();
+    let mut identity = original.identity.clone();
+    identity.source = format!("{:x}", Sha256::digest(PATCHED.as_bytes()));
+    let repaired = question.rebind(&identity, PATCHED).unwrap();
+    let expected = request(&ledger, PATCHED, "expected-binding", 0);
+    assert_eq!(repaired, expected.target);
+    for changed in [
+        PATCHED.replace("authorization.py:4", "authorization.py:3"),
+        PATCHED.replace("of=\"allowed\"", "of=\"cross_tenant\""),
+        PATCHED.replace("    return allowed\n", "    return allowed + 0\n"),
+    ] {
+        identity.source = format!("{:x}", Sha256::digest(changed.as_bytes()));
+        assert!(question.rebind(&identity, &changed).is_err());
+    }
+    // Unrelated prose may move source byte spans while retaining the exact
+    // generated capture location and source statement.
+    let moved = format!("Additional review context\n{PATCHED}");
+    identity.source = format!("{:x}", Sha256::digest(moved.as_bytes()));
+    let rebound = question.rebind(&identity, &moved).unwrap();
+    assert_ne!(rebound, expected.target);
+}

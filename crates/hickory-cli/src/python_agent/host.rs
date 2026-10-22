@@ -48,6 +48,9 @@ impl Host<'_> {
         })
     }
     async fn tool(&mut self, params: &Value) -> Result<Value> {
+        if self.private.is_some() {
+            return self.private_tool(params).await;
+        }
         self.tools += 1;
         ensure!(
             self.tools <= self.config.max_turns * 64,
@@ -252,7 +255,18 @@ impl Host<'_> {
         Ok(result)
     }
     pub(super) async fn handle(&mut self, method: &str, params: &Value) -> Result<Value> {
+        if let Some(remote) = &self.private {
+            ensure!(
+                remote.private_mode().await?,
+                "Private prediction binding lost; no ordinary fallback"
+            );
+        } else {
+            crate::engine::require_ordinary_agent_context().await?;
+        }
         ensure!(!self.finished, "The model already stopped");
+        if method == "context.updates" && self.private.is_some() {
+            return Ok(json!([]));
+        }
         if method == "context.updates" {
             let branch = self.turn_id.as_deref().unwrap_or("standalone");
             let updates = if let Some(inbox) = self.review.context_inbox() {
@@ -308,10 +322,12 @@ impl Host<'_> {
             );
         }
         if method.starts_with("context.") {
-            if matches!(
-                method,
-                "context.hello" | "context.capture" | "context.changes" | "context.reconcile"
-            ) {
+            if self.private.is_none()
+                && matches!(
+                    method,
+                    "context.hello" | "context.capture" | "context.changes" | "context.reconcile"
+                )
+            {
                 self.context_store.editors.0.clear();
                 // A missing/timed-out editor feed cannot certify unchanged. File heads
                 // remain independently checkable, and old editor captures remain intact.
@@ -575,6 +591,9 @@ impl Host<'_> {
                 let summary = params["summary"]
                     .as_str()
                     .context("Missing completion summary")?;
+                if self.private.is_some() {
+                    return self.private_complete(summary).await;
+                }
                 self.review.refresh().await?;
                 // Independent byte verification, never a model assertion.
                 let artifact = self.server.agent_completion()?;

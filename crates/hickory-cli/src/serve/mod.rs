@@ -41,7 +41,9 @@ mod changeset_drafts;
 pub mod commit_reading;
 pub mod dataset;
 pub mod debug_bridge;
-mod private_predictions;
+mod private_prediction_startup;
+pub(crate) mod private_predictions;
+pub use private_prediction_startup::Startup as PrivatePredictionStartup;
 pub use private_predictions::Binding as PrivatePredictionBinding;
 mod engineer_tour;
 pub mod environments;
@@ -618,6 +620,8 @@ pub(crate) fn router(state: LocalState) -> Router {
         .route("/prediction/state", get(private_predictions::status))
         .route("/prediction/history", get(private_predictions::history))
         .route("/prediction/tool", post(private_predictions::source_tool))
+        .route("/prediction/seal", post(private_predictions::seal))
+        .route("/prediction/preview", post(private_predictions::preview))
         .merge(ui_actions::routes())
         .merge(fleet_pairings::routes())
         .route("/projects", get(api::projects))

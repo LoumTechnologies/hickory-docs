@@ -351,3 +351,54 @@ source bytes and accepts the unchanged prediction after a reviewed host restart.
 Failure/repair share the durable ledger; neither creates the runtime output file.
 It does not witness an attached provider, native app or deployed session. Human
 judgment is not supplied. The handoff retains exact dependency hashes.
+
+## October 22 engine/context continuation review
+
+Requirement: issue 72 and its handoff's authoritative no-copying clarification.
+`PrivatePredictionStartup`, engine Attach and capability acknowledgement retain
+one shared private source/Verify owner. The HTTP/MCP/stdio boundaries reuse that
+owner. A durable root quarantine prevents restart from falling back to ordinary
+reads or managed commands. `SourceQuestion` binds repair resealing to the existing
+host selection; it neither proves semantic scenario identity nor captures the
+execution environment. Only prediction/rationale can be submitted by the agent.
+
+The explicit private Python conversation uses a fresh context store with live
+adapters disabled, approved engine receipts and captured edit previews. It requires
+an isolated review host; ordinary native Review is not yet admitted. Completion
+is an investigation report without a changeset artifact or current certification.
+Default ordinary conversations retain their source-output equality gate.
+
+Executed checks: prediction_engine (actual daemon, stdio, confined Python worker
+with scripted model/review decisions and daemon restart); two prediction_http
+cases; private_snapshot_context_never_refreshes_from_files_or_editors; ordinary
+CLI/window attach. These establish bounded managed interfaces, not native packaged
+UI, real provider decisions, OS-wide secrecy or immutable environments. Host-only
+syntax rebinding was separately witnessed by prediction_authorization source_question.
+Human judgment: not supplied. LLM implementation review: these paths inspected;
+not all remaining issue 72 interfaces integrated. Application flag remains absent.
+
+Assumptions: startup admission and review host are trusted; ledger stays outside
+the predictor root; managed engine authentication is not an OS sandbox. Alternatives
+rejected: silently downgrading old daemons, reading ordinary live context during
+private completion, materializing answers to satisfy ordinary changeset acceptance,
+or pretending a model's completion certifies execution. Falsifiers: restart permits
+ordinary access to a retained private root; private context reads answer-bearing
+live disk/editor bytes; a stale review preview writes; a tool changes the host
+requirement/actor; or private completion produces ordinary acceptance. Remaining
+gaps: host end/recovery lifecycle, narrower concurrent workspace behavior, native
+review/coach, ACP/browser context integration, environment/input revalidation and
+promotion. No guarantee of full application quarantine follows yet.
+
+Inspected continuation dependencies (changed bytes stale this review):
+
+| Path | SHA-256 |
+| --- | --- |
+| `crates/hickory-cli/src/engine/daemon.rs` | `3c147d5db58dbfe3ba4d0763c0cba48ce1bc217e67c1a7122597528b7683d1ab` |
+| `crates/hickory-cli/src/engine/private_policy.rs` | `40922db10d17f98691762f18640ac192b7c80c041651af69022c6dad60774891` |
+| `crates/hickory-cli/src/engine/client.rs` | `02d51a5e101198f00d30f49ef9fd5fa2e3c2c3943b75a3715957963031c02351` |
+| `crates/hickory-cli/src/python_agent.rs` | `6f961d181eae17f0755dd2cdf8959080d994546f6f2b6f2d8a3ac735181a551b` |
+| `crates/hickory-cli/src/python_agent/private.rs` | `8b4ab841aae6d15c8cf046095cb6bc96bcf257a6fdbca22ee89ff3127a303575` |
+| `crates/hickory-cli/src/serve/private_predictions.rs` | `5bb6d1ffa67978c7e728cfabce8a53c76e32703b3db39176e902a64d41b0b175` |
+| `crates/hick-literate/src/prediction/source_question.rs` | `21b56092b5639ac8455b2032210a94f18a3e29688dab579b715f18168df2be2a` |
+| `crates/hick-context-store/src/host.rs` | `d03c0330dbef16802b4ef3488bb828440151d4e54b564fc264877551690d549c` |
+| `crates/hickory-cli/tests/prediction_engine.rs` | `7734deaf0b5bdac6433d0ea624eec6e6dacbb2599b12bc474ecd6655198b0ca2` |

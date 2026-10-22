@@ -1,6 +1,11 @@
 use super::*;
 
 impl EditSession {
+    /// The already approved captured source, never a fresh filesystem read.
+    pub fn approved_source(&self) -> &str {
+        &self.source
+    }
+
     /// Build a complete replacement pinned to the reviewed surface, preserving
     /// the existing tool's source/output routing and validation.
     pub fn reviewed_invocation(

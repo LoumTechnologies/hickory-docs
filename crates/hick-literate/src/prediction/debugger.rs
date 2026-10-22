@@ -132,18 +132,23 @@ pub(super) fn validate_bounded(
                 .ok_or_else(|| anyhow::anyhow!("Invalid line"))?,
         )
         .ok_or_else(|| anyhow::anyhow!("Capture source mapping unavailable"))?;
+    let (line_start, line_end) = source_span(source, document_line)?;
+    ensure!((*start_byte, *end_byte) == (line_start, line_end));
+    Ok((spec, document_line))
+}
+
+pub(super) fn source_span(source: &str, line_number: u32) -> Result<(u64, u64)> {
     let mut start = 0u64;
-    let (line_start, line_end) = source
+    let range = source
         .split_inclusive('\n')
         .enumerate()
         .find_map(|(index, line)| {
             let range = (start, start + line.len() as u64);
             start = range.1;
-            (index as u32 == document_line).then_some(range)
+            (index as u32 == line_number).then_some(range)
         })
         .ok_or_else(|| anyhow::anyhow!("Source line unavailable"))?;
-    ensure!((*start_byte, *end_byte) == (line_start, line_end));
-    Ok((spec, document_line))
+    Ok(range)
 }
 
 pub(super) fn selected(

@@ -106,6 +106,27 @@ pub async fn connect(attach_opts: Attach) -> Result<Connection> {
 }
 
 async fn attach(http: &reqwest::Client, endpoint: &Endpoint, opts: &Attach) -> Result<Attached> {
+    if opts.prediction.is_some() {
+        let response = http
+            .get(format!("{}/health", endpoint.url))
+            .bearer_auth(&endpoint.token)
+            .timeout(std::time::Duration::from_secs(2))
+            .send()
+            .await?;
+        ensure!(
+            response.status().is_success(),
+            "Private prediction engine capability unavailable; no attach attempted"
+        );
+        let health: serde_json::Value = response.json().await?;
+        ensure!(
+            health["capabilities"]
+                .as_array()
+                .is_some_and(|capabilities| capabilities
+                    .iter()
+                    .any(|capability| capability == super::PREDICTION_PROTOCOL)),
+            "This engine cannot enforce private prediction startup; close its clients and reopen with a supporting build. No ordinary attach fallback was attempted"
+        );
+    }
     let response = http
         .post(format!("{}/attach", endpoint.url))
         .bearer_auth(&endpoint.token)
@@ -120,7 +141,14 @@ async fn attach(http: &reqwest::Client, endpoint: &Endpoint, opts: &Attach) -> R
                 .unwrap_or("Could not connect to the local engine")
         );
     }
-    Ok(response.json().await?)
+    let attached: Attached = response.json().await?;
+    if let Some(profile) = &opts.prediction {
+        ensure!(
+            attached.prediction.as_ref() == Some(&profile.fingerprint()?),
+            "Engine did not acknowledge the exact private startup binding; no ordinary fallback is permitted"
+        );
+    }
+    Ok(attached)
 }
 
 async fn live(http: &reqwest::Client, endpoint: &Endpoint) -> Result<bool> {
@@ -238,6 +266,58 @@ async fn discover() -> Result<Endpoint> {
     }
 }
 
+/// A context path without private snapshot isolation cannot start or continue
+/// while this engine owns a private workspace. This is refusal, not a fallback.
+pub(crate) async fn private_prediction_active() -> Result<bool> {
+    if super::private_policy::active()? {
+        return Ok(true);
+    }
+    let path = hickory_workspace::data_root()?.join("engine/endpoint.json");
+    if !path.exists() {
+        return Ok(false);
+    }
+    let endpoint = discover().await?;
+    let http = reqwest::Client::builder()
+        .no_proxy()
+        .timeout(std::time::Duration::from_secs(2))
+        .build()?;
+    let health: serde_json::Value = http
+        .get(format!("{}/health", endpoint.url))
+        .bearer_auth(&endpoint.token)
+        .send()
+        .await?
+        .json()
+        .await?;
+    if !health["capabilities"]
+        .as_array()
+        .is_some_and(|caps| caps.iter().any(|cap| cap == super::PREDICTION_PROTOCOL))
+    {
+        return Ok(false);
+    }
+    let response = http
+        .get(format!("{}/prediction-policy", endpoint.url))
+        .bearer_auth(&endpoint.token)
+        .send()
+        .await?;
+    ensure!(
+        response.status().is_success(),
+        "Private context policy unavailable; no ordinary agent context fallback"
+    );
+    let policy: serde_json::Value = response.json().await?;
+    ensure!(
+        policy["active"].is_boolean(),
+        "Invalid private prediction policy response"
+    );
+    Ok(policy["active"] == true)
+}
+pub(crate) async fn require_ordinary_agent_context() -> Result<()> {
+    ensure!(
+        !private_prediction_active().await?,
+        "This agent context path is unavailable while the engine retains a private prediction workspace; use its guarded MCP or captured-source tools"
+    );
+    Ok(())
+}
+
 pub async fn up(config: crate::up::UpConfig) -> Result<()> {
     // Keep the CLI's useful empty-folder diagnosis.
     crate::expand_docs(&config.root)?;
@@ -329,3 +409,7 @@ pub async fn forward_cli(args: &[String]) -> Result<Option<i32>> {
     eprint!("{}", result.stderr);
     Ok(Some(result.code))
 }
+
+#[cfg(test)]
+#[path = "client_prediction_tests.rs"]
+mod prediction_tests;

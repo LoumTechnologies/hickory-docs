@@ -27,6 +27,8 @@ pub struct Config {
 /// Optional conversation identity supplied by the UI. Standalone runs use defaults.
 #[derive(Default)]
 pub struct Conversation {
+    /// Trusted host opt-in; requires an already bound engine workspace and fresh context.
+    pub private_prediction: bool,
     pub session: Option<PathBuf>,
     /// Host-selected storage root; never supplied by a model or worker.
     pub session_storage: Option<PathBuf>,
@@ -43,7 +45,7 @@ pub struct Outcome {
     pub session: PathBuf,
     pub summary: String,
     pub usage: Usage,
-    pub artifact: crate::changeset::Artifact,
+    pub artifact: Option<crate::changeset::Artifact>,
 }
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize)]
@@ -59,6 +61,10 @@ pub struct Proposal {
 
 #[async_trait::async_trait]
 pub trait Review: Send {
+    /// Explicit host promise: approval does not import ordinary editor/runtime context.
+    fn private_prediction_safe(&self) -> bool {
+        false
+    }
     fn ui_tools(&self) -> Vec<Value> {
         vec![]
     }
@@ -91,6 +97,9 @@ pub struct EditorHead {
 pub struct TerminalReview;
 #[async_trait::async_trait]
 impl Review for TerminalReview {
+    fn private_prediction_safe(&self) -> bool {
+        true
+    }
     async fn approve(&mut self, proposal: &Proposal) -> Result<bool> {
         use std::io::{IsTerminal, Write};
         if !std::io::stdin().is_terminal() {
@@ -240,6 +249,7 @@ struct Host<'a> {
     client: &'a dyn LlmClient,
     review: &'a mut dyn Review,
     server: Server,
+    private: Option<crate::engine::mcp::Remote>,
     context_store: hick_context_store::host::Service,
     deliveries: std::collections::BTreeMap<String, (String, Option<Value>)>,
     active_delivery: Option<Value>,
@@ -254,6 +264,7 @@ struct Host<'a> {
     on_event: &'a mut (dyn FnMut(AgentEvent) + Send),
 }
 mod host;
+mod private;
 
 struct ChildGuard {
     child: tokio::process::Child,
@@ -313,6 +324,35 @@ pub async fn run_conversation(
     conversation: Conversation,
     on_event: &mut (dyn FnMut(AgentEvent) + Send),
 ) -> Result<Outcome> {
+    let private = if conversation.private_prediction {
+        ensure!(
+            review.private_prediction_safe(),
+            "Private prediction requires an isolated review host"
+        );
+        ensure!(
+            conversation.context.is_empty()
+                && conversation.prior_turns.is_empty()
+                && conversation.session.is_none()
+                && conversation.changeset.is_none(),
+            "Private prediction requires a fresh conversation without ordinary context or changesets"
+        );
+        let remote = crate::engine::mcp::Remote::new(crate::engine::mcp::Options {
+            root: config.root.clone(),
+            doc: config.doc.clone(),
+            params: vec![],
+            executor: crate::ExecutorChoice::Local,
+            session: None,
+        })
+        .await?;
+        ensure!(
+            remote.private_mode().await?,
+            "Private engine binding required; no ordinary fallback"
+        );
+        Some(remote)
+    } else {
+        crate::engine::require_ordinary_agent_context().await?;
+        None
+    };
     ensure!(
         (1..=100).contains(&config.max_turns),
         "max-turns must be between 1 and 100"
@@ -423,22 +463,28 @@ pub async fn run_conversation(
         executor.clone(),
         session.clone(),
     );
-    let mut catalogue = server
-        .handle("tools/list", &json!({}))
-        .await
-        .map_err(|(_, msg)| anyhow::anyhow!(msg))?;
-    catalogue["tools"]
-        .as_array_mut()
-        .unwrap()
-        .retain(|tool| tool["name"].as_str().is_some_and(allowed));
-    catalogue["tools"]
-        .as_array_mut()
-        .unwrap()
-        .extend(review.ui_tools());
-    if let Some(contract) = conversation.changeset {
-        server.agent_set_changeset(contract);
+    let mut catalogue = if private.is_some() {
+        crate::serve::private_predictions::catalogue()
     } else {
-        server.agent_begin_changeset()?;
+        server
+            .handle("tools/list", &json!({}))
+            .await
+            .map_err(|(_, msg)| anyhow::anyhow!(msg))?
+    };
+    if private.is_none() {
+        catalogue["tools"]
+            .as_array_mut()
+            .unwrap()
+            .retain(|tool| tool["name"].as_str().is_some_and(allowed));
+        catalogue["tools"]
+            .as_array_mut()
+            .unwrap()
+            .extend(review.ui_tools());
+        if let Some(contract) = conversation.changeset {
+            server.agent_set_changeset(contract);
+        } else {
+            server.agent_begin_changeset()?;
+        }
     }
     let mut bootstrap = json!({
         "prompt":config.prompt,"max_turns":config.max_turns,"context":conversation.context,
@@ -447,12 +493,18 @@ pub async fn run_conversation(
         "tools":catalogue
     });
     // A session owns its references, separately from the append-only agent narrative.
-    let mut context_store = hick_context_store::host::Service::open(
+    let open = if private.is_some() {
+        hick_context_store::host::Service::open_snapshots
+    } else {
+        hick_context_store::host::Service::open
+    };
+    let mut context_store = open(
         &config.root,
         &session.with_extension("context.json"),
         conversation.turn.as_deref().unwrap_or("standalone"),
     )?;
-    if let Some(doc) = &config.doc
+    if private.is_none()
+        && let Some(doc) = &config.doc
         && let Ok(locator) = doc.strip_prefix(&config.root)
         && let Some(locator) = locator.to_str()
     {
@@ -521,12 +573,22 @@ pub async fn run_conversation(
             }
         }
     }
+    if let Some(remote) = &private {
+        let state = remote
+            .private_request(reqwest::Method::GET, "state", &json!({}))
+            .await?;
+        bootstrap["context"] = json!(format!(
+            "Private prediction session. Read captured source, seal your prediction and rationale before Verify. Actual target values stay withheld. Host question and target: {}",
+            state
+        ));
+    }
     bootstrap["context_references"] = json!(bootstrap_references);
     let mut host = Host {
         config: &config,
         client,
         review,
         server,
+        private,
         context_store,
         deliveries: Default::default(),
         active_delivery: None,
@@ -660,7 +722,11 @@ pub async fn run_conversation(
         )?;
     }
     result?;
-    let artifact = host.server.agent_completion()?;
+    let artifact = if host.private.is_some() {
+        None
+    } else {
+        Some(host.server.agent_completion()?)
+    };
     Ok(Outcome {
         artifact,
         session,

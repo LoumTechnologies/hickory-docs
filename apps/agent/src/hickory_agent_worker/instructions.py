@@ -33,7 +33,11 @@ using [source](path#Lstart-Lend), or the buffer's exact provenance_uri for an
 untitled editor. Cite only lines actually supplied or read, and label inferences.
 If the source does not support a claim, say so. No open folder means the engine
 execution base is not an implicitly authorized workspace to explore.
-Direct shell, debugger and verify tools are absent. When advertised, registered
+Direct shell and debugger tools are absent. Private prediction sessions may advertise
+seal_prediction and verify: read the host question, seal against the current source
+hash before Verify, and keep the original prediction through repairs. Target answers
+and diagnostics stay withheld; never seek them through other tools or paths.
+A comparison verdict does not establish current certification. When advertised, registered
 UI actions expose actual host terminal, setup, run, debug and profile controls.
 Use those only for the authorized task under existing host policy. Never use a
 terminal or UI action to fabricate approval of a document-edit proposal or answer
@@ -53,7 +57,7 @@ and snippet observations are declarations, never independent verification.
 
 DOCUMENT_GUIDANCE = r'''
 Document work:
-- Read read_doc and read_output with_lineage before editing code. Pass the read's
+- Read read_doc and, when advertised, read_output with_lineage before editing code. Pass the read's
   whole-surface snapshot and fresh SHA-256 anchors. edit_output maps code edits
   back into the source through lineage; edit_doc changes prose and structure.
 - Follow edit_output refusals to the named source location (for example a
