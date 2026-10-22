@@ -1,3 +1,4 @@
+import { useTableGestureActions, type TableClipboard } from "./useTableGestureActions";
 import { SelectAll, Resizer, HeightResizer } from "./TableGridControls";
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 
@@ -709,7 +710,7 @@ export function TablePanel({
    * Answers whether it wrote anything, so the caller only takes the event
    * away from the browser when there was something to take it for.
    */
-  const copyOut = (clipboard: DataTransfer | null | undefined): boolean => {
+  const copyOut = (clipboard: TableClipboard | null | undefined): boolean => {
     if (!selection || !clipboard) return false;
     const block = blockOf(selection);
     clipboard.setData("text/plain", toTabSeparated(block));
@@ -727,7 +728,7 @@ export function TablePanel({
    * cells it wrote — so the first thing you see is what changed, and one
    * Delete puts it back.
    */
-  const pasteIn = (clipboard: DataTransfer | null | undefined): boolean => {
+  const pasteIn = (clipboard: TableClipboard | null | undefined, actor?: UiActor): boolean => {
     if (!editable || !selection || !clipboard) return false;
     const block = parseClipboardTable(
       clipboard.getData("text/html"),
@@ -753,7 +754,7 @@ export function TablePanel({
       };
       cut.current = null;
     }
-    apply(next);
+    if (!apply(next, false, actor)) return false;
     const tall = block.length;
     const wide = block.reduce((widest, row) => Math.max(widest, row.length), 0);
     setSelection(
@@ -990,6 +991,9 @@ export function TablePanel({
   add("fit-column", "Fit table column to rendered contents", { column: index }, true, async args => { if ((args.column as number) >= width) return { status: "unavailable", reason: "Column outside table" }; fitColumn(args.column as number); return { status: "completed", value: { layout_measurement_requested: true } }; });
   add("fit-row", "Fit table row to rendered contents", { row: index }, true, async args => { if ((args.row as number) >= height) return { status: "unavailable", reason: "Row outside table" }; fitRow(args.row as number); return { status: "completed", value: { layout_measurement_requested: true } }; });
   useUiCommands(commands);
+  useTableGestureActions({ parent, revision, current: sourceIsCurrent, editable, selected: !!selection, editing, pointing: !!pointing, rows: height, columns: width,
+    begin: (row, column, from) => edit(row, column, undefined, from), change: typed, input: activeInput, viewport: () => gridRef.current?.closest<HTMLElement>(".table-panel__scroll") ?? null, copy: copyOut, paste: pasteIn,
+    point: (row, column, endRow, endColumn) => pointRangeTo({ row, column }, endRow, endColumn), resize: next => resize({ ...size, height: next }) });
   const rowNumber = (row: number, lane = false) => (
     <th
       scope="row"
@@ -1047,11 +1051,6 @@ export function TablePanel({
           setShowFormulas((on) => !on);
         }
       }}
-      // The clipboard, as EVENTS rather than as `navigator.clipboard`: the
-      // event carries what was copied in every flavour it was copied in, needs
-      // no permission prompt, and is the only way to read the `text/html` a
-      // spreadsheet puts there. These fire on whatever inside the grid has
-      // focus, which is the selected cell, and bubble to here.
       onCopy={(event) => {
         if (inAField(event)) return;
         if (copyOut(event.clipboardData)) event.preventDefault();

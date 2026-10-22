@@ -787,3 +787,18 @@ LLM implementation review: partially verified for these paths. Focused checks,
 failed assertions/corrections and exact hashes are in the corresponding image /
 context / recovery section of the issue-72 handoff. Human judgment is not supplied.
 Universal parity and current provider/package/release acceptance remain incomplete.
+
+
+### Captured debugger and table gestures — 2026-10-22
+
+Captured debugger source/code navigation shares its native controller and binds
+current stop/frame/owner/source. Late captured-code reads release context instead
+of publishing into a replacement stop. Table draft/caret/range pointing and
+viewport actions use existing handlers. Typed clipboard paste shares native
+parsing and guarded writes with agent attribution. Rich copy requires real
+browser write success; denied permission is requires_input. Agent Cut requests
+native browser ClipboardEvent handling and performs no source deletion. No
+subsequent human/OS completion is invented. Draft/viewport changes are not saved
+or verified work. See the handoff's explicit browser limitation and dependency
+hashes. Focused executed checks passed for the named paths; LLM review remains
+partial, human judgment is absent, and issue 72 remains incomplete.

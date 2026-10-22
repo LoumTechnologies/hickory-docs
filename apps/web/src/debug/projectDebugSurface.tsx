@@ -1,3 +1,7 @@
+import { useId, useRef } from "react";
+import { useUiCommands, useUiRevision } from "../lib/uiActionBridge";
+import { useUiReading } from "../lib/uiReading";
+import type { UiOutcome } from "../lib/uiActions";
 import { useEffect, useState, useSyncExternalStore } from "react";
 import { EditorView } from "@codemirror/view";
 import type { ProjectEntry } from "../editor/hickLang";
@@ -87,15 +91,36 @@ export function bindProjectDebugView(path: string, view: EditorView) {
 
 /** Both locations address one paused frame and keep the same live controls. */
 export function ProjectDebugLinks({owner, debug}: {owner:string; debug:DebugSession}) {
+  const parent = `project-debug-links:${useId()}`;
   const [error,setError] = useState("");
   const surface = useSurface(owner);
   const frame = debug.frames.find(f => f.id === debug.selectedFrame) ?? debug.frames[0];
-  if (!surface || debug.status !== "paused" || !frame) return null;
+  const revision = useUiRevision(() => [owner, version, debug.status, debug.reading?.scope, frame, surface?.source, surface?.view.state.doc.toString(), surface?.view.dom.isConnected]);
+  const latestRevision = useRef(revision); latestRevision.current = revision;
+  const current = () => !!surface && locations.get(owner) === surface && surface.view.dom.isConnected && surface.view.state.doc.toString() === surface.source && debug.status === "paused" && !!frame;
+  const active = !!surface && debug.status === "paused" && !!frame;
+  const hasCode = !!frame?.source?.startsWith("hick-project:///") && Number.isInteger(frame.source_line) && (frame.source_line ?? -1) >= 0;
+  useUiReading("captured debugger location links", active ? { owner, frame, current: current(), error } : null);
+  const invoke = useUiCommands(active ? (["literate", "generated"] as const).map(kind => ({ key: `${parent}:${kind}`, command: {
+    label: kind === "literate" ? "Show captured debugger literate source" : "Show captured debugger generated code", parent, subject: parent, parameters: {}, prerequisites: ["Current paused frame and captured project/editor owner"],
+    read: () => ({ revision: revision(), enabled: current() && (kind === "literate" || hasCode), reason: "Wait for a paused captured project frame and current source" }),
+    execute: async (): Promise<UiOutcome> => {
+      if (!current() || !frame) return { status: "unavailable", reason: "The captured debugger frame or editor changed" };
+      if (kind === "literate") {
+        if (!revealPreferredDebugLocation(owner, frame)) return { status: "unavailable", reason: "The current frame has no exact visible literate source mapping" };
+        return { status: "completed", value: { source_selection_requested: true, frame: frame.id } };
+      }
+      if (!hasCode || !frame.source) return { status: "unavailable", reason: "This frame has no captured project code" };
+      const captured = revision();
+      await openCapturedCode({ uri: frame.source, range: { start: { line: frame.source_line ?? 0, character: 0 }, end: { line: frame.source_line ?? 0, character: 0 } } }, owner, () => current() && latestRevision.current() === captured);
+      return { status: "completed", value: { captured_reading_open_requested: true, frame: frame.id, executed: false } };
+    },
+  } })) : []);
+  if (!active) return null;
+  const act = (kind: string) => { void invoke(`${parent}:${kind}`).catch(cause => setError(cause instanceof Error ? cause.message : String(cause))); };
   return <span className="project-debug-links">
-    <button className="debug-icon" type="button" aria-label="Show literate source" data-tip="Show literate source" onClick={() => revealPreferredDebugLocation(owner,frame)}>¶</button>
-    <button className="debug-icon" type="button" aria-label="Show generated code" data-tip="Show generated code" onClick={() => {
-      if (frame.source?.startsWith("hick-project:///")) void openCapturedCode({uri:frame.source,range:{start:{line:frame.source_line ?? 0,character:0},end:{line:frame.source_line ?? 0,character:0}}},owner).catch(e => setError(String(e)));
-    }}>{"{}"}</button>
+    <button className="debug-icon" type="button" aria-label="Show literate source" data-tip="Show literate source" onClick={() => act("literate")}>¶</button>
+    <button className="debug-icon" type="button" aria-label="Show generated code" data-tip="Show generated code" disabled={!hasCode} onClick={() => act("generated")}>{"{}"}</button>
     {error && <span role="alert">Could not open generated code: {error}</span>}
   </span>;
 }

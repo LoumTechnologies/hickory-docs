@@ -133,3 +133,14 @@ LLM implementation review: partially verified for these paths. Focused checks,
 failed assertions/corrections and exact hashes are in the corresponding image /
 context / recovery section of the issue-72 handoff. Human judgment is not supplied.
 Universal parity and current provider/package/release acceptance remain incomplete.
+
+
+### Captured debugger location ownership — 2026-10-22
+
+Literate-source and generated-code buttons share current captured-debugger actions.
+A late generated-code response from a retired stop releases its context and cannot
+publish/open a reading. Missing exact mappings/lines stay unavailable. Four focused
+project-debugger cases and the navigation loader retirement/release case pass;
+targeted TypeScript passes. LLM implementation review is partial; human judgment
+is not supplied. Exact dependency hashes and failures/corrections are in the
+issue-72 handoff. This does not attest current packaged/provider/release behavior.

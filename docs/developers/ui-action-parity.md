@@ -1112,3 +1112,12 @@ cannot preserve a stale target. Status/persistence callbacks report requests,
 not completed downstream effects. Focused checks and failures/corrections are in
 the active issue-72 handoff. These increments do not complete universal parity,
 private ACP integration, paid private-provider or packaged/release/deployed proof.
+
+
+Captured project debugger source/code buttons now bind the stop and current
+captured owner; late code reads refuse publication after replacement. Table draft,
+range pointing, whole-viewport height/scroll and rich clipboard copy/paste share
+existing controllers. Browser-only Cut is an explicit requires_input request:
+no agent-side deletion occurs, and later human completion is not attested. The
+handoff records its exact scope and focused native-gesture challenges. Remaining
+universal/native/provider/release acceptance is unchanged.
