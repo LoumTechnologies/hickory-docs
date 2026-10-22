@@ -1,7 +1,7 @@
 // The pane's half of dired: the marks, the prompt a verb asks through, and
 // running the verb against the server. See shell/dired.ts for what the keys
 // mean and docs/guarantees/authoring/the-tree-is-a-dired.md.
-import { useCallback, useId, useState } from "react";
+import { useCallback, useId, useRef, useState } from "react";
 import { useUiCommands, useUiRevision } from "../lib/uiActionBridge";
 import type { UiCommand, UiField, UiValue } from "../lib/uiActions";
 import type { KeyboardEvent } from "react";
@@ -12,6 +12,7 @@ import { diredIntent, nextMarks, toggleMark } from "./dired";
 import type { DiredIntent } from "./dired";
 
 export interface DiredPrompt {
+  id?: string;
   label: string;
   verb: string;
   /** Absent for a confirmation. */
@@ -20,6 +21,9 @@ export interface DiredPrompt {
 }
 
 export interface Dired {
+  uiSubject?: string;
+  promptDraft?: string;
+  setPromptDraft?: (value: string) => void;
   marked: ReadonlySet<string>;
   toggle: (path: string) => void;
   replaceMarks: (paths: readonly string[]) => void;
@@ -40,10 +44,28 @@ export interface Dired {
 const said = (e: unknown) => (e instanceof Error ? e.message : String(e));
 const many = (paths: string[]) => (paths.length === 1 ? paths[0] : `${paths.length} items`);
 
+async function runPaths(paths: readonly string[], run: (path: string) => Promise<unknown>) {
+  const completed: string[] = [];
+  try { for (const path of paths) { await run(path); completed.push(path); } }
+  catch (cause) {
+    if (completed.length) {
+      window.dispatchEvent(new Event(FILES_CHANGED_EVENT));
+      throw Error(`Completed ${completed.length} of ${paths.length} paths before failure: ${JSON.stringify(completed)}. No rollback occurred. ${said(cause)}`);
+    }
+    throw cause;
+  }
+}
+
 export function useDired(onNotice: (text: string | null) => void): Dired {
   const instance = useId();
+  const inFlight = useRef(false);
+  const [promptDraft, updateDraft] = useState("");
+  const draftOwner = useRef("");
+  const setPromptDraft = useCallback((value: string) => { if (!inFlight.current) { draftOwner.current = value; updateDraft(value); } }, []);
   const [marked, setMarked] = useState<ReadonlySet<string>>(() => new Set());
-  const [prompt, setPrompt] = useState<DiredPrompt | null>(null);
+  const [prompt, updatePrompt] = useState<DiredPrompt | null>(null);
+  const promptOwner = useRef<DiredPrompt | null>(null);
+  const setPrompt = useCallback((next: DiredPrompt | null) => { promptOwner.current = next; draftOwner.current = next?.initial ?? ""; updateDraft(draftOwner.current); updatePrompt(next); }, []);
   const [renamePaths, setRenamePaths] = useState<readonly string[] | null>(null);
   const [promptError, setPromptError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -59,6 +81,7 @@ export function useDired(onNotice: (text: string | null) => void): Dired {
 
   const run = useCallback(
     (intent: DiredIntent) => {
+      if (inFlight.current) { onNotice("Wait for the current filesystem operation before replacing its prompt"); return; }
       onNotice(null);
       setPromptError(null);
       switch (intent.kind) {
@@ -68,39 +91,44 @@ export function useDired(onNotice: (text: string | null) => void): Dired {
           setMarked((current) => nextMarks(current, intent));
           return;
         case "rename": {
+          setPrompt(null);
           setRenamePaths(intent.paths);
           return;
         }
         case "move":
         case "copy": {
+          setRenamePaths(null);
           const verb = intent.kind === "move" ? "Move" : "Copy";
           setPrompt({
+            id: crypto.randomUUID(),
             label: `${verb} ${many(intent.paths)} to folder (relative to the open folder; "." is the root)`,
             verb,
             initial: "",
             run: async (value) => {
-              for (const path of intent.paths) {
-                await api.fileOp({ op: intent.kind, path, to: value ?? "." });
-              }
+              await runPaths(intent.paths, path => api.fileOp({ op: intent.kind, path, to: value ?? "." }));
             },
           });
           return;
         }
         case "delete":
+          setRenamePaths(null);
           setPrompt({
+            id: crypto.randomUUID(),
             label: `Delete ${many(intent.paths)}? There is no trash: this removes ${
               intent.paths.length === 1 ? "it" : "them"
             } from the disk.`,
             verb: "Delete",
             run: async () => {
-              for (const path of intent.paths) await api.fileOp({ op: "delete", path });
+              await runPaths(intent.paths, path => api.fileOp({ op: "delete", path }));
             },
           });
           return;
         case "mkdir":
         case "create": {
+          setRenamePaths(null);
           const what = intent.kind === "mkdir" ? "folder" : "file";
           setPrompt({
+            id: crypto.randomUUID(),
             label: `New ${what} in ${intent.dir || "the folder"}`,
             verb: "Create",
             initial: "",
@@ -118,11 +146,12 @@ export function useDired(onNotice: (text: string | null) => void): Dired {
 
   const answer = useCallback(
     async (value: string | null) => {
-      if (!prompt || busy) return false;
-      setBusy(true);
+      if (!prompt || busy || inFlight.current || promptOwner.current !== prompt) return false;
+      if (value !== null) setPromptDraft(value);
+      inFlight.current = true; setBusy(true);
       try { await prompt.run(value); done(); return true; }
       catch (e) { setPromptError(said(e)); return false; }
-      finally { setBusy(false); }
+      finally { inFlight.current = false; setBusy(false); }
     },
     [prompt, done, busy],
   );
@@ -140,6 +169,7 @@ export function useDired(onNotice: (text: string | null) => void): Dired {
   );
 
   const controller: Dired = {
+    uiSubject: `file-operations:${instance}`, promptDraft, setPromptDraft,
     marked,
     toggle: (path) => setMarked((current) => toggleMark(current, path)),
     replaceMarks: (paths) => setMarked(new Set(paths)),
@@ -163,20 +193,21 @@ export function useDired(onNotice: (text: string | null) => void): Dired {
     busy,
     answer,
     cancel: () => {
+      if (inFlight.current) return;
       setPrompt(null);
       setPromptError(null);
     },
   };
   const parent = `file-operations:${instance}`;
-  const revision = useUiRevision(() => [[...marked], prompt?.label, prompt?.initial, renamePaths, promptError, busy]);
+  const revision = useUiRevision(() => [[...marked], prompt?.id, promptOwner.current?.id, draftOwner.current, prompt?.label, prompt?.initial, renamePaths, promptError, busy]);
   const commands: { key: string; command: UiCommand }[] = [];
   const text: UiField = { type: "string", maxLength: 8192 };
   const paths: UiField = { type: "array", maxItems: 128, items: text };
   function add(key: string, label: string, parameters: Record<string, UiField>, execute: UiCommand["execute"], enabled = !busy) {
-    commands.push({ key: `${parent}/${key}`, command: { label, parent, subject: parent, parameters, prerequisites: ["Paths are relative to this workspace; existing host filesystem checks apply"], read: () => ({ revision: revision(), enabled, reason: enabled ? undefined : "Wait for the current filesystem operation" }), execute } });
+    commands.push({ key: `${parent}/${key}`, command: { label, parent, subject: parent, parameters, prerequisites: ["Paths are relative to this workspace; existing host filesystem checks apply"], read: () => ({ revision: revision(), enabled: enabled && (key === "read" || !inFlight.current), reason: enabled && (key === "read" || !inFlight.current) ? undefined : "Wait for the current filesystem operation" }), execute } });
   }
   const doneUi = (value: UiValue = { result: "Observe current file-operation state" }) => ({ status: "completed" as const, value });
-  add("read", "Read file-operation marks and prompt", {}, async () => doneUi({ marked: [...marked], rename_paths: renamePaths ? [...renamePaths] : null, prompt: prompt ? { label: prompt.label, verb: prompt.verb, initial: prompt.initial ?? null, confirmation: prompt.initial === undefined } : null, error: promptError, busy }), true);
+  add("read", "Read file-operation marks and prompt", {}, async () => doneUi({ marked: [...marked], rename_paths: renamePaths ? [...renamePaths] : null, prompt: prompt ? { label: prompt.label, verb: prompt.verb, initial: prompt.initial ?? null, draft: prompt.initial === undefined ? null : draftOwner.current, confirmation: prompt.initial === undefined } : null, error: promptError, busy }), true);
   add("marks", "Set marked files", { paths }, async args => { controller.replaceMarks(args.paths as string[]); return doneUi(); });
   for (const kind of ["copy", "move", "delete", "rename"] as const) {
     add(kind, `Prepare file ${kind}`, { paths }, async args => {
@@ -190,7 +221,7 @@ export function useDired(onNotice: (text: string | null) => void): Dired {
     add("answer", `Submit file prompt: ${prompt.verb}`, prompt.initial === undefined ? { confirm: { type: "boolean" } } : { value: text }, async args => {
       if (prompt.initial === undefined && args.confirm !== true) return { status: "unavailable", reason: "Confirmation was not supplied; use Cancel to dismiss" };
       if (prompt.initial !== undefined && !String(args.value).trim()) return { status: "unavailable", reason: "Enter a nonempty name or destination" };
-      return await answer(prompt.initial === undefined ? null : String(args.value)) ? doneUi({ operation: prompt.verb, result: "Host filesystem operation completed" }) : { status: "unavailable", reason: "Operation failed or was busy; read the retained prompt error before retrying" };
+      return await answer(prompt.initial === undefined ? null : String(args.value)) ? doneUi({ operation: prompt.verb, result: "Host filesystem operation completed" }) : { status: "unavailable", reason: "Operation failed or was busy; earlier effects may have occurred. Read the retained prompt error before retrying" };
     });
     add("cancel", "Cancel file prompt", {}, async () => { controller.cancel(); return doneUi(); });
   }

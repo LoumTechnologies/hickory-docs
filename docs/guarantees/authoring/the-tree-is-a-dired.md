@@ -73,3 +73,21 @@ Issue 72 adapter extension (2026-10-19):
   strict TypeScript checks passed for these controllers.
 - Remaining scope: editable Files-buffer reconciliation, context menus, provider
   nodes and remaining tree gestures still need complete registered parity.
+
+
+### Visible filesystem prompts — 2026-10-22
+
+The actual prompt draft is read/editable through shared actions. Dired owns that
+draft and its operation identity; parent submission displays its actual destination
+while pending. Native typing invalidates old parent handles. Agent confirmation
+requires explicit true. Synchronous owner/admission checks refuse stale callbacks,
+duplicate submissions and prompt replacement/cancellation while the operation is
+pending, including before React paints. A refused operation is not a success.
+Partial multi-path failure retains the completed paths, refreshes the tree and
+never guesses rollback; the failed prompt remains available for inspection.
+
+LLM implementation review: partially verified for these paths. Eight focused
+prompt/dired cases and the existing native delete-confirmation case passed;
+targeted TypeScript passed. Host filesystem operations are injected, so this is
+not a current native-platform witness. Dependencies, assumptions and remaining
+issue-72 work are in the active handoff. Human judgment is not supplied.

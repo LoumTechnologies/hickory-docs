@@ -34,6 +34,7 @@ export function FileActionPrompts({ dired, inlineRename = false }: { dired: Dire
   return <>
       {dired.prompt && (
         <TreePrompt
+          owner={dired.prompt.id} subject={dired.uiSubject} value={dired.promptDraft} onValueChange={dired.setPromptDraft}
           label={dired.prompt.label}
           verb={dired.prompt.verb}
           initial={dired.prompt.initial}
