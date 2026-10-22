@@ -1,6 +1,6 @@
 import { EditorState, Text } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
-import { beforeAll, describe, expect, it } from "vitest";
+import { afterEach, beforeAll, describe, expect, it } from "vitest";
 import {
   breakpointLine,
   breakpointTip,
@@ -701,6 +701,8 @@ describe("a conditional breakpoint is visibly one", () => {
 });
 
 describe("editing a breakpoint from the gutter", () => {
+  const connectedViews: EditorView[] = [];
+  afterEach(() => { for (const view of connectedViews.splice(0)) { const host = view.dom.parentElement; view.destroy(); host?.remove(); } });
   // The gutter's own `domEventHandlers` never fire under jsdom, which has no
   // layout to resolve a pointer's height against — the same reason
   // `gutterAction` is a pure exported function rather than something a test
@@ -709,6 +711,7 @@ describe("editing a breakpoint from the gutter", () => {
     marks: { line: number; state: "bound"; conditional: boolean; condition?: string }[],
   ) => {
     const view = new EditorView({
+      parent: document.body.appendChild(document.createElement("div")),
       state: EditorState.create({
         doc: "a = 1\nb = 2\nc = 3\n",
         // A plain file, so every line is code and can hold a breakpoint —
@@ -717,6 +720,7 @@ describe("editing a breakpoint from the gutter", () => {
         extensions: debugEditor({ onToggleBreakpoint: () => {}, language: "python" }),
       }),
     });
+    connectedViews.push(view);
     view.dispatch({ effects: setBreakpointMarks.of(marks) });
     return view;
   };

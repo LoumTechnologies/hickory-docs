@@ -78,3 +78,17 @@ Last LLM verification:
   end-to-end claim — *this condition actually gated this stop* — is verified
   by reading, not by running. That is the same gap `a-plain-file-has-the-same-debugger.md`
   closed for stepping, and it should be closed the same way.
+
+
+## 2026-10-22 imperative debugger form review
+
+LLM review: partial. Inline eval and breakpoint forms share actual native/agent
+controllers. Explicit bounded form reading is separate from discovery. Eval
+binds source/stop/frame, retires late values and reports cancellation uncertainty;
+all current hosts provide the owner callback. Breakpoint source/config/target
+replacement withdraws obsolete forms while adapter acknowledgements preserve a
+new draft. Native Enter/watch/Escape/focus-out and agent requests have focused
+witnesses. Seventy directly affected checks and changed-entrypoint TypeScript
+passed. Exact dependencies and boundaries are in the issue-72 handoff. No new
+private-prediction authority, adapter acceptance, verification, human judgment or
+native/browser layout witness is claimed.

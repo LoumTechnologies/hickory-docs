@@ -1181,3 +1181,11 @@ Folder header menus/New and root terminal-row metadata/open/menu controllers now
 have registered shared actions. Source/folder/row changes withdraw old menus.
 Nested terminal text entries retain Files row activation. Current focused results
 and package revision boundaries are recorded in the active issue-72 handoff.
+
+
+The paused-line eval widget and gutter condition/hit/log form now expose their
+actual disclosure, drafts, submit/watch/close and byte-reading controllers.
+Generic debugger commands alone did not establish that affordance parity.
+Current source/stop/frame/configuration guards retire their stale forms; late
+query results and cancellation never imply verification. The issue-72 handoff
+records seventy focused cases and exact native-package revision boundaries.

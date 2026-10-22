@@ -1,3 +1,5 @@
+import { breakpointFormActions, showBreakpointForm } from "./breakpointForm";
+import { inlineEval } from "./inlineEval";
 // The debugger, drawn in the editor.
 //
 // Four things, in the order they matter:
@@ -592,81 +594,6 @@ const watchDecorations = EditorView.decorations.compute(
  * An inline widget appended after the line end, exactly like inline values:
  * it adds nothing to the text flow mid-line, so wrapping is untouched.
  */
-class EvalWidget extends WidgetType {
-  constructor(
-    private readonly line: number,
-    private readonly options: DebugEditorOptions,
-  ) {
-    super();
-  }
-  // Same line, same widget: the DOM (and whatever is typed in it) survives
-  // unrelated dispatches while the program stays paused here.
-  eq(other: EvalWidget) {
-    return other.line === this.line;
-  }
-  toDOM() {
-    const root = document.createElement("span");
-    root.className = "cm-eval";
-    const toggle = document.createElement("button");
-    toggle.type = "button";
-    toggle.className = "cm-eval-toggle";
-    toggle.textContent = "eval…";
-    toggle.dataset.tip = "Evaluate an expression in the paused frame";
-    const options = this.options;
-
-    const close = () => {
-      root.textContent = "";
-      root.appendChild(toggle);
-    };
-    const open = () => {
-      root.textContent = "";
-      const input = document.createElement("input");
-      input.className = "cm-eval-input";
-      input.placeholder = "expression — Enter evaluates, Shift-Enter watches";
-      input.setAttribute("aria-label", "Evaluate an expression in the paused frame");
-      const result = document.createElement("span");
-      result.className = "cm-eval-result";
-      input.addEventListener("keydown", (event) => {
-        // The editor must not treat typing here as typing in the document.
-        event.stopPropagation();
-        if (event.key === "Escape") {
-          close();
-          return;
-        }
-        if (event.key !== "Enter") return;
-        const expression = input.value.trim();
-        if (!expression) return;
-        if (event.shiftKey) {
-          // The one-keystroke promotion: what you just asked becomes a watch.
-          options.onAddWatch?.(expression);
-          result.textContent = "→ watching";
-          return;
-        }
-        result.textContent = "…";
-        void options.onEvaluate?.(expression).then((value) => {
-          result.textContent = value === null ? "(no value)" : `= ${value}`;
-        });
-      });
-      root.appendChild(input);
-      root.appendChild(result);
-      input.focus();
-    };
-    toggle.addEventListener("mousedown", (event) => {
-      // mousedown, not click: the editor takes the selection on mousedown
-      // and the button would lose the event to it.
-      event.preventDefault();
-      event.stopPropagation();
-      open();
-    });
-    root.appendChild(toggle);
-    return root;
-  }
-  ignoreEvent() {
-    // Everything inside is the widget's own business, not the editor's.
-    return true;
-  }
-}
-
 // --- the extension ----------------------------------------------------------
 
 export interface DebugEditorOptions {
@@ -688,6 +615,8 @@ export interface DebugEditorOptions {
   onSelectFrame?: (id: number) => void;
   /** Answer an expression in the selected frame, for the inline eval. */
   onEvaluate?: (expression: string) => Promise<string | null>;
+  /** Live debugger owner; replacing session/stop/frame retires pending inline values. */
+  evaluationOwner?: () => unknown;
   /** Add an expression to the watch list. */
   onAddWatch?: (expression: string) => void;
   /**
@@ -720,85 +649,7 @@ export function openBreakpointEditor(
     patch: { condition?: string; hit_condition?: string; log_message?: string },
   ) => void,
 ): void {
-  view.dom.querySelector(".cm-bp-editor")?.remove();
-
-  const panel = document.createElement("div");
-  panel.className = "cm-bp-editor";
-  panel.setAttribute("role", "dialog");
-  panel.setAttribute("aria-label", `Breakpoint on line ${mark.line + 1}`);
-
-  const title = document.createElement("div");
-  title.className = "cm-bp-editor-title";
-  title.textContent = `Line ${mark.line + 1}`;
-  panel.appendChild(title);
-
-  const fields: { key: "condition" | "hit_condition" | "log_message"; input: HTMLInputElement }[] =
-    [];
-  const field = (
-    key: "condition" | "hit_condition" | "log_message",
-    label: string,
-    value: string | undefined,
-    placeholder: string,
-  ) => {
-    const row = document.createElement("label");
-    row.className = "cm-bp-editor-row";
-    const name = document.createElement("span");
-    name.textContent = label;
-    const input = document.createElement("input");
-    input.type = "text";
-    input.value = value ?? "";
-    input.placeholder = placeholder;
-    row.appendChild(name);
-    row.appendChild(input);
-    panel.appendChild(row);
-    fields.push({ key, input });
-    return input;
-  };
-
-  const first = field("condition", "Condition", mark.condition, "i > 10");
-  field("hit_condition", "Hit count", mark.hitCondition, "> 5");
-  field(
-    "log_message",
-    "Log and continue",
-    mark.logMessage,
-    "reached with i={i}",
-  );
-
-  const hint = document.createElement("p");
-  hint.className = "cm-bp-editor-hint";
-  hint.textContent =
-    "Empty means no condition. A log message makes this a breakpoint that does not stop.";
-  panel.appendChild(hint);
-
-  const close = () => panel.remove();
-  const apply = () => {
-    const patch: { condition?: string; hit_condition?: string; log_message?: string } = {};
-    for (const { key, input } of fields) patch[key] = input.value.trim();
-    onSet(mark.line, patch);
-    close();
-  };
-
-  panel.addEventListener("keydown", (event) => {
-    // The editor must not treat typing here as typing in the document.
-    event.stopPropagation();
-    if (event.key === "Escape") close();
-    else if (event.key === "Enter") apply();
-  });
-  // Applying on the way out means there is no Save button to miss, and no
-  // half-typed condition silently discarded by clicking elsewhere.
-  panel.addEventListener("focusout", () => {
-    window.setTimeout(() => {
-      if (!panel.isConnected) return;
-      if (panel.contains(document.activeElement)) return;
-      apply();
-    }, 0);
-  });
-
-  const block = view.lineBlockAt(view.state.doc.line(mark.line + 1).from);
-  panel.style.top = `${block.top}px`;
-  view.dom.appendChild(panel);
-  first.focus();
-  first.select();
+  showBreakpointForm(view, mark, onSet, () => view.state.field(breakpointField, false)?.find(item => item.line === mark.line));
 }
 
 /**
@@ -915,16 +766,7 @@ function lineAtEvent(view: EditorView, block: { from: number }, event: Event): n
 export function debugEditor(options: DebugEditorOptions): Extension[] {
   // The eval affordance follows the paused line. Built here because its
   // widget needs the callbacks; drawn only when a handler exists to answer.
-  const evalAffordance = EditorView.decorations.compute(["doc", pausedField], (state) => {
-    if (!options.onEvaluate) return Decoration.none;
-    const line = state.field(pausedField);
-    if (line === null || line < 0 || line >= state.doc.lines) return Decoration.none;
-    const at = state.doc.line(line + 1).to;
-    return Decoration.set([
-      // side 3: after this line's inline values and watches.
-      Decoration.widget({ widget: new EvalWidget(line, options), side: 3 }).range(at),
-    ]);
-  });
+  const evalAffordance = inlineEval(options, pausedField, setPausedLine);
   return [
     ...(options.language !== undefined ? [wholeFileLanguage.of(options.language)] : []),
     // Numbers first, then the dots. Without them there is no way to say which
@@ -937,6 +779,12 @@ export function debugEditor(options: DebugEditorOptions): Extension[] {
     // the tall cell reads as one logical line continuing.
     ...(options.lineNumbers === false ? [] : [lineNumbers(), wrapGutterMarkers()]),
     breakpointField,
+    breakpointFormActions(options, (view, line) => {
+      if (!view.dom.isConnected || !options.onSetBreakpointCondition) return false;
+      const target = breakpointLine(view.state, line);
+      if (target === null) return false;
+      editBreakpoint(view, target, options); return true;
+    }),
     pausedField,
     stackField,
     flashField,

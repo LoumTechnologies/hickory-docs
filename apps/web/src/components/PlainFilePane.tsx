@@ -1,3 +1,4 @@
+import { inlineEvaluationOwner } from "../debug/inlineEval";
 import { useEditorEditing } from "../editor/useEditorEditing";
 import { PlainFileActions } from "./PlainFileActions";
 import { useUiReading } from "../lib/uiReading";
@@ -385,6 +386,7 @@ export function PlainFilePane({
                 onSetBreakpointCondition: (line, patch) =>
                   debugRef.current.setBreakpointCondition(line, patch),
                 onSelectFrame: selectFrameAndReveal,
+                evaluationOwner: () => inlineEvaluationOwner(debugRef.current),
                 onEvaluate: (expression) => debugRef.current.query(expression),
                 onAddWatch: (expression) => debugRef.current.addWatch(expression),
               })

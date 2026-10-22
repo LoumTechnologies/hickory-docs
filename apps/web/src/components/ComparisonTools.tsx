@@ -1,3 +1,4 @@
+import { inlineEvaluationOwner } from "../debug/inlineEval";
 import { CapturedReferences } from "./CapturedReferences";
 import { useUiCommands, useUiRevision } from "../lib/uiActionBridge";
 import { useUiReading } from "../lib/uiReading";
@@ -131,7 +132,8 @@ export function ComparisonTools({path,source,view,children}: {path:string;source
         return captured === live.current.context && completion.state === view.state ? result : null;
       }),
     ];
-    if (exact) extensions.push(...debugEditor({language:languageFromPath(path),onToggleBreakpoint:line=>live.current.debug.toggleBreakpoint(line),onSelectFrame:id=>live.current.debug.selectFrame(id),onEvaluate:expression=>live.current.debug.query(expression),onAddWatch:expression=>live.current.debug.addWatch(expression),onSetBreakpointCondition:(line,patch)=>live.current.debug.setBreakpointCondition(line,patch)}));
+    if (exact) extensions.push(...debugEditor({language:languageFromPath(path),onToggleBreakpoint:line=>live.current.debug.toggleBreakpoint(line),onSelectFrame:id=>live.current.debug.selectFrame(id),evaluationOwner: () => inlineEvaluationOwner(live.current.debug),
+      onEvaluate:expression=>live.current.debug.query(expression),onAddWatch:expression=>live.current.debug.addWatch(expression),onSetBreakpointCondition:(line,patch)=>live.current.debug.setBreakpointCondition(line,patch)}));
     view.dispatch({effects:tools.get(view.state) === undefined ? StateEffect.appendConfig.of(tools.of(extensions)) : tools.reconfigure(extensions)});
     return () => { if (view.dom.isConnected) view.dispatch({effects:tools.reconfigure([])}); };
   },[view,context,lsp.client,lsp.uri,path,exact,tools,local,selected,displayMatches,source.text,referenceScope]);

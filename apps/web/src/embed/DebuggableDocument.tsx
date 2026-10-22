@@ -1,3 +1,4 @@
+import { inlineEvaluationOwner } from "../debug/inlineEval";
 import { useUiCommands, useUiRevision } from "../lib/uiActionBridge";
 import { useUiReading } from "../lib/uiReading";
 import { RuntimeHistory, useBrowserRuns } from "../debug/RuntimeRuns";
@@ -64,6 +65,7 @@ export function DebuggableDocument(props: DebuggableDocumentProps) {
   const debugRef = useRef(debug); debugRef.current = debug;
   const extensions = useMemo(() => debugEditor({
     onToggleBreakpoint: (line) => { if (!staleRef.current) debugRef.current.toggleBreakpoint(line); },
+    evaluationOwner: () => staleRef.current ? null : inlineEvaluationOwner(debugRef.current),
     onEvaluate: (expression) => staleRef.current ? Promise.resolve(null) : debugRef.current.query(expression),
     onAddWatch: (expression) => debugRef.current.addWatch(expression),
     onSelectFrame: (frame) => debugRef.current.selectFrame(frame),

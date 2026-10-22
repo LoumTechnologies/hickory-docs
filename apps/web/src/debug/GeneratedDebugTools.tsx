@@ -1,3 +1,4 @@
+import { inlineEvaluationOwner } from "./inlineEval";
 import { observationSourceChanged } from "./observations";
 import { launchWithProfiles } from "./launchProfiles";
 import { useEffect, useMemo, useRef } from "react";
@@ -44,6 +45,7 @@ export function GeneratedDebugTools({view,file,debug,docPath,source,askText}: {
       onToggleBreakpoint:line=>{const at=sourceLine(line);if(at!==undefined)current.current.debug.toggleBreakpoint(at);},
       onSetBreakpointCondition:(line,patch)=>{const at=sourceLine(line);if(at!==undefined)current.current.debug.setBreakpointCondition(at,patch);},
       onSelectFrame:id=>current.current.debug.selectFrame(id),
+      evaluationOwner: () => inlineEvaluationOwner(current.current.debug),
       onEvaluate:expression=>current.current.debug.query(expression),onAddWatch:expression=>current.current.debug.addWatch(expression),
     });
     view.dispatch({effects:tools.get(view.state)===undefined?StateEffect.appendConfig.of(tools.of(extensions)):tools.reconfigure(extensions)});

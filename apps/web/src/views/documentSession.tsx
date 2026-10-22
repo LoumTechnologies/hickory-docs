@@ -1,3 +1,4 @@
+import { inlineEvaluationOwner } from "../debug/inlineEval";
 import { useDocumentRunActions } from "./uiDocumentRunActions";
 import { rememberReadingState, restoreReadingState } from "../lib/contextProjection";
 import { launchWithProfiles } from "../debug/launchProfiles";
@@ -814,6 +815,7 @@ function useDocumentSession(
         // A gutter stack mark is a caller; clicking it shows that frame.
         onSelectFrame: selectFrameAndReveal,
         // The inline eval at the paused line, answered in the selected frame.
+        evaluationOwner: () => inlineEvaluationOwner(debugRef.current),
         onEvaluate: (expression) => debugRef.current.query(expression),
         onAddWatch: (expression) => debugRef.current.addWatch(expression),
       }),
