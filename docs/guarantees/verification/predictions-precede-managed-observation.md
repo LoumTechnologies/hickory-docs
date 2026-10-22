@@ -783,3 +783,35 @@ The ordinary desktop-proxy ACP protocol flow also passes against rebuilt local
 binaries. LLM implementation review is partial; human judgment is not supplied.
 Exact dependency hashes, scope and remaining adapter work are in the issue-72
 handoff. No new paid-provider or packaged-native witness is inferred.
+
+
+### Separate managed private ACP path — 2026-10-22
+
+The later adapter supersedes blanket private ACP refusal only for an explicitly
+configured separate private argument profile. Ordinary ACP remains refused.
+Private MCP uses the existing source/seal/Verify/retained-stop gate and mandatory
+fresh exact-edit review; old source approval refuses, human replacements apply,
+and cancelled/ended contexts cannot start another tool. A fresh conversation and
+home are supplied, no ordinary history is hydrated, and client filesystem,
+terminal, permission and extension requests refuse. Only an advertised configured
+authentication method is requested. Raw adapter notifications/diagnostics are not
+verification and are not returned to the coach. Actual source execution and
+promotion retain the same independent host checks and answer withholding.
+
+Consequential assumption: the external executable and explicit private argument
+profile are trusted configuration and do not import ordinary history. Hickory's
+managed boundary does not sandbox an external harness's internal OS access or
+provider context. There is no private ACP default or claim of generic confinement.
+The fresh managed context alone cannot prove independent model understanding.
+
+LLM review is partial. Three focused Rust cases, eleven frontend cases, targeted
+TypeScript, a scripted actual ACP process/MCP/browser six-attempt repair flow and
+the existing Python equivalent passed. The actual pinned Codex adapter initialized
+v1/HTTP MCP, but new-session creation required authentication in the deliberately
+credential-free probe. No paid/model request or human judgment was supplied.
+Falsifiers include stale approval overwriting newer source, ordinary client file
+access succeeding, unverified completion passing, or raw target diagnostics in an
+ACP-visible result. Exact dependency hashes, failures and fixture paths are in
+the handoff's separate managed private ACP checkpoint. Later source changes stale
+that evidence; native/released/deployed and real authenticated-provider acceptance
+remain distinct required witnesses.

@@ -117,3 +117,14 @@ it("shares agent sealing and human Continue through the host-bound retained cont
   expect(calls[1]).toEqual({ name: "continue_debugger_prediction", arguments: {} });
   await screen.findByText(/Phase: paused_needs_prediction/);
 });
+
+
+it("dispatches an explicitly chosen private ACP adapter without inventing a passing result", async () => {
+  responses(); render(<PrivatePredictionCoach initial={initial} />);
+  await screen.findByText("captured source only");
+  fireEvent.change(screen.getByRole("textbox", { name: "ACP adapter (optional)" }), { target: { value: "isolated-qa" } });
+  await waitFor(() => expect((screen.getByRole("button", { name: "Delegate investigation" }) as HTMLButtonElement).disabled).toBe(false));
+  fireEvent.click(screen.getByRole("button", { name: "Delegate investigation" }));
+  await waitFor(() => expect(vi.mocked(request).mock.calls.find(call => call[0] === "POST" && call[1].endsWith("/agent"))?.[2]).toMatchObject({ acp_agent: "isolated-qa" }));
+  expect(screen.getByText(/Current certification is unavailable/)).toBeTruthy();
+});

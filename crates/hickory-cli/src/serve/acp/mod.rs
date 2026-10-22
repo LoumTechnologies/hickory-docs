@@ -5,7 +5,7 @@ pub(crate) mod edits;
 mod mcp;
 pub(super) mod read_receipt;
 pub(crate) mod record;
-mod transport;
+pub(super) mod transport;
 pub(super) mod workspace;
 pub(super) use client::RoomContext;
 pub use mcp::proxy_argv;
@@ -57,7 +57,7 @@ pub async fn catalogue(State(state): State<LocalState>) -> ApiResult<Json<Value>
         let available = config::executable(&agent.command, &dir).is_some();
         let installable = matches!(agent.id.as_str(), "codex" | "claude") && config::executable("npm", &dir).is_some();
         let cli_available = matches!(agent.id.as_str(), "codex" | "claude") && config::executable(&agent.id, &dir).is_some();
-        json!({"id":agent.id,"name":agent.name,"command":agent.command,"args":agent.args,"available":available,"installable":installable,"cli_available":cli_available,"workspace_filesystem":agent.workspace_filesystem})
+        json!({"id":agent.id,"name":agent.name,"command":agent.command,"args":agent.args,"available":available,"installable":installable,"cli_available":cli_available,"workspace_filesystem":agent.workspace_filesystem,"private_prediction_args":agent.private_prediction_args,"private_prediction_auth_method":agent.private_prediction_auth_method})
     }).collect();
     agents.push(super::python_agent::catalogue(&state));
     Ok(Json(
@@ -717,6 +717,8 @@ pub(super) async fn assert_private_startup_refused(state: &LocalState) {
         command: "must-not-look-up-private-acp-executable".into(),
         args: vec![],
         workspace_filesystem: true,
+        private_prediction_args: None,
+        private_prediction_auth_method: None,
     };
     let error = client::Client::start(state, "private-doc", command, record_path.clone())
         .await

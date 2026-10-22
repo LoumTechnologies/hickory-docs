@@ -37,7 +37,7 @@ export function AnchoredCoach({ target, title, children, onDismiss }: { target: 
         : box.left > width + 12 ? box.left - width - 8 : Math.max(12, Math.min(window.innerWidth - width - 12, box.left));
       const top = box.right + width + 12 < window.innerWidth || box.left > width + 12 ? Math.min(box.top, window.innerHeight - height - 12)
         : box.bottom + height + 12 < window.innerHeight ? box.bottom + 8 : Math.max(12, box.top - height - 8);
-      setMissing(false); setPosition({ top: Math.max(12, top), left });
+      setMissing(false); setPosition({ top: Math.max(12, Math.min(window.innerHeight - height - 12, top)), left });
     }
     const key = (event: KeyboardEvent) => { if (event.key === "Escape" && popup.current?.contains(document.activeElement)) { event.preventDefault(); void invoke(`${subject}:dismiss`); } };
     place(); const observer = new MutationObserver(place);

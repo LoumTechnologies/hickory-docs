@@ -1121,3 +1121,13 @@ existing controllers. Browser-only Cut is an explicit requires_input request:
 no agent-side deletion occurs, and later human completion is not attested. The
 handoff records its exact scope and focused native-gesture challenges. Remaining
 universal/native/provider/release acceptance is unchanged.
+
+
+Private ACP now has a separate optional managed adapter with its own fresh command
+profile, private-only MCP gate/review and refused client filesystem/terminal/
+permissions. Ordinary ACP still refuses private admission. The full scripted ACP
+and existing Python six-attempt repair flows pass. See [private ACP setup](private-acp.md)
+and the October 22 handoff for exact boundary assumptions and source hashes.
+The actual pinned Codex adapter accepts initialize/HTTP MCP but required
+authentication for session creation in the credential-free setup probe. This is
+not a paid-provider, native-package or universal parity witness.

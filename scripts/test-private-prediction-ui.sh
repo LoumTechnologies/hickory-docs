@@ -3,7 +3,8 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 live=0
-case "${1:-}" in "") ;; --live-provider) live=1 ;; *) echo 'Usage: scripts/test-private-prediction-ui.sh [--live-provider]' >&2; exit 2 ;; esac
+acp=0
+case "${1:-}" in "") ;; --live-provider) live=1 ;; --acp-fixture) acp=1 ;; *) echo 'Usage: scripts/test-private-prediction-ui.sh [--live-provider|--acp-fixture]' >&2; exit 2 ;; esac
 [ "$#" -le 1 ] || exit 2
 run_dir=$(mktemp -d "${TMPDIR:-/tmp}/hickory-private-ui.XXXXXX")
 terminate_tree() {
@@ -52,12 +53,17 @@ profile['inputs']={'value':profile['question']['inputs'],'anchors':[next(line fo
 disclosure='Configured real-provider mode; review decisions are made by the test driver.' if sys.argv[2]=='1' else 'Scripted provider and test-driver review decisions.'
 profile['question']['requirement_reference']='Synthetic source and inputs; actual output/DAP comparisons. '+disclosure+' '+profile['question']['requirement_reference']
 (root/'profile.json').write_text(json.dumps(profile))
-def tool(name,args):return json.dumps({'python':f'import json\ntool({name!r}, json.loads({json.dumps(args)!r}))'})
+calls=[]
+def tool(name,args):
+ calls.append([name,args]);return json.dumps({'python':f'import json\ntool({name!r}, json.loads({json.dumps(args)!r}))'})
 def seal(text):return tool('seal_prediction',{'expected_source_hash':digest(text),'predicted':predicted,'rationale':'The unchanged total budget bounds both attempts'})
 def retained(text):
  return [tool('seal_debugger_prediction',{'expected_source_hash':digest(text),'predicted':{'kind':'equals','value':100},'rationale':'Before launch, the initial allowance is the full total budget'}),tool('continue_debugger_prediction',{}),tool('seal_debugger_prediction',{'expected_source_hash':digest(text),'predicted':{'kind':'equals','value':20},'rationale':'Before Continue, subtract the first 80ms attempt from the 100ms total'}),tool('continue_debugger_prediction',{})]
 actions=[tool('ui_observe',{'parent':'root'}),tool('ui_observe',{'parent':'private-prediction'}),tool('read_doc',{}),*retained(source),seal(source),tool('verify',{}),tool('edit_doc',{'snapshot':digest(source),'whole':'true','input':corrected}),*retained(corrected),seal(corrected),tool('verify',{}),json.dumps({'done':'Reviewed correction passed the unchanged initial/future debugger and output predictions; current certification remains unavailable.'})]
 (root/'actions.json').write_text(json.dumps(actions))
+(root/'acp-tools.json').write_text(json.dumps(calls))
+(root/'agents').mkdir()
+(root/'agents/agents.json').write_text(json.dumps([{'id':'private-qa','name':'Scripted private ACP witness','command':sys.executable,'args':[],'workspace_filesystem':False,'private_prediction_args':[str(Path('scripts/fixtures/private-acp.py').resolve()),str(root/'acp-tools.json')]}]))
 PY
 node --input-type=module - "$run_dir" > "$run_dir/provider.log" <<'JS' &
 import {createServer} from 'node:http';
@@ -79,7 +85,7 @@ cargo build -p hickory-cli --example engine_client --quiet
 provider_env=(OPENAI_API_KEY=synthetic-fixture-key "OPENAI_BASE_URL=$(head -1 "$run_dir/provider.log")")
 if [ "$live" = 1 ]; then provider_env=(HICKORY_TEST_LIVE_PROVIDER=1); fi
 env HICKORY_STATE_DIR="$run_dir/state" HICKORY_TEST_PRIVATE_PROFILE="$run_dir/profile.json" \
-HICKORY_AGENT_TEST_PYTHON="$PWD/apps/agent/.venv/bin/python" "${provider_env[@]}" \
+HICKORY_AGENT_TEST_UI_SETTINGS="$run_dir/ui.json" HICKORY_AGENT_TEST_PYTHON="$PWD/apps/agent/.venv/bin/python" "${provider_env[@]}" \
 target/debug/examples/engine_client "$run_dir/project/doc.md" private "${ui_origin%/}" > "$run_dir/api.log" 2> "$run_dir/api-error.log" &
 api_pid=$!
 for _ in $(seq 1 150); do [ ! -s "$run_dir/api.log" ] || break; kill -0 "$api_pid" 2>/dev/null || { cat "$run_dir/api-error.log"; exit 1; }; sleep .1; done
@@ -93,7 +99,7 @@ for _ in $(seq 1 100); do
   kill -0 "$vite_pid" 2>/dev/null || { cat "$run_dir/vite.log"; exit 1; }; sleep .1
 done
 [ -n "$ui_origin" ] || { cat "$run_dir/vite.log"; exit 1; }
-HICKORY_PRIVATE_UI_FIXTURE=1 HICKORY_PRIVATE_LIVE_PROVIDER="$live" HICKORY_E2E_CHANNEL=chromium HICKORY_E2E_URL="$ui_origin" \
+HICKORY_PRIVATE_UI_FIXTURE=1 HICKORY_PRIVATE_ACP_FIXTURE="$acp" HICKORY_PRIVATE_LIVE_PROVIDER="$live" HICKORY_E2E_CHANNEL=chromium HICKORY_E2E_URL="$ui_origin" \
 HICKORY_E2E_OUTPUT_DIR="$run_dir/browser" npm --prefix apps/web run test:e2e -- privatePredictionCoach.spec.ts
 
 [ ! -e "$run_dir/project/deadline.py" ]

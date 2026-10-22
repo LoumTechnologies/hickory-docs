@@ -1,6 +1,6 @@
 import { request } from "./client";
 
-export interface AgentCommand { id: string; name: string; command: string; args: string[]; workspace_filesystem?: boolean; available?: boolean; installable?: boolean; cli_available?: boolean; kind?: "python"; error?: string }
+export interface AgentCommand { id: string; name: string; command: string; args: string[]; workspace_filesystem?: boolean; private_prediction_args?: string[] | null; private_prediction_auth_method?: string | null; available?: boolean; installable?: boolean; cli_available?: boolean; kind?: "python"; error?: string }
 export interface ConfigValue { value: string; name: string; description?: string }
 export interface ConfigOption {
   id: string; name: string; description?: string; category?: string; type: "select" | "boolean";

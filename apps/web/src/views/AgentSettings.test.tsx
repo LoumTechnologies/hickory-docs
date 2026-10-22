@@ -6,7 +6,7 @@ import { UiActionContext } from "../lib/uiActionBridge";
 import { acpApi } from "../api/acp";
 import { AgentSettings } from "./AgentSettings";
 vi.mock("../api/acp", () => ({ acpApi: {
-  catalogue: vi.fn().mockResolvedValue({ agents: [{ id: "python", name: "Hickory Python", command: "/old/venv/bin/python", args: [] }, { id: "codex", name: "Codex", command: "codex-acp", args: [] }] }),
+  catalogue: vi.fn().mockResolvedValue({ agents: [{ id: "python", name: "Hickory Python", command: "/old/venv/bin/python", args: [] }, { id: "codex", name: "Codex", command: "codex-acp", args: [], private_prediction_args: ["--fresh-private"], private_prediction_auth_method: "api-key" }] }),
   pythonSettings: vi.fn().mockResolvedValue({ python: "/old/venv/bin/python", available: true }),
   savePython: vi.fn(), save: vi.fn(),
 } }));
@@ -33,6 +33,9 @@ it("checks and stores the Python runtime separately from ACP commands", async ()
   render(<AgentSettings />);
   await waitFor(() => expect((screen.getByRole("textbox", { name: "Python executable" }) as HTMLInputElement).value).toBe("/old/venv/bin/python"));
   expect((screen.getByRole("textbox", { name: "Agent commands" }) as HTMLTextAreaElement).value).not.toContain('"python"');
+  const configured = JSON.parse((screen.getByRole("textbox", { name: "Agent commands" }) as HTMLTextAreaElement).value)[0];
+  expect(configured.private_prediction_args).toEqual(["--fresh-private"]);
+  expect(configured.private_prediction_auth_method).toBe("api-key");
   fireEvent.change(screen.getByRole("textbox", { name: "Python executable" }), { target: { value: "/new/venv/bin/python" } });
   fireEvent.click(screen.getByRole("button", { name: "Save Python runtime" }));
   await screen.findByRole("status");

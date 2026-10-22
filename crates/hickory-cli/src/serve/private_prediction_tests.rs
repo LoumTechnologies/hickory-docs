@@ -9,8 +9,14 @@ use hick_literate::prediction::output_target;
 use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
 
-#[tokio::test]
-async fn queued_run_refuses_same_source_reseal_before_dispatch() {
+async fn fixture() -> (
+    tempfile::TempDir,
+    tempfile::TempDir,
+    LocalState,
+    Arc<Ledger>,
+    std::path::PathBuf,
+    Identity,
+) {
     let root = tempfile::tempdir().unwrap();
     let private = tempfile::tempdir().unwrap();
     let ledger = Arc::new(Ledger::open(private.path()).unwrap());
@@ -82,6 +88,12 @@ async fn queued_run_refuses_same_source_reseal_before_dispatch() {
     .await
     .unwrap();
     let state = prepared.state;
+    (root, private, state, ledger, marker, identity)
+}
+
+#[tokio::test]
+async fn queued_run_refuses_same_source_reseal_before_dispatch() {
+    let (_root, _private, state, ledger, marker, identity) = fixture().await;
     crate::serve::acp::assert_private_startup_refused(&state).await;
     let bound = state.private_prediction.clone().unwrap();
     let guard = bound.session.lock().await;
@@ -140,4 +152,23 @@ async fn queued_run_refuses_same_source_reseal_before_dispatch() {
             .await
             .is_err()
     );
+}
+
+#[tokio::test]
+async fn private_acp_managed_tools_require_review_and_refuse_unscoped_delivery() {
+    let (_root, _private, state, ledger, marker, _identity) = fixture().await;
+    super::super::private_prediction_acp::test_managed_boundary(state).await;
+    assert!(
+        !marker.exists(),
+        "tool discovery/review must not execute the target"
+    );
+    assert!(ledger.history(None).unwrap().attempts.is_empty());
+}
+
+#[tokio::test]
+async fn private_acp_protocol_refuses_filesystem_permissions_and_unverified_completion() {
+    let (_root, _private, state, ledger, marker, _identity) = fixture().await;
+    super::super::private_prediction_acp::test_protocol_boundary(state).await;
+    assert!(!marker.exists());
+    assert!(ledger.history(None).unwrap().attempts.is_empty());
 }

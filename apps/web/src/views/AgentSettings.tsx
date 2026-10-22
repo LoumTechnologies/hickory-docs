@@ -15,7 +15,7 @@ export function AgentSettings() {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [saved, setSaved] = useState(false);
-  useEffect(() => { void acpApi.catalogue().then(r => { setFilesystem(r.workspace_filesystem ?? null); setDraft(JSON.stringify(r.agents.filter(a => a.id !== "python").map(({ id, name, command, args, workspace_filesystem }) => ({ id, name, command, args, workspace_filesystem })), null, 2)); }, () => undefined); }, []);
+  useEffect(() => { void acpApi.catalogue().then(r => { setFilesystem(r.workspace_filesystem ?? null); setDraft(JSON.stringify(r.agents.filter(a => a.id !== "python").map(({ id, name, command, args, workspace_filesystem, private_prediction_args, private_prediction_auth_method }) => ({ id, name, command, args, workspace_filesystem, private_prediction_args, private_prediction_auth_method })), null, 2)); }, () => undefined); }, []);
   useEffect(() => { void acpApi.pythonSettings().then(r => { setPython(r.python); setBundled(r.bundled ?? null); setPythonAvailable(r.available); }, () => undefined); }, []);
   const savePython = async () => {
     setPythonBusy(true); setPythonSaved(false); setPythonError(null);
@@ -63,6 +63,7 @@ export function AgentSettings() {
     <h3>ACP agents</h3>
     <p>Run Codex, Claude Agent, or another ACP agent in the agent pane. Each uses its own sign-in and permissions. Commands are stored on this machine.</p>
     <p>Choose an agent in the pane to install its adapter and sign in. Custom commands use an executable plus an array of arguments.</p>
+    <p>Private prediction practices require separate <code>private_prediction_args</code> in the command JSON (an empty array is explicit), with no resume/history arguments and native workspace disabled. Set <code>private_prediction_auth_method</code> to an advertised method id when required (Codex uses <code>api-key</code>). Only environment API keys are inherited; ordinary sign-in files and configured model overrides are not copied. Choose its id in the private coach. The adapter must support HTTP MCP; client filesystem, terminal and permissions are refused. External harness internals are outside this managed boundary.</p>
     {filesystem?.supported && <div>
       <h3>Native agent workspace</h3>
       <p>{filesystem.bundled ? filesystem.message : "This build does not include Hickory Workspace. A signed build with the bundled filesystem extension is required."}</p>

@@ -29,6 +29,7 @@ async fn run(args: Vec<String>) -> anyhow::Result<()> {
         if std::env::var_os("HICKORY_TEST_LIVE_PROVIDER").is_some() {
             opts.key_store_path = hickory_agent::KeyStore::desktop_path();
         }
+        opts.ui_settings_path = std::env::var_os("HICKORY_AGENT_TEST_UI_SETTINGS").map(Into::into);
         opts.python_runtime_path = std::env::var_os("HICKORY_AGENT_TEST_PYTHON").map(Into::into);
     }
     opts.callback = Some(format!("http://{}", listener.local_addr()?));

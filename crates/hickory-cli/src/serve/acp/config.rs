@@ -13,6 +13,11 @@ pub struct AgentCommand {
     pub args: Vec<String>,
     #[serde(default)]
     pub workspace_filesystem: bool,
+    /// Explicit fresh-context arguments, independent of ordinary resume/config args.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub private_prediction_args: Option<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub private_prediction_auth_method: Option<String>,
 }
 
 pub fn directory(state: &LocalState) -> PathBuf {
@@ -41,6 +46,8 @@ pub fn commands(state: &LocalState) -> Result<Vec<AgentCommand>> {
             command: "codex-acp".into(),
             args: vec![],
             workspace_filesystem: false,
+            private_prediction_args: None,
+            private_prediction_auth_method: None,
         },
         AgentCommand {
             id: "claude".into(),
@@ -48,6 +55,8 @@ pub fn commands(state: &LocalState) -> Result<Vec<AgentCommand>> {
             command: "claude-agent-acp".into(),
             args: vec![],
             workspace_filesystem: false,
+            private_prediction_args: None,
+            private_prediction_auth_method: None,
         },
     ];
     match std::fs::read_to_string(&path) {
@@ -79,6 +88,23 @@ pub fn validate(commands: &[AgentCommand]) -> Result<()> {
         {
             bail!(
                 "each agent needs a unique id using letters, numbers or hyphens; builtin and python are reserved"
+            );
+        }
+        anyhow::ensure!(
+            agent
+                .private_prediction_auth_method
+                .as_ref()
+                .is_none_or(|method| !method.is_empty() && method.len() <= 128),
+            "Private ACP authentication method must be bounded"
+        );
+        if let Some(args) = &agent.private_prediction_args {
+            anyhow::ensure!(
+                args.len() <= 128
+                    && args
+                        .iter()
+                        .all(|arg| arg.len() <= 8192 && !arg.contains('\0'))
+                    && args.iter().map(String::len).sum::<usize>() <= 65536,
+                "Private ACP arguments exceed the bounded command profile"
             );
         }
         if agent.name.trim().is_empty() || agent.command.trim().is_empty() {
