@@ -5,8 +5,10 @@
 
 import { EditorView } from "@codemirror/view";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render } from "@testing-library/react";
+import { act, cleanup, fireEvent, render } from "@testing-library/react";
 
+import { UiActions } from "../lib/uiActions";
+import { UiActionContext } from "../lib/uiActionBridge";
 import type { Doc } from "../api/types";
 import { api } from "../api/client";
 import { SessionRegistry, type DocSession } from "./documentSession";
@@ -195,4 +197,20 @@ it("does not focus an unnamed editor that finishes loading in a hidden pane", ()
   expect(focus).toHaveBeenCalledOnce();
   readyEditor.view = null;
   view.destroy();
+});
+
+it("shares the document header launcher and disclosed menu callback with agent requests", async () => {
+  const session = makeSession(), sessions = new SessionRegistry(); sessions.publish(session);
+  const registry = new UiActions({ workspace: "p", window: "doc-menu" }, () => true, async () => {});
+  const mounted = render(<UiActionContext.Provider value={registry}><DocTabBody registry={sessions} docId="d1" /></UiActionContext.Provider>);
+  const actions = () => registry.groups().groups.flatMap(group => registry.observe(group, 64).actions);
+  let id = 0;
+  const run = async (label: string) => { let reply: unknown; await act(async () => { reply = await registry.act(registry.scope, { id: "acp:tabs", kind: "agent" }, { handle: actions().find(action => action.label === label)!.handle, arguments: {}, request_id: String(++id) }); }); return reply; };
+  expect(actions().some(action => action.label === "Run")).toBe(false);
+  await run("More actions for this document");
+  expect(mounted.getByRole("menuitem", { name: "Run" })).toBeTruthy();
+  const old = actions().find(action => action.label === "Run")!;
+  expect(await run("Run")).toMatchObject({ outcome: { status: "completed" } });
+  expect(session.runAll).toHaveBeenCalledTimes(1);
+  expect(await registry.act(registry.scope, { id: "acp:tabs", kind: "agent" }, { handle: old.handle, arguments: {}, request_id: "old" })).not.toMatchObject({ outcome: { status: "completed" } });
 });

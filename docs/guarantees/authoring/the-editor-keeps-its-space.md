@@ -132,3 +132,14 @@ de29df0bb5168ce75d23a88657c3149eca937c8d602caf96089e3d0bfe78eef6  apps/web/e2e/e
 dbd8fddfc27d44e918b723de66b2ca0fdd7a68c2d4b4eb65b510eca76d638144  apps/web/src/views/workspaceTabs.test.tsx
 43dba4833dc282b448ea0c03ee4aad149d88d4d49e4102a1ccf6781485a5cb2d  apps/web/src/views/SettingsView.test.tsx
 ```
+
+
+## 2026-10-22 header/menu parity review
+
+LLM review: partial. The real document header launcher and file-tab context-menu
+controller are agent-addressable. Children retain actual disclosure; changed
+file-tab/folder owners retire old menus. Native placement remains measured and
+model placement uses a bounded viewport location. Seventeen focused tab/menu
+cases and changed-entrypoint strict TypeScript passed. Exact dependencies and
+boundaries are in the issue-72 handoff. No human judgment supplied; callback
+acknowledgement does not certify downstream execution or filesystem effects.

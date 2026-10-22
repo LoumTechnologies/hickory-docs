@@ -1,3 +1,5 @@
+import { useUiCommands, useUiRevision } from "../lib/uiActionBridge";
+import { useUiReading } from "../lib/uiReading";
 import { observationSourceChanged } from "../debug/observations";
 import { PaneHeaderContent } from "../shell/PaneHeader";
 import { SurfaceInfo } from "../components/SurfaceInfo";
@@ -10,7 +12,7 @@ import { ActionNotice } from "../components/ActionNotice";
 // from WorkspaceView so the workspace file stays about OWNING the layout
 // rather than about what is inside any pane.
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useId, useEffect, useMemo, useRef, useState } from "react";
 import { openLiterate } from "../lib/openRepresentation";
 import type { EditorView } from "@codemirror/view";
 
@@ -49,6 +51,20 @@ function DocToolbar({
 }) {
   const [menuAt, setMenuAt] = useState<{ x: number; y: number } | null>(null);
   const [error, setError] = useState("");
+  const launcher = useRef<HTMLButtonElement>(null);
+  const parent = `document-tab-menu:${useId()}`, key = `${parent}:open`;
+  const revision = useUiRevision(() => [path, docId, running, menuAt, baseline.active, baseline.busy]);
+  const invoke = useUiCommands([{ key, command: {
+    parent, subject: parent, label: "More actions for this document", parameters: {}, prerequisites: ["Current mounted document tab header"],
+    read: () => ({ revision: revision(), enabled: !!launcher.current?.isConnected, value: { open: !!menuAt } }),
+    execute: async () => {
+      if (!launcher.current?.isConnected) return { status: "unavailable", reason: "Document tab header retired" };
+      const box = launcher.current.getBoundingClientRect();
+      setMenuAt({ x: box.left, y: box.bottom + 2 });
+      return { status: "completed", value: { open_requested: true, source_changed: false } };
+    },
+  } }]);
+  useUiReading("document tab header status", { path, doc_id: docId, sync_state: syncState, error, menu_open: !!menuAt });
 
   const items: ContextMenuItem[] = [
     { id: "run", label: running ? "Running…" : "Run", disabled: running, tip: "Run every cell and rewrite its generated files." },
@@ -75,14 +91,12 @@ function DocToolbar({
     <PaneHeaderContent part="actions"><div className="doc-tab-toolbar" role="toolbar" aria-label={`Actions for ${path}`}>
       {error && <span role="alert">{error}</span>}
       <button
+        ref={launcher}
         className="btn doc-tab-toolbar__more"
         aria-label="More actions for this document"
         aria-haspopup="menu"
         data-tip="More actions for this document"
-        onClick={(e) => {
-          const box = (e.currentTarget as HTMLElement).getBoundingClientRect();
-          setMenuAt({ x: box.left, y: box.bottom + 2 });
-        }}
+        onClick={() => { void invoke(key).catch(cause => setError(String(cause))); }}
       >
         ⋯
       </button>
@@ -94,9 +108,9 @@ function DocToolbar({
           subject={path}
           onPick={(id) => {
             setMenuAt(null);
-            if (id === "run" && !running) onRun();
-            if (id === "test" && !running) onTest();
-            if (id === "review") void openLiterate({ kind: "document", doc_id: docId }, "HEAD").catch(e => setError(e instanceof Error ? e.message : String(e)));
+            if (id === "run" && !running) return onRun();
+            if (id === "test" && !running) return onTest();
+            if (id === "review") return openLiterate({ kind: "document", doc_id: docId }, "HEAD").catch(e => { setError(e instanceof Error ? e.message : String(e)); throw e; });
             if (id === "baseline-on") return baseline.begin();
             if (id === "baseline-off") return baseline.end();
           }}

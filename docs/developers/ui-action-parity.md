@@ -1168,3 +1168,10 @@ native disclosure/context selection/log-navigation handlers. Source replacement
 retires the actual widgets and their selection owners. Navigation remains an
 acknowledged request; details remain captured evidence. Focused results and
 limitations are recorded in the issue-72 handoff.
+
+
+Document header More actions and file-tab context-menu launchers now share real
+opening controllers and disclose the existing menu descriptors. File-tab/folder
+replacement retires the current menu. Target pages are bounded and explicit;
+filesystem prompts/results still belong to the existing Dired controller.
+The current handoff records focused evidence and current package boundaries.

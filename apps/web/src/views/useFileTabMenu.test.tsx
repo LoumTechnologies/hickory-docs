@@ -1,8 +1,10 @@
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, expect, it, vi } from "vitest";
 import { installMockHandler } from "../api/client";
 import type { FolderTree } from "../shell/FolderTreePane";
 import { treeMenuItems } from "../shell/treeMenu";
+import { UiActions } from "../lib/uiActions";
+import { UiActionContext } from "../lib/uiActionBridge";
 import { useFileTabMenu } from "./useFileTabMenu";
 import type { Tab } from "../shell/layout";
 
@@ -13,7 +15,7 @@ const folder: FolderTree = { root: "notes", root_path: "/notes", file_manager: "
 ] };
 const opened = vi.fn();
 function Harness({ kind = "file", target = "input.txt" }: { kind?: Tab["kind"]; target?: string }) {
-  const { onTabContextMenu, fileTabMenu } = useFileTabMenu([folder], "doc1", new Map(), opened);
+  const { onTabContextMenu, fileTabMenu } = useFileTabMenu([folder], "doc1", new Map(), opened, [{ id: "tab1", kind, target }]);
   return <><button onContextMenu={event => onTabContextMenu(event, { id: "tab1", kind, target })}>File tab</button>{fileTabMenu}</>;
 }
 afterEach(() => { cleanup(); vi.clearAllMocks(); });
@@ -49,4 +51,24 @@ it("does not give file actions to unsaved or tool tabs", () => {
   render(<Harness kind="untitled" target="draft" />);
   fireEvent.contextMenu(screen.getByText("File tab"));
   expect(screen.queryByRole("menu")).toBeNull();
+});
+
+// Guarantee: docs/guarantees/authoring/the-editor-keeps-its-space.md
+it("discloses current file-tab targets, opens the real menu and retires the former tab owner", async () => {
+  const registry = new UiActions({ workspace: "p", window: "file-menu" }, () => true, async () => {});
+  const mounted = render(<UiActionContext.Provider value={registry}><Harness /></UiActionContext.Provider>);
+  const actions = () => registry.groups().groups.flatMap(group => registry.observe(group, 64).actions);
+  let id = 0;
+  const run = async (label: string, args = {}) => { let reply: unknown; await act(async () => { reply = await registry.act(registry.scope, { id: "acp:tabs", kind: "agent" }, { handle: actions().find(action => action.label === label)!.handle, arguments: args, request_id: String(++id) }); }); return reply; };
+  expect(actions().some(action => action.label === "Delete")).toBe(false);
+  expect(await run("Read file tab menu targets", { first: 0, count: 64 })).toMatchObject({ outcome: { value: { tabs: [{ id: "tab1", path: "input.txt" }] } } });
+  expect(await run("Open file tab context menu", { tab: "missing" })).toMatchObject({ outcome: { status: "unavailable" } });
+  expect(await run("Open file tab context menu", { tab: "tab1" })).toMatchObject({ outcome: { status: "completed" } });
+  expect(screen.getByRole("menuitem", { name: "Rename…" })).toBeTruthy();
+  const old = actions().find(action => action.label === "Delete")!;
+  mounted.rerender(<UiActionContext.Provider value={registry}><Harness target="output.txt" /></UiActionContext.Provider>);
+  expect(screen.queryByRole("menu")).toBeNull();
+  expect(await registry.act(registry.scope, { id: "acp:tabs", kind: "agent" }, { handle: old.handle, arguments: {}, request_id: "old" })).not.toMatchObject({ outcome: { status: "completed" } });
+  await run("Open file tab context menu", { tab: "tab1" });
+  expect(screen.queryByRole("menuitem", { name: /Make literate/ })).toBeNull();
 });

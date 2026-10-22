@@ -1404,7 +1404,7 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [registry, registry.version]);
   openableOutputsRef.current = openableOutputs;
-  const { onTabContextMenu, fileTabMenu } = useFileTabMenu(folderRoots, focusedId, openableOutputs, ensureDocOpen);
+  const { onTabContextMenu, fileTabMenu } = useFileTabMenu(folderRoots, focusedId, openableOutputs, ensureDocOpen, panesOf(layout.root).flatMap(pane => pane.tabs));
   // Hide continuity until the server answers.
   const [continuity, setContinuity] = useState<boolean | undefined>(undefined);
   useEffect(() => {
