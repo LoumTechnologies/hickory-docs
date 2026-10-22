@@ -913,3 +913,10 @@ Dependencies (SHA-256; edits stale this review):
 - `crates/hickory-cli/src/serve/shell.rs`: `2f3be29957046bc545826b92892ade11077c5e59f924b40dbceebfd8871b9eed`.
 - `apps/desktop/src-tauri/src/lib.rs`: `d8ce0cd736db0f367e9560e797e46efdb265b954333a694c7425868243e6ad73`.
 - `apps/desktop/src-tauri/src/server.rs`: `1b82b61fea2c1f12cc417e823881ccfe19fa91fcd1dde9c4f9b78cf41b2abb6b`.
+
+### Native-window fixture correction
+
+The first actual ACP-script rerun failed to compile because the engine_client
+example also constructs Shell. Its browser-only callback now explicitly refuses
+native window operations. No model/target flow ran in that failed attempt.
+Dependency: `crates/hickory-cli/examples/engine_client.rs`: `1aefd5ece10978301bb4933d37058309f04ca6b13720c361585b332a3086253d`.

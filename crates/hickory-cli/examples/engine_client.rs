@@ -37,6 +37,7 @@ async fn run(args: Vec<String>) -> anyhow::Result<()> {
     let token = opts.callback_token.clone();
     let picked = root.join(name);
     let shell = hickory_cli::serve::Shell {
+        window: std::sync::Arc::new(|_| anyhow::bail!("This browser fixture has no native window")),
         pick_folder: std::sync::Arc::new(move |_| Ok(Some(picked.clone()))),
         save_file: std::sync::Arc::new(|_, _| Ok(None)),
         open_folder: std::sync::Arc::new(|_, _| Ok(())),
