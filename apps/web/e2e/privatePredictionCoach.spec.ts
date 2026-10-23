@@ -26,15 +26,17 @@ test("private coach retains failure and reviewed repair without publishing targe
     await page.getByRole("textbox", { name: "ACP adapter (optional)" }).fill("private-qa");
   }
   if (live) {
-    await page.getByRole("textbox", { name: "Provider", exact: true }).fill(process.env.HICKORY_PRIVATE_PROVIDER ?? "openrouter");
-    if (process.env.HICKORY_PRIVATE_MODEL) await page.getByRole("textbox", { name: "Model", exact: true }).fill(process.env.HICKORY_PRIVATE_MODEL);
+    if (process.env.HICKORY_PRIVATE_ACP_FIXTURE !== "1") {
+      await page.getByRole("textbox", { name: "Provider", exact: true }).fill(process.env.HICKORY_PRIVATE_PROVIDER ?? "openrouter");
+      if (process.env.HICKORY_PRIVATE_MODEL) await page.getByRole("textbox", { name: "Model", exact: true }).fill(process.env.HICKORY_PRIVATE_MODEL);
+    }
     await page.getByRole("textbox", { name: "Investigation request" }).fill("Run this coached prediction exercise. First read the current captured source. Before making any edit, use seal_debugger_prediction with equals 100 and a rationale, then continue_debugger_prediction to launch the first stop. While paused, seal_debugger_prediction with equals 20 and a rationale before continue_debugger_prediction resumes to the second stop. These are required expectations, not observed values. Also seal the specified expected behavior as a Fields predicate: output equals {long:100,short:30,empty:0}, debugger equals 20. This is the required behavior, not a runtime observation. Verify the current implementation and retain its non-passing result. Then investigate from source and the requirement with target answers withheld. Propose a minimal correction to retry's per-attempt allowance for human review. After approval, reread the repaired source, repeat the same initial/future debugger expectations (100 before launch, 20 before Continue) through the retained tools, and reseal exactly the same expected behavior against its new source hash. Verify the repair and finish with a concise explanation and limitations. Do not change the capture selection, expectation tags, inputs or requirement. Do not print, reveal or fetch actual runtime target values.");
   } else if (process.env.HICKORY_PRIVATE_ACP_FIXTURE !== "1") await page.getByRole("textbox", { name: "Provider", exact: true }).fill("openai");
   const sending = page.waitForRequest(request => request.method() === "POST" && new URL(request.url()).pathname === "/api/prediction/agent");
   const sent = page.waitForResponse(response => response.request().method() === "POST" && new URL(response.url()).pathname === "/api/prediction/agent");
   await page.getByRole("button", { name: "Delegate investigation" }).click();
   expect((await sent).ok(), await (await sent).text()).toBe(true);
-  if (live && process.env.HICKORY_PRIVATE_MODEL) expect((await sending).postDataJSON()).toMatchObject({ model: process.env.HICKORY_PRIVATE_MODEL });
+  if (live && process.env.HICKORY_PRIVATE_ACP_FIXTURE !== "1" && process.env.HICKORY_PRIVATE_MODEL) expect((await sending).postDataJSON()).toMatchObject({ model: process.env.HICKORY_PRIVATE_MODEL });
   else await sending;
   const review = page.getByRole("region", { name: "Document change review" });
   await expect.poll(async () => {

@@ -73,3 +73,22 @@ status; it was corrected to the established unavailable result.
 - `apps/web/src/components/PrivatePredictionCoach.tsx`: `dc47ff382246a13a14e8e2b1ebaf25737da1fc88122e861a6dc98e6d9d85a54f`.
 - `apps/web/src/components/PrivatePredictionCoach.test.tsx`: `938fd463f0c4e17203eca8c62dc88a1da78e73213b799acb6bc367e9708345e3`.
 - `apps/web/e2e/privatePredictionCoach.spec.ts`: `635067a7c96b6a6c21b78d53a5b3b777a90b0bbf0d5ce242265e3794f0c8b502`.
+
+Real-provider follow-up: the 47353e3c DeepSeek engine/worker/DAP/browser flow
+passed (1.1m/1.2m total) after the documented failures. It retained the original
+failures, corrected source, unchanged expectations, promotion revalidation and
+changed-input refusal. The scenario-bound fixture still enforces the original
+requirements and retains unused/repeated seals; scripted mode keeps exactly six
+attempts, while live mode bounds and preserves extra attempts. Automated review
+is not human judgment. Exact draft/evidence hashes are in the October 23 handoff.
+
+
+ACP harness follow-up (partial LLM review, not universal certification): explicit
+private-only live profiles are supported; missing configuration refuses before
+setup. Scripted ACP passes 18.4s/19.1s, shell syntax and strict changed-spec
+TypeScript pass. The real ACP run does not pass; the October 23 handoff retains
+its completed DeepSeek responses and blocked unconfigured fallback. No human
+judgment or native/provider footage is established. Earlier dependency hashes
+remain historical; these changed dependencies supersede their earlier hashes:
+- `scripts/test-private-prediction-ui.sh`: `da2324f4d8d782e27746bc648a163bcf0444beef0606288c7d3e0fb110b9714d`.
+- `apps/web/e2e/privatePredictionCoach.spec.ts`: `cdeb407e2c2f257b4337111d7c1cc517e395dd587da881bd83d2fd6aebcff65a`.

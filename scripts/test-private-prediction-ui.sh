@@ -4,7 +4,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 live=0
 acp=0
-case "${1:-}" in "") ;; --live-provider) live=1 ;; --acp-fixture) acp=1 ;; *) echo 'Usage: scripts/test-private-prediction-ui.sh [--live-provider|--acp-fixture]' >&2; exit 2 ;; esac
+case "${1:-}" in "") ;; --live-provider) live=1 ;; --acp-fixture) acp=1 ;; --live-acp) live=1; acp=1; [ -n "${HICKORY_PRIVATE_ACP_CONFIG:-}" ] || { echo 'Set HICKORY_PRIVATE_ACP_CONFIG to an explicit private-qa ACP profile' >&2; exit 2; } ;; *) echo 'Usage: scripts/test-private-prediction-ui.sh [--live-provider|--acp-fixture|--live-acp]' >&2; exit 2 ;; esac
 [ "$#" -le 1 ] || exit 2
 # The worker is a non-editable installed wheel. Refresh it before every witness,
 # otherwise a source fix can silently exercise the previous installed policy.
@@ -71,6 +71,18 @@ actions=[tool('ui_observe',{'parent':'root'}),tool('ui_observe',{'parent':'priva
 (root/'agents').mkdir()
 (root/'agents/agents.json').write_text(json.dumps([{'id':'private-qa','name':'Scripted private ACP witness','command':sys.executable,'args':[],'workspace_filesystem':False,'private_prediction_args':[str(Path('scripts/fixtures/private-acp.py').resolve()),str(root/'acp-tools.json')]}]))
 PY
+if [ "$live" = 1 ] && [ "$acp" = 1 ]; then
+  # Explicit trusted QA profile only; never reuse the user's ordinary arguments.
+  python3 - "$HICKORY_PRIVATE_ACP_CONFIG" "$run_dir/agents/agents.json" <<'PYACP'
+import json,sys
+from pathlib import Path
+profile=json.loads(Path(sys.argv[1]).read_text())
+assert len(profile)==1 and profile[0]['id']=='private-qa'
+assert profile[0].get('workspace_filesystem') is False
+assert isinstance(profile[0].get('private_prediction_args'),list)
+Path(sys.argv[2]).write_text(json.dumps(profile))
+PYACP
+fi
 node --input-type=module - "$run_dir" > "$run_dir/provider.log" <<'JS' &
 import {createServer} from 'node:http';
 import {readFileSync} from 'node:fs';

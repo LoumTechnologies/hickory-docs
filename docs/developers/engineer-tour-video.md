@@ -73,9 +73,19 @@ HICKORY_KEEP_UI_WITNESS=1 scripts/test-private-prediction-ui.sh --acp-fixture
 
 This exercises the actual engine, ACP/MCP, debugger and browser with scripted
 provider responses and test-driver review. Its retained footage is diagnostic,
-not human-reviewed native/provider footage. A real paid Python attempt previously
-received OpenRouter HTTP 402; the real Codex ACP setup requires authentication.
-Supply a working supported configuration before attempting that acceptance run.
+not human-reviewed native/provider footage. A real direct DeepSeek Python flow
+passed at 47353e3c with retained failure, reviewed correction, unchanged expectations
+and promotion revalidation. Its review decisions were automated test-driver
+decisions. The earlier OpenRouter HTTP 402 concerns a separate route; the real
+Codex ACP setup still requires authentication. For a bounded paid witness, provide
+the configured DeepSeek credential to the host environment and run:
+
+```sh
+HICKORY_KEEP_UI_WITNESS=1 HICKORY_PRIVATE_PROVIDER=deepseek HICKORY_PRIVATE_MODEL=deepseek-chat scripts/test-private-prediction-ui.sh --live-provider
+```
+
+The script refreshes the installed worker before launch. It uses the configured
+interpreter, retains held-out answers privately, and does not publish footage.
 The managed private ACP profile is not an OS sandbox; see [its boundary](private-acp.md).
 
 ## Publish reviewed footage
