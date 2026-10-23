@@ -987,3 +987,156 @@ fn future_seals_bind_prior_stop_and_context_and_never_claim_independent_first_su
 
 #[path = "prediction_scope_tests.rs"]
 mod scoped;
+
+#[test]
+fn portable_browser_ledger_reuses_gate_after_restore_and_never_reexecutes_admission() -> Result<()>
+{
+    let ledger = Ledger::portable(None)?;
+    let original = seal(100, 'a');
+    let sealed = ledger.seal(0, original.clone(), actor("agent"))?;
+    let admitted = ledger.admit(
+        &sealed.id,
+        "browser-original",
+        &original.identity,
+        false,
+        actor("agent"),
+    )?;
+    assert!(admitted.dispatch);
+    let restored = Ledger::portable(Some(&ledger.portable_snapshot()?))?;
+    assert!(
+        !restored
+            .admit(
+                &sealed.id,
+                "browser-original",
+                &original.identity,
+                false,
+                actor("agent")
+            )?
+            .dispatch
+    );
+    assert_eq!(
+        finish(
+            &restored,
+            &admitted.receipt.id,
+            json!(160),
+            json!({"private":"browser-held-out"})
+        )?
+        .classification,
+        Classification::Mismatch
+    );
+    assert!(
+        restored
+            .reveal(&admitted.receipt.id, actor("agent"), "tool")
+            .is_err()
+    );
+    assert!(
+        restored
+            .promote(&admitted.receipt.id, &original.identity, actor("agent"))
+            .is_err()
+    );
+    let corrected = seal(100, 'b');
+    let receipt = restored.seal(
+        restored.history(None)?.generation,
+        corrected.clone(),
+        actor("agent"),
+    )?;
+    let second = restored.begin(
+        &receipt.id,
+        "browser-corrected",
+        &corrected.identity,
+        false,
+        actor("agent"),
+    )?;
+    assert_eq!(
+        finish(&restored, &second.id, json!(100), json!({}))?.classification,
+        Classification::VerifiedAfterCorrection
+    );
+    assert!(
+        restored
+            .promote(&second.id, &corrected.identity, actor("agent"))?
+            .current_certification
+    );
+    let after = Ledger::portable(Some(&restored.portable_snapshot()?))?;
+    let safe = serde_json::to_string(&after.predictor_history(
+        Some(&corrected.identity),
+        &actor("agent"),
+        &[corrected.scenario.key()?],
+    )?)?;
+    assert!(!safe.contains("browser-held-out"));
+    assert_eq!(after.history(Some(&corrected.identity))?.attempts.len(), 2);
+    Ok(())
+}
+
+#[test]
+fn portable_browser_history_refuses_corruption_and_rolls_back_failed_transactions() -> Result<()> {
+    let ledger = Ledger::portable(None)?;
+    ledger.seal(0, seal(100, 'a'), actor("agent"))?;
+    let snapshot = ledger.portable_snapshot()?;
+    assert!(ledger.seal(0, seal(160, 'b'), actor("agent")).is_err());
+    assert_eq!(ledger.portable_snapshot()?, snapshot);
+    let mut changed: Value = serde_json::from_str(&snapshot)?;
+    changed["entries"][0]["sequence"] = json!(9);
+    assert!(Ledger::portable(Some(&changed.to_string())).is_err());
+    assert!(Ledger::portable(Some("not a journal")).is_err());
+    assert!(Ledger::portable(Some(&" ".repeat(1024 * 1024 + 1))).is_err());
+    let root = tempfile::tempdir()?;
+    assert!(Ledger::open(root.path())?.portable_snapshot().is_err());
+    Ok(())
+}
+
+#[test]
+fn unchanged_expectation_feedback_does_not_hide_a_changed_prediction_under_unknown_origin()
+-> Result<()> {
+    let ledger = Ledger::portable(None)?;
+    let mut original = seal(100, 'a');
+    original.scenario.identity_known = false;
+    let first = ledger.seal(0, original.clone(), actor("agent"))?;
+    let attempt = ledger.begin(
+        &first.id,
+        "original-unknown",
+        &original.identity,
+        false,
+        actor("agent"),
+    )?;
+    finish(&ledger, &attempt.id, json!(160), json!({}))?;
+    assert!(ledger.original_expectation_unchanged(&attempt.id)?);
+    let mut changed = original.clone();
+    changed.identity.source = "b".repeat(64);
+    changed.predicted = Predicate::Equals(json!(160));
+    let sealed = ledger.seal(
+        ledger.history(None)?.generation,
+        changed.clone(),
+        actor("agent"),
+    )?;
+    let next = ledger.begin(
+        &sealed.id,
+        "changed-unknown",
+        &changed.identity,
+        false,
+        actor("agent"),
+    )?;
+    assert_eq!(
+        finish(&ledger, &next.id, json!(160), json!({}))?.classification,
+        Classification::Unknown
+    );
+    assert!(!ledger.original_expectation_unchanged(&next.id)?);
+    assert!(
+        ledger
+            .promote(&next.id, &changed.identity, actor("agent"))
+            .is_err()
+    );
+    let foreign = ledger.seal(
+        ledger.history(None)?.generation,
+        original.clone(),
+        actor("human"),
+    )?;
+    let human = ledger.begin(
+        &foreign.id,
+        "foreign-original",
+        &original.identity,
+        false,
+        actor("human"),
+    )?;
+    assert!(!ledger.original_expectation_unchanged(&human.id)?);
+    Ok(())
+}

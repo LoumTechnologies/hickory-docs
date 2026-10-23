@@ -1237,3 +1237,25 @@ human-reviewed recording and matching released/deployed proof remain absent.
 The shared tooltip layer now has bounded visible-target disclosure, the actual
 shared show/dismiss controller and explicit displayed-text byte pages. Hidden/
 replaced targets refuse. Tooltip geometry is not proof of pointer operability.
+
+
+### Isolated browser prediction continuation — October 22
+
+The existing browser coach now has an input-changing prediction branch backed by
+the shared hick-observe ledger in WASM. It offers source disclosure, bounded
+forms, seal/run, 16-entry history pages, interruption recovery, promotion refusal
+and a separate human inspection request. Other homepage demos unmount when the
+branch starts. UiActions confinement permanently restricts the originating window,
+including old handles/cached and in-flight ordinary results. Hiding guidance does
+not reopen it. Valid input drafts restore without foreign predictions/rationales.
+Browser-local storage and incomplete prior-exposure/environment identity remain
+Unknown; this is output practice, not native host certification or a private DAP
+implementation. Native retained-stop support remains separate and implemented.
+
+Focused results and exact dependencies are in the
+[browser guarantee](../guarantees/verification/browser-predictions-use-the-shared-gate.md).
+A current real Qwen private-provider attempt again failed for insufficient credit
+before review; its configured key returned HTTP 200 on a read-only key query, which
+does not establish account funds. No new real-provider success, selected recording,
+supported release or matching deployment is claimed. No broad regression/status
+monitoring ran.

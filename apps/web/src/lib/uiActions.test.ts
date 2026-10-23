@@ -222,3 +222,43 @@ it("retains an uncertain result and refuses to repeat side effects when an execu
   expect(f.execute).toHaveBeenCalledOnce();
   expect(f.receipts.map(r => r.stage)).toEqual(["requested", "result"]);
 });
+
+it("monotonically confines disclosure, undispatched actions and cached ordinary results", async () => {
+  const f = fixture();
+  await f.act("before-confinement");
+  f.registry.register("safe", { ...f.command, parent: "private", subject: "private", label: "Private metadata", execute: async () => ({ status: "completed", value: "withheld" }) });
+  f.registry.confine((_key, command) => command.parent === "private");
+  expect(f.registry.groups().groups).toEqual(["private"]);
+  expect(f.registry.observe("editor").actions).toEqual([]);
+  expect(f.registry.descriptor("run-one")).toBeNull();
+  expect(await f.act("before-confinement")).toMatchObject({ status: "forbidden" });
+  expect(await f.act("after-confinement")).toMatchObject({ status: "forbidden" });
+  expect(f.execute).toHaveBeenCalledOnce();
+  f.registry.confine(() => true); // A later permissive guard cannot reopen it.
+  expect(f.registry.observe("editor").actions).toEqual([]);
+});
+
+it("withholds an ordinary in-flight result and its retained result receipt when confinement begins", async () => {
+  const f = fixture(); let release!: () => void;
+  f.execute.mockImplementation(async () => { await new Promise<void>(resolve => { release = resolve; }); return { status: "completed", value: "held-out-secret" }; });
+  const pending = f.act("in-flight");
+  await vi.waitFor(() => expect(release).toBeTypeOf("function"));
+  f.registry.confine(() => false); release();
+  const result = await pending;
+  expect(result).toMatchObject({ status: "unavailable" });
+  expect(JSON.stringify(result)).not.toContain("held-out-secret");
+  expect(JSON.stringify(f.receipts.find(receipt => receipt.stage === "result"))).not.toContain("held-out-secret");
+  expect(await f.act("in-flight")).toMatchObject({ status: "forbidden" });
+});
+
+it("refuses an ordinary handler if confinement starts during intent persistence", async () => {
+  const f = fixture(); let release!: () => void;
+  const registry = new UiActions(scope, () => true, receipt => receipt.stage === "requested" ? new Promise<void>(resolve => { release = resolve; }) : Promise.resolve());
+  registry.register("run", f.command);
+  const handle = registry.observe("editor").actions[0].handle;
+  const pending = registry.act(scope, actor, { handle, arguments: {}, request_id: "pending-intent" });
+  await vi.waitFor(() => expect(release).toBeTypeOf("function"));
+  registry.confine(() => false); release();
+  expect(await pending).toMatchObject({ status: "unavailable" });
+  expect(f.execute).not.toHaveBeenCalled();
+});

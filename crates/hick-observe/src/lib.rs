@@ -1,13 +1,17 @@
 //! Revision-bound runtime evidence. No execution, Markdown writes, or policy selection.
 //! Receive order is an observation order, never a cross-thread happens-before claim.
-use anyhow::{Result, bail, ensure};
+#[cfg(not(target_arch = "wasm32"))]
+use anyhow::bail;
+use anyhow::{Result, ensure};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::{collections::BTreeMap, ops::Range};
 
-pub mod reading;
 pub mod prediction;
+pub mod reading;
+#[cfg(not(target_arch = "wasm32"))]
 mod store;
+#[cfg(not(target_arch = "wasm32"))]
 pub use store::*;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

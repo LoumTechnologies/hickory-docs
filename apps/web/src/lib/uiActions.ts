@@ -48,7 +48,7 @@ export type UiReceipt = {
   arguments: Record<string, UiValue>;
   result?: UiResult;
 };
-type Entry = { command: UiCommand; descriptor?: UiDescriptor };
+type Entry = { key: string; command: UiCommand; descriptor?: UiDescriptor };
 
 function canonical(value: unknown): string {
   if (value === null || typeof value !== "object") return JSON.stringify(value);
@@ -91,7 +91,8 @@ function validField(value: UiValue, field: UiField): boolean {
 export class UiActions {
   private entries = new Map<string, Entry>();
   private handles = new Map<string, { entry: Entry; revision: string }>();
-  private requests = new Map<string, { actor: UiActor; subject: string | null; settled: boolean; signature: string; result: Promise<UiResult>; controller: AbortController }>();
+  private restrictions: ((key: string, command: UiCommand) => boolean)[] = [];
+  private requests = new Map<string, { entry?: Entry; actor: UiActor; subject: string | null; settled: boolean; signature: string; result: Promise<UiResult>; controller: AbortController }>();
   private busy = new Set<string>();
   private sequence = 0;
   private observation = 0;
@@ -112,7 +113,7 @@ export class UiActions {
     if (this.closed) throw Error("UI registry is closed");
     if (this.entries.has(key)) throw Error(`Duplicate UI command: ${key}`);
     // Copy metadata so a caller cannot mutate a disclosed schema in place.
-    const entry: Entry = { command: { ...command, parameters: structuredClone(command.parameters), prerequisites: [...command.prerequisites] } };
+    const entry: Entry = { key, command: { ...command, parameters: structuredClone(command.parameters), prerequisites: [...command.prerequisites] } };
     this.entries.set(key, entry);
     return () => {
       if (this.entries.get(key) !== entry) return;
@@ -121,14 +122,20 @@ export class UiActions {
     };
   }
 
+  /** Trusted host-only, monotonic restriction for this window's lifetime.
+   * Hiding/restarting a widget cannot reopen prior capabilities or cached results.
+   */
+  confine(allow: (key: string, command: UiCommand) => boolean): void { this.restrictions.push(allow); }
+  private permitted(entry: Entry): boolean { return this.restrictions.every(allow => allow(entry.key, entry.command)); }
+
   descriptor(key: string): UiDescriptor | null {
     const entry = this.entries.get(key);
-    return entry ? this.describe(entry) : null;
+    return entry && this.permitted(entry) ? this.describe(entry) : null;
   }
 
   groups(limit = 32, offset = 0) {
     if (!Number.isInteger(limit) || limit < 1 || limit > 64 || !Number.isInteger(offset) || offset < 0) throw Error("Invalid observation bounds");
-    const parents = [...new Set([...this.entries.values()].map(e => e.command.parent))];
+    const parents = [...new Set([...this.entries.values()].filter(entry => this.permitted(entry)).map(e => e.command.parent))];
     return { observation: `observation:${this.namespace}:${++this.observation}`, scope: { ...this.scope }, groups: parents.slice(offset, offset + limit), total: parents.length, next: offset + limit < parents.length ? offset + limit : null, coverage: "Only registered controls; remaining UI parity is tracked in #74/#75", edit_baseline: false };
   }
 
@@ -147,7 +154,7 @@ export class UiActions {
   /** Reads exactly one explicitly requested parent; scrolling never calls this. */
   observe(parent: string, limit = 32, offset = 0) {
     if (!Number.isInteger(limit) || limit < 1 || limit > 64 || !Number.isInteger(offset) || offset < 0) throw Error("Invalid observation bounds");
-    const entries = [...this.entries.values()].filter(e => e.command.parent === parent);
+    const entries = [...this.entries.values()].filter(e => e.command.parent === parent && this.permitted(e));
     return {
       observation: `observation:${this.namespace}:${++this.observation}`,
       scope: { ...this.scope }, parent, offset,
@@ -166,14 +173,16 @@ export class UiActions {
     let signature: string;
     try { signature = canonical({ actor, invocation }); } catch { return Promise.resolve({ status: "invalid", reason: "Arguments must be JSON" }); }
     const prior = this.requests.get(invocation.request_id);
+    if (prior?.entry && !this.permitted(prior.entry)) return Promise.resolve({ status: "forbidden", reason: "Originating window is confined; prior results remain withheld" });
     if (prior) return prior.signature === signature ? prior.result : Promise.resolve({ status: "conflict", reason: "request_id already used with different arguments or actor" });
     if (this.requests.size >= this.maxRequests) return Promise.resolve({ status: "unavailable", reason: "Window request journal is full; retain receipts and establish a new session" });
     const controller = new AbortController();
     // Defer execution until the request is journaled, including synchronous callbacks.
     const captured = freezeTree(structuredClone(invocation));
     const capturedActor = Object.freeze({ ...actor });
-    const result = Promise.resolve().then(() => this.execute(capturedActor, captured, controller.signal)).then(result => Object.isFrozen(result) ? result : snapshot(result)).catch((error): UiResult => Object.freeze({ status: "error", reason: String(error) })).finally(() => { this.requests.get(captured.request_id)!.settled = true; });
-    this.requests.set(invocation.request_id, { actor: capturedActor, subject: this.handles.get(captured.handle)?.entry.command.subject ?? null, settled: false, signature, result, controller });
+    const capturedEntry = this.handles.get(captured.handle)?.entry;
+    const result = Promise.resolve().then(() => this.execute(capturedActor, captured, controller.signal)).then(result => Object.isFrozen(result) ? result : snapshot(result)).catch((error): UiResult => Object.freeze({ status: "error", reason: String(error) })).then(result => capturedEntry && !this.permitted(capturedEntry) && !["forbidden", "unavailable", "invalid", "conflict"].includes(result.status) ? snapshot<UiResult>({ status: "unavailable", reason: "Window became confined; this result remains withheld" }) : result).finally(() => { this.requests.get(captured.request_id)!.settled = true; });
+    this.requests.set(invocation.request_id, { entry: this.handles.get(captured.handle)?.entry, actor: capturedActor, subject: this.handles.get(captured.handle)?.entry.command.subject ?? null, settled: false, signature, result, controller });
     return result;
   }
 
@@ -202,6 +211,7 @@ export class UiActions {
   private async execute(actor: UiActor, invocation: UiInvocation, signal: AbortSignal): Promise<UiResult> {
     const target = this.handles.get(invocation.handle);
     if (!target || ![...this.entries.values()].includes(target.entry)) return { status: "unavailable", reason: "Unknown, retired, or undisclosed action; observe its parent again" };
+    if (!this.permitted(target.entry)) return { status: "forbidden", reason: "Originating window is confined; this capability is unavailable" };
     const action = this.describe(target.entry);
     if (action.handle !== invocation.handle) return { status: "stale", reason: "State changed; inspect refreshed action", observation: action };
     if (!this.authorize(actor, action)) return { status: "forbidden", reason: "Current actor policy denies this command" };
@@ -216,6 +226,7 @@ export class UiActions {
       await this.record({ stage: "requested", request_id: invocation.request_id, actor, scope: this.scope, action, arguments: invocation.arguments });
       if (signal.aborted) result = { status: "unavailable", reason: "Cancelled before execution" };
       else if (![...this.entries.values()].includes(target.entry)) result = { status: "unavailable", reason: "Command was unregistered before execution" };
+      else if (!this.permitted(target.entry)) result = { status: "forbidden", reason: "Originating window became confined before execution" };
       else {
         const current = this.describe(target.entry);
         if (current.handle !== action.handle) result = { status: "stale", reason: "State changed while recording intent", observation: current };
@@ -225,6 +236,7 @@ export class UiActions {
     } catch (error) {
       result = { status: "error", reason: String(error) };
     }
+    if (!this.permitted(target.entry)) result = { status: "unavailable", reason: "Window became confined; effects may have occurred but this result remains withheld" };
     try { result = snapshot(result); }
     catch { result = Object.freeze({ status: "error", reason: "Could not capture the JSON action result; side effects may have occurred. Inspect current state before a new request." }); }
     try {

@@ -165,3 +165,143 @@ test("host-supplied embedded image pixels reach the scoped parent as a real PNG"
   expect(createHash("sha256").update(bytes).digest("hex")).toBe(value.ui_image.digest);
   expect(engine).toEqual([]);
 });
+
+// Guarantee: docs/guarantees/verification/predictions-precede-managed-observation.md
+// Actual interpreter + shared Rust/WASM ledger; no provider or backend.
+test("browser prediction practice changes inputs and retains real comparisons without delivering answers", async ({ page }) => {
+  const { invoke, act, actions, frame, engine } = await connect(page, "site");
+  await act("browser-tour", "Set browser workflow tour visibility", { open: true });
+  await act("browser-tour", "Restart browser workflow tour");
+  await act("browser-tour", "Continue browser workflow step");
+  await act("browser-tour", "Continue browser workflow step");
+  await act("browser-tour", "Set browser workflow practice objection", { text: "One shared deadline" });
+  await act("browser-tour", "Continue browser workflow step");
+  const ordinaryRoot = (await invoke("ui_observe", { limit: 64 })).data.result;
+  const ordinaryParent = ordinaryRoot.groups.find((group: string) => group.startsWith("browser-document:deadline-spec.md:"));
+  const ordinaryRun = (await actions(ordinaryParent)).find(action => action.label === "Restart browser document (deadline-spec.md)");
+  await act("browser-tour", "Set browser prediction practice visibility", { open: true });
+  await expect(frame.getByRole("heading", { name: "Predict with your own inputs" })).toBeVisible();
+  expect((await invoke("ui_observe", { limit: 64 })).data.result.groups).not.toContain(ordinaryParent);
+  expect((await invoke("ui_act", { handle: ordinaryRun.handle, arguments: {}, request_id: crypto.randomUUID() })).data.result).toMatchObject({ status: "unavailable" });
+
+  expect((await actions("browser-prediction")).find(value => value.label === "Run sealed browser prediction").enabled).toBe(false);
+  await act("browser-prediction", "Edit browser prediction attempt durations", { value: "[70,65]" });
+  await act("browser-prediction", "Edit browser prediction total budget", { value: "90" });
+  await act("browser-prediction", "Edit browser prediction expected duration", { value: "90" });
+  await act("browser-prediction", "Edit browser prediction rationale", { value: "Both attempts share the original deadline" });
+  await act("browser-prediction", "Set browser prediction source disclosure", { open: true });
+  await expect(frame.getByText(/target: elapsed\(\[70,65\], 90\)/)).toBeVisible();
+  await act("browser-prediction", "Seal browser prediction before execution");
+  const fault = await act("browser-prediction", "Run sealed browser prediction");
+  expect(fault).toMatchObject({ outcome: { value: { prediction_matched: false, requirement_satisfied: false, independent_checks_accepted: true, values: "withheld", current_certification: false } } });
+  expect(JSON.stringify(fault)).not.toContain('"actual":');
+  await act("browser-tour", "Continue browser workflow step");
+  await expect(frame.getByRole("heading", { name: "Inspect and run the correction" })).toBeVisible();
+  expect((await actions("browser-prediction")).find(value => value.label === "Run sealed browser prediction").enabled).toBe(false);
+  await act("browser-prediction", "Seal browser prediction before execution");
+  const repaired = await act("browser-prediction", "Run sealed browser prediction");
+  expect(repaired).toMatchObject({ outcome: { value: { prediction_matched: true, requirement_satisfied: true, independent_checks_accepted: true, values: "withheld", current_certification: false } } });
+  const history = await act("browser-prediction", "Read browser prediction history summaries", { offset: 0, limit: 16 });
+  expect(history.data).toBeUndefined();
+  expect(history.outcome.value.attempts).toHaveLength(2);
+  expect(history.outcome.value.attempts[0].original_requirement_satisfied).toBe(false);
+  expect(history.outcome.value.attempts[1].original_requirement_satisfied).toBe(true);
+  // A different same-origin page holding the runtime lease prevents recovery.
+  const other = await page.context().newPage();
+  const childOrigin = await frame.getByRole("heading", { name: "Predict with your own inputs" }).evaluate(() => location.origin);
+  await other.goto(`${childOrigin}/site.html?predictionPractice=1`);
+  await other.evaluate(() => new Promise<boolean>(resolve => { void navigator.locks.request("hickory-browser-prediction-runtime", async () => { resolve(true); await new Promise<void>(() => {}); }); }));
+  const recovery = (await actions("browser-prediction")).find(value => value.label === "Recover interrupted browser prediction attempts");
+  expect((await invoke("ui_act", { handle: recovery.handle, arguments: {}, request_id: crypto.randomUUID() })).data.result).toMatchObject({ outcome: { status: "unavailable", reason: expect.stringContaining("lease is active") } });
+  await other.close();
+  await expect.poll(() => frame.getByRole("heading", { name: "Predict with your own inputs" }).evaluate(() => navigator.locks.request("hickory-browser-prediction-runtime", { ifAvailable: true }, lease => !!lease))).toBe(true);
+  expect(await act("browser-prediction", "Recover interrupted browser prediction attempts")).toMatchObject({ outcome: { value: { interrupted: 0, execution_replayed: false, current_certification: false } } });
+  const promotion = (await actions("browser-prediction")).find(value => value.label === "Request browser prediction promotion");
+  expect((await invoke("ui_act", { handle: promotion.handle, arguments: {}, request_id: crypto.randomUUID() })).data.result).toMatchObject({ outcome: { status: "unavailable", reason: expect.stringContaining("Unknown") } });
+  const inspection = (await actions("browser-prediction")).find(value => value.label === "Request human inspection of browser prediction");
+  expect((await invoke("ui_act", { handle: inspection.handle, arguments: {}, request_id: crypto.randomUUID() })).data.result).toMatchObject({ outcome: { status: "requires_input" } });
+  expect(page.context().pages()).toHaveLength(1);
+  await expect(frame.getByRole("region", { name: "AI engineer tour" }).getByRole("button", { name: "Continue", exact: true })).toBeEnabled();
+  await act("browser-prediction", "Edit browser prediction total budget", { value: "80" });
+  await expect(frame.getByRole("region", { name: "AI engineer tour" }).getByRole("button", { name: "Continue", exact: true })).toBeDisabled();
+  expect(JSON.stringify(history)).not.toContain('"actual":');
+  const visibility = (await actions("browser-tour")).find(value => value.label === "Set browser prediction practice visibility");
+  expect((await invoke("ui_act", { handle: visibility.handle, arguments: { open: false }, request_id: crypto.randomUUID() })).data.result).toMatchObject({ outcome: { status: "requires_input" } });
+  await expect(frame.getByRole("heading", { name: "Predict with your own inputs" })).toBeVisible();
+  expect((await invoke("ui_observe", { limit: 64 })).data.result.groups.every((group: string) => ["browser-tour", "browser-prediction"].includes(group))).toBe(true);
+  expect((await invoke("ui_observe", { parent: ordinaryParent })).data.result.actions).toEqual([]);
+
+  expect(engine).toEqual([]);
+});
+
+test("browser prediction refuses corrupt retained history without echoing its private bytes", async ({ page }) => {
+  const { invoke, act, actions, frame, engine } = await connect(page, "site");
+  await act("browser-tour", "Set browser workflow tour visibility", { open: true });
+  await act("browser-tour", "Set browser prediction practice visibility", { open: true });
+  await expect(frame.getByRole("heading", { name: "Predict with your own inputs" })).toBeVisible();
+  await frame.getByRole("heading", { name: "Predict with your own inputs" }).evaluate(() => localStorage.setItem("hickory.browserPrediction.v1", "private-held-out-corrupt-journal"));
+  await act("browser-prediction", "Edit browser prediction rationale", { value: "One total deadline" });
+  const seal = (await actions("browser-prediction")).find(value => value.label === "Seal browser prediction before execution");
+  const result = (await invoke("ui_act", { handle: seal.handle, arguments: {}, request_id: crypto.randomUUID() })).data.result;
+  expect(result).toMatchObject({ outcome: { status: "unavailable" } });
+  expect(JSON.stringify(result)).not.toContain("private-held-out-corrupt-journal");
+  expect((await actions("browser-prediction")).find(value => value.label === "Run sealed browser prediction").enabled).toBe(false);
+  expect(await frame.getByRole("heading", { name: "Predict with your own inputs" }).evaluate(() => localStorage.getItem("hickory.browserPrediction.v1"))).toBe("private-held-out-corrupt-journal");
+  expect(engine).toEqual([]);
+});
+
+// Synthetic human inputs/review; genuine interpreter and separate human window.
+test("isolated browser practice keeps a correctly predicted bug non-passing and human inspection separate", async ({ page }) => {
+  const engine: string[] = [];
+  await page.route(url => url.pathname.startsWith("/api/"), route => { engine.push(route.request().url()); return route.abort(); });
+  await page.setViewportSize({ width: 390, height: 1000 });
+  await page.goto("/site.html?predictionPractice=1");
+  await expect(page.getByRole("heading", { name: "Predict with your own inputs" })).toBeVisible();
+  expect(await page.getByRole("heading", { name: "Hickory Docs", exact: true }).count()).toBe(0);
+  await page.getByLabel("Attempt durations (JSON, ms)").fill("[70,65]");
+  await page.getByLabel("Total budget (ms)").fill("90");
+  // Seeded test-driver prediction, not independent model judgment.
+  await page.getByLabel("Predicted elapsed duration (ms)").fill("135");
+  await page.getByLabel("Prediction rationale").fill("The faulty recorded example gives each attempt the whole allowance");
+  await page.getByRole("button", { name: "Seal browser prediction", exact: true }).click();
+  await expect(page.getByRole("button", { name: "Run sealed prediction", exact: true })).toBeEnabled();
+  await page.getByRole("button", { name: "Run sealed prediction", exact: true }).click();
+  const history = page.getByRole("list", { name: "Retained browser prediction attempts" });
+  await expect(history).toContainText("prediction true");
+  await expect(history).toContainText("original requirement false");
+  await expect(history).toContainText("current certification false");
+  await page.getByRole("button", { name: "Request promotion", exact: true }).click();
+  await expect(page.getByRole("alert")).toContainText("Unknown");
+  const popup = page.waitForEvent("popup");
+  await page.getByRole("button", { name: "Inspect actuals as a human", exact: true }).click();
+  const report = await popup;
+  await expect(report.locator("body")).toContainText('"actual": 135');
+  expect(await report.evaluate(() => window.opener === null)).toBe(true);
+  expect(await page.locator("body").textContent()).not.toContain('"actual": 135');
+  await report.close();
+  await page.getByRole("button", { name: "Inspect prediction source", exact: true }).click();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  await page.screenshot({ path: test.info().outputPath("isolated-browser-prediction-390.png"), fullPage: true });
+  expect(engine).toEqual([]);
+});
+
+// Actual comparison may pass after changing an expectation; the coach must not
+// call that the original expectation surviving a correction.
+test("browser correction cannot advance by replacing its original prediction", async ({ page }) => {
+  const { invoke, act, actions, frame, engine } = await connect(page, "site", "predictionPractice=1");
+  await expect(frame.getByRole("heading", { name: "Predict with your own inputs" })).toBeVisible();
+  await act("browser-prediction", "Edit browser prediction attempt durations", { value: "[70,65]" });
+  await act("browser-prediction", "Edit browser prediction total budget", { value: "90" });
+  await act("browser-prediction", "Edit browser prediction expected duration", { value: "100" });
+  await act("browser-prediction", "Edit browser prediction rationale", { value: "Initial expectation retained even if wrong" });
+  await act("browser-prediction", "Seal browser prediction before execution");
+  expect(await act("browser-prediction", "Run sealed browser prediction")).toMatchObject({ outcome: { value: { requirement_satisfied: false, original_expectation_unchanged: true } } });
+  await act("browser-tour", "Continue browser workflow step");
+  await act("browser-prediction", "Edit browser prediction expected duration", { value: "90" });
+  await act("browser-prediction", "Seal browser prediction before execution");
+  expect(await act("browser-prediction", "Run sealed browser prediction")).toMatchObject({ outcome: { value: { prediction_matched: true, requirement_satisfied: true, original_expectation_unchanged: false, current_certification: false } } });
+  await expect(frame.getByRole("region", { name: "AI engineer tour" }).getByRole("button", { name: "Continue", exact: true })).toBeDisabled();
+  const promotion = (await actions("browser-prediction")).find(value => value.label === "Request browser prediction promotion");
+  expect((await invoke("ui_act", { handle: promotion.handle, arguments: {}, request_id: crypto.randomUUID() })).data.result).toMatchObject({ outcome: { status: "unavailable" } });
+  expect(engine).toEqual([]);
+});

@@ -2,14 +2,19 @@
 //! Callers supply independently captured identities/results; transport adapters
 //! must obtain actors from their host, never from model-supplied arguments.
 use anyhow::{Context, Result, ensure};
+#[cfg(not(target_arch = "wasm32"))]
 use fs2::FileExt;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
+#[cfg(not(target_arch = "wasm32"))]
+use std::path::PathBuf;
+use std::sync::{Arc, Mutex};
+#[cfg(not(target_arch = "wasm32"))]
 use std::{
     fs::{self, File, OpenOptions},
     io::Write,
-    path::{Path, PathBuf},
+    path::Path,
 };
 use uuid::Uuid;
 
@@ -79,7 +84,7 @@ struct Ordered {
     digest: String,
     event: Event,
 }
-#[derive(Default, Serialize, Deserialize)]
+#[derive(Clone, Default, Serialize, Deserialize)]
 struct Journal {
     version: u32,
     entries: Vec<Ordered>,
@@ -150,19 +155,78 @@ pub fn digest(value: &impl Serialize) -> Result<String> {
 
 #[derive(Clone)]
 pub struct Ledger {
+    #[cfg(not(target_arch = "wasm32"))]
     root: PathBuf,
+    portable: Option<Arc<Mutex<Journal>>>,
 }
 impl Ledger {
     /// The host chooses a durable private directory outside session/cache eviction.
     /// Absence is not evidence of no historical exposure: admissions must mark
     /// identity_known=false when correspondence/earlier history is unavailable.
+    #[cfg(not(target_arch = "wasm32"))]
     pub fn open(root: impl AsRef<Path>) -> Result<Self> {
         fs::create_dir_all(root.as_ref())?;
         Ok(Self {
             root: root.as_ref().to_owned(),
+            portable: None,
         })
     }
+    /// Browser-local adapter state, not a host-authenticated or private-file export.
+    /// The same seal/admission/classification methods operate on this journal.
+    /// Callers must serialize access and persist before dispatching execution.
+    pub fn portable(snapshot: Option<&str>) -> Result<Self> {
+        let journal = if let Some(snapshot) = snapshot {
+            ensure!(
+                snapshot.len() <= 1024 * 1024,
+                "Browser prediction history capacity exceeded"
+            );
+            serde_json::from_str(snapshot)
+                .context("Browser history is corrupt; refusing to reset it")?
+        } else {
+            Journal {
+                version: 1,
+                entries: vec![],
+            }
+        };
+        let ledger = Self {
+            #[cfg(not(target_arch = "wasm32"))]
+            root: PathBuf::new(),
+            portable: Some(Arc::new(Mutex::new(journal))),
+        };
+        ledger.transaction(|_| Ok(()))?;
+        Ok(ledger)
+    }
+    /// Contains private values. Only the owning browser host may persist this;
+    /// never register it as a predictor reading or tool result.
+    pub fn portable_snapshot(&self) -> Result<String> {
+        ensure!(
+            self.portable.is_some(),
+            "Native private ledgers cannot export raw snapshots"
+        );
+        self.transaction(|journal| Ok(serde_json::to_string(journal)?))
+    }
     fn transaction<T>(&self, apply: impl FnOnce(&mut Journal) -> Result<T>) -> Result<T> {
+        if let Some(portable) = &self.portable {
+            let mut journal = portable
+                .lock()
+                .map_err(|_| anyhow::anyhow!("Browser prediction history unavailable"))?;
+            validate_journal(&journal)?;
+            let mut next = journal.clone();
+            let result = apply(&mut next)?;
+            ensure!(
+                serde_json::to_vec(&next)?.len() <= 1024 * 1024,
+                "Browser prediction history capacity exceeded"
+            );
+            *journal = next;
+            return Ok(result);
+        }
+        #[cfg(not(target_arch = "wasm32"))]
+        return self.file_transaction(apply);
+        #[cfg(target_arch = "wasm32")]
+        anyhow::bail!("This browser has no native private filesystem ledger")
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    fn file_transaction<T>(&self, apply: impl FnOnce(&mut Journal) -> Result<T>) -> Result<T> {
         let mut options = OpenOptions::new();
         options.create(true).truncate(false).read(true).write(true);
         #[cfg(unix)]
@@ -188,18 +252,7 @@ impl Ledger {
             },
             Err(error) => return Err(error.into()),
         };
-        ensure!(journal.version == 1, "Unknown prediction ledger version");
-        let mut previous = String::new();
-        for (index, entry) in journal.entries.iter().enumerate() {
-            ensure!(
-                entry.sequence == index as u64 + 1
-                    && entry.previous == previous
-                    && entry.digest
-                        == digest(&(entry.sequence, &entry.previous, &entry.nonce, &entry.event))?,
-                "Prediction event ordering/hash mismatch; history is unavailable"
-            );
-            previous = entry.digest.clone();
-        }
+        validate_journal(&journal)?;
         let before = journal.entries.len();
         let result = apply(&mut journal)?;
         if journal.entries.len() != before {
@@ -590,6 +643,27 @@ impl Ledger {
             })
         })
     }
+    /// Answer-free comparison with the first question/prediction. A foreign
+    /// original owner cannot establish unchanged expectations for this actor.
+    pub fn original_expectation_unchanged(&self, attempt: &str) -> Result<bool> {
+        self.transaction(|journal| {
+            let (_, seal, _) = find_attempt(journal, attempt)?;
+            let (first, original) = original_seal(journal, &seal.scenario.key()?)?;
+            let original_actor = journal.entries.iter().find_map(|entry| match &entry.event {
+                Event::Sealed { actor, .. } if entry.sequence == first => Some(actor),
+                _ => None,
+            });
+            let current_actor = journal.entries.iter().find_map(|entry| match &entry.event {
+                Event::Started { id, actor, .. } if id == attempt => Some(actor),
+                _ => None,
+            });
+            Ok(original_actor == current_actor
+                && original.predicted == seal.predicted
+                && original.scenario.requirement == seal.scenario.requirement
+                && original.scenario.requirement_reference == seal.scenario.requirement_reference
+                && original.target.same_question(&seal.target))
+        })
+    }
     pub fn history(&self, current: Option<&Identity>) -> Result<History> {
         self.transaction(|journal| {
             let attempts = journal.entries.iter().filter_map(|entry| if let Event::Started { id, .. } = &entry.event { Some(id) } else { None })
@@ -623,6 +697,22 @@ impl Ledger {
             summarize(journal, attempt, Some(current))
         })
     }
+}
+
+fn validate_journal(journal: &Journal) -> Result<()> {
+    ensure!(journal.version == 1, "Unknown prediction ledger version");
+    let mut previous = String::new();
+    for (index, entry) in journal.entries.iter().enumerate() {
+        ensure!(
+            entry.sequence == index as u64 + 1
+                && entry.previous == previous
+                && entry.digest
+                    == digest(&(entry.sequence, &entry.previous, &entry.nonce, &entry.event))?,
+            "Prediction event ordering/hash mismatch; history is unavailable"
+        );
+        previous = entry.digest.clone();
+    }
+    Ok(())
 }
 
 fn generation(journal: &Journal, expected: u64) -> Result<()> {
@@ -753,20 +843,23 @@ fn interrupted(journal: &Journal, id: &str) -> bool {
         .iter()
         .any(|entry| matches!(&entry.event, Event::Interrupted { attempt, .. } if attempt == id))
 }
-fn summarize(journal: &Journal, attempt: &str, current: Option<&Identity>) -> Result<Summary> {
-    let (sequence, seal, replay) = find_attempt(journal, attempt)?;
-    let key = seal.scenario.key()?;
-    let (first_sequence, original) = journal
+fn original_seal<'a>(journal: &'a Journal, key: &str) -> Result<(u64, &'a Seal)> {
+    journal
         .entries
         .iter()
         .find_map(|entry| {
             if let Event::Sealed { seal, .. } = &entry.event {
-                (seal.scenario.key().ok().as_ref() == Some(&key)).then_some((entry.sequence, seal))
+                (seal.scenario.key().ok().as_deref() == Some(key)).then_some((entry.sequence, seal))
             } else {
                 None
             }
         })
-        .context("Scenario has no original prediction")?;
+        .context("Scenario has no original prediction")
+}
+fn summarize(journal: &Journal, attempt: &str, current: Option<&Identity>) -> Result<Summary> {
+    let (sequence, seal, replay) = find_attempt(journal, attempt)?;
+    let key = seal.scenario.key()?;
+    let (first_sequence, original) = original_seal(journal, &key)?;
     let (seal_id, sealed_at) = journal
         .entries
         .iter()

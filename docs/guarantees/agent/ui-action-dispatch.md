@@ -1002,3 +1002,15 @@ layout and re-export ordering. Current formatted dependencies:
 - `crates/hickory-cli/src/serve/shell.rs`: `8bb748027516fdc23bbfaae230013bbda01bda2735d01a3927fdeb7e77d10797`.
 - `apps/desktop/src-tauri/src/lib.rs`: `290f7444cf8658dd9e5174d57f8cfa872ed376da00a38fe8d34f9727ca2ee503`.
 - `apps/desktop/src-tauri/src/server.rs`: `b27cd771f3f723a462a24db6df7321d917498f3a67780c05f9b4f00041c8db39`.
+
+## Monotonic browser confinement — October 22
+
+UiActions.confine is trusted-host-only and cannot be removed for that registry
+lifetime. Groups/descriptors, dispatch before/after intent persistence, cached
+request results and results completing after confinement enforce it. A denied
+result is withheld before result receipt retention. New private readers have an
+explicit disclosure parent; only their source and answer-free metadata are
+permitted. Three adversarial confinement cases are among 24 focused dispatcher
+cases; seven bridge cases and real browser alternate-path checks pass. The browser
+[guarantee](../verification/browser-predictions-use-the-shared-gate.md) records
+exact dependencies, trust boundaries, failures and separate evidence statuses.

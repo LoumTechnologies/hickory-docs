@@ -1,7 +1,7 @@
 import { UiLink } from "../components/UiLink";
 import { config } from "../config";
 import { WorkflowTour } from "../components/WorkflowTour";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { emit } from "../analytics/events";
 import { TooltipLayer } from "../components/TooltipLayer";
 import { BrowserDebugDemo } from "../landing/demos/BrowserDebugDemo";
@@ -13,11 +13,13 @@ export function resetViewedForTest() { viewedFired = false; }
 
 /** A first visit from a developer: see a document, try its debugger, download. */
 export function LandingView() {
+  const [predictionOnly, setPredictionOnly] = useState(() => new URL(location.href).searchParams.get("predictionPractice") === "1");
   useEffect(() => {
     if (viewedFired) return;
     viewedFired = true;
     emit({ name: "landing_viewed", path: location.hash || "#/" });
   }, []);
+  if (predictionOnly) return <main className="landing landing-simple"><WorkflowTour surface="site" predictionOnly /></main>;
   return <main className="landing landing-simple">
     <header className="landing-hero">
       <p className="landing-eyebrow">Downloadable software · Runs on your machine</p>
@@ -29,7 +31,7 @@ export function LandingView() {
     </header>
     <WorkflowRecording />
     <p><UiLink href={`https://github.com/LoumTechnologies/hickory-docs/blob/${config.sourceRevision ?? "master"}/docs/developers/agent-first-demo.md`} onClick={() => emit({ name: "interest_clicked", interest_id: "agent-engineering", link_id: "review-brief" })}>Read the customer problem, delegation, decision and evidence scope</UiLink> · <UiLink href="#try-workflow" onClick={() => emit({ name: "cta_clicked", cta_id: "try-retry-budget" })}>Try the matching browser example</UiLink></p>
-    <div id="try-workflow"><WorkflowTour surface="site" /></div>
+    <div id="try-workflow"><WorkflowTour surface="site" onPredictionPractice={() => setPredictionOnly(true)} /></div>
     <BrowserDebugDemo />
     <footer className="landing-download" id="download">
       <h2>Download Hickory Docs</h2>

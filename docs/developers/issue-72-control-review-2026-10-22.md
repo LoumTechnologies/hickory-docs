@@ -80,8 +80,14 @@ Exact reviewed files (SHA-256; a changed dependency stales this review):
 - `apps/web/src/views/RepresentationPane.tsx`: `3b874242d47a9c5d45dbd687637a21508026ab0e507d4ea41ae3879d32acda42`.
 - `apps/web/src/views/RepresentationTools.tsx`: `f897b7a737b38ac91f3af05350b0201a68eb73d69a34f3680f535af23d506f1d`.
 
-Declaration index SHA-256: `f6b0d42c7d8543d6cdcc57072c58b875d4a491156e26341b24e4d1e0fa6ea9b5`.
+Declaration index SHA-256: `aceaa1fa6188302a460047c7ab01162ef67df73ea8b500ad629be2a9413d2474`.
 
 The later native screenshot found a fixed-position child occluding coach chrome;
 static delegation/focus evidence had not established visual operability. Its CSS
 fix and actual-component pointer/geometry checks are in the active handoff.
+
+The original LandingView fingerprint above is now historical. Its isolated
+browser-practice branch was re-reviewed: it replaces other homepage demos while
+retaining the same UI session and its monotonic confinement. Current SHA-256: `863ae5ff99fb129f66ba01271709e201a30b708e47af4405aa34f1dd28d5091c`. New portable-ledger/browser adapter evidence and
+dependencies are in the browser prediction guarantee and active handoff; the
+updated index is a navigation aid, not retroactive universal certification.

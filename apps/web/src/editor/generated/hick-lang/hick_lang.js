@@ -1,6 +1,36 @@
 /* @ts-self-types="./hick_lang.d.ts" */
 
 /**
+ * Private browser-host transition. Actor and actual result arguments must be
+ * supplied by trusted adapters, never forwarded from model invocation fields.
+ * Storage is user-controlled, not a native private directory or authenticated
+ * evidence store. Snapshot persistence must succeed before admitted dispatch.
+ * @param {string} snapshot
+ * @param {string} command
+ * @returns {string}
+ */
+export function browser_prediction(snapshot, command) {
+    let deferred3_0;
+    let deferred3_1;
+    try {
+        const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
+        const ptr0 = passStringToWasm0(snapshot, wasm.__wbindgen_export2, wasm.__wbindgen_export3);
+        const len0 = WASM_VECTOR_LEN;
+        const ptr1 = passStringToWasm0(command, wasm.__wbindgen_export2, wasm.__wbindgen_export3);
+        const len1 = WASM_VECTOR_LEN;
+        wasm.browser_prediction(retptr, ptr0, len0, ptr1, len1);
+        var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
+        var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
+        deferred3_0 = r0;
+        deferred3_1 = r1;
+        return getStringFromWasm0(r0, r1);
+    } finally {
+        wasm.__wbindgen_add_to_stack_pointer(16);
+        wasm.__wbindgen_export4(deferred3_0, deferred3_1, 1);
+    }
+}
+
+/**
  * Pure complete-project evaluation. Input/output entries are byte arrays,
  * preserving binary assets and metadata; no browser filesystem is consulted.
  * @param {string} entry
@@ -13,11 +43,11 @@ export function evaluate_project(entry, sources_json, input_json) {
     let deferred4_1;
     try {
         const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
-        const ptr0 = passStringToWasm0(entry, wasm.__wbindgen_export, wasm.__wbindgen_export2);
+        const ptr0 = passStringToWasm0(entry, wasm.__wbindgen_export2, wasm.__wbindgen_export3);
         const len0 = WASM_VECTOR_LEN;
-        const ptr1 = passStringToWasm0(sources_json, wasm.__wbindgen_export, wasm.__wbindgen_export2);
+        const ptr1 = passStringToWasm0(sources_json, wasm.__wbindgen_export2, wasm.__wbindgen_export3);
         const len1 = WASM_VECTOR_LEN;
-        const ptr2 = passStringToWasm0(input_json, wasm.__wbindgen_export, wasm.__wbindgen_export2);
+        const ptr2 = passStringToWasm0(input_json, wasm.__wbindgen_export2, wasm.__wbindgen_export3);
         const len2 = WASM_VECTOR_LEN;
         wasm.evaluate_project(retptr, ptr0, len0, ptr1, len1, ptr2, len2);
         var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
@@ -27,7 +57,7 @@ export function evaluate_project(entry, sources_json, input_json) {
         return getStringFromWasm0(r0, r1);
     } finally {
         wasm.__wbindgen_add_to_stack_pointer(16);
-        wasm.__wbindgen_export3(deferred4_0, deferred4_1, 1);
+        wasm.__wbindgen_export4(deferred4_0, deferred4_1, 1);
     }
 }
 
@@ -43,11 +73,11 @@ export function latest_debug_project(versions_json, displayed_json, path) {
     let deferred4_1;
     try {
         const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
-        const ptr0 = passStringToWasm0(versions_json, wasm.__wbindgen_export, wasm.__wbindgen_export2);
+        const ptr0 = passStringToWasm0(versions_json, wasm.__wbindgen_export2, wasm.__wbindgen_export3);
         const len0 = WASM_VECTOR_LEN;
-        const ptr1 = passStringToWasm0(displayed_json, wasm.__wbindgen_export, wasm.__wbindgen_export2);
+        const ptr1 = passStringToWasm0(displayed_json, wasm.__wbindgen_export2, wasm.__wbindgen_export3);
         const len1 = WASM_VECTOR_LEN;
-        const ptr2 = passStringToWasm0(path, wasm.__wbindgen_export, wasm.__wbindgen_export2);
+        const ptr2 = passStringToWasm0(path, wasm.__wbindgen_export2, wasm.__wbindgen_export3);
         const len2 = WASM_VECTOR_LEN;
         wasm.latest_debug_project(retptr, ptr0, len0, ptr1, len1, ptr2, len2);
         var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
@@ -57,7 +87,7 @@ export function latest_debug_project(versions_json, displayed_json, path) {
         return getStringFromWasm0(r0, r1);
     } finally {
         wasm.__wbindgen_add_to_stack_pointer(16);
-        wasm.__wbindgen_export3(deferred4_0, deferred4_1, 1);
+        wasm.__wbindgen_export4(deferred4_0, deferred4_1, 1);
     }
 }
 
@@ -72,7 +102,7 @@ export function literal_files(source) {
     let deferred2_1;
     try {
         const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
-        const ptr0 = passStringToWasm0(source, wasm.__wbindgen_export, wasm.__wbindgen_export2);
+        const ptr0 = passStringToWasm0(source, wasm.__wbindgen_export2, wasm.__wbindgen_export3);
         const len0 = WASM_VECTOR_LEN;
         wasm.literal_files(retptr, ptr0, len0);
         var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
@@ -82,7 +112,7 @@ export function literal_files(source) {
         return getStringFromWasm0(r0, r1);
     } finally {
         wasm.__wbindgen_add_to_stack_pointer(16);
-        wasm.__wbindgen_export3(deferred2_0, deferred2_1, 1);
+        wasm.__wbindgen_export4(deferred2_0, deferred2_1, 1);
     }
 }
 
@@ -98,11 +128,11 @@ export function project_position(local_json, endpoint_json, path, byte) {
     let deferred4_1;
     try {
         const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
-        const ptr0 = passStringToWasm0(local_json, wasm.__wbindgen_export, wasm.__wbindgen_export2);
+        const ptr0 = passStringToWasm0(local_json, wasm.__wbindgen_export2, wasm.__wbindgen_export3);
         const len0 = WASM_VECTOR_LEN;
-        const ptr1 = passStringToWasm0(endpoint_json, wasm.__wbindgen_export, wasm.__wbindgen_export2);
+        const ptr1 = passStringToWasm0(endpoint_json, wasm.__wbindgen_export2, wasm.__wbindgen_export3);
         const len1 = WASM_VECTOR_LEN;
-        const ptr2 = passStringToWasm0(path, wasm.__wbindgen_export, wasm.__wbindgen_export2);
+        const ptr2 = passStringToWasm0(path, wasm.__wbindgen_export2, wasm.__wbindgen_export3);
         const len2 = WASM_VECTOR_LEN;
         wasm.project_position(retptr, ptr0, len0, ptr1, len1, ptr2, len2, byte);
         var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
@@ -112,7 +142,7 @@ export function project_position(local_json, endpoint_json, path, byte) {
         return getStringFromWasm0(r0, r1);
     } finally {
         wasm.__wbindgen_add_to_stack_pointer(16);
-        wasm.__wbindgen_export3(deferred4_0, deferred4_1, 1);
+        wasm.__wbindgen_export4(deferred4_0, deferred4_1, 1);
     }
 }
 
@@ -127,9 +157,9 @@ export function project_transition(old_json, new_json) {
     let deferred3_1;
     try {
         const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
-        const ptr0 = passStringToWasm0(old_json, wasm.__wbindgen_export, wasm.__wbindgen_export2);
+        const ptr0 = passStringToWasm0(old_json, wasm.__wbindgen_export2, wasm.__wbindgen_export3);
         const len0 = WASM_VECTOR_LEN;
-        const ptr1 = passStringToWasm0(new_json, wasm.__wbindgen_export, wasm.__wbindgen_export2);
+        const ptr1 = passStringToWasm0(new_json, wasm.__wbindgen_export2, wasm.__wbindgen_export3);
         const len1 = WASM_VECTOR_LEN;
         wasm.project_transition(retptr, ptr0, len0, ptr1, len1);
         var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
@@ -139,7 +169,7 @@ export function project_transition(old_json, new_json) {
         return getStringFromWasm0(r0, r1);
     } finally {
         wasm.__wbindgen_add_to_stack_pointer(16);
-        wasm.__wbindgen_export3(deferred3_0, deferred3_1, 1);
+        wasm.__wbindgen_export4(deferred3_0, deferred3_1, 1);
     }
 }
 
@@ -157,15 +187,15 @@ export function regenerate_project_patch(entry, sources_json, input_json, id, ne
     let deferred6_1;
     try {
         const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
-        const ptr0 = passStringToWasm0(entry, wasm.__wbindgen_export, wasm.__wbindgen_export2);
+        const ptr0 = passStringToWasm0(entry, wasm.__wbindgen_export2, wasm.__wbindgen_export3);
         const len0 = WASM_VECTOR_LEN;
-        const ptr1 = passStringToWasm0(sources_json, wasm.__wbindgen_export, wasm.__wbindgen_export2);
+        const ptr1 = passStringToWasm0(sources_json, wasm.__wbindgen_export2, wasm.__wbindgen_export3);
         const len1 = WASM_VECTOR_LEN;
-        const ptr2 = passStringToWasm0(input_json, wasm.__wbindgen_export, wasm.__wbindgen_export2);
+        const ptr2 = passStringToWasm0(input_json, wasm.__wbindgen_export2, wasm.__wbindgen_export3);
         const len2 = WASM_VECTOR_LEN;
-        const ptr3 = passStringToWasm0(id, wasm.__wbindgen_export, wasm.__wbindgen_export2);
+        const ptr3 = passStringToWasm0(id, wasm.__wbindgen_export2, wasm.__wbindgen_export3);
         const len3 = WASM_VECTOR_LEN;
-        const ptr4 = passStringToWasm0(new_json, wasm.__wbindgen_export, wasm.__wbindgen_export2);
+        const ptr4 = passStringToWasm0(new_json, wasm.__wbindgen_export2, wasm.__wbindgen_export3);
         const len4 = WASM_VECTOR_LEN;
         wasm.regenerate_project_patch(retptr, ptr0, len0, ptr1, len1, ptr2, len2, ptr3, len3, ptr4, len4);
         var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
@@ -175,7 +205,7 @@ export function regenerate_project_patch(entry, sources_json, input_json, id, ne
         return getStringFromWasm0(r0, r1);
     } finally {
         wasm.__wbindgen_add_to_stack_pointer(16);
-        wasm.__wbindgen_export3(deferred6_0, deferred6_1, 1);
+        wasm.__wbindgen_export4(deferred6_0, deferred6_1, 1);
     }
 }
 
@@ -192,15 +222,15 @@ export function reverse_project_edit(entry, sources_json, input_json, endpoint_j
     let deferred6_1;
     try {
         const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
-        const ptr0 = passStringToWasm0(entry, wasm.__wbindgen_export, wasm.__wbindgen_export2);
+        const ptr0 = passStringToWasm0(entry, wasm.__wbindgen_export2, wasm.__wbindgen_export3);
         const len0 = WASM_VECTOR_LEN;
-        const ptr1 = passStringToWasm0(sources_json, wasm.__wbindgen_export, wasm.__wbindgen_export2);
+        const ptr1 = passStringToWasm0(sources_json, wasm.__wbindgen_export2, wasm.__wbindgen_export3);
         const len1 = WASM_VECTOR_LEN;
-        const ptr2 = passStringToWasm0(input_json, wasm.__wbindgen_export, wasm.__wbindgen_export2);
+        const ptr2 = passStringToWasm0(input_json, wasm.__wbindgen_export2, wasm.__wbindgen_export3);
         const len2 = WASM_VECTOR_LEN;
-        const ptr3 = passStringToWasm0(endpoint_json, wasm.__wbindgen_export, wasm.__wbindgen_export2);
+        const ptr3 = passStringToWasm0(endpoint_json, wasm.__wbindgen_export2, wasm.__wbindgen_export3);
         const len3 = WASM_VECTOR_LEN;
-        const ptr4 = passStringToWasm0(edit_json, wasm.__wbindgen_export, wasm.__wbindgen_export2);
+        const ptr4 = passStringToWasm0(edit_json, wasm.__wbindgen_export2, wasm.__wbindgen_export3);
         const len4 = WASM_VECTOR_LEN;
         wasm.reverse_project_edit(retptr, ptr0, len0, ptr1, len1, ptr2, len2, ptr3, len3, ptr4, len4);
         var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
@@ -210,7 +240,7 @@ export function reverse_project_edit(entry, sources_json, input_json, endpoint_j
         return getStringFromWasm0(r0, r1);
     } finally {
         wasm.__wbindgen_add_to_stack_pointer(16);
-        wasm.__wbindgen_export3(deferred6_0, deferred6_1, 1);
+        wasm.__wbindgen_export4(deferred6_0, deferred6_1, 1);
     }
 }
 
@@ -227,7 +257,7 @@ export function structure(source) {
     let deferred2_1;
     try {
         const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
-        const ptr0 = passStringToWasm0(source, wasm.__wbindgen_export, wasm.__wbindgen_export2);
+        const ptr0 = passStringToWasm0(source, wasm.__wbindgen_export2, wasm.__wbindgen_export3);
         const len0 = WASM_VECTOR_LEN;
         wasm.structure(retptr, ptr0, len0);
         var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
@@ -237,17 +267,43 @@ export function structure(source) {
         return getStringFromWasm0(r0, r1);
     } finally {
         wasm.__wbindgen_add_to_stack_pointer(16);
-        wasm.__wbindgen_export3(deferred2_0, deferred2_1, 1);
+        wasm.__wbindgen_export4(deferred2_0, deferred2_1, 1);
     }
 }
 function __wbg_get_imports() {
     const import0 = {
         __proto__: null,
+        __wbg_getRandomValues_ceb34d8ffce7e87f: function() { return handleError(function (arg0, arg1) {
+            globalThis.crypto.getRandomValues(getArrayU8FromWasm0(arg0, arg1));
+        }, arguments); },
+        __wbindgen_object_drop_ref: function(arg0) {
+            takeObject(arg0);
+        },
     };
     return {
         __proto__: null,
         "./hick_lang_bg.js": import0,
     };
+}
+
+function addHeapObject(obj) {
+    if (heap_next === heap.length) heap.push(heap.length + 1);
+    const idx = heap_next;
+    heap_next = heap[idx];
+
+    heap[idx] = obj;
+    return idx;
+}
+
+function dropObject(idx) {
+    if (idx < 1028) return;
+    heap[idx] = heap_next;
+    heap_next = idx;
+}
+
+function getArrayU8FromWasm0(ptr, len) {
+    ptr = ptr >>> 0;
+    return getUint8ArrayMemory0().subarray(ptr / 1, ptr / 1 + len);
 }
 
 let cachedDataViewMemory0 = null;
@@ -269,6 +325,21 @@ function getUint8ArrayMemory0() {
     }
     return cachedUint8ArrayMemory0;
 }
+
+function getObject(idx) { return heap[idx]; }
+
+function handleError(f, args) {
+    try {
+        return f.apply(this, args);
+    } catch (e) {
+        wasm.__wbindgen_export(addHeapObject(e));
+    }
+}
+
+let heap = new Array(1024).fill(undefined);
+heap.push(undefined, null, true, false);
+
+let heap_next = heap.length;
 
 function passStringToWasm0(arg, malloc, realloc) {
     if (realloc === undefined) {
@@ -305,6 +376,12 @@ function passStringToWasm0(arg, malloc, realloc) {
 
     WASM_VECTOR_LEN = offset;
     return ptr;
+}
+
+function takeObject(idx) {
+    const ret = getObject(idx);
+    dropObject(idx);
+    return ret;
 }
 
 let cachedTextDecoder = new TextDecoder('utf-8', { ignoreBOM: true, fatal: true });

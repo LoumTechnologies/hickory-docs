@@ -107,3 +107,14 @@ This implementation session has not supplied a native/provider recording or a
 matching deployed-build witness. Broad regression and post-commit monitoring
 belong to the operator: use just checks-status and
 [GitHub Actions](https://github.com/LoumTechnologies/hickory-docs/actions).
+
+## Optional browser practice footage
+
+The input-changing branch of the existing browser coach now executes through the
+same Rust prediction ledger compiled to WASM. Record input/prediction/seal/source
+identity, actual requirement comparisons, retained failure and recorded correction
+with the original expectation. Also show the changed-expectation block and
+Unknown/promotion boundary. The browser has no provider calls; it is not substitute
+native/provider footage. Label test-driver predictions/review and human inspection
+separately. Keep private raw journals and inspection windows out of predictor
+context and unreviewed public assets. The browser guarantee records exact scope.

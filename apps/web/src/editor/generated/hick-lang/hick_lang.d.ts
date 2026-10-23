@@ -2,6 +2,14 @@
 /* eslint-disable */
 
 /**
+ * Private browser-host transition. Actor and actual result arguments must be
+ * supplied by trusted adapters, never forwarded from model invocation fields.
+ * Storage is user-controlled, not a native private directory or authenticated
+ * evidence store. Snapshot persistence must succeed before admitted dispatch.
+ */
+export function browser_prediction(snapshot: string, command: string): string;
+
+/**
  * Pure complete-project evaluation. Input/output entries are byte arrays,
  * preserving binary assets and metadata; no browser filesystem is consulted.
  */
@@ -44,6 +52,7 @@ export type InitInput = RequestInfo | URL | Response | BufferSource | WebAssembl
 
 export interface InitOutput {
     readonly memory: WebAssembly.Memory;
+    readonly browser_prediction: (a: number, b: number, c: number, d: number, e: number) => void;
     readonly evaluate_project: (a: number, b: number, c: number, d: number, e: number, f: number, g: number) => void;
     readonly latest_debug_project: (a: number, b: number, c: number, d: number, e: number, f: number, g: number) => void;
     readonly literal_files: (a: number, b: number, c: number) => void;
@@ -52,10 +61,11 @@ export interface InitOutput {
     readonly regenerate_project_patch: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number, j: number, k: number) => void;
     readonly reverse_project_edit: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number, j: number, k: number) => void;
     readonly structure: (a: number, b: number, c: number) => void;
+    readonly __wbindgen_export: (a: number) => void;
     readonly __wbindgen_add_to_stack_pointer: (a: number) => number;
-    readonly __wbindgen_export: (a: number, b: number) => number;
-    readonly __wbindgen_export2: (a: number, b: number, c: number, d: number) => number;
-    readonly __wbindgen_export3: (a: number, b: number, c: number) => void;
+    readonly __wbindgen_export2: (a: number, b: number) => number;
+    readonly __wbindgen_export3: (a: number, b: number, c: number, d: number) => number;
+    readonly __wbindgen_export4: (a: number, b: number, c: number) => void;
 }
 
 export type SyncInitInput = BufferSource | WebAssembly.Module;

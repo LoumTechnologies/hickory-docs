@@ -3235,7 +3235,10 @@ dependencies = [
 name = "hick-lang-wasm"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
  "hick-lang",
+ "hick-observe",
+ "serde",
  "serde_json",
  "wasm-bindgen",
 ]

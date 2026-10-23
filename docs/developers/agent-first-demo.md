@@ -49,3 +49,30 @@ the normal UI. Test-driver acceptance is labelled; it is not human judgment.
 Retained sessions and browser footage are private diagnostics, not automatically
 selected publication assets. Without `--live-provider`, the script uses scripted
 model responses. Neither mode is a packaged desktop-shell or deployed witness.
+
+## Try your own browser inputs
+
+In the browser tour, choose **Try input-changing prediction practice**. It replaces
+the other demos with the same coach's prediction branch. A direct development
+entry is `site.html?predictionPractice=1`; a deployed URL is acceptance evidence
+only after its build revision is verified.
+
+Change the whole-millisecond durations/budget, inspect source, enter a prediction
+and rationale, Seal, then Run. A real interpreter checks the requirement plus
+short/empty cases. Continue from a retained counterexample to the recorded
+correction; seal the unchanged original prediction and run again. Replacing the
+prediction cannot advance the correction. Proposals/corrections remain recorded
+examples; execution is live, with no provider or API key involved.
+
+Answers stay out of this managed agent window. Human inspection opens separately;
+it does not authorize copying actuals back into predictor context. Valid question
+inputs restore after reload, while predictions/rationales must be re-entered.
+Select a scenario with a seal before recovering interrupted attempts. Recovery
+requires an exclusive runtime lease, preserves interruption/Unknown history and
+never replays a request. Closing the coach does not reopen ordinary agent controls.
+
+This browser-local history cannot authenticate prior exposure or the entire
+runtime environment. It remains Unknown and cannot certify a native run or grant
+promotion. Use fresh native private practice for retained debugger/future-stop
+predictions and authoritative host checks. Browser internals, extensions, devtools
+and unrestricted external clients are outside the typed broker boundary.

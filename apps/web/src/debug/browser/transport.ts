@@ -124,3 +124,10 @@ export function createBrowserDebugger(options: BrowserDebuggerOptions) {
     dispose() { if (runtime?.status === "running") options.onRuntime?.({ ...runtime, status: "cancelled" }); disposed = true; terminate(); session = null; if (runnerUrl) URL.revokeObjectURL(runnerUrl); runnerUrl = null; runnerBytes = null; dataRunner = null; },
   };
 }
+
+/** Actual worker asset bytes only; development imports/browser platform are not a complete environment closure. */
+export async function browserRuntimeAssetHash(): Promise<string> {
+  const response = await fetch(workerAsset);
+  if (!response.ok) throw Error("Browser runtime identity unavailable");
+  return [...new Uint8Array(await crypto.subtle.digest("SHA-256", await response.arrayBuffer()))].map(byte => byte.toString(16).padStart(2, "0")).join("");
+}

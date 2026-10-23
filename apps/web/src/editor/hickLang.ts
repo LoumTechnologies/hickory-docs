@@ -14,7 +14,7 @@
 // points await `loadHickLang()` once before the first render, and the tests
 // load the bytes from disk in `test-setup.ts`.
 
-import init, { initSync, structure as wasmStructure, literal_files, evaluate_project, latest_debug_project, project_position, project_transition, regenerate_project_patch, reverse_project_edit } from "./generated/hick-lang/hick_lang.js";
+import init, { browser_prediction, initSync, structure as wasmStructure, literal_files, evaluate_project, latest_debug_project, project_position, project_transition, regenerate_project_patch, reverse_project_edit } from "./generated/hick-lang/hick_lang.js";
 import wasmUrl from "./generated/hick-lang/hick_lang_bg.wasm?url";
 
 /** `hick_lang::StructureTag` — byte offsets into the UTF-8 source. */
@@ -151,4 +151,17 @@ export function latestDebugProject(versions: ProjectEntry[][], displayed: Projec
   if (result.version !== 1 || result.error) throw new Error(result.error ?? "Unsupported project interface");
   const [index, target] = result.selection as [number, string];
   return { project: versions[index], path: target, latest: index === versions.length - 1 };
+}
+
+/** Private browser-host ledger transition; raw snapshots must never be UI readings. */
+export function browserPredictionTransition(snapshot: string, command: unknown): { snapshot: string | null; value: unknown; error: string | null } {
+  if (!ready) throw Error("Load the shared prediction mechanism before use");
+  return JSON.parse(browser_prediction(snapshot, JSON.stringify(command)));
+}
+
+/** Exact shipped parser/ledger WASM artifact, not a complete browser environment identity. */
+export async function hickLangArtifactHash(): Promise<string> {
+  const response = await fetch(wasmUrl);
+  if (!response.ok) throw Error("Browser mechanism identity unavailable");
+  return [...new Uint8Array(await crypto.subtle.digest("SHA-256", await response.arrayBuffer()))].map(byte => byte.toString(16).padStart(2, "0")).join("");
 }

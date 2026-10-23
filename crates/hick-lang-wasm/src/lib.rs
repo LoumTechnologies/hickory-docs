@@ -13,7 +13,9 @@
 //! this is the parser, not a runtime.
 
 use wasm_bindgen::prelude::*;
+mod prediction;
 mod project;
+pub use prediction::browser_prediction;
 pub use project::{
     latest_debug_project, project_position, project_transition, regenerate_project_patch,
     reverse_project_edit,

@@ -955,3 +955,11 @@ engineering work, not excused by the provider blocker.
 Long-source repair dependencies (SHA-256):
 - `apps/web/src/components/privatePredictionCoach.css`: `ccc41cb0c221e8aa97de05f1d10e1852bdce79da6e373cb777f28df5ed53af79`.
 - `apps/web/e2e/privateCoachLayout.spec.ts`: `d32591b134285c0ef7ac07b97cc677f6b671e7b67340f4aef974d5c07eb8b01d`.
+
+## Browser adapter continuation — October 22
+
+The native filesystem transaction remains the default. The bounded portable
+backend and WASM browser host now reuse its gate methods; their explicit Unknown
+policy, confinement, human inspection and focused evidence are specified in
+[browser-predictions-use-the-shared-gate.md](browser-predictions-use-the-shared-gate.md).
+Raw portable snapshots are host-private; native file ledgers refuse raw export.
