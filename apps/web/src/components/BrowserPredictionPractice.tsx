@@ -2,7 +2,7 @@ import "./privatePredictionCoach.css";
 import { useEffect, useRef, useState } from "react";
 import { useUiCommands, useUiRevision } from "../lib/uiActionBridge";
 import { useUiReading } from "../lib/uiReading";
-import type { UiActor, UiCommand, UiOutcome } from "../lib/uiActions";
+import type { UiCommand, UiOutcome } from "../lib/uiActions";
 import { browserPredictionHistory, browserPredictionSource, inspectBrowserPrediction, parseBrowserInputs, promoteBrowserPrediction, recoverBrowserPrediction, runBrowserPrediction, savedBrowserPredictionInputs, sealBrowserPrediction, type BrowserSeal, type BrowserSummary } from "../tour/browserPrediction";
 
 function PracticeSource({ source }: { source: string }) { useUiReading("browser prediction source", { source, edit_baseline: false }, undefined, "browser-prediction"); return <pre style={{ maxWidth: "100%", overflow: "auto" }}>{source}</pre>; }
@@ -114,7 +114,7 @@ export function BrowserPredictionPractice({ corrected, onResult, onInvalidate }:
         if (!report) return { status: "requires_input", request: "browser-prediction-popup", reason: "Allow a separate human inspection window, then request inspection again" };
         report.opener = null;
         try {
-          const selected = await inspectBrowserPrediction(sealed, history.at(-1)!.attempt, actor);
+          const selected = await inspectBrowserPrediction(history.at(-1)!.attempt, actor);
           if (!mounted.current || capturedEpoch !== epoch.current || !current()) { report.close(); return { status: "unavailable", reason: "Inspection owner changed; no values were delivered" }; }
           report.document.title = "Human-only browser prediction inspection";
           report.document.body.textContent = "Human-only inspection. Do not copy these held-out actuals into predictor context. Browser-local history is not authenticated host evidence.\n\n" + JSON.stringify(selected, null, 2);

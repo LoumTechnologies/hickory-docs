@@ -110,7 +110,7 @@ export async function promoteBrowserPrediction(seal: BrowserSeal, attempt: strin
   try { await transition<BrowserSummary>({ operation: "promote", attempt, current: seal.identity, actor }); } catch { throw Error("Promotion blocked: browser-local prior exposure and full environment identity are Unknown; passing comparisons cannot grant host certification. Use a fresh native private practice for an authoritative check"); }
   throw Error("User-controlled browser history cannot grant host certification");
 }
-export async function inspectBrowserPrediction(seal: BrowserSeal, attempt: string, actor: UiActor) {
+export async function inspectBrowserPrediction(attempt: string, actor: UiActor) {
   if (actor.kind !== "human") throw Error("A human inspects private browser results in a separate window");
   return transition<{ actual: unknown; evidence: unknown }>({ operation: "reveal", attempt, actor });
 }

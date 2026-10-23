@@ -128,9 +128,9 @@ Dependencies (SHA-256; changes stale this review):
 - `apps/web/src/editor/generated/hick-lang/hick_lang.js`: `fbb83326740499ad0d15389faa655e261fb90728ba0c1476cc222b113834b573`.
 - `apps/web/src/editor/hickLang.ts`: `2921e22374ee79aa59db038f3e87d77156634b632650f16b43b7a7755f4293c7`.
 - `apps/web/src/debug/browser/transport.ts`: `5c3c0883c479cb16985826eca337aa313b8557437906d6d02cab1f8a10c4b2c2`.
-- `apps/web/src/tour/browserPrediction.ts`: `1c9f7a9f68675228d1327c1ec0fff2861766ef7962118dfcc03ac8a85ccb5e0b`.
+- `apps/web/src/tour/browserPrediction.ts`: `99ede00a7604cdcfeffdcd06081c04c9b88d9333b5e529c672364b3867964a33`.
 - `apps/web/src/tour/browserPrediction.test.ts`: `39e1af5efaf490de16b38e56fbe45f6d59a686428e7c7c2908e027f99cff89a5`.
-- `apps/web/src/components/BrowserPredictionPractice.tsx`: `c2df89243b2a92f8870c3cd463258236748d30fd5547eeb950181612f735e7f4`.
+- `apps/web/src/components/BrowserPredictionPractice.tsx`: `3b638868edfdbdbb40149ce0c5626c5cbe151f93a61004960297db4769f19c55`.
 - `apps/web/src/components/BrowserPredictionPractice.test.tsx`: `c233a6ce449d886e336c364e177b668002614fcc6a9af56e9e0a563aea924432`.
 - `apps/web/src/components/WorkflowTour.tsx`: `bcbfdf0e57d7f60afd0b032f1bb27482f7e17086c88e916a886cb749baa55b4d`.
 - `apps/web/src/views/LandingView.tsx`: `863ae5ff99fb129f66ba01271709e201a30b708e47af4405aa34f1dd28d5091c`.
@@ -143,3 +143,8 @@ Dependencies (SHA-256; changes stale this review):
 - `apps/web/src/embed/uiHostSession.ts`: `e7011b60d2e64b931391984bc7770fe0a1bc67f98b6cff5d52010c43ab8c9711`.
 - `apps/web/src/embed/StaticUiSurface.tsx`: `ad17f0f8466c792dafe7883d1670c960fb954255bf6f99e73d48ec97e20d3a31`.
 - `apps/web/src/debug/browser/runtime.ts`: `edf2e1041bb908e55a7efcb7138cdcefe6a06b706b543b1cf994a368d642c80c`.
+
+Package-build challenge: c522b1b0 compiled the native CLI, then its frontend
+production compilation rejected an unused type import and unused inspection
+parameter. Both declarations were removed without changing the inspection
+transition. That failed build produced no accepted current package.
