@@ -12,7 +12,7 @@ import tempfile
 ROOT = Path(__file__).resolve().parents[1]
 REVISION = "c2d64095"
 PACKAGE_HASH = "68c2041baacf7e04e6c659d698df8e2d06ef7a90fc374a3bce8e67cbf7614b63"
-PACKAGE = Path("/tmp/hickory-issue72-native-1806f045/dist/desktop/hickory-docs-0.1.0-issue72.c2d64095-x86_64-unknown-linux-gnu.deb")
+PACKAGE = ROOT / ".hick-cache/issue72-recording/hickory-docs-0.1.0-issue72.c2d64095-x86_64-unknown-linux-gnu.deb"
 
 
 def credential():
@@ -36,6 +36,8 @@ def credential():
 
 
 def prepare(package, output):
+    if not package.is_file():
+        raise SystemExit("Selected recording package is missing; restore the pinned local package before launching")
     if hashlib.sha256(package.read_bytes()).hexdigest() != PACKAGE_HASH:
         raise SystemExit("Package checksum differs from the selected build; nothing launched")
     python = ROOT / "apps/agent/.venv/bin/python"

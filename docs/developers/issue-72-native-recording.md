@@ -12,7 +12,9 @@ From the repository root:
 python3 scripts/prepare-issue72-recording.py --launch
 ```
 
-The helper verifies the exact selected .deb checksum, unpacks it without
+The selected package is retained under .hick-cache/issue72-recording in this
+checkout, so it survives clearing the temporary build directory.
+The helper verifies its exact .deb checksum, unpacks it without
 installation, and prints a new recording directory and request.txt path. It
 configures the existing Python worker/debugpy runtime and isolated app state.
 The exercise request is read from the package's pinned commit, rather than from
