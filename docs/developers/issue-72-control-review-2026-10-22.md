@@ -80,7 +80,7 @@ Exact reviewed files (SHA-256; a changed dependency stales this review):
 - `apps/web/src/views/RepresentationPane.tsx`: `3b874242d47a9c5d45dbd687637a21508026ab0e507d4ea41ae3879d32acda42`.
 - `apps/web/src/views/RepresentationTools.tsx`: `f897b7a737b38ac91f3af05350b0201a68eb73d69a34f3680f535af23d506f1d`.
 
-Declaration index SHA-256: `aceaa1fa6188302a460047c7ab01162ef67df73ea8b500ad629be2a9413d2474`.
+Declaration index SHA-256: `855d173e3c87b08aaa0de349270b8b850814e58f90459084b4bc63046e3a6d56`.
 
 The later native screenshot found a fixed-position child occluding coach chrome;
 static delegation/focus evidence had not established visual operability. Its CSS

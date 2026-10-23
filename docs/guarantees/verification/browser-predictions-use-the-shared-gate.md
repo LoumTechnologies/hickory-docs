@@ -148,3 +148,11 @@ Package-build challenge: c522b1b0 compiled the native CLI, then its frontend
 production compilation rejected an unused type import and unused inspection
 parameter. Both declarations were removed without changing the inspection
 transition. That failed build produced no accepted current package.
+
+Matching native evidence: the 530df638 local .deb built successfully and passed
+two owned-window setup/lifecycle witnesses, including minimize/restore, active
+close refusal, End and actual closure with the engine stopped. A source-pane
+screenshot and native scrollbar geometry confirm the scoped long-line containment
+repair. See the final matching-package section of the issue-72 handoff for exact
+artifact/evidence hashes. No provider/target execution or human judgment occurred;
+this is not a released/deployed or authentic-provider workflow witness.
