@@ -47,7 +47,6 @@ export function PrivatePredictionCoach({ initial }: { initial: PrivatePrediction
   const [provider, setProvider] = useState(""), [model, setModel] = useState("");
   const [promotion, setPromotion] = useState<{ source_hash: string; checked_at: string; scope: string; summary: unknown } | null>(null);
   const [prediction, setPrediction] = useState('{"kind":"equals","value":null}'), [rationale, setRationale] = useState("");
-  const [pendingForms, setPendingForms] = useState(0);
   const [ended, setEnded] = useState(false);
   const [busy, setBusy] = useState(false), [error, setError] = useState(""), [syncError, setSyncError] = useState("");
   const key = `hickory.privateCoach:${initial.document}`;
@@ -90,13 +89,28 @@ export function PrivatePredictionCoach({ initial }: { initial: PrivatePrediction
   const stage = pending ? "Review the proposed correction" : needsFuture ? "Predict before Continue" : repaired ? "Compare retained evidence" : failed ? "Delegate the correction" : "Delegate prediction and investigation";
   const target = pending ? "#private-review" : needsFuture ? '[data-private-coach="seal"]' : repaired ? '[data-private-coach="promote"]' : '[data-private-coach="delegate"]';
   useUiReading("private prediction session status", { state, running, stage, request: { prompt, provider, model, acp_agent: acpAgent }, attempts: attempts.length, error, syncError, promotion_at_request: promotion, current_certification: false });
-  const revision = useUiRevision(() => [state, agent?.run, prompt, provider, model, acpAgent, prediction, rationale, busy, open, pendingForms]);
+  const revision = useUiRevision(() => [state, agent?.run, prompt, provider, model, acpAgent, prediction, rationale, busy, open]);
   const promptRevision = useUiRevision(() => [initial.document, prompt, busy, running]);
   const acpRevision = useUiRevision(() => [initial.document, acpAgent, busy, running]);
   const providerRevision = useUiRevision(() => [initial.document, provider, busy, running]);
   const modelRevision = useUiRevision(() => [initial.document, model, busy, running]);
   const predictionRevision = useUiRevision(() => [initial.document, prediction, busy]);
   const rationaleRevision = useUiRevision(() => [initial.document, rationale, busy]);
+  const requestFields = [
+    ["prompt", "Edit private investigation request", 32768, promptRevision, setPrompt],
+    ["provider", "Choose private investigation provider", 128, providerRevision, setProvider],
+    ["acp", "Choose private ACP adapter", 128, acpRevision, setAcpAgent],
+    ["model", "Choose private investigation model", 1024, modelRevision, setModel],
+    ["prediction", "Edit private debugger predicate", 32768, predictionRevision, setPrediction],
+    ["rationale", "Edit private debugger rationale", 8192, rationaleRevision, setRationale],
+  ] as const;
+  const editRequest = (field: string, value: string): UiOutcome => {
+    const entry = requestFields.find(entry => entry[0] === field);
+    if (!entry || busy || (running && !["prediction", "rationale"].includes(field))) return { status: "unavailable", reason: "The current private form is unavailable" };
+    if (value.length > entry[2]) return { status: "unavailable", reason: "Draft exceeds the field bound" };
+    entry[4](value);
+    return { status: "completed", value: { draft_changed: true, execution_started: false } };
+  };
   const retainedCommand = async (name: string, args: unknown) => {
     setBusy(true); setError("");
     try {
@@ -132,21 +146,14 @@ export function PrivatePredictionCoach({ initial }: { initial: PrivatePrediction
     { key: "private:close-window", command: { label: "Close private practice window", parent: "private-window", subject: initial.document, parameters: {}, prerequisites: ["Human-owned lifecycle; End must finish before host close. Window closure is independent of an expired retired project router."],
       read: () => ({ revision: JSON.stringify([ended, busy, closing.current]), enabled: !busy && !closing.current }), execute: (_args, actor) => closePrivateWindow(actor) } },
     ...(ended ? [] : available([
-    ...([
-      ["prompt", "Edit private investigation request", 32768, promptRevision, setPrompt],
-      ["provider", "Choose private investigation provider", 128, providerRevision, setProvider],
-      ["acp", "Choose private ACP adapter", 128, acpRevision, setAcpAgent],
-      ["model", "Choose private investigation model", 1024, modelRevision, setModel],
-      ["prediction", "Edit private debugger predicate", 32768, predictionRevision, setPrediction],
-      ["rationale", "Edit private debugger rationale", 8192, rationaleRevision, setRationale],
-    ] as const).map(([field, label, maxLength, fieldRevision, setValue]) => ({ key: `private:${field}`, command: {
+    ...requestFields.map(([field, label, maxLength, fieldRevision]) => ({ key: `private:${field}`, command: {
       label, parent: "private-prediction", subject: `${initial.document}:${field}`,
       parameters: { value: { type: "string" as const, maxLength } }, prerequisites: [],
       read: () => ({ revision: fieldRevision(), enabled: !busy && (["prediction", "rationale"].includes(field) || !running) }),
-      execute: async (args: Record<string, import("../lib/uiActions").UiValue>) => { setValue(String(args.value)); return { status: "completed" as const, value: {} }; },
+      execute: async (args: Record<string, import("../lib/uiActions").UiValue>) => editRequest(field, String(args.value)),
     } })),
     { key: "private:start", command: { label: "Delegate private investigation", parent: "private-prediction", subject: initial.document, parameters: {}, prerequisites: ["Configured Python provider/runtime or explicit fresh-context ACP adapter; exact startup-bound private workspace"],
-      read: () => ({ revision: revision(), enabled: !busy && !pendingForms && !running && !!prompt.trim() && state.current === true }), execute: async (_args, actor) => {
+      read: () => ({ revision: revision(), enabled: !busy && !running && !!prompt.trim() && state.current === true }), execute: async (_args, actor) => {
         if (actor.kind === "agent") return { status: "requires_input", request: "private-investigation", reason: "A human starts the provider conversation; the active agent must not recursively delegate itself." };
         setBusy(true); setError("");
         try { const ui_window = await captureUiWindow(); const actual = await request<Agent>("POST", `${base}/agent`, { prompt, ...(ui_window ? { ui_window } : {}), ...(acpAgent ? { acp_agent: acpAgent } : {}), ...(provider ? { provider } : {}), ...(model ? { model } : {}) }); if (owner.current) setAgent(actual); return { status: "completed", value: { dispatched: true, verification: "not established" } }; }
@@ -162,7 +169,7 @@ export function PrivatePredictionCoach({ initial }: { initial: PrivatePrediction
         finally { if (owner.current) setBusy(false); }
       } } },
     { key: "private:stop", command: { label: "Stop private investigation", parent: "private-prediction", subject: initial.document, parameters: {}, prerequisites: [], read: () => ({ revision: revision(), enabled: !!running }), execute: async () => { await request("POST", `${base}/agent/stop`, {}); await refresh(); return { status: "completed", value: { stop_requested: true } }; } } },
-    { key: "private:seal-retained", command: { label: "Seal debugger prediction", parent: "private-prediction", subject: initial.document, parameters: {}, prerequisites: ["Trusted initial/future question, approved source and current configured runtime"], read: () => ({ revision: revision(), enabled: !!state.retained_plan && !busy && !pendingForms && !!rationale.trim() && ["not_started", "paused_needs_prediction", "expired"].includes(state.retained_debugger?.phase ?? "") }), execute: async () => {
+    { key: "private:seal-retained", command: { label: "Seal debugger prediction", parent: "private-prediction", subject: initial.document, parameters: {}, prerequisites: ["Trusted initial/future question, approved source and current configured runtime"], read: () => ({ revision: revision(), enabled: !!state.retained_plan && !busy && !!rationale.trim() && ["not_started", "paused_needs_prediction", "expired"].includes(state.retained_debugger?.phase ?? "") }), execute: async () => {
       let predicted: unknown; try { predicted = JSON.parse(prediction); } catch { return { status: "unavailable", reason: "Enter a supported predicate as JSON" }; }
       return retainedCommand("seal_debugger_prediction", { expected_source_hash: state.source_hash, predicted, rationale });
     } } },
@@ -177,10 +184,12 @@ export function PrivatePredictionCoach({ initial }: { initial: PrivatePrediction
     { key: "private:coach", command: { label: "Set private coach visibility", parent: "private-prediction", subject: initial.document, parameters: { open: { type: "boolean" } }, prerequisites: [], read: () => ({ revision: revision(), enabled: true }), execute: async args => { const visible = Boolean(args.open); setOpen(visible); localStorage.setItem(key, visible ? "open" : "dismissed"); return { status: "completed", value: {} }; } } },
   ])),
   ]);
-  const setRequest = (field: "prompt" | "provider" | "model" | "acp" | "prediction" | "rationale", value: string) => {
-    setPendingForms(count => count + 1);
-    void invoke(`private:${field}`, { value }).catch(reason => { if (owner.current) setError(String(reason)); })
-      .finally(() => { if (owner.current) setPendingForms(count => count - 1); });
+  // Reversible human draft edits must update synchronously. Agent commands use
+  // this same controller with intent/result receipts; Delegate/Seal remain the
+  // authoritative persisted boundaries before provider/runtime execution.
+  const setRequest = (field: string, value: string) => {
+    const result = editRequest(field, value);
+    if (result.status === "unavailable") setError(result.reason);
   };
   if (ended) return <main className="private-prediction-coach"><h1>Private practice ended</h1><p>The prediction history remains retained and this root remains private. Reopening the practice starts a fresh context and revalidates its approved source and runtime.</p>
     {error && <p role="alert">{error}</p>}
@@ -199,7 +208,7 @@ export function PrivatePredictionCoach({ initial }: { initial: PrivatePrediction
       <label className="private-prediction-request">ACP adapter (optional)<input maxLength={128} value={acpAgent} disabled={busy || running} onChange={event => setRequest("acp", event.target.value)} placeholder="Leave blank for confined Python" /></label></div>
       <p>ACP requires an installed adapter with explicit private arguments and HTTP MCP support. Clear Provider and Model when choosing ACP. Its fresh managed context has no client filesystem, terminal or ordinary history. External harness internals are outside this managed boundary.</p>
       <div className="private-prediction-controls">
-      <button data-private-coach="delegate" disabled={busy || !!pendingForms || running || !prompt.trim() || state.current !== true} onClick={() => void invoke("private:start")}>Delegate investigation</button>
+      <button data-private-coach="delegate" disabled={busy || running || !prompt.trim() || state.current !== true} onClick={() => void invoke("private:start")}>Delegate investigation</button>
       <button disabled={!running} onClick={() => void invoke("private:stop")}>Stop investigation</button>
       <button onClick={() => void invoke("private:coach", { open: true })}>Resume coach</button>
       <button disabled={busy || running} onClick={() => void invoke("private:end")}>End private practice</button></div>
@@ -212,7 +221,7 @@ export function PrivatePredictionCoach({ initial }: { initial: PrivatePrediction
       <div className="private-prediction-fields"><label>Debugger predicate JSON<textarea maxLength={32768} value={prediction} disabled={busy} onChange={event => setRequest("prediction", event.target.value)} /></label>
       <label>Debugger prediction rationale<textarea maxLength={8192} value={rationale} disabled={busy} onChange={event => setRequest("rationale", event.target.value)} /></label></div>
       <div className="private-prediction-controls">
-      <button data-private-coach="seal" disabled={busy || !!pendingForms || !rationale.trim() || !["not_started", "paused_needs_prediction", "expired"].includes(state.retained_debugger?.phase ?? "")} onClick={() => void invoke("private:seal-retained")}>Seal debugger prediction</button>
+      <button data-private-coach="seal" disabled={busy || !rationale.trim() || !["not_started", "paused_needs_prediction", "expired"].includes(state.retained_debugger?.phase ?? "")} onClick={() => void invoke("private:seal-retained")}>Seal debugger prediction</button>
       <button disabled={busy || state.retained_debugger?.phase !== "sealed"} onClick={() => void invoke("private:continue-retained")}>Launch or continue private debugger</button></div>
     </section>}
     <section id="private-review"><AgentChanges doc={`private:${initial.document}`} state={agent} running={!!running} update={value => setAgent(value as Agent)} submitDecision={async body => {

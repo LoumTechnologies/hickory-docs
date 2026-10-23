@@ -59,3 +59,17 @@ Dependencies (SHA-256; changes stale this review):
 - `crates/hickory-cli/src/serve/private_predictions.rs`: `deed7f7acbd7fe99c5026fc32f303052a6eee7dfe51e4c26c4501c5f97091860`.
 - `crates/hickory-cli/src/serve/private_prediction_tests.rs`: `ac1423a278a0ad2edfc8ac51461d59a1c3f973723ad1b6d86324ff62f97ad469`.
 - `scripts/test-private-prediction-ui.sh`: `93efb6879a9181afb9149cc28dd700220340b62a961d6023dfa39bf4a7c3ecec`.
+
+Native draft correction: an actual keyboard setup attempt exposed controlled
+inputs reverting while asynchronous per-keystroke receipts were pending. The
+rapid-typing challenge failed on the first character before the fix. Human draft
+edits now update synchronously through editRequest, the same controller invoked
+by registered agent commands. Agent intent/result receipts remain; Delegate and
+Seal retain the authoritative persisted execution boundaries. Typing alone cannot
+start a provider/runtime or approve a proposal. Ten focused component cases pass,
+including rapid typing, separate agent field intents, recursive-delegation refusal
+and ended-window closure. The first strict compile rejected an unsupported result
+status; it was corrected to the established unavailable result.
+- `apps/web/src/components/PrivatePredictionCoach.tsx`: `dc47ff382246a13a14e8e2b1ebaf25737da1fc88122e861a6dc98e6d9d85a54f`.
+- `apps/web/src/components/PrivatePredictionCoach.test.tsx`: `938fd463f0c4e17203eca8c62dc88a1da78e73213b799acb6bc367e9708345e3`.
+- `apps/web/e2e/privatePredictionCoach.spec.ts`: `635067a7c96b6a6c21b78d53a5b3b777a90b0bbf0d5ce242265e3794f0c8b502`.

@@ -47,7 +47,7 @@ it("rejects malformed host metadata before rendering source-reading controls", (
   expect(() => validatePrivatePredictionState({ ...initial, retained_debugger: { phase: "complete", actual_values: "withheld", last: { summary: { current_certification: false }, dispatched: true, actual: "unexpected" } } })).toThrow();
 });
 
-it("retains consecutive provider/model edits while their separate intents are persisted before Send", async () => {
+it("retains consecutive agent provider/model edits with separate persisted intents", async () => {
   responses();
   const waiting: (() => void)[] = [];
   const registry = new UiActions({ workspace: "private", window: "forms" }, () => true, receipt =>
@@ -55,11 +55,16 @@ it("retains consecutive provider/model edits while their separate intents are pe
       ? new Promise<void>(resolve => { waiting.push(resolve); }) : Promise.resolve());
   render(<UiActionContext.Provider value={registry}><PrivatePredictionCoach initial={initial} /></UiActionContext.Provider>);
   await screen.findByText("captured source only");
-  fireEvent.change(screen.getByRole("textbox", { name: "Provider" }), { target: { value: "openrouter" } });
-  fireEvent.change(screen.getByRole("textbox", { name: "Model" }), { target: { value: "anthropic/claude-sonnet-4.5" } });
+  const commands = registry.observe("private-prediction").actions;
+  const provider = commands.find(command => command.label === "Choose private investigation provider")!;
+  const model = commands.find(command => command.label === "Choose private investigation model")!;
+  let edits: Promise<unknown>[] = [];
+  await act(async () => { edits = [
+    registry.act(registry.scope, { id: "predictor", kind: "agent" }, { handle: provider.handle, arguments: { value: "openrouter" }, request_id: "provider" }),
+    registry.act(registry.scope, { id: "predictor", kind: "agent" }, { handle: model.handle, arguments: { value: "anthropic/claude-sonnet-4.5" }, request_id: "model" }),
+  ]; await Promise.resolve(); });
   await waitFor(() => expect(waiting).toHaveLength(2));
-  expect((screen.getByRole("button", { name: "Delegate investigation" }) as HTMLButtonElement).disabled).toBe(true);
-  await act(async () => { waiting.forEach(release => release()); });
+  await act(async () => { waiting.forEach(release => release()); await Promise.all(edits); });
   expect((screen.getByRole("textbox", { name: "Provider" }) as HTMLInputElement).value).toBe("openrouter");
   expect((screen.getByRole("textbox", { name: "Model" }) as HTMLInputElement).value).toBe("anthropic/claude-sonnet-4.5");
   fireEvent.click(screen.getByRole("button", { name: "Delegate investigation" }));
@@ -176,4 +181,27 @@ it("reports uncertain native closure without disclosing host errors or retrying 
   rendered.unmount();
   window.dispatchEvent(new Event("hickory-window-close-request"));
   expect(vi.mocked(request).mock.calls.filter(call => call[1] === "/api/window/close")).toHaveLength(1);
+});
+
+// Guarantee: docs/guarantees/verification/private-proposals-wait-for-review.md
+it("retains rapid human typing while draft-receipt persistence is delayed", async () => {
+  responses();
+  const release: (() => void)[] = [];
+  const registry = new UiActions({ workspace: "private", window: "typing" }, () => true, receipt =>
+    receipt.stage === "requested" && receipt.action.label === "Choose private investigation provider"
+      ? new Promise<void>(resolve => release.push(resolve)) : Promise.resolve());
+  render(<UiActionContext.Provider value={registry}><PrivatePredictionCoach initial={initial} /></UiActionContext.Provider>);
+  await screen.findByText("captured source only");
+  const provider = screen.getByRole("textbox", { name: "Provider" }) as HTMLInputElement;
+  let typed = "";
+  try {
+    for (const letter of "deepseek") {
+      typed += letter;
+      fireEvent.change(provider, { target: { value: provider.value + letter } });
+      expect(provider.value).toBe(typed);
+    }
+    expect(vi.mocked(request).mock.calls.some(call => call[0] === "POST" && call[1].endsWith("/agent"))).toBe(false);
+    fireEvent.click(screen.getByRole("button", { name: "Delegate investigation" }));
+    await waitFor(() => expect(vi.mocked(request).mock.calls.find(call => call[0] === "POST" && call[1].endsWith("/agent"))?.[2]).toMatchObject({ provider: "deepseek" }));
+  } finally { await act(async () => { release.forEach(done => done()); }); }
 });
