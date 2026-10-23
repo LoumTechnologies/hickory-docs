@@ -39,8 +39,7 @@ impl Connection {
             !self.ended.load(std::sync::atomic::Ordering::SeqCst),
             "Private session ended; open a new window for a fresh context"
         );
-        let endpoint = discover().await?;
-        let _ = attach(&self.http, &endpoint, &self.attach).await?;
+        let (endpoint, _) = discover_and_attach(&self.http, &self.attach).await?;
         *self.endpoint.write().await = endpoint;
         Ok(())
     }
@@ -121,12 +120,11 @@ impl Drop for ClientGuard {
 }
 
 pub async fn connect(attach_opts: Attach) -> Result<Connection> {
-    let endpoint = discover().await?;
     let http = reqwest::Client::builder()
         .no_proxy()
         .connect_timeout(std::time::Duration::from_secs(2))
         .build()?;
-    let attached = attach(&http, &endpoint, &attach_opts).await?;
+    let (endpoint, attached) = discover_and_attach(&http, &attach_opts).await?;
     Ok(Connection {
         endpoint: Arc::new(RwLock::new(endpoint)),
         ended: Arc::new(std::sync::atomic::AtomicBool::new(false)),
@@ -135,6 +133,27 @@ pub async fn connect(attach_opts: Attach) -> Result<Connection> {
         log_offset: attached.log_offset,
         http,
     })
+}
+
+async fn discover_and_attach(
+    http: &reqwest::Client,
+    opts: &Attach,
+) -> Result<(Endpoint, Attached)> {
+    let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(15);
+    loop {
+        let endpoint = discover().await?;
+        match attach(http, &endpoint, opts).await {
+            Ok(attached) => return Ok((endpoint, attached)),
+            Err(error)
+                if error.downcast_ref::<reqwest::Error>().is_some_and(|e| {
+                    e.status() == Some(reqwest::StatusCode::SERVICE_UNAVAILABLE) || e.is_connect()
+                }) && tokio::time::Instant::now() < deadline =>
+            {
+                tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+            }
+            Err(error) => return Err(error),
+        }
+    }
 }
 
 async fn attach(http: &reqwest::Client, endpoint: &Endpoint, opts: &Attach) -> Result<Attached> {
@@ -159,13 +178,27 @@ async fn attach(http: &reqwest::Client, endpoint: &Endpoint, opts: &Attach) -> R
             "This engine cannot enforce private prediction startup; close its clients and reopen with a supporting build. No ordinary attach fallback was attempted"
         );
     }
-    let response = http
+    let request = http
         .post(format!("{}/attach", endpoint.url))
         .bearer_auth(&endpoint.token)
         .json(opts)
-        .send()
-        .await?;
+        .send();
+    tokio::pin!(request);
+    // Foreground CLI preparation can take longer than a lease. Keep its
+    // ownership alive while attach waits, without blocking daemon cleanup.
+    let response = loop {
+        tokio::select! {
+            response = &mut request => break response?,
+            _ = tokio::time::sleep(HEARTBEAT) => {
+                let _ = http.post(format!("{}/clients/{}/lease", endpoint.url, opts.client))
+                    .bearer_auth(&endpoint.token).send().await;
+            }
+        }
+    };
     if !response.status().is_success() {
+        if response.status() == reqwest::StatusCode::SERVICE_UNAVAILABLE {
+            return Err(response.error_for_status().unwrap_err().into());
+        }
         bail!(
             "{}",
             response.json::<serde_json::Value>().await?["error"]
@@ -229,57 +262,7 @@ async fn discover() -> Result<Endpoint> {
     {
         return Ok(endpoint);
     }
-    let owner = std::fs::OpenOptions::new()
-        .create(true)
-        .truncate(false)
-        .write(true)
-        .open(dir.join("owner.lock"))?;
-    if owner.try_lock_exclusive().is_ok() {
-        // Stale discovery is replaceable; the lock file is never removed.
-        FileExt::unlock(&owner)?;
-        let log = std::fs::OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(dir.join("engine.log"))?;
-        let mut executable = std::env::current_exe()?;
-        if executable
-            .parent()
-            .and_then(|p| p.file_name())
-            .is_some_and(|n| n == "deps")
-        {
-            let dir = executable.parent().unwrap().parent().unwrap();
-            executable = ["hick", "hickory-desktop"]
-                .into_iter()
-                .map(|name| dir.join(format!("{name}{}", std::env::consts::EXE_SUFFIX)))
-                .find(|p| p.is_file())
-                .context("build the Hickory executable before running engine integration tests")?;
-        }
-        let mut command = std::process::Command::new(executable);
-        command
-            .arg("__engine")
-            .stdin(Stdio::null())
-            .stdout(Stdio::null())
-            .stderr(Stdio::from(log));
-        #[cfg(unix)]
-        {
-            use std::os::unix::process::CommandExt;
-            // Survives its launching window, including a terminal's Ctrl+C.
-            command.process_group(0);
-        }
-        #[cfg(windows)]
-        {
-            use std::os::windows::process::CommandExt;
-            command.creation_flags(0x08000000 | 0x00000200); // NO_WINDOW | NEW_PROCESS_GROUP
-        }
-        let child = command
-            .spawn()
-            .context("starting the local Hickory engine")?;
-        std::thread::spawn(move || {
-            let mut child = child;
-            let _ = child.wait();
-        });
-    }
-    drop(owner);
+    let mut launched = false;
     let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(15);
     loop {
         if let Ok(bytes) = std::fs::read(dir.join("endpoint.json"))
@@ -289,6 +272,18 @@ async fn discover() -> Result<Endpoint> {
             drop(startup);
             return Ok(endpoint);
         }
+        if !launched {
+            let owner = std::fs::OpenOptions::new()
+                .create(true)
+                .truncate(false)
+                .write(true)
+                .open(dir.join("owner.lock"))?;
+            if owner.try_lock_exclusive().is_ok() {
+                FileExt::unlock(&owner)?;
+                spawn_engine(&dir)?;
+                launched = true;
+            }
+        }
         ensure!(
             tokio::time::Instant::now() < deadline,
             "The local Hickory engine did not become ready. Its diagnostic log is {}. Reopen Hickory after resolving the error in that log.",
@@ -296,6 +291,51 @@ async fn discover() -> Result<Endpoint> {
         );
         tokio::time::sleep(std::time::Duration::from_millis(50)).await;
     }
+}
+
+fn spawn_engine(dir: &std::path::Path) -> Result<()> {
+    let log = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(dir.join("engine.log"))?;
+    let mut executable = std::env::current_exe()?;
+    if executable
+        .parent()
+        .and_then(|p| p.file_name())
+        .is_some_and(|n| n == "deps")
+    {
+        let dir = executable.parent().unwrap().parent().unwrap();
+        executable = ["hick", "hickory-desktop"]
+            .into_iter()
+            .map(|name| dir.join(format!("{name}{}", std::env::consts::EXE_SUFFIX)))
+            .find(|p| p.is_file())
+            .context("build the Hickory executable before running engine integration tests")?;
+    }
+    let mut command = std::process::Command::new(executable);
+    command
+        .arg("__engine")
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::from(log));
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::CommandExt;
+        // Survives its launching window, including a terminal's Ctrl+C.
+        command.process_group(0);
+    }
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        command.creation_flags(0x08000000 | 0x00000200); // NO_WINDOW | NEW_PROCESS_GROUP
+    }
+    let child = command
+        .spawn()
+        .context("starting the local Hickory engine")?;
+    std::thread::spawn(move || {
+        let mut child = child;
+        let _ = child.wait();
+    });
+    Ok(())
 }
 
 /// A context path without private snapshot isolation cannot start or continue
@@ -417,8 +457,9 @@ pub async fn forward_cli(args: &[String]) -> Result<Option<i32>> {
     {
         return Ok(None);
     }
-    let endpoint = discover().await?;
+    let client = super::secret();
     let opts = super::daemon::CommandRequest {
+        client: client.clone(),
         executable: std::env::current_exe()?,
         args: args.to_vec(),
         cwd: std::env::current_dir()?,
@@ -432,18 +473,69 @@ pub async fn forward_cli(args: &[String]) -> Result<Option<i32>> {
             input
         },
     };
-    let response = reqwest::Client::builder()
-        .no_proxy()
-        .build()?
-        .post(format!("{}/command", endpoint.url))
-        .bearer_auth(endpoint.token)
-        .json(&opts)
-        .send()
-        .await?;
-    if !response.status().is_success() {
-        bail!("{}", response.text().await?);
+    let http = reqwest::Client::builder().no_proxy().build()?;
+    let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(15);
+    let (endpoint, lease_url) = loop {
+        let endpoint = discover().await?;
+        let lease_url = format!("{}/commands/{client}/lease", endpoint.url);
+        let lease = http
+            .post(&lease_url)
+            .bearer_auth(&endpoint.token)
+            .send()
+            .await
+            .and_then(reqwest::Response::error_for_status);
+        match lease {
+            Ok(_) => break (endpoint, lease_url),
+            Err(error)
+                if (error.status() == Some(reqwest::StatusCode::SERVICE_UNAVAILABLE)
+                    || error.is_connect())
+                    && tokio::time::Instant::now() < deadline =>
+            {
+                tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+            }
+            Err(error) => return Err(error.into()),
+        }
+    };
+    let heartbeat = {
+        let http = http.clone();
+        let url = lease_url.clone();
+        let token = endpoint.token.clone();
+        tokio::spawn(async move {
+            loop {
+                tokio::time::sleep(HEARTBEAT).await;
+                if !http
+                    .post(&url)
+                    .bearer_auth(&token)
+                    .send()
+                    .await
+                    .is_ok_and(|r| r.status().is_success())
+                {
+                    break;
+                }
+            }
+        })
+    };
+    let result: Result<super::daemon::CommandResult> = async {
+        let response = http
+            .post(format!("{}/command", endpoint.url))
+            .bearer_auth(&endpoint.token)
+            .json(&opts)
+            .send()
+            .await?;
+        if !response.status().is_success() {
+            bail!("{}", response.text().await?);
+        }
+        Ok(response.json().await?)
     }
-    let result: super::daemon::CommandResult = response.json().await?;
+    .await;
+    heartbeat.abort();
+    let _ = http
+        .delete(&lease_url)
+        .bearer_auth(&endpoint.token)
+        .timeout(HEARTBEAT)
+        .send()
+        .await;
+    let result = result?;
     print!("{}", result.stdout);
     eprint!("{}", result.stderr);
     Ok(Some(result.code))

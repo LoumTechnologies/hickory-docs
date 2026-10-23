@@ -15,9 +15,10 @@ use std::{
     path::PathBuf,
     sync::Arc,
 };
-use tokio::sync::{Mutex, mpsc, oneshot};
+use tokio::sync::{Mutex, mpsc};
 
 pub struct Coordinator {
+    task: tokio::task::JoinHandle<()>,
     add: mpsc::UnboundedSender<Registration>,
     pub woven: Arc<Mutex<WovenState>>,
     events: mpsc::UnboundedSender<PathBuf>,
@@ -25,7 +26,6 @@ pub struct Coordinator {
 struct Registration {
     state: LocalState,
     attach: Attach,
-    ready: oneshot::Sender<Result<()>>,
     completed: tokio::sync::watch::Sender<Option<Result<(), String>>>,
 }
 struct View {
@@ -56,7 +56,7 @@ impl Coordinator {
         let (commands, mut command_rx) = mpsc::unbounded_channel();
         let woven = Arc::new(Mutex::new(WovenState::default()));
         let history = woven.clone();
-        tokio::spawn(async move {
+        let task = tokio::spawn(async move {
             let mut views: HashMap<PathBuf, View> = HashMap::new();
             let mut watched: Vec<PathBuf> = Vec::new();
             let mut marks = HashMap::new();
@@ -66,8 +66,8 @@ impl Coordinator {
                         let _write = writes.lock().await;
                         let mut woven = history.lock().await;
                         let root = reg.state.index.root().to_path_buf();
-                        // Register the watcher and validate configuration before
-                        // acknowledging attachment, while holding the write gate.
+                        // Watch registration is part of startup readiness, not
+                        // client ownership: a queued attach must remain leasable.
                         let setup = (|| -> Result<_> {
                             if !watched.iter().any(|p| root.starts_with(p)) {
                                 watcher.watch(&root, RecursiveMode::Recursive).map_err(crate::up::watch_error)
@@ -82,11 +82,10 @@ impl Coordinator {
                         let inbox = match setup {
                             Ok(inbox) => inbox,
                             Err(error) => {
-                                let _ = reg.ready.send(Err(error));
+                                let _ = reg.completed.send(Some(Err(format!("{error:#}"))));
                                 continue;
                             }
                         };
-                        let _ = reg.ready.send(Ok(()));
                         let result: Result<()> = async {
                             crate::up::drain_inbox(&root, &inbox);
                             let config = UpConfig { root: reg.attach.target.clone(), params: reg.attach.params,
@@ -171,7 +170,19 @@ impl Coordinator {
             }
             history.lock().await.release_read_only();
         });
-        Ok(Self { add, woven, events })
+        Ok(Self {
+            task,
+            add,
+            woven,
+            events,
+        })
+    }
+
+    pub async fn shutdown(&self) {
+        // Preparation or a running cell may hold woven across an await.
+        // Cancel its owner before waiting to release generated-file protection.
+        self.task.abort();
+        self.woven.lock().await.release_read_only();
     }
 
     pub fn refresh(&self, docs: Vec<PathBuf>) {
@@ -181,21 +192,14 @@ impl Coordinator {
     }
 
     pub async fn register(&self, state: LocalState, attach: Attach) -> Result<Startup> {
-        let (ready, rx) = oneshot::channel();
         let (completed, startup) = Startup::channel();
-        let background = attach.background;
         self.add
             .send(Registration {
                 state,
                 attach,
-                ready,
                 completed,
             })
             .map_err(|_| anyhow::anyhow!("engine watcher stopped"))?;
-        rx.await??;
-        if !background {
-            startup.wait().await?;
-        }
         Ok(startup)
     }
 }

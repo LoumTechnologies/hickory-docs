@@ -18,7 +18,7 @@ use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
 // A protocol version, not a release version: compatible releases may attach.
-const PROTOCOL: u32 = 1;
+const PROTOCOL: u32 = 2;
 const PREDICTION_PROTOCOL: &str = "private_prediction_v1";
 pub(crate) const WORKER: &str = "HICKORY_ENGINE_WORKER";
 const HEARTBEAT: std::time::Duration = std::time::Duration::from_secs(2);

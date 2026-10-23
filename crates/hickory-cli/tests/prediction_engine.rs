@@ -674,7 +674,9 @@ async fn every_engine_client_inherits_private_policy_and_mcp_and_command_paths_c
     );
     assert!(denied.stdout.is_empty());
     let normal = tempfile::tempdir().unwrap();
-    assert!(client.post(format!("{url}/command")).bearer_auth(auth).json(&json!({"executable":"/bin/sh","args":["-c","true"],"cwd":normal.path(),"env":[],"input":[]})).send().await.unwrap().status().is_success());
+    assert!(client.post(format!("{url}/commands/ordinary-cli/lease")).bearer_auth(auth).send().await.unwrap().status().is_success());
+    assert!(client.post(format!("{url}/command")).bearer_auth(auth).json(&json!({"client":"ordinary-cli","executable":"/bin/sh","args":["-c","true"],"cwd":normal.path(),"env":[],"input":[]})).send().await.unwrap().status().is_success());
+    assert!(client.delete(format!("{url}/commands/ordinary-cli/lease")).bearer_auth(auth).send().await.unwrap().status().is_success());
     assert!(
         client
             .get(format!("{url}/clients/restored-private/api/files"))

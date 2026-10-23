@@ -287,9 +287,4 @@ impl Bound {
     pub(crate) async fn shutdown_retained(&self) {
         self.retained.lock().await.reset().await;
     }
-    pub(crate) fn investigation_busy(&self) -> bool {
-        self.agent.try_lock().map_or(true, |run| {
-            super::private_prediction_agent::running(run.as_ref())
-        })
-    }
 }

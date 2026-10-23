@@ -14,7 +14,7 @@ use axum::{
 use fs2::FileExt;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
-use std::{collections::HashMap, path::PathBuf, sync::Arc, time::Instant};
+use std::{collections::HashMap, future::IntoFuture, path::PathBuf, sync::Arc, time::Instant};
 use tokio::sync::Mutex;
 use tower::ServiceExt;
 
@@ -48,6 +48,9 @@ struct Engine {
     mcp: Mutex<HashMap<String, crate::mcp::Server>>,
     locks: Mutex<HashMap<PathBuf, crate::up::DirectoryLock>>,
     ended_clients: Mutex<std::collections::HashSet<String>>,
+    stopping: std::sync::atomic::AtomicBool,
+    ever_owned: std::sync::atomic::AtomicBool,
+    command_clients: Mutex<HashMap<String, Instant>>,
 }
 
 pub fn run_argv(args: &[String]) -> Option<Result<()>> {
@@ -97,6 +100,9 @@ async fn run() -> Result<()> {
         mcp: Mutex::new(HashMap::new()),
         locks: Mutex::new(HashMap::new()),
         ended_clients: Mutex::new(Default::default()),
+        stopping: false.into(),
+        ever_owned: false.into(),
+        command_clients: Mutex::new(HashMap::new()),
     });
     let router = Router::new()
         .route(
@@ -109,6 +115,10 @@ async fn run() -> Result<()> {
         .route("/private/end", post(end_private))
         .route("/attach", post(attach))
         .route("/command", post(command))
+        .route(
+            "/commands/{id}/lease",
+            post(command_lease).delete(command_detach),
+        )
         .route("/tool", post(tool))
         .layer(axum::extract::DefaultBodyLimit::max(64 * 1024 * 1024))
         .route("/clients/{id}/lease", post(lease).delete(detach))
@@ -137,12 +147,17 @@ async fn run() -> Result<()> {
             std::fs::Permissions::from_mode(0o600),
         )?;
     }
-    let (stop, stopped) = tokio::sync::oneshot::channel();
+    let (stop, mut stopped) = tokio::sync::watch::channel(false);
+    let mut drain = stopped.clone();
     let cleanup = engine.clone();
     tokio::spawn(async move {
-        let mut idle_since = Instant::now();
+        // Allow the launching client to attach, but never give a departed
+        // client another full lease of daemon lifetime.
+        let started = Instant::now();
         loop {
             tokio::time::sleep(super::HEARTBEAT).await;
+            // Serialize the shutdown decision with new attaches and CLI jobs.
+            let _attaching = cleanup.attaching.lock().await;
             let mut clients = cleanup.clients.lock().await;
             clients.retain(|_, c| c.seen.elapsed() < LEASE);
             cleanup
@@ -150,48 +165,46 @@ async fn run() -> Result<()> {
                 .write()
                 .unwrap()
                 .retain(|id, _| clients.contains_key(id));
-            let busy = cleanup.workers.load(std::sync::atomic::Ordering::SeqCst) > 0
-                || cleanup.workspaces.lock().await.values().any(|state| {
-                    state
-                        .private_prediction
-                        .as_ref()
-                        .is_some_and(|bound| bound.investigation_busy())
-                        || state
-                            .runs
-                            .lock()
-                            .unwrap()
-                            .values()
-                            .any(|r| r.status == "running")
-                        || state
-                            .terminals
-                            .summaries()
-                            .iter()
-                            .any(|t| t.exit_code.is_none())
-                });
-            if clients.is_empty() && !busy {
-                if idle_since.elapsed() > LEASE {
-                    let _ = stop.send(());
-                    break;
-                }
-            } else {
-                idle_since = Instant::now();
+            let mut commands = cleanup.command_clients.lock().await;
+            commands.retain(|_, seen| seen.elapsed() < LEASE);
+            let owned = !clients.is_empty() || !commands.is_empty();
+            if !owned
+                && (cleanup.ever_owned.load(std::sync::atomic::Ordering::SeqCst)
+                    || started.elapsed() >= LEASE)
+            {
+                cleanup
+                    .stopping
+                    .store(true, std::sync::atomic::Ordering::SeqCst);
+                let _ = stop.send(true);
+                break;
             }
         }
     });
-    axum::serve(
+    let server = axum::serve(
         listener,
         router.into_make_service_with_connect_info::<std::net::SocketAddr>(),
     )
-    .with_graceful_shutdown(async {
-        let _ = stopped.await;
+    .with_graceful_shutdown(async move {
+        let _ = stopped.changed().await;
     })
-    .await?;
+    .into_future();
+    // An abandoned HTTP request must not keep the daemon alive indefinitely.
+    tokio::select! {
+        result = server => { result?; }
+        _ = async {
+            let _ = drain.changed().await;
+            tokio::time::sleep(super::HEARTBEAT).await;
+        } => {}
+    }
     for state in engine.workspaces.lock().await.values() {
+        for terminal in state.terminals.summaries() {
+            let _ = state.terminals.close(&terminal.id);
+        }
         if let Some(bound) = &state.private_prediction {
             bound.shutdown_retained().await;
         }
     }
-    engine.watch.woven.lock().await.release_read_only();
+    engine.watch.shutdown().await;
     // Keep owner.lock's inode: only the kernel decides when ownership ends.
     let _ = std::fs::remove_file(dir.join("endpoint.json"));
     Ok(())
@@ -230,6 +243,12 @@ async fn attach(
     Json(mut opts): Json<Attach>,
 ) -> Api<Json<Attached>> {
     let _attach = engine.attaching.lock().await;
+    if engine.stopping.load(std::sync::atomic::Ordering::SeqCst) {
+        return Err((
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(json!({"error":"Engine is stopping; reconnect"})),
+        ));
+    }
     if engine.ended_clients.lock().await.contains(&opts.client) {
         return Err(error(
             "This private client ended; open a new window for a fresh context",
@@ -492,9 +511,16 @@ async fn attach(
             state,
             slot: slot.clone(),
             seen: Instant::now(),
-            startup,
+            startup: startup.clone(),
         },
     );
+    engine
+        .ever_owned
+        .store(true, std::sync::atomic::Ordering::SeqCst);
+    drop(_attach);
+    if !opts.background {
+        startup.wait().await.map_err(error)?;
+    }
     Ok(Json(Attached {
         slot,
         log_offset,
@@ -567,6 +593,27 @@ async fn lease(State(engine): State<Arc<Engine>>, Path(id): Path<String>) -> Sta
 async fn detach(State(engine): State<Arc<Engine>>, Path(id): Path<String>) -> StatusCode {
     engine.clients.lock().await.remove(&id);
     engine.subscriptions.write().unwrap().remove(&id);
+    StatusCode::NO_CONTENT
+}
+
+async fn command_lease(State(engine): State<Arc<Engine>>, Path(id): Path<String>) -> StatusCode {
+    let _attaching = engine.attaching.lock().await;
+    if engine.stopping.load(std::sync::atomic::Ordering::SeqCst) {
+        return StatusCode::SERVICE_UNAVAILABLE;
+    }
+    engine
+        .command_clients
+        .lock()
+        .await
+        .insert(id, Instant::now());
+    engine
+        .ever_owned
+        .store(true, std::sync::atomic::Ordering::SeqCst);
+    StatusCode::NO_CONTENT
+}
+
+async fn command_detach(State(engine): State<Arc<Engine>>, Path(id): Path<String>) -> StatusCode {
+    engine.command_clients.lock().await.remove(&id);
     StatusCode::NO_CONTENT
 }
 
@@ -648,6 +695,8 @@ async fn dispatch(State(engine): State<Arc<Engine>>, req: Request) -> Response {
 
 #[derive(Serialize, Deserialize)]
 pub(super) struct CommandRequest {
+    #[serde(default)]
+    pub client: String,
     pub executable: PathBuf,
     pub args: Vec<String>,
     pub cwd: PathBuf,
@@ -666,6 +715,12 @@ async fn command(
     Json(opts): Json<CommandRequest>,
 ) -> Api<Json<CommandResult>> {
     let attaching = engine.attaching.lock().await;
+    if engine.stopping.load(std::sync::atomic::Ordering::SeqCst) {
+        return Err((
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(json!({"error":"Engine is stopping; reconnect"})),
+        ));
+    }
     if super::private_policy::active().map_err(error)?
         || engine
             .workspaces
@@ -683,9 +738,20 @@ async fn command(
             "Ordinary commands cannot execute in a retained private root; reopen its private practice",
         ));
     }
+    if !engine
+        .command_clients
+        .lock()
+        .await
+        .contains_key(&opts.client)
+    {
+        return Err(error("CLI lease expired; reconnect before executing"));
+    }
     engine
         .workers
         .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+    engine
+        .ever_owned
+        .store(true, std::sync::atomic::Ordering::SeqCst);
     drop(attaching);
     let result = async {
         let _write = engine.writes.lock().await;
