@@ -90,3 +90,14 @@ human or a general optimization-quality claim.
 
 Dependency: `crates/hickory-cli/tests/python_agent_profile.rs`:
 `5cf365a4207241e78190cfa8b2726b58f28658cd892fe6f867d324237435c0f5`.
+
+
+Production React follow-up: the selected runtimeHistory.test.tsx agent-capture case
+passes (106ms; other cases filtered) and strict changed-entrypoint TypeScript
+passes. The agent invokes the actual NativeRuntimeHistory capture command, passes
+profile=true to the existing host API callback, receives the saved-source receipt,
+and sees unsaved edits marked stale. It neither substitutes unsaved source nor
+claims runtime verification from callback completion. Host responses are mocked
+in this React check; real cProfile/worker execution is the separate integration
+above. Dependency: apps/web/src/debug/runtimeHistory.test.tsx SHA-256
+2df28ef8cda40456c39e735f798418d3c5544fe976dee37da796f9820cc76d82.

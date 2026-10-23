@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Prepare the witnessed Linux build for a human-owned issue 72 recording."""
+"""Prepare the selected Linux build for a human-owned issue 72 recording."""
 import argparse
 import hashlib
 import json
@@ -10,9 +10,9 @@ import subprocess
 import tempfile
 
 ROOT = Path(__file__).resolve().parents[1]
-REVISION = "47353e3c"
-PACKAGE_HASH = "81996bfb1805bade50a59618ded02bb44e0f7bfff523402aef4c78d20a7e5535"
-PACKAGE = Path("/tmp/hickory-issue72-native-1806f045/dist/desktop/hickory-docs-0.1.0-issue72.47353e3c-x86_64-unknown-linux-gnu.deb")
+REVISION = "c2d64095"
+PACKAGE_HASH = "68c2041baacf7e04e6c659d698df8e2d06ef7a90fc374a3bce8e67cbf7614b63"
+PACKAGE = Path("/tmp/hickory-issue72-native-1806f045/dist/desktop/hickory-docs-0.1.0-issue72.c2d64095-x86_64-unknown-linux-gnu.deb")
 
 
 def credential():
@@ -37,13 +37,13 @@ def credential():
 
 def prepare(package, output):
     if hashlib.sha256(package.read_bytes()).hexdigest() != PACKAGE_HASH:
-        raise SystemExit("Package checksum differs from the witnessed build; nothing launched")
+        raise SystemExit("Package checksum differs from the selected build; nothing launched")
     python = ROOT / "apps/agent/.venv/bin/python"
     adapter = ROOT / ".hick-cache/adapters/python"
     if not python.is_file() or not (adapter / "bin/python").is_file():
         raise SystemExit("Configured Python worker/debugpy runtime is missing; nothing launched")
     # A fresh directory prevents accidental reuse of a failed/ended practice.
-    output.mkdir(parents=True, exist_ok=False)
+    output.mkdir(mode=0o700, parents=True, exist_ok=False)
     subprocess.run(["dpkg-deb", "-x", str(package), str(output / "unpacked")], check=True)
     project = output / "project"
     project.mkdir()
@@ -53,15 +53,15 @@ def prepare(package, output):
     config = output / "config/com.loumtechnologies.hickorydocs/agents"
     config.mkdir(parents=True)
     (config / "python.json").write_text(json.dumps({"python": str(python)}))
-    spec = (ROOT / "apps/web/e2e/privatePredictionCoach.spec.ts").read_text()
+    spec = subprocess.check_output(["git", "show", f"{REVISION}:apps/web/e2e/privatePredictionCoach.spec.ts"], cwd=ROOT, text=True)
     prompt = re.search(r'\.fill\("(Run this coached prediction exercise\..*?)"\);', spec)
     if not prompt:
-        raise SystemExit("The witnessed request moved; update this recording helper before use")
+        raise SystemExit("The selected request moved; update this recording helper before use")
     (output / "request.txt").write_text(json.loads('"' + prompt.group(1) + '"') + "\n")
     manifest = {"functional_revision": subprocess.check_output(["git", "rev-parse", REVISION], cwd=ROOT, text=True).strip(),
                 "package_sha256": PACKAGE_HASH, "package": str(package),
                 "python": str(python), "debug_adapter": str(adapter),
-                "fixture_source_sha256": hashlib.sha256((ROOT / "examples/ai-engineer-private-deadline.md").read_bytes()).hexdigest(),
+                "fixture_source_sha256": hashlib.sha256(subprocess.check_output(["git", "show", f"{REVISION}:examples/ai-engineer-private-deadline.md"], cwd=ROOT)).hexdigest(),
                 "request_sha256": hashlib.sha256((output / "request.txt").read_bytes()).hexdigest(),
                 "provider": "deepseek", "model": "deepseek-chat",
                 "human_review": "pending", "recording": "pending", "published": False}

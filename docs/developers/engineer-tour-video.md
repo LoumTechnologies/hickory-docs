@@ -77,8 +77,9 @@ not human-reviewed native/provider footage. A real direct DeepSeek Python flow
 passed at 47353e3c with retained failure, reviewed correction, unchanged expectations
 and promotion revalidation. Its review decisions were automated test-driver
 decisions. The earlier OpenRouter HTTP 402 concerns a separate route; the real
-Codex ACP custom-provider session setup succeeds, but the stock DeepSeek
-Responses route has tool-routing/approval compatibility failures. See the current
+Codex ACP custom-provider session setup and the full private workflow now pass
+after the MCP-envelope correction. Earlier routing/approval failures are retained
+in the handoff. See the current
 [acceptance checklist](issue-72-acceptance-2026-10-22.md). For a bounded paid witness, provide
 the configured DeepSeek credential to the host environment and run:
 
@@ -88,6 +89,8 @@ HICKORY_KEEP_UI_WITNESS=1 HICKORY_PRIVATE_PROVIDER=deepseek HICKORY_PRIVATE_MODE
 
 The script refreshes the installed worker before launch. It uses the configured
 interpreter, retains held-out answers privately, and does not publish footage.
+The real pinned Codex ACP/DeepSeek workflow also passed after the scoped private
+MCP-envelope fix (55.3s case/55.9s total); human edit review remains separate.
 The managed private ACP profile is not an OS sandbox; see [its boundary](private-acp.md).
 
 ## Publish reviewed footage

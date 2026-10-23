@@ -12,17 +12,18 @@ From the repository root:
 python3 scripts/prepare-issue72-recording.py --launch
 ```
 
-The helper verifies the exact witnessed .deb checksum, unpacks it without
+The helper verifies the exact selected .deb checksum, unpacks it without
 installation, and prints a new recording directory and request.txt path. It
 configures the existing Python worker/debugpy runtime and isolated app state.
+The exercise request is read from the package's pinned commit, rather than from
+later working-copy edits.
 It launches the app but sends no model prompt. Keep that directory: it contains
 manifest.json, native.log and the retained state. Every invocation creates a new
 take; failed histories are preserved. The native functional revision is
-47353e3c, package version 0.1.0-issue72.47353e3c, Linux amd64. Later ACP-only
-changes are not in this Python recording build; record this exact identity.
+c2d64095, package version 0.1.0-issue72.c2d64095, Linux amd64. This build includes the ACP fix. Record this exact identity.
 
 The helper was prepared successfully without launching or provider calls at
-/tmp/hickory-issue72-human-recording-ready. Package tampering and reuse of an
+/tmp/hickory-issue72-human-recording-c2d64095. Package tampering and reuse of an
 existing take directory were refused in focused safety checks. Starting the
 command above creates your own fresh take.
 

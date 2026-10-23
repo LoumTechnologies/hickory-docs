@@ -1,7 +1,9 @@
 // @vitest-environment jsdom
 // Guarantee: docs/guarantees/execution/runtime-history-keeps-runs-and-occurrences-separate.md
 import { afterEach, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { UiActions } from "../lib/uiActions";
+import { UiActionContext } from "../lib/uiActionBridge";
 import { EditorState } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
 import { createMemoryStorage } from "../embed/storage";
@@ -73,5 +75,32 @@ it("explicit native launch executes the saved path and refreshes retained eviden
   fireEvent.click(screen.getByRole("button", { name: "Run saved Python confined" }));
   await waitFor(() => expect(request).toHaveBeenCalledWith("POST", "/api/runtime/python", { document: "example.md", program: "main.py", seconds: 10, profile: false }));
   await screen.findByText(/Run run-one · completed/);
+  expect(screen.getByText(/Unsaved edits are not executed/)).toBeTruthy();
+});
+
+// Guarantee: docs/guarantees/agent/ui-action-dispatch.md
+it("agent profiling invokes native capture and returns the saved-source receipt without certifying unsaved edits", async () => {
+  const run = await fixture("profile-saved-source"); run.sources[0].uri = "example.md";
+  let captured = false;
+  vi.mocked(request).mockImplementation(async method => {
+    if (method === "POST") { captured = true; return { run }; }
+    return { runs: captured ? [{ state: "present", run }] : [] };
+  });
+  const registry = new UiActions({ workspace: "profile", window: "native" }, () => true, async () => {});
+  render(<UiActionContext.Provider value={registry}><NativeRuntimeHistory path="example.md" source="unsaved source is different" /></UiActionContext.Provider>);
+  const descriptor = (label: string) => registry.groups().groups.flatMap(group => registry.observe(group, 64).actions).find(action => action.label === label)!;
+  const actor = { id: "python:profile-loop", kind: "agent" as const };
+  await act(async () => {
+    const disclosure = descriptor("Runtime observations");
+    await registry.act(registry.scope, actor, { handle: disclosure.handle, arguments: {}, request_id: "disclose" });
+  });
+  await screen.findByRole("button", { name: "Run saved Python confined" });
+  await act(async () => {
+    const capture = descriptor("Run saved Python confined");
+    const result = await registry.act(registry.scope, actor, { handle: capture.handle, arguments: { program: "main.py", profile: true }, request_id: "profile" });
+    expect(result).toMatchObject({ status: "result", outcome: { status: "completed", value: { run: run.id, sources: [{ revision: run.sources[0].revision }], interpretation: "Inspect actual correctness output and profile metrics; completion alone is not verification" } } });
+  });
+  expect(request).toHaveBeenCalledWith("POST", "/api/runtime/python", { document: "example.md", program: "main.py", seconds: 10, profile: true });
+  await screen.findByText(/source changed \(stale\)/);
   expect(screen.getByText(/Unsaved edits are not executed/)).toBeTruthy();
 });
