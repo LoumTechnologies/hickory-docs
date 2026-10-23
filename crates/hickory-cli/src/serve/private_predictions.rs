@@ -381,6 +381,7 @@ impl Bound {
             run.clone(),
             RunRecord {
                 document: id.into(),
+                check_only: true,
                 requested_source_hash: expected,
                 error: None,
                 source_hash: Some(identity.source.clone()),

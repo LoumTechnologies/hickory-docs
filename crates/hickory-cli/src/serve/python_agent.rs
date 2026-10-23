@@ -193,6 +193,9 @@ pub fn session_backend(path: &std::path::Path, provider: &str) -> String {
     }
 }
 struct Review {
+    state: LocalState,
+    ui_checks: std::collections::HashMap<String, super::ui_verification::Candidate>,
+    turn: String,
     ui: Arc<super::ui_actions::Hub>,
     ui_window: Option<String>,
     actor: String,
@@ -215,9 +218,33 @@ impl crate::python_agent::Review for Review {
             .ui_window
             .as_deref()
             .ok_or_else(|| anyhow::anyhow!("No originating UI window attached"))?;
-        Ok(super::ui_actions::tool_result(
-            self.ui.call(window, &self.actor, name, arguments).await?,
-        ))
+        let reply = self.ui.call(window, &self.actor, name, arguments).await?;
+        if name == "ui_act"
+            && let Some(candidate) =
+                super::ui_verification::Candidate::from_reply(&reply, &self.turn)
+        {
+            self.ui_checks.insert(candidate.job.clone(), candidate);
+        }
+        Ok(super::ui_actions::tool_result(reply))
+    }
+    fn take_ui_verifications(&mut self) -> Vec<Value> {
+        let runs = self.state.runs.lock().unwrap();
+        let mut evidence = vec![];
+        self.ui_checks.retain(|job, candidate| {
+            let Some(run) = runs.get(job) else {
+                return true;
+            };
+            let Some(path) = self.context.index.absolute(&candidate.document) else {
+                return false;
+            };
+            if let Some(record) = candidate.evidence(&self.turn, run, &path) {
+                evidence.push(record);
+                false
+            } else {
+                matches!(run.status.as_str(), "queued" | "running")
+            }
+        });
+        evidence
     }
     fn context_inbox(&self) -> Option<Arc<std::sync::Mutex<crate::context_updates::Inbox>>> {
         Some(self.queue.context.clone())
@@ -352,6 +379,9 @@ pub(super) async fn run_turn(
         *queue.edits.buffers.lock().unwrap() = editors.buffers;
     }
     let mut review = Review {
+        state: state.clone(),
+        ui_checks: Default::default(),
+        turn: identity.turn.clone(),
         ui: state.ui_actions.clone(),
         ui_window: serde_json::from_str::<Value>(&identity.context)
             .ok()

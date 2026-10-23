@@ -191,7 +191,7 @@ async fn run_loop(
                     .strip_prefix(&root)
                     .map(|r| r.to_string_lossy().replace('\\', "/"))
             {
-                state.index.add(&rel);
+                let _ = state.index.discover(&rel);
             }
         }
 

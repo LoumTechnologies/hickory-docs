@@ -153,6 +153,13 @@ describe("workspace edits", () => {
     expect(editsForUri(edit, "hick:///c.md")).toEqual([]);
   });
 
+  it("accepts an encoded provider edit for the same spaced URI without applying a literal-percent filename", () => {
+    const rename = { changes: { "hick:///Application%20Support/main.cpp": [{ range: r(0, 4, 0, 10), newText: "squared" }] } };
+    expect(editsForUri(rename, "hick:///Application Support/main.cpp")).toHaveLength(1);
+    expect(editsForUri(rename, "hick:///Application%2520Support/main.cpp")).toEqual([]);
+    expect(editsForUri({ documentChanges: [{ textDocument: { uri: "hick:///Application%20Support/main.cpp", version: 1 }, edits: rename.changes["hick:///Application%20Support/main.cpp"] }] }, "hick:///Application Support/main.cpp")).toHaveLength(1);
+  });
+
   it("names every document a rename touches, so the rest can be reported", () => {
     expect(urisInEdit(edit).sort()).toEqual(["hick:///a.md", "hick:///b.md"]);
   });

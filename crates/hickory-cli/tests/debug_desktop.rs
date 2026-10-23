@@ -746,7 +746,14 @@ async fn a_plain_csharp_file_builds_its_own_project_in_place_and_stops_on_its_ow
     std::fs::write(
         root.join("app/app.csproj"),
         "<Project Sdk=\"Microsoft.NET.Sdk\">\n  <PropertyGroup>\n    <OutputType>Exe</OutputType>\n\
-         \x20   <TargetFramework>net10.0</TargetFramework>\n  </PropertyGroup>\n</Project>\n",
+         \x20   <TargetFramework>net10.0</TargetFramework>\n    <UseAppHost>false</UseAppHost>\n  </PropertyGroup>\n</Project>\n",
+    )
+    .unwrap();
+    // This fixture tests DLL debugging, independently of apphost generation
+    // and preview SDK defaults on the developer's machine.
+    std::fs::write(
+        root.join("app/global.json"),
+        r#"{"sdk":{"version":"10.0.100","rollForward":"latestFeature","allowPrerelease":false}}"#,
     )
     .unwrap();
     let program = root.join("app/Program.cs");

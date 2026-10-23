@@ -153,6 +153,13 @@ export class LspClient {
   private capabilities: ServerCapabilities | null = null;
   private unsubscribe: () => void;
   private disposed = false;
+  private documentSync = new Map<string, () => void>();
+
+  /** Explicit edits must see pending source before asking the provider. */
+  registerDocumentSync(uri: string, flush: () => void): () => void {
+    this.documentSync.set(uri, flush);
+    return () => { if (this.documentSync.get(uri) === flush) this.documentSync.delete(uri); };
+  }
 
   constructor(
     private channel: LspChannel,
@@ -192,6 +199,10 @@ export class LspClient {
   /** Send a raw request; resolves with the JSON-RPC result. */
   request(method: string, params?: unknown): Promise<unknown> {
     if (this.disposed) return Promise.reject(new Error("LspClient disposed"));
+    if (["textDocument/prepareRename", "textDocument/rename", "textDocument/codeAction", "textDocument/formatting"].includes(method)) {
+      const uri = (params as { textDocument?: { uri?: string } } | undefined)?.textDocument?.uri;
+      if (uri) this.documentSync.get(uri)?.();
+    }
     const id = this.nextId++;
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
@@ -415,6 +426,7 @@ export class LspClient {
       pending.reject(new Error("LspClient disposed"));
     }
     this.pending.clear();
+    this.documentSync.clear();
     this.diagnosticsListeners.clear();
     this.capabilityListeners.clear();
   }

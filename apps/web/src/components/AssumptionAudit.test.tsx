@@ -46,6 +46,17 @@ it("keeps a historical pass visibly stale and excludes another branch's pass", (
   expect(screen.queryByText("other")).toBeNull();
 });
 
+it("discloses the bounded shared-UI check scope only on its recorded turn", () => {
+  const scope = "Shared UI document execution at this root revision; dependency revisions and changeset-wide coverage are not certified";
+  const checks: AuditRecord[] = [{ record_kind: "verification", turn: "selected", state: "passed", current_state: "unchanged", revision: "root-digest", scope, session_line: 5 }];
+  const view = render(<VerificationStanding records={checks} turn="selected" running={false} />);
+  expect(screen.getByText("passed")).toBeTruthy();
+  expect(screen.getByRole("status").textContent).toContain(scope);
+  view.rerender(<VerificationStanding records={checks} turn="another-turn" running={false} />);
+  expect(screen.getByText("not recorded")).toBeTruthy();
+  expect(screen.queryByText("root-digest")).toBeNull();
+});
+
 it("shows recording gaps even while filtering declarations", () => {
   render(<AssumptionAudit records={[{ record_kind: "audit-gap", state: "unreadable", session_line: 7 }]} path="sessions/demo.md" />);
   expect(screen.getByRole("alert", { hidden: true }).textContent).toContain("Coverage is incomplete");

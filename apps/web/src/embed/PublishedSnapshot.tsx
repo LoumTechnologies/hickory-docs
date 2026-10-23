@@ -20,7 +20,7 @@ export interface ViewerSnapshot {
   format: "hickory-viewer-snapshot"; version: 1; path: string; source: string;
   verification?: Verification;
   prediction_history?: PredictionHistory;
-  source_hash: string; captured_at_ms: number; execution: string; cells: ExecBlock[];
+  source_hash: string; captured_at_ms: number; execution: string; cells: (ExecBlock & { saved_output?: string })[];
 }
 /** Validate external snapshots before supplying them to product components. */
 export async function decodeSnapshot(value: unknown): Promise<ViewerSnapshot> {
@@ -45,6 +45,7 @@ export async function decodeSnapshot(value: unknown): Promise<ViewerSnapshot> {
   }
   for (const cell of v.cells) {
     if (cell.kind !== "exec" || typeof cell.id !== "string" || typeof cell.container !== "string" || typeof cell.command !== "string" || !Array.isArray(cell.span) || cell.span.length !== 2 || !cell.span.every(Number.isFinite) || cell.status !== undefined && !["ok", "failed", "stale", "unrecorded"].includes(cell.status)) throw new Error("Invalid snapshot cell");
+    if (cell.saved_output !== undefined && typeof cell.saved_output !== "string") throw new Error("Invalid saved output");
     if (cell.expect && (!["exact", "regex-lines"].includes(cell.expect.match) || typeof cell.expect.body !== "string")) throw new Error("Invalid expectation");
     if (cell.transcript && (!Array.isArray(cell.transcript) || cell.transcript.some(event => !Number.isFinite(event.t) || (event.kind === "exit" ? !Number.isFinite(event.code) : !["cmd", "out", "err"].includes(event.kind) || typeof event.data !== "string")))) throw new Error("Invalid transcript");
   }
@@ -116,7 +117,7 @@ function CapturedPublishedSnapshot({ snapshot, artifactUrl, predictionNavigation
     <h2>Recorded cell results</h2>
     <label><input type="checkbox" checked={replay} onChange={event => setReplay(event.target.checked)} /> Show execution transcripts</label>
     {!snapshot.cells.length && <p>No execution results recorded.</p>}
-    {snapshot.cells.map((cell, index) => <section key={`${cell.id}:${index}`} id={`witness-${index}`}><h3>{cell.id} · {cell.status ?? "unrecorded"}</h3><CellPanel block={cell} command={cell.command} replay={replay} /></section>)}
+    {snapshot.cells.map((cell, index) => <section key={`${cell.id}:${index}`} id={`witness-${index}`}><h3>{cell.id} · {cell.status ?? "unrecorded"}</h3><CellPanel block={cell} command={cell.command} replay={replay} recordedOutput={replay ? cell.saved_output : undefined} /></section>)}
   </main>;
 }
 

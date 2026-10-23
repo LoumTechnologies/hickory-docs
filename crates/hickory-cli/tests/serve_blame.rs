@@ -17,6 +17,17 @@ struct Session {
     _dir: tempfile::TempDir,
 }
 
+#[tokio::test]
+async fn opening_a_csharp_file_exposes_its_debuggable_language() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("Program.cs"), "Console.WriteLine(7);\n").unwrap();
+    let session = start(dir).await;
+    let (status, file) = get(&session, "/api/file?path=Program.cs").await;
+    assert_eq!(status, 200, "{file}");
+    assert_eq!(file["language"], "csharp");
+    assert_eq!(file["content"], "Console.WriteLine(7);\n");
+}
+
 fn git(dir: &std::path::Path, args: &[&str]) {
     let out = Command::new("git")
         .arg("-C")
@@ -255,4 +266,34 @@ async fn unicode_and_mixed_roles_do_not_fabricate_a_single_origin() {
     let (status, body) = get(&session, "/api/blame?path=session.md").await;
     assert_eq!(status, 200, "{body}");
     assert_eq!(body["lines"][0]["origin"], "unknown", "{body}");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn snapshots_keep_saved_notebook_output_without_running_the_cell() {
+    let dir = tempfile::tempdir().unwrap();
+    let source = "```python exec=\"true\" id=\"rich\"\nopen('must-not-exist', 'w').write('executed')\n```\n\n```output-for=\"#rich\" hash=\"saved\" input-hash=\"historical\" exit=\"0\"\nrecorded text\n\u{1e}HICKORY_DISPLAY {\"kind\":\"image\",\"mime\":\"image/svg+xml\",\"data\":\"PHN2Zz48L3N2Zz4=\"}\n```\n";
+    std::fs::write(dir.path().join("rich.md"), source).unwrap();
+    let session = start(dir).await;
+    let (_, docs) = get(&session, "/api/projects/local/docs").await;
+    let id = docs
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|doc| doc["path"] == "rich.md")
+        .unwrap()["id"]
+        .as_str()
+        .unwrap();
+    let (status, snapshot) = get(&session, &format!("/api/docs/{id}/snapshot")).await;
+    assert_eq!(status, 200, "{snapshot}");
+    let cell = &snapshot["cells"][0];
+    assert_eq!(cell["status"], "unrecorded");
+    assert!(
+        cell["saved_output"]
+            .as_str()
+            .unwrap()
+            .contains("recorded text\n\u{1e}HICKORY_DISPLAY")
+    );
+    assert!(cell["transcript"].is_null());
+    assert!(!session._dir.path().join("must-not-exist").exists());
+    assert_eq!(snapshot["source"], source);
 }

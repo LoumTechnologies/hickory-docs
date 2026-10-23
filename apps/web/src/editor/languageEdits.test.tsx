@@ -51,3 +51,21 @@ it("refuses an entire invalid Unicode edit batch and a rename whose preparation 
     expect(await pending).toMatchObject({ status: "unavailable" }); expect(onRename).not.toHaveBeenCalled(); expect(client.rename).not.toHaveBeenCalled(); expect(view.state.doc.toString()).toBe("new source");
   } finally { view.destroy(); }
 });
+
+it("applies a provider rename addressed to the encoded spelling of a spaced document URI", async () => {
+  const uri = "hick:///Application Support/main.cpp";
+  const client = { ...quiet, prepareRename: vi.fn().mockResolvedValue(range(4, 10)), rename: vi.fn().mockResolvedValue({ changes: { "hick:///Application%20Support/main.cpp": [{ range: range(4, 10), newText: "squared" }] } }) } as unknown as LspClient;
+  const onMessage = vi.fn();
+  const opts = { client, uri, positionAt: (p: number) => ({ line: 0, character: p }), offsetAt: (p: { character: number }) => p.character, onMessage };
+  const view = new EditorView({ state: EditorState.create({ doc: "int square(int value);", selection: { anchor: 5 } }) });
+  try {
+    expect(await renameSymbol(view, opts, async previous => { expect(previous).toBe("square"); return "squared"; })).toMatchObject({ status: "completed", value: { source_changed: true, other_documents: [] } });
+    expect(view.state.doc.toString()).toBe("int squared(int value);");
+    expect(onMessage).not.toHaveBeenCalled();
+    view.dispatch({ changes: { from: 4, to: 11, insert: "square" } });
+    vi.mocked(client.rename).mockRejectedValueOnce(new Error("Index results do not match current content"));
+    expect(await renameSymbol(view, opts, async () => "squared")).toMatchObject({ status: "unavailable", reason: "Index results do not match current content" });
+    expect(view.state.doc.toString()).toBe("int square(int value);");
+    expect(onMessage).toHaveBeenCalledWith("Index results do not match current content");
+  } finally { view.destroy(); }
+});

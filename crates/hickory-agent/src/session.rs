@@ -853,6 +853,38 @@ mod tests {
     }
 
     #[test]
+    fn a_recorded_branch_has_valid_metadata_attributes() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("branch.md");
+        let log = HickSessionLog::create_for(&path, Some(std::path::Path::new("note.md"))).unwrap();
+        log.record(SessionEvent::UserTurn {
+            text: "hi",
+            turn: "t1",
+            parent: Some("t0"),
+            provider: "test",
+            model: "test-model",
+        });
+        log.record(SessionEvent::ToolResult {
+            name: "read_doc",
+            ok: true,
+            text: "result",
+        });
+        log.record(SessionEvent::Observation {
+            source: "test",
+            exit_code: Some(0),
+            text: "ok",
+        });
+        log.record(SessionEvent::End);
+        let source = std::fs::read_to_string(&path).unwrap();
+        let doc = hick_lang::parse(&source).unwrap();
+        assert!(
+            hick_blocks::attribute_errors(&source, &doc).is_empty(),
+            "{:?}",
+            hick_blocks::attribute_errors(&source, &doc)
+        );
+    }
+
+    #[test]
     fn usage_elements_do_not_break_session_parsing() {
         let dir = tempdir().unwrap();
         let path = dir.path().join("usage.md");
@@ -883,6 +915,12 @@ mod tests {
         let source = std::fs::read_to_string(&path).unwrap();
         assert!(source.contains(r#"<hick:usage turn="0" input="12" cache-write="3" cache-read="900" output="40" cost-usd="0.001234"/>"#));
         assert!(source.contains(r#"<hick:usage scope="session""#));
+        let document = hick_lang::parse(&source).unwrap();
+        assert!(
+            hick_blocks::attribute_errors(&source, &document).is_empty(),
+            "{:?}",
+            hick_blocks::attribute_errors(&source, &document)
+        );
         // The session parser skips unknown tags: user + assistant survive.
         let doc = hick_lang::parse_session(&source).expect("session with usage must parse");
         assert_eq!(doc.nodes.len(), 2);

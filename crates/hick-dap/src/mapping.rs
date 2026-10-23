@@ -121,7 +121,14 @@ impl Mapping {
                 .then_some((root.join(name), line));
         }
         if self.plain {
-            return Some((self.document.clone(), line));
+            // Compilers write canonical source paths into debug symbols. Keep
+            // the editor's identity for display, but bind the runtime spelling.
+            return Some((
+                self.document
+                    .canonicalize()
+                    .unwrap_or_else(|_| self.document.clone()),
+                line,
+            ));
         }
         crate::project::generated_line(&self.files, line)
     }
@@ -201,9 +208,7 @@ impl Mapping {
 
     fn file_map(&self, path: &Path) -> Option<&hick_lsp::position_map::PositionMap> {
         self.files.get(path).or_else(|| {
-            path.canonicalize()
-                .ok()
-                .and_then(|canonical| self.files.get(&canonical))
+            canonical_with_missing_tail(path).and_then(|canonical| self.files.get(&canonical))
         })
     }
 
@@ -213,6 +218,28 @@ impl Mapping {
             return vec![self.document.clone()];
         }
         self.files.keys().cloned().collect()
+    }
+}
+
+/// Resolve aliases in an existing parent before a generated output exists.
+/// Only a normal missing suffix is accepted; lookup still requires an exact
+/// generated-file identity from the selected document's mapping.
+fn canonical_with_missing_tail(path: &Path) -> Option<PathBuf> {
+    let mut ancestor = path;
+    let mut tail = Vec::new();
+    loop {
+        if let Ok(mut canonical) = ancestor.canonicalize() {
+            for component in tail.iter().rev() {
+                canonical.push(component);
+            }
+            return Some(canonical);
+        }
+        let component = match ancestor.components().next_back()? {
+            std::path::Component::Normal(name) => name.to_os_string(),
+            _ => return None,
+        };
+        tail.push(component);
+        ancestor = ancestor.parent()?;
     }
 }
 

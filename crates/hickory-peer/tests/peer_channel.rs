@@ -64,6 +64,10 @@ struct Pair {
 /// Pair two machines mutually, grant the client `grants`, and stand the
 /// server up.
 async fn pair(grants: &[Grant], kind: Kind) -> Pair {
+    pair_at(grants, kind, local_server().await).await
+}
+
+async fn pair_at(grants: &[Grant], kind: Kind, local: SocketAddr) -> Pair {
     let host_dir = tempfile::tempdir().unwrap();
     let peer_dir = tempfile::tempdir().unwrap();
     let host = Identity::load_or_create(host_dir.path(), "desktop").unwrap();
@@ -77,7 +81,6 @@ async fn pair(grants: &[Grant], kind: Kind) -> Pair {
             .unwrap();
     }
 
-    let local = local_server().await;
     let server = Arc::new(
         PeerServer::bind(&host, Fleet::at(host.dir()), local, Reach::Direct)
             .await
@@ -459,4 +462,80 @@ async fn a_wrong_phrase_reaches_nothing() {
     // happen is a machine appearing in the fleet.
     assert!(out.is_err() || out.unwrap().is_err());
     assert!(fleet.machines().is_empty());
+}
+
+// Grants and revocation apply to already-authenticated QUIC connections.
+#[tokio::test]
+async fn existing_connections_observe_grant_changes_and_key_revocation() {
+    let pair = pair(&[Grant::View], Kind::Desktop).await;
+    let peer = attach(&pair).await;
+    let fleet = Fleet::at(&pair._dirs.0.path().join("fleet"));
+    let read = peer.request("GET", "/api/docs/abc").await.unwrap();
+    assert!(read.contains("reached the session"), "{read}");
+    let denied = peer.request("PUT", "/api/docs/abc").await.unwrap();
+    assert!(denied.contains("403"), "{denied}");
+    fleet.set_grant("laptop", Grant::Edit, true).unwrap();
+    let allowed = peer.request("PUT", "/api/docs/abc").await.unwrap();
+    assert!(allowed.contains("reached the session"), "{allowed}");
+    fleet.set_grant("laptop", Grant::Edit, false).unwrap();
+    let denied = peer.request("PUT", "/api/docs/abc").await.unwrap();
+    assert!(denied.contains("403"), "{denied}");
+    assert!(!denied.contains("reached the session"), "{denied}");
+    assert!(fleet.remove("laptop").unwrap());
+    let revoked = peer.request("GET", "/api/docs/abc").await.unwrap();
+    assert!(revoked.contains("403"), "{revoked}");
+    assert!(revoked.contains("revoked"), "{revoked}");
+    assert!(!revoked.contains("reached the session"), "{revoked}");
+    peer.close().await;
+}
+
+#[tokio::test]
+async fn existing_upgraded_rooms_close_when_key_or_edit_grant_is_revoked() {
+    for remove_key in [false, true] {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let local = listener.local_addr().unwrap();
+        tokio::spawn(async move {
+            let (mut socket, _) = listener.accept().await.unwrap();
+            let mut head = Vec::new();
+            let mut byte = [0u8; 1];
+            while !head.ends_with(b"\r\n\r\n") {
+                socket.read_exact(&mut byte).await.unwrap();
+                head.push(byte[0]);
+            }
+            socket.write_all(b"HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n\r\n").await.unwrap();
+            let mut ping = [0u8; 4];
+            socket.read_exact(&mut ping).await.unwrap();
+            socket.write_all(&ping).await.unwrap();
+            let _ = socket.read(&mut byte).await;
+        });
+        let pair = pair_at(&[Grant::View, Grant::Edit], Kind::Desktop, local).await;
+        let peer = attach(&pair).await;
+        let (mut send, mut recv) = peer.connection().open_bi().await.unwrap();
+        send.write_all(b"GET /api/ws?doc=abc HTTP/1.1\r\nHost: peer\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n\r\n").await.unwrap();
+        let mut head = Vec::new();
+        let mut byte = [0u8; 1];
+        while !head.ends_with(b"\r\n\r\n") {
+            assert_eq!(recv.read(&mut byte).await.unwrap(), Some(1));
+            head.push(byte[0]);
+        }
+        assert!(String::from_utf8_lossy(&head).contains("101"));
+        send.write_all(b"ping").await.unwrap();
+        let mut echo = [0u8; 4];
+        recv.read_exact(&mut echo).await.unwrap();
+        assert_eq!(&echo, b"ping");
+        let fleet = Fleet::at(&pair._dirs.0.path().join("fleet"));
+        if remove_key {
+            assert!(fleet.remove("laptop").unwrap());
+        } else {
+            fleet.set_grant("laptop", Grant::Edit, false).unwrap();
+        }
+        let closed = tokio::time::timeout(std::time::Duration::from_secs(2), recv.read(&mut byte))
+            .await
+            .expect("revoked room stayed open");
+        assert!(
+            !matches!(closed, Ok(Some(n)) if n > 0),
+            "revoked room remained readable"
+        );
+        peer.close().await;
+    }
 }

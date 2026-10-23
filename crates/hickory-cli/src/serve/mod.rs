@@ -79,6 +79,7 @@ mod revision_projects;
 mod runtime_runs;
 pub(crate) mod ui_actions;
 pub(crate) mod ui_images;
+mod ui_verification;
 pub use python_agent::bundled_runtime;
 mod fleet_pairings;
 mod launch_profiles;
@@ -150,6 +151,7 @@ pub struct ServeOptions {
 #[derive(Clone)]
 pub struct RunRecord {
     pub document: String,
+    pub check_only: bool,
     pub requested_source_hash: Option<String>,
     pub error: Option<String>,
     pub source_hash: Option<String>,
@@ -495,6 +497,7 @@ impl LocalState {
             run_id.clone(),
             RunRecord {
                 document: id.to_string(),
+                check_only,
                 requested_source_hash: expected.clone(),
                 error: None,
                 source_hash: None,

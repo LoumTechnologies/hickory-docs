@@ -117,6 +117,14 @@ for _ in $(seq 1 100); do
   kill -0 "$vite_pid" 2>/dev/null || { cat "$run_dir/vite.log"; exit 1; }; sleep .1
 done
 [ -n "$ui_origin" ] || { cat "$run_dir/vite.log"; exit 1; }
+if [ "${HICKORY_PRIVATE_MANUAL_UI:-0}" = 1 ]; then
+  # The same isolated fixture, driven manually instead of by Playwright.
+  # The user's engine/executor policy is never changed.
+  echo "Private QA UI: $ui_origin"
+  echo "Scripted provider; isolated local executor. Stop this process to clean up."
+  wait "$api_pid"
+  exit 0
+fi
 HICKORY_PRIVATE_UI_FIXTURE=1 HICKORY_PRIVATE_ACP_FIXTURE="$acp" HICKORY_PRIVATE_LIVE_PROVIDER="$live" HICKORY_E2E_CHANNEL=chromium HICKORY_E2E_URL="$ui_origin" \
 HICKORY_E2E_OUTPUT_DIR="$run_dir/browser" npm --prefix apps/web run test:e2e -- privatePredictionCoach.spec.ts
 

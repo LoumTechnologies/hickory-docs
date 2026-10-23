@@ -53,6 +53,8 @@ export type Block =
         skipped: string;
       };
       status?: ExecStatus;
+      /** UI-only failed run attempt with no authoritative per-cell receipt. */
+      runError?: string;
     }
   | {
       kind: "file";
@@ -101,22 +103,8 @@ export type { FileOpRequest } from "./files";
 
 export type { BlockActionOutcome, ElementDescription } from "./elements";
 
-export type RunStatus = "queued" | "running" | "ok" | "failed" | "stopped";
-
-export interface Run {
-  id: string;
-  status: RunStatus;
-  started_at: string;
-  /**
-   * The run's own block model — the same shape `/render` returns, with the
-   * transcripts this run produced.
-   *
-   * Was typed as `{exec_id, status, transcript}[]`, which the server has
-   * never sent: it stores `block_model_json(&run)["blocks"]`. The mistyping
-   * was invisible because nothing read the field.
-   */
-  blocks: Block[];
-}
+import type { RunStatus } from "./runs";
+export type { Run, RunStatus } from "./runs";
 
 /** Agent-loop events share the run channel (`exec_id: "agent"`, `run_id` =
  * session id). Serialized from `hickory_agent::AgentEvent`; only the fields

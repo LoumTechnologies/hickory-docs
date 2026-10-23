@@ -100,8 +100,9 @@ function AuditBody({ records, path, source }: { records: AuditRecord[]; path: st
 export function VerificationStanding({ records, turn, running }: { records: AuditRecord[]; turn?: string; running: boolean }) {
   const record = [...records].reverse().find(record => record.record_kind === "verification" && record.turn === turn);
   const state = running ? "pending" : record?.state === "passed" && record.current_state !== "unchanged" ? `historical pass · current sources ${record.current_state ?? "unavailable"}` : record?.state ?? "not recorded";
+  const scope = record?.scope ?? "Document execution and expectations only; semantic support is not assessed";
   useUiReading("verification standing", { state, revision: record?.revision ?? null, turn: turn ?? null,
-    scope: "Document execution and expectations only; semantic support is not assessed" });
+    scope });
   return <p className="verification-standing" role="status">Hickory checks: <strong>{state}</strong>
-    {record?.revision && <> · revision <code>{record.revision}</code></>}. Document execution and expectations only; semantic support is not assessed.</p>;
+    {record?.revision && <> · revision <code>{record.revision}</code></>}. {scope}.</p>;
 }

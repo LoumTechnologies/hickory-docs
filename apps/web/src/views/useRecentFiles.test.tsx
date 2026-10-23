@@ -29,12 +29,13 @@ describe("recent files", () => {
     const fetch = vi.fn().mockRejectedValue(new Error("no desktop host"));
     vi.stubGlobal("fetch", fetch);
     let layout = freeform();
-    const { rerender } = renderHook(({ layout }) => useRecentFiles(layout), {
+    const { result, rerender } = renderHook(({ layout }) => useRecentFiles(layout), {
       initialProps: { layout },
     });
     for (const kind of ["tool", "tree", "chat", "terminal", "untitled", "scratchpad"] as const) {
       layout = open(layout, tab(kind, kind));
       rerender({ layout });
+      expect(result.current).toBeNull();
     }
     expect(fetch).not.toHaveBeenCalled();
     layout = open(layout, tab("file", "readme.md"));

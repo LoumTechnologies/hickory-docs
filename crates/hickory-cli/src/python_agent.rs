@@ -89,6 +89,10 @@ pub trait Review: Send {
     async fn completed(&mut self, _ok: bool) -> Result<()> {
         Ok(())
     }
+    /// Host-validated results of check jobs requested by this turn's UI actions.
+    fn take_ui_verifications(&mut self) -> Vec<Value> {
+        vec![]
+    }
 }
 
 pub struct EditorHead {
@@ -262,6 +266,7 @@ struct Host<'a> {
     turn_id: Option<String>,
     finished: bool,
     unchecked_edits: bool,
+    ui_checks_recorded: bool,
     summary: String,
     usage: Usage,
     on_event: &'a mut (dyn FnMut(AgentEvent) + Send),
@@ -607,6 +612,7 @@ pub async fn run_conversation(
         turn_id: conversation.turn.clone(),
         finished: false,
         unchecked_edits: false,
+        ui_checks_recorded: false,
         summary: String::new(),
         usage: Usage::default(),
         on_event,

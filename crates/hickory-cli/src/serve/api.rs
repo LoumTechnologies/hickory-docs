@@ -12,6 +12,10 @@
 //! chat dock.
 
 mod create_new;
+mod snapshot;
+pub use snapshot::snapshot_doc;
+mod file_language;
+pub(super) use file_language::language_of;
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -406,31 +410,6 @@ pub async fn render_doc(
     })?))
 }
 
-/// Export the same weave and transcripts the local viewer receives. No execution.
-pub async fn snapshot_doc(
-    State(state): State<LocalState>,
-    Path(id): Path<String>,
-) -> ApiResult<Json<Value>> {
-    use sha2::{Digest, Sha256};
-    let run = state.weave(&id).await?;
-    let rendered =
-        crate::block_model_json(&run).map_err(|e| ApiError::unprocessable(e.to_string()))?;
-    let source = &run.doc.source;
-    let path = state
-        .index
-        .path_of(&id)
-        .map(|p| p.to_string())
-        .unwrap_or_else(|| id.clone());
-    Ok(Json(json!({
-        "format":"hickory-viewer-snapshot", "version":1,
-        "path":path, "source":source,
-        "source_hash":format!("{:x}",Sha256::digest(source.as_bytes())),
-        "captured_at_ms":std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_err(|e| ApiError::internal(e.to_string()))?.as_millis(),
-        "execution":"recorded-output-snapshot; export does not execute checks",
-        "cells":rendered["blocks"].as_array().map(|blocks| blocks.iter().filter(|block| block["kind"] == "exec").cloned().collect::<Vec<_>>()).unwrap_or_default()
-    })))
-}
-
 // ---------------------------------------------------------------------------
 // Outputs — the lineage ribbons
 // ---------------------------------------------------------------------------
@@ -630,7 +609,9 @@ fn outputs_of(
         let Ok(source) = std::fs::read_to_string(absolute) else {
             continue;
         };
-        let id = index.add(rel);
+        let Some(id) = index.discover(rel) else {
+            continue;
+        };
         for output in declared_outputs(rel, &source) {
             // First document wins. Two documents writing one file is a
             // conflict the weaver reports; a caller asking "is this
@@ -831,10 +812,12 @@ fn insert_tree_node(top: &mut Vec<TreeNode>, rel: &str, dir: bool, index: &super
         }
         prefix.push_str(part);
         if parts.peek().is_none() {
-            // `index.add` rather than `id_for_path`: the startup scan only saw
-            // documents that existed then, and a `.md` file it missed must
-            // still be openable the moment the tree shows it.
-            let doc_id = (!dir && rel.ends_with(".md")).then(|| index.add(rel));
+            // New project documents register as they appear. Runtime files
+            // stay openable through explicit file actions without joining
+            // the project graph just because a tree listing encountered them.
+            let doc_id = (!dir && rel.ends_with(".md"))
+                .then(|| index.discover(rel))
+                .flatten();
             siblings.push(TreeNode {
                 name: part.to_string(),
                 path: prefix.clone(),
@@ -962,35 +945,6 @@ pub async fn get_cites(
 }
 
 pub use super::sessions::session_view;
-
-/// Language tag for an output path, matching the hosted server's mapping.
-/// `pub(super)` because plain files (serve/plain_file.rs) tag with the same
-/// mapping — a `.py` file must highlight the same whether woven or plain.
-pub(super) fn language_of(path: &str) -> String {
-    let ext = std::path::Path::new(path)
-        .extension()
-        .and_then(|e| e.to_str())
-        .unwrap_or("");
-    match ext {
-        "rs" => "rust",
-        "py" => "python",
-        "ts" => "typescript",
-        "tsx" => "typescript",
-        "js" | "mjs" | "cjs" => "javascript",
-        "jsx" => "javascript",
-        "go" => "go",
-        "sh" | "bash" => "shell",
-        "json" => "json",
-        "toml" => "toml",
-        "yaml" | "yml" => "yaml",
-        "md" | "markdown" => "markdown",
-        "html" => "html",
-        "css" => "css",
-        "sql" => "sql",
-        other => other,
-    }
-    .to_string()
-}
 
 // ---------------------------------------------------------------------------
 // Running

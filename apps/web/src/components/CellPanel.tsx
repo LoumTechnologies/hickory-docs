@@ -85,9 +85,9 @@ export function CellPanel({
   const displayTranscript = useMemo(() => rich.outputs.length ? transcript.filter(e => e.kind !== "out").concat(rich.text.trim() ? [{ t: 0, kind: "out" as const, data: rich.text }] : []) : transcript, [transcript, rich]);
   const svgFigure = useMemo(() => (looksLikeSvg(stdout) ? stdout.trim() : null), [stdout]);
 
-  const verified = !running && block?.status === "ok" && !!block?.expect;
+  const verified = !running && !block?.runError && block?.status === "ok" && !!block?.expect;
   const failedExpect =
-    !running && block?.status === "failed" && !!block?.expect && transcript.length > 0;
+    !running && !block?.runError && block?.status === "failed" && !!block?.expect && transcript.length > 0;
   const diff = useMemo(
     () => (failedExpect && block?.expect ? diffLines(block.expect.body, stdout) : null),
     [failedExpect, block?.expect, stdout],
@@ -103,7 +103,7 @@ export function CellPanel({
     running || (transcript.length > 0 && (collapsible ? replay : !verified && !failedExpect)
       && (rich.outputs.length === 0 || !!rich.text.trim() || transcript.some(e => e.kind === "err") || replay));
 
-  useUiReading("cell rendering", { id: block?.id ?? null, command: command ?? null, status: block?.status ?? "save_required", running: !!running, container: block?.container ?? null, image: block?.image ?? null, saved_output: block && savedOnly ? rich.text : null, expected_output_matches: verified, diff, replay_available: collapsible, transcript: block && showTranscript ? displayTranscript : null, transcript_hidden: !!block && !showTranscript && transcript.length > 0, rich_outputs: block && !running ? rich.outputs : [], svg: block && !running ? svgFigure : null, ingested: block?.ingested ?? null, scope: "Current cell view; recorded output/expectation match does not verify prose or certify current source/run freshness" }, block);
+  useUiReading("cell rendering", { id: block?.id ?? null, command: command ?? null, status: block?.runError ? "run_failed_cell_outcome_unavailable" : block?.status ?? "save_required", recorded_status: block?.status ?? null, run_error: block?.runError ?? null, running: !!running, container: block?.container ?? null, image: block?.image ?? null, saved_output: block && savedOnly ? rich.text : null, expected_output_matches: verified, diff, replay_available: collapsible, transcript: block && showTranscript ? displayTranscript : null, transcript_hidden: !!block && !showTranscript && transcript.length > 0, rich_outputs: block && !running ? rich.outputs : [], svg: block && !running ? svgFigure : null, ingested: block?.ingested ?? null, scope: "Current cell view; recorded output/expectation match does not verify prose or certify current source/run freshness" }, block);
 
   // A cell the server has not rendered yet still shows its commands and can
   // still be read; only the run is unavailable, and it says why.
@@ -127,7 +127,9 @@ export function CellPanel({
           {block.container}
           {block.image ? ` · ${block.image}` : ""}
         </span>
-        <StatusChip status={block.status} running={running} />
+        {block.runError && !running
+          ? <span className="chip chip-failed" data-tip={block.runError}>Run failed · cell outcome unavailable</span>
+          : <StatusChip status={block.status} running={running} />}
         {savedOnly && <span className="muted">Saved output</span>}
         {verified && (
           <span className="cell-verified" data-tip="The recorded stdout matches this cell’s expectation; this does not assert that the prose is correct.">
@@ -136,6 +138,7 @@ export function CellPanel({
         )}
         {block.ingested && <IngestedChip ingested={block.ingested} />}
       </div>
+      {block.runError && !running && <p role="status">The document run failed without per-cell results. This does not establish which cells executed.{transcript.length > 0 ? " Earlier recorded output is retained." : ""}</p>}
       {diff && (
         <div className="cell-diff" data-testid="cell-diff">
           <div className="cell-diff-title">output vs expected</div>

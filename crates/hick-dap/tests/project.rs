@@ -61,3 +61,54 @@ fn captured_source_breakpoints_require_this_context_and_a_present_file() {
         None
     );
 }
+
+// Private capture validates source coordinates before materializing outputs.
+#[cfg(unix)]
+#[test]
+fn missing_generated_files_resolve_through_an_existing_parent_alias() {
+    let dir = tempfile::tempdir().unwrap();
+    let actual = dir.path().join("actual");
+    std::fs::create_dir(&actual).unwrap();
+    let alias = dir.path().join("alias");
+    std::os::unix::fs::symlink(&actual, &alias).unwrap();
+    let source = "# Explanation\n<hick:file path=\"src/program.py\">\nvalue = 42\n</hick:file>\n";
+    let mapping = hick_dap::Mapping::for_document(Path::new("note.md"), source, &alias).unwrap();
+    let generated = alias.join("src/program.py");
+    assert!(!generated.exists());
+    assert_eq!(mapping.to_document(&generated, 0), Some(2));
+    assert_eq!(mapping.to_document(&alias.join("src/other.py"), 0), None);
+    assert_eq!(
+        mapping.to_document(&dir.path().join("src/program.py"), 0),
+        None
+    );
+    // Materializing the same file must preserve its identity and coordinates.
+    hick_dap::weave_into(source, &actual).unwrap();
+    assert_eq!(mapping.to_document(&generated, 0), Some(2));
+}
+
+#[cfg(unix)]
+#[test]
+fn plain_file_breakpoints_bind_canonical_paths_and_keep_the_editor_alias() {
+    let dir = tempfile::tempdir().unwrap();
+    let actual = dir.path().join("actual");
+    std::fs::create_dir(&actual).unwrap();
+    let file = actual.join("Program.cs");
+    std::fs::write(&file, "int total = 7;\nSystem.Console.WriteLine(total);\n").unwrap();
+    let alias = dir.path().join("alias");
+    std::os::unix::fs::symlink(&actual, &alias).unwrap();
+    let viewed = alias.join("Program.cs");
+    let canonical = file.canonicalize().unwrap();
+    let mapping = hick_dap::Mapping::identity(&viewed);
+    assert_eq!(mapping.to_generated(1), Some((canonical.clone(), 1)));
+    assert_eq!(
+        mapping.to_generated_in(&viewed, 1),
+        Some((canonical.clone(), 1))
+    );
+    assert_eq!(mapping.document(), viewed);
+    assert_eq!(
+        mapping.source_location(&canonical, 1),
+        Some((viewed.clone(), 1))
+    );
+    assert_eq!(mapping.to_document(&canonical, 1), Some(1));
+    assert_eq!(mapping.source_location(&actual.join("Other.cs"), 1), None);
+}

@@ -25,7 +25,7 @@ export function useDocumentRunActions(doc: string, current: () => string | null,
         const saved = await api.doc(doc);
         if (saved.source !== text || current() !== text) return { status: "unavailable" as const, reason: "Editor/source changed or has unsaved bytes; save and observe again" };
         const id = await (action as typeof run)(expected);
-        return id ? { status: "queued" as const, job: id, value: { requested_source_hash: expected, result: "Read actual run receipt; queued does not mean passed" } }
+        return id ? { status: "queued" as const, job: id, value: { document: doc, purpose: label === "Verify saved document" ? "document-check" : "document-run", requested_source_hash: expected, result: "Read actual run receipt; queued does not mean passed" } }
           : { status: "unavailable" as const, reason: "Shared document controller could not start a run; inspect its banner" };
       },
     } })),

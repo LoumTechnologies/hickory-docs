@@ -216,10 +216,12 @@ impl PeerServer {
         loop {
             match connection.accept_bi().await {
                 Ok((send, recv)) => {
-                    let machine = machine.clone();
+                    let fleet =
+                        Fleet::at(self.fleet.path().parent().expect("fleet path has a parent"));
+                    let key = key.clone();
                     let local = self.local;
                     tokio::spawn(async move {
-                        if let Err(e) = serve_request(machine, local, send, recv).await {
+                        if let Err(e) = serve_request(fleet, key, local, send, recv).await {
                             log::debug!("peer: request ended: {e:#}");
                         }
                     });
@@ -262,7 +264,8 @@ pub(crate) fn builder_for(reach: &Reach) -> Result<iroh::endpoint::Builder> {
 
 /// One request from a peer: read its head, check it, proxy or refuse.
 async fn serve_request(
-    machine: Machine,
+    fleet: Fleet,
+    key: String,
     local: SocketAddr,
     mut send: iroh::endpoint::SendStream,
     mut recv: iroh::endpoint::RecvStream,
@@ -281,11 +284,22 @@ async fn serve_request(
     let text = String::from_utf8_lossy(&head).to_string();
     let (method, path) = request_line(&text).context("no request line")?;
 
-    if let Err(denial) = crate::grants::permitted(&method, &path, &machine.grants, &machine.name) {
+    // A connection authenticates a key, not a permanent grant snapshot.
+    // Re-read after the request head arrives so revoked keys and changed
+    // grants take effect on the next request of an existing connection.
+    let machine = fleet
+        .machines()
+        .into_iter()
+        .find(|machine| machine.public_key == key);
+    let denial = match &machine {
+        Some(machine) => crate::grants::permitted(&method, &path, &machine.grants, &machine.name)
+            .err().map(|denial| denial.message),
+        None => Some("This machine no longer holds your key; peer access was revoked. Pair again only with the machine owner's approval.\n".into()),
+    };
+    if let Some(body) = denial {
         // A refusal the other end can print, never a hang: the same reasoning
         // the broker uses for a denied host, and for the same reason — a
         // client that receives a timeout invents an explanation.
-        let body = denial.message;
         let response = format!(
             "HTTP/1.1 403 Forbidden\r\nContent-Type: text/plain; charset=utf-8\r\n\
              Content-Length: {}\r\nConnection: close\r\n\r\n{body}",
@@ -293,7 +307,7 @@ async fn serve_request(
         );
         send.write_all(response.as_bytes()).await?;
         send.finish()?;
-        log::warn!("peer: refused {method} {path} from \"{}\"", machine.name);
+        log::warn!("peer: refused {method} {path} from key {key}");
         return Ok(());
     }
 
@@ -392,7 +406,28 @@ async fn serve_request(
             }
             let _ = send.finish();
         };
-        tokio::join!(pump_up, pump_down);
+        // An upgraded room is a long-lived write path. Retire both pumps
+        // when its key/grant disappears, even if no new request arrives.
+        let permission_revoked = async {
+            loop {
+                tokio::time::sleep(std::time::Duration::from_millis(250)).await;
+                let allowed = fleet
+                    .machines()
+                    .into_iter()
+                    .find(|machine| machine.public_key == key)
+                    .is_some_and(|machine| {
+                        crate::grants::permitted(&method, &path, &machine.grants, &machine.name)
+                            .is_ok()
+                    });
+                if !allowed {
+                    break;
+                }
+            }
+        };
+        tokio::select! {
+            _ = async { tokio::join!(pump_up, pump_down); } => {},
+            _ = permission_revoked => {},
+        }
         return Ok(());
     }
 

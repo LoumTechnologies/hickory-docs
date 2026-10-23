@@ -33,6 +33,32 @@ use notify::{EventKind, RecursiveMode, Watcher};
 use crate::{ExecutorChoice, RunMode, expand_docs, output_lineage, run_doc};
 use state::{OutputState, WovenState};
 
+/// An explicit fallback for hosts/filesystems that cannot deliver native events.
+/// Both modes feed the same event queue, settling and reverse-edit safety path.
+pub(crate) fn file_watcher(
+    handler: impl notify::EventHandler,
+) -> notify::Result<Box<dyn Watcher + Send>> {
+    watcher_with_mode(handler, std::env::var("HICKORY_WATCH_MODE").ok().as_deref())
+}
+
+fn watcher_with_mode(
+    handler: impl notify::EventHandler,
+    mode: Option<&str>,
+) -> notify::Result<Box<dyn Watcher + Send>> {
+    match mode {
+        Some("poll") => Ok(Box::new(notify::PollWatcher::new(
+            handler,
+            notify::Config::default()
+                .with_poll_interval(Duration::from_millis(200))
+                .with_compare_contents(true),
+        )?)),
+        None | Some("") | Some("native") => Ok(Box::new(notify::recommended_watcher(handler)?)),
+        Some(_) => Err(notify::Error::generic(
+            "unknown HICKORY_WATCH_MODE (expected native or poll)",
+        )),
+    }
+}
+
 /// Turn a `notify` failure into an error that names the limit that was hit.
 ///
 /// The raw messages are the OS's, and they describe the wrong thing. Linux
@@ -355,7 +381,7 @@ pub async fn run(config: UpConfig) -> Result<()> {
     // initial weave is done, so an edit made during startup is late rather
     // than lost.
     let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<PathBuf>();
-    let mut watcher = notify::recommended_watcher(move |res: notify::Result<notify::Event>| {
+    let mut watcher = file_watcher(move |res: notify::Result<notify::Event>| {
         let Ok(event) = res else { return };
         if !matches!(
             event.kind,
@@ -959,3 +985,6 @@ mod watch_error_tests {
         assert!(!msg.contains("sysctl"), "no spurious advice: {msg}");
     }
 }
+
+#[cfg(test)]
+mod watcher_mode_tests;

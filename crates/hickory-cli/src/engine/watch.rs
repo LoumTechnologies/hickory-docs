@@ -9,7 +9,7 @@ use crate::{
     up::{UpCommand, UpConfig, state::WovenState},
 };
 use anyhow::{Context, Result};
-use notify::{RecursiveMode, Watcher};
+use notify::RecursiveMode;
 use std::{
     collections::{HashMap, HashSet},
     path::PathBuf,
@@ -41,17 +41,16 @@ impl Coordinator {
         let (events, mut rx) = mpsc::unbounded_channel();
         let notify = events.clone();
         let queued = events.clone();
-        let mut watcher =
-            notify::recommended_watcher(move |result: notify::Result<notify::Event>| {
-                if let Ok(event) = result {
-                    for path in event.paths {
-                        if !crate::up::is_noise(&path) {
-                            let _ = notify.send(path);
-                        }
+        let mut watcher = crate::up::file_watcher(move |result: notify::Result<notify::Event>| {
+            if let Ok(event) = result {
+                for path in event.paths {
+                    if !crate::up::is_noise(&path) {
+                        let _ = notify.send(path);
                     }
                 }
-            })
-            .map_err(crate::up::watch_error)?;
+            }
+        })
+        .map_err(crate::up::watch_error)?;
         let (add, mut registrations) = mpsc::unbounded_channel::<Registration>();
         let (commands, mut command_rx) = mpsc::unbounded_channel();
         let woven = Arc::new(Mutex::new(WovenState::default()));
@@ -148,7 +147,7 @@ impl Coordinator {
                             for path in &batch {
                                 if path.is_file() && path.extension().is_some_and(|e| e == "hick" || e == "md") {
                                     for (root, view) in &views {
-                                        if let Ok(rel) = path.strip_prefix(root) { view.state.index.add(&rel.to_string_lossy().replace('\\', "/")); }
+                                        if let Ok(rel) = path.strip_prefix(root) { let _ = view.state.index.discover(&rel.to_string_lossy().replace('\\', "/")); }
                                         view.state.store.register(&view.state.index);
                                     }
                                 }

@@ -422,3 +422,49 @@ it("joins repeated native close requests in a blank window while the host reply 
   await act(async () => { finish({ ok: true }); });
   expect(app.queryByRole("dialog", { name: /^Save changes/ })).toBeNull();
 });
+
+it.each(["button", "shared action"])("returns from full lineage through its %s without losing retained draft/layout", async method => {
+  vi.spyOn(api, "projectDocs").mockResolvedValue([]);
+  const registry = new UiActions({ workspace: "fixture", window: "lineage-window" }, () => true, async () => {});
+  const app = render(<UiActionContext.Provider value={registry}><App /></UiActionContext.Provider>);
+  await waitFor(() => expect(editor(app.container).hasFocus).toBe(true));
+  const view = editor(app.container);
+  act(() => view.dispatch({ changes: { from: 0, insert: "Retained lineage draft " }, selection: { anchor: 2, head: 7 } }));
+  const bytes = view.state.doc.toString(), selection = view.state.selection.toJSON();
+  const tabs = app.getAllByRole("tab").map(tab => tab.textContent);
+  act(() => { location.hash = "/projects/qa/lineage"; window.dispatchEvent(new HashChangeEvent("hashchange")); });
+  await app.findByRole("button", { name: "← Back to workspace" });
+  expect((app.container.querySelector("[data-workspace]") as HTMLElement).hidden).toBe(true);
+  if (method === "button") fireEvent.click(app.getByRole("button", { name: "← Back to workspace" }));
+  else {
+    const back = registry.observe("application-navigation", 64).actions.find(action => action.label === "Back to workspace")!;
+    await act(async () => { expect(await registry.act(registry.scope, { id: "python:turn", kind: "agent" }, { handle: back.handle, arguments: {}, request_id: "lineage-back" })).toMatchObject({ status: "result", outcome: { status: "completed" } }); });
+  }
+  await waitFor(() => expect(app.queryByRole("button", { name: "← Back to workspace" })).toBeNull());
+  expect((app.container.querySelector("[data-workspace]") as HTMLElement).hidden).toBe(false);
+  expect(editor(app.container)).toBe(view);
+  expect(view.state.doc.toString()).toBe(bytes);
+  expect(view.state.selection.toJSON()).toEqual(selection);
+  expect(app.getAllByRole("tab").map(tab => tab.textContent)).toEqual(tabs);
+});
+
+it.each([["files", "hickory-show-files"], ["show-agent", "hickory-show-agent"]])("reveals the retained workspace before dispatching native %s from lineage", async (menu, event) => {
+  vi.spyOn(api, "projectDocs").mockResolvedValue([]);
+  const app = render(<App />);
+  await waitFor(() => expect(editor(app.container).hasFocus).toBe(true));
+  const view = editor(app.container);
+  act(() => view.dispatch({ changes: { from: 0, insert: "Menu keeps this draft " } }));
+  const bytes = view.state.doc.toString();
+  act(() => { location.hash = "/projects/qa/lineage"; window.dispatchEvent(new HashChangeEvent("hashchange")); });
+  await app.findByRole("button", { name: "← Back to workspace" });
+  const observedVisibility: boolean[] = [];
+  const observe = () => observedVisibility.push(!(app.container.querySelector("[data-workspace]") as HTMLElement).hidden);
+  window.addEventListener(event, observe);
+  try {
+    fireEvent(window, new CustomEvent("hickory-menu", { detail: menu }));
+    await waitFor(() => expect(observedVisibility).toEqual([true]));
+    expect(app.queryByRole("button", { name: "← Back to workspace" })).toBeNull();
+    expect(view.state.doc.toString()).toBe(bytes);
+    if (menu === "show-agent") await app.findByRole("tab", { name: /Agent/ });
+  } finally { window.removeEventListener(event, observe); }
+});

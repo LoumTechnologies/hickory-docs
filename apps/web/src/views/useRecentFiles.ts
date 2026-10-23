@@ -17,5 +17,5 @@ export function useRecentFiles(layout: Layout): string | null {
       body: JSON.stringify({ path: file }),
     }).catch(() => {});
   }, [file]);
-  return tab && tab.kind !== "tree" && tab.kind !== "tool" ? tab.target : null;
+  return file;
 }

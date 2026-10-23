@@ -1,3 +1,4 @@
+import { sameDocumentUri } from "./documentUri";
 import { codeActionController } from "./codeActionController";
 import { editorLanguageActions } from "../editor/languageActions";
 import { prepareEditorChanges } from "../editor/textInput";
@@ -161,9 +162,9 @@ export function editsForUri(
   uri: string,
 ): { range: LspRange; newText: string }[] {
   if (!edit) return [];
-  const fromChanges = edit.changes?.[uri] ?? [];
+  const fromChanges = Object.entries(edit.changes ?? {}).filter(([target]) => sameDocumentUri(target, uri)).flatMap(([, edits]) => edits);
   const fromDocuments = (edit.documentChanges ?? [])
-    .filter((change) => change.textDocument?.uri === uri)
+    .filter((change) => !!change.textDocument?.uri && sameDocumentUri(change.textDocument.uri, uri))
     .flatMap((change) => change.edits ?? []);
   return [...fromChanges, ...fromDocuments];
 }
@@ -571,7 +572,7 @@ export async function renameSymbol(view: EditorView, opts: LspFeatureOptions, as
     const edit = await client.rename(uri, position, next);
     if (!current()) return refuse("The buffer changed. Request rename again.");
     const changed = applyEdit(view, edit, opts);
-    return { status: "completed", value: { source_changed: changed, other_documents: urisInEdit(edit).filter(other => other !== uri), scope: "Current editor only; other document edits are reported, not applied", saved: false, verified: false } };
+    return { status: "completed", value: { source_changed: changed, other_documents: urisInEdit(edit).filter(other => !sameDocumentUri(other, uri)), scope: "Current editor only; other document edits are reported, not applied", saved: false, verified: false } };
   } catch (e) { return refuse(e instanceof Error ? e.message : String(e)); }
 }
 
@@ -633,7 +634,7 @@ function applyEdit(view: EditorView, edit: WorkspaceEdit | null, opts: LspFeatur
   const edits = editsForUri(edit, opts.uri);
   if (!edits.length) { opts.onMessage?.("The server made no changes."); return false; }
   const changed = applyLanguageBatch(view, edits, opts, "input.lsp");
-  const elsewhere = urisInEdit(edit).filter(other => other !== opts.uri);
+  const elsewhere = urisInEdit(edit).filter(other => !sameDocumentUri(other, opts.uri));
   if (elsewhere.length) opts.onMessage?.(`Also changes ${elsewhere.length} other document${elsewhere.length === 1 ? "" : "s"}: ${elsewhere.join(", ")}`);
   return changed;
 }

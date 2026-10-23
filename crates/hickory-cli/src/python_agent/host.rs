@@ -1,6 +1,13 @@
 use super::*;
 
 impl Host<'_> {
+    fn record_ui_verifications(&mut self) -> Result<()> {
+        for record in self.review.take_ui_verifications() {
+            metadata(&self.session, "verification", &record)?;
+            self.ui_checks_recorded = true;
+        }
+        Ok(())
+    }
     async fn proposal(&mut self, name: &str, args: &Value) -> Result<Proposal> {
         let (surface, before, after) = self
             .server
@@ -589,6 +596,7 @@ impl Host<'_> {
                 if let Err(error) = self.review.completed(ok).await {
                     result = Err(error);
                 }
+                self.record_ui_verifications()?;
                 metadata(
                     &self.session,
                     "python-tool-result",
@@ -615,6 +623,7 @@ impl Host<'_> {
                     return self.private_complete(summary).await;
                 }
                 self.review.refresh().await?;
+                self.record_ui_verifications()?;
                 // Independent byte verification, never a model assertion.
                 let artifact = self.server.agent_completion()?;
                 metadata(
@@ -625,10 +634,15 @@ impl Host<'_> {
                 metadata(
                     &self.session,
                     "python-completion",
-                    &json!({"actor":"harness","model_summary":summary,"model_stopped":true,"verification":"source-output-equality-only","runtime_checks":"unrun","unchecked_edits":self.unchecked_edits,"assumption_coverage":"Not established"}),
+                    &json!({"actor":"harness","model_summary":summary,"model_stopped":true,"verification":"source-output-equality-only","runtime_checks":if self.ui_checks_recorded {"See separately recorded document check receipts; changeset-wide coverage is not established"} else {"No completed runtime check recorded"},"unchecked_edits":self.unchecked_edits,"assumption_coverage":"Not established"}),
                 )?;
+                let checks = if self.ui_checks_recorded {
+                    "Document checks recorded separately; changeset-wide runtime coverage not established"
+                } else {
+                    "no completed runtime check recorded"
+                };
                 self.summary = format!(
-                    "Changeset verified (source-output equality); runtime checks unrun. Model summary:\n\n{summary}"
+                    "Changeset verified (source-output equality); {checks}. Model summary:\n\n{summary}"
                 );
                 append(
                     &self.session,

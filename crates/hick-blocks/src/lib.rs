@@ -105,7 +105,17 @@ impl std::error::Error for AttributeError {}
 fn accepted_attributes(element: &str) -> Option<&'static [&'static str]> {
     Some(match element {
         "doc" => &["xmlns:hick", "weave", "volume", "volatile"],
-        "session" => &["xmlns:hick"],
+        "session" => &[
+            "xmlns:hick",
+            "start",
+            "doc",
+            "source",
+            "session",
+            "cwd",
+            "branch",
+            "harness-version",
+            "title",
+        ],
         "container" => &["name", "image", "network", "mount"],
         "volume" => &["name", "path", "from", "read", "write", "input", "output"],
         "allow" => &["container", "read", "write"],
@@ -186,16 +196,34 @@ fn accepted_attributes(element: &str) -> Option<&'static [&'static str]> {
         "val" => &["name", "value"],
         "exclude" => &["select"],
         // Session record vocabulary.
-        "user" => &["turn", "parent"],
-        "assistant" => &["turn", "parent", "model"],
+        "user" => &[
+            "id",
+            "turn",
+            "parent",
+            "provider",
+            "model",
+            "at",
+            "interrupts",
+        ],
+        "assistant" => &["turn", "parent", "model", "at", "message"],
         "tool" => &["name", "call"],
-        "tool-result" => &["name", "call", "ok"],
+        "tool-result" => &["id", "name", "call", "ok", "at"],
         "read" => &["file", "lines", "sha256", "commit"],
-        "wrote" => &["file", "lines", "hashes"],
-        "context" => &["kind"],
-        "observation" => &["source", "exit"],
+        "wrote" => &["file", "lines", "hashes", "sha256-lines"],
+        "context" => &["kind", "at"],
+        "observation" => &["id", "source", "exit"],
         "action" => &["lang"],
-        "reasoning" | "input" | "usage" | "next" | "transcript" => &[],
+        "usage" => &[
+            "turn",
+            "scope",
+            "input",
+            "cache-write",
+            "cache-read",
+            "output",
+            "cost-usd",
+        ],
+        "transcript" => &["id", "format"],
+        "reasoning" | "input" | "next" => &[],
         _ => return None,
     })
 }
@@ -780,6 +808,21 @@ mod tests {
                 span: (12, 16),
             }]
         );
+    }
+
+    #[test]
+    fn generated_transcript_and_session_metadata_are_valid_but_typos_are_not() {
+        let source = r#"<hick:doc><hick:transcript id="meeting" format="vtt">WEBVTT</hick:transcript></hick:doc>"#;
+        let doc = hick_lang::parse(source).unwrap();
+        assert!(attribute_errors(source, &doc).is_empty());
+        let source = r#"<hick:session start="now" doc="note.md"><hick:user id="in0" turn="t" provider="test" model="model">hi</hick:user><hick:usage turn="0" input="2" cache-write="0" cache-read="0" output="1" cost-usd="0.1"/></hick:session>"#;
+        let doc = hick_lang::parse(source).unwrap();
+        assert!(attribute_errors(source, &doc).is_empty());
+        let typo = source.replace("cache-read=", "cache-raed=");
+        let doc = hick_lang::parse(&typo).unwrap();
+        let errors = attribute_errors(&typo, &doc);
+        assert_eq!(errors.len(), 1);
+        assert_eq!(errors[0].attribute, "cache-raed");
     }
 
     #[test]

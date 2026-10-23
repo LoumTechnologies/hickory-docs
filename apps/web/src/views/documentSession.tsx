@@ -1,3 +1,5 @@
+import { completedRunBlocks, failedRunBanner, settleDocumentRun } from "./documentRunResults";
+export { completedRunBlocks, failedRunBanner, settleDocumentRun } from "./documentRunResults";
 import { inlineEvaluationOwner } from "../debug/inlineEval";
 import { useDocumentRunActions } from "./uiDocumentRunActions";
 import { rememberReadingState, restoreReadingState } from "../lib/contextProjection";
@@ -282,6 +284,8 @@ function useDocumentSession(
   // verify() can resolve the banner after the fact.
   const terminalStatusesRef = useRef<Map<string, string>>(new Map());
   const startedCellsRef = useRef<Set<string>>(new Set());
+  const requestedCellsRef = useRef<Set<string>>(new Set());
+  const knownDocumentRunsRef = useRef<Set<string>>(new Set());
 
   const realtime: Realtime = useMemo(() => {
     // In mock mode a shared local bus is registered at startup so fake run
@@ -445,6 +449,8 @@ function useDocumentSession(
       }
       if (!("event" in msg)) {
         // Terminal run status.
+        const started = new Set(startedCellsRef.current);
+        const requested = new Set(requestedCellsRef.current);
         terminalStatusesRef.current.set(msg.run_id, msg.status);
         if (msg.run_id === checkRunRef.current) {
           checkRunRef.current = null;
@@ -454,8 +460,11 @@ function useDocumentSession(
               : { kind: "fail", text: "Test failed — inspect expectation differences and output drift." },
           );
         }
-        setRunningCells(new Set());
-        startedCellsRef.current = new Set();
+        const clearProgress = () => {
+          setRunningCells(new Set());
+          startedCellsRef.current = new Set();
+          requestedCellsRef.current = new Set();
+        };
         // The RUN's blocks, not a fresh render.
         //
         // `/render` re-weaves the document without executing, and a document
@@ -463,12 +472,18 @@ function useDocumentSession(
         // which is what it says a second after a successful run, because a
         // run does not record unless it was asked to. The run's own block
         // model has the transcripts in it, so that is what the cells show.
-        api.runStatus(msg.run_id).then(
+        void settleDocumentRun(msg.run_id, knownDocumentRunsRef.current,
           (run) => {
-            if (run.blocks && run.blocks.length > 0) setBlocks(run.blocks);
-            else scheduleRender();
+            clearProgress();
+            setBlocks(prev => completedRunBlocks(run, prev, started, requested));
+            const failure = failedRunBanner(run);
+            if (failure) setBanner(failure);
+            if (!run.blocks?.length && run.status !== "failed") scheduleRender();
           },
-          () => scheduleRender(),
+          (error) => {
+            clearProgress();
+            setBanner({ kind: "fail", text: `Could not load run results: ${error instanceof Error ? error.message : String(error)}` });
+          },
         );
         return;
       }
@@ -488,7 +503,7 @@ function useDocumentSession(
           const transcript = fresh ? [event] : [...(b.transcript ?? []), event];
           const status =
             event.kind === "exit" ? (event.code === 0 ? ("ok" as const) : ("failed" as const)) : b.status;
-          return { ...b, transcript, status };
+          return { ...b, transcript, status, runError: undefined };
         });
       });
       if (event.kind === "exit") {
@@ -506,6 +521,8 @@ function useDocumentSession(
       void (async () => {
         setBanner(null);
         startedCellsRef.current.delete(execId);
+        requestedCellsRef.current.add(execId);
+        setBlocks(prev => prev?.map(block => block.kind === "exec" && block.id === execId ? { ...block, runError: undefined } : block) ?? prev);
         setRunningCells((prev) => new Set(prev).add(execId));
         try {
           // A cell the server has rendered is run as an ACTION on its
@@ -514,8 +531,13 @@ function useDocumentSession(
           // not caught up with yet has no span to address, and runs the
           // older way.
           const block = blocksRef.current?.find((b) => b.kind === "exec" && b.id === execId);
-          if (block) await api.blockAction(docId, block.span[0], "run");
-          else await api.run(docId, [execId]);
+          if (block) {
+            const outcome = await api.blockAction(docId, block.span[0], "run");
+            if (outcome.outcome === "run") knownDocumentRunsRef.current.add(outcome.run_id);
+          } else {
+            const outcome = await api.run(docId, [execId]);
+            knownDocumentRunsRef.current.add(outcome.run_id);
+          }
         } catch (e) {
           setRunningCells((prev) => {
             const next = new Set(prev);
@@ -537,6 +559,8 @@ function useDocumentSession(
       setBanner(null);
       startedCellsRef.current = new Set();
       const ids = (blocksRef.current ?? []).filter((b) => b.kind === "exec").map((b) => b.id);
+      requestedCellsRef.current = new Set(ids);
+      setBlocks(prev => prev?.map(block => block.kind === "exec" ? { ...block, runError: undefined } : block) ?? prev);
       // A document with no cells has nothing to run, and a button that
       // appears to do nothing is worse than one that says so: the run
       // happens either way (it re-weaves), but the only visible sign of it
@@ -547,6 +571,7 @@ function useDocumentSession(
       setRunningCells(new Set(ids));
       try {
         const { run_id } = await api.run(docId, undefined, expectedSourceHash);
+        knownDocumentRunsRef.current.add(run_id);
         setLastRunId(run_id);
         if (ids.length === 0) {
           setBanner({ kind: "pass", text: "Re-woven. This document has no exec cells to run." });
@@ -565,8 +590,12 @@ function useDocumentSession(
     return (async () => {
       setBanner({ kind: "pending", text: "Testing — re-running cells and checking expectations and output drift…" });
       startedCellsRef.current = new Set();
+      const requested = new Set((blocksRef.current ?? []).filter(block => block.kind === "exec").map(block => block.id));
+      requestedCellsRef.current = requested;
+      setBlocks(prev => prev?.map(block => block.kind === "exec" ? { ...block, runError: undefined } : block) ?? prev);
       try {
         const { run_id } = await api.check(docId, expectedSourceHash);
+        knownDocumentRunsRef.current.add(run_id);
         setLastRunId(run_id);
         const already = terminalStatusesRef.current.get(run_id);
         if (already !== undefined) {
@@ -575,7 +604,14 @@ function useDocumentSession(
               ? { kind: "pass", text: "Test passed — expectations match and outputs have no drift." }
               : { kind: "fail", text: "Test failed — inspect expectation differences and output drift." },
           );
-          scheduleRender();
+          // A short run may finish before the check request returns. Read
+          // its receipt here too: a fresh render would erase its failure
+          // transcript and the generic banner would hide its diagnostic.
+          void api.runStatus(run_id).then(run => {
+            setBlocks(prev => completedRunBlocks(run, prev, new Set(), requested));
+            const failure = failedRunBanner(run);
+            if (failure) setBanner(failure);
+          }, () => undefined);
         } else {
           checkRunRef.current = run_id;
         }

@@ -165,10 +165,35 @@ pub fn refresh_outputs(run: &DocRun) -> Result<usize> {
             });
         } else {
             let close = exec.close_span.context("an exec without a closing span")?;
-            edits.push(Edit {
-                span: (close.end, close.end),
-                text: format!("\n\n{replacement}"),
-            });
+            let open = exec.source_span.context("an exec without a source span")?;
+            // Recording whitespace is display metadata, never generated file
+            // content. Place it outside every enclosing file, not between an
+            // inline exec and its file's closing tag.
+            let position = doc
+                .all_tags()
+                .into_iter()
+                .filter(|tag| tag.name == "file")
+                .filter_map(|tag| Some((tag.source_span?, tag.close_span?)))
+                .filter(|(file_open, file_close)| {
+                    file_open.start < open.start && file_close.end >= close.end
+                })
+                .min_by_key(|(file_open, _)| file_open.start)
+                .map(|(_, file_close)| file_close.end)
+                .unwrap_or(close.end);
+            let text = format!("\n\n{replacement}");
+            // Several cells in one file share this boundary; append in source
+            // order rather than reversing equal-position insertion edits.
+            if let Some(edit) = edits
+                .iter_mut()
+                .find(|edit| edit.span == (position, position))
+            {
+                edit.text.push_str(&text);
+            } else {
+                edits.push(Edit {
+                    span: (position, position),
+                    text,
+                });
+            }
         }
     }
     if edits.is_empty() {
@@ -210,15 +235,33 @@ fn fresh_id(container: &str, used: &HashSet<String>) -> String {
 fn output_fence(selector: &str, input_hash: &str, output: &str) -> String {
     let width = output
         .lines()
-        .map(|line| line.bytes().take_while(|byte| *byte == b'`').count())
+        .map(|line| {
+            // The parser accepts closing fences indented by up to three spaces.
+            let indent = line.bytes().take_while(|byte| *byte == b' ').count();
+            if indent <= 3 {
+                line[indent..]
+                    .bytes()
+                    .take_while(|byte| *byte == b'`')
+                    .count()
+            } else {
+                0
+            }
+        })
         .max()
         .unwrap_or(0)
         .max(2)
         + 1;
     let fence = "`".repeat(width);
-    let hash = hick_literate::cache::sha256_hex(output);
+    // A fence is line-delimited even when stdout has no final newline. Hash
+    // the body actually stored, and keep following source out of its closer.
+    let body = if output.ends_with('\n') {
+        output.to_owned()
+    } else {
+        format!("{output}\n")
+    };
+    let hash = hick_literate::cache::sha256_hex(&body);
     format!(
-        "{fence}output-for=\"{selector}\" hash=\"{hash}\" input-hash=\"{input_hash}\" exit=\"0\"\n{output}{fence}"
+        "{fence}output-for=\"{selector}\" hash=\"{hash}\" input-hash=\"{input_hash}\" exit=\"0\"\n{body}{fence}\n"
     )
 }
 
@@ -232,7 +275,131 @@ mod tests {
         let out = output_fence("#test-1", "input", "```\nhello\n");
         assert!(out.starts_with("````output-for=\"#test-1\" hash=\""));
         assert!(out.contains("input-hash=\"input\""));
-        assert!(out.ends_with("````"));
+        assert!(out.ends_with("````\n"));
+    }
+
+    #[test]
+    fn output_fence_keeps_indented_markers_and_hick_tags_inside_transcript() {
+        for indent in 0..=3 {
+            let output = format!(
+                "{}```\n<hick:file path=\"escaped.txt\">literal output</hick:file>\n",
+                " ".repeat(indent)
+            );
+            let fence = output_fence("#cell", "input", &output);
+            let source = format!(
+                "<hick:doc>\n{fence}<hick:file path=\"real.txt\">source</hick:file>\n</hick:doc>"
+            );
+            let doc = hick_lang::parse(&source).unwrap();
+            let files: Vec<_> = doc
+                .all_tags()
+                .into_iter()
+                .filter(|tag| tag.name == "file")
+                .collect();
+            assert_eq!(files.len(), 1);
+            assert_eq!(files[0].get_attribute("path"), Some("real.txt"));
+            let saved = doc
+                .all_tags()
+                .into_iter()
+                .find(|tag| tag.name == "output")
+                .unwrap();
+            let body = &source[saved.source_span.unwrap().end..saved.close_span.unwrap().start];
+            assert_eq!(body, output);
+            assert_eq!(
+                saved.get_attribute("hash"),
+                Some(hick_literate::cache::sha256_hex(body).as_str())
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn an_inline_exec_output_keeps_its_enclosing_file_and_document_parseable() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("note.md");
+        std::fs::write(&path, r#"<hick:doc><hick:file path="value.txt"><hick:exec container="gen" show="output">printf hello</hick:exec></hick:file></hick:doc>"#).unwrap();
+        let mut run = run_doc(&path, &[], RunMode::Execute, ExecutorChoice::Local)
+            .await
+            .unwrap();
+        // Existing transcript rendering ends each shown entry with a newline;
+        // raw execution bytes remain distinct from this generated-file view.
+        assert_eq!(run.result.files["value.txt"].as_text(), Some("hello\n"));
+        assert_eq!(run.result.transcripts["gen"][0].output, "hello");
+        assert_eq!(refresh_outputs(&run).unwrap(), 2);
+        let once = std::fs::read_to_string(&path).unwrap();
+        hick_lang::parse(&once).unwrap();
+        run = run_doc(&path, &[], RunMode::Execute, ExecutorChoice::Local)
+            .await
+            .unwrap();
+        assert!(verify_outputs(&run).is_empty());
+        assert_eq!(run.result.files["value.txt"].as_text(), Some("hello\n"));
+        assert_eq!(run.result.transcripts["gen"][0].output, "hello");
+        refresh_outputs(&run).unwrap();
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), once);
+    }
+
+    #[tokio::test]
+    async fn several_recordings_in_one_file_preserve_artifact_bytes_and_source_order() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("note.md");
+        std::fs::write(&path, r#"<hick:doc><hick:file path="value.txt"><hick:exec container="one" show="output">printf hello</hick:exec><hick:exec container="two" show="output">printf world</hick:exec></hick:file></hick:doc>"#).unwrap();
+        let run = run_doc(&path, &[], RunMode::Execute, ExecutorChoice::Local)
+            .await
+            .unwrap();
+        assert_eq!(
+            run.result.files["value.txt"].as_text(),
+            Some("hello\nworld\n")
+        );
+        refresh_outputs(&run).unwrap();
+        let once = std::fs::read_to_string(&path).unwrap();
+        assert!(
+            once.find("output-for=\"#one-1\"").unwrap()
+                < once.find("output-for=\"#two-1\"").unwrap()
+        );
+        let run = run_doc(&path, &[], RunMode::Execute, ExecutorChoice::Local)
+            .await
+            .unwrap();
+        assert_eq!(
+            run.result.files["value.txt"].as_text(),
+            Some("hello\nworld\n")
+        );
+        assert!(verify_outputs(&run).is_empty());
+        refresh_outputs(&run).unwrap();
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), once);
+    }
+
+    #[tokio::test]
+    async fn an_existing_recording_inside_a_file_keeps_authored_whitespace_stable() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("note.md");
+        // The old writer had no newline after its closing fence: the source's
+        // existing newline made this a valid recording inside the file.
+        let recording = output_fence("#legacy", "old-input", "hello\n");
+        let recording = recording.strip_suffix('\n').unwrap();
+        let source = format!(
+            r#"<hick:doc><hick:file path="value.txt"><hick:exec container="gen" id="legacy" show="output">printf 'hello\n'</hick:exec>
+
+{recording}
+</hick:file></hick:doc>"#
+        );
+        std::fs::write(&path, source).unwrap();
+        let run = run_doc(&path, &[], RunMode::Execute, ExecutorChoice::Local)
+            .await
+            .unwrap();
+        let before = run.result.files["value.txt"].as_text().unwrap().to_owned();
+        assert_eq!(before, "hello\n\n\n");
+        assert_eq!(run.result.transcripts["gen"][0].output, "hello\n");
+        refresh_outputs(&run).unwrap();
+        let once = std::fs::read_to_string(&path).unwrap();
+        assert!(once.contains("</hick:exec>\n\n```output-for="));
+        let run = run_doc(&path, &[], RunMode::Execute, ExecutorChoice::Local)
+            .await
+            .unwrap();
+        assert_eq!(
+            run.result.files["value.txt"].as_text(),
+            Some(before.as_str())
+        );
+        assert!(verify_outputs(&run).is_empty());
+        refresh_outputs(&run).unwrap();
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), once);
     }
 
     #[tokio::test]

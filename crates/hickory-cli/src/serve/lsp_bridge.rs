@@ -540,6 +540,23 @@ async fn read_framed<R: tokio::io::AsyncBufRead + Unpin>(reader: &mut R) -> Resu
 fn rewrite_uris(message: &mut Value, f: &dyn Fn(&str) -> Option<String>) {
     match message {
         Value::Object(map) => {
+            // WorkspaceEdit.changes addresses documents in object KEYS.
+            // Rewriting only textDocument.uri leaves valid rename/fix edits
+            // pointing at file: while the editor owns the corresponding hick: URI.
+            if let Some(Value::Object(changes)) = map.get_mut("changes") {
+                let old = std::mem::take(changes);
+                for (uri, edits) in old {
+                    let target = f(&uri).unwrap_or(uri);
+                    match (changes.get_mut(&target), edits) {
+                        (Some(Value::Array(existing)), Value::Array(items)) => {
+                            existing.extend(items)
+                        }
+                        (_, edits) => {
+                            changes.insert(target, edits);
+                        }
+                    }
+                }
+            }
             for (key, value) in map.iter_mut() {
                 if (key == "uri" || key == "targetUri" || key == "rootUri")
                     && let Some(text) = value.as_str()
@@ -590,14 +607,15 @@ fn client_uri_to_server(uri: &str, root: &Path) -> Option<String> {
 fn server_uri_to_client(uri: &str, root: &Path) -> Option<String> {
     let path = file_uri_to_path(uri)?;
     if let Ok(rel) = path.strip_prefix(root) {
-        return Some(format!(
-            "{DOC_SCHEME}{}{}",
-            rel.to_string_lossy().replace('\\', "/"),
-            tower_lsp::lsp_types::Url::parse(uri)
-                .ok()
-                .and_then(|u| u.query().map(|q| format!("?{q}")))
-                .unwrap_or_default()
-        ));
+        let mut client = tower_lsp::lsp_types::Url::parse(DOC_SCHEME).ok()?;
+        client
+            .path_segments_mut()
+            .ok()?
+            .clear()
+            .extend(rel.to_string_lossy().replace('\\', "/").split('/'));
+        let server = tower_lsp::lsp_types::Url::parse(uri).ok()?;
+        client.set_query(server.query());
+        return Some(client.to_string());
     }
     // hick-lsp stages the files a document *would* write under a temp
     // directory, one per document. Those are not files the user has, so they
@@ -610,6 +628,9 @@ fn server_uri_to_client(uri: &str, root: &Path) -> Option<String> {
 }
 
 fn path_to_file_uri(path: &Path) -> String {
+    if let Ok(uri) = tower_lsp::lsp_types::Url::from_file_path(path) {
+        return uri.to_string();
+    }
     let text = path.to_string_lossy().replace('\\', "/");
     if text.starts_with('/') {
         format!("file://{text}")
@@ -676,7 +697,7 @@ mod tests {
     #[test]
     fn percent_escapes_survive_the_trip() {
         let server = client_uri_to_server("hick:///docs/a%20b.md", &root()).unwrap();
-        assert_eq!(server, "file:///home/u/project/docs/a b.md");
+        assert_eq!(server, "file:///home/u/project/docs/a%20b.md");
     }
 
     #[test]
@@ -697,6 +718,35 @@ mod tests {
     #[test]
     fn a_uri_outside_both_worlds_is_left_alone() {
         assert!(server_uri_to_client("file:///usr/lib/python3/typing.py", &root()).is_none());
+    }
+
+    #[test]
+    fn workspace_edit_keys_return_to_the_client_document_identity() {
+        let mut reply = serde_json::json!({"changes":{"file:///home/u/project/QA%20files/main.cpp":[{"range":{"start":{"line":0,"character":4},"end":{"line":0,"character":10}},"newText":"squared"}]},"documentChanges":[{"textDocument":{"uri":"file:///home/u/project/QA%20files/main.cpp","version":2},"edits":[]}],"message":"file:///home/u/project/QA%20files/main.cpp"});
+        rewrite_uris(&mut reply, &|uri| server_uri_to_client(uri, &root()));
+        assert!(
+            reply["changes"]
+                .get("hick:///QA%20files/main.cpp")
+                .is_some()
+        );
+        assert_eq!(
+            reply["changes"]["hick:///QA%20files/main.cpp"][0]["newText"],
+            "squared"
+        );
+        assert_eq!(
+            reply["documentChanges"][0]["textDocument"]["uri"],
+            "hick:///QA%20files/main.cpp"
+        );
+        assert_eq!(
+            reply["message"],
+            "file:///home/u/project/QA%20files/main.cpp"
+        );
+        let literal = client_uri_to_server("hick:///QA%2520files/main.cpp", &root()).unwrap();
+        assert!(literal.contains("QA%2520files"));
+        assert_eq!(
+            server_uri_to_client(&literal, &root()).unwrap(),
+            "hick:///QA%2520files/main.cpp"
+        );
     }
 
     #[test]

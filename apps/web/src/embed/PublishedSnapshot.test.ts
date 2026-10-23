@@ -12,5 +12,6 @@ it("rejects changed source and unsupported transcript events", async () => {
   const snapshot = {format:"hickory-viewer-snapshot",version:1,path:"spec.md",source,source_hash:hash,captured_at_ms:0,execution:"recorded",cells:[]};
   expect((await decodeSnapshot(snapshot)).source).toBe(source);
   await expect(decodeSnapshot({...snapshot,source:"changed"})).rejects.toThrow("hash");
+  await expect(decodeSnapshot({...snapshot,cells:[{kind:"exec",id:"a",container:"shell",command:"echo",span:[0,1],saved_output:{html:"untrusted"}}]})).rejects.toThrow("saved output");
   await expect(decodeSnapshot({...snapshot,cells:[{kind:"exec",id:"a",container:"shell",command:"echo",span:[0,1],transcript:[{kind:"injected",data:"x",t:0}]}]})).rejects.toThrow("transcript");
 });

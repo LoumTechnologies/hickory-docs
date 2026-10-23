@@ -5,6 +5,8 @@ import json
 import pathlib
 import tempfile
 import unittest
+import subprocess
+import sys
 
 import polars as pl
 from deltalake import DeltaTable
@@ -12,6 +14,23 @@ from notebook import display, _h_table, _HICKORY_PREFIX
 
 
 class NotebookTest(unittest.TestCase):
+    def test_dataset_entrypoint_reads_delta_log_in_a_path_with_spaces(self):
+        with tempfile.TemporaryDirectory(prefix="hickory dataset ") as directory:
+            root = pathlib.Path(directory)
+            pl.DataFrame({"id": [1, 2, 3]}).write_delta(root / "delta table")
+            DeltaTable(str(root / "delta table")).delete("id = 1")
+            scripts = pathlib.Path(__file__).parent
+            program = (scripts / "notebook.py").read_text() + "\n" + (scripts / "dataset.py").read_text()
+            result = subprocess.run([sys.executable, "-c", program], input=json.dumps({
+                "src": str(root / "delta table"), "format": "delta", "limit": 1, "offset": 1,
+            }), text=True, capture_output=True, timeout=30)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            preview = json.loads(result.stdout)
+            self.assertEqual(preview["rows"], [[3]])
+            # Lazy preview deliberately avoids a full count scan.
+            self.assertIsNone(preview["total"])
+            self.assertFalse(preview["has_more"])
+
     def test_display_keeps_types_nulls_nested_values_and_limits(self):
         frame = pl.DataFrame({"number": [3, None, 10], "list": [[1], [], [2, 3]]})
         buf = io.StringIO()

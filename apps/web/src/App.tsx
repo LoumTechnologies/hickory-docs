@@ -39,7 +39,26 @@ export function App() {
   const workspace = useRef<{ route: WorkspaceRoute; hash: string } | null>(null);
   if (inWorkspace) workspace.current = { route: route as WorkspaceRoute, hash: location.hash || "#/" };
   if (route.name === "blank") workspace.current = null;
-
+  const pendingWorkspaceEvents = useRef<string[]>([]);
+  const returnToWorkspace = () => {
+    navigate(workspace.current?.hash.replace(/^#/, "") ?? "/");
+    if (route.name === "settings") window.dispatchEvent(new Event(SETTINGS_CLOSED));
+  };
+  const revealWorkspaceAndDispatch = (event: string) => {
+    if (inWorkspace) window.dispatchEvent(new CustomEvent(event));
+    else {
+      pendingWorkspaceEvents.current.push(event);
+      returnToWorkspace();
+    }
+  };
+  useEffect(() => {
+    if (!inWorkspace) return;
+    // Wait until the retained workspace is visible before a command moves
+    // its focus or opens a pane. Its editors and layout stay mounted.
+    for (const event of pendingWorkspaceEvents.current.splice(0)) {
+      window.dispatchEvent(new CustomEvent(event));
+    }
+  }, [inWorkspace]);
 
   // The desktop shell's native menu, arriving as DOM events (menuBridge).
   // Navigation is answered here; Save / Save As need the focused document,
@@ -132,14 +151,14 @@ export function App() {
             setNotice("Open a folder to show Files.");
             return;
           }
-          window.dispatchEvent(new CustomEvent("hickory-show-files"));
+          revealWorkspaceAndDispatch("hickory-show-files");
           break;
         case "show-agent":
           if (routeRef.current.name === "blank") {
             setNotice("Open a file or folder to use the agent.");
             return;
           }
-          window.dispatchEvent(new CustomEvent("hickory-show-agent"));
+          revealWorkspaceAndDispatch("hickory-show-agent");
           break;
         case "terminal":
         case "attention":
@@ -192,6 +211,11 @@ export function App() {
   };
   const closeApplicationRef = useRef(closeApplication); closeApplicationRef.current = closeApplication;
   useUiCommands([
+    ...(route.name === "lineage" ? [{ key: "application-navigation/back-to-workspace", command: {
+      label: "Back to workspace", parent: "application-navigation", subject: "application-navigation", parameters: {}, prerequisites: [],
+      read: () => ({ revision: JSON.stringify([route, workspace.current?.hash]), enabled: true }),
+      execute: async () => { returnToWorkspace(); return { status: "completed" as const, value: { navigation: "requested", result: "Observe the retained workspace" } }; },
+    } }] : []),
     { key: "application-navigation/close-window", command: { label: "Close current window", parent: "application-navigation", subject: "application-window:close", parameters: {},
       prerequisites: ["Reveals the retained workspace for source-bound close decisions. Host acknowledgement is not a witness of window destruction; shutdown can prevent reply delivery."],
       read: () => ({ revision: JSON.stringify([route, workspace.current?.hash, newProject, !!pendingApplicationClose.current]), enabled: !pendingApplicationClose.current, reason: pendingApplicationClose.current ? "A window close flow is pending; inspect its prompt or workspace close status" : undefined }),
@@ -240,9 +264,14 @@ export function App() {
         </div>}
         <Suspense fallback={<div role="status">Opening…</div>}>
           {inWorkspace ? null : route.name === "lineage" ? (
-            <LineageView projectId={route.id} />
+            <section aria-label="Project lineage" style={{ display: "flex", flexDirection: "column", height: "100%", minHeight: 0 }}>
+              <nav style={{ padding: ".75rem .75rem 0" }} aria-label="Lineage navigation">
+                <button type="button" className="btn" onClick={returnToWorkspace}>← Back to workspace</button>
+              </nav>
+              <LineageView projectId={route.id} />
+            </section>
           ) : route.name === "settings" ? (
-            <SettingsView onBack={() => { navigate(workspace.current?.hash.replace(/^#/, "") ?? "/"); window.dispatchEvent(new Event(SETTINGS_CLOSED)); }} />
+            <SettingsView onBack={returnToWorkspace} />
           ) : route.name === "blank" ? (
             <BlankWelcome />
           ) : (

@@ -310,11 +310,36 @@ pub fn plans() -> Vec<crate::tool_install::InstallPlan> {
 
 /// Install one language's adapter, confined.
 pub fn install(root: &std::path::Path, language: &str) -> anyhow::Result<std::path::PathBuf> {
-    crate::tool_install::install(&CATALOGUE, root, language)
+    crate::tool_install::install(&CATALOGUE, root, installer_language(language))
+}
+
+// JavaScript and TypeScript use the same js-debug distribution. Discovery
+// returns the source language; installation is keyed by ecosystem.
+fn installer_language(language: &str) -> &str {
+    match language {
+        "javascript" | "typescriptreact" | "javascriptreact" => "typescript",
+        _ => language,
+    }
 }
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn every_javascript_flavour_resolves_to_a_real_installer() {
+        for language in [
+            "javascript",
+            "typescript",
+            "javascriptreact",
+            "typescriptreact",
+        ] {
+            let canonical = super::installer_language(language);
+            assert_eq!(canonical, "typescript");
+            assert!(super::INSTALLERS.iter().any(|i| i.language == canonical));
+        }
+        assert_eq!(super::installer_language("python"), "python");
+        assert_eq!(super::installer_language("unknown"), "unknown");
+    }
+
     /// The two halves of "how do I get an adapter" must agree.
     ///
     /// `hick_dap::how_to_get` writes the sentence a person reads when

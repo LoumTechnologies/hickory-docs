@@ -41,6 +41,7 @@ impl HickBackend {
             index.insert(
                 physical,
                 VFileMapping {
+                    provider_diagnostics: Vec::new(),
                     hick_uri: display,
                     language_id: crate::lang_detect::language_id(path)
                         .unwrap_or("plaintext")

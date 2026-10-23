@@ -1,3 +1,4 @@
+import { workspaceTreeFiles } from "./workspaceTreeFiles";
 import { useUiReading } from "../lib/uiReading";
 import { runWorkspaceMenu } from "./workspaceMenuActions";
 import { useWorkspaceMenuActions } from "./uiWorkspaceMenuActions";
@@ -381,6 +382,7 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
     };
   }, []);
   const focusedPath = useRecentFiles(layout);
+  focusedPathRef.current = focusedPath;
   const welcomeActions: WelcomeAction[] = useMemo(
     () =>
       welcomeActionsFor({
@@ -580,17 +582,7 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
         }));
       }
       // Rank all tree paths before capping the results.
-      const files: FileNode[] = [];
-      const walk = (nodes: readonly FileNode[]) => {
-        for (const node of nodes) {
-          if (node.dir) {
-            if (node.children) walk(node.children);
-          } else {
-            files.push(node);
-          }
-        }
-      };
-      for (const root of folderRootsRef.current) walk(root.tree);
+      const files = workspaceTreeFiles(folderRootsRef.current);
       return rankFiles(files, term).map((node) => ({
         id: node.path,
         label: node.name,

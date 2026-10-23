@@ -37,22 +37,16 @@ impl DocIndex {
     /// Scan `root` for documents. A single file may be served directly, in
     /// which case its parent directory is the root.
     pub fn scan(root: &Path) -> Result<Self> {
-        // A DIRECTORY with no `.md` file anywhere is a session with no
-        // documents yet — the app's first-run state, where the UI lands on a
-        // fresh untitled document. `expand_docs`' refusal (with its
-        // config-file advice) is for the one-shot CLI verbs, where "nothing
-        // to run" really is a dead end. A missing or file target still
-        // propagates its error, and a directory that HAS documents but fails
-        // to expand keeps its real error too.
-        if root.is_dir() && !contains_hick(root) {
-            return Ok(Self {
-                root: root.to_path_buf(),
-                absolute_ids: false,
-                by_id: std::sync::RwLock::new(HashMap::new()),
-            });
-        }
+        // Empty folders are valid native workspaces. Use the same default
+        // discovery policy as CLI expansion, without a second cache scan.
+        // Explicit configuration continues through its own resolver unchanged.
+        let paths = if root.is_dir() && !root.join("_hick.yml").is_file() {
+            hick_literate::discover_default_documents(root)?
+        } else {
+            crate::expand_docs(root)?
+        };
         let mut by_id = HashMap::new();
-        for path in crate::expand_docs(root)? {
+        for path in paths {
             let rel = path
                 .strip_prefix(root)
                 .unwrap_or(&path)
@@ -111,6 +105,25 @@ impl DocIndex {
         id
     }
 
+    /// Register a background-discovered document without treating runtime
+    /// Markdown as project source. Explicit opens/writes continue to use add.
+    pub fn discover(&self, rel: &str) -> Option<String> {
+        let id = self.id_for_path(rel);
+        if self.by_id.read().ok()?.contains_key(&id) {
+            return Some(id); // Keep explicitly opened/configured documents live.
+        }
+        let path = self.root.join(rel);
+        let eligible = if self.root.join("_hick.yml").is_file() {
+            crate::expand_docs(&self.root)
+                .ok()?
+                .iter()
+                .any(|configured| configured == &path)
+        } else {
+            hick_literate::is_default_document_path(&self.root, &path)
+        };
+        eligible.then(|| self.add(rel))
+    }
+
     /// Absolute path for a document id.
     pub fn absolute(&self, id: &str) -> Option<PathBuf> {
         self.path_of(id).map(|rel| self.root.join(rel))
@@ -162,29 +175,6 @@ pub fn doc_id(rel_path: &str) -> String {
         hash = hash.wrapping_mul(0x1000_0000_01b3);
     }
     format!("{hash:016x}")
-}
-
-/// Whether any `.md` file exists under `dir`, skipping the caches and VCS
-/// trees a scan has no business entering.
-fn contains_hick(dir: &Path) -> bool {
-    let Ok(entries) = std::fs::read_dir(dir) else {
-        return false;
-    };
-    for entry in entries.flatten() {
-        let path = entry.path();
-        let name = entry.file_name();
-        if path.is_dir() {
-            if name == ".hick-cache" || name == ".git" || name == "node_modules" {
-                continue;
-            }
-            if contains_hick(&path) {
-                return true;
-            }
-        } else if path.extension().is_some_and(|e| e == "md") {
-            return true;
-        }
-    }
-    false
 }
 
 /// Files on disk, standing in for Postgres.
@@ -315,6 +305,67 @@ pub fn write_atomic(path: &Path, bytes: &[u8]) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn default_index_excludes_runtime_documents_and_keeps_explicit_configuration() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("note.md"), "project note").unwrap();
+        for folder in [
+            ".hick-cache/adapters/tool",
+            ".venv/lib/site-packages/package",
+            "node_modules/pkg",
+            "target/doc",
+        ] {
+            let path = dir.path().join(folder);
+            std::fs::create_dir_all(&path).unwrap();
+            std::fs::write(path.join("README.md"), "dependency").unwrap();
+        }
+        let entries = DocIndex::scan(dir.path()).unwrap().entries();
+        assert_eq!(
+            entries
+                .iter()
+                .map(|(_, path)| path.as_str())
+                .collect::<Vec<_>>(),
+            vec!["note.md"]
+        );
+        std::fs::write(
+            dir.path().join("_hick.yml"),
+            "files:\n  - .hick-cache/adapters/tool/README.md\n",
+        )
+        .unwrap();
+        let entries = DocIndex::scan(dir.path()).unwrap().entries();
+        assert_eq!(
+            entries
+                .iter()
+                .map(|(_, path)| path.as_str())
+                .collect::<Vec<_>>(),
+            vec![".hick-cache/adapters/tool/README.md"]
+        );
+    }
+
+    #[test]
+    fn background_discovery_ignores_new_dependencies_but_keeps_explicit_documents_live() {
+        let dir = tempfile::tempdir().unwrap();
+        let index = DocIndex::scan(dir.path()).unwrap();
+        std::fs::create_dir_all(dir.path().join(".venv/pkg")).unwrap();
+        let dependency = ".venv/pkg/LICENSE.md";
+        std::fs::write(dir.path().join(dependency), "dependency").unwrap();
+        assert!(index.discover(dependency).is_none());
+        assert!(index.entries().is_empty());
+        std::fs::write(dir.path().join("new.md"), "source").unwrap();
+        assert!(index.discover("new.md").is_some());
+        let opened = index.add(dependency);
+        assert_eq!(index.discover(dependency), Some(opened));
+        let configured = ".venv/pkg/configured.md";
+        std::fs::write(dir.path().join(configured), "chosen").unwrap();
+        std::fs::write(
+            dir.path().join("_hick.yml"),
+            "files:\n  - .venv/pkg/configured.md\n",
+        )
+        .unwrap();
+        assert!(index.discover(configured).is_some());
+        assert!(index.discover("not-configured.md").is_none());
+    }
 
     #[test]
     fn ids_are_stable_and_path_derived() {

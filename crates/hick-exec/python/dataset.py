@@ -6,7 +6,10 @@ if __name__ == "__main__":
         request = _h_json.loads(sys.stdin.read())
         src = request["src"]
         if request["format"] == "delta":
-            frame = pl.scan_delta(src)
+            # Arrow resolves Delta log paths correctly even when the workspace
+            # contains spaces (including macOS's Application Support). Keep the
+            # scan lazy and honor the transaction log, including deletions.
+            frame = pl.scan_delta(src, use_pyarrow=True)
         else:
             frame = pl.scan_parquet(src, glob=False)
         result = _h_table(frame, request["limit"], request["offset"])

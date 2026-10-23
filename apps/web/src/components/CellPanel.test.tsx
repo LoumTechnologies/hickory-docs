@@ -161,3 +161,28 @@ it("discloses only currently visible transcript and expires reads when replay/so
   if (expanded.status !== "result" || expanded.outcome.status !== "completed") throw Error("Expected replay bytes");
   expect(new TextDecoder().decode(new Uint8Array((expanded.outcome.value as { bytes: number[] }).bytes))).toContain("apple,3");
 });
+
+it("shows a failed run with no transcript as an unavailable cell outcome, retaining older evidence without a fresh pass", async () => {
+  const { completedRunBlocks } = await import("../views/documentSession");
+  const { failedRunBanner } = await import("../views/documentSession");
+  const receipt = { id: "failed-run", status: "failed" as const, started_at: "now", blocks: [], error: "cell exceeded its timeout" };
+  // This is the actual host Err shape: no blocks and no streamed events.
+  const original = cell({ status: "unrecorded", transcript: [] });
+  const blocks = completedRunBlocks(receipt, [original], new Set(), new Set([original.id]))!;
+  expect(failedRunBanner(receipt)?.text).toContain("cell exceeded its timeout");
+  const view = render(<CellPanel block={blocks[0] as ExecBlock} />);
+  expect(screen.getByText("Run failed · cell outcome unavailable")).toBeTruthy();
+  expect(view.container.textContent).not.toContain("never run");
+  expect(screen.getByRole("status").textContent).toContain("does not establish which cells executed");
+  const earlier = cell({ status: "ok", expect: { match: "exact", body: "apple,3\nbanana,5\n" } });
+  const retained = completedRunBlocks(receipt, [earlier], new Set(), new Set([earlier.id]))!;
+  view.rerender(<CellPanel block={retained[0] as ExecBlock} replay />);
+  expect(screen.queryByText("✓ Expected output matches")).toBeNull();
+  expect(screen.getByRole("status").textContent).toContain("Earlier recorded output is retained");
+  expect((retained[0] as ExecBlock).transcript).toEqual(earlier.transcript);
+  // A real fresh receipt retires the transient attempt error.
+  const next = completedRunBlocks({ ...receipt, status: "ok", blocks: [earlier], error: null }, retained, new Set())!;
+  view.rerender(<CellPanel block={next[0] as ExecBlock} />);
+  expect(screen.queryByText("Run failed · cell outcome unavailable")).toBeNull();
+  expect(screen.getByText("✓ Expected output matches")).toBeTruthy();
+});

@@ -477,11 +477,13 @@ async function typeResponse(text: string) {
 
 // Guarantee: docs/guarantees/agent/unsent-responses-survive-restart.md
 it("retains a rejected send and preserves a newer response when a later send is accepted", async () => {
+  vi.mocked(acpApi.state).mockResolvedValue({ backend: "python", ready: true });
   vi.mocked(api.agentTurns).mockResolvedValue({ turns: [], provider: "anthropic", model: "claude-sonnet-5", totals: { usd: 0, input: 0, output: 0, cache_read: 0, cache_write: 0 } });
   vi.mocked(api.agent).mockRejectedValueOnce(new Error("send rejected"));
   const realtime = { onRunEvent: () => () => undefined } as unknown as Realtime;
   const view = render(<ChatDock docId="send-recovery" realtime={realtime} onAgentFinished={() => {}} />);
   await typeResponse("submitted text");
+  await waitFor(() => expect((screen.getByRole("button", { name: "Send" }) as HTMLButtonElement).disabled).toBe(false));
   fireEvent.click(screen.getByRole("button", { name: "Send" }));
   await screen.findByText("send rejected");
   expect(screen.getByRole("textbox", { name: "Agent conversation and response" }).textContent).toContain("submitted text");

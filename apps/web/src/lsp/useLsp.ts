@@ -13,6 +13,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { getWorkspaceRealtime, resetWorkspaceRealtime, type Realtime } from "../api/realtime";
 import { LspClient, type LspDiagnostic } from "./client";
+import { documentUri, sameDocumentUri } from "./documentUri";
 
 export interface LspSession {
   client: LspClient | null;
@@ -71,11 +72,13 @@ export function useWorkspaceLsp(path: string, text: string): LspSession {
 }
 
 function useLspOver(client: LspClient | null, docPath: string, text: string, projectContext = "new"): LspSession {
-  const uri = useMemo(() => docPath.startsWith("hick-project:///") ? docPath : `hick:///${docPath.replace(/^\/+/, "")}${projectContext === "new" ? "" : `?hick-project=${encodeURIComponent(projectContext)}`}`, [docPath,projectContext]);
+  const uri = useMemo(() => documentUri(docPath, projectContext), [docPath, projectContext]);
   const [diagnostics, setDiagnostics] = useState<LspDiagnostic[]>([]);
   const [ready, setReady] = useState(false);
   const versionRef = useRef(1);
   const textRef = useRef(text);
+  const lastSent = useRef<string | null>(null);
+  const flushRef = useRef<(() => void) | null>(null);
   textRef.current = text;
 
   useEffect(() => {
@@ -83,12 +86,24 @@ function useLspOver(client: LspClient | null, docPath: string, text: string, pro
     if (!client || !docPath) return;
     versionRef.current = 1;
     client.didOpen(uri, textRef.current, 1);
+    lastSent.current = textRef.current;
+    const flush = () => {
+      const latest = textRef.current;
+      if (latest !== lastSent.current) {
+        client.didChange(uri, latest, ++versionRef.current);
+        lastSent.current = latest;
+      }
+    };
+    flushRef.current = flush;
+    const unregister = client.registerDocumentSync(uri, flush);
     setReady(true);
     const off = client.onDiagnostics((params) => {
-      if (params.uri === uri) setDiagnostics(params.diagnostics);
+      if (sameDocumentUri(params.uri, uri)) setDiagnostics(params.diagnostics);
     });
     return () => {
       off();
+      unregister();
+      if (flushRef.current === flush) flushRef.current = null;
       client.didClose(uri);
       setReady(false);
     };
@@ -99,7 +114,7 @@ function useLspOver(client: LspClient | null, docPath: string, text: string, pro
   useEffect(() => {
     if (!client || !ready) return;
     const timer = setTimeout(() => {
-      client.didChange(uri, text, ++versionRef.current);
+      flushRef.current?.();
     }, SYNC_DEBOUNCE_MS);
     return () => clearTimeout(timer);
   }, [client, ready, uri, text]);

@@ -11,6 +11,7 @@ pub mod cell_timeout;
 pub mod compact;
 pub mod config;
 pub mod csv_table;
+mod discovery;
 pub mod equiv;
 pub mod expect;
 mod links;
@@ -3874,13 +3875,15 @@ fn extract_verify_from_nodes(
 // Pipeline CLI helpers (shared between hick and hick-agent binaries)
 // ---------------------------------------------------------------------------
 
+pub use discovery::{discover_default_documents, is_default_document_path};
+
 /// Expand a CLI argument into a list of Markdown documents.
 ///
 /// - If `path` is a file, return it directly.
 /// - If `path` is a directory with `_hick.yml`, use that config to resolve files.
-/// - If `path` is a directory without config, expand `**/*.md`.
+/// - If `path` is a directory without config, discover project `.md` files, pruning runtime/build trees.
 pub fn expand_path_arg(path: &Path) -> Result<(Vec<PathBuf>, Option<PathBuf>)> {
-    use anyhow::{Context as _, bail};
+    use anyhow::bail;
     use config::HickConfig;
     if path.is_file() {
         if path.extension().and_then(|e| e.to_str()) == Some("hick") {
@@ -3914,13 +3917,7 @@ pub fn expand_path_arg(path: &Path) -> Result<(Vec<PathBuf>, Option<PathBuf>)> {
             }
             return Ok((files, Some(config_path)));
         }
-        let pattern = path.join("**/*.md");
-        let pattern_str = pattern.to_string_lossy();
-        let mut matches: Vec<PathBuf> = glob::glob(&pattern_str)
-            .with_context(|| format!("invalid glob pattern: {}", pattern_str))?
-            .filter_map(|r| r.ok())
-            .collect();
-        matches.sort();
+        let matches = discover_default_documents(path)?;
         if matches.is_empty() {
             bail!(
                 "No .md documents found in '{}'\n\n\

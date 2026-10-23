@@ -100,6 +100,9 @@ struct VFileMapping {
     root_uri: String,
     /// Position map for translating coordinates.
     position_map: PositionMap,
+    /// Exact provider payloads in child coordinates, never editor-supplied
+    /// diagnostics. Replaced with the mapping on every source change.
+    provider_diagnostics: Vec<serde_json::Value>,
 }
 
 impl HickBackend {
@@ -344,6 +347,7 @@ impl HickBackend {
                         language_id: lang_id.to_string(),
                         root_uri: root_uri.clone(),
                         position_map,
+                        provider_diagnostics: Vec::new(),
                     },
                 );
             }
@@ -453,6 +457,7 @@ impl HickBackend {
                     language_id: language_id.to_string(),
                     root_uri: root_uri.clone(),
                     position_map: PositionMap::identity(lines),
+                    provider_diagnostics: Vec::new(),
                 },
             );
         }
@@ -719,18 +724,36 @@ impl HickBackend {
         pos: Position,
         extra: Option<serde_json::Value>,
     ) -> Option<serde_json::Value> {
-        let (vf_uri, lang, vpos) = self.virtual_target(uri, pos).await?;
-        let result = self
-            .child_request(method, &vf_uri, &lang, vpos, extra)
-            .await?;
+        self.positional_result(method, uri, pos, extra)
+            .await
+            .ok()
+            .flatten()
+    }
+
+    async fn positional_result(
+        &self,
+        method: &str,
+        uri: &Url,
+        pos: Position,
+        extra: Option<serde_json::Value>,
+    ) -> Result<Option<serde_json::Value>> {
+        let Some((vf_uri, lang, vpos)) = self.virtual_target(uri, pos).await else {
+            return Ok(None);
+        };
+        let Some(result) = self
+            .child_request_result(method, &vf_uri, &lang, vpos, extra)
+            .await?
+        else {
+            return Ok(None);
+        };
         let map = {
             let index = self.vfile_index.read().await;
             index.get(&vf_uri).map(|m| m.position_map.clone())
         };
-        Some(match map {
+        Ok(Some(match map {
             Some(map) => translate_bare_ranges(result, &map),
             None => result,
-        })
+        }))
     }
 
     /// A positional request whose result carries LOCATIONS in other files —
@@ -902,10 +925,29 @@ impl HickBackend {
         pos: Position,
         extra: Option<serde_json::Value>,
     ) -> Option<serde_json::Value> {
-        let root_uri = self.root_of(vf_uri).await?;
+        self.child_request_result(method, vf_uri, language_id, pos, extra)
+            .await
+            .ok()
+            .flatten()
+    }
+
+    async fn child_request_result(
+        &self,
+        method: &str,
+        vf_uri: &Url,
+        language_id: &str,
+        pos: Position,
+        extra: Option<serde_json::Value>,
+    ) -> Result<Option<serde_json::Value>> {
+        let Some(root_uri) = self.root_of(vf_uri).await else {
+            return Ok(None);
+        };
         let handle = {
             let dispatcher = self.dispatcher.lock().await;
-            dispatcher.get_child(language_id, &root_uri).ok()?.clone()
+            let Ok(handle) = dispatcher.get_child(language_id, &root_uri) else {
+                return Ok(None);
+            };
+            handle.clone()
         };
         let mut params = serde_json::json!({
             "textDocument": { "uri": vf_uri.as_str() },
@@ -919,11 +961,11 @@ impl HickBackend {
             }
         }
         match handle.request(method, params).await {
-            Ok(v) if !v.is_null() => Some(v),
-            Ok(_) => None,
+            Ok(v) if !v.is_null() => Ok(Some(v)),
+            Ok(_) => Ok(None),
             Err(e) => {
                 tracing::debug!(method, language_id, error = %e, "child LSP request failed");
-                None
+                Err(child_request_error(e))
             }
         }
     }
@@ -1316,6 +1358,45 @@ fn copy_manifests(staging: &StagingArea, hick_uri: &Url) {
     }
 }
 
+fn child_request_error(error: crate::child_lsp::ChildLspError) -> tower_lsp::jsonrpc::Error {
+    use tower_lsp::jsonrpc::{Error, ErrorCode};
+    let code = match &error {
+        crate::child_lsp::ChildLspError::JsonRpc { code, .. } => ErrorCode::ServerError(*code),
+        _ => ErrorCode::InternalError,
+    };
+    Error {
+        code,
+        message: error.to_string().into(),
+        data: None,
+    }
+}
+
+/// Keep provider diagnostics in the child's coordinate system and retain
+/// provider-specific code/data used to identify fixes. An empty selection
+/// asks for fixes on the cursor's line, including an insertion beside it.
+fn provider_action_diagnostics(
+    diagnostics: &[serde_json::Value],
+    requested: Range,
+) -> Vec<serde_json::Value> {
+    diagnostics
+        .iter()
+        .filter(|diagnostic| {
+            let Some(range) = diagnostic
+                .get("range")
+                .and_then(|value| serde_json::from_value::<Range>(value.clone()).ok())
+            else {
+                return false;
+            };
+            if requested.start == requested.end {
+                range.start.line <= requested.start.line && range.end.line >= requested.start.line
+            } else {
+                range.start <= requested.end && range.end >= requested.start
+            }
+        })
+        .cloned()
+        .collect()
+}
+
 /// Process a publishDiagnostics notification from a child LSP.
 ///
 /// Instead of publishing each child's diagnostics independently (which would
@@ -1334,8 +1415,8 @@ async fn handle_child_diagnostics(
         .ok_or("missing uri in publishDiagnostics")?;
     let vf_uri = Url::parse(uri_str)?;
 
-    let index = vfile_index.read().await;
-    let mapping = match index.get(&vf_uri) {
+    let mut index = vfile_index.write().await;
+    let mapping = match index.get_mut(&vf_uri) {
         Some(m) => m,
         None => {
             let diag_count = notif
@@ -1354,15 +1435,18 @@ async fn handle_child_diagnostics(
         }
     };
 
-    let hick_uri = mapping.hick_uri.clone();
-    let position_map = &mapping.position_map;
-
     let child_diagnostics = notif
         .params
         .get("diagnostics")
         .and_then(|d| d.as_array())
         .cloned()
         .unwrap_or_default();
+    if mapping.language_id != notif.language_id {
+        return Ok(());
+    }
+    mapping.provider_diagnostics = child_diagnostics.clone();
+    let hick_uri = mapping.hick_uri.clone();
+    let position_map = &mapping.position_map;
 
     let mut translated: HashMap<Url, Vec<Diagnostic>> = HashMap::new();
     for diag_val in &child_diagnostics {
@@ -2157,26 +2241,32 @@ impl LanguageServer for HickBackend {
         let Some((vf_uri, lang, vpos)) = self.virtual_target(&uri, params.range.start).await else {
             return Ok(None);
         };
-        let (vend_line, vend_char) = {
+        let ((vend_line, vend_char), diagnostics) = {
             let index = self.vfile_index.read().await;
-            index
+            let end = index
                 .get(&vf_uri)
                 .and_then(|m| {
                     m.position_map
                         .to_virtual(params.range.end.line, params.range.end.character)
                 })
-                .unwrap_or((vpos.line, vpos.character))
+                .unwrap_or((vpos.line, vpos.character));
+            let range = Range::new(vpos, Position::new(end.0, end.1));
+            let diagnostics = index
+                .get(&vf_uri)
+                .map(|mapping| provider_action_diagnostics(&mapping.provider_diagnostics, range))
+                .unwrap_or_default();
+            (end, diagnostics)
         };
         let extra = serde_json::json!({
             "range": {
                 "start": { "line": vpos.line, "character": vpos.character },
                 "end": { "line": vend_line, "character": vend_char },
             },
-            "context": { "diagnostics": [] },
+            "context": { "diagnostics": diagnostics },
         });
         let Some(result) = self
-            .child_request("textDocument/codeAction", &vf_uri, &lang, vpos, Some(extra))
-            .await
+            .child_request_result("textDocument/codeAction", &vf_uri, &lang, vpos, Some(extra))
+            .await?
         else {
             return Ok(None);
         };
@@ -2192,14 +2282,14 @@ impl LanguageServer for HickBackend {
             return Ok(None);
         };
         let Some(result) = self
-            .child_request(
+            .child_request_result(
                 "textDocument/rename",
                 &vf_uri,
                 &lang,
                 vpos,
                 Some(serde_json::json!({ "newName": params.new_name })),
             )
-            .await
+            .await?
         else {
             return Ok(None);
         };
@@ -2212,13 +2302,13 @@ impl LanguageServer for HickBackend {
         params: TextDocumentPositionParams,
     ) -> Result<Option<PrepareRenameResponse>> {
         let Some(result) = self
-            .positional(
+            .positional_result(
                 "textDocument/prepareRename",
                 &params.text_document.uri,
                 params.position,
                 None,
             )
-            .await
+            .await?
         else {
             return Ok(None);
         };
@@ -2411,246 +2501,5 @@ fn parse_error_location(err: &hick_lang::ParseError) -> (usize, String) {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::virtual_file::VirtualSegment;
-    use hick_lang::SourceSpan;
-
-    fn seg(text: &str, start_line: usize, col: usize) -> VirtualSegment {
-        VirtualSegment {
-            text: text.to_string(),
-            source_span: Some(SourceSpan::new(0, text.len(), start_line, col)),
-            source_line: start_line,
-            source_column: col,
-        }
-    }
-
-    fn index_with(vf: &str, hick: &str, map: PositionMap) -> HashMap<String, (Url, PositionMap)> {
-        let mut index = HashMap::new();
-        index.insert(uri_key(vf), (Url::parse(hick).unwrap(), map));
-        index
-    }
-
-    #[test]
-    fn a_child_that_spells_a_uri_differently_still_maps_home() {
-        // basedpyright on Windows answers `file:///c%3A/Users/...` for the file
-        // we staged as `file:///C:/Users/...` — lowercase drive, percent-encoded
-        // colon. Keyed by the raw string those are different files, the
-        // location is never translated, and go-to-definition lands the user in
-        // a staging directory instead of their own document.
-        assert_eq!(
-            uri_key("file:///C:/Users/x/app.py"),
-            uri_key("file:///c%3A/Users/x/app.py"),
-            "two spellings of one path must key the same"
-        );
-        // Different files stay different.
-        assert_ne!(
-            uri_key("file:///C:/Users/x/app.py"),
-            uri_key("file:///C:/Users/x/other.py")
-        );
-        // Something that is not a file URI is kept whole rather than mangled.
-        assert_eq!(uri_key("untitled:Untitled-1"), "untitled:Untitled-1");
-    }
-
-    #[test]
-    fn references_result_translates_to_hick_coordinates() {
-        // Virtual file lines 0..3 map to .md source lines 9..12 (1-based
-        // 10..13), each indented 4 columns.
-        let map = PositionMap::build(&[seg("fn a() {}\nfn b() {\n    a();\n}\n", 10, 4)]);
-        let index = index_with("file:///tmp/vf/main.rs", "hick:///doc.md", map);
-
-        let child_result = serde_json::json!([
-            { "uri": "file:///tmp/vf/main.rs",
-              "range": { "start": { "line": 0, "character": 3 },
-                         "end":   { "line": 0, "character": 4 } } },
-            { "uri": "file:///tmp/vf/main.rs",
-              "range": { "start": { "line": 2, "character": 4 },
-                         "end":   { "line": 2, "character": 5 } } },
-        ]);
-
-        let translated = translate_locations(child_result, &index);
-        let locs: Vec<Location> = serde_json::from_value(translated).unwrap();
-        assert_eq!(locs.len(), 2);
-        assert_eq!(locs[0].uri.as_str(), "hick:///doc.md");
-        assert_eq!(locs[0].range.start, Position::new(9, 7));
-        assert_eq!(locs[0].range.end, Position::new(9, 8));
-        assert_eq!(locs[1].range.start, Position::new(11, 8));
-        assert_eq!(locs[1].range.end, Position::new(11, 9));
-    }
-
-    #[test]
-    fn references_in_unknown_vfile_pass_through() {
-        let map = PositionMap::build(&[seg("x\n", 1, 0)]);
-        let index = index_with("file:///tmp/vf/main.rs", "hick:///doc.md", map);
-
-        let child_result = serde_json::json!([
-            { "uri": "file:///somewhere/else.rs",
-              "range": { "start": { "line": 5, "character": 0 },
-                         "end":   { "line": 5, "character": 3 } } },
-        ]);
-
-        let translated = translate_locations(child_result.clone(), &index);
-        assert_eq!(translated, child_result);
-    }
-
-    #[test]
-    fn references_on_untranslatable_lines_keep_virtual_location() {
-        // Map covers only virtual line 0; a result on line 7 (e.g. inside
-        // pasted content beyond the mapped segment) must survive untouched so
-        // the server-side bridge can map it through provenance.
-        let map = PositionMap::build(&[seg("only one line\n", 3, 0)]);
-        let index = index_with("file:///tmp/vf/main.rs", "hick:///doc.md", map);
-
-        let child_result = serde_json::json!([
-            { "uri": "file:///tmp/vf/main.rs",
-              "range": { "start": { "line": 7, "character": 2 },
-                         "end":   { "line": 7, "character": 6 } } },
-        ]);
-
-        let translated = translate_locations(child_result.clone(), &index);
-        assert_eq!(translated, child_result);
-    }
-
-    #[test]
-    fn location_links_translate_target_ranges() {
-        let map = PositionMap::build(&[seg("fn a() {}\n", 5, 2)]);
-        let index = index_with("file:///tmp/vf/main.rs", "hick:///doc.md", map);
-
-        let child_result = serde_json::json!([
-            { "targetUri": "file:///tmp/vf/main.rs",
-              "targetRange": { "start": { "line": 0, "character": 0 },
-                               "end":   { "line": 0, "character": 9 } },
-              "targetSelectionRange": { "start": { "line": 0, "character": 3 },
-                                        "end":   { "line": 0, "character": 4 } } },
-        ]);
-
-        let translated = translate_locations(child_result, &index);
-        assert_eq!(
-            translated[0]["targetUri"].as_str().unwrap(),
-            "hick:///doc.md"
-        );
-        assert_eq!(translated[0]["targetRange"]["start"]["line"], 4);
-        assert_eq!(translated[0]["targetRange"]["start"]["character"], 2);
-        assert_eq!(
-            translated[0]["targetSelectionRange"]["start"]["character"],
-            5
-        );
-    }
-
-    #[test]
-    fn bare_ranges_translate_or_drop() {
-        let map = PositionMap::build(&[seg("hello\n", 4, 2)]);
-        let hover = serde_json::json!({
-            "contents": { "kind": "plaintext", "value": "info" },
-            "range": { "start": { "line": 0, "character": 0 },
-                       "end":   { "line": 0, "character": 5 } },
-        });
-        let translated = translate_bare_ranges(hover, &map);
-        assert_eq!(translated["range"]["start"]["line"], 3);
-        assert_eq!(translated["range"]["start"]["character"], 2);
-
-        let unmappable = serde_json::json!({
-            "contents": "x",
-            "range": { "start": { "line": 9, "character": 0 },
-                       "end":   { "line": 9, "character": 1 } },
-        });
-        let translated = translate_bare_ranges(unmappable, &map);
-        assert!(translated.get("range").is_none());
-        assert_eq!(translated["contents"], "x");
-    }
-
-    #[test]
-    fn an_inlay_hints_bare_position_is_translated_too() {
-        // An inlay hint carries a POSITION, not a range, and the walker used
-        // to step straight over it — leaving the hint at the virtual file's
-        // line number, which is near the top of the document instead of
-        // beside the code it describes.
-        let map = PositionMap::build(&[seg("def load(path):\n", 6, 0)]);
-        let hint = serde_json::json!([{
-            "label": "-> str",
-            "position": { "line": 0, "character": 14 },
-        }]);
-        let translated = translate_bare_ranges(hint, &map);
-        assert_eq!(translated[0]["position"]["line"], 5, "{translated}");
-        assert_eq!(translated[0]["position"]["character"], 14);
-    }
-
-    #[test]
-    fn a_hint_with_no_source_is_dropped_rather_than_placed_at_line_zero() {
-        let map = PositionMap::build(&[seg("x\n", 2, 0)]);
-        let hint =
-            serde_json::json!([{ "label": ": int", "position": { "line": 40, "character": 0 } }]);
-        let translated = translate_bare_ranges(hint, &map);
-        assert!(translated[0].get("position").is_none(), "{translated}");
-    }
-
-    #[test]
-    fn a_position_that_is_not_a_position_is_left_alone() {
-        // Only the key `position` with a line and a character is treated as
-        // one; a server's own `position` field of some other shape must
-        // survive untouched.
-        let map = PositionMap::build(&[seg("x\n", 2, 0)]);
-        let value = serde_json::json!({ "position": "after", "data": { "position": 3 } });
-        let translated = translate_bare_ranges(value, &map);
-        assert_eq!(translated["position"], "after");
-        assert_eq!(translated["data"]["position"], 3);
-    }
-
-    #[test]
-    fn a_virtual_files_extent_is_its_line_count() {
-        // What the inlay-hint request sends as its range. A child asked
-        // about the DOCUMENT's range is asked about lines its file does not
-        // have, and answers nothing.
-        let map = PositionMap::build(&[seg("a\nb\nc\n", 3, 0)]);
-        assert_eq!(map.virtual_lines(), 3);
-    }
-
-    #[test]
-    fn a_formatting_edit_gets_the_blocks_indentation_back() {
-        // The block sits four columns in; the formatter saw it dedented and
-        // answers in those coordinates, with no indentation in its text.
-        let map = PositionMap::build(&[seg("fn a(){\n}\n", 10, 4)]);
-        let edits = serde_json::json!([{
-            "range": { "start": { "line": 0, "character": 0 }, "end": { "line": 2, "character": 0 } },
-            "newText": "fn a() {\n    x\n}\n",
-        }]);
-        let out = translate_edits(&edits, &map).expect("mapped");
-        assert_eq!(out.len(), 1);
-        assert_eq!(out[0].range.start, Position::new(9, 4));
-        // One past the block's last line, column 0: the closing tag's line.
-        assert_eq!(out[0].range.end, Position::new(11, 0));
-        // Every inserted line indented; the trailing newline left bare, since
-        // the closing tag's own indentation is outside the range.
-        assert_eq!(out[0].new_text, "fn a() {\n        x\n    }\n");
-    }
-
-    #[test]
-    fn a_plain_files_formatting_edit_is_untouched() {
-        let map = PositionMap::identity(3);
-        let edits = serde_json::json!([{
-            "range": { "start": { "line": 0, "character": 0 }, "end": { "line": 3, "character": 0 } },
-            "newText": "a\nb\n",
-        }]);
-        let out = translate_edits(&edits, &map).expect("mapped");
-        assert_eq!(out[0].new_text, "a\nb\n");
-        assert_eq!(out[0].range.end, Position::new(3, 0));
-    }
-
-    #[test]
-    fn an_edit_that_cannot_be_mapped_withholds_the_whole_answer() {
-        // Half a block formatted is corruption with a formatter's name on it.
-        let map = PositionMap::build(&[seg("x\n", 2, 0)]);
-        let edits = serde_json::json!([
-            { "range": { "start": { "line": 0, "character": 0 }, "end": { "line": 0, "character": 1 } }, "newText": "y" },
-            { "range": { "start": { "line": 7, "character": 0 }, "end": { "line": 7, "character": 1 } }, "newText": "z" },
-        ]);
-        assert!(translate_edits(&edits, &map).is_none());
-    }
-
-    #[test]
-    fn a_markdown_note_with_hick_elements_uses_the_hick_pipeline() {
-        let uri = Url::parse("file:///notes/today.md").unwrap();
-        assert!(is_hick_document(&uri, "<hick:paste from=\"#test1\" />"));
-        assert!(!is_hick_document(&uri, "# ordinary Markdown\n"));
-    }
-}
+#[path = "backend/audit_tests.rs"]
+mod tests;
