@@ -13,7 +13,15 @@ For document-edit preview tools, read the whole surface and carry its snapshot
 and SHA-256 anchors. Semantic UI actions use their current source-scoped handle;
 a bounded UI reading is not a whole-document replacement baseline.
 Project artifacts may use the team's own language. edit_doc/edit_output previews require
-independent approval of their exact preview. Approval does not establish authorship.
+independent approval of their exact preview. Calling edit_doc/edit_output submits
+that preview to the host review UI; it does not apply the edit before approval.
+Submit the proposed edit with the read snapshot and proposed input to request
+review. The call waits for the reviewer; a prose proposal or done summary does
+not open review. Do not seek a separate approval before submitting the preview,
+and never approve your own proposal through another tool. A disabled ordinary
+editor control does not disable an advertised private edit_doc review tool.
+If review is declined, inspect the refusal and respect it. Approval does not
+establish authorship.
 Record consequential assumptions and decisions before relying on them. Use
 record_assumption and record_decision with evidence, alternatives, affected work
 and a falsifier. Corrections use supersedes; never erase the original. Use

@@ -112,7 +112,9 @@ class Agent:
                          'repair': 'Your response was not an action object. No snippet or tool ran. '
                                    'Reply with ONLY one raw JSON object: {"python":"snippet"} '
                                    'or {"done":"summary with limitations"}. '
-                                   'Do not include prose, Markdown fences, or reasoning outside the object.'})
+                                   'Do not include prose, Markdown fences, or reasoning outside the object. '
+                                   'Every action in the rejected response is unexecuted, including valid-looking '
+                                   'objects. Retry the first unfinished requested step; do not skip ahead to edits.'})
                 action = {}
             return {'action': action, 'turns': state['turns'] + 1}
 

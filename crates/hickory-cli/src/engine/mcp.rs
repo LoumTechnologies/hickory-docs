@@ -98,7 +98,12 @@ impl Remote {
         let response = request.send().await?;
         anyhow::ensure!(
             response.status().is_success(),
-            "Private host request refused"
+            "{}",
+            if surface == "preview" {
+                "Captured edit preview refused. Reread the current source and snapshot. For a complete proposal pass whole=\"true\", that snapshot, and input with the complete revised source; run/after require SHA-256 line anchors, never source text. The host still requires independent review before writing."
+            } else {
+                "Private host request refused"
+            }
         );
         Ok(response.json().await?)
     }

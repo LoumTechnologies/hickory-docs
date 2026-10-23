@@ -54,6 +54,29 @@ class WorkerTests(unittest.TestCase):
         self.assertIn('ONLY one raw JSON object', observations[1]['repair'])
         self.assertEqual(len(tools.completions), 1)
 
+    # Guarantee: docs/guarantees/verification/predictions-precede-managed-observation.md
+    def test_rejected_batch_runs_nothing_before_first_step_retry(self):
+        seen = []
+        class Model:
+            calls = 0
+            def complete(self, messages):
+                self.calls += 1
+                if self.calls == 1:
+                    return '{"python":"read()"}\n{"python":"edit()"}'
+                if self.calls == 2:
+                    observation = json.loads(messages[-1]['content'].split(': ', 1)[1])
+                    self_test.assertFalse(observation['tool_execution_started'])
+                    self_test.assertIn('Every action in the rejected response is unexecuted', observation['repair'])
+                    self_test.assertIn('first unfinished requested step', observation['repair'])
+                    self_test.assertEqual(seen, [])
+                    return '{"python":"read()"}'
+                return '{"done":"Only the first requested step ran"}'
+        self_test = self
+        agent = Agent(Model(), Tools(), lambda code: seen.append(code))
+        self.assertEqual(agent.run(Config('Read before proposing an edit', max_turns=3)),
+                         'Only the first requested step ran')
+        self.assertEqual(seen, ['read()'])
+
     def test_broker_rejects_wrong_id_and_oversized_frames(self):
         broker = Broker(io.StringIO('{"id":2,"result":"forged"}\n'), io.StringIO())
         with self.assertRaisesRegex(RuntimeError, 'Mismatched'):

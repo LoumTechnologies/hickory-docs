@@ -6,6 +6,12 @@ live=0
 acp=0
 case "${1:-}" in "") ;; --live-provider) live=1 ;; --acp-fixture) acp=1 ;; *) echo 'Usage: scripts/test-private-prediction-ui.sh [--live-provider|--acp-fixture]' >&2; exit 2 ;; esac
 [ "$#" -le 1 ] || exit 2
+# The worker is a non-editable installed wheel. Refresh it before every witness,
+# otherwise a source fix can silently exercise the previous installed policy.
+# Reuse the configured interpreter: it is the one actually witnessed, even when
+# this host lacks the repository's preferred Python download.
+uv sync --project apps/agent --locked --no-editable --reinstall-package hickory-agent-worker \
+  --python "$PWD/apps/agent/.venv/bin/python"
 run_dir=$(mktemp -d "${TMPDIR:-/tmp}/hickory-private-ui.XXXXXX")
 terminate_tree() {
   local parent="$1" child

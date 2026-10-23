@@ -172,3 +172,49 @@ async fn private_acp_protocol_refuses_filesystem_permissions_and_unverified_comp
     assert!(!marker.exists());
     assert!(ledger.history(None).unwrap().attempts.is_empty());
 }
+
+// Guarantee: docs/guarantees/verification/predictions-precede-managed-observation.md
+#[tokio::test]
+async fn advertised_private_whole_preview_never_writes_or_executes_and_refuses_stale_source() {
+    let (_root, _private, state, ledger, marker, _) = fixture().await;
+    let bound = state.private_prediction.clone().unwrap();
+    let source = std::fs::read_to_string(&bound.path).unwrap();
+    let snapshot = hickory_agent::hashline::LineIndex::new(&source).snapshot;
+    let tools = catalogue(false);
+    let edit = tools["tools"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|tool| tool["name"] == "edit_doc")
+        .unwrap();
+    let whole = edit["inputSchema"]["properties"]["whole"]["enum"][0].clone();
+    assert_eq!(whole, "true");
+    let proposed = format!("{source}\n\nA proposed explanation.\n");
+    let arguments = json!({"whole":whole,"snapshot":snapshot,"input":proposed});
+    let Json(result) = preview(
+        State(state.clone()),
+        Json(json!({"name":"edit_doc","arguments":arguments})),
+    )
+    .await
+    .unwrap();
+    assert_eq!(result["before"], source);
+    assert_eq!(result["after"], proposed);
+    assert_eq!(std::fs::read_to_string(&bound.path).unwrap(), source);
+    assert!(!marker.exists());
+    assert!(ledger.history(None).unwrap().attempts.is_empty());
+    assert!(preview(State(state.clone()), Json(json!({"name":"edit_doc","arguments":{"snapshot":snapshot,"run":"literal source text","input":"replacement"}}))).await.is_err());
+    std::fs::write(
+        &bound.path,
+        format!("{source}\nChanged by another owner.\n"),
+    )
+    .unwrap();
+    assert!(
+        preview(
+            State(state),
+            Json(json!({"name":"edit_doc","arguments":arguments}))
+        )
+        .await
+        .is_err()
+    );
+    assert!(!marker.exists());
+}

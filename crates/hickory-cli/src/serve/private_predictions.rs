@@ -651,6 +651,18 @@ pub(crate) fn catalogue(with_retained: bool) -> Value {
                 "Read the complete approved source. The MCP result's structuredContent contains source, source_hash and snapshot for a full edit baseline; content[0].text is a hashline presentation. Never guess field locations."
             );
         }
+        if tool["name"] == "edit_doc" {
+            tool["description"] = json!(
+                "Submit a proposed captured-source edit to the host review UI. This call waits for independent review before writing; do not approve it yourself. Read the full current structuredContent.source and snapshot first. To propose a complete replacement pass whole=\"true\", snapshot and input containing the full revised source. Alternatively run is a SHA-256 line hash or first..last hash pair from read_doc's hashline presentation, never literal source text. No target values are disclosed."
+            );
+            tool["inputSchema"]["properties"]["whole"] = json!({"type":"string","enum":["true"],"description":"Replace the entire captured source, only with its latest whole-surface snapshot and complete replacement input. The host still waits for independent review."});
+            tool["inputSchema"]["properties"]["run"]["description"] = json!(
+                "SHA-256 line hash or first..last hash pair from the latest read_doc hashline presentation; never source text or line numbers."
+            );
+            tool["inputSchema"]["properties"]["after"]["description"] = json!(
+                "Insert after the SHA-256 line hash from read_doc, or ^ for document start; never source text."
+            );
+        }
         if tool["name"] == "verify" {
             tool["description"] = json!(
                 "Run the shared sealed private gate. Read structuredContent.summary.classification, prediction_matched and original_requirement_satisfied, and isError. isError=true is non-passing. Absence of an execution list never means success. Target values and diagnostics stay withheld."

@@ -1,0 +1,61 @@
+# Private edit proposals open review before writing
+
+An advertised private edit_doc call previews the captured source and waits for
+independent host review before applying a source-bound edit. A prose proposal or
+completion summary does not open that queue. The agent cannot supply its own
+approval. The private catalogue advertises the supported whole="true" option,
+latest whole-surface snapshot and complete replacement input, and identifies
+run/after anchors as SHA-256 line hashes rather than source text. Invalid/stale
+preview recovery exposes only fixed source/schema guidance, never raw host errors
+or held-out target diagnostics. Existing exact-proposal freshness checks remain.
+
+Private DeepSeek Python turns request the documented JSON-object response format
+while retaining the 2048-token cap, strict action parser and tool authorization.
+Ordinary DeepSeek requests and other provider transports keep their defaults.
+JSON transport does not establish schema correctness or tool execution. A rejected
+multi-object response executes nothing; repair feedback directs the model to the
+first unfinished task step rather than skipping ahead.
+
+The focused witness refreshes the non-editable installed worker from the current
+locked project before launch. It reuses the actual configured interpreter. This
+host currently uses Python 3.12.13, allowed by requires-python >=3.11; the preferred
+3.14.7 download was unavailable to this uv installation. That is an explicit
+runtime witness, not a claim that the preferred interpreter ran.
+
+Origin: issue 72 real DeepSeek attempts diagnosed the change but did not submit
+review, then supplied literal source as a hashline anchor. A later attempt opened
+review without first executing required comparisons after a rejected response
+containing multiple action objects. All those attempts failed acceptance and
+remain retained; guidance/schema repairs do not turn them into passes.
+
+Assumptions/alternatives: approval and predictor contexts remain separate; the
+trusted host, not model text, owns persistence and execution. Loosening parsing,
+automatically approving proposals or accepting a model's passing claim would
+violate that boundary. Same-user filesystem compromise and opaque provider
+behavior are outside this broker assurance. JSON-object output can still be
+empty, truncated, invalid for the action schema or semantically wrong.
+Falsifiers: a write before approval, stale proposal applied, rejected batch
+executed, target values in refusal guidance, or a witness using stale installed
+worker code while claiming to exercise a source fix.
+
+LLM implementation review: partial, focused on catalogue/preview, installed-worker
+policy and DeepSeek request construction. Not universal model reliability.
+Executed checks: actual confined-worker accepted/declined review test passed
+(2.19s); private whole-preview/no-write/no-exec/stale test passed; rejected-batch
+Python test passed; JSON transport/cap/default test passed; cargo check passed;
+scripted actual private engine/worker/browser sequence passed (30.1s/30.7s total).
+Current JSON-mode real-provider witness is pending and is recorded separately in
+the issue-72 handoff. Human judgment is absent; test-driver review is scripted.
+
+Provider reference: [DeepSeek JSON output](https://api-docs.deepseek.com/guides/json_mode/).
+
+Dependencies (SHA-256; changes stale this review):
+- `apps/agent/src/hickory_agent_worker/instructions.py`: `7519daf89e8dd5a5a413ee61f0d2ba4d5a3e5a6d4da6f78513016a5d9af6190d`.
+- `apps/agent/src/hickory_agent_worker/core.py`: `006c03fa696b38ef43da7e8f6386d49547ca9e87b1216f4aca6399093df36893`.
+- `apps/agent/tests/test_worker.py`: `3b4d7f67dc09393ac3054285840b1f77611913df95e9526b107c4adeea49c1e3`.
+- `crates/hickory-agent/src/llm_openai.rs`: `57c213a9ba67ca13e980a812bf9718113a57c45c78b96192883a58ab1deb3e4a`.
+- `crates/hickory-agent/src/provider.rs`: `cbdb33fd51417d655b50e8a64cda812976c43b0c28b5ed9fb35706fde27ac49e`.
+- `crates/hickory-cli/src/engine/mcp.rs`: `190bba110bbcae1f5df92774a796e893fc19bbec45f784f39734f6430b597e80`.
+- `crates/hickory-cli/src/serve/private_predictions.rs`: `deed7f7acbd7fe99c5026fc32f303052a6eee7dfe51e4c26c4501c5f97091860`.
+- `crates/hickory-cli/src/serve/private_prediction_tests.rs`: `ac1423a278a0ad2edfc8ac51461d59a1c3f973723ad1b6d86324ff62f97ad469`.
+- `scripts/test-private-prediction-ui.sh`: `93efb6879a9181afb9149cc28dd700220340b62a961d6023dfa39bf4a7c3ecec`.

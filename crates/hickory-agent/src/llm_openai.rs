@@ -170,6 +170,7 @@ pub struct OpenAiCompatClient {
     api_key: String,
     model: String,
     max_tokens: u32,
+    json_object: bool,
     base_url: String,
 }
 
@@ -185,6 +186,7 @@ impl OpenAiCompatClient {
             model: std::env::var(provider.model_env())
                 .unwrap_or_else(|_| provider.default_model().to_string()),
             max_tokens: 16384,
+            json_object: false,
             base_url: std::env::var(provider.base_url_env())
                 .unwrap_or_else(|_| provider.default_base_url().to_string()),
         }
@@ -206,6 +208,13 @@ impl OpenAiCompatClient {
     /// Override the max output tokens (default 16384).
     pub fn with_max_tokens(mut self, max_tokens: u32) -> Self {
         self.max_tokens = max_tokens;
+        self
+    }
+
+    /// Request the provider's JSON-object transport for an action protocol.
+    /// Callers must still validate the returned object and authorize every tool.
+    pub fn with_json_object(mut self) -> Self {
+        self.json_object = true;
         self
     }
 
@@ -247,6 +256,9 @@ impl OpenAiCompatClient {
             "stream": stream,
         });
         body[self.provider.max_tokens_field()] = serde_json::json!(self.max_tokens);
+        if self.json_object {
+            body["response_format"] = serde_json::json!({"type":"json_object"});
+        }
         if stream {
             // Without this the stream reports no usage at all and every run
             // would record zero tokens.
@@ -511,6 +523,28 @@ fn parse_next_event(buffer: &mut String, done: &mut bool) -> Option<ChatChunk> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // Guarantee: docs/guarantees/verification/predictions-precede-managed-observation.md
+    #[test]
+    fn json_action_transport_keeps_the_cap_and_ordinary_requests_unchanged() {
+        let ordinary = OpenAiCompatClient::new(Provider::DeepSeek).with_max_tokens(2048);
+        assert!(
+            ordinary
+                .request_body(&[], true)
+                .get("response_format")
+                .is_none()
+        );
+        let action = ordinary.with_json_object();
+        for stream in [false, true] {
+            let body = action.request_body(&[], stream);
+            assert_eq!(
+                body["response_format"],
+                serde_json::json!({"type":"json_object"})
+            );
+            assert_eq!(body["max_tokens"], 2048);
+            assert_eq!(body["stream"], stream);
+        }
+    }
 
     #[test]
     fn providers_parse_from_selectors() {

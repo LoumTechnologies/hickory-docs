@@ -205,6 +205,27 @@ pub fn client_for_with_limit(
     api_key: Option<&str>,
     max_output_tokens: Option<u32>,
 ) -> anyhow::Result<Arc<dyn LlmClient>> {
+    configured_client(selector, model, api_key, max_output_tokens, false)
+}
+
+/// Private JSON action protocol. DeepSeek supports JSON-object transport;
+/// other providers retain their established transport and strict host parsing.
+pub fn client_for_action_with_limit(
+    selector: &str,
+    model: Option<&str>,
+    api_key: Option<&str>,
+    max_output_tokens: Option<u32>,
+) -> anyhow::Result<Arc<dyn LlmClient>> {
+    configured_client(selector, model, api_key, max_output_tokens, true)
+}
+
+fn configured_client(
+    selector: &str,
+    model: Option<&str>,
+    api_key: Option<&str>,
+    max_output_tokens: Option<u32>,
+    json_action: bool,
+) -> anyhow::Result<Arc<dyn LlmClient>> {
     anyhow::ensure!(
         max_output_tokens.is_none_or(|limit| (1..=16384).contains(&limit)),
         "Output token limit must be between 1 and 16384"
@@ -242,6 +263,9 @@ pub fn client_for_with_limit(
         }
         ProviderSelection::Compatible(p) => {
             let mut c = OpenAiCompatClient::new(p).with_api_key(key);
+            if json_action && p == crate::llm_openai::Provider::DeepSeek {
+                c = c.with_json_object();
+            }
             if let Some(m) = model {
                 c = c.with_model(m);
             }

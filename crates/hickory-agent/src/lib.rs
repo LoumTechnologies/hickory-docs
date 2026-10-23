@@ -60,8 +60,8 @@ pub use llm_openai::Provider;
 /// Build the client for a provider selector (`anthropic`/`openai`/…). The
 /// `_with_store` variants consult a [`KeyStore`] before the environment.
 pub use provider::{
-    ProviderSelection, client_for, client_for_with_limit, client_for_with_store, resolve_selector,
-    resolve_selector_with_store,
+    ProviderSelection, client_for, client_for_action_with_limit, client_for_with_limit,
+    client_for_with_store, resolve_selector, resolve_selector_with_store,
 };
 /// Cancellation status shared by the process supervisors and UI.
 pub const STOPPED_BY_USER: &str = "stopped by you";

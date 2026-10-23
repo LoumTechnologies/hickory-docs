@@ -181,6 +181,7 @@ pub(super) async fn start(
                     model: body.model,
                 },
                 Some(2048),
+                true,
             )?
             .0,
         )

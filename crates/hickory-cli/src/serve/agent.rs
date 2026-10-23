@@ -888,12 +888,13 @@ pub(super) fn selected_client(
     state: &LocalState,
     selection: &DocSelection,
 ) -> ApiResult<(Arc<dyn LlmClient>, String, String)> {
-    selected_client_with_limit(state, selection, None)
+    selected_client_with_limit(state, selection, None, false)
 }
 pub(super) fn selected_client_with_limit(
     state: &LocalState,
     selection: &DocSelection,
     max_output_tokens: Option<u32>,
+    json_action: bool,
 ) -> ApiResult<(Arc<dyn LlmClient>, String, String)> {
     let mut provider_name = selection.provider.clone();
     let llm: Arc<dyn LlmClient> = {
@@ -916,7 +917,12 @@ pub(super) fn selected_client_with_limit(
                     .map_err(|e| {
                     ApiError::unavailable(format!("agent not available — {e:#}"))
                 })?;
-                let llm = hickory_agent::client_for_with_limit(
+                let factory = if json_action {
+                    hickory_agent::client_for_action_with_limit
+                } else {
+                    hickory_agent::client_for_with_limit
+                };
+                let llm = factory(
                     &provider,
                     selection.model.as_deref(),
                     store.key_for(&provider).as_deref(),
