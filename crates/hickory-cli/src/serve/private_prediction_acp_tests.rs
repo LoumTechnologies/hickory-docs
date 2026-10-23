@@ -1,5 +1,78 @@
 //! Guarantee: verification/predictions-precede-managed-observation.md
 use super::*;
+
+#[test]
+fn private_mcp_permission_is_one_shot_and_never_general_consent() {
+    // Guarantee: verification/predictions-precede-managed-observation.md.
+    // An adapter envelope cannot approve an edit or bypass Bridge::call review.
+    let mut policy = McpPermissions {
+        session: Some("private-session".into()),
+        allowed: ["read_doc".into(), "edit_doc".into()].into(),
+        ..Default::default()
+    };
+    let notification = |server: &str, tool: &str, session: &str| json!({"method":"session/update","params":{"sessionId":session,"update":{"sessionUpdate":"tool_call","toolCallId":"call-1","status":"in_progress","rawInput":{"server":server,"tool":tool,"arguments":{}}}}});
+    let request = json!({"sessionId":"private-session","toolCall":{"toolCallId":"call-1","kind":"execute"},"_meta":{"is_mcp_tool_approval":true},"options":[{"kind":"allow_always","optionId":"forever"},{"kind":"allow_once","optionId":"one"}]});
+    assert_eq!(policy.outcome(&request)["outcome"], "cancelled");
+    for (server, tool, session) in [
+        ("ordinary-server", "read_doc", "private-session"),
+        (
+            "hickory-private-prediction",
+            "terminal/create",
+            "private-session",
+        ),
+        ("hickory-private-prediction", "read_doc", "old-session"),
+    ] {
+        policy.observe(&notification(server, tool, session));
+        assert_eq!(policy.outcome(&request)["outcome"], "cancelled");
+    }
+    for tool in ["read_doc", "edit_doc"] {
+        policy.observe(&notification(
+            "hickory-private-prediction",
+            tool,
+            "private-session",
+        ));
+        assert_eq!(
+            policy.outcome(&request),
+            json!({"outcome":"selected","optionId":"one"})
+        );
+        assert_eq!(policy.outcome(&request)["outcome"], "cancelled");
+    }
+    policy.observe(&notification(
+        "hickory-private-prediction",
+        "read_doc",
+        "private-session",
+    ));
+    policy.observe(&notification(
+        "ordinary-server",
+        "read_doc",
+        "private-session",
+    ));
+    assert_eq!(policy.outcome(&request)["outcome"], "cancelled");
+    for altered in [
+        json!({"toolCall":{"toolCallId":"call-1","kind":"fetch"}}),
+        json!({"sessionId":"other"}),
+        json!({"_meta":{"is_mcp_tool_approval":false}}),
+        json!({"options":[{"kind":"allow_always","optionId":"forever"}]}),
+    ] {
+        policy.observe(&notification(
+            "hickory-private-prediction",
+            "read_doc",
+            "private-session",
+        ));
+        let mut invalid = request.clone();
+        for (key, value) in altered.as_object().unwrap() {
+            invalid[key] = value.clone();
+        }
+        assert_eq!(policy.outcome(&invalid)["outcome"], "cancelled");
+    }
+    policy.observe(&notification(
+        "hickory-private-prediction",
+        "read_doc",
+        "private-session",
+    ));
+    policy.observe(&json!({"method":"session/update","params":{"sessionId":"private-session","update":{"sessionUpdate":"tool_call_update","toolCallId":"call-1","status":"completed"}}}));
+    assert_eq!(policy.outcome(&request)["outcome"], "cancelled");
+}
 pub(crate) async fn managed_boundary(state: LocalState) {
     let bridge = Bridge {
         state: state.clone(),
@@ -144,6 +217,12 @@ for line in sys.stdin:
   checks['filesystem_call_refused']=json.loads(sys.stdin.readline())['error']['code']==-32601
   send({'jsonrpc':'2.0','id':'permission-test','method':'session/request_permission','params':{}})
   checks['permission_cancelled']=json.loads(sys.stdin.readline())['result']['outcome']['outcome']=='cancelled'
+  send({'jsonrpc':'2.0','method':'session/update','params':{'sessionId':'fresh-private','update':{'sessionUpdate':'tool_call','toolCallId':'private-read','status':'in_progress','rawInput':{'server':'hickory-private-prediction','tool':'read_doc','arguments':{}}}}})
+  permission={'sessionId':'fresh-private','toolCall':{'toolCallId':'private-read','kind':'execute'},'_meta':{'is_mcp_tool_approval':True},'options':[{'kind':'allow_once','optionId':'only-this-call'}]}
+  send({'jsonrpc':'2.0','id':'private-envelope','method':'session/request_permission','params':permission})
+  checks['private_envelope_allowed_once']=json.loads(sys.stdin.readline())['result']['outcome']=={'outcome':'selected','optionId':'only-this-call'}
+  send({'jsonrpc':'2.0','id':'replayed-envelope','method':'session/request_permission','params':permission})
+  checks['envelope_replay_cancelled']=json.loads(sys.stdin.readline())['result']['outcome']['outcome']=='cancelled'
   request=urllib.request.Request(url,json.dumps({'jsonrpc':'2.0','id':1,'method':'tools/call','params':{'name':'read_doc','arguments':{}}}).encode(),{'Content-Type':'application/json'})
   value=json.load(urllib.request.urlopen(request))
   checks['private_source_read']=value['result']['isError']==False and 'source_hash' in value['result']['structuredContent']
@@ -177,7 +256,7 @@ for line in sys.stdin:
             .contains("completion gate is non-passing")
     );
     let checks: Value = serde_json::from_slice(&std::fs::read(audit_path).unwrap()).unwrap();
-    assert_eq!(checks.as_object().unwrap().len(), 7);
+    assert_eq!(checks.as_object().unwrap().len(), 9);
     assert!(
         checks
             .as_object()

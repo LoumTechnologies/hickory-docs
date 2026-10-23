@@ -67,3 +67,26 @@ source fingerprints and remaining gaps are recorded in
 [the scoped reading-surface contract](../agent/scoped-reading-surfaces-share-native-actions.md).
 Earlier verification above is historical; it does not establish current universal
 UI parity or native/provider/release acceptance.
+
+
+## Delegated profile/edit/remeasure integration — October 23
+
+Requirement: #75 under #72. The explicit focused python_agent_profile integration
+uses the configured confined worker, actual host cProfile execution and independent
+edit review. Model decisions and the UI transport endpoint are scripted. It checks
+exact before/after source bytes and revisions, immutable distinct retained runs,
+unchanged stdout 123750 and subtotal total_calls 25 then 1. It does not assert a
+wall-clock speedup, human judgment, autonomous model reasoning or actual React
+rendering; the production registration/paging tests cover the latter separately.
+
+Executed: HICKORY_AGENT_TEST_PYTHON=apps/agent/.venv/bin/python cargo test -p
+hickory-cli --test python_agent_profile --quiet passed (3.57s). Failed fixture
+attempts and their corrections are retained in the October 23 handoff: oversized
+raw-profile worker delivery and a nonexistent single-run GET endpoint. Worker
+limits and product APIs were preserved. Partial LLM review inspected the real
+Review::ui_call/approve dispatch, host capture and retained-record assertions.
+Human judgment remains absent. These are test decisions, not authentication of a
+human or a general optimization-quality claim.
+
+Dependency: `crates/hickory-cli/tests/python_agent_profile.rs`:
+`5cf365a4207241e78190cfa8b2726b58f28658cd892fe6f867d324237435c0f5`.

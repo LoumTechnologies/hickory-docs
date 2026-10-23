@@ -963,3 +963,28 @@ backend and WASM browser host now reuse its gate methods; their explicit Unknown
 policy, confinement, human inspection and focused evidence are specified in
 [browser-predictions-use-the-shared-gate.md](browser-predictions-use-the-shared-gate.md).
 Raw portable snapshots are host-private; native file ledgers refuse raw export.
+
+
+### Correlated private ACP transport permission — October 23
+
+Origin: #75 under #72. A real adapter's MCP read was cancelled because the client
+refused every approval envelope. The client may now authorize only an allow_once
+option for a current-session tool notification naming the supplied private MCP
+server and an advertised tool. It consumes pending scope, invalidates completion/
+replacement scope, and rejects unmarked, foreign, persistent and non-execute
+requests. This is routine transport authorization, never human edit approval or
+runtime evidence. Bridge::call retains all source/seal/review gates. Filesystem,
+terminal and unrelated extensions remain refused. The external executable remains
+trusted configuration; ACP messages are not cryptographically authenticated and
+this does not sandbox that executable's OS activity.
+
+Partial LLM review: inspected McpPermissions::{observe,outcome}, run event handling
+and Bridge::call review/dispatch. Executed checks: focused permission challenge,
+three existing private ACP cases, and extended process protocol case pass. Real
+ACP/DeepSeek six-comparison flow passes 55.3s/55.9s; the subsequent replacement
+notification guard is tested separately. The handoff preserves failed probes and
+paid-runtime hash. Human judgment and native/provider footage remain absent.
+
+Current dependencies (changed bytes stale this review):
+- `crates/hickory-cli/src/serve/private_prediction_acp.rs`: `42adcc54f9d290f82adb5e6ac83fe91b16153b378efdc1bdd5941ffbdc85e6de`.
+- `crates/hickory-cli/src/serve/private_prediction_acp_tests.rs`: `5f9bb74e8b9f006c8142be8d97a934f451d9a23c108d567211a9112e5214a767`.

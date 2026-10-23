@@ -18,9 +18,13 @@ context, conversation history, provider base URLs or engine tokens. Configure
 credentials for the adapter through its supported environment API key mechanism;
 Hickory's saved Python provider selection is independent.
 
-The managed ACP client refuses filesystem, terminal, permission and extension
-requests. Its private MCP server supplies approved source, mandatory exact-edit
-review, sealed verification and retained-stop ordering through the existing gate.
+The managed ACP client refuses filesystem, terminal, URL and unrelated permission
+or extension requests. It can authorize an adapter's one-call MCP envelope only
+when it correlates to a current-session notification naming this private server
+and an advertised tool. It grants no persistent permission or edit approval. Its private MCP server supplies approved source, mandatory exact-edit
+review, sealed verification and retained-stop ordering through the existing gate. A transport permission
+never supplies a human review decision; edit_doc still waits for independent
+host review.
 Optional UI tools attach only to the originating private window. A completed ACP
 turn must pass the host repair-and-verify completion gate. Model notifications
 and raw adapter diagnostics are not used as verification or copied to the coach.

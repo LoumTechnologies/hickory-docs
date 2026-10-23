@@ -77,7 +77,9 @@ not human-reviewed native/provider footage. A real direct DeepSeek Python flow
 passed at 47353e3c with retained failure, reviewed correction, unchanged expectations
 and promotion revalidation. Its review decisions were automated test-driver
 decisions. The earlier OpenRouter HTTP 402 concerns a separate route; the real
-Codex ACP setup still requires authentication. For a bounded paid witness, provide
+Codex ACP custom-provider session setup succeeds, but the stock DeepSeek
+Responses route has tool-routing/approval compatibility failures. See the current
+[acceptance checklist](issue-72-acceptance-2026-10-22.md). For a bounded paid witness, provide
 the configured DeepSeek credential to the host environment and run:
 
 ```sh
@@ -128,3 +130,5 @@ Unknown/promotion boundary. The browser has no provider calls; it is not substit
 native/provider footage. Label test-driver predictions/review and human inspection
 separately. Keep private raw journals and inspection windows out of predictor
 context and unreviewed public assets. The browser guarantee records exact scope.
+
+For the human-operated Linux take, use the [ready-to-run recording procedure](issue-72-native-recording.md). It verifies and launches the witnessed package in a fresh workspace.

@@ -4,6 +4,7 @@ use super::{LocalState, acp, private_predictions};
 use anyhow::{Context, Result, ensure};
 use axum::{Json, Router, extract::State, http::StatusCode, routing::post};
 use serde_json::{Value, json};
+use std::collections::{HashMap, HashSet};
 use std::sync::{
     Arc,
     atomic::{AtomicBool, AtomicUsize, Ordering},
@@ -199,6 +200,74 @@ pub(super) struct Prepared {
     directory: tempfile::TempDir,
     auth_method: Option<String>,
 }
+
+// This authorizes only the adapter's envelope around our already guarded MCP
+// call. It is neither edit approval nor a filesystem/terminal permission.
+#[derive(Default)]
+struct McpPermissions {
+    session: Option<String>,
+    pending: HashMap<String, String>,
+    allowed: HashSet<String>,
+}
+impl McpPermissions {
+    fn observe(&mut self, message: &Value) {
+        let params = &message["params"];
+        if message["method"] != "session/update"
+            || params["sessionId"].as_str() != self.session.as_deref()
+            || self.session.is_none()
+        {
+            return;
+        }
+        let update = &params["update"];
+        let Some(id) = update["toolCallId"].as_str() else {
+            return;
+        };
+        if matches!(update["status"].as_str(), Some("completed" | "failed")) {
+            self.pending.remove(id);
+            return;
+        }
+        if update["sessionUpdate"] != "tool_call" || self.pending.len() >= 128 {
+            return;
+        }
+        // A replacement notification cannot retain the previous call's scope.
+        self.pending.remove(id);
+        let input = &update["rawInput"];
+        if input["server"] == "hickory-private-prediction"
+            && input["tool"]
+                .as_str()
+                .is_some_and(|tool| self.allowed.contains(tool))
+            && input["arguments"].is_object()
+        {
+            self.pending
+                .insert(id.into(), params["sessionId"].as_str().unwrap().into());
+        }
+    }
+
+    fn outcome(&mut self, params: &Value) -> Value {
+        let cancelled = json!({"outcome":"cancelled"});
+        let Some(id) = params["toolCall"]["toolCallId"].as_str() else {
+            return cancelled;
+        };
+        let Some(session) = self.pending.remove(id) else {
+            return cancelled;
+        };
+        if self.session.as_deref() != Some(&session)
+            || params["sessionId"] != session
+            || params["_meta"]["is_mcp_tool_approval"] != true
+            || params["toolCall"]["kind"] != "execute"
+        {
+            return cancelled;
+        }
+        let Some(option) = params["options"].as_array().and_then(|options| {
+            options
+                .iter()
+                .find(|option| option["kind"] == "allow_once" && option["optionId"].is_string())
+        }) else {
+            return cancelled;
+        };
+        json!({"outcome":"selected","optionId":option["optionId"]})
+    }
+}
 pub(super) fn prepare(state: &LocalState, id: &str) -> Result<Prepared> {
     let agent = acp::config::commands(state)?
         .into_iter()
@@ -269,6 +338,29 @@ pub(super) async fn run(
     actor: String,
     cancel: Arc<AtomicBool>,
 ) -> Result<String> {
+    let catalogue = private_predictions::catalogue(
+        state
+            .private_prediction
+            .as_ref()
+            .is_some_and(|bound| bound.retained_plan.is_some()),
+    );
+    let mut allowed: HashSet<String> = catalogue["tools"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|tool| tool["name"].as_str().map(str::to_owned))
+        .collect();
+    if window.is_some() {
+        allowed.extend(
+            super::ui_actions::catalogue()
+                .iter()
+                .filter_map(|tool| tool["name"].as_str().map(str::to_owned)),
+        );
+    }
+    let permissions = Arc::new(Mutex::new(McpPermissions {
+        allowed,
+        ..Default::default()
+    }));
     let host = Bridge {
         state: state.clone(),
         window,
@@ -281,13 +373,17 @@ pub(super) async fn run(
     .await?;
     let (rpc, mut events) = acp::transport::Rpc::spawn(prepared.command)?;
     let event_rpc = rpc.clone();
+    let event_permissions = permissions.clone();
     let events_task = tokio::spawn(async move {
         while let Some(message) = events.recv().await {
-            // All client-side filesystem/terminal/extension calls are refused.
-            // Permissions are cancelled rather than routed to an ordinary UI.
+            event_permissions.lock().await.observe(&message);
+            // Client-side filesystem/terminal/extension calls remain refused.
+            // Only a correlated private MCP envelope can receive allow_once;
+            // Bridge::call still enforces sealing and independent edit review.
             if let Some(id) = message.get("id") {
                 let reply = if message["method"] == "session/request_permission" {
-                    json!({"jsonrpc":"2.0","id":id,"result":{"outcome":{"outcome":"cancelled"}}})
+                    let outcome = event_permissions.lock().await.outcome(&message["params"]);
+                    json!({"jsonrpc":"2.0","id":id,"result":{"outcome":outcome}})
                 } else {
                     json!({"jsonrpc":"2.0","id":id,"error":{"code":-32601,"message":"Unavailable in private prediction mode; use the private MCP tools"}})
                 };
@@ -326,6 +422,7 @@ pub(super) async fn run(
         let session_id = session["sessionId"]
             .as_str()
             .context("Missing private ACP session identity")?;
+        permissions.lock().await.session = Some(session_id.into());
         let text = format!(
             "Private prediction practice: use only the supplied private MCP tools. No terminal or filesystem client is available. Read approved source, seal before execution, keep target answers withheld, and obtain human review before edits. A model completion is not verification.\n\n{prompt}"
         );
