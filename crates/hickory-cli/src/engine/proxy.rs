@@ -108,6 +108,18 @@ async fn forward(State(proxy): State<Proxy>, req: Request) -> Response {
             return StatusCode::FORBIDDEN.into_response();
         }
     }
+    if req.method() == axum::http::Method::POST && req.uri().path() == "/api/window/cancel-quit" {
+        let body = match to_bytes(req.into_body(), 4096).await {
+            Ok(body) => body,
+            Err(_) => return StatusCode::PAYLOAD_TOO_LARGE.into_response(),
+        };
+        if serde_json::from_slice::<Value>(&body).ok() != Some(json!({})) {
+            return StatusCode::BAD_REQUEST.into_response();
+        }
+        let Some(shell) = proxy.shell else { return StatusCode::NOT_IMPLEMENTED.into_response(); };
+        (shell.cancel_quit)();
+        return Json(json!({"ok":true})).into_response();
+    }
     let local_window = match (req.method().as_str(), req.uri().path()) {
         ("GET", "/api/window/status") => Some(Some(WindowOperation::Inspect)),
         ("POST", "/api/window/minimize") => Some(Some(WindowOperation::Minimize)),
@@ -318,5 +330,6 @@ pub(super) fn remote_shell(url: String, token: String) -> Shell {
             call("close", json!({}))?;
             Ok(())
         }),
+        cancel_quit: Arc::new(|| {}),
     }
 }

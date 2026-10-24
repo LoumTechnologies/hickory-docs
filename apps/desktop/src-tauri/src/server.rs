@@ -153,6 +153,7 @@ pub fn shell_hooks(handle: &tauri::AppHandle, config_dir: Option<&Path>) -> Shel
     let picker = handle.clone();
     let saver = handle.clone();
     let closer = handle.clone();
+    let quit_canceller = handle.clone();
     let window_host = handle.clone();
     Shell {
         window: std::sync::Arc::new(move |operation| {
@@ -223,7 +224,13 @@ pub fn shell_hooks(handle: &tauri::AppHandle, config_dir: Option<&Path>) -> Shel
             if let Some(session) = closer.try_state::<Session>() {
                 tokio::runtime::Handle::current().block_on(session.detach())?;
             }
-            if let Some(window) = closer.get_webview_window("main") {
+            let quitting = closer
+                .state::<super::QuitIntent>()
+                .0
+                .swap(false, std::sync::atomic::Ordering::SeqCst);
+            if quitting {
+                closer.exit(0);
+            } else if let Some(window) = closer.get_webview_window("main") {
                 window
                     .state::<super::CloseGate>()
                     .0
@@ -231,6 +238,12 @@ pub fn shell_hooks(handle: &tauri::AppHandle, config_dir: Option<&Path>) -> Shel
                 window.close()?;
             }
             Ok(())
+        }),
+        cancel_quit: std::sync::Arc::new(move || {
+            quit_canceller
+                .state::<super::QuitIntent>()
+                .0
+                .store(false, std::sync::atomic::Ordering::SeqCst);
         }),
     }
 }

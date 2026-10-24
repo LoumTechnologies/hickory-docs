@@ -76,6 +76,8 @@ pub struct Shell {
     pub save_file: Arc<dyn Fn(&Path, &str) -> Result<Option<PathBuf>> + Send + Sync>,
     /// Close this host window after the page has resolved unsaved buffers.
     pub close_window: Arc<dyn Fn() -> Result<()> + Send + Sync>,
+    /// Cancel a pending application quit after the page retained its window.
+    pub cancel_quit: Arc<dyn Fn() + Send + Sync>,
 }
 
 impl std::fmt::Debug for Shell {

@@ -117,6 +117,8 @@ async fn native_window_close_requires_end_and_survives_retired_engine() {
     };
     let closed = Arc::new(AtomicUsize::new(0));
     let observed = closed.clone();
+    let cancelled = Arc::new(AtomicUsize::new(0));
+    let cancel_observed = cancelled.clone();
     let shell = crate::serve::Shell {
         window: Arc::new(|operation| {
             Ok(crate::serve::WindowStatus {
@@ -129,6 +131,7 @@ async fn native_window_close_requires_end_and_survives_retired_engine() {
             observed.fetch_add(1, Ordering::SeqCst);
             Ok(())
         }),
+        cancel_quit: Arc::new(move || { cancel_observed.fetch_add(1, Ordering::SeqCst); }),
         open_folder: Arc::new(|_, _| anyhow::bail!("unexpected filesystem callback")),
         pick_folder: Arc::new(|_| anyhow::bail!("unexpected filesystem callback")),
         save_file: Arc::new(|_, _| anyhow::bail!("unexpected filesystem callback")),
@@ -205,6 +208,16 @@ async fn native_window_close_requires_end_and_survives_retired_engine() {
         StatusCode::OK
     );
     assert_eq!(closed.load(Ordering::SeqCst), 1);
+    assert_eq!(
+        router
+            .clone()
+            .oneshot(request("POST", "/api/window/cancel-quit", "{}", None))
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::OK
+    );
+    assert_eq!(cancelled.load(Ordering::SeqCst), 1);
     let browser = super::super::proxy::client_router(connection, None, "fixture".into(), None);
     assert_eq!(
         browser

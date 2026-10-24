@@ -308,6 +308,8 @@ export const api = {
     request<{ path: string | null }>("POST", "/api/save-file-dialog", { name }),
   /** Close the native window after the page has settled dirty buffers. */
   closeWindow: () => request<{ ok: true }>("POST", "/api/window/close"),
+  /** Clear a native application-quit request after its close flow was cancelled. */
+  cancelQuit: () => request<{ ok: true }>("POST", "/api/window/cancel-quit"),
 
   /** What this machine can scaffold: every `dotnet new` template its SDK
    * has. 422 with `{missing: "dotnet"}` when there is no SDK at all — the

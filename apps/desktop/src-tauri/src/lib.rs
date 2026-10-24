@@ -34,6 +34,10 @@ use tauri::menu::{Menu, MenuBuilder, MenuItemBuilder, SubmenuBuilder};
 use tauri::{AppHandle, Manager as _, WebviewUrl, WebviewWindowBuilder, WindowEvent, Wry};
 use tauri_plugin_dialog::{DialogExt as _, MessageDialogKind};
 
+/// Records a macOS application Quit request while the page resolves its
+/// save/discard decision. A regular window close must not terminate the app.
+pub(crate) struct QuitIntent(pub std::sync::atomic::AtomicBool);
+
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
@@ -65,6 +69,7 @@ pub fn run() {
         .setup(|app| {
             app.manage(WindowFolder(std::sync::Mutex::new(None)));
             app.manage(CloseGate(std::sync::atomic::AtomicBool::new(false)));
+            app.manage(QuitIntent(std::sync::atomic::AtomicBool::new(false)));
             let handle = app.handle().clone();
             // The menu is built here rather than through `.menu(...)`: it
             // reads the person's accelerators from ui.json, which needs the

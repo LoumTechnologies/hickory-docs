@@ -42,6 +42,7 @@ async fn run(args: Vec<String>) -> anyhow::Result<()> {
         save_file: std::sync::Arc::new(|_, _| Ok(None)),
         open_folder: std::sync::Arc::new(|_, _| Ok(())),
         close_window: std::sync::Arc::new(|| Ok(())),
+        cancel_quit: std::sync::Arc::new(|| {}),
     };
     let connection = engine::connect(opts).await?;
     let _guard = connection.guard();

@@ -249,6 +249,13 @@ export function App() {
     window.addEventListener("hickory-window-close-request", onClose);
     return () => window.removeEventListener("hickory-window-close-request", onClose);
   }, []);
+  useEffect(() => {
+    const onQuit = () => {
+      void closeApplicationRef.current().finally(() => { void api.cancelQuit().catch(() => {}); });
+    };
+    window.addEventListener("hickory-application-quit-request", onQuit);
+    return () => window.removeEventListener("hickory-application-quit-request", onQuit);
+  }, []);
 
   useEffect(() => {
     if (notice === null) return;

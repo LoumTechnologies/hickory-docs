@@ -18,8 +18,13 @@ pub(super) fn handler() -> impl FnMut(&AppHandle, RunEvent) {
             if code.is_none()
                 && let Some(window) = handle.get_webview_window("main")
             {
-                let _ =
-                    window.eval("window.dispatchEvent(new Event('hickory-window-close-request'))");
+                handle
+                    .state::<super::QuitIntent>()
+                    .0
+                    .store(true, std::sync::atomic::Ordering::SeqCst);
+                let _ = window.eval(
+                    "window.dispatchEvent(new Event('hickory-application-quit-request'))",
+                );
                 return;
             }
             let app = handle.clone();

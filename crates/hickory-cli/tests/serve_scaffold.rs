@@ -142,6 +142,7 @@ async fn start_inner(with_shell: bool) -> Session {
                 Ok(())
             }),
             close_window: std::sync::Arc::new(|| Ok(())),
+            cancel_quit: std::sync::Arc::new(|| {}),
         });
     }
 
