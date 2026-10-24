@@ -1,3 +1,5 @@
+mod diagnostic_context;
+use diagnostic_context::provider_action_diagnostics;
 mod captured;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -101,8 +103,10 @@ struct VFileMapping {
     /// Position map for translating coordinates.
     position_map: PositionMap,
     /// Exact provider payloads in child coordinates, never editor-supplied
-    /// diagnostics. Replaced with the mapping on every source change.
+    /// diagnostics. Retained only across byte-identical source syncs.
     provider_diagnostics: Vec<serde_json::Value>,
+    /// Child source bytes these provider diagnostics describe.
+    provider_source: String,
 }
 
 impl HickBackend {
@@ -348,6 +352,7 @@ impl HickBackend {
                         root_uri: root_uri.clone(),
                         position_map,
                         provider_diagnostics: Vec::new(),
+                        provider_source: content.clone(),
                     },
                 );
             }
@@ -450,6 +455,19 @@ impl HickBackend {
         };
         {
             let mut index = self.vfile_index.write().await;
+            // clangd suppresses identical diagnostic publications. A pane
+            // remount can sync unchanged source, so retain the exact payload
+            // only for the same provider/document/source identity.
+            let diagnostics = index
+                .get(child_uri)
+                .filter(|previous| {
+                    previous.hick_uri == *uri
+                        && previous.language_id == language_id
+                        && previous.root_uri == root_uri
+                        && previous.provider_source == source
+                })
+                .map(|previous| previous.provider_diagnostics.clone())
+                .unwrap_or_default();
             index.insert(
                 child_uri.clone(),
                 VFileMapping {
@@ -457,7 +475,8 @@ impl HickBackend {
                     language_id: language_id.to_string(),
                     root_uri: root_uri.clone(),
                     position_map: PositionMap::identity(lines),
-                    provider_diagnostics: Vec::new(),
+                    provider_diagnostics: diagnostics,
+                    provider_source: source.to_string(),
                 },
             );
         }
@@ -1369,32 +1388,6 @@ fn child_request_error(error: crate::child_lsp::ChildLspError) -> tower_lsp::jso
         message: error.to_string().into(),
         data: None,
     }
-}
-
-/// Keep provider diagnostics in the child's coordinate system and retain
-/// provider-specific code/data used to identify fixes. An empty selection
-/// asks for fixes on the cursor's line, including an insertion beside it.
-fn provider_action_diagnostics(
-    diagnostics: &[serde_json::Value],
-    requested: Range,
-) -> Vec<serde_json::Value> {
-    diagnostics
-        .iter()
-        .filter(|diagnostic| {
-            let Some(range) = diagnostic
-                .get("range")
-                .and_then(|value| serde_json::from_value::<Range>(value.clone()).ok())
-            else {
-                return false;
-            };
-            if requested.start == requested.end {
-                range.start.line <= requested.start.line && range.end.line >= requested.start.line
-            } else {
-                range.start <= requested.end && range.end >= requested.start
-            }
-        })
-        .cloned()
-        .collect()
 }
 
 /// Process a publishDiagnostics notification from a child LSP.

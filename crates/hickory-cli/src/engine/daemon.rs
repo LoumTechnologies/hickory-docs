@@ -652,7 +652,7 @@ async fn dispatch(State(engine): State<Arc<Engine>>, req: Request) -> Response {
     let websocket = parts.headers.contains_key("upgrade");
     if parts.method == axum::http::Method::GET && parts.uri.path() == "/api/startup" {
         return match startup.result() {
-            None => Json(json!({ "ready": false })).into_response(),
+            None => Json(startup.status()).into_response(),
             Some(Ok(())) => Json(json!({ "ready": true })).into_response(),
             Some(Err(error)) => (
                 StatusCode::SERVICE_UNAVAILABLE,

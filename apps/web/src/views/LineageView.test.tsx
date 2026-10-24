@@ -46,3 +46,20 @@ it("keeps current structural navigation out of historical replay", async () => {
   fireEvent.click(screen.getByRole("button", { name: "Show working-tree lineage" }));
   await waitFor(() => expect(structure).toHaveBeenCalledTimes(2));
 });
+it("shows finished stages while another output waits, then labels its deadline as incomplete", async () => {
+  vi.useFakeTimers();
+  try {
+    vi.spyOn(api,"projectDocs").mockResolvedValue([{id:"first",path:"first.md",updated_at:""},{id:"slow",path:"slow.md",updated_at:""}]);
+    vi.spyOn(api,"doc").mockImplementation(async id=>({id,path:id+".md",source:"# "+id,updated_at:""}));
+    vi.spyOn(api,"outputs").mockImplementation(id=>id==="slow" ? new Promise(()=>{}) : Promise.resolve({files:[]}));
+    vi.spyOn(api,"docHistory").mockResolvedValue({repository:false,commits:[]});
+    vi.spyOn(api,"structure").mockResolvedValue({files:[],links:[]});
+    await act(async()=>{render(<LineageView projectId="bounded" />);});
+    expect(screen.getByText("Captured lineage columns")).toBeTruthy();
+    expect(screen.getByText(/1 of 2 documents finished/)).toBeTruthy();
+    await act(async()=>{await vi.advanceTimersByTimeAsync(10_000);});
+    expect(screen.getByText(/slow.md: Read exceeded 10 seconds/)).toBeTruthy();
+    expect(screen.getByRole("button",{name:"Retry reading project lineage"})).toBeTruthy();
+    expect(screen.queryByText(/documents finished; reading/)).toBeNull();
+  } finally { vi.useRealTimers(); }
+});

@@ -194,7 +194,10 @@ pub async fn write(
     Json(body): Json<MergedWrite>,
 ) -> ApiResult<Json<Value>> {
     hick_lang::validate_project_path(&body.path).map_err(ApiError::bad_request)?;
-    let _guard = state.writes.lock().await;
+    let writes = state.writes.clone();
+    crate::engine::writes::during(&writes, write_locked(state, body)).await
+}
+async fn write_locked(state: LocalState, body: MergedWrite) -> ApiResult<Json<Value>> {
     let trees = chosen(state.index.root(), &body.targets).map_err(ApiError::from)?;
     let route = match body.route.as_deref() {
         None | Some("shared") => hick_merge::Route::Shared,
@@ -255,7 +258,10 @@ pub async fn undo(
     Json(body): Json<MergedUndo>,
 ) -> ApiResult<Json<Value>> {
     hick_lang::validate_project_path(&body.path).map_err(ApiError::bad_request)?;
-    let _guard = state.writes.lock().await;
+    let writes = state.writes.clone();
+    crate::engine::writes::during(&writes, undo_locked(state, body)).await
+}
+async fn undo_locked(state: LocalState, body: MergedUndo) -> ApiResult<Json<Value>> {
     let mut statuses = vec![];
     for item in body.undo {
         let result = match chosen(state.index.root(), std::slice::from_ref(&item.source)) {

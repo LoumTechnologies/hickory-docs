@@ -9,7 +9,7 @@ import { WorkflowTour } from "../components/WorkflowTour";
 import { ReviewPanel } from "../components/ReviewPanel";
 import { useFileTabMenu } from "./useFileTabMenu";
 import { documentCommands } from "./documentCommands";
-import { nodeForAbsolutePath } from "../lib/openPath";
+import { resolveDocumentPath, openIndexedDocument } from "./indexedDocumentPath";
 import { viewBuffers } from "../lib/viewBuffers";
 import { hasCommandInstaller } from "./CommandPathSettings";
 // One workspace owns the layout across navigation. Documents and tools open
@@ -762,27 +762,8 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
   // changes identity, so an inline literal would re-measure every
   // relationship on screen on every render of this view.
   const docIdByPath = useCallback(
-    (reported: string): { path: string; id?: string } => {
-      // Absolute (the engine's way of naming a file) or tree-relative (the
-      // app's, and a session path from the dock): both resolve.
-      const relative = (nodes: readonly FileNode[]): FileNode | null => {
-        for (const n of nodes) {
-          if (!n.dir && samePath(n.path, reported)) return n;
-          if (n.children) {
-            const hit = relative(n.children);
-            if (hit) return hit;
-          }
-        }
-        return null;
-      };
-      for (const root of folderRoots) {
-        const node =
-          nodeForAbsolutePath(root.tree, reported) ?? relative(root.tree);
-        if (node) return { path: node.path, id: node.doc_id };
-      }
-      return { path: reported };
-    },
-    [folderRoots],
+    (reported: string) => resolveDocumentPath(reported, folderDocs, folderRoots),
+    [folderRoots, folderDocs],
   );
   const ribbonSources: RibbonSource[] = useMemo(() => workspaceRibbonSources(focused, registry, docIdByPath),
     // Registry and lens versions publish changes to the live editors.
@@ -985,12 +966,18 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
         }
         return;
       }
-      const { id } = docIdByPath(path);
-      if (span) pendingSelect.current = { path, span };
-      if (id) ensureDocOpen(id, into);
-      else focusTreeRef.current();
+      void openIndexedDocument(path, docIdByPath(path), projectId, {
+        refresh: api.projectDocs,
+        update: setFolderDocs,
+        open: (id, target) => {
+          if (span) pendingSelect.current = { path: target, span };
+          ensureDocOpen(id, into);
+        },
+        notice: setInsertNotice,
+        focusTree: () => focusTreeRef.current(),
+      });
     },
-    [registry, ensureDocOpen, docIdByPath],
+    [registry, ensureDocOpen, docIdByPath, projectId],
   );
 
   // Show Files activates its pane and puts keyboard point in its tree.

@@ -696,9 +696,19 @@ pub use scratchpad::{
 /// Is there already a note built from these exact bytes?
 fn existing_note(notes_dir: &Path, fingerprint: &str) -> Option<PathBuf> {
     let needle = format!("source-sha256: {fingerprint}");
-    let entries = std::fs::read_dir(notes_dir).ok()?;
-    for entry in entries.flatten() {
-        let path = entry.path();
+    let mut entries: Vec<_> = std::fs::read_dir(notes_dir)
+        .ok()?
+        .flatten()
+        .map(|entry| entry.path())
+        .collect();
+    // A preserved legacy copy must not win over its current rich document.
+    entries.sort_by_key(|path| {
+        (
+            path.extension().is_some_and(|ext| ext == "hick"),
+            path.clone(),
+        )
+    });
+    for path in entries {
         if path.extension().is_some_and(|e| e == "md" || e == "hick")
             && let Ok(text) = std::fs::read_to_string(&path)
             && text.contains(&needle)
@@ -722,6 +732,27 @@ fn free_path(dir: &Path, stem: &str, extension: &str) -> PathBuf {
         }
     }
     dir.join(format!("{stem}-{}.{extension}", std::process::id()))
+}
+
+/// Publish complete Markdown without overwriting a concurrently created note.
+fn write_markdown_note(notes_dir: &Path, stem: &str, bytes: &[u8]) -> Result<PathBuf> {
+    use std::io::Write as _;
+    let mut staged = tempfile::NamedTempFile::new_in(notes_dir)?;
+    staged.write_all(bytes)?;
+    for _ in 0..1000 {
+        let path = free_path(notes_dir, stem, "md");
+        match staged.persist_noclobber(&path) {
+            Ok(_) => return Ok(path),
+            Err(error) if error.error.kind() == std::io::ErrorKind::AlreadyExists => {
+                staged = error.file
+            }
+            Err(error) => {
+                return Err(error.error)
+                    .with_context(|| format!("failed to write {}", path.display()));
+            }
+        }
+    }
+    bail!("Could not claim a Markdown note filename; existing notes were not overwritten")
 }
 
 /// Turn one file into a note.
@@ -757,7 +788,20 @@ pub fn ingest_one(source: &Path, notes_dir: &Path, config: &InboxConfig) -> Resu
     };
 
     let id = fingerprint(text.as_bytes());
-    if let Some(note) = existing_note(notes_dir, &id) {
+    if let Some(mut note) = existing_note(notes_dir, &id) {
+        if note
+            .extension()
+            .is_some_and(|extension| extension == "hick")
+        {
+            // Explicit reimport upgrades only this matching note. Keep the
+            // original and its annotations intact; never overwrite a sibling.
+            let bytes = std::fs::read(&note)?;
+            let stem = note
+                .file_stem()
+                .context("legacy note has no filename")?
+                .to_string_lossy();
+            note = write_markdown_note(notes_dir, &stem, &bytes)?;
+        }
         return Ok(Outcome::AlreadyIngested {
             source: source.to_path_buf(),
             note,
@@ -791,9 +835,7 @@ pub fn ingest_one(source: &Path, notes_dir: &Path, config: &InboxConfig) -> Resu
             None => slug,
         }
     };
-    let note_path = free_path(notes_dir, &stem, "hick");
-    std::fs::write(&note_path, note_text)
-        .with_context(|| format!("failed to write {}", note_path.display()))?;
+    let note_path = write_markdown_note(notes_dir, &stem, note_text.as_bytes())?;
 
     // The source is MOVED, never deleted: we did not create these bytes.
     let ingested_dir = config.ingested(notes_dir);

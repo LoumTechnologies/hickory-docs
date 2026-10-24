@@ -67,102 +67,104 @@ pub async fn create(
     let doc_rel = state.index.path_of(&doc_id).ok_or_else(|| {
         ApiError::internal(format!("the document generating {} has no path", body.path))
     })?;
-    let _write = state.writes.lock().await;
-    let source = state.read_source_by_doc_path(&doc_rel)?;
-    if let Some(expected) = &body.expected_output_hash {
-        use sha2::{Digest, Sha256};
-        let path = root
-            .join(&body.path)
-            .canonicalize()
-            .map_err(|_| ApiError::conflict("Selected generated output is unavailable"))?;
-        let confined = root
-            .canonicalize()
-            .map_err(|_| ApiError::conflict("Project root is unavailable"))?;
-        if !path.starts_with(&confined) || !path.is_file() {
-            return Err(ApiError::bad_request(
-                "Selected generated output is outside the project",
-            ));
+    crate::engine::writes::during(&state.writes, async {
+        let source = state.read_source_by_doc_path(&doc_rel)?;
+        if let Some(expected) = &body.expected_output_hash {
+            use sha2::{Digest, Sha256};
+            let path = root
+                .join(&body.path)
+                .canonicalize()
+                .map_err(|_| ApiError::conflict("Selected generated output is unavailable"))?;
+            let confined = root
+                .canonicalize()
+                .map_err(|_| ApiError::conflict("Project root is unavailable"))?;
+            if !path.starts_with(&confined) || !path.is_file() {
+                return Err(ApiError::bad_request(
+                    "Selected generated output is outside the project",
+                ));
+            }
+            let bytes = std::fs::read(path)
+                .map_err(|_| ApiError::conflict("Selected generated output is unavailable"))?;
+            if expected != &format!("{:x}", Sha256::digest(&bytes)) {
+                return Err(ApiError::conflict(
+                    "Selected generated output changed or is not saved; reselect current saved bytes",
+                ));
+            }
         }
-        let bytes = std::fs::read(path)
-            .map_err(|_| ApiError::conflict("Selected generated output is unavailable"))?;
-        if expected != &format!("{:x}", Sha256::digest(&bytes)) {
-            return Err(ApiError::conflict(
-                "Selected generated output changed or is not saved; reselect current saved bytes",
-            ));
-        }
-    }
 
-    // Where the document says it writes this is what tells us which cell to
-    // put the sample under — but the two ways it can say so lead there
-    // differently. A `hick:file` sits INSIDE its cell; a volume is declared at
-    // document level and reaches a cell by being mounted, so the search runs
-    // forward from the declaration to the mount rather than outward from it.
-    let claim = declaring_claim(&doc_rel, &source, &body.path).ok_or_else(|| {
-        ApiError::unprocessable(format!(
-            "{doc_rel} generates {} but does not name it in a way this can find \
-             (a path built from a variable, most likely) — add the \
-             `<hick:sample>` by hand",
-            body.path
-        ))
-    })?;
-    let anchor = match &claim {
-        Claim::File(offset) => *offset,
-        Claim::Volume(name) => mounting_cell(&source, name).ok_or_else(|| {
+        // Where the document says it writes this is what tells us which cell to
+        // put the sample under — but the two ways it can say so lead there
+        // differently. A `hick:file` sits INSIDE its cell; a volume is declared at
+        // document level and reaches a cell by being mounted, so the search runs
+        // forward from the declaration to the mount rather than outward from it.
+        let claim = declaring_claim(&doc_rel, &source, &body.path).ok_or_else(|| {
             ApiError::unprocessable(format!(
-                "{doc_rel} declares the volume {name:?} that holds {} but no cell \
-                 in it mounts that volume, so there is no run for a sample to sit \
-                 under",
+                "{doc_rel} generates {} but does not name it in a way this can find \
+                 (a path built from a variable, most likely) — add the \
+                 `<hick:sample>` by hand",
                 body.path
             ))
-        })?,
-    };
-    let (insert_at, indent) = insertion_point(&source, anchor).ok_or_else(|| {
-        ApiError::unprocessable(format!(
-            "{doc_rel} writes {} outside any cell, so there is no run for a \
-             sample to sit under",
-            body.path
-        ))
-    })?;
+        })?;
+        let anchor = match &claim {
+            Claim::File(offset) => *offset,
+            Claim::Volume(name) => mounting_cell(&source, name).ok_or_else(|| {
+                ApiError::unprocessable(format!(
+                    "{doc_rel} declares the volume {name:?} that holds {} but no cell \
+                     in it mounts that volume, so there is no run for a sample to sit \
+                     under",
+                    body.path
+                ))
+            })?,
+        };
+        let (insert_at, indent) = insertion_point(&source, anchor).ok_or_else(|| {
+            ApiError::unprocessable(format!(
+                "{doc_rel} writes {} outside any cell, so there is no run for a \
+                 sample to sit under",
+                body.path
+            ))
+        })?;
 
-    // `path=` is relative to the document, the same as everywhere else in the
-    // language — the reader of the `.md` should see the path they would
-    // type, not one rebased on the folder root.
-    let rel_to_doc = relative_to_doc(&doc_rel, &body.path);
-    let mut element = format!(
-        "{indent}<hick:sample path=\"{rel_to_doc}\" from=\"{}\" to=\"{}\"",
-        body.from, body.to
-    );
-    if let Some(caption) = body
-        .caption
-        .as_deref()
-        .map(str::trim)
-        .filter(|c| !c.is_empty())
-    {
-        if caption.contains('"') {
-            return Err(ApiError::bad_request(
-                "a caption cannot contain a double quote — it is an attribute value".to_string(),
-            ));
+        // `path=` is relative to the document, the same as everywhere else in the
+        // language — the reader of the `.md` should see the path they would
+        // type, not one rebased on the folder root.
+        let rel_to_doc = relative_to_doc(&doc_rel, &body.path);
+        let mut element = format!(
+            "{indent}<hick:sample path=\"{rel_to_doc}\" from=\"{}\" to=\"{}\"",
+            body.from, body.to
+        );
+        if let Some(caption) = body
+            .caption
+            .as_deref()
+            .map(str::trim)
+            .filter(|c| !c.is_empty())
+        {
+            if caption.contains('"') {
+                return Err(ApiError::bad_request(
+                    "a caption cannot contain a double quote — it is an attribute value".to_string(),
+                ));
+            }
+            element.push_str(&format!("\n{indent}             caption=\"{caption}\""));
         }
-        element.push_str(&format!("\n{indent}             caption=\"{caption}\""));
-    }
-    element.push_str(" />\n");
+        element.push_str(" />\n");
 
-    let mut updated = source.clone();
-    updated.insert_str(insert_at, &element);
-    hick_lang::parse(&updated).map_err(|e| {
-        ApiError::unprocessable(format!("the sample would make {doc_rel} unparseable: {e}"))
-    })?;
+        let mut updated = source.clone();
+        updated.insert_str(insert_at, &element);
+        hick_lang::parse(&updated).map_err(|e| {
+            ApiError::unprocessable(format!("the sample would make {doc_rel} unparseable: {e}"))
+        })?;
 
-    state.write_source_by_doc_path(&doc_rel, &updated)?;
-    state.rooms.apply_external_source(&doc_id, &updated).await;
+        state.write_source_by_doc_path(&doc_rel, &updated)?;
+        state.rooms.apply_external_source(&doc_id, &updated).await;
 
-    Ok(Json(json!({
-        "doc_id": doc_id,
-        "doc_path": doc_rel,
-        "path": rel_to_doc,
-        "from": body.from,
-        "to": body.to,
-    })))
+        Ok(Json(json!({
+            "doc_id": doc_id,
+            "doc_path": doc_rel,
+            "path": rel_to_doc,
+            "from": body.from,
+            "to": body.to,
+        })))
+    })
+    .await
 }
 
 /// How a document claims a generated path.

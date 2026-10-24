@@ -1,6 +1,8 @@
+mod lifecycle;
 use super::{Attach, Attached, Endpoint, HEARTBEAT, PROTOCOL, WORKER, directory};
 use anyhow::{Context, Result, bail, ensure};
 use fs2::FileExt;
+pub use lifecycle::ClientGuard;
 use std::{process::Stdio, sync::Arc};
 use tokio::sync::RwLock;
 
@@ -8,6 +10,7 @@ use tokio::sync::RwLock;
 pub struct Connection {
     endpoint: Arc<RwLock<Endpoint>>,
     ended: Arc<std::sync::atomic::AtomicBool>,
+    private_ended: Arc<std::sync::atomic::AtomicBool>,
     pub(crate) attach: Attach,
     pub slot: String,
     pub log_offset: u64,
@@ -49,8 +52,10 @@ impl Connection {
             &format!("/clients/{}/lease", self.attach.client),
         )
         .await
+        .timeout(std::time::Duration::from_secs(5))
         .send()
-        .await?;
+        .await?
+        .error_for_status()?;
         Ok(())
     }
     /// Human host lifecycle; this is deliberately absent from model catalogues.
@@ -70,52 +75,13 @@ impl Connection {
                 .as_str()
                 .unwrap_or("Private session could not end")
         );
+        self.private_ended
+            .store(true, std::sync::atomic::Ordering::SeqCst);
         self.ended.store(true, std::sync::atomic::Ordering::SeqCst);
         Ok(value)
     }
     pub fn guard(&self) -> ClientGuard {
-        let connection = self.clone();
-        let task = tokio::spawn(async move {
-            loop {
-                tokio::time::sleep(HEARTBEAT).await;
-                if connection.ended.load(std::sync::atomic::Ordering::SeqCst) {
-                    break;
-                }
-                let lease = connection
-                    .request(
-                        reqwest::Method::POST,
-                        &format!("/clients/{}/lease", connection.attach.client),
-                    )
-                    .await
-                    .send()
-                    .await;
-                if !lease.is_ok_and(|r| r.status().is_success())
-                    && let Err(error) = connection.reconnect().await
-                {
-                    log::warn!("engine reconnect: {error:#}");
-                }
-            }
-        });
-        ClientGuard {
-            task,
-            connection: self.clone(),
-        }
-    }
-}
-
-pub struct ClientGuard {
-    task: tokio::task::JoinHandle<()>,
-    connection: Connection,
-}
-impl Drop for ClientGuard {
-    fn drop(&mut self) {
-        self.task.abort();
-        if let Ok(runtime) = tokio::runtime::Handle::try_current() {
-            let connection = self.connection.clone();
-            runtime.spawn(async move {
-                let _ = connection.detach().await;
-            });
-        }
+        ClientGuard::new(self.clone())
     }
 }
 
@@ -128,6 +94,7 @@ pub async fn connect(attach_opts: Attach) -> Result<Connection> {
     Ok(Connection {
         endpoint: Arc::new(RwLock::new(endpoint)),
         ended: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+        private_ended: Arc::new(std::sync::atomic::AtomicBool::new(false)),
         attach: attach_opts,
         slot: attached.slot,
         log_offset: attached.log_offset,

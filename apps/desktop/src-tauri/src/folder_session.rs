@@ -34,6 +34,14 @@ struct Attachment {
 }
 
 impl FolderSession {
+    pub(crate) async fn detach(&self) -> anyhow::Result<()> {
+        let attachment = self.attachment.lock().await;
+        if let Some(session) = &attachment._session {
+            Box::pin(session.detach()).await?;
+        }
+        Ok(())
+    }
+
     pub(crate) fn host(
         router: Router,
         folder_open: bool,

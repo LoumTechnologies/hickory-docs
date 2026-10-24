@@ -16,12 +16,12 @@ import { useEffect, useMemo, useState } from "react";
 import { useUiCommands, useUiRevision } from "../lib/uiActionBridge";
 import { useUiReading } from "../lib/uiReading";
 import { api } from "../api/client";
+import { boundedLineageRead, readLineageStage } from "./readLineageStage";
 import { LineageColumns } from "../lineage/LineageColumns";
 import { TimeSlider } from "../lineage/TimeSlider";
-import { buildModel, type SourceDocument } from "../lineage/build";
+import { buildModel, LINEAGE_MODEL_TEXT_LIMIT, type SourceDocument } from "../lineage/build";
 import { withStructure } from "../lineage/structure";
 import type {
-  OutputFile,
   ReplayCommit,
   StructureResponse,
 } from "../api/types";
@@ -51,6 +51,7 @@ function ProjectLineage({ projectId }: { projectId: string }) {
   const [structure, setStructure] = useState<StructureResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [partial, setPartial] = useState<string[]>([]);
+  const [progress, setProgress] = useState<{ completed: number; total: number; path: string } | null>(null);
   // Replay: which commit this picture is being shown at, `null` for the
   // working tree. See src/lineage/TimeSlider.tsx.
   const [history, setHistory] = useState<ReplayCommit[]>([]);
@@ -61,6 +62,7 @@ function ProjectLineage({ projectId }: { projectId: string }) {
   useEffect(() => {
     let cancelled = false;
     setDocs(null);
+    setProgress(null);
     setStructure(null);
     setError(null);
     setPartial([]);
@@ -69,70 +71,36 @@ function ProjectLineage({ projectId }: { projectId: string }) {
 
     (async () => {
       try {
-        const summaries = await api.projectDocs(projectId);
+        const summaries = await boundedLineageRead(api.projectDocs(projectId));
         const loaded: SourceDocument[] = [];
         const skipped: string[] = [];
 
-        for (const summary of summaries) {
-          // Replaying: the document as it stood, woven without executing
-          // anything. A document that did not exist then is simply absent
-          // from the picture, which is the truth about that commit.
-          if (at !== null) {
-            try {
-              const replayed = await api.docReplay(summary.id, at);
-              if (replayed.grammar_boundary) {
-                if (!cancelled) setBoundary(replayed.message);
-                continue;
-              }
-              const outputs: OutputFile[] = [];
-              for (const path of replayed.outputs) {
-                const one = await api.docReplay(summary.id, at, path);
-                if (!one.grammar_boundary && one.output) {
-                  outputs.push({
-                    path: one.output.path,
-                    language: "",
-                    content: one.output.content,
-                    provenance: one.output.provenance,
-                  });
-                }
-              }
-              loaded.push({ path: summary.path, source: replayed.source, outputs });
-            } catch {
-              skipped.push(summary.path);
-            }
-            continue;
-          }
-
-          const doc = await api.doc(summary.id);
-          const outputs: OutputFile[] = [];
-          try {
-            const listed = await api.outputs(summary.id);
-            for (const meta of listed.files) {
-              // One request per generated file: provenance is what makes the
-              // links real, and the list endpoint does not carry it.
-              outputs.push(await api.outputFile(summary.id, meta.path));
-            }
-          } catch {
-            // A document whose outputs cannot be woven right now (a parse
-            // error, a missing upstream) still belongs in the picture as a
-            // stage — with no links, which is the truth about it until it
-            // weaves again.
-            skipped.push(summary.path);
-          }
-          loaded.push({ path: doc.path, source: doc.source, outputs });
+        for (const [index, summary] of summaries.entries()) {
+          if (cancelled) return;
+          setProgress({ completed: index, total: summaries.length, path: summary.path });
+          const stage = await readLineageStage(summary, at, api, () => !cancelled);
+          if (cancelled) return;
+          if (stage.document) loaded.push(stage.document);
+          if (stage.error) skipped.push(`${summary.path}: ${stage.error}`);
+          if (stage.boundary) setBoundary(stage.boundary);
+          // Publish only completed/explicitly unavailable stages. A slow output
+          // must not hide provenance already read from the other documents.
+          setDocs([...loaded]);
+          setPartial([...skipped]);
         }
 
         if (cancelled) return;
         setDocs(loaded);
         setPartial(skipped);
         setBusy(false);
+        setProgress(null);
 
         // The stops the slider can take: every commit that touched any of
         // these documents. Fetched once per project, not per replay.
         try {
           const histories = await Promise.all(
             summaries.map((s) =>
-              api.docHistory(s.id).then(
+              boundedLineageRead(api.docHistory(s.id)).then(
                 (h) => h.commits,
                 () => [] as ReplayCommit[],
               ),
@@ -149,13 +117,14 @@ function ProjectLineage({ projectId }: { projectId: string }) {
         // provenance they came for.
         try {
           if (at !== null || cancelled) return;
-          const found = await api.structure();
+          const found = await boundedLineageRead(api.structure());
           if (!cancelled) setStructure(found);
         } catch {
           if (!cancelled) setStructure(null);
         }
       } catch (e) {
         if (!cancelled) {
+          setProgress(null);
           setError(String((e as Error).message ?? e));
           setBusy(false);
         }
@@ -167,10 +136,14 @@ function ProjectLineage({ projectId }: { projectId: string }) {
     };
   }, [projectId, at, retry]);
 
-  const revision = useUiRevision(() => [projectId, at, retry, error, docs, partial, boundary, busy]);
-  useUiReading("project lineage status", { projectId, at, error, partial, boundary, loading: docs === null && error === null,
+  const limitedPaths = [...new Set((docs ?? []).flatMap(doc => [
+    ...(doc.source.length > LINEAGE_MODEL_TEXT_LIMIT ? [doc.path] : []),
+    ...doc.outputs.filter(file => file.content.length > LINEAGE_MODEL_TEXT_LIMIT).map(file => file.path),
+  ]))];
+  const revision = useUiRevision(() => [projectId, at, retry, error, docs, partial, boundary, busy, progress]);
+  useUiReading("project lineage status", { projectId, at, error, partial, boundary, loading: (docs === null || progress !== null) && error === null, progress, complete: docs !== null && progress === null && !error && partial.length === 0 && boundary === null && limitedPaths.length === 0, preview_limited_files: limitedPaths,
     structural_navigation: at === null ? "Optional current working-tree structure" : "Unavailable for historical replay; current structure is not historical evidence" });
-  useUiCommands(error ? [{ key: `lineage-retry:${projectId}`, command: {
+  useUiCommands(error || partial.length ? [{ key: `lineage-retry:${projectId}`, command: {
     label: "Retry reading project lineage", parent: `lineage:${projectId}`, subject: `lineage:${projectId}`,
     parameters: {}, prerequisites: [], read: () => ({ revision: revision(), enabled: true }),
     execute: async () => { setRetry(value => value + 1); return { status: "completed", value: { read_requested: true, read_completed: false } }; },
@@ -183,6 +156,7 @@ function ProjectLineage({ projectId }: { projectId: string }) {
     return withStructure(built, structure);
   }, [docs, structure]);
 
+  const reading = progress && <p role="status">Reading the pipeline: {progress.completed} of {progress.total} documents finished; reading {progress.path}. Shown links cover only the finished reads.</p>;
   const slider = (
     <TimeSlider
       owner={projectId}
@@ -212,7 +186,7 @@ function ProjectLineage({ projectId }: { projectId: string }) {
     return (
       <div className="lineage-view">
         {slider}
-        <div className="lineage-empty muted">Reading the pipeline…</div>
+        {reading ?? <div className="lineage-empty muted">Reading the pipeline…</div>}
       </div>
     );
 
@@ -221,8 +195,10 @@ function ProjectLineage({ projectId }: { projectId: string }) {
       <div className="lineage-view">
         {slider}
         <div className="lineage-empty">
+          {reading}
+          {partial.length > 0 && <><p role="status">No readable stages yet; this graph is incomplete. {partial.join(", ")}</p><button type="button" onClick={() => setRetry(value => value + 1)}>Retry reading project lineage</button></>}
           <p>
-            {at === null
+            {partial.length > 0 || progress ? "Waiting for readable document stages." : at === null
               ? "No documents in this project yet."
               : "No document in this project existed at that commit."}
           </p>
@@ -235,6 +211,9 @@ function ProjectLineage({ projectId }: { projectId: string }) {
   return (
     <div className="lineage-view">
       {slider}
+      {reading}
+      {partial.length > 0 && <button type="button" onClick={() => setRetry(value => value + 1)}>Retry reading project lineage</button>}
+      {limitedPaths.length > 0 && <p className="lineage-warning" role="status">This graph has limited previews for {limitedPaths.join(", ")}. Links involving those large files are omitted; open a file's full or owning document to read the complete source.</p>}
       {ambiguous.size > 0 && (
         <p className="lineage-note" role="status">
           {ambiguous.size} name{ambiguous.size === 1 ? "" : "s"} match more than one definition
@@ -245,9 +224,8 @@ function ProjectLineage({ projectId }: { projectId: string }) {
       )}
       {partial.length > 0 && (
         <p className="lineage-warning" role="status">
-          {partial.length} document{partial.length === 1 ? "" : "s"} could not be woven just now
-          ({partial.join(", ")}), so {partial.length === 1 ? "its" : "their"} links are missing
-          rather than wrong.
+          {partial.length} document{partial.length === 1 ? "" : "s"} could not be fully read just now
+          ({partial.join(", ")}), so some links are unavailable. Only successfully read provenance is shown.
         </p>
       )}
       <LineageColumns model={model} />

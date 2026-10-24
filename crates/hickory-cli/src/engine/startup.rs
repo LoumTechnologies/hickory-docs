@@ -3,7 +3,19 @@ use anyhow::{Result, anyhow};
 use tokio::sync::watch;
 
 #[derive(Clone)]
-pub(super) struct Startup(watch::Receiver<Option<Result<(), String>>>);
+pub(super) struct Startup {
+    receiver: watch::Receiver<Option<Result<(), String>>>,
+    progress: std::sync::Arc<std::sync::Mutex<Progress>>,
+    started: std::time::Instant,
+}
+#[derive(Clone)]
+struct Progress {
+    phase: String,
+    completed: usize,
+    total: usize,
+    document: Option<String>,
+    changed: std::time::Instant,
+}
 
 impl Startup {
     pub fn complete() -> Self {
@@ -12,8 +24,8 @@ impl Startup {
         startup
     }
     pub fn result(&self) -> Option<Result<(), String>> {
-        self.0.borrow().clone().or_else(|| {
-            self.0
+        self.receiver.borrow().clone().or_else(|| {
+            self.receiver
                 .has_changed()
                 .is_err()
                 .then(|| Err("Workspace preparation stopped. Reopen the folder.".into()))
@@ -22,11 +34,42 @@ impl Startup {
 
     pub fn channel() -> (watch::Sender<Option<Result<(), String>>>, Self) {
         let (tx, rx) = watch::channel(None);
-        (tx, Self(rx))
+        let now = std::time::Instant::now();
+        (
+            tx,
+            Self {
+                receiver: rx,
+                started: now,
+                progress: std::sync::Arc::new(std::sync::Mutex::new(Progress {
+                    phase: "queued".into(),
+                    completed: 0,
+                    total: 0,
+                    document: None,
+                    changed: now,
+                })),
+            },
+        )
+    }
+
+    pub fn progress(&self, phase: &str, completed: usize, total: usize, document: Option<String>) {
+        *self.progress.lock().unwrap() = Progress {
+            phase: phase.into(),
+            completed,
+            total,
+            document,
+            changed: std::time::Instant::now(),
+        };
+    }
+    pub fn status(&self) -> serde_json::Value {
+        let progress = self.progress.lock().unwrap();
+        serde_json::json!({ "ready": false, "phase": progress.phase, "completed": progress.completed,
+            "total": progress.total, "document": progress.document,
+            "elapsed_ms": self.started.elapsed().as_millis() as u64,
+            "stage_elapsed_ms": progress.changed.elapsed().as_millis() as u64 })
     }
 
     pub async fn wait(&self) -> Result<()> {
-        let mut receiver = self.0.clone();
+        let mut receiver = self.receiver.clone();
         loop {
             if let Some(result) = receiver.borrow_and_update().clone() {
                 return result.map_err(|error| anyhow!(error));
@@ -62,6 +105,25 @@ pub(super) fn editor_bootstrap(path: &str, method: &axum::http::Method) -> bool 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn progress_is_shared_without_unlocking_preparation() {
+        let (sender, startup) = Startup::channel();
+        let observer = startup.clone();
+        startup.progress("weaving", 2, 5, Some("sessions/large.md".into()));
+        let status = observer.status();
+        assert_eq!(status["ready"], false);
+        assert_eq!(status["completed"], 2);
+        assert_eq!(status["total"], 5);
+        assert_eq!(status["document"], "sessions/large.md");
+        assert!(status["elapsed_ms"].is_number());
+        assert!(observer.result().is_none());
+        let waiting = tokio::spawn(async move { observer.wait().await });
+        tokio::task::yield_now().await;
+        assert!(!waiting.is_finished());
+        sender.send(Some(Ok(()))).unwrap();
+        waiting.await.unwrap().unwrap();
+    }
 
     // Guarantee: docs/guarantees/authoring/the-editor-does-not-wait-for-workspace-preparation.md
     #[tokio::test]

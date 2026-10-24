@@ -109,6 +109,7 @@ async fn native_window_close_requires_end_and_survives_retired_engine() {
             pid: 0,
         })),
         ended: ended.clone(),
+        private_ended: Arc::new(std::sync::atomic::AtomicBool::new(false)),
         attach: options(),
         slot: "0".into(),
         log_offset: 0,

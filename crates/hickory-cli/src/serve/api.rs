@@ -11,6 +11,7 @@
 //! see [`super::agent`] — the same confined Python agent `hick agent` runs, wired to the
 //! chat dock.
 
+mod actions;
 mod create_new;
 mod snapshot;
 pub use snapshot::snapshot_doc;
@@ -330,85 +331,7 @@ pub async fn elements() -> Json<Value> {
     Json(json!({ "elements": hick_literate::render::describe_elements() }))
 }
 
-/// `POST /api/docs/:id/blocks/:at/:action` — one action on one element,
-/// addressed by the byte offset its tag starts at.
-///
-/// The element answers with what it wants (`hick_blocks::ActionOutcome`)
-/// and this handler carries it out with the machinery the older routes
-/// already use: a `run` starts a run exactly as `POST /run` does and
-/// answers `202` with the run id; an `edit` writes the document as `PUT`
-/// does; an `answer` is returned as is. An element that does not know the
-/// action is a `404` naming the element; one that refuses is a `422` in its
-/// own words.
-pub async fn block_action(
-    State(state): State<LocalState>,
-    Path((id, at, action)): Path<(String, usize, String)>,
-    body: Option<Json<Value>>,
-) -> ApiResult<(StatusCode, Json<Value>)> {
-    use hick_blocks::{ActionError, ActionOutcome};
-    let run = state.weave(&id).await?;
-    let body = body.map(|Json(v)| v).unwrap_or(Value::Null);
-    let outcome = crate::block_action(&run, at, &action, body).map_err(|e| match e {
-        ActionError::Unknown { .. } => ApiError::not_found(e.to_string()),
-        ActionError::Refused(_) => ApiError::unprocessable(e.to_string()),
-        ActionError::Failed(_) => ApiError::internal(e.to_string()),
-    })?;
-    match outcome {
-        ActionOutcome::Answer { value } => Ok((
-            StatusCode::OK,
-            Json(json!({ "outcome": "answer", "value": value })),
-        )),
-        ActionOutcome::Run { cells } => {
-            let run_id = state.start_run(&id, false).await?;
-            Ok((
-                StatusCode::ACCEPTED,
-                Json(json!({ "outcome": "run", "run_id": run_id, "cells": cells })),
-            ))
-        }
-        ActionOutcome::Edit { span, replacement } => {
-            let source = run.doc.source.clone();
-            if span.0 > span.1
-                || span.1 > source.len()
-                || !source.is_char_boundary(span.0)
-                || !source.is_char_boundary(span.1)
-            {
-                return Err(ApiError::unprocessable(format!(
-                    "the element asked to replace bytes {}..{} of a {}-byte document",
-                    span.0,
-                    span.1,
-                    source.len()
-                )));
-            }
-            let mut next = String::with_capacity(source.len() + replacement.len());
-            next.push_str(&source[..span.0]);
-            next.push_str(&replacement);
-            next.push_str(&source[span.1..]);
-            state.write_source(&id, &next)?;
-            state.rooms.apply_external_source(&id, &next).await;
-            Ok((
-                StatusCode::OK,
-                Json(
-                    json!({ "outcome": "edit", "span": [span.0, span.1], "doc": doc_json(&state, &id)? }),
-                ),
-            ))
-        }
-    }
-}
-
-/// `GET /api/docs/:id/render` — the block model for the current source.
-///
-/// Weave, never execute: the client asks for this on every load and after
-/// every save, and a render that ran the document would turn scrolling into
-/// arbitrary code execution.
-pub async fn render_doc(
-    State(state): State<LocalState>,
-    Path(id): Path<String>,
-) -> ApiResult<Json<Value>> {
-    let run = state.weave(&id).await?;
-    Ok(Json(crate::block_model_json(&run).map_err(|e| {
-        ApiError::unprocessable(format!("render failed: {e}"))
-    })?))
-}
+pub use actions::{block_action, render_doc};
 
 // ---------------------------------------------------------------------------
 // Outputs — the lineage ribbons
@@ -965,12 +888,9 @@ pub async fn run_doc(
     Path(id): Path<String>,
     body: Option<Json<RunRequest>>,
 ) -> ApiResult<(StatusCode, Json<Value>)> {
+    let request = body.map(|body| body.0).unwrap_or_default();
     let run_id = state
-        .start_run_expected(
-            &id,
-            false,
-            body.and_then(|body| body.0.expected_source_hash),
-        )
+        .start_run_selected(&id, false, request.expected_source_hash, request.cells)
         .await?;
     Ok((StatusCode::ACCEPTED, Json(json!({ "run_id": run_id }))))
 }
@@ -981,8 +901,9 @@ pub async fn check_doc(
     Path(id): Path<String>,
     body: Option<Json<RunRequest>>,
 ) -> ApiResult<(StatusCode, Json<Value>)> {
+    let request = body.map(|body| body.0).unwrap_or_default();
     let run_id = state
-        .start_run_expected(&id, true, body.and_then(|body| body.0.expected_source_hash))
+        .start_run_selected(&id, true, request.expected_source_hash, request.cells)
         .await?;
     Ok((StatusCode::ACCEPTED, Json(json!({ "run_id": run_id }))))
 }

@@ -5,6 +5,14 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="color-scheme" content="dark" />
     <title>Hickory Docs</title>
+    <style>
+      /* Available before the application bundle and its stylesheet arrive. */
+      body { margin: 0; }
+      .boot-status { margin: 0; padding: 2rem; min-height: 100vh; box-sizing: border-box;
+        background: #1e2227; color: #dde3ea; font: 16px system-ui, sans-serif; }
+      :root[data-theme="light"] .boot-status { background: #faf9f7; color: #21201d; }
+      :root[data-theme="warm-dark"] .boot-status { background: #161512; color: #e6e3dc; }
+    </style>
     <!-- Theme, before the bundle: styles.css defaults to the dark theme on
          :root, so only a stored non-default choice needs applying — but it
          must land before first paint or a light-theme user gets a dark
@@ -25,7 +33,7 @@
     </script>
   </head>
   <body>
-    <div id="root"></div>
+    <div id="root"><p class="boot-status" role="status">Opening Hickory Docs…</p></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

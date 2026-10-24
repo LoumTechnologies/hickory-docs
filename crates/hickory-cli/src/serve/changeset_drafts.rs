@@ -151,82 +151,84 @@ pub async fn apply(
             "Every revised editor address must have its original captured identity. A revision cannot create or rename buffers.",
         ));
     }
-    let _guard = state.writes.lock().await;
-    let current = if let Some(scope) = &capture.workspace {
-        scope
-            .current(&body.context.buffers)
-            .map_err(|e| ApiError::conflict(format!("{e:#}")))?
-    } else {
-        crate::project_revision::directory(&capture.root, Some(&capture.inventory))
-            .map_err(ApiError::from)?
-    };
-    if !current.compare(&b).is_empty() {
-        return Err(ApiError::conflict(
-            "Destinations changed since accepted B (bytes, inventory, metadata or editor identities). Nothing applied. Preserve newer work; discard this revision or restore B explicitly.",
-        ));
-    }
-    let record = super::acp::record::Record::existing(capture.session.clone());
-    record.context("authored-changeset-revision", &json!({"turn":turn,"entry":artifact.entry,"sources":body.sources,"status":"constructed; application requested","runtime":"unrun"})).map_err(|e|ApiError::internal(e.to_string()))?;
-    let mut applied: Vec<String> = vec![];
-    let mut failure = None;
-    for path in &disk {
-        // Recheck the full remaining B inventory between targets; substitute only our landed writes.
-        let mut expected = b.clone();
-        for landed in &applied {
-            if let Some(entry) = c.get(landed) {
-                expected
-                    .insert(landed, (**entry).clone())
-                    .map_err(ApiError::unprocessable)?;
-            } else {
-                expected.remove(landed).map_err(ApiError::unprocessable)?;
-            }
-        }
-        let actual = if let Some(scope) = &capture.workspace {
-            scope.current(&body.context.buffers)
+    crate::engine::writes::during(&state.writes, async {
+        let current = if let Some(scope) = &capture.workspace {
+            scope
+                .current(&body.context.buffers)
+                .map_err(|e| ApiError::conflict(format!("{e:#}")))?
         } else {
             crate::project_revision::directory(&capture.root, Some(&capture.inventory))
+                .map_err(ApiError::from)?
         };
-        let result = async {
-            anyhow::ensure!(
-                actual?.compare(&expected).is_empty(),
-                "Concurrent destination change; remaining writes refused"
-            );
-            let old = before
-                .get(path)
-                .map(|t| BTreeMap::from([(path.clone(), t.clone())]))
-                .unwrap_or_default();
-            let new = after
-                .get(path)
-                .map(|t| BTreeMap::from([(path.clone(), t.clone())]))
-                .unwrap_or_default();
-            super::project_publish::publish_text(
-                &state,
-                &capture.root,
-                &old,
-                &new,
-                Some(&expected),
-            )
-            .await?;
-            Ok::<_, anyhow::Error>(())
+        if !current.compare(&b).is_empty() {
+            return Err(ApiError::conflict(
+                "Destinations changed since accepted B (bytes, inventory, metadata or editor identities). Nothing applied. Preserve newer work; discard this revision or restore B explicitly.",
+            ));
         }
-        .await;
-        if let Err(error) = result {
-            failure = Some(format!("{error:#}"));
-            break;
+        let record = super::acp::record::Record::existing(capture.session.clone());
+        record.context("authored-changeset-revision", &json!({"turn":turn,"entry":artifact.entry,"sources":body.sources,"status":"constructed; application requested","runtime":"unrun"})).map_err(|e|ApiError::internal(e.to_string()))?;
+        let mut applied: Vec<String> = vec![];
+        let mut failure = None;
+        for path in &disk {
+            // Recheck the full remaining B inventory between targets; substitute only our landed writes.
+            let mut expected = b.clone();
+            for landed in &applied {
+                if let Some(entry) = c.get(landed) {
+                    expected
+                        .insert(landed, (**entry).clone())
+                        .map_err(ApiError::unprocessable)?;
+                } else {
+                    expected.remove(landed).map_err(ApiError::unprocessable)?;
+                }
+            }
+            let actual = if let Some(scope) = &capture.workspace {
+                scope.current(&body.context.buffers)
+            } else {
+                crate::project_revision::directory(&capture.root, Some(&capture.inventory))
+            };
+            let result = async {
+                anyhow::ensure!(
+                    actual?.compare(&expected).is_empty(),
+                    "Concurrent destination change; remaining writes refused"
+                );
+                let old = before
+                    .get(path)
+                    .map(|t| BTreeMap::from([(path.clone(), t.clone())]))
+                    .unwrap_or_default();
+                let new = after
+                    .get(path)
+                    .map(|t| BTreeMap::from([(path.clone(), t.clone())]))
+                    .unwrap_or_default();
+                super::project_publish::publish_text(
+                    &state,
+                    &capture.root,
+                    &old,
+                    &new,
+                    Some(&expected),
+                )
+                .await?;
+                Ok::<_, anyhow::Error>(())
+            }
+            .await;
+            if let Err(error) = result {
+                failure = Some(format!("{error:#}"));
+                break;
+            }
+            applied.push(path.clone());
         }
-        applied.push(path.clone());
-    }
-    let undo: Vec<_> = applied
-        .iter()
-        .map(|p| json!({"path":p,"before":before.get(p),"after":after.get(p)}))
-        .collect();
-    let outcome = json!({"constructed":true,"runtime":"unrun","applied":applied,"error":failure,"editors":if failure.is_none(){editors}else{vec![]},"undo":undo});
-    // A separate provenance record; never rewrite the accepted artifact or its evidence.
-    let mut outcome = outcome;
-    if let Err(error) = record.context("authored-changeset-application", &json!({"turn":turn,"outcome":outcome,"editorApplication":"client acknowledgement required"})) {
-        outcome["recordError"] = json!(format!("Application receipt could not be recorded: {error:#}. Keep this receipt."));
-    }
-    Ok(Json(outcome))
+        let undo: Vec<_> = applied
+            .iter()
+            .map(|p| json!({"path":p,"before":before.get(p),"after":after.get(p)}))
+            .collect();
+        let outcome = json!({"constructed":true,"runtime":"unrun","applied":applied,"error":failure,"editors":if failure.is_none(){editors}else{vec![]},"undo":undo});
+        // A separate provenance record; never rewrite the accepted artifact or its evidence.
+        let mut outcome = outcome;
+        if let Err(error) = record.context("authored-changeset-application", &json!({"turn":turn,"outcome":outcome,"editorApplication":"client acknowledgement required"})) {
+            outcome["recordError"] = json!(format!("Application receipt could not be recorded: {error:#}. Keep this receipt."));
+        }
+        Ok(Json(outcome))
+    })
+    .await
 }
 
 /// Editor transactions are reported by the owning window, separately from disk writes.

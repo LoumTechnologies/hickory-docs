@@ -120,12 +120,14 @@ pub async fn apply(
         expected,
     )
     .map_err(|e| ApiError::unprocessable(format!("Invalid source comparison: {e:?}")))?;
-    let _guard = state.writes.lock().await;
-    let applied = super::project_publish::publish(&state, &root, &body.baseline, &body.documents)
-        .await
-        .map_err(ApiError::from)?;
-    let undo: Vec<_> = applied.iter().map(|path| json!({"path":path,"before":body.baseline.get(path),"after":body.documents.get(path)})).collect();
-    Ok(Json(json!({"destinations":applied,"undo":undo})))
+    crate::engine::writes::during(&state.writes, async {
+        let applied = super::project_publish::publish(&state, &root, &body.baseline, &body.documents)
+            .await
+            .map_err(ApiError::from)?;
+        let undo: Vec<_> = applied.iter().map(|path| json!({"path":path,"before":body.baseline.get(path),"after":body.documents.get(path)})).collect();
+        Ok(Json(json!({"destinations":applied,"undo":undo})))
+    })
+    .await
 }
 #[derive(Deserialize)]
 pub struct UndoRequest {
@@ -151,22 +153,25 @@ pub async fn undo(
         .ok_or_else(|| ApiError::bad_request("Project needs a root."))?
         .canonicalize()
         .map_err(|e| ApiError::unprocessable(e.to_string()))?;
-    let _guard = state.writes.lock().await;
-    let mut statuses = vec![];
-    for item in body.undo {
-        let baseline = item
-            .after
-            .map(|text| BTreeMap::from([(item.path.clone(), text)]))
-            .unwrap_or_default();
-        let candidate = item
-            .before
-            .map(|text| BTreeMap::from([(item.path.clone(), text)]))
-            .unwrap_or_default();
-        let result = super::project_publish::publish(&state, &root, &baseline, &candidate).await;
-        statuses.push(match result {
-            Ok(_) => json!({"path":item.path,"ok":true}),
-            Err(e) => json!({"path":item.path,"ok":false,"error":format!("{e:#}")}),
-        });
-    }
-    Ok(Json(json!({"targets":statuses})))
+    crate::engine::writes::during(&state.writes, async {
+        let mut statuses = vec![];
+        for item in body.undo {
+            let baseline = item
+                .after
+                .map(|text| BTreeMap::from([(item.path.clone(), text)]))
+                .unwrap_or_default();
+            let candidate = item
+                .before
+                .map(|text| BTreeMap::from([(item.path.clone(), text)]))
+                .unwrap_or_default();
+            let result =
+                super::project_publish::publish(&state, &root, &baseline, &candidate).await;
+            statuses.push(match result {
+                Ok(_) => json!({"path":item.path,"ok":true}),
+                Err(e) => json!({"path":item.path,"ok":false,"error":format!("{e:#}")}),
+            });
+        }
+        Ok(Json(json!({"targets":statuses})))
+    })
+    .await
 }

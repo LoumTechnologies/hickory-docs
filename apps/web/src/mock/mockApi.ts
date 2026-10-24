@@ -391,8 +391,10 @@ export function installMockApi() {
       return rest;
     }
     if ((m = path.match(/^\/api\/docs\/([^/]+)\/render$/))) {
-      state.docs.find((d) => d.id === m![1]) ?? notFound(path);
-      return { blocks: state.blocks[m![1]] ?? [] };
+      const doc = state.docs.find((d) => d.id === m![1]) ?? notFound(path);
+      const hash = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(doc.source));
+      const source_hash = [...new Uint8Array(hash)].map(byte => byte.toString(16).padStart(2, "0")).join("");
+      return { document: doc.id, source_hash, blocks: state.blocks[m![1]] ?? [] };
     }
     // Generated outputs & lineage (v0.2). Outputs are woven fresh from the
     // doc's current source, so provenance ranges are always real.

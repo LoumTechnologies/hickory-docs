@@ -52,18 +52,22 @@ it("revokes a verified asset completing after its publication capture retires", 
   await expect(pending).rejects.toThrow("capture was retired");
   expect(create).toHaveBeenCalledTimes(1); expect(revoke).toHaveBeenCalledExactlyOnceWith("blob:retired-asset");
 });
-it("renders saved text and SVG safely without fetching or running a cell", () => {
+it("keeps saved text and SVG visible when execution transcripts are hidden", () => {
   const fetch = vi.spyOn(globalThis, "fetch");
   const value = snapshot();
   const svg = btoa('<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>');
   value.cells = [{ kind: "exec", id: "rich", command: "print('do not execute')", container: "python", span: [0, 1], status: "unrecorded", saved_output: `recorded text\n\x1eHICKORY_DISPLAY ${JSON.stringify({ kind: "image", mime: "image/svg+xml", data: svg })}\n` }];
-  render(<PublishedSnapshot snapshot={value} />);
+  value.cells.push({ kind: "exec", id: "checked", command: "printf transcript-only", container: "shell", span: [1, 2], status: "ok", expect: { match: "exact", body: "transcript-only" }, transcript: [{ t: 0, kind: "out", data: "transcript-only" }] });
+  const view = render(<PublishedSnapshot snapshot={value} />);
+  expect(view.container.querySelector(".transcript")).toBeTruthy();
   expect(screen.getByText("recorded text")).toBeTruthy();
   const image = screen.getByRole("img", { name: "Python cell output" });
   expect(image.getAttribute("src")).toBe(`data:image/svg+xml;base64,${svg}`);
   expect(document.querySelector("script")).toBeNull();
   expect(fetch).not.toHaveBeenCalled();
   fireEvent.click(screen.getByRole("checkbox"));
-  expect(screen.queryByText("recorded text")).toBeNull();
-  expect(screen.queryByRole("img")).toBeNull();
+  expect(view.container.querySelector(".transcript")).toBeNull();
+  expect(screen.getByText("recorded text")).toBeTruthy();
+  expect(screen.getByRole("img", { name: "Python cell output" })).toBe(image);
+  expect(fetch).not.toHaveBeenCalled();
 });

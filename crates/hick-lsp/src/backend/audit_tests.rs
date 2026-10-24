@@ -286,3 +286,75 @@ fn a_markdown_note_with_hick_elements_uses_the_hick_pipeline() {
     assert!(is_hick_document(&uri, "<hick:paste from=\"#test1\" />"));
     assert!(!is_hick_document(&uri, "# ordinary Markdown\n"));
 }
+
+/// Real clangd deduplicates diagnostics for byte-identical changes. The
+/// retained payload must still drive a quick fix after a pane resynchronizes.
+#[tokio::test]
+#[ignore = "requires a real clangd on PATH; run this focused provider integration explicitly"]
+async fn unchanged_plain_sync_keeps_real_clangd_quickfix_and_changed_source_invalidates() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("main.cpp");
+    let source =
+        "int square(int value) { return value * value; }\nint main() { return square(3) }\n";
+    std::fs::write(&path, source).unwrap();
+    let uri = Url::from_file_path(&path).unwrap();
+    let root = Url::from_directory_path(directory.path())
+        .unwrap()
+        .to_string();
+    let (service, _socket) = tower_lsp::LspService::new(HickBackend::new);
+    let backend = service.inner();
+    backend.spawn_notification_handler();
+    backend
+        .process_file_at(&uri, &uri, source, "cpp", root.clone())
+        .await;
+    tokio::time::timeout(std::time::Duration::from_secs(15), async {
+        loop {
+            if backend
+                .vfile_index
+                .read()
+                .await
+                .get(&uri)
+                .is_some_and(|mapping| !mapping.provider_diagnostics.is_empty())
+            {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .expect("real clangd must publish the missing-semicolon diagnostic");
+    let before = backend.vfile_index.read().await[&uri]
+        .provider_diagnostics
+        .clone();
+    backend
+        .process_file_at(&uri, &uri, source, "cpp", root.clone())
+        .await;
+    assert_eq!(
+        backend.vfile_index.read().await[&uri].provider_diagnostics,
+        before
+    );
+    let params: CodeActionParams = serde_json::from_value(serde_json::json!({
+        "textDocument":{"uri":uri},
+        "range":{"start":{"line":1,"character":27},"end":{"line":1,"character":27}},
+        "context":{"diagnostics":[]}
+    }))
+    .unwrap();
+    let actions = backend.code_action(params).await.unwrap().unwrap();
+    assert!(
+        actions.iter().any(|action| match action {
+            CodeActionOrCommand::CodeAction(action) => action.title.contains("insert ';'"),
+            _ => false,
+        }),
+        "same-source resync must retain the real provider fix: {actions:?}"
+    );
+    let changed = source.replace("square(3) }", "square(3); }");
+    backend
+        .process_file_at(&uri, &uri, &changed, "cpp", root)
+        .await;
+    assert!(
+        backend.vfile_index.read().await[&uri]
+            .provider_diagnostics
+            .is_empty()
+    );
+    backend.dispatcher.lock().await.shutdown_all().await;
+}

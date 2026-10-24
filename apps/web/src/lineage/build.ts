@@ -7,7 +7,7 @@
 // — a decision behind a requirement — those arrive as `asserted` links
 // through `extraLinks`, and they are drawn differently on purpose.
 
-import { parseHickDoc } from "../editor/hickDoc";
+import { parseStructure } from "../editor/hickDoc";
 import { byteToChar } from "../lib/offsets";
 import type { OutputFile, Provenance } from "../api/types";
 import type { FileModel, LineageModel, LineageNode, Link, Stage } from "./model";
@@ -15,22 +15,32 @@ import type { FileModel, LineageModel, LineageNode, Link, Stage } from "./model"
 export interface SourceDocument {
   /** Repo-relative path, which is also how provenance names it. */
   path: string;
+  id?: string;
   source: string;
   /** Everything this document weaves. */
   outputs: OutputFile[];
 }
 
-/** 0-based line containing a character offset. */
-function lineOf(text: string, charOffset: number): number {
-  let line = 0;
-  for (let i = 0; i < charOffset && i < text.length; i++) {
-    if (text[i] === "\n") line++;
-  }
-  return line;
+/** Scan a source once; repeated block offsets must not rescan its prefix. */
+function lineLookup(text: string): (offset: number) => number {
+  const starts = [0];
+  for (let index = 0; index < text.length; index++) if (text[index] === "\n") starts.push(index + 1);
+  return offset => {
+    let lo = 0, hi = starts.length;
+    while (lo < hi) { const mid = (lo + hi) >>> 1; if (starts[mid] <= offset) lo = mid + 1; else hi = mid; }
+    return Math.max(0, lo - 1);
+  };
 }
+function lineOf(text: string, offset: number): number { return lineLookup(text)(offset); }
 
-function fileModel(path: string, text: string, kind: FileModel["kind"]): FileModel {
-  return { path, kind, lines: text.replace(/\n$/, "").split("\n") };
+export const LINEAGE_MODEL_TEXT_LIMIT = 1_000_000;
+export const LINEAGE_PREVIEW_CHARACTERS = 16_384;
+function fileModel(path: string, text: string, kind: FileModel["kind"], documentId?: string): FileModel {
+  if (text.length > LINEAGE_MODEL_TEXT_LIMIT) {
+    const shown = text.slice(0, LINEAGE_PREVIEW_CHARACTERS);
+    return { path, kind, documentId, lines: shown.split("\n"), preview: { totalCharacters: text.length, shownCharacters: shown.length } };
+  }
+  return { path, kind, documentId, lines: text.replace(/\n$/, "").split("\n") };
 }
 
 function stageName(docPath: string): string {
@@ -46,8 +56,9 @@ function stageName(docPath: string): string {
  * is what lets a paste inside a file block be its own target.
  */
 function documentNodes(path: string, source: string): LineageNode[] {
-  const structure = parseHickDoc(source);
+  const structure = parseStructure(source);
   const out: LineageNode[] = [];
+  const lineAt = lineLookup(source);
   for (const block of structure.blocks) {
     const id = block.attrs.id
       ? `${path}#${block.attrs.id}`
@@ -57,8 +68,8 @@ function documentNodes(path: string, source: string): LineageNode[] {
     out.push({
       id,
       file: path,
-      startLine: lineOf(source, block.from),
-      endLine: lineOf(source, Math.max(block.from, block.to - 1)),
+      startLine: lineAt(block.from),
+      endLine: lineAt(Math.max(block.from, block.to - 1)),
       label: block.attrs.id ?? block.attrs.path ?? block.name,
       kind: block.name,
     });
@@ -109,8 +120,10 @@ export function buildModel(docs: SourceDocument[], extraLinks: Link[] = []): Lin
   const nodesByDoc = new Map<string, LineageNode[]>();
 
   for (const doc of docs) {
-    files.set(doc.path, fileModel(doc.path, doc.source, "document"));
-    const docNodes = documentNodes(doc.path, doc.source);
+    files.set(doc.path, fileModel(doc.path, doc.source, "document", doc.id));
+    // Keep the stage and an explicit bounded preview, but never parse or
+    // fabricate block anchors for source omitted from this graph capture.
+    const docNodes = files.get(doc.path)!.preview ? [] : documentNodes(doc.path, doc.source);
     nodesByDoc.set(doc.path, docNodes);
     for (const node of docNodes) nodes.set(node.id, node);
     stages.push({
@@ -122,12 +135,13 @@ export function buildModel(docs: SourceDocument[], extraLinks: Link[] = []): Lin
 
   for (const doc of docs) {
     for (const output of doc.outputs) {
-      files.set(output.path, fileModel(output.path, output.content, "generated"));
+      files.set(output.path, fileModel(output.path, output.content, "generated", doc.id));
+      if (files.get(output.path)!.preview) continue;
       for (const run of outputRuns(output)) {
         if (run.origin.kind === "synthetic") continue;
         const originDoc = run.origin.doc_path;
         const originSource = docs.find((d) => d.path === originDoc)?.source;
-        if (originSource === undefined) continue;
+        if (originSource === undefined || files.get(originDoc)?.preview) continue;
 
         // Provenance offsets are UTF-8 bytes on the wire; lines are characters.
         const originLine = lineOf(originSource, byteToChar(originSource, run.origin.span[0]));

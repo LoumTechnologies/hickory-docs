@@ -1,3 +1,5 @@
+import { useDocumentRender } from "./useDocumentRender";
+import { runCellFresh } from "./runCellFresh";
 import { completedRunBlocks, failedRunBanner, settleDocumentRun } from "./documentRunResults";
 export { completedRunBlocks, failedRunBanner, settleDocumentRun } from "./documentRunResults";
 import { inlineEvaluationOwner } from "../debug/inlineEval";
@@ -268,7 +270,7 @@ function useDocumentSession(
   const [banner, setBanner] = useState<Banner>(null);
   const [selectSpan, setSelectSpan] = useState<[number, number] | null>(null);
   const [dirtySource, setDirtySource] = useState<string | null>(null);
-  const { savedSource, setSavedSource, syncState, setSyncState } = useDocumentPersistence(docId, doc, dirtySource, stored => { setDoc(stored); scheduleRender(); });
+  const { savedSource, setSavedSource, syncState, setSyncState } = useDocumentPersistence(docId, doc, dirtySource, stored => { setDoc(stored); void refreshRender(stored.source); });
   const [references, setReferences] = useState<{ locations: LspLocation[]; query: string } | null>(
     null,
   );
@@ -366,24 +368,9 @@ function useDocumentSession(
     }
   }, [debug.status, debug.frames]);
 
-  // Run events arrive in bursts (one terminal message per run, plus the
-  // `verify` fallback path), and each used to trigger its own full render.
-  // Coalesce them into one trailing fetch; `api.render` additionally
-  // collapses anything still in flight.
-  const renderTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const scheduleRender = useCallback(() => {
-    if (renderTimer.current !== null) return;
-    renderTimer.current = setTimeout(() => {
-      renderTimer.current = null;
-      api.render(docId).then((r) => setBlocks(r.blocks), () => undefined);
-    }, 150);
-  }, [docId]);
-  useEffect(
-    () => () => {
-      if (renderTimer.current !== null) clearTimeout(renderTimer.current);
-    },
-    [],
-  );
+  const { refreshRender, scheduleRender } = useDocumentRender(docId,
+    () => dirtySource ?? doc?.source ?? null, setBlocks,
+    error => { setRenderError(error); if (error) setBlocks(previous => previous ?? []); });
 
   const loadedDoc = useRef(doc); loadedDoc.current = doc;
   const refresh = useCallback(() => {
@@ -391,20 +378,8 @@ function useDocumentSession(
       if (loadedDoc.current) setBanner({ kind: "fail", text: `Could not reload ${loadedDoc.current.path}: ${String(e.message ?? e)}`, retry: { label: "Retry reload", run: refresh } });
       else setFatalError(String(e.message ?? e));
     });
-    api.render(docId).then(
-      (r) => {
-        setBlocks(r.blocks);
-        setRenderError(null);
-      },
-      // A document that will not weave — a syntax error, mid-edit — must
-      // still OPEN. Replacing the page with the error made the one thing
-      // that could fix it, the editor, unreachable.
-      (e) => {
-        setBlocks((prev) => prev ?? []);
-        setRenderError(String(e.message ?? e));
-      },
-    );
-  }, [docId]);
+    void refreshRender();
+  }, [docId, refreshRender]);
 
   useEffect(refresh, [refresh]);
 
@@ -525,19 +500,8 @@ function useDocumentSession(
         setBlocks(prev => prev?.map(block => block.kind === "exec" && block.id === execId ? { ...block, runError: undefined } : block) ?? prev);
         setRunningCells((prev) => new Set(prev).add(execId));
         try {
-          // A cell the server has rendered is run as an ACTION on its
-          // element, addressed by the byte its tag starts at — the one
-          // route every element's verbs go through. A cell the render has
-          // not caught up with yet has no span to address, and runs the
-          // older way.
-          const block = blocksRef.current?.find((b) => b.kind === "exec" && b.id === execId);
-          if (block) {
-            const outcome = await api.blockAction(docId, block.span[0], "run");
-            if (outcome.outcome === "run") knownDocumentRunsRef.current.add(outcome.run_id);
-          } else {
-            const outcome = await api.run(docId, [execId]);
-            knownDocumentRunsRef.current.add(outcome.run_id);
-          }
+          const outcome = await runCellFresh(docId, execId, () => liveSourceRef.current);
+          if (outcome.outcome === "run") knownDocumentRunsRef.current.add(outcome.run_id);
         } catch (e) {
           setRunningCells((prev) => {
             const next = new Set(prev);
@@ -686,6 +650,7 @@ function useDocumentSession(
       const saved = await api.saveDoc(doc.id, source);
       setDoc(saved);
       setSavedSource(source);
+      void refreshRender(source);
       const latest = menuStateRef.current;
       const unchanged = (latest.dirtySource ?? latest.doc?.source) === source;
       setSyncState(unchanged ? "saved" : "editing");
@@ -697,7 +662,7 @@ function useDocumentSession(
       setBanner({ kind: "fail", text: e instanceof Error ? e.message : String(e), retry: { label: "Retry Save", run: () => { void menuSave(); } } });
       return false;
     }
-  }, []);
+  }, [refreshRender]);
   const discardUnsaved = useCallback(async () => {
     const current = menuStateRef.current.doc;
     if (!current || savedSource === null) return;

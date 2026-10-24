@@ -39,6 +39,8 @@ pub mod open_app;
 pub mod output;
 pub mod project_command;
 mod project_documents;
+mod selected_run;
+pub use selected_run::run_doc_expected;
 pub mod project_index;
 pub mod project_revision;
 pub mod python_agent;
@@ -947,40 +949,6 @@ impl std::error::Error for CapturedRootError {
         Some(self.error.as_ref())
     }
 }
-pub async fn run_doc_expected(
-    doc_path: &Path,
-    params: &[(String, String)],
-    mode: RunMode,
-    executor_choice: ExecutorChoice,
-    expected: &str,
-) -> Result<DocRun> {
-    let source = std::fs::read_to_string(doc_path)
-        .with_context(|| format!("failed to read {}", doc_path.display()))?;
-    let actual = hick_context_protocol::digest(source.as_bytes());
-    if actual.trim_start_matches("sha256:") != expected.trim_start_matches("sha256:") {
-        bail!(
-            "Source revision changed before execution; expected {expected}, observed {actual}. No root document operation ran."
-        );
-    }
-    run_source(
-        doc_path,
-        params,
-        mode,
-        executor_choice,
-        CacheMode::Off,
-        None,
-        source,
-    )
-    .await
-    .map_err(|error| {
-        CapturedRootError {
-            source_hash: actual,
-            error,
-        }
-        .into()
-    })
-}
-
 /// Check document structure without executing code or writing outputs.
 ///
 /// This is the fast gate for pre-commit hooks and CI: it catches a spelling

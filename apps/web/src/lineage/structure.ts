@@ -50,7 +50,7 @@ export function structuralAddition(
 
   const defs = new Map<string, { name: string; kind: string; end: number }>();
   for (const file of structure.files) {
-    if (!model.files.has(file.path)) continue;
+    if (!model.files.has(file.path) || model.files.get(file.path)?.preview) continue;
     for (const def of file.definitions) {
       defs.set(definitionId(file.path, def.start_line), {
         name: def.name,
@@ -63,7 +63,8 @@ export function structuralAddition(
   for (const link of structure.links) {
     // Both ends must be files the browser can show; a link into a file it
     // does not have is a dead end dressed as navigation.
-    if (!model.files.has(link.from_path) || !model.files.has(link.to_path)) continue;
+    if (!model.files.has(link.from_path) || !model.files.has(link.to_path)
+      || model.files.get(link.from_path)?.preview || model.files.get(link.to_path)?.preview) continue;
     const target = defs.get(definitionId(link.to_path, link.to_line));
     if (!target) continue;
 

@@ -117,7 +117,7 @@ function CapturedPublishedSnapshot({ snapshot, artifactUrl, predictionNavigation
     <h2>Recorded cell results</h2>
     <label><input type="checkbox" checked={replay} onChange={event => setReplay(event.target.checked)} /> Show execution transcripts</label>
     {!snapshot.cells.length && <p>No execution results recorded.</p>}
-    {snapshot.cells.map((cell, index) => <section key={`${cell.id}:${index}`} id={`witness-${index}`}><h3>{cell.id} · {cell.status ?? "unrecorded"}</h3><CellPanel block={cell} command={cell.command} replay={replay} recordedOutput={replay ? cell.saved_output : undefined} /></section>)}
+    {snapshot.cells.map((cell, index) => <section key={`${cell.id}:${index}`} id={`witness-${index}`}><h3>{cell.id} · {cell.status ?? "unrecorded"}</h3><CellPanel block={cell} command={cell.command} replay={replay} recordedOutput={cell.saved_output} /></section>)}
   </main>;
 }
 

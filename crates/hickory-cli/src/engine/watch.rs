@@ -26,6 +26,7 @@ pub struct Coordinator {
 struct Registration {
     state: LocalState,
     attach: Attach,
+    startup: Startup,
     completed: tokio::sync::watch::Sender<Option<Result<(), String>>>,
 }
 struct View {
@@ -67,6 +68,7 @@ impl Coordinator {
                         let root = reg.state.index.root().to_path_buf();
                         // Watch registration is part of startup readiness, not
                         // client ownership: a queued attach must remain leasable.
+                        reg.startup.progress("watching", 0, 0, None);
                         let setup = (|| -> Result<_> {
                             if !watched.iter().any(|p| root.starts_with(p)) {
                                 watcher.watch(&root, RecursiveMode::Recursive).map_err(crate::up::watch_error)
@@ -92,14 +94,19 @@ impl Coordinator {
                             let docs: Vec<_> = reg.state.index.entries().iter()
                                 .filter_map(|(id, _)| reg.state.index.absolute(id))
                                 .filter(|path| woven.doc_source(path).is_none()).collect();
+                            reg.startup.progress("baselines", 0, docs.len(), None);
                             if config.run { crate::up::establish_baselines(&docs, &config, &mut woven).await; }
-                            for doc in docs {
+                            let total = docs.len();
+                            for (index, doc) in docs.into_iter().enumerate() {
+                                let relative = doc.strip_prefix(&root).ok().map(|path| path.to_string_lossy().into_owned());
+                                reg.startup.progress("weaving", index, total, relative);
                                 if let Err(error) = crate::up::weave_document(&doc, &config, &mut woven).await {
                                     eprintln!("error: {error:#}");
                                 }
                             }
                             // --run is a live client subscription, set separately by daemon leases.
                             views.entry(root.clone()).or_insert(View { state: reg.state.clone(), config });
+                            reg.startup.progress("reconciling", total, total, None);
                             reconcile_rooms(&reg.state, &root, &woven).await;
                             publish_held(&reg.state, &root, &woven);
                             Ok(())
@@ -197,6 +204,7 @@ impl Coordinator {
                 state,
                 attach,
                 completed,
+                startup: startup.clone(),
             })
             .map_err(|_| anyhow::anyhow!("engine watcher stopped"))?;
         Ok(startup)

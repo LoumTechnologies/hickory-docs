@@ -37,7 +37,7 @@ fn only_note(root: &Path) -> String {
         .unwrap()
         .flatten()
         .map(|e| e.path())
-        .find(|p| p.extension().is_some_and(|e| e == "hick"))
+        .find(|p| p.extension().is_some_and(|e| e == "md"))
         .expect("a note was written");
     std::fs::read_to_string(note).unwrap()
 }
@@ -84,7 +84,7 @@ fn ingest_never_calls_a_model() {
         .unwrap()
         .flatten()
         .map(|e| e.path())
-        .find(|p| p.extension().is_some_and(|e| e == "hick"))
+        .find(|p| p.extension().is_some_and(|e| e == "md"))
         .unwrap();
     let out = hick().arg("test").arg(&doc).output().unwrap();
     let stderr = String::from_utf8_lossy(&out.stderr);
@@ -111,9 +111,52 @@ fn the_same_transcript_twice_produces_one_note() {
     let notes = std::fs::read_dir(dir.path())
         .unwrap()
         .flatten()
-        .filter(|e| e.path().extension().is_some_and(|x| x == "hick"))
+        .filter(|e| e.path().extension().is_some_and(|x| x == "md"))
         .count();
     assert_eq!(notes, 1, "a second note was written");
+}
+
+#[test]
+fn reimporting_a_legacy_note_preserves_it_and_returns_a_discoverable_markdown_copy() {
+    let dir = folder_with("sync.vtt", VTT.as_bytes());
+    let first = drain(dir.path());
+    let Outcome::Ingested { note, .. } = &first[0] else {
+        panic!("{first:?}")
+    };
+    let legacy = dir.path().join("legacy.hick");
+    std::fs::rename(note, &legacy).unwrap();
+    let annotated = format!(
+        "{}\nHuman correction stays here.\n",
+        std::fs::read_to_string(&legacy).unwrap()
+    );
+    std::fs::write(&legacy, &annotated).unwrap();
+    let collision = dir.path().join("legacy.md");
+    std::fs::write(&collision, "Unrelated user note").unwrap();
+    let duplicate = dir.path().join("inbox/again.vtt");
+    std::fs::write(&duplicate, VTT).unwrap();
+    let outcome = ingest_one(&duplicate, dir.path(), &InboxConfig::default()).unwrap();
+    let Outcome::AlreadyIngested { note: current, .. } = outcome else {
+        panic!("{outcome:?}")
+    };
+    assert_eq!(current.extension().unwrap(), "md");
+    assert_ne!(current, collision);
+    assert_eq!(std::fs::read_to_string(&current).unwrap(), annotated);
+    assert_eq!(std::fs::read_to_string(&legacy).unwrap(), annotated);
+    assert_eq!(
+        std::fs::read_to_string(&collision).unwrap(),
+        "Unrelated user note"
+    );
+    assert_eq!(std::fs::read_to_string(&duplicate).unwrap(), VTT);
+    assert!(
+        hickory_cli::expand_docs(dir.path())
+            .unwrap()
+            .contains(&current)
+    );
+    let outcome = ingest_one(&duplicate, dir.path(), &InboxConfig::default()).unwrap();
+    let Outcome::AlreadyIngested { note, .. } = outcome else {
+        panic!("{outcome:?}")
+    };
+    assert_eq!(note, current);
 }
 
 #[test]

@@ -14,6 +14,8 @@ export interface FileModel {
   path: string;
   lines: string[];
   kind: "document" | "generated";
+  documentId?: string;
+  preview?: { totalCharacters: number; shownCharacters: number };
 }
 
 /** A block a link can attach to: a fragment, a file block, a cell, or a run of

@@ -8,6 +8,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 
+import { navigate } from "../router";
 import { useLineageControls } from "./useLineageControls";
 import { HoleRow } from "./HoleRow";
 import {
@@ -83,6 +84,7 @@ export function StageColumn(props: StageColumnProps) {
   const nodes = [...new Set(visible.flatMap(line => line.node ? [line.node] : []))];
   useLineageControls(`lineage column ${index + 1}`, { index, stage: stage?.name, focus: column.focus, query: column.query,
     files: mine.map(path => ({ path, lines: model.files.get(path)?.lines.length, hits: hitsByFile.get(path)?.size ?? 0, executable_cells: [...model.nodes.values()].filter(node => node.file === path && node.kind === "exec").length })), visible_lines: visible.map(line => ({ ...line, relation: line.node ? relation(line.node) : null })),
+    preview: file?.preview ?? null, full_source_included: !file?.preview,
     other_stages_open: otherOpen, other_files: otherOpen ? elsewhere : null, scope: "Captured displayed source lines only; folded bytes require reveal controls. Line indices are zero-based." }, [
     ...mine.filter(path => model.files.has(path)).map(path => ({ key: `file:${path}`, label: `${path === column.focus ? "Close" : "Open"} lineage file ${path}`, run: () => onOpen(path === column.focus ? null : path) })),
     { key: "query", label: `Search lineage column ${index + 1}`, enabled: !!column.focus, parameters: { query: { type: "string" as const, maxLength: 8192 } }, run: args => onQuery(args.query as string) },
@@ -156,11 +158,14 @@ export function StageColumn(props: StageColumnProps) {
                     ▶ {cells}
                   </span>
                 )}
-                <span className="sf-lines">{model_file.lines.length}L</span>
+                <span className="sf-lines">{model_file.preview ? "limited preview" : `${model_file.lines.length}L`}</span>
               </button>
 
               {open && file && (
                 <div className="stage-file-body">
+                  {file.preview && <p role="status">Large file: showing the first {file.preview.shownCharacters.toLocaleString()} of {file.preview.totalCharacters.toLocaleString()} characters. Block and provenance links involving this file are omitted from this graph.
+                    {file.documentId && <button type="button" onClick={() => navigate(`/docs/${encodeURIComponent(file.documentId!)}`)}>Open {file.kind === "document" ? "full" : "owning"} document</button>}
+                  </p>}
                   {renderBody()}
                 </div>
               )}

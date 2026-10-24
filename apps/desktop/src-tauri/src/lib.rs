@@ -21,6 +21,7 @@
 
 mod command_path;
 pub mod dev;
+mod exit_gate;
 mod file_open;
 mod folder_session;
 mod recent;

@@ -1,3 +1,4 @@
+import { formatOptionFallback } from "./formatOptionFallback";
 import { sameDocumentUri } from "./documentUri";
 import { codeActionController } from "./codeActionController";
 import { editorLanguageActions } from "../editor/languageActions";
@@ -22,7 +23,7 @@ import type { UiOutcome } from "../lib/uiActions";
 // bargain of a meta-LSP over many children, since one document's Python and
 // Rust blocks routinely have different capabilities.
 
-import { cmKeyOf } from "../lib/keymap";
+import { bindingOf, cmKeyOf } from "../lib/keymap";
 import { foldService } from "@codemirror/language";
 import { Facet, RangeSetBuilder, StateEffect, StateField } from "@codemirror/state";
 import type { Extension, Text } from "@codemirror/state";
@@ -232,6 +233,10 @@ export function lspFeatures(opts: LspFeatureOptions): Extension[] {
         },
       ].filter((binding): binding is { key: string; run: (view: EditorView) => boolean } => binding.key !== null),
     ),
+    keymap.of(formatOptionFallback(bindingOf("editor.format"), view => {
+      void formatView(view);
+      return true;
+    })),
     formatter.of((view) => formatDocument(view, opts)),
     editorLanguageActions.of({
       id: `${opts.uri}:format`, label: `Format editor source (${opts.uri.slice(0, 200)})`, parameters: {},

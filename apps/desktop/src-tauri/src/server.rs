@@ -55,6 +55,17 @@ pub struct Session {
     pub(crate) folders: crate::folder_session::FolderSession,
 }
 
+impl Session {
+    pub(crate) async fn detach(&self) -> Result<()> {
+        // First-folder attachment can hold a second, nested session.
+        self.folders.detach().await?;
+        if let SessionResources::Workspace { _client } = &self._resources {
+            _client.detach().await?;
+        }
+        Ok(())
+    }
+}
+
 /// What keeps a local session alive. A workspace owns an engine, its lock,
 /// and its watcher; a blank window owns editor session storage without a
 /// selected folder or a filesystem watcher.
@@ -206,6 +217,12 @@ pub fn shell_hooks(handle: &tauri::AppHandle, config_dir: Option<&Path>) -> Shel
             }
         }),
         close_window: std::sync::Arc::new(move || {
+            // The shell proxy invokes this callback on spawn_blocking.
+            // Keep the window visible until its slot release is acknowledged:
+            // a failed close can then be reported by the existing UI prompt.
+            if let Some(session) = closer.try_state::<Session>() {
+                tokio::runtime::Handle::current().block_on(session.detach())?;
+            }
             if let Some(window) = closer.get_webview_window("main") {
                 window
                     .state::<super::CloseGate>()
