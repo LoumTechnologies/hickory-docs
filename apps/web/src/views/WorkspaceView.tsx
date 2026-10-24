@@ -37,6 +37,7 @@ import type {
 } from "../api/types";
 import { WorkspaceChat } from "./deferredAgent";
 import { InsertMenu } from "../components/InsertMenu";
+import { MoreActions } from "../components/MoreActions";
 import { PlainFilePane } from "../components/PlainFilePane";
 import { ScratchpadPane } from "../components/ScratchpadPane";
 import { SearchPanel } from "../components/SearchPanel";
@@ -1638,13 +1639,6 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
 
   return (
     <div className="doc-page with-chat wide-mode">
-      <div className="workspace-review-toolbar">
-        <ReviewPanel document={focused?.doc?.path} source={focused?.liveSource} view={focused?.docEditor} />
-        <MeetingImport onOpen={(path, line) => openHit(path, line ?? 1)} onOpenNote={(id) => { ensureDocOpen(id); navigate(`/docs/${id}`); }} />
-        <SnapshotExport docId={focused?.docId} />
-        <NativeRuntimeHistory path={focused?.doc?.path} source={focused?.liveSource} view={focused?.docEditor} />
-        <WorkflowTour surface="app" onOpen={(path, line) => openHit(path, line ?? 1)} focused={{ path: focused?.doc?.path, source: focused?.liveSource, view: focused?.docEditor }} />
-      </div>
       {/* Plain files' debug sessions, held above their panes so a session
           survives the tab that started it being fronted away. */}
       <PlainDebugHosts />
@@ -1841,13 +1835,22 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
         needsAttention={terminals.attention.length}
         path={focusedPath}
         zoom={zoom.uiZoom}
-        extra={<WorkspaceStatusExtras
-          provenance={{ layers, onToggle: toggleProvenance, continuity, onContinuity: setContinuityEnabled }}
-          environmentCount={environments.notices.length}
-          onEnvironments={() => setProblemsOpen(true)}
-          projectId={projectId ?? null}
-          onGraph={() => navigate(`/projects/${encodeURIComponent(projectId ?? "")}/lineage`)}
-        />}
+        extra={<>
+          <WorkspaceStatusExtras
+            provenance={{ layers, onToggle: toggleProvenance, continuity, onContinuity: setContinuityEnabled }}
+            environmentCount={environments.notices.length}
+            onEnvironments={() => setProblemsOpen(true)}
+            projectId={projectId ?? null}
+            onGraph={() => navigate(`/projects/${encodeURIComponent(projectId ?? "")}/lineage`)}
+          />
+          <MoreActions label="Workspace tools">
+            <ReviewPanel document={focused?.doc?.path} source={focused?.liveSource} view={focused?.docEditor} />
+            <MeetingImport onOpen={(path, line) => openHit(path, line ?? 1)} onOpenNote={(id) => { ensureDocOpen(id); navigate(`/docs/${id}`); }} />
+            <SnapshotExport docId={focused?.docId} />
+            <NativeRuntimeHistory path={focused?.doc?.path} source={focused?.liveSource} view={focused?.docEditor} />
+            <WorkflowTour surface="app" onOpen={(path, line) => openHit(path, line ?? 1)} focused={{ path: focused?.doc?.path, source: focused?.liveSource, view: focused?.docEditor }} />
+          </MoreActions>
+        </>}
         onProblems={() => setProblemsOpen((open) => !open)}
         onAttention={nextAttention}
       />
