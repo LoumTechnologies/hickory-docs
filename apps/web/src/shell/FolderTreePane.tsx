@@ -154,6 +154,9 @@ export function toggleExpanded(expanded: ReadonlySet<string>, path: string): Set
 /** The event anything that changes files on disk may dispatch to refresh
  * every mounted tree without a page-wide state channel. */
 export const FILES_CHANGED_EVENT = "hickory:files-changed";
+/** Successful deletions announce their exact paths so open editors can retire
+ * their backing tabs without mistaking ordinary saves for removals. */
+export const FILES_DELETED_EVENT = "hickory:files-deleted";
 
 /**
  * The open folder's tree, kept fresh: fetched on mount, refetched when the
@@ -737,6 +740,7 @@ function FolderRoot({
       </ul>
       <FilesystemTreeEditor
         nodes={folder.tree}
+        onDeleted={(paths) => window.dispatchEvent(new CustomEvent(FILES_DELETED_EVENT, { detail: { paths } }))}
         onChanged={(renames) =>
           window.dispatchEvent(
             renames?.length

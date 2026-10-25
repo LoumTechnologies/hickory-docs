@@ -88,6 +88,7 @@ import {
 import type { ContextWrite, DeclaredCite } from "../api/types";
 import {
   FILES_CHANGED_EVENT,
+  FILES_DELETED_EVENT,
   FolderTreePane,
   useFolderTrees,
   fileAction,
@@ -114,6 +115,7 @@ import {
   WELCOME_TAB,
   activateDocTab,
   adoptPlainFileTab,
+  closeTabsForDeletedPaths,
   docIdsIn,
   findDocTab,
   findFileTab,
@@ -456,6 +458,16 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
     };
     window.addEventListener(FILES_CHANGED_EVENT, onFilesChanged);
     return () => window.removeEventListener(FILES_CHANGED_EVENT, onFilesChanged);
+  }, []);
+  // File operations announce only paths that actually left the host. Closing
+  // here keeps all deletion entry points consistent, including Files drafts.
+  useEffect(() => {
+    const onFilesDeleted = (event: Event) => {
+      const paths = (event as CustomEvent<{ paths?: string[] }>).detail?.paths;
+      if (paths?.length) setLayout(current => closeTabsForDeletedPaths(current, paths));
+    };
+    window.addEventListener(FILES_DELETED_EVENT, onFilesDeleted);
+    return () => window.removeEventListener(FILES_DELETED_EVENT, onFilesDeleted);
   }, []);
   /**
    * "Ensure open": activate the document's tab wherever it is, or fetch its

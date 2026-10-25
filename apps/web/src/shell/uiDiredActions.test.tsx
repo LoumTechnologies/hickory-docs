@@ -6,6 +6,7 @@ import { api } from "../api/client";
 import { UiActions } from "../lib/uiActions";
 import { UiActionContext } from "../lib/uiActionBridge";
 import { FILES_CHANGED_EVENT } from "./FolderTreePane";
+import { FILES_DELETED_EVENT } from "./FolderTreePane";
 import { useDired } from "./useDired";
 afterEach(() => { cleanup(); vi.restoreAllMocks(); });
 function fixture() {
@@ -36,6 +37,18 @@ it("requires the explicit delete confirmation and preserves actual host failure"
   expect(await f.invoke("Submit file prompt: Delete", { confirm: true })).toMatchObject({ status: "result", outcome: { status: "unavailable" } });
   expect(f.hook.result.current.promptError).toBe("Host refused deletion");
   await f.invoke("Cancel file prompt"); expect(f.hook.result.current.prompt).toBeNull();
+});
+it("announces each successfully deleted path for open-tab cleanup", async () => {
+  const fileOp = vi.spyOn(api, "fileOp").mockResolvedValue({} as never);
+  const deleted = vi.fn(); window.addEventListener(FILES_DELETED_EVENT, deleted);
+  const f = fixture();
+  try {
+    await f.invoke("Prepare file delete", { paths: ["source.md"] });
+    await f.invoke("Submit file prompt: Delete", { confirm: true });
+    expect(fileOp).toHaveBeenCalledWith({ op: "delete", path: "source.md" });
+    expect(deleted).toHaveBeenCalledOnce();
+    expect((deleted.mock.calls[0][0] as CustomEvent<{ paths: string[] }>).detail.paths).toEqual(["source.md"]);
+  } finally { window.removeEventListener(FILES_DELETED_EVENT, deleted); }
 });
 
 // Guarantee: docs/guarantees/agent/ui-action-dispatch.md

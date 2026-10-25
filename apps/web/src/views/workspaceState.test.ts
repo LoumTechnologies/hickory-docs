@@ -12,8 +12,10 @@ import {
   type Pane,
   type Tab, freeform } from "../shell/layout";
 import {
+  GIT_TAB,
   activateDocTab,
   adoptPlainFileTab,
+  closeTabsForDeletedPaths,
   adoptUntitledTab,
   docIdsIn,
   findDocTab,
@@ -23,6 +25,7 @@ import {
   isWorkspaceEmpty,
   openDocTab,
   openFileTab,
+  openGitTab,
   renameFileTab,
   openGeneratedTab,
   openIntoDeclared,
@@ -233,6 +236,20 @@ describe("renameFileTab", () => {
     expect(after.index).toBe(before.index);
     expect(after.tab.title).toBe("plan.md");
     expect(findFileTab(renamed, "notes/first.md")).toBeNull();
+  });
+});
+
+describe("closeTabsForDeletedPaths", () => {
+  it("retires every open backing-file tab, including a deleted folder's descendants", () => {
+    let layout = openDocTab(initialWorkspace(), "d1", "src/readme.md");
+    layout = openGeneratedTab(layout, "d1", "src/output.html", []);
+    layout = openFileTab(layout, "src/plain.txt");
+    layout = openFileTab(layout, "notes/kept.md");
+    layout = openGitTab(layout);
+
+    const closed = closeTabsForDeletedPaths(layout, ["src"]);
+    expect(allTabs(closed).map(tab => tab.target)).toEqual(expect.arrayContaining(["notes/kept.md", GIT_TAB]));
+    expect(allTabs(closed).some(tab => tab.target.startsWith("src/"))).toBe(false);
   });
 });
 

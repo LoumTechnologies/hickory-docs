@@ -9,6 +9,7 @@
 // not "replace the world".
 
 import {
+  closeTab,
   activate,
   freeform,
   fromRegions,
@@ -302,6 +303,25 @@ export function renameFileTab(layout: Layout, from: string, to: string): Layout 
       ? { ...node, tabs: node.tabs.map(replace) }
       : { ...node, children: node.children.map(walk) };
   return { ...layout, root: walk(layout.root) };
+}
+
+/** Remove tabs whose backing file disappeared. A deleted directory also
+ * retires every file tab under it; drafts and tools do not have a backing
+ * filesystem path and deliberately remain. */
+export function closeTabsForDeletedPaths(layout: Layout, paths: readonly string[]): Layout {
+  const deleted = paths.filter(Boolean);
+  if (!deleted.length) return layout;
+  const removed = (target: string) => deleted.some(path => target === path || target.startsWith(`${path}/`));
+  let next = layout;
+  for (const pane of panes(layout.root)) {
+    for (const entry of pane.tabs) {
+      if (["document", "generated", "file"].includes(entry.kind) && removed(entry.target)) {
+        const live = panes(next.root).find(candidate => candidate.tabs.some(tab => tab.id === entry.id));
+        if (live) next = closeTab(next, live.id, entry.id);
+      }
+    }
+  }
+  return next;
 }
 
 /**

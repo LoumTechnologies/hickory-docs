@@ -73,6 +73,7 @@ function projectedLines(nodes: readonly FileNode[], extras: readonly WorkspaceTe
 export function FilesystemTreeEditor({
   nodes,
   onChanged,
+  onDeleted,
   onOpenPath,
   onContextPath,
   kindOfPath = (_path, dir) => dir ? "directory" : "file",
@@ -81,6 +82,7 @@ export function FilesystemTreeEditor({
 }: {
   nodes: readonly FileNode[];
   onChanged: (renames?: readonly { path: string; to: string }[]) => void;
+  onDeleted?: (paths: readonly string[]) => void;
   onOpenPath: (path: string) => void;
   onContextPath: (anchor: { clientX: number; clientY: number }, path: string, dir: boolean) => void;
   kindOfPath?: (path: string, dir: boolean) => string;
@@ -273,7 +275,7 @@ export function FilesystemTreeEditor({
     return { plan: { filesystem: reconciliation, remote } };
   };
 
-  type Operation = { summary: string; run: () => Promise<unknown> };
+  type Operation = { summary: string; run: () => Promise<unknown>; deletedPath?: string };
   const execute = async (operations: Operation[], renames: readonly { path: string; to: string }[] | undefined,
     signal: AbortSignal): Promise<UiOutcome> => {
     if (pending.current) return { status: "unavailable", reason: "A Files operation is already pending" };
@@ -290,6 +292,7 @@ export function FilesystemTreeEditor({
         try {
           const result = await operation.run();
           results.push({ operation: operation.summary, status: "completed", result: result === undefined ? null : result as UiValue });
+          if (operation.deletedPath) onDeleted?.([operation.deletedPath]);
         } catch (error) {
           failed = true; results.push({ operation: operation.summary, status: "failed", reason: said(error) }); break;
         }
@@ -312,7 +315,7 @@ export function FilesystemTreeEditor({
       ...filesystem.renames.map(operation => ({ summary: `Rename ${operation.path} → ${operation.to}`, run: () => api.fileOp({ op: "rename", path: operation.path, to: operation.to }) })),
       ...filesystem.creates.filter(creation => !creation.dir).map(creation => ({ summary: `Create file ${creation.path}`, run: () => api.fileOp({ op: "create", path: creation.path }) })),
       ...remote.map(edit => ({ summary: edit.summary, run: () => edit.apply(edit.value) })),
-      ...filesystem.deletes.map(path => ({ summary: `Delete ${path}`, run: () => api.fileOp({ op: "delete", path }) })),
+      ...filesystem.deletes.map(path => ({ summary: `Delete ${path}`, deletedPath: path, run: () => api.fileOp({ op: "delete", path }) })),
     ];
   };
 

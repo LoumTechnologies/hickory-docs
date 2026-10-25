@@ -209,12 +209,14 @@ it("reviews a removed subtree before sending one destructive delete", async () =
   const operations: unknown[] = [];
   installMockHandler(async (_method, _path, body) => { operations.push(body); return {}; });
   const changed = vi.fn();
+  const deleted = vi.fn();
   render(<FilesystemTreeEditor
     nodes={[
       { name: "src", path: "src", dir: true, children: [{ name: "one.ts", path: "src/one.ts", dir: false }] },
       { name: "notes.txt", path: "notes.txt", dir: false },
     ]}
     onChanged={changed}
+    onDeleted={deleted}
     onOpenPath={() => {}}
     onContextPath={() => {}}
   />);
@@ -231,6 +233,7 @@ it("reviews a removed subtree before sending one destructive delete", async () =
   fireEvent.click(screen.getByRole("button", { name: "Delete" }));
   await vi.waitFor(() => expect(changed).toHaveBeenCalledOnce());
   expect(operations).toEqual([{ op: "delete", path: "src" }]);
+  expect(deleted).toHaveBeenCalledWith(["src"]);
 });
 
 it("routes an edited associated-object title through its semantic capability", async () => {

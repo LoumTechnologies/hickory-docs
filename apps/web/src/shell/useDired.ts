@@ -7,7 +7,7 @@ import type { UiCommand, UiField, UiValue } from "../lib/uiActions";
 import type { KeyboardEvent } from "react";
 
 import { api } from "../api/client";
-import { FILES_CHANGED_EVENT } from "./FolderTreePane";
+import { FILES_CHANGED_EVENT, FILES_DELETED_EVENT } from "./FolderTreePane";
 import { diredIntent, nextMarks, toggleMark } from "./dired";
 import type { DiredIntent } from "./dired";
 
@@ -119,7 +119,12 @@ export function useDired(onNotice: (text: string | null) => void): Dired {
             } from the disk.`,
             verb: "Delete",
             run: async () => {
-              await runPaths(intent.paths, path => api.fileOp({ op: "delete", path }));
+              await runPaths(intent.paths, async path => {
+                await api.fileOp({ op: "delete", path });
+                // Announce only after this particular host operation succeeds:
+                // a batch may have completed paths before a later failure.
+                window.dispatchEvent(new CustomEvent(FILES_DELETED_EVENT, { detail: { paths: [path] } }));
+              });
             },
           });
           return;
