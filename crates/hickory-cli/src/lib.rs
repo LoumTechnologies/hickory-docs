@@ -1,5 +1,4 @@
-//! Library core of the `hick` CLI.
-//! The binary and local server share execution, verification and rendering.
+//! Shared execution, verification and rendering for the `hick` binary and local server.
 pub mod adopt;
 pub mod agent_cell_runner;
 pub mod agent_lineage;
@@ -38,6 +37,7 @@ pub mod merge_driver;
 pub mod observation;
 pub mod open_app;
 pub mod output;
+pub mod performance;
 pub mod project_command;
 mod project_documents;
 mod selected_run;
@@ -52,6 +52,7 @@ pub mod scaffold_commit;
 pub mod search_install;
 pub mod serve;
 pub mod story;
+pub mod source_mapping;
 pub mod tool_install;
 pub mod toolchain;
 pub mod typed_client;
@@ -68,7 +69,6 @@ pub use agent_lineage::{AgentLineage, Authorship, Reasoning};
 /// `hick init` entry points: idempotent local git-repo setup.
 pub use editor_lsp::{AdoptedServer, EditorOutcome, EditorSetup};
 pub use init::{InitReport, print_init_report, run_init};
-
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;

@@ -21,3 +21,12 @@ it("draws measured code only for matching bytes and removes marks on buffer edit
   view.dispatch({ changes: { from: 0, to: 6, insert: "changed" } });
   await waitFor(() => expect(host.querySelectorAll(".cm-coverage-hit, .cm-coverage-miss")).toHaveLength(0));
 });
+it("allows buffer edits when no coverage is selected without nested editor updates", async () => {
+  selectCoverage(null);
+  const host = document.createElement("div"); document.body.append(host);
+  view = new EditorView({ parent: host, state: EditorState.create({ doc: "original", extensions: [coverageGutter(() => "app.ts")] }) });
+  view.dispatch({ changes: { from: 0, to: 8, insert: "edited" } });
+  await new Promise(resolve => setTimeout(resolve, 0));
+  expect(view.state.doc.toString()).toBe("edited");
+  expect(host.querySelectorAll(".cm-coverage-hit, .cm-coverage-miss")).toHaveLength(0);
+});

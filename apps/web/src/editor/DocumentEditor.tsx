@@ -1,3 +1,4 @@
+import { performanceInline } from "../performance/inline";
 import { coverageGutter } from "../coverage/gutter";
 import { replaceCapturedBlock } from "./replaceCapturedBlock";
 import type { UiActor } from "../lib/uiActions";
@@ -385,6 +386,7 @@ export function DocumentEditor({
           // OUTSIDE the numbers. Off by default — see editor/blameGutter.ts.
           blameGutter(),
           coverageGutter(() => pathRef.current ?? undefined),
+          performanceInline(() => pathRef.current ?? undefined),
           history(),
           ...(preserveBytes ? [] : [unwrapParagraphs({ onOpen: docId !== "untitled" })]),
           // Undo must never reach content this client did not type.

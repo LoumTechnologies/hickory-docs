@@ -1,5 +1,6 @@
 //! Project testing and instrumented manual sessions. UI and MCP use this service.
 mod commands;
+pub(crate) use runner::execute;
 mod mapping;
 #[cfg(test)]
 mod real_tests;

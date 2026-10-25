@@ -20,6 +20,8 @@ path = "src/lib.rs"
 
 [dependencies]
 hick-coverage = { path = "../hick-coverage" }
+hick-profile = { path = "../hick-profile" }
+sourcemap = "9"
 roxmltree = "0.20"
 hick-plugins = { path = "../hick-plugins" }
 hick-observe = { path = "../hick-observe" }

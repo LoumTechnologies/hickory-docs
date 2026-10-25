@@ -224,6 +224,7 @@ fn allowed(name: &str) -> bool {
         name,
         "read_doc"
             | "code_coverage"
+            | "performance_profile"
             | "ui_observe"
             | "ui_act"
             | "ui_cancel"

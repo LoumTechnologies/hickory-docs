@@ -70,6 +70,7 @@ pub mod merged;
 mod merged_write;
 mod native_projects;
 mod output_resolution;
+pub mod performance;
 pub mod outputs;
 pub mod plain_file;
 mod private_practice;
@@ -776,6 +777,7 @@ pub(crate) fn router(state: LocalState) -> Router {
         .route("/environments/actions", post(environments::act))
         .route("/environments/manager", put(environments::choose))
         .route("/tests/run", post(test_run::run))
+        .route("/performance", post(performance::action).layer(axum::extract::DefaultBodyLimit::max(36 * 1024 * 1024)))
         .route(
             "/tests/coverage",
             get(test_coverage::list)
