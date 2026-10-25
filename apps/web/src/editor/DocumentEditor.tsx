@@ -275,9 +275,8 @@ export function DocumentEditor({
   // CM caches per-line geometry, so ask it to re-measure whenever one
   // resizes — the classic "ArrowUp jumps half a screen" bug otherwise.
   //
-  // The cell panels and diagrams that used to be observed here are gone from
-  // the document entirely; they open on the rail, outside the text, where
-  // their height cannot move a line at all.
+  // Inline cell output also changes height as execution streams; observe its
+  // slot alongside rendered blocks so cursor geometry follows the output.
   useEffect(() => {
     if (typeof ResizeObserver === "undefined") return;
     let last = new Map<Element, number>();
@@ -704,7 +703,7 @@ export function DocumentEditor({
     renderedSlots.find((slot) => slot.kind === "table" && slot.at === caretTableAt)?.el ??
     null;
 
-  const renderedAt = renderedSlots.map((slot) => slot.at);
+  const renderedAt = renderedSlots.filter((slot) => !slot.outputOnly).map((slot) => slot.at);
 
   const toggleRenderedAt = (at: number) => {
     const view = viewRef.current;

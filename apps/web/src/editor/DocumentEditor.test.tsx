@@ -46,6 +46,28 @@ describe("DocumentEditor (WYSIWYG over raw source)", () => {
       rendered.unmount();
     } finally { realtime.close(); window.removeEventListener("hickory-menu", listener); }
   });
+  it("shows new shell cell output below editable source and updates it as the run grows", async () => {
+    const realtime = new LocalRealtime();
+    const initialSource = "# Notes\n";
+    const source = '<hick:exec container="main">\ndotnet new console blah\n</hick:exec>\n';
+    const props = { docId: "inline-stdout", initialSource, realtime, execBlocks: [] as ExecBlock[], runningCells: new Set<string>(), onRunCell: vi.fn() };
+    const { container, rerender } = render(<DocumentEditor {...props} />);
+    await act(async () => { await Promise.resolve(); });
+    const view = (window as unknown as { __hickoryView: EditorViewType }).__hickoryView;
+    await act(async () => { view.dispatch({ changes: { from: view.state.doc.length, insert: source } }); });
+    expect(container.querySelector("[data-testid='watch-terminal']")).toBeNull();
+    const block: ExecBlock = { kind: "exec", id: "console", container: "main", command: "dotnet new console blah", span: [initialSource.length, initialSource.length + source.trimEnd().length], status: "ok", transcript: [{ t: 0, kind: "out", data: "Created console app\n" }] };
+    rerender(<DocumentEditor {...props} execBlocks={[block]} runningCells={new Set([block.id])} />);
+    await waitFor(() => expect(container.querySelector(".xterm-rows")?.textContent).toContain("Created console app"));
+    const output = container.querySelector(".cm-exec-output-frame")!;
+    expect(output.previousElementSibling?.textContent).toContain("</hick:exec>");
+    expect(container.querySelector("[data-testid='cell-command']")).toBeNull();
+    rerender(<DocumentEditor {...props} execBlocks={[{ ...block, transcript: [...block.transcript, { t: 1, kind: "out", data: "Restore succeeded\n" }] }]} />);
+    await waitFor(() => expect(output.textContent).toContain("Restore succeeded"));
+    expect(view.state.doc.toString()).toBe(initialSource + source);
+    realtime.close();
+  });
+
   // Guarantee: docs/guarantees/authoring/paragraphs-unwrap-by-default.md
   it("reflows synced prose through the live room and reports the source edit, with Undo and opt-out", async () => {
     const source = "A wrapped paragraph\ncontinues here.\n";

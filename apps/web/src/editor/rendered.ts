@@ -5,7 +5,10 @@
 // reading the machinery instead of the document — so an exec cell and a
 // diagram render by default, and their source is one click away.
 //
-// The mechanism is a fold, not an overlay: a block replacement decoration
+// Source-view exec cells also attach an output widget after their closing
+// line, so newly typed commands can stay editable while their results stream.
+//
+// The rendered-view mechanism is a fold, not an overlay: a block replacement decoration
 // swaps the block's LINES for the rendered widget, exactly the way a
 // collapsed region works. That distinction is what keeps the gutters honest.
 // A block *widget* adds a screen row with no document line behind it, so the
@@ -97,6 +100,8 @@ export interface RenderedSlot {
   picture?: { path: string };
   dataset?: { src: string; format: string };
   recordedOutput?: string;
+  /** Source remains editable; this slot draws only the result below it. */
+  outputOnly?: boolean;
   asserts: string[];
 }
 
@@ -131,6 +136,7 @@ export class RenderedRegistry extends SlotRegistry<RenderedSlot> {
     slot.table = next.table;
     slot.dataset = next.dataset;
     slot.recordedOutput = next.recordedOutput;
+    slot.outputOnly = next.outputOnly;
     slot.picture = next.picture;
     slot.asserts = next.asserts;
     queueMicrotask(() => this.notify());
@@ -140,6 +146,7 @@ export class RenderedRegistry extends SlotRegistry<RenderedSlot> {
 /** Whether two slot descriptions would render the same thing. */
 function sameContent(a: Omit<RenderedSlot, "el">, b: Omit<RenderedSlot, "el">): boolean {
   return (
+    a.outputOnly === b.outputOnly &&
     a.index === b.index &&
     a.kind === b.kind &&
     a.text === b.text &&
@@ -189,9 +196,9 @@ class RenderedWidget extends WidgetType {
   // radius, background, and every selector already written against it.
   toDOM() {
     const frame = document.createElement("div");
-    frame.className = "cm-rendered-frame";
+    frame.className = `cm-rendered-frame${this.slot.outputOnly ? " cm-exec-output-frame" : ""}`;
     const el = document.createElement("div");
-    el.className = `cm-rendered cm-rendered-${this.slot.kind}`;
+    el.className = `cm-rendered cm-rendered-${this.slot.kind}${this.slot.outputOnly ? "-output" : ""}`;
     frame.appendChild(el);
     this.registry.register({ ...this.slot, el });
     return frame;
@@ -238,7 +245,7 @@ function commandOf(state: EditorState, structure: HickDocStructure, block: HickB
 
 function buildRendered(state: EditorState, registry: RenderedRegistry): DecorationSet {
   const rendered = state.field(renderedField, false);
-  if (!rendered || rendered.length === 0) return Decoration.none;
+  if (!rendered) return Decoration.none;
   const structure = structureOf(state);
   const doc = state.doc;
   const ranges: Range<Decoration>[] = [];
@@ -268,7 +275,8 @@ function buildRendered(state: EditorState, registry: RenderedRegistry): Decorati
     const kind = slotKindOf(block);
     if (kind === null) continue;
     const index = counts[kind]++;
-    if (!rendered.includes(block.from)) continue;
+    const outputOnly = kind === "exec" && !rendered.includes(block.from);
+    if (!outputOnly && !rendered.includes(block.from)) continue;
     if (insidePicture(block)) continue;
     if (block.from < drawnTo) continue;
     // A cell that OWNS ingested files stops rendering where they begin.
@@ -295,7 +303,8 @@ function buildRendered(state: EditorState, registry: RenderedRegistry): Decorati
     const last = doc.lineAt(Math.min(Math.max(end - 1, block.from), doc.length));
     if (last.to <= first.from) continue;
     const slot: Omit<RenderedSlot, "el"> = {
-      key: `${kind}-${index}`,
+      key: `${kind}-${index}${outputOnly ? "-output" : ""}`,
+      outputOnly,
       index,
       kind,
       at: block.from,
@@ -333,6 +342,10 @@ function buildRendered(state: EditorState, registry: RenderedRegistry): Decorati
     // never mounted; the slot that one registered is what must follow the
     // block — in position and in content.
     registry.sync(slot.key, slot);
+    if (outputOnly) {
+      ranges.push(Decoration.widget({ widget: new RenderedWidget(registry, slot), block: true, side: 1 }).range(doc.lineAt(block.to).to));
+      continue;
+    }
     ranges.push(
       Decoration.replace({ widget: new RenderedWidget(registry, slot), block: true }).range(
         first.from,
