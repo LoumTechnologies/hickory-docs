@@ -425,6 +425,50 @@ describe("DocumentEditor (WYSIWYG over raw source)", () => {
     realtime.close();
   });
 
+  it.each([false, true])("converts current fence contents after editing (panel already open: %s)", async (openFirst) => {
+    const realtime = new LocalRealtime();
+    const source = '<hick:container name="shell" image="alpine:3.20" />\n\nHello:\n\n```shell\necho old\n```\n';
+    const mounted = render(<DocumentEditor docId={`edited-fence-${openFirst}`} initialSource={source} realtime={realtime}
+      execBlocks={[]} runningCells={new Set()} onRunCell={() => undefined} />);
+    try {
+      const icon = () => mounted.container.querySelector<HTMLButtonElement>(".cm-card-rail__fence")!;
+      await waitFor(() => expect(icon()).toBeTruthy());
+      if (openFirst) {
+        await act(async () => icon().click());
+        await screen.findByRole("button", { name: "Convert" });
+      }
+      const view = (window as unknown as { __hickoryView: EditorViewType }).__hickoryView;
+      const start = view.state.doc.toString().indexOf("echo old");
+      await act(async () => view.dispatch({ changes: { from: start, to: start + "echo old".length, insert: "dotnet new console blah" } }));
+      // Language edits must also refresh the label and converter.
+      const language = view.state.doc.toString().indexOf("```shell") + 3;
+      await act(async () => view.dispatch({ changes: { from: language, to: language + 5, insert: "python" } }));
+      await waitFor(() => expect(icon().getAttribute("aria-label")).toContain("python"));
+      if (!openFirst) await act(async () => icon().click());
+      await screen.findByRole("button", { name: "Convert" });
+      expect(mounted.container.querySelector(".insert-menu__preview-text")?.textContent).toContain("python3 - <<'EOF'\ndotnet new console blah\nEOF");
+      await act(async () => screen.getByRole("button", { name: "Convert" }).click());
+      await waitFor(() => expect(view.state.doc.toString()).toContain("python3 - <<'EOF'\ndotnet new console blah\nEOF"));
+      expect(view.state.doc.toString()).not.toContain("```");
+      expect(screen.queryByRole("dialog")).toBeNull();
+    } finally { mounted.unmount(); realtime.close(); }
+  });
+
+  it("closes the fence converter when its source disappears", async () => {
+    const realtime = new LocalRealtime();
+    const mounted = render(<DocumentEditor docId="deleted-fence" initialSource={"Hello:\n\n```shell\necho hello\n```\n"}
+      realtime={realtime} execBlocks={[]} runningCells={new Set()} onRunCell={() => undefined} />);
+    try {
+      const icon = await screen.findByRole("button", { name: /Code fence.*make it a cell/ });
+      await act(async () => icon.click());
+      await screen.findByRole("button", { name: "Convert" });
+      const view = (window as unknown as { __hickoryView: EditorViewType }).__hickoryView;
+      await act(async () => view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: "Hello:\n" } }));
+      await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+      expect(view.state.doc.toString()).toBe("Hello:\n");
+    } finally { mounted.unmount(); realtime.close(); }
+  });
+
   it("draws every prose fence as code, even when Hick gives it no special meaning", async () => {
     const realtime = new LocalRealtime();
     const source =

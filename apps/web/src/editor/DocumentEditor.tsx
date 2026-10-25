@@ -146,12 +146,6 @@ export interface DocumentEditorProps {
  */
 const POPOVER_HEIGHT = 320;
 
-/** Whether two card lists would draw the same rail. */
-export function sameCards(a: readonly DocCard[], b: readonly DocCard[]): boolean {
-  if (a.length !== b.length) return false;
-  return a.every((card, i) => card.key === b[i].key && card.at === b[i].at);
-}
-
 /** Overlap length of two [from, to) spans. */
 // Kept as exports here for the callers that always found them here; the
 // code lives beside the other block matching in lib/blockMatch.ts.
@@ -550,11 +544,10 @@ export function DocumentEditor({
             }
             if (!u.docChanged) return;
             onChange?.(u.state.doc.toString());
-            // The rail follows the text. Replaced only when the list
-            // actually differs, so typing inside a cell does not re-render
-            // the rail (and close nothing) on every keystroke.
+            // Actions need current ranges and metadata even when no icon
+            // moved. CardRail separately compares positions for layout.
             const next = cardsOf(structureOf(u.state), { text: u.state.doc.toString() });
-            setCards(previous => sameCards(previous, next) ? previous : next);
+            setCards(next);
             setOpen(current => {
               if (!current) return null;
               let replaced = false;
@@ -794,11 +787,12 @@ export function DocumentEditor({
   // The popover converts fences; elements render their controls in place.
   const popoverBody = (card: DocCard) => {
     const view = viewRef.current;
-    if (!view || card.kind !== "fence") return null;
+    const unavailable = <p role="status">This code fence changed or disappeared. Close this panel and select the current fence.</p>;
+    if (!view || card.kind !== "fence") return unavailable;
     const structure = structureOf(view.state);
     const expected = view.state.doc;
     const fence = proseFences(structure, expected.toString()).find(f => f.from === card.from && f.to === card.to);
-    if (!fence) return null;
+    if (!fence) return unavailable;
     // A ```csv fence is a table somebody pasted into their notes. It gets a
     // grid rather than the "make it a cell" converter — running a CSV file as
     // a shell command is not a thing anybody means — and its own promotion,
@@ -908,6 +902,14 @@ export function DocumentEditor({
           actionsOf={cardActionsOf}
           replayingAt={replaying}
           onAction={(card, action, iconTop) => {
+            // Resolve the clicked card against the live parse rather than
+            // trusting data captured by a previous React render.
+            const view = viewRef.current;
+            if (!view) return;
+            const current = cardsOf(structureOf(view.state), { text: view.state.doc.toString() })
+              .find(candidate => candidate.kind === card.kind && candidate.from === card.from && candidate.to === card.to);
+            if (!current) { setOpen(null); return; }
+            card = current;
             if (action === "convert") {
               setOpen((current) => (current?.card.key === card.key ? null : { card, iconTop }));
               return;
