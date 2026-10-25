@@ -7,7 +7,7 @@ use axum::{
     Json,
     extract::{Query, State},
 };
-use hick_project_env::{Finding, Registry, host::Host};
+use hick_project_env::{Finding, host::Host};
 use serde::{Deserialize, Serialize};
 use std::{
     collections::HashMap,
@@ -67,10 +67,14 @@ pub struct Status {
 
 async fn scan(root: &Path, host: &Host) -> ApiResult<Vec<Finding>> {
     let root = root.to_path_buf();
-    let projects = tokio::task::spawn_blocking(move || Registry::default().discover(&root))
-        .await
-        .map_err(|e| ApiError::internal(e.to_string()))?;
-    let registry = Registry::default();
+    let projects = tokio::task::spawn_blocking(move || {
+        hick_plugins::registry()
+            .environment_registry()
+            .discover(&root)
+    })
+    .await
+    .map_err(|e| ApiError::internal(e.to_string()))?;
+    let registry = hick_plugins::registry().environment_registry();
     let mut findings = Vec::new();
     for mut project in projects {
         if let Some(manager) = hick_project_env::selected_manager(&project.root, &project.manager)

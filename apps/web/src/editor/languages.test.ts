@@ -1,3 +1,4 @@
+import { parserForLanguage } from "./languages";
 // Protects docs/guarantees/languages/a-routed-language-is-drawn.md
 // and docs/guarantees/languages/a-language-tier-is-measured-not-declared.md
 //
@@ -107,4 +108,15 @@ describe("the languages a JetBrains user arrives with", () => {
     expect(normalizeLanguage("postgres")).toBe("sql");
     expect(normalizeLanguage("nonsense")).toBeNull();
   });
+});
+
+// Filename and plain-text routes must stay usable without claiming a grammar.
+it("detects every plugin filename and newly routed server language", () => {
+  expect(languageFromPath("containers/Dockerfile")).toBe("dockerfile");
+  expect(languageFromPath("Containerfile")).toBe("dockerfile");
+  for (const [path, language] of [["main.ex", "elixir"], ["Main.hs", "haskell"], ["main.tf", "terraform"]]) {
+    expect(languageFromPath(path)).toBe(language);
+    expect(normalizeLanguage(language)).toBe(language);
+    expect(parserForLanguage(language)).toBeNull();
+  }
 });

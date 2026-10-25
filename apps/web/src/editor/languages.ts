@@ -1,3 +1,4 @@
+import { UI_LANGUAGE_ALIASES, UI_LANGUAGE_GRAMMARS } from "../plugins/languages";
 // Language registry shared by the Output view (full CodeMirror language
 // extensions), the plain-file pane, and the Document view (embedded
 // highlighting of block bodies).
@@ -18,40 +19,19 @@
 // every view and both themes stay in tune.
 
 import type { Extension } from "@codemirror/state";
-import { syntaxHighlighting, HighlightStyle, StreamLanguage } from "@codemirror/language";
+import { syntaxHighlighting, HighlightStyle } from "@codemirror/language";
 import type { Parser } from "@lezer/common";
 import { tags as t } from "@lezer/highlight";
-import { python } from "@codemirror/lang-python";
-import { javascript } from "@codemirror/lang-javascript";
-import { rust } from "@codemirror/lang-rust";
-import { json } from "@codemirror/lang-json";
-import { markdown } from "@codemirror/lang-markdown";
-import { html } from "@codemirror/lang-html";
-import { css } from "@codemirror/lang-css";
-import { sql } from "@codemirror/lang-sql";
-import { php } from "@codemirror/lang-php";
-import { shell } from "@codemirror/legacy-modes/mode/shell";
 // Most of the JetBrains pack comes from the legacy modes rather than its own
 // lezer grammar: `@codemirror/legacy-modes` is already here for the shell, so
 // Go, Java, C, C++, C#, Kotlin, Scala, Dart, Ruby, Swift, Lua, Groovy, R, F#,
 // Visual Basic, TOML, YAML and XML cost no new dependency — which matters for
 // a product that must stay copyleft-free and ships every byte it builds.
-import { c, cpp, csharp, dart, java, kotlin, scala } from "@codemirror/legacy-modes/mode/clike";
-import { xml } from "@codemirror/legacy-modes/mode/xml";
-import { go } from "@codemirror/legacy-modes/mode/go";
-import { ruby } from "@codemirror/legacy-modes/mode/ruby";
-import { swift } from "@codemirror/legacy-modes/mode/swift";
-import { lua } from "@codemirror/legacy-modes/mode/lua";
-import { groovy } from "@codemirror/legacy-modes/mode/groovy";
-import { r } from "@codemirror/legacy-modes/mode/r";
-import { fSharp } from "@codemirror/legacy-modes/mode/mllike";
-import { vb } from "@codemirror/legacy-modes/mode/vb";
-import { toml } from "@codemirror/legacy-modes/mode/toml";
-import { yaml } from "@codemirror/legacy-modes/mode/yaml";
 
 import {
   EXTENSION_TO_LANGUAGE,
-  HIGHLIGHTED_LANGUAGES,
+  FILE_NAME_TO_LANGUAGE,
+  ROUTED_LANGUAGE_IDS,
   type RoutedLanguageId,
 } from "./generated/languages";
 
@@ -63,48 +43,14 @@ export type LanguageId = RoutedLanguageId;
  * `language=` attribute or a markdown fence. Extensions come from the
  * generated table and are never repeated here.
  */
-const SYNONYMS: Record<string, RoutedLanguageId> = {
-  "c++": "cpp",
-  "c#": "csharp",
-  "f#": "fsharp",
-  "objective-c": "c",
-  bash: "shellscript",
-  sh: "shellscript",
-  shell: "shellscript",
-  zsh: "shellscript",
-  console: "shellscript",
-  jsx: "javascriptreact",
-  tsx: "typescriptreact",
-  "javascript-react": "javascriptreact",
-  "typescript-react": "typescriptreact",
-  js: "javascript",
-  ts: "typescript",
-  py: "python",
-  rs: "rust",
-  md: "markdown",
-  htm: "html",
-  cs: "csharp",
-  kt: "kotlin",
-  rb: "ruby",
-  yml: "yaml",
-  golang: "go",
-  "visual-basic": "vb",
-  vbnet: "vb",
-  dotnet: "csharp",
-  postgres: "sql",
-  postgresql: "sql",
-  mysql: "sql",
-  sqlite: "sql",
-  plsql: "sql",
-  tsql: "sql",
-};
+const SYNONYMS = UI_LANGUAGE_ALIASES;
 
 /** Canonicalise a language name or file extension; null when unknown. */
 export function normalizeLanguage(name: string | undefined | null): LanguageId | null {
   if (!name) return null;
   const key = name.toLowerCase();
   // The language's own id always wins, then a file extension, then a synonym.
-  if ((HIGHLIGHTED_LANGUAGES as readonly string[]).includes(key)) return key as LanguageId;
+  if ((ROUTED_LANGUAGE_IDS as readonly string[]).includes(key)) return key as LanguageId;
   const routed = EXTENSION_TO_LANGUAGE[key];
   if (routed) return routed;
   return SYNONYMS[key] ?? null;
@@ -113,6 +59,9 @@ export function normalizeLanguage(name: string | undefined | null): LanguageId |
 /** Language inferred from a file path's extension; null when unknown. */
 export function languageFromPath(path: string | undefined | null): LanguageId | null {
   if (!path) return null;
+  const name = path.split(/[\\/]/).pop()?.toLowerCase() ?? "";
+  const exact = FILE_NAME_TO_LANGUAGE[name];
+  if (exact) return exact;
   const dot = path.lastIndexOf(".");
   if (dot < 0 || dot === path.length - 1) return null;
   return normalizeLanguage(path.slice(dot + 1));
@@ -123,39 +72,7 @@ export function languageFromPath(path: string | undefined | null): LanguageId | 
  * grammar anywhere (Nix, Zig) is deliberately absent: it opens as plain text,
  * and `hick lang` reports that rather than promising otherwise.
  */
-const GRAMMARS: Partial<Record<LanguageId, () => Extension>> = {
-  python: () => python(),
-  javascript: () => javascript(),
-  javascriptreact: () => javascript({ jsx: true }),
-  typescript: () => javascript({ typescript: true }),
-  typescriptreact: () => javascript({ typescript: true, jsx: true }),
-  rust: () => rust(),
-  json: () => json(),
-  markdown: () => markdown(),
-  html: () => html(),
-  css: () => css(),
-  sql: () => sql(),
-  php: () => php(),
-  shellscript: () => StreamLanguage.define(shell),
-  csharp: () => StreamLanguage.define(csharp),
-  xml: () => StreamLanguage.define(xml),
-  go: () => StreamLanguage.define(go),
-  java: () => StreamLanguage.define(java),
-  c: () => StreamLanguage.define(c),
-  cpp: () => StreamLanguage.define(cpp),
-  kotlin: () => StreamLanguage.define(kotlin),
-  scala: () => StreamLanguage.define(scala),
-  dart: () => StreamLanguage.define(dart),
-  ruby: () => StreamLanguage.define(ruby),
-  swift: () => StreamLanguage.define(swift),
-  lua: () => StreamLanguage.define(lua),
-  groovy: () => StreamLanguage.define(groovy),
-  r: () => StreamLanguage.define(r),
-  fsharp: () => StreamLanguage.define(fSharp),
-  vb: () => StreamLanguage.define(vb),
-  toml: () => StreamLanguage.define(toml),
-  yaml: () => StreamLanguage.define(yaml),
-};
+const GRAMMARS = UI_LANGUAGE_GRAMMARS;
 
 /** Language ids this file can actually draw. Read by the drift test. */
 export function boundGrammars(): LanguageId[] {

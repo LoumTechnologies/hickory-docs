@@ -24,69 +24,8 @@ export interface TestMark {
   name: string;
 }
 
-const RUST_ATTRIBUTE = /^\s*#\[\s*(?:tokio::|async_std::)?test\b/;
-const RUST_FN = /^\s*(?:pub(?:\([^)]*\))?\s+)?(?:async\s+)?fn\s+([A-Za-z_][A-Za-z0-9_]*)/;
-const JS_CASE = /^\s*(?:it|test)(?:\.(?:only|skip|each))?\s*\(\s*(["'`])((?:\\.|(?!\1).)*)\1/;
-const PY_DEF = /^\s*(?:async\s+)?def\s+(test_[A-Za-z0-9_]*)\s*\(/;
-const CS_ATTRIBUTE = /^\s*\[\s*(?:Fact|Theory|Test|TestMethod|TestCase)\b/;
-const CS_METHOD = /^\s*(?:public\s+|private\s+|internal\s+|static\s+|async\s+|virtual\s+|override\s+)*[A-Za-z_<>\[\],. ]+?\s+([A-Za-z_][A-Za-z0-9_]*)\s*\(/;
-const GO_FUNC = /^\s*func\s+(Test[A-Za-z0-9_]*)\s*\(\s*\w+\s+\*testing\.T\s*\)/;
-
-/** Every test in `text`, for `language`. Empty for a language with no shape
- * this editor recognises — which is not an error, it is a gutter with
- * nothing in it. */
-export function findTests(language: string, text: string): TestMark[] {
-  const lines = text.split("\n");
-  const marks: TestMark[] = [];
-  const attributed = (attribute: RegExp, definition: RegExp) => {
-    for (let i = 0; i < lines.length; i++) {
-      if (!attribute.test(lines[i])) continue;
-      // The name is on the next line that defines something; attributes
-      // stack, so skip other attributes and blank lines on the way.
-      for (let j = i + 1; j < lines.length && j <= i + 6; j++) {
-        const line = lines[j];
-        if (line.trim() === "" || /^\s*(#\[|\[)/.test(line)) continue;
-        const found = definition.exec(line);
-        if (found) marks.push({ line: j + 1, name: found[1] });
-        break;
-      }
-    }
-  };
-  switch (language) {
-    case "rust":
-      attributed(RUST_ATTRIBUTE, RUST_FN);
-      break;
-    case "csharp":
-      attributed(CS_ATTRIBUTE, CS_METHOD);
-      break;
-    case "python":
-      lines.forEach((line, i) => {
-        const found = PY_DEF.exec(line);
-        if (found) marks.push({ line: i + 1, name: found[1] });
-      });
-      break;
-    case "go":
-      lines.forEach((line, i) => {
-        const found = GO_FUNC.exec(line);
-        if (found) marks.push({ line: i + 1, name: found[1] });
-      });
-      break;
-    case "typescript":
-    case "javascript":
-    case "tsx":
-    case "jsx":
-    case "typescriptreact":
-    case "javascriptreact":
-      lines.forEach((line, i) => {
-        const found = JS_CASE.exec(line);
-        if (found) marks.push({ line: i + 1, name: found[2] });
-      });
-      break;
-    default:
-      break;
-  }
-  return marks;
-}
+export { findTests } from "../plugins/languages/tests";
+import { findTests } from "../plugins/languages/tests";
 
 const setTestMarks = StateEffect.define<TestScan>();
 

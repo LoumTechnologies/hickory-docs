@@ -165,10 +165,19 @@ async fn capture_variant(
         vec![captured.clone()],
         SystemTime::now().duration_since(UNIX_EPOCH)?.as_millis() as u64,
     );
-    std::fs::write(
-        root.join("observer.py"),
-        include_str!("observation/python.py"),
-    )?;
+    let kind = if profile {
+        hick_plugins::InterfaceKind::Profiling
+    } else {
+        hick_plugins::InterfaceKind::RuntimeObservation
+    };
+    let (provider, script) = match hick_plugins::registry().interface("python", kind) {
+        Some(
+            hick_plugins::Interface::Profiling { provider, script }
+            | hick_plugins::Interface::RuntimeObservation { provider, script },
+        ) => (*provider, *script),
+        _ => anyhow::bail!("No Python observation provider in this build"),
+    };
+    std::fs::write(root.join("observer.py"), script)?;
     // Shell quoting is applied once; document names never become shell syntax.
     let relative = entry
         .strip_prefix(&root)?
@@ -307,12 +316,7 @@ async fn capture_variant(
             };
             run.events.push(Event {
                 id: format!("{}-E{}", run.id, run.events.len() + 1),
-                provider: if profile {
-                    "cpython-cprofile-v1"
-                } else {
-                    "cpython-hooks-v1"
-                }
-                .into(),
+                provider: provider.into(),
                 block: None,
                 invocation: value["invocation"].as_str().map(str::to_owned),
                 parent_invocation: value["parent_invocation"].as_str().map(str::to_owned),

@@ -36,42 +36,10 @@ const EVENT_BUFFER: usize = 512;
 /// answers at once, but a cold `node` start on a slow machine is seconds.
 const CONNECT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
 
-/// How an adapter expects to be talked to.
-///
-/// Three of the four ecosystems this product most wants to debug do NOT
-/// speak DAP over stdio, which is the single reason Go, JavaScript,
-/// TypeScript and Ruby were reported as debuggable and could not work:
-///
-/// * `dlv dap` — "Starts a headless TCP server communicating via Debug
-///   Adaptor Protocol", in delve's own help text.
-/// * `js-debug` — prints "Debug server listening at ::1:8123" and never
-///   reads stdin.
-/// * `rdbg --open` — a UNIX domain socket, or TCP with `--port`.
-///
-/// Only debugpy, netcoredbg and codelldb speak stdio, and those are exactly
-/// the three that had a live test and worked. Everything without one was
-/// broken.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub enum Transport {
-    /// The adapter reads requests on stdin and writes on stdout.
-    #[default]
-    Stdio,
-    /// The adapter listens on a TCP port and is connected to. The command's
-    /// arguments carry `{port}` where the port belongs.
-    Tcp,
-    /// Somebody else is already listening on this port, and nothing is
-    /// spawned.
-    ///
-    /// Java's adapter is not a program: `java-debug` is a plugin inside the
-    /// Java language server, and a client gets a session by asking that
-    /// server for one and reading a port out of the reply. Obtaining the port
-    /// needs LSP, which this crate must not know about — so the crate that
-    /// owns both ends does the asking and hands the port here.
-    Attached(u16),
-}
+pub use hick_plugins::Transport;
 
 /// The `{port}` placeholder an adapter's arguments use.
-pub const PORT_PLACEHOLDER: &str = "{port}";
+pub use hick_plugins::PORT_PLACEHOLDER;
 
 /// A port nothing is listening on, released immediately so the adapter can
 /// take it.

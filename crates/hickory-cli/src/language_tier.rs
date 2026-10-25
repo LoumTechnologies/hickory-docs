@@ -265,12 +265,7 @@ fn capability(present: bool, installable: bool) -> Have {
 /// is the live database schema, which is a different feature with a different
 /// name. Marking them is how `hick lang` avoids advising somebody to install
 /// a debugger for YAML.
-fn is_data_language(language: &str) -> bool {
-    matches!(
-        language,
-        "json" | "yaml" | "toml" | "markdown" | "html" | "css" | "sql" | "xml"
-    )
-}
+use hick_plugins::metadata::is_data_language;
 
 /// Whether a catalogue can fetch this language's tool.
 fn installs(catalogue: &crate::tool_install::Catalogue, language: &str) -> bool {
@@ -285,12 +280,7 @@ fn installs(catalogue: &crate::tool_install::Catalogue, language: &str) -> bool 
 /// `hick index list` already tells a person how to get these; this is the
 /// same fact, asked as a question instead of printed as advice. Kept next to
 /// that list deliberately — if the two disagree, the test below fails.
-fn indexed_by_the_ecosystem(language: &str) -> bool {
-    matches!(
-        language,
-        "rust" | "csharp" | "java" | "scala" | "kotlin" | "go" | "c" | "cpp" | "ruby"
-    )
-}
+use hick_plugins::metadata::indexed_by_the_ecosystem;
 
 /// The single most useful sentence for this language: what to do next.
 /// What a language has, for deciding the one thing to say next.

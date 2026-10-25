@@ -3146,6 +3146,7 @@ dependencies = [
  "hick-lang",
  "hick-lsp",
  "hick-observe",
+ "hick-plugins",
  "serde",
  "serde_json",
  "tempfile",
@@ -3195,6 +3196,7 @@ name = "hick-formula"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "hick-plugins",
  "serde",
  "serde_json",
  "tempfile",
@@ -3274,6 +3276,7 @@ dependencies = [
  "hick-lang",
  "hick-merge",
  "hick-observe",
+ "hick-plugins",
  "hick-secrets",
  "hick-store",
  "hick-token",
@@ -3305,6 +3308,7 @@ version = "0.1.0"
 dependencies = [
  "hick-blocks",
  "hick-lang",
+ "hick-plugins",
  "hick-project-env",
  "serde",
  "serde_json",
@@ -3345,6 +3349,24 @@ dependencies = [
  "sha2 0.10.9",
  "tempfile",
  "uuid",
+]
+
+[[package]]
+name = "hick-plugins"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "graphql-parser",
+ "hick-project-env",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tokio",
+ "tree-sitter",
+ "tree-sitter-javascript",
+ "tree-sitter-python",
+ "tree-sitter-rust",
+ "tree-sitter-typescript",
 ]
 
 [[package]]
@@ -3425,13 +3447,10 @@ dependencies = [
 name = "hick-structure"
 version = "0.1.0"
 dependencies = [
+ "hick-plugins",
  "serde",
  "serde_json",
  "tree-sitter",
- "tree-sitter-javascript",
- "tree-sitter-python",
- "tree-sitter-rust",
- "tree-sitter-typescript",
 ]
 
 [[package]]
@@ -3538,6 +3557,7 @@ dependencies = [
  "hick-lsp",
  "hick-merge",
  "hick-observe",
+ "hick-plugins",
  "hick-project-env",
  "hick-search",
  "hick-structure",
@@ -3653,6 +3673,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "async-trait",
+ "hick-plugins",
  "hick-token",
  "hickory-executor",
  "log",
@@ -3683,6 +3704,7 @@ version = "0.1.0"
 dependencies = [
  "hick-flow",
  "hick-lang",
+ "hick-plugins",
  "serde",
  "serde_json",
 ]

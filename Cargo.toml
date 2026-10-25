@@ -11,6 +11,7 @@ members = [
     "crates/hick-feature",
     "crates/hick-flow",
     "crates/hick-formula",
+    "crates/hick-plugins",
     "crates/hick-grove",
     "crates/hick-handlers",
     "crates/hick-lang",

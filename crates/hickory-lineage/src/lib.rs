@@ -524,36 +524,7 @@ pub fn apply_source_edits(
 // ---------------------------------------------------------------------------
 
 /// Map an output path to a language identifier, by extension.
-pub fn language_for_path(path: &str) -> &'static str {
-    let ext = path.rsplit('.').next().unwrap_or_default();
-    match ext.to_ascii_lowercase().as_str() {
-        "rs" => "rust",
-        "py" => "python",
-        "js" | "mjs" | "cjs" => "javascript",
-        "ts" | "mts" | "cts" => "typescript",
-        "tsx" => "tsx",
-        "jsx" => "jsx",
-        "json" => "json",
-        "toml" => "toml",
-        "yaml" | "yml" => "yaml",
-        "md" | "markdown" => "markdown",
-        "sh" | "bash" => "shell",
-        "html" | "htm" => "html",
-        "css" => "css",
-        "sql" => "sql",
-        "go" => "go",
-        "java" => "java",
-        "c" | "h" => "c",
-        "cpp" | "cc" | "hpp" | "cxx" => "cpp",
-        "rb" => "ruby",
-        "swift" => "swift",
-        "kt" | "kts" => "kotlin",
-        "hick" => "hick",
-        "xml" => "xml",
-        "txt" => "text",
-        _ => "text",
-    }
-}
+pub use hick_plugins::metadata::lineage_language as language_for_path;
 
 // ---------------------------------------------------------------------------
 // Tests

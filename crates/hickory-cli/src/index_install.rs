@@ -33,34 +33,12 @@ use crate::tool_install::{Catalogue, Installer};
 /// Where an indexer is installed, relative to the project root.
 pub const INDEXERS_DIR: &str = ".hick-cache/indexers";
 
-pub static CATALOGUE: Catalogue = Catalogue {
+pub static CATALOGUE: std::sync::LazyLock<Catalogue> = std::sync::LazyLock::new(|| Catalogue {
     what: "code indexer",
     prefix: INDEXERS_DIR,
     command: "hick index install",
-    installers: INSTALLERS,
-};
-
-const INSTALLERS: &[Installer] = &[
-    Installer {
-        language: "typescript",
-        tool: "npm",
-        package: "@sourcegraph/scip-typescript",
-        command: "npm install --no-fund --no-audit --prefix {prefix}/node @sourcegraph/scip-typescript",
-        assets: &[],
-        reason: "Sourcegraph's TypeScript indexer, and the reference SCIP producer",
-    },
-    Installer {
-        language: "python",
-        tool: "npm",
-        package: "@sourcegraph/scip-python",
-        // npm, despite indexing Python: Sourcegraph publishes it there, and
-        // the alternative is a pip install whose interpreter has to match the
-        // project's — a mismatch that reads as our bug.
-        command: "npm install --no-fund --no-audit --prefix {prefix}/node @sourcegraph/scip-python",
-        assets: &[],
-        reason: "Sourcegraph's Python indexer, published on npm",
-    },
-];
+    installers: &INSTALLERS,
+});
 
 /// Every language this can install, with whether the machine can.
 pub fn plans() -> Vec<crate::tool_install::InstallPlan> {
@@ -69,7 +47,15 @@ pub fn plans() -> Vec<crate::tool_install::InstallPlan> {
 
 /// Install one language's indexer, confined.
 pub fn install(root: &std::path::Path, language: &str) -> anyhow::Result<std::path::PathBuf> {
-    crate::tool_install::install(&CATALOGUE, root, language)
+    crate::tool_install::install(
+        &CATALOGUE,
+        root,
+        hick_plugins::registry()
+            .interface(language, hick_plugins::InterfaceKind::Indexer)
+            .and_then(hick_plugins::Interface::installer)
+            .map(|installer| installer.language)
+            .unwrap_or(language),
+    )
 }
 
 /// How to get an indexer for `language` when discovery finds none.
@@ -78,31 +64,7 @@ pub fn install(root: &std::path::Path, language: &str) -> anyhow::Result<std::pa
 /// command that does not exist. Most SCIP indexers are not things this
 /// product installs, and saying so costs a person nothing while a wrong
 /// suggestion costs them a shell round trip.
-pub fn how_to_get(language: &str) -> String {
-    match language {
-        // One indexer serves every JavaScript flavour, and the catalogue is
-        // keyed by ecosystem — so the command to name is `typescript`, not
-        // whichever id the file happened to have. Naming the id would print a
-        // command that fails with "no installer for 'javascript'".
-        "typescript" | "javascript" | "typescriptreact" | "javascriptreact" => {
-            "Install one with `hick index install typescript` — it indexes JavaScript too."
-                .to_string()
-        }
-        "python" => "Install one with `hick index install python`.".to_string(),
-        // rust-analyzer emits SCIP itself, so anybody writing Rust already has
-        // the indexer and does not need a second one.
-        "rust" => "rust-analyzer emits SCIP itself: `rust-analyzer scip .`. If you have \
-                   rust-analyzer, you have the indexer."
-            .to_string(),
-        "csharp" => "scip-dotnet is a `dotnet tool`: `dotnet tool install --global \
-                     scip-dotnet`. hick will find it on PATH."
-            .to_string(),
-        "java" | "kotlin" | "scala" => "Sourcegraph's scip-java covers these; it installs \
-                                        through Coursier rather than through hick."
-            .to_string(),
-        _ => format!("hick has no indexer for {language}."),
-    }
-}
+pub use hick_plugins::metadata::index_advice as how_to_get;
 
 /// Whether [`how_to_get`] points at `hick index install`.
 ///
@@ -123,16 +85,16 @@ pub struct Recipe {
 
 /// The recipe for a language, or `None` when hick cannot drive its indexer.
 pub fn recipe(language: &str) -> Option<Recipe> {
-    match language {
-        "typescript" | "javascript" | "typescriptreact" | "javascriptreact" => Some(Recipe {
-            bin: "scip-typescript",
-            args: &["index"],
-            output_flag: "--output",
-        }),
-        "python" => Some(Recipe {
-            bin: "scip-python",
-            args: &["index", "."],
-            output_flag: "--output",
+    match hick_plugins::registry().interface(language, hick_plugins::InterfaceKind::Indexer) {
+        Some(hick_plugins::Interface::Indexer {
+            bin,
+            args,
+            output_flag,
+            ..
+        }) => Some(Recipe {
+            bin,
+            args,
+            output_flag,
         }),
         _ => None,
     }
@@ -207,3 +169,10 @@ mod tests {
         }
     }
 }
+
+static INSTALLERS: std::sync::LazyLock<Vec<Installer>> = std::sync::LazyLock::new(|| {
+    hick_plugins::registry()
+        .installers(hick_plugins::InterfaceKind::Indexer)
+        .copied()
+        .collect()
+});

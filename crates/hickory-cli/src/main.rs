@@ -4,6 +4,7 @@ use std::process::ExitCode;
 use anyhow::{Context as _, Result, bail};
 use clap::{Parser, Subcommand};
 mod agent_command;
+mod language_commands;
 use agent_command::AgentArgs;
 mod doc_cli_args;
 use doc_cli_args::DocCommand;
@@ -218,6 +219,8 @@ enum Command {
     /// that would actually be used, so this cannot claim a language is
     /// debuggable before it is.
     Lang,
+    /// List built-in plugins and the interfaces they implement.
+    Plugins,
     /// Show or install the language servers that power the editor.
     #[command(subcommand)]
     Lsp(LspCommand),
@@ -999,7 +1002,8 @@ fn run() -> ExitCode {
             Command::Sealed(args) => cmd_sealed(args),
             Command::Fleet(cmd) => cmd_fleet(cmd).await,
             Command::CodeModel(args) => cmd_code_model(args),
-            Command::Lang => cmd_lang(),
+            Command::Lang => language_commands::languages(),
+            Command::Plugins => language_commands::plugins(),
             Command::Lsp(cmd) => cmd_lsp(cmd),
             Command::Formula(cmd) => cmd_formula(cmd),
             Command::Model(cmd) => cmd_model(cmd).await,
@@ -3318,7 +3322,7 @@ fn cmd_formula(command: FormulaCommand) -> Result<ExitCode> {
     match command {
         FormulaCommand::List => {
             println!("Languages a table's formulas can be written in:\n");
-            for entry in backend::BACKENDS {
+            for entry in backend::BACKENDS.iter() {
                 match backend::find_interpreter(entry) {
                     Some(interpreter) => {
                         println!("  {:<12} ready — {interpreter}", entry.language)
@@ -3567,55 +3571,6 @@ fn print_schema(schema: &serde_json::Value) {
         }
         println!();
     }
-}
-
-/// `hick lang` — the support ladder, measured on this machine.
-fn cmd_lang() -> Result<ExitCode> {
-    use hickory_cli::language_tier::{Tier, survey};
-
-    let root = std::env::current_dir()?;
-    let mut rows = survey(&root);
-    // Best-supported first: the interesting rows are the ones near the top of
-    // the ladder, and the long Bronze tail is context rather than news.
-    rows.sort_by(|a, b| b.tier.cmp(&a.tier).then(a.language.cmp(b.language)));
-
-    println!(
-        "What Hickory knows about each language, in {}.\n",
-        root.display()
-    );
-    println!(
-        "  {:<16} {:<7} {:<5} {:<5} {:<6} {:<6} {:<6} {:<7} NEXT",
-        "LANGUAGE", "TIER", "DRAW", "LSP", "DEBUG", "INDEX", "MODEL", "CLIENT"
-    );
-    for row in &rows {
-        println!(
-            "  {:<16} {:<7} {:<5} {:<5} {:<6} {:<6} {:<6} {:<7} {}",
-            row.language,
-            row.tier.name(),
-            row.draw.mark(),
-            row.lsp.mark(),
-            row.dap.mark(),
-            row.index.mark(),
-            row.model.mark(),
-            row.client.mark(),
-            row.next.as_deref().unwrap_or("")
-        );
-    }
-
-    let gold = rows.iter().filter(|r| r.tier == Tier::Gold).count();
-    let silver = rows.iter().filter(|r| r.tier == Tier::Silver).count();
-    let bronze = rows.iter().filter(|r| r.tier == Tier::Bronze).count();
-    println!("\n  {gold} gold, {silver} silver, {bronze} bronze.");
-    println!(
-        "  `yes` is installed here; `get` is available and not installed yet.\n\
-         \n\
-         \x20 BRONZE  the text is right — the language is routed and runnable in a cell, and\n\
-         \x20         DRAW says whether the editor has a grammar to colour it with.\n\
-         \x20 SILVER  the editor is right — a language server and a debugger, in document coordinates.\n\
-         \x20 GOLD    the code is data — an index, a code model to generate FROM, and a\n\
-         \x20         typed-client emitter to write a generator IN."
-    );
-    Ok(ExitCode::SUCCESS)
 }
 
 fn cmd_dap(command: DapCommand) -> Result<ExitCode> {

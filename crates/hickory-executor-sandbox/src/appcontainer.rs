@@ -305,6 +305,31 @@ fn spawn_confined(
     let mut command_line = wide(&format!("cmd.exe /C {}", confinement.command));
     let workdir = wide(&confinement.workdir.to_string_lossy());
     let mut process = PROCESS_INFORMATION::default();
+    let overrides = crate::policy::runtime_environment(confinement.workdir);
+    let mut environment: Vec<(std::ffi::OsString, std::ffi::OsString)> = std::env::vars_os()
+        .filter(|(name, _)| {
+            !overrides
+                .iter()
+                .any(|(key, _)| name.to_string_lossy().eq_ignore_ascii_case(key))
+        })
+        .collect();
+    environment.extend(
+        overrides
+            .into_iter()
+            .map(|(name, value)| (name.into(), value.into())),
+    );
+    environment.sort_by_key(|(name, _)| name.to_string_lossy().to_uppercase());
+    let mut environment: Vec<u16> = environment
+        .into_iter()
+        .flat_map(|(name, value)| {
+            let mut entry = name.encode_wide().collect::<Vec<_>>();
+            entry.push(b'=' as u16);
+            entry.extend(value.encode_wide());
+            entry.push(0);
+            entry
+        })
+        .collect();
+    environment.push(0);
 
     // SAFETY: every pointer outlives the call; the command line is mutable as
     // CreateProcessW requires.
@@ -315,8 +340,10 @@ fn spawn_confined(
             None,
             None,
             false,
-            EXTENDED_STARTUPINFO_PRESENT | CREATE_NEW_PROCESS_GROUP,
-            None,
+            EXTENDED_STARTUPINFO_PRESENT
+                | CREATE_NEW_PROCESS_GROUP
+                | windows::Win32::System::Threading::CREATE_UNICODE_ENVIRONMENT,
+            Some(environment.as_ptr().cast()),
             PCWSTR(workdir.as_ptr()),
             &startup.StartupInfo,
             &mut process,

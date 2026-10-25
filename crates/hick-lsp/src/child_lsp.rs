@@ -480,26 +480,17 @@ pub fn lsp_launch(
     }
     // 3. The bare name, so a server on PATH under a conventional name still
     //    works even if discovery's directory list missed it.
-    match language_id {
-        "rust" => Ok((vec!["rust-analyzer".into()], None)),
-        "python" => Ok((vec!["pyright-langserver".into(), "--stdio".into()], None)),
-        "typescript" | "javascript" | "typescriptreact" | "javascriptreact" => Ok((
-            vec!["typescript-language-server".into(), "--stdio".into()],
-            None,
-        )),
-        "go" => Ok((vec!["gopls".into()], None)),
-        "c" | "cpp" => Ok((vec!["clangd".into()], None)),
-        "lua" => Ok((vec!["lua-language-server".into()], None)),
-        "zig" => Ok((vec!["zls".into()], None)),
-        "json" => Ok((
-            vec!["vscode-json-language-server".into(), "--stdio".into()],
-            None,
-        )),
-        "nix" => Ok((vec!["nil".into()], None)),
-        _ => Err(ChildLspError::UnknownLanguage {
-            language_id: language_id.to_string(),
-        }),
+    if let Some(hick_plugins::Interface::Lsp { candidates, .. }) =
+        hick_plugins::registry().interface(language_id, hick_plugins::InterfaceKind::Lsp)
+        && let Some(candidate) = candidates.first()
+    {
+        let mut command = vec![candidate.bin.to_string()];
+        command.extend(candidate.args.iter().map(|arg| arg.to_string()));
+        return Ok((command, None));
     }
+    Err(ChildLspError::UnknownLanguage {
+        language_id: language_id.to_string(),
+    })
 }
 
 #[cfg(test)]

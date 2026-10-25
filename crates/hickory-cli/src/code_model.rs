@@ -46,7 +46,12 @@ pub const MODELS_DIR: &str = ".hick-cache/models";
 /// spawned tool uses, so a project can pin a version without asking anyone to
 /// change their environment.
 pub fn discover(language: &str, root: &Path) -> Option<PathBuf> {
-    let name = format!("hick-model-{language}");
+    let name = match hick_plugins::registry()
+        .interface(language, hick_plugins::InterfaceKind::CodeModel)
+    {
+        Some(hick_plugins::Interface::CodeModel { bin }) => (*bin).to_string(),
+        _ => format!("hick-model-{language}"),
+    };
     let local = root.join(MODELS_DIR).join(&name);
     if local.is_file() {
         return Some(local);
@@ -431,6 +436,20 @@ mod tests {
         let text = format!("{err:#}");
         assert!(text.contains("no code model server for nonesuch"), "{text}");
         assert!(text.contains("hick lang"), "{text}");
+    }
+
+    #[test]
+    fn csharp_plugin_model_is_discovered_in_the_project_cache() {
+        let root = tempfile::tempdir().unwrap();
+        let Some(hick_plugins::Interface::CodeModel { bin }) =
+            hick_plugins::registry().interface("csharp", hick_plugins::InterfaceKind::CodeModel)
+        else {
+            panic!("C# model declaration missing")
+        };
+        let binary = root.path().join(MODELS_DIR).join(bin);
+        std::fs::create_dir_all(binary.parent().unwrap()).unwrap();
+        std::fs::write(&binary, "model executable").unwrap();
+        assert_eq!(discover("csharp", root.path()), Some(binary));
     }
 
     #[test]

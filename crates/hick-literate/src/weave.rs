@@ -19,44 +19,7 @@ use crate::tag_attr;
 use crate::text::interpolate_path;
 
 /// Map file extension to markdown code fence language identifier.
-pub(crate) fn extension_to_language(path: &str) -> &'static str {
-    let ext = path.rsplit('.').next().unwrap_or("");
-    match ext {
-        "rs" => "rust",
-        "swift" => "swift",
-        "kt" | "kts" => "kotlin",
-        "ts" | "tsx" => "typescript",
-        "js" | "jsx" => "javascript",
-        "py" => "python",
-        "cs" => "csharp",
-        "json" => "json",
-        "yaml" | "yml" => "yaml",
-        "toml" => "toml",
-        "sh" | "bash" => "bash",
-        // `.csproj` and friends are XML with a different name on them — a
-        // document that ingests `dotnet new` gets one whether or not it asked.
-        // Kept in step with `ALIASES` in apps/web/src/editor/languages.ts, so
-        // the fence in the woven markdown and the colouring in the app agree
-        // about what a file is.
-        "xml" | "hick" | "csproj" | "props" | "targets" | "xaml" | "xsd" => "xml",
-        "html" | "htm" => "html",
-        "css" => "css",
-        "go" => "go",
-        "java" => "java",
-        "sql" => "sql",
-        "md" | "markdown" => "markdown",
-        "rb" => "ruby",
-        "php" => "php",
-        "c" => "c",
-        "cpp" | "cc" | "cxx" => "cpp",
-        "h" | "hpp" => "cpp",
-        "zig" => "zig",
-        "dockerfile" => "dockerfile",
-        "makefile" => "makefile",
-        "gradle" => "groovy",
-        _ => "",
-    }
-}
+pub(crate) use hick_plugins::metadata::fence_language as extension_to_language;
 
 /// File extensions a reader's markdown viewer draws as a picture.
 ///

@@ -1,3 +1,4 @@
+import { languageComment } from "../plugins/languages";
 // In-browser weaver: turns a .md source into its generated output files with
 // real provenance ranges, and maps output edits back to source-document edits.
 // This mirrors what the server's /outputs endpoints do (hick-literate weave),
@@ -40,9 +41,7 @@ function trimContent(source: string, from: number, to: number): [number, number]
  */
 function banner(language: string, docPath: string): string {
   const text = `woven by hick from ${docPath} — edit the doc or the slots below`;
-  if (language === "python" || language === "shell") return `# ${text}\n`;
-  if (language === "markdown" || language === "html") return `<!-- ${text} -->\n`;
-  return `// ${text}\n`;
+  return languageComment(language, text);
 }
 
 /** Weave all hick:file outputs of `source`, with provenance into the doc. */

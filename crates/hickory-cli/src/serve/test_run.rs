@@ -18,7 +18,9 @@
 //! The command comes from the manifest the walk finds. It is normalized as a
 //! launch profile and uses the same terminal runner as optional manual profiles.
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
+#[cfg(test)]
+use std::path::PathBuf;
 
 use axum::Json;
 use axum::extract::State;
@@ -43,181 +45,7 @@ pub struct RunBody {
     pub expected_source_hash: Option<String>,
 }
 
-/// What will run, and where.
-#[derive(Debug, PartialEq, Eq)]
-pub struct TestCommand {
-    pub title: String,
-    pub cwd: PathBuf,
-    pub argv: Vec<String>,
-}
-
-/// The nearest ancestor of `file` (itself included) holding `manifest`,
-/// stopping at `root`.
-fn nearest(root: &Path, file: &Path, manifest: &str) -> Option<PathBuf> {
-    let mut dir = file.parent()?;
-    loop {
-        if dir.join(manifest).is_file() {
-            return Some(dir.to_path_buf());
-        }
-        if dir == root {
-            return None;
-        }
-        dir = dir.parent()?;
-    }
-}
-
-/// The ecosystem's own command for one test in `file`, or its reason why
-/// not. `file` is absolute and under `root`.
-pub fn test_command(
-    root: &Path,
-    file: &Path,
-    name: &str,
-    language: &str,
-) -> Result<TestCommand, String> {
-    let rel = file
-        .strip_prefix(root)
-        .unwrap_or(file)
-        .to_string_lossy()
-        .replace('\\', "/");
-    let name = name.trim();
-    let title = if name.is_empty() {
-        format!("test: {rel}")
-    } else {
-        format!("test: {name}")
-    };
-    let s = |text: &str| text.to_string();
-    match language {
-        "rust" => {
-            let dir = nearest(root, file, "Cargo.toml").ok_or_else(|| {
-                format!("{rel} is not inside a cargo package: no Cargo.toml above it")
-            })?;
-            let mut argv = vec![s("cargo"), s("test")];
-            if !name.is_empty() {
-                argv.push(name.to_string());
-            }
-            Ok(TestCommand {
-                title,
-                cwd: dir,
-                argv,
-            })
-        }
-        "python" => {
-            let dir = nearest(root, file, "pyproject.toml")
-                .or_else(|| nearest(root, file, "pytest.ini"))
-                .or_else(|| nearest(root, file, "setup.py"))
-                .unwrap_or_else(|| root.to_path_buf());
-            let rel_to_dir = file
-                .strip_prefix(&dir)
-                .unwrap_or(file)
-                .to_string_lossy()
-                .replace('\\', "/");
-            let target = if name.is_empty() {
-                rel_to_dir
-            } else {
-                format!("{rel_to_dir}::{name}")
-            };
-            Ok(TestCommand {
-                title,
-                cwd: dir,
-                argv: vec![
-                    hick_project_env::python_interpreter(file.parent().unwrap_or(root), root)
-                        .map(|p| p.to_string_lossy().into_owned())
-                        .unwrap_or_else(|| s("python3")),
-                    s("-m"),
-                    s("pytest"),
-                    target,
-                ],
-            })
-        }
-        "typescript" | "javascript" | "typescriptreact" | "javascriptreact" | "tsx" | "jsx" => {
-            let dir = nearest(root, file, "package.json").ok_or_else(|| {
-                format!("{rel} is not inside a package: no package.json above it")
-            })?;
-            let rel_to_dir = file
-                .strip_prefix(&dir)
-                .unwrap_or(file)
-                .to_string_lossy()
-                .replace('\\', "/");
-            // vitest and jest share the `-t <name>` spelling; which one is
-            // the package's business, read from its own manifest.
-            let manifest = std::fs::read_to_string(dir.join("package.json")).unwrap_or_default();
-            let runner = if manifest.contains("\"vitest\"") {
-                vec![s("npx"), s("vitest"), s("run"), rel_to_dir]
-            } else if manifest.contains("\"jest\"") {
-                vec![s("npx"), s("jest"), rel_to_dir]
-            } else {
-                return Err(format!(
-                    "{} names neither vitest nor jest, so hick does not know how to run {rel}",
-                    dir.join("package.json").display()
-                ));
-            };
-            let mut argv = runner;
-            if !name.is_empty() {
-                argv.push(s("-t"));
-                argv.push(name.to_string());
-            }
-            Ok(TestCommand {
-                title,
-                cwd: dir,
-                argv,
-            })
-        }
-        "csharp" => {
-            let dir = nearest_glob(root, file, ".csproj")
-                .ok_or_else(|| format!("{rel} is not inside a project: no .csproj above it"))?;
-            let mut argv = vec![s("dotnet"), s("test")];
-            if !name.is_empty() {
-                argv.push(s("--filter"));
-                argv.push(format!("FullyQualifiedName~{name}"));
-            }
-            Ok(TestCommand {
-                title,
-                cwd: dir,
-                argv,
-            })
-        }
-        "go" => {
-            nearest(root, file, "go.mod")
-                .ok_or_else(|| format!("{rel} is not inside a module: no go.mod above it"))?;
-            let dir = file.parent().unwrap_or(root).to_path_buf();
-            let mut argv = vec![s("go"), s("test"), s(".")];
-            if !name.is_empty() {
-                argv.push(s("-run"));
-                argv.push(format!("^{name}$"));
-            }
-            Ok(TestCommand {
-                title,
-                cwd: dir,
-                argv,
-            })
-        }
-        other => Err(format!(
-            "hick does not know how to run {other} tests. It runs cargo, pytest, vitest or \
-             jest, dotnet test and go test; open a terminal on the file's folder for anything \
-             else."
-        )),
-    }
-}
-
-/// The nearest ancestor holding a file with `extension`.
-fn nearest_glob(root: &Path, file: &Path, extension: &str) -> Option<PathBuf> {
-    let mut dir = file.parent()?;
-    loop {
-        if let Ok(entries) = std::fs::read_dir(dir)
-            && entries.flatten().any(|e| {
-                e.path()
-                    .file_name()
-                    .is_some_and(|n| n.to_string_lossy().ends_with(extension))
-            })
-        {
-            return Some(dir.to_path_buf());
-        }
-        if dir == root {
-            return None;
-        }
-        dir = dir.parent()?;
-    }
-}
+pub use hick_plugins::testing::{TestCommand, test_command};
 
 /// `POST /api/tests/run` — run one test (or a file's tests) in a terminal
 /// session named after it. Answers the session, the way `POST /api/terminals`
@@ -285,8 +113,15 @@ pub async fn run(
         if cwd.is_empty() { ".".into() } else { cwd },
         "test gutter",
     );
-    let summary = super::launch_profiles::open_run(&state, &profile, &root, &root, None, Some(profile.definition.name.clone()))
-        .map_err(|e| ApiError::unprocessable(format!("{e:#}")))?;
+    let summary = super::launch_profiles::open_run(
+        &state,
+        &profile,
+        &root,
+        &root,
+        None,
+        Some(profile.definition.name.clone()),
+    )
+    .map_err(|e| ApiError::unprocessable(format!("{e:#}")))?;
     let mut reply = json!(summary);
     reply["source_hash"] = json!(source_hash);
     reply["source_checked_at_admission"] = json!(body.expected_source_hash.is_some());

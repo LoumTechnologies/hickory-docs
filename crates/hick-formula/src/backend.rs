@@ -25,54 +25,26 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Context as _, Result, bail};
 
-/// A language's backend: the script, and the interpreter that runs it.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Backend {
-    /// Canonical language id, as a document spells it.
-    pub language: &'static str,
-    /// The file the script is written to, under the formula cache.
-    pub file_name: &'static str,
-    /// Interpreters to try, best first. The first one that answers
-    /// `--version` wins.
-    pub interpreters: &'static [&'static str],
-    /// The script itself, embedded in this binary.
-    pub source: &'static str,
-}
+pub use hick_plugins::FormulaBackend as Backend;
 
-/// Every backend this build carries.
-///
-/// Adding a language is an entry here plus a script — deliberately, because
-/// the host owns references, ordering and cycles (see `graph.rs`), so a
-/// backend has nothing left to get wrong.
-pub const BACKENDS: &[Backend] = &[
-    Backend {
-        language: "python",
-        file_name: "python_backend.py",
-        // `python3` first: on the machines where `python` still exists it is
-        // as likely to be Python 2 as not, and a Python 2 backend fails in a
-        // way that reads like a bug in the formula.
-        interpreters: &["python3", "python"],
-        source: include_str!("../backends/python_backend.py"),
-    },
-    Backend {
-        language: "javascript",
-        file_name: "javascript_backend.mjs",
-        interpreters: &["node"],
-        source: include_str!("../backends/javascript_backend.mjs"),
-    },
-];
+/// Compatibility view of the plugin-owned backends.
+pub static BACKENDS: std::sync::LazyLock<Vec<Backend>> = std::sync::LazyLock::new(|| {
+    hick_plugins::registry()
+        .plugins()
+        .flat_map(|p| p.interfaces)
+        .filter_map(|i| match i {
+            hick_plugins::Interface::Formula(backend) => Some(*backend),
+            _ => None,
+        })
+        .collect()
+});
 
-/// Aliases a document might use for a language.
 pub fn canonical_language(name: &str) -> Option<&'static str> {
-    match name.trim().to_ascii_lowercase().as_str() {
-        "python" | "py" | "python3" => Some("python"),
-        // Table formulas are expressions, so TypeScript's expression subset
-        // is JavaScript at runtime. Type annotations still do not belong in a
-        // cell expression, but a table declared `typescript` should not lose
-        // the same formula features as one declared `javascript`.
-        "javascript" | "js" | "node" | "mjs" | "typescript" | "ts" => Some("javascript"),
-        _ => None,
-    }
+    let name = name.trim().to_ascii_lowercase();
+    BACKENDS
+        .iter()
+        .find(|b| b.aliases.contains(&name.as_str()))
+        .map(|b| b.language)
 }
 
 /// The backend for a language, whatever it was called.

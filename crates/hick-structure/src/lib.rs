@@ -77,28 +77,24 @@ pub struct StructuralLink {
 /// Languages this build can parse. Anything else yields no structure rather
 /// than a wrong one.
 pub fn language_of(path: &str) -> Option<&'static str> {
-    let ext = path.rsplit('.').next()?;
-    match ext {
-        "py" => Some("python"),
-        "rs" => Some("rust"),
-        "js" | "jsx" | "mjs" | "cjs" => Some("javascript"),
-        "ts" => Some("typescript"),
-        "tsx" => Some("tsx"),
+    let language = hick_plugins::routing::language_id(path)?;
+    match hick_plugins::registry().interface(language, hick_plugins::InterfaceKind::Structure)? {
+        hick_plugins::Interface::Structure {
+            language: label, ..
+        } => Some(label(language)),
         _ => None,
     }
 }
 
 fn parser_for(language: &str) -> Option<Parser> {
-    let mut parser = Parser::new();
-    let lang = match language {
-        "python" => tree_sitter_python::LANGUAGE.into(),
-        "rust" => tree_sitter_rust::LANGUAGE.into(),
-        "javascript" => tree_sitter_javascript::LANGUAGE.into(),
-        "typescript" => tree_sitter_typescript::LANGUAGE_TYPESCRIPT.into(),
-        "tsx" => tree_sitter_typescript::LANGUAGE_TSX.into(),
-        _ => return None,
+    let canonical = hick_plugins::routing::language_id(language).unwrap_or(language);
+    let hick_plugins::Interface::Structure { grammar, .. } =
+        hick_plugins::registry().interface(canonical, hick_plugins::InterfaceKind::Structure)?
+    else {
+        return None;
     };
-    parser.set_language(&lang).ok()?;
+    let mut parser = Parser::new();
+    parser.set_language(&grammar(canonical)?).ok()?;
     Some(parser)
 }
 

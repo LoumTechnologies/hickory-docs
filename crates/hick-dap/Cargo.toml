@@ -6,6 +6,7 @@ publish.workspace = true
 license.workspace = true
 
 [dependencies]
+hick-plugins = { path = "../hick-plugins" }
 hick-observe = { path = "../hick-observe" }
 hick-lang.workspace = true
 anyhow = "1"

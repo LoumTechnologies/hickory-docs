@@ -53,6 +53,7 @@ pub use private_prediction_startup::Startup as PrivatePredictionStartup;
 pub use private_predictions::Binding as PrivatePredictionBinding;
 mod engineer_tour;
 pub mod environments;
+mod capabilities;
 pub mod files_ops;
 pub mod find;
 pub mod formula;
@@ -771,6 +772,7 @@ pub(crate) fn router(state: LocalState) -> Router {
         )
         .route("/terminals", get(terminal::list).post(terminal::open))
         .route("/environments", get(environments::inspect))
+        .route("/capabilities", get(capabilities::inspect))
         .route("/environments/actions", post(environments::act))
         .route("/environments/manager", put(environments::choose))
         .route("/tests/run", post(test_run::run))

@@ -17,26 +17,38 @@ pub fn plain_root(path: &Path, workspace: Option<PathBuf>) -> PathBuf {
                 .map(Path::to_path_buf)
                 .unwrap_or_else(|| path.parent().unwrap_or(path).to_path_buf())
         });
-    if path.extension().is_some_and(|e| e == "py") {
-        hick_project_env::providers::uv::owner(path.parent().unwrap_or(&base), &base)
-            .unwrap_or(base)
-    } else {
-        base
-    }
+    hick_plugins::routing::language_id(&path.to_string_lossy())
+        .and_then(|language| {
+            hick_plugins::registry()
+                .interface(language, hick_plugins::InterfaceKind::EditorEnvironment)
+        })
+        .and_then(|interface| match interface {
+            hick_plugins::Interface::EditorEnvironment { root, .. } => Some(root(path, &base)),
+            _ => None,
+        })
+        .unwrap_or(base)
 }
 
 pub fn settings(kind: Option<&str>, root: &Path) -> Value {
-    if crate::server_config::command_for("python").is_some() {
-        return json!({});
-    }
-    let python = hick_project_env::python_interpreter(root, boundary(root));
-    match kind {
-        Some("pyright") => json!({ "python": { "pythonPath": python } }),
-        Some("pylsp") => {
-            json!({ "pylsp": { "plugins": { "jedi": { "environment": python.and_then(|p| p.parent()?.parent().map(Path::to_path_buf)) } } } })
+    for plugin in hick_plugins::registry().plugins() {
+        for interface in plugin.interfaces {
+            if let hick_plugins::Interface::EditorEnvironment {
+                kinds, settings, ..
+            } = interface
+                && kind.is_some_and(|kind| kinds.contains(&kind))
+            {
+                if plugin
+                    .languages
+                    .iter()
+                    .any(|language| crate::server_config::command_for(language).is_some())
+                {
+                    return json!({});
+                }
+                return settings(kind, root);
+            }
         }
-        _ => json!({}),
     }
+    json!({})
 }
 
 /// LSP configuration items request sections, not the entire settings object.
