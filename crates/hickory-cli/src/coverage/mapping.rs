@@ -49,15 +49,14 @@ pub(super) fn capture(
         let map = hick_dap::Mapping::for_state(&path, &state, path.parent().unwrap())?;
         for (relative, generated, lines) in matching {
             for line in lines {
-                if let Some((source, n)) = map.source_location(&generated, line - 1) {
-                    if let Ok(source) = source.canonicalize() {
-                        if source.starts_with(root) {
-                            mappings.entry(relative.clone()).or_default().insert(
-                                line,
-                                json!({"path":store::relative(root,&source),"line":n+1}),
-                            );
-                        }
-                    }
+                if let Some((source, n)) = map.source_location(&generated, line - 1)
+                    && let Ok(source) = source.canonicalize()
+                    && source.starts_with(root)
+                {
+                    mappings.entry(relative.clone()).or_default().insert(
+                        line,
+                        json!({"path":store::relative(root,&source),"line":n+1}),
+                    );
                 }
             }
         }

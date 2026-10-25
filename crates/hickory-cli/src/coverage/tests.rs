@@ -189,3 +189,74 @@ fn generated_coverage_maps_only_matching_bytes_to_document() {
     std::fs::write(root.join("app.py"), "different\n").unwrap();
     assert!(mapping::capture(&root, &record).unwrap().is_empty());
 }
+
+#[tokio::test]
+async fn agent_location_pages_distinguish_reachability_from_counts() {
+    let (_temp, root) = project();
+    let identity = Identity {
+        collector: "coverage.py".into(),
+        version: "7".into(),
+        configuration: "branches".into(),
+        scope: ".".into(),
+        source_hashes: snapshot(&root).unwrap(),
+    };
+    let raw=json!({"meta":{"branch_coverage":false},"files":{"app.py":{"executed_lines":[1],"missing_lines":[2],"excluded_lines":[]}}}).to_string();
+    let imported=dispatch(&root,req(json!({"action":"import","path":".","format":"coverage-py","identity":identity,"raw":raw}))).await.unwrap();
+    let page = dispatch(
+        &root,
+        req(json!({"action":"locations","id":imported["id"],"path":"app.py","limit":1})),
+    )
+    .await
+    .unwrap();
+    assert_eq!(page["denominator"], 2);
+    assert_eq!(page["next"], 1);
+    assert_eq!(page["locations"][0]["covered"], true);
+    assert!(page["locations"][0]["count"].is_null());
+    assert!(page["tests"].is_null());
+    assert!(
+        dispatch(
+            &root,
+            req(json!({"action":"locations","id":imported["id"],"metric":"branch"}))
+        )
+        .await
+        .is_err()
+    );
+}
+#[test]
+fn a_browser_reload_invalidates_even_larger_counters() {
+    let map = |epoch, n| {
+        json!({"app.js":{"__hickoryTimeOrigin":epoch,"statementMap":{},"branchMap":{},"s":{"0":n},"f":{},"b":{}}}).to_string()
+    };
+    assert!(runner::browser_delta(&map(1, 2), &map(2, 3)).is_err());
+}
+#[tokio::test]
+async fn metadata_labels_are_snapshots_not_reinterpreted_from_current_config() {
+    let (_temp, root) = project();
+    std::fs::write(
+        root.join(".hick-tests.json"),
+        r#"{"tests":{"app.py::test_x":["happy-path"]}}"#,
+    )
+    .unwrap();
+    let record = store::new_record(
+        &root,
+        &root,
+        &req(json!({"action":"run","language":"python"})),
+    )
+    .unwrap();
+    store::save(&root, &record).unwrap();
+    std::fs::write(
+        root.join(".hick-tests.json"),
+        r#"{"tests":{"app.py::test_x":["adversarial"]}}"#,
+    )
+    .unwrap();
+    let old = store::load(&root, &record.id).unwrap();
+    assert_eq!(old.metadata.tests["app.py::test_x"], ["happy-path"]);
+    assert_eq!(
+        store::view(&root, &record.id).unwrap()["source_state"],
+        "historical"
+    );
+}
+#[test]
+fn malformed_runner_output_does_not_panic_discovery() {
+    assert!(results::discover("typescript", "}\n{\n]\n[", &Config::default()).is_empty());
+}

@@ -81,6 +81,10 @@ pub(super) fn plan(
             .context("Unknown manual profile")?;
         let profile = manual_profile(root, project, &record.id, original)?;
         ensure!(!profile.argv.is_empty(), "Manual profile has no command");
+        ensure!(
+            ["lcov", "coverage-py", "cobertura", "istanbul"].contains(&profile.format.as_str()),
+            "Unsupported manual report format"
+        );
         let report = root.join(&profile.report);
         ensure!(
             !Path::new(&profile.report).is_absolute(),
@@ -231,6 +235,9 @@ pub(super) fn automated(
             if !selectors.is_empty() {
                 argv.push("--".into());
                 argv.extend(selectors.iter().cloned());
+                if record.group.is_none() {
+                    argv.push("--exact".into());
+                }
             }
         }
         "csharp" => {
@@ -251,7 +258,7 @@ pub(super) fn automated(
                     "-t".into(),
                     selectors
                         .iter()
-                        .map(|s| format!("(?:{})", regex::escape(s)))
+                        .map(|s| format!("^(?:{})$", regex::escape(s)))
                         .collect::<Vec<_>>()
                         .join("|"),
                 ]);

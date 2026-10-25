@@ -547,9 +547,13 @@ impl Server {
         // copy, and — deliberately — no way to write anything.
         if name == "code_coverage" {
             let result = async {
-                let request = serde_json::from_value(args.clone()).map_err(|e|e.to_string())?;
-                crate::coverage::dispatch(&self.root, request).await.map(|v|v.to_string()).map_err(|e|format!("{e:#}"))
-            }.await;
+                let request = serde_json::from_value(args.clone()).map_err(|e| e.to_string())?;
+                crate::coverage::dispatch(&self.root, request)
+                    .await
+                    .map(|v| v.to_string())
+                    .map_err(|e| format!("{e:#}"))
+            }
+            .await;
             return self.record_activity(name, result);
         }
         if name.starts_with("debug_") {

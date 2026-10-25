@@ -1,3 +1,4 @@
+import { coverageGutter } from "../coverage/gutter";
 import { replaceCapturedBlock } from "./replaceCapturedBlock";
 import type { UiActor } from "../lib/uiActions";
 import { useEditorEditing } from "./useEditorEditing";
@@ -383,6 +384,7 @@ export function DocumentEditor({
           // gutters lay out in declaration order, and this one belongs
           // OUTSIDE the numbers. Off by default — see editor/blameGutter.ts.
           blameGutter(),
+          coverageGutter(() => pathRef.current ?? undefined),
           history(),
           ...(preserveBytes ? [] : [unwrapParagraphs({ onOpen: docId !== "untitled" })]),
           // Undo must never reach content this client did not type.

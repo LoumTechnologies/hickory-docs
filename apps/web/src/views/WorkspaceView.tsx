@@ -1,3 +1,4 @@
+import { CoverageTools } from "../coverage/CoverageTools";
 import { workspaceTreeFiles } from "./workspaceTreeFiles";
 import { useUiReading } from "../lib/uiReading";
 import { runWorkspaceMenu } from "./workspaceMenuActions";
@@ -1467,9 +1468,7 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
       );
     }
     if (tab.kind === "file") {
-      // Keyed by tab: two panes showing the same path are two
-      // buffers, each saving whole and each hearing the other's
-      // save as an external change on the next refresh signal.
+      // Each tab owns a buffer; another tab's save arrives as an external change.
       return (
         <PlainFilePane
           key={tab.id}
@@ -1489,10 +1488,7 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
             });
           }}
           onAdopted={(adopted) => {
-            // The file gained an owner: this tab becomes a
-            // generated tab in place, and the owning document
-            // opens beside it — the comparison adoption exists
-            // for. The tree refreshes to show the new document.
+            // Adoption converts this tab in place and opens its new owner beside it.
             setLayout((current) =>
               adoptPlainFileTab(
                 current,
@@ -1528,8 +1524,7 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
       );
     }
     if (tab.kind === "terminal") {
-      // The emulator draws to a canvas, so the CSS zoom around it does
-      // nothing; it is told its level and re-fits itself.
+      // Canvas terminals need explicit zoom and refitting.
       return (
         <div className="terminal-tab">
           {/* Above the emulator, and present for exactly as long as the
@@ -1603,10 +1598,7 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
             cwdIsLive: session.cwd_is_live ?? false,
           }))}
           onOpenTerminal={showTerminal}
-          // Terminals live in the tree now, so the verbs that used to sit on
-          // the terminals pane live on the rows they act on: a directory
-          // opens one IN that directory, and an icon's own menu is the only
-          // place a session can be stopped.
+          // Terminal tree rows own their directory launch and session-stop actions.
           onNewTerminal={(path) => void openTerminal({ cwd: path })}
           onNewWorktree={(path) => {
             void shellPrompt
@@ -1622,21 +1614,15 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
               });
           }}
           onCloseTerminal={(id) => void terminals.close(id)}
-          // A find hit opens its file and puts the caret on the line. The
-          // file may be a document, a generated output, or a plain file —
-          // the tree already knows which, so this reuses its own routing.
+          // Find uses the tree's document/generated/plain-file routing.
           onOpenHit={openHit}
           onOpen={(action) => {
-            // A document ADDS a tab (or fronts its existing one);
-            // a generated file opens beside its owner. Nothing
-            // closes, nothing rebuilds.
+            // Documents open/front a tab; generated files open beside their owner.
             if (action.kind === "doc") {
               ensureDocOpen(action.id);
               navigate(`/docs/${action.id}`);
             } else if (action.kind === "generated") {
-              // The server names the owner for any document in the folder;
-              // `openableOutputs` only knows the OPEN ones, so it is the
-              // fallback rather than the first answer.
+              // Prefer the server's owner; openableOutputs only knows open documents.
               const owner = action.docId ?? openableOutputs.get(action.path);
               if (owner) openGeneratedFor(owner, action.path);
             } else {
@@ -1708,9 +1694,7 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
             sources={ribbonSources}
             files={ribbonFiles}
             links={ribbonLinks}
-            // Only drawn families reach the overlay. Continuity is filtered
-            // until its overlay exists, rather than widening
-            // `RibbonFamily` to a kind nothing emits.
+            // Only drawn ribbon families reach the overlay.
             layers={drawnLayers}
             ribbonStyle={ribbonStyle}
             visibility={ribbonVisibility}
@@ -1856,6 +1840,7 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
             onGraph={() => navigate(`/projects/${encodeURIComponent(projectId ?? "")}/lineage`)}
           />
           <MoreActions label="Workspace tools">
+            <CoverageTools path={focusedPath} />
             <ReviewPanel document={focused?.doc?.path} source={focused?.liveSource} view={focused?.docEditor} />
             <MeetingImport onOpen={(path, line) => openHit(path, line ?? 1)} onOpenNote={(id) => { ensureDocOpen(id); navigate(`/docs/${id}`); }} />
             <SnapshotExport docId={focused?.docId} />

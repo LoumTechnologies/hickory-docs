@@ -54,19 +54,19 @@ pub(super) fn discover(language: &str, text: &str, metadata: &Config) -> Vec<Tes
             .collect();
     }
     let value = json_from_output(text);
-    if value.get("testResults").is_some() {
-        if let Ok(mut tests) = parse(
+    if value.get("testResults").is_some()
+        && let Ok(mut tests) = parse(
             "typescript",
             &value.to_string(),
             "",
             metadata,
             Path::new("."),
-        ) {
-            for test in &mut tests {
-                test.status = "discovered".into();
-            }
-            return tests;
+        )
+    {
+        for test in &mut tests {
+            test.status = "discovered".into();
         }
+        return tests;
     }
     value
         .as_array()
@@ -100,20 +100,20 @@ pub(super) fn discover(language: &str, text: &str, metadata: &Config) -> Vec<Tes
         .collect()
 }
 fn json_from_output(text: &str) -> Value {
-    serde_json::from_str(text).unwrap_or_else(|_| {
-        if let (Some(start), Some(end)) = (text.find('{'), text.rfind('}')) {
-            if let Ok(value) = serde_json::from_str(&text[start..=end]) {
-                return value;
-            }
+    if let Ok(value) = serde_json::from_str(text) {
+        return value;
+    }
+    for (open, close) in [('{', '}'), ('[', ']')] {
+        if let (Some(start), Some(end)) = (text.find(open), text.rfind(close))
+            && start <= end
+            && let Ok(value) = serde_json::from_str(&text[start..=end])
+        {
+            return value;
         }
-        text.find('[')
-            .and_then(|start| {
-                text.rfind(']')
-                    .and_then(|end| serde_json::from_str(&text[start..=end]).ok())
-            })
-            .unwrap_or(Value::Null)
-    })
+    }
+    Value::Null
 }
+
 pub(super) fn parse(
     language: &str,
     raw: &str,

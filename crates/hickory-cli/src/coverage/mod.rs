@@ -138,7 +138,7 @@ fn project(root: &Path, request: &Request) -> Result<PathBuf> {
             .cwd,
     )
 }
-fn id<'a>(request: &'a Request) -> Result<&'a str> {
+fn id(request: &Request) -> Result<&str> {
     request.id.as_deref().context("Run id required")
 }
 
@@ -171,7 +171,8 @@ pub async fn dispatch(root: &Path, request: Request) -> Result<Value> {
             if request.action == "manual-start" && request.profile.is_none() {
                 // Browser collection is deliberately explicit: instrumentation must be present.
                 record.identity.collector = "istanbul-browser".into();
-                record.identity.version = "coverage-map-v1".into();
+                record.identity.version =
+                    "Istanbul map schema v1; instrumenter version unavailable".into();
                 record.identity.configuration =
                     "Istanbul counters; source maps resolved by instrumentation".into();
                 let baseline = if let Some(url) = &request.url {
@@ -400,8 +401,18 @@ pub(super) fn evidence(
         files.insert(rel, data);
     }
     report.files = files;
+    let mut identity = record.identity.clone();
+    if format == "istanbul" {
+        use sha2::{Digest, Sha256};
+        let map: Value = serde_json::from_str(raw)?;
+        let layout:BTreeMap<_,_>=map.as_object().context("Invalid Istanbul map")?.iter().map(|(path,file)|(path,json!({"statements":file["statementMap"],"branches":file["branchMap"],"functions":file["fnMap"],"schema":file["_coverageSchema"]}))).collect();
+        identity.configuration.push_str(&format!(
+            "; instrumentation-layout-sha256={:x}",
+            Sha256::digest(serde_json::to_vec(&layout)?)
+        ));
+    }
     Ok(Evidence {
-        identity: record.identity.clone(),
+        identity,
         report,
         labels,
         tests: record.tests.iter().map(|t| t.id.clone()).collect(),

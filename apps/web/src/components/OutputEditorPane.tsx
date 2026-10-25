@@ -1,3 +1,4 @@
+import { coverageGutter } from "../coverage/gutter";
 import { useEditorEditing } from "../editor/useEditorEditing";
 import { useEditorActions } from "../editor/uiEditorActions";
 import { DebugLaunchRail } from "../debug/DebugRail";
@@ -206,6 +207,7 @@ export function OutputEditorPane({
           // coordinate everything else in this app refers to.
           blameGutter(),
           lineNumbers(),
+          coverageGutter(() => initial.path, () => fileRef.current?.content),
           // Wrap marks on soft-wrapped continuation rows, in the number
           // gutter — the number renders once, the rest of the tall cell
           // says "still that line".

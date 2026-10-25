@@ -79,14 +79,15 @@ Executed witnesses for this change:
 - `cargo test -p hick-coverage --test evidence`: 8 passed, including a real
   Coverlet-shaped source-root/filename counterexample.
 - `cargo test -p hickory-cli --lib coverage::tests -- --test-threads=2`:
-  10 focused service/parser/safety tests passed.
+  14 focused service/parser/safety tests passed.
 - Opt-in `coverage::real_tests` against disposable projects: Python pytest-cov,
-  Vitest/V8 coverage, Rust cargo-llvm-cov and C# VSTest/Coverlet each discovered
+  Vitest/V8 coverage, Jest coverage, Rust cargo-llvm-cov and C# VSTest/Coverlet each discovered
   tests and produced persisted passing results plus a parsed coverage report.
   A Chrome/Istanbul app-button witness reached a rejection branch and left the
   alternate branch uncovered. A live Python application flushed branch coverage
-  on stop. Three real-collector witness tests passed.
-- `apps/web/src/coverage/{selection,CoverageTools}.test.*`: 3 focused UI tests
+  on stop. A failed-test witness retained coverage and reran only the recorded failure.
+  Four real-collector witness tests passed.
+- `apps/web/src/coverage/{selection,CoverageTools,gutter}.test.*`: 4 focused UI tests
   passed. TypeScript compilation checked the integrated editor and workspace
   surfaces. These do not establish a full native desktop walkthrough.
 - Failures found and corrected: matching virtual content instead of written
@@ -95,3 +96,13 @@ Executed witnesses for this change:
   and supplied filenames relative to `/`. The witnesses above cover the fixes.
 - Post-commit checks and broad regressions are delegated to the user under
   AGENTS.md. Their status was not monitored by this session.
+
+- Browser instrumentation comparisons include the exact statement/branch/function
+  layout fingerprint. The instrumenter version is explicitly unavailable when
+  not supplied by the page; the collector's map schema and layout are retained.
+- A focused Clippy invocation initially failed on existing `hick-observe`
+  dependency lints (`prediction.rs`); those unrelated files were not changed.
+
+- Final focused Clippy diagnostics: no warnings/errors in the new coverage
+  modules; the command remains failed by 17 existing diagnostics in other
+  `hickory-cli` modules. These are not a passed repository lint check.

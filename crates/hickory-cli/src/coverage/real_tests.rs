@@ -20,7 +20,7 @@ async fn finished(root: &Path, id: &str) -> Value {
 #[ignore = "requires installed pytest-cov, Vitest coverage, Coverlet, cargo-llvm-cov"]
 async fn real_collectors_retain_automated_results_and_coverage() {
     assert_eq!(std::env::var("HICK_COVERAGE_REAL").as_deref(), Ok("1"));
-    for language in ["python", "typescript", "rust", "csharp"] {
+    for language in ["python", "typescript", "javascript", "rust", "csharp"] {
         let temp = tempfile::tempdir().unwrap();
         let root = temp.path().canonicalize().unwrap();
         match language {
@@ -49,6 +49,25 @@ async fn real_collectors_retain_automated_results_and_coverage() {
                     std::env::var("HICK_COVERAGE_NODE_MODULES").expect(
                         "HICK_COVERAGE_NODE_MODULES must contain Vitest and its coverage plugin",
                     ),
+                    root.join("node_modules"),
+                )
+                .unwrap();
+            }
+            "javascript" => {
+                std::fs::write(
+                    root.join("package.json"),
+                    r#"{"devDependencies":{"jest":"29.7.0"}}"#,
+                )
+                .unwrap();
+                std::fs::write(
+                    root.join("app.js"),
+                    "exports.classify=(n)=>{if(n<0)return 'negative';return 'positive';};\n",
+                )
+                .unwrap();
+                std::fs::write(root.join("app.test.js"),"const {classify}=require('./app');test('positive',()=>expect(classify(1)).toBe('positive'));\n").unwrap();
+                #[cfg(unix)]
+                std::os::unix::fs::symlink(
+                    std::env::var("HICK_COVERAGE_NODE_MODULES").unwrap(),
                     root.join("node_modules"),
                 )
                 .unwrap();
@@ -187,7 +206,7 @@ async fn real_manual_browser_collects_only_paths_exercised_after_start() {
         tokio_tungstenite::connect_async(page["webSocketDebuggerUrl"].as_str().unwrap())
             .await
             .unwrap();
-    socket.send(tokio_tungstenite::tungstenite::Message::Text(json!({"id":9,"method":"Runtime.evaluate","params":{"expression":"document.querySelector('#reject').click(); document.querySelector('#result').textContent","returnByValue":true}}).to_string().into())).await.unwrap();
+    socket.send(tokio_tungstenite::tungstenite::Message::Text(json!({"id":9,"method":"Runtime.evaluate","params":{"expression":"document.querySelector('#reject').click(); document.querySelector('#result').textContent","returnByValue":true}}).to_string())).await.unwrap();
     loop {
         let m = socket.next().await.unwrap().unwrap();
         if !m.is_text() {
@@ -252,4 +271,61 @@ async fn real_manual_python_process_flushes_coverage_on_stop() {
             .any(|b| b["covered"] == false)
     );
     assert!(end["manual_verdict"].is_null());
+}
+
+#[tokio::test]
+#[ignore = "requires pytest-cov; verifies failed-run evidence and targeted reruns"]
+async fn real_failed_test_keeps_coverage_and_reruns_only_the_failure() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path().canonicalize().unwrap();
+    #[cfg(unix)]
+    std::os::unix::fs::symlink(
+        std::env::var("HICK_COVERAGE_PYTHON_ENV").unwrap(),
+        root.join(".venv"),
+    )
+    .unwrap();
+    std::fs::write(
+        root.join("app.py"),
+        "def classify(n):\n    if n<0:\n        return 'negative'\n    return 'positive'\n",
+    )
+    .unwrap();
+    let tests = "from app import classify\ndef test_positive():\n    assert classify(1) == 'positive'\ndef test_rejection():\n    assert classify(-1) == 'WRONG'\n";
+    std::fs::write(root.join("test_app.py"), tests).unwrap();
+    let started = dispatch(
+        &root,
+        req(json!({"action":"run","path":".","language":"python"})),
+    )
+    .await
+    .unwrap();
+    let failed = finished(&root, started["id"].as_str().unwrap()).await;
+    assert_eq!(failed["status"], "failed", "{failed}");
+    assert!(!failed["evidence"].is_null());
+    assert_eq!(
+        failed["tests"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|t| t["status"] == "failed")
+            .count(),
+        1
+    );
+    std::fs::write(
+        root.join("test_app.py"),
+        tests.replace("'WRONG'", "'negative'"),
+    )
+    .unwrap();
+    let started = dispatch(
+        &root,
+        req(json!({"action":"rerun-failed","id":failed["id"]})),
+    )
+    .await
+    .unwrap();
+    let rerun = finished(&root, started["id"].as_str().unwrap()).await;
+    assert_eq!(rerun["status"], "completed", "{rerun}");
+    assert_eq!(rerun["tests"].as_array().unwrap().len(), 1);
+    assert_eq!(rerun["tests"][0]["id"], "test_app.py::test_rejection");
+    assert_eq!(
+        store::view(&root, failed["id"].as_str().unwrap()).unwrap()["source_state"],
+        "historical"
+    );
 }

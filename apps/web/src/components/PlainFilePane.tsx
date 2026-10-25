@@ -1,3 +1,4 @@
+import { coverageGutter } from "../coverage/gutter";
 import { inlineEvaluationOwner } from "../debug/inlineEval";
 import { useEditorEditing } from "../editor/useEditorEditing";
 import { PlainFileActions } from "./PlainFileActions";
@@ -373,6 +374,7 @@ export function PlainFilePane({
           // coordinate everything else in this app refers to.
           blameGutter(),
           lineNumbers(),
+          coverageGutter(() => initial.path, () => fileRef.current?.content),
           wrapGutterMarkers(),
           // The breakpoint gutter, the paused line, the inline values — the
           // same layer a document's editor wears, told that every line here

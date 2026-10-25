@@ -202,6 +202,10 @@ async fn collect(
         let all = find_reports(plan.report.parent().unwrap(), "coverage.cobertura.xml")?;
         let mut unique = std::collections::BTreeMap::new();
         for path in all {
+            ensure!(
+                std::fs::metadata(&path)?.len() <= 16 * 1024 * 1024,
+                "Coverage report exceeds 16 MiB"
+            );
             unique.entry(std::fs::read(&path)?).or_insert(path);
         }
         let paths: Vec<_> = unique.into_values().collect();
@@ -299,7 +303,7 @@ pub(super) async fn browser_checkpoint(endpoint: &str, selector: Option<&str>) -
         "Chrome debugger socket is not on the requested loopback endpoint"
     );
     let (mut socket, _) = tokio_tungstenite::connect_async(ws).await?;
-    socket.send(tokio_tungstenite::tungstenite::Message::Text(json!({"id":1,"method":"Runtime.evaluate","params":{"expression":"globalThis.__coverage__ ? JSON.stringify(Object.fromEntries(Object.entries(globalThis.__coverage__).map(([p,c]) => [p,{...c,__hickoryTimeOrigin:performance.timeOrigin}]))) : 'null'","returnByValue":true}}).to_string().into())).await?;
+    socket.send(tokio_tungstenite::tungstenite::Message::Text(json!({"id":1,"method":"Runtime.evaluate","params":{"expression":"globalThis.__coverage__ ? JSON.stringify(Object.fromEntries(Object.entries(globalThis.__coverage__).map(([p,c]) => [p,{...c,__hickoryTimeOrigin:performance.timeOrigin}]))) : 'null'","returnByValue":true}}).to_string())).await?;
     let raw=tokio::time::timeout(Duration::from_secs(10),async {
         while let Some(message)=socket.next().await {
             let message=message?;if !message.is_text(){continue;}

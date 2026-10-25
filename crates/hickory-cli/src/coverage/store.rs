@@ -64,7 +64,7 @@ pub(super) fn load(root: &Path, id: &str) -> Result<Record> {
         "Run record cannot be a symlink"
     );
     ensure!(
-        std::fs::metadata(&path)?.len() <= 32 * 1024 * 1024,
+        std::fs::metadata(&path)?.len() <= 64 * 1024 * 1024,
         "Run record too large"
     );
     Ok(serde_json::from_slice(&std::fs::read(path)?)?)
