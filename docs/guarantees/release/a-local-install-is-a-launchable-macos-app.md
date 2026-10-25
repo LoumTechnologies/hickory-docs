@@ -4,7 +4,10 @@ Given a checkout on an Apple Silicon Mac with the desktop build prerequisites
 and write access to `/Applications`, when `just local-install` succeeds, then
 `/Applications/Hickory Docs.app` contains a native release build with the UI
 embedded and is registered with macOS as **Hickory Docs**. It can be launched
-from Applications without a running development server or this checkout.
+from Applications without a running development server or this checkout. If
+the per-user LaunchServices service is unavailable, the installer warns but
+still succeeds with the valid app in Applications; macOS registers it when the
+service returns.
 
 The bundle declares `.md` files as Markdown documents with the Editor role.
 After registration, the installer checks the current user’s Markdown default

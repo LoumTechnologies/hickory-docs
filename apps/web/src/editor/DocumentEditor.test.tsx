@@ -62,7 +62,7 @@ describe("DocumentEditor (WYSIWYG over raw source)", () => {
     const output = container.querySelector(".cm-exec-output-frame")!;
     expect(output.previousElementSibling?.textContent).toContain("</hick:exec>");
     expect(container.querySelector("[data-testid='cell-command']")).toBeNull();
-    rerender(<DocumentEditor {...props} execBlocks={[{ ...block, transcript: [...block.transcript, { t: 1, kind: "out", data: "Restore succeeded\n" }] }]} />);
+    rerender(<DocumentEditor {...props} execBlocks={[{ ...block, transcript: [...(block.transcript ?? []), { t: 1, kind: "out", data: "Restore succeeded\n" }] }]} />);
     await waitFor(() => expect(output.textContent).toContain("Restore succeeded"));
     expect(view.state.doc.toString()).toBe(initialSource + source);
     realtime.close();

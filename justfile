@@ -236,16 +236,36 @@ local-install:
     fi
     phase="registering the installed app with macOS"
     echo "Registering $destination with macOS."
-    /System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -f "$destination"
+    lsregister=/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister
+    registration_status=registered
+    # The ERR trap is inherited by command substitutions. Disable it in this
+    # expected failure capture so the warning below is the only diagnostic.
+    if ! registration_error="$(trap - ERR; "$lsregister" -f "$destination" 2>&1)"; then
+      echo "$registration_error" >&2
+      # -10822 is kLSServerCommunicationErr: the per-user LaunchServices
+      # service is unavailable (for example, a remote/headless session), not
+      # a malformed app. The app is already safely installed and Finder will
+      # register it when that service returns.
+      if [[ "$registration_error" == *"-10822"* ]]; then
+        registration_status=pending
+        echo "Warning: LaunchServices is unavailable; macOS will register $destination when its service returns." >&2
+      else
+        exit 1
+      fi
+    fi
     # Leave only the installed app for macOS to discover, after installation
     # succeeds. Unregister the build copy while its bundle still exists.
     # LaunchServices can refuse to scan this disposable copy (-10814).
     # That must not fail an already registered install or prevent removal.
-    if ! /System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -u "$bundle"; then
+    if ! "$lsregister" -u "$bundle"; then
       echo "Warning: macOS could not unregister the build copy; removing it anyway." >&2
     fi
     rm -rf "$bundle"
-    echo "Installed and registered $destination."
+    if [ "$registration_status" = registered ]; then
+      echo "Installed and registered $destination."
+    else
+      echo "Installed $destination; LaunchServices registration is pending."
+    fi
     phase="setting the Markdown default"
     if ! "$staging/default-markdown-editor" "$destination" "$CARGO_TARGET_DIR"; then
       echo "Warning: Hickory Docs is installed, but its Markdown default could not be confirmed." >&2
