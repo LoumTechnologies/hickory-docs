@@ -131,7 +131,7 @@ describe("explicit UI command dispatch", () => {
     const registry = new UiActions(scope, () => true, async () => { throw Error("disk full"); });
     registry.register("run", f.command);
     const handle = registry.observe("editor").actions[0].handle;
-    expect(await registry.act(scope, actor, { handle, arguments: {}, request_id: "r" })).toMatchObject({ status: "error" });
+    expect(await registry.act(scope, actor, { handle, arguments: {}, request_id: "r" })).toMatchObject({ status: "error", reason: "Could not retain the action intent; no action was submitted: Error: disk full" });
     expect(f.execute).not.toHaveBeenCalled();
   });
   it("cannot revive a command unregistered while intent is being retained", async () => {
@@ -164,7 +164,7 @@ describe("explicit UI command dispatch", () => {
     const registry = new UiActions(scope, () => true, async receipt => { if (receipt.stage === "result") throw Error("disk full"); });
     registry.register("run", f.command);
     const invocation = { handle: registry.observe("editor").actions[0].handle, arguments: {}, request_id: "r" };
-    expect(await registry.act(scope, actor, invocation)).toMatchObject({ status: "error", reason: expect.stringContaining("side effects may have occurred") });
+    expect(await registry.act(scope, actor, invocation)).toMatchObject({ status: "error", reason: expect.stringContaining("Error: disk full") });
     await registry.act(scope, actor, invocation);
     expect(f.execute).toHaveBeenCalledOnce();
   });

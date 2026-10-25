@@ -223,7 +223,14 @@ export class UiActions {
     let result: UiResult;
     try {
       // Persist intent before invoking any side effect. Failure closes the gate.
-      await this.record({ stage: "requested", request_id: invocation.request_id, actor, scope: this.scope, action, arguments: invocation.arguments });
+      try {
+        await this.record({ stage: "requested", request_id: invocation.request_id, actor, scope: this.scope, action, arguments: invocation.arguments });
+      } catch (error) {
+        // Do not overwrite an intent-retention failure with the later, less
+        // useful "result" failure. The handler has not run, so callers can
+        // safely repair the host connection and submit a new request.
+        return Object.freeze({ status: "error", reason: `Could not retain the action intent; no action was submitted: ${String(error)}` });
+      }
       if (signal.aborted) result = { status: "unavailable", reason: "Cancelled before execution" };
       else if (![...this.entries.values()].includes(target.entry)) result = { status: "unavailable", reason: "Command was unregistered before execution" };
       else if (!this.permitted(target.entry)) result = { status: "forbidden", reason: "Originating window became confined before execution" };
@@ -241,8 +248,8 @@ export class UiActions {
     catch { result = Object.freeze({ status: "error", reason: "Could not capture the JSON action result; side effects may have occurred. Inspect current state before a new request." }); }
     try {
       await this.record({ stage: "result", request_id: invocation.request_id, actor, scope: this.scope, action, arguments: invocation.arguments, result });
-    } catch {
-      result = { status: "error", reason: "Could not retain the action result; side effects may have occurred. Inspect current state before a new request." };
+    } catch (error) {
+      result = { status: "error", reason: `Could not retain the action result: ${String(error)}. Side effects may have occurred. Inspect current state before a new request.` };
     } finally { this.busy.delete(action.subject); }
     return result;
   }
