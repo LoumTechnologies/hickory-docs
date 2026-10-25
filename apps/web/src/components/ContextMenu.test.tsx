@@ -62,3 +62,27 @@ it("keeps dismissal addressable while an item callback is pending without claimi
   expect(close).toHaveBeenCalledTimes(1);
   await act(async () => { finish(); expect(await pending).toMatchObject({ status: "result", outcome: { value: { callback_requested: true } } }); });
 });
+
+it("navigates enabled items like a desktop menu and restores focus on dismissal", () => {
+  const opener = document.createElement("button");
+  document.body.append(opener);
+  opener.focus();
+  const view = render(<ContextMenu x={0} y={0} subject="file" onPick={() => {}} onClose={() => {}}
+    items={[{ id: "open", label: "Open" }, { id: "disabled", label: "Unavailable", disabled: true }, { id: "rename", label: "Rename" }]} />);
+  const open = screen.getByRole("menuitem", { name: "Open" });
+  const rename = screen.getByRole("menuitem", { name: "Rename" });
+  expect(document.activeElement).toBe(open);
+  fireEvent.keyDown(open, { key: "ArrowUp" });
+  expect(document.activeElement).toBe(rename);
+  fireEvent.keyDown(rename, { key: "ArrowDown" });
+  expect(document.activeElement).toBe(open);
+  fireEvent.keyDown(open, { key: "End" });
+  expect(document.activeElement).toBe(rename);
+  fireEvent.keyDown(rename, { key: "Home" });
+  expect(document.activeElement).toBe(open);
+  fireEvent.keyDown(open, { key: "r" });
+  expect(document.activeElement).toBe(rename);
+  view.unmount();
+  expect(document.activeElement).toBe(opener);
+  opener.remove();
+});

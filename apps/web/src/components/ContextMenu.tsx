@@ -13,6 +13,7 @@
 // to aim at twice.
 
 import { useEffect, useId, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 
 import { useUiCommands, useUiRevision } from "../lib/uiActionBridge";
 import { useUiReading } from "../lib/uiReading";
@@ -55,8 +56,8 @@ export function menuBox(
   y: number,
   viewport: { width: number; height: number },
 ): { left: number; top: number; width: number } {
-  const width = 220;
-  const height = items.length * 26 + items.filter((i) => i.group).length * 5 + 34;
+  const width = Math.min(240, Math.max(0, viewport.width - 8));
+  const height = items.length * 28 + items.filter((i) => i.group).length * 9 + 36;
   return {
     left: Math.max(4, Math.min(x, viewport.width - width - 4)),
     top: Math.max(4, Math.min(y, viewport.height - height - 4)),
@@ -106,7 +107,13 @@ export function ContextMenu({
   useUiReading(`menu for ${subject}`, { subject, items, pending, error });
 
   useEffect(() => {
-    box.current?.querySelector<HTMLButtonElement>("button:not([disabled])")?.focus();
+    const previous = document.activeElement;
+    const menu = box.current;
+    menu?.querySelector<HTMLButtonElement>("button:not([disabled])")?.focus();
+    return () => {
+      if ((document.activeElement === document.body || menu?.contains(document.activeElement)) &&
+          previous instanceof HTMLElement && previous.isConnected) previous.focus();
+    };
   }, []);
 
   useEffect(() => {
@@ -119,17 +126,20 @@ export function ContextMenu({
     const onPointer = (event: MouseEvent) => {
       if (!box.current?.contains(event.target as Node)) onClose();
     };
+    const onScroll = (event: Event) => {
+      if (!box.current?.contains(event.target as Node)) onClose();
+    };
     window.addEventListener("keydown", onKey, true);
     window.addEventListener("mousedown", onPointer, true);
     window.addEventListener("contextmenu", onPointer, true);
     window.addEventListener("resize", onClose);
-    window.addEventListener("scroll", onClose, true);
+    window.addEventListener("scroll", onScroll, true);
     return () => {
       window.removeEventListener("keydown", onKey, true);
       window.removeEventListener("mousedown", onPointer, true);
       window.removeEventListener("contextmenu", onPointer, true);
       window.removeEventListener("resize", onClose);
-      window.removeEventListener("scroll", onClose, true);
+      window.removeEventListener("scroll", onScroll, true);
     };
   }, [onClose]);
 
@@ -138,21 +148,46 @@ export function ContextMenu({
     height: window.innerHeight,
   });
 
-  return (
+  const search = useRef({ text: "", time: 0 });
+  return createPortal(
     <div
       ref={box}
       className={`tree-menu${className ? ` ${className}` : ""}`}
+      onKeyDown={(event) => {
+        const buttons = Array.from(box.current?.querySelectorAll<HTMLButtonElement>("button:not([disabled])") ?? []);
+        if (event.key === "Tab") { onClose(); return; }
+        if (event.altKey || event.ctrlKey || event.metaKey || !buttons.length) return;
+        const current = buttons.indexOf(document.activeElement as HTMLButtonElement);
+        let next: HTMLButtonElement | undefined;
+        if (event.key === "ArrowDown") next = buttons[(current + 1) % buttons.length];
+        else if (event.key === "ArrowUp") next = buttons[(current - 1 + buttons.length) % buttons.length];
+        else if (event.key === "Home") next = buttons[0];
+        else if (event.key === "End") next = buttons[buttons.length - 1];
+        else if (event.key.length === 1 && event.key !== " ") {
+          const now = Date.now();
+          const letter = event.key.toLocaleLowerCase();
+          search.current = { text: now - search.current.time > 700 ? letter : search.current.text + letter, time: now };
+          const query = [...search.current.text].every(char => char === letter) ? letter : search.current.text;
+          next = [...buttons.slice(current + 1), ...buttons.slice(0, current + 1)]
+            .find(button => button.textContent?.trim().toLocaleLowerCase().startsWith(query));
+        } else return;
+        event.preventDefault();
+        event.stopPropagation();
+        next?.focus();
+      }}
       role="menu"
       aria-label={`Actions for ${subject}`}
       style={{ left: `${left}px`, top: `${top}px`, width: `${width}px` }}
     >
-      <p className="tree-menu__title mono" data-tip={subject}>
+      <p className="tree-menu__title" data-tip={subject}>
         {subject}
       </p>
       {error && <p role="alert">{error}</p>}
       {items.map((item) => (
         <button
           key={item.id}
+          tabIndex={-1}
+          onPointerMove={(event) => { if (!item.disabled && !pending) event.currentTarget.focus({ preventScroll: true }); }}
           type="button"
           role="menuitem"
           data-menu-item={item.id}
@@ -169,6 +204,7 @@ export function ContextMenu({
           {item.label}
         </button>
       ))}
-    </div>
+    </div>,
+    document.body,
   );
 }
