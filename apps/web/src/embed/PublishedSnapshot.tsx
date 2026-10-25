@@ -98,12 +98,17 @@ function CapturedPublishedSnapshot({ snapshot, artifactUrl, predictionNavigation
     read: () => ({ revision: revision(), enabled: true }), execute: async args => { setReplay(args.shown as boolean); return { status: "completed", value: { transcripts_requested: args.shown, execution_requested: false } }; },
   } }]);
   return <main className="published-snapshot">
-    <h1>{snapshot.path}</h1>
-    <p>Captured {new Date(snapshot.captured_at_ms).toLocaleString()} · historical snapshot</p>
-    <p>Source SHA-256: <code>{snapshot.source_hash}</code></p>
-    <p>This read-only snapshot displays recorded results. Opening or exporting it does not execute checks. It does not certify the current repository or authenticate the supplied results.</p>
-    {snapshot.verification && <section aria-label="Revision-bound verification">
-      <h2>Verification: {snapshot.verification.status}</h2>
+    <header className="published-snapshot__heading">
+      <h1>{snapshot.path}</h1>
+      {snapshot.verification && <p className={`published-snapshot__status published-snapshot__status--${snapshot.verification.status}`}>Verification: {snapshot.verification.status}</p>}
+    </header>
+    <details className="snapshot-provenance">
+      <summary>Snapshot details · captured {new Date(snapshot.captured_at_ms).toLocaleString()} · historical</summary>
+      <div className="snapshot-provenance__contents">
+        <p>Source SHA-256: <code>{snapshot.source_hash}</code></p>
+        <p>This read-only snapshot displays recorded results. Opening or exporting it does not execute checks. It does not certify the current repository or authenticate the supplied results.</p>
+        {snapshot.verification && <section aria-label="Revision-bound verification">
+      <h2>Verification details</h2>
       <UiLink href={`https://github.com/LoumTechnologies/hickory-docs/commit/${snapshot.verification.revision}`}>Tested revision {snapshot.verification.revision}</UiLink>
       <p>{snapshot.verification.origin}</p>
       <SnapshotDisclosure label="Recording/replay evidence" value={snapshot.verification.execution_evidence ?? "Recording origin unavailable"}><pre>{JSON.stringify(snapshot.verification.execution_evidence ?? "Recording origin unavailable", null, 2)}</pre></SnapshotDisclosure><p>{snapshot.verification.scope}</p>
@@ -111,7 +116,9 @@ function CapturedPublishedSnapshot({ snapshot, artifactUrl, predictionNavigation
       <SnapshotDisclosure label="Environment and dependency identities" value={{ environment: snapshot.verification.environment, dependencies: snapshot.verification.dependencies, assets: snapshot.verification.assets }}><pre>{JSON.stringify({ environment: snapshot.verification.environment, dependencies: snapshot.verification.dependencies, assets: snapshot.verification.assets }, null, 2)}</pre></SnapshotDisclosure>
       {snapshot.verification.requirements.map((r, n) => <section key={`${r.id}:${n}`} id={`requirement-${n}`}><h3>{r.id}</h3><p>{r.text}</p>{r.witnesses.map(i => snapshot.cells[i] ? <UiLink key={i} href={`#witness-${i}`}>Witness {snapshot.cells[i].id} </UiLink> : <p key={i}>Witness {i} unavailable · not verified</p>)}{snapshot.prediction_history && predictionWitnesses(snapshot.prediction_history, r.id).map(attempt => <UiLink key={attempt} href={`#prediction-${attempt}`}>Recorded prediction attempt {attempt}</UiLink>)}</section>)}
       {snapshot.verification.commands.map((c, i) => <SnapshotDisclosure key={i} initialOpen={snapshot.verification!.status !== "passed"} label={`${c.command.join(" ")} · ${c.exit_code === undefined ? "unavailable" : `exit ${c.exit_code}`}`} value={{ stdout: c.stdout ?? "", stderr: c.stderr ?? c.error ?? "" }}><pre>{c.stdout}</pre><pre>{c.stderr ?? c.error}</pre></SnapshotDisclosure>)}
-    </section>}
+        </section>}
+      </div>
+    </details>
     {snapshot.prediction_history && <PredictionEvidence value={snapshot.prediction_history} sourceHash={snapshot.source_hash} navigation={predictionNavigation} />}
     <DocumentEmbed source={snapshot.source} revision={snapshot.source_hash} path={snapshot.path} host={host} readOnly />
     <h2>Recorded cell results</h2>

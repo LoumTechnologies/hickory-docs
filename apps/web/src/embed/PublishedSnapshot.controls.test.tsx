@@ -15,6 +15,7 @@ it("shares publication disclosure and transcript state and resets a replacement 
   const registry = new UiActions({ workspace: "p", window: "w" }, () => true, async () => {});
   const draw = (value: ViewerSnapshot) => <UiActionContext.Provider value={registry}><PublishedSnapshot snapshot={value} /></UiActionContext.Provider>;
   const view = render(draw(snapshot()));
+  expect(screen.getByText(/Snapshot details/).closest("details")?.open).toBe(false);
   const actions = () => registry.groups().groups.flatMap(group => registry.observe(group, 64).actions);
   const handle = (label: string) => actions().find(action => action.label === label)!.handle;
   const run = async (target: string, args: Record<string, boolean | number>) => {

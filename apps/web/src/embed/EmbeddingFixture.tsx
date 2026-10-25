@@ -38,7 +38,7 @@ export function EmbeddingFixture() {
     <button onClick={() => act("replace")}>Replace source</button>
     <button onClick={() => act("save")}>Save explicitly</button>
     <output aria-label="Saved document">{saved}</output>
-    {mounted && <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+    {mounted && <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, alignItems: "start" }}>
       <DocumentEmbed path="first.md" source={left} revision={String(revision)} readOnly={readOnly} onChange={(change) => { setLeft(change.source); setRevision((r) => r + 1); }}
         host={{ resolveAsset: async () => "data:image/svg+xml," + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="40" height="40"><circle cx="20" cy="20" r="18" fill="orange"/></svg>') }} />
       <DocumentEmbed path="second.md" source={right} revision="0" onChange={(change) => setRight(change.source)} />

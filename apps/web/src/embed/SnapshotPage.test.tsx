@@ -49,6 +49,14 @@ it("cancels a pending fetch without adopting a late response and rejects externa
   expect(screen.queryByText("Captured spec.md")).toBeNull();
 });
 
+it("explains a non-JSON publication response without exposing parser jargon", async () => {
+  vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response("<!doctype html><title>not a snapshot</title>")));
+  const { run } = setup();
+  expect(await run("Load same-origin publication index", { path: "/publications/index.json" })).toMatchObject({ outcome: { status: "unavailable" } });
+  expect((await screen.findByRole("alert")).textContent).toContain("This link did not return snapshot JSON");
+  expect(screen.getByRole("alert").textContent).not.toContain("Unexpected token");
+});
+
 it("binds index navigation to the selected source and tested revision", async () => {
   const captured = await fixture(), revision = "a".repeat(40);
   const index = { version: 1, revision, documents: [{ path: "spec.md", status: "passed", snapshot: "capture.json", revision, source_hash: captured.source_hash }] };
