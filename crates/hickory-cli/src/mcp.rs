@@ -546,8 +546,15 @@ impl Server {
         // edit-session machinery: it has its own lifetime, its own scratch
         // copy, and — deliberately — no way to write anything.
         if name == "performance_profile" {
-            let result=async {let request=serde_json::from_value(args.clone()).map_err(|e|e.to_string())?;crate::performance::dispatch(&self.root,request).await.map(|v|v.to_string()).map_err(|e|format!("{e:#}"))}.await;
-            return self.record_activity(name,result);
+            let result = async {
+                let request = serde_json::from_value(args.clone()).map_err(|e| e.to_string())?;
+                crate::performance::dispatch(&self.root, request)
+                    .await
+                    .map(|v| v.to_string())
+                    .map_err(|e| format!("{e:#}"))
+            }
+            .await;
+            return self.record_activity(name, result);
         }
         if name == "code_coverage" {
             let result = async {

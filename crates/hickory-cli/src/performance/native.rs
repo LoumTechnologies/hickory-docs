@@ -64,7 +64,8 @@ pub(super) fn plan(
         .context("Unknown profiling profile")?;
     ensure!(!original.argv.is_empty(), "Empty profiling command");
     ensure!(
-        ["chrome-cpu", "speedscope", "cprofile-json"].contains(&original.format.as_str()),
+        ["chrome-cpu", "speedscope", "cprofile-json", "firefox"]
+            .contains(&original.format.as_str()),
         "Unsupported profiling format"
     );
     run.identity.collector = original.collector.clone();

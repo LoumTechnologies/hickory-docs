@@ -145,6 +145,7 @@ history, not a chat log that evaporated.
   with either mode: [docs/users/ai-agents.md](docs/users/ai-agents.md).
 - Notebook datasets and Python outputs: [read Parquet/Delta tables and display results](docs/users/notebooks.md).
 - Automated, human and AI manual testing: [inspect code coverage and reached paths](docs/users/code-coverage.md).
+- Performance evidence: [inspect measured hotspots inline in literate source](docs/users/performance-profiling.md).
 - The desktop app is in development: `apps/desktop` is a Tauri window around
   the notebook UI. It runs the same engine in-process (no second
   implementation of weaving, lineage, or output edits) and answers the

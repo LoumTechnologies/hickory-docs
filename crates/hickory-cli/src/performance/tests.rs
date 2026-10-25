@@ -161,3 +161,22 @@ async fn unsafe_paths_and_remote_debugger_endpoints_are_refused() {
         assert!(store::dir(&root).is_err());
     }
 }
+#[test]
+fn native_profile_report_traversal_and_symlink_escape_are_refused_before_writes() {
+    let (_t, root) = project();
+    #[cfg(unix)]
+    {
+        let outside = tempfile::tempdir().unwrap();
+        std::os::unix::fs::symlink(outside.path(), root.join("outside")).unwrap();
+        let config = json!({"bad":{"argv":["not-run"],"format":"speedscope","report":"outside/new/report.json","collector":"test","version":"1"}});
+        std::fs::write(root.join(".hick-profile.json"), config.to_string()).unwrap();
+        let request = req(json!({"action":"run","path":".","profile":"bad"}));
+        let mut run = fresh(&root, &root, &request, "native").unwrap();
+        assert!(native::plan(&root, &root, &request, &mut run).is_err());
+        assert!(!outside.path().join("new").exists());
+    }
+    std::fs::write(root.join(".hick-profile.json"),json!({"bad":{"argv":["not-run"],"format":"speedscope","report":"../outside/report.json","collector":"test","version":"1"}}).to_string()).unwrap();
+    let request = req(json!({"action":"run","path":".","profile":"bad"}));
+    let mut run = fresh(&root, &root, &request, "native").unwrap();
+    assert!(native::plan(&root, &root, &request, &mut run).is_err());
+}

@@ -85,10 +85,10 @@ pub(super) fn list(root: &Path) -> Result<Value> {
     let mut records = Vec::new();
     for e in std::fs::read_dir(dir(root)?)? {
         let p = e?.path();
-        if p.extension().and_then(|p| p.to_str()) == Some("json") {
-            if let Some(id) = p.file_stem().and_then(|p| p.to_str()) {
-                records.push(load(root, id)?);
-            }
+        if p.extension().and_then(|p| p.to_str()) == Some("json")
+            && let Some(id) = p.file_stem().and_then(|p| p.to_str())
+        {
+            records.push(load(root, id)?);
         }
     }
     records.sort_by_key(|r| std::cmp::Reverse(r.started_ms));

@@ -130,22 +130,26 @@ pub async fn dispatch(root: &Path, request: Request) -> Result<Value> {
         "inspect" => {
             let project = project(&root, &request)?;
             Ok(
-                json!({"profiles":native::config(&project)?,"formats":["chrome-cpu","speedscope","cprofile-json"],"browser":"V8 CPU sampling via loopback CDP; source maps or byte-identical JavaScript required for inline anchors","python":"Existing explicit confined saved-Python provider via capture-python","native":"Project-owned argv profiles; process runs with local permissions"}),
+                json!({"profiles":native::config(&project)?,"formats":["chrome-cpu","speedscope","cprofile-json","firefox"],"browser":"V8 CPU sampling via loopback CDP; source maps or byte-identical JavaScript required for inline anchors","python":"Existing explicit confined saved-Python provider via capture-python","native":"Project-owned argv profiles; process runs with local permissions"}),
             )
         }
         "capture-python" => {
             let path = safe_path(&root, &request.path)?;
             let mut record = fresh(&root, path.parent().unwrap(), &request, "confined-python")?;
-            let run = crate::observation::capture_mode(
-                &path,
-                request.program.as_deref(),
-                request.seconds.unwrap_or(10),
-                true,
-            )
-            .await?;
-            hick_observe::LocalStore::open(path.parent().unwrap())?.save(&run)?;
-            resolve::python(&root, &path, &mut record, &run)?;
             store::save(&root, &record)?;
+            let result = async {
+                let run = crate::observation::capture_mode(
+                    &path,
+                    request.program.as_deref(),
+                    request.seconds.unwrap_or(10),
+                    true,
+                )
+                .await?;
+                hick_observe::LocalStore::open(path.parent().unwrap())?.save(&run)?;
+                resolve::python(&root, &path, &mut record, &run)
+            }
+            .await;
+            store::finish(&root, &mut record, result);
             store::view(&root, &record.id, true)
         }
         "import" => {
@@ -222,7 +226,7 @@ fn locations(root: &Path, request: &Request) -> Result<Value> {
     let limit = request.limit.unwrap_or(100).clamp(1, 500);
     ensure!(offset <= rows.len(), "Offset exceeds profile rows");
     Ok(
-        json!({"run":record.id,"source_state":store::source_state(root,&record),"collector":record.identity.collector,"version":record.identity.version,"scope":thread.name,"unit":thread.unit,"aggregation":thread.aggregation,"measured_weight":thread.measured_weight,"interval":[thread.interval_start,thread.interval_end],"labels":record.labels,"rows":rows.iter().skip(offset).take(limit).map(|r|{let mut row=json!(r);row["document"]=r.frame.file.as_ref().zip(r.frame.line).and_then(|(file,line)|record.mappings.get(file).and_then(|m|m.get(&line))).cloned().unwrap_or(Value::Null);row}).collect::<Vec<_>>(),"total":rows.len(),"next":(offset+limit<rows.len()).then_some(offset+limit),"limitations":report.limitations}),
+        json!({"run":record.id,"source_state":store::source_state(root,&record),"collector":record.identity.collector,"version":record.identity.version,"scope":thread.name,"unit":thread.unit,"aggregation":thread.aggregation,"measured_weight":thread.measured_weight,"interval":[thread.interval_start,thread.interval_end],"interval_unit":thread.interval_unit,"clock":thread.clock,"labels":record.labels,"rows":rows.iter().skip(offset).take(limit).map(|r|{let mut row=json!(r);row["document"]=r.frame.file.as_ref().zip(r.frame.line).and_then(|(file,line)|record.mappings.get(file).and_then(|m|m.get(&line))).cloned().unwrap_or(Value::Null);row}).collect::<Vec<_>>(),"total":rows.len(),"next":(offset+limit<rows.len()).then_some(offset+limit),"limitations":report.limitations}),
     )
 }
 fn compare(root: &Path, request: &Request) -> Result<Value> {
@@ -246,6 +250,11 @@ fn compare(root: &Path, request: &Request) -> Result<Value> {
             && a.identity.scope == b.identity.scope,
         "Collector/version, configuration or measured scope differ"
     );
+    ensure!(
+        !["unknown", ""].contains(&a.identity.version.as_str())
+            && a.identity.configuration != "unknown",
+        "Collector version and instrumentation configuration must be known for comparison"
+    );
     let index = request.thread.unwrap_or(0);
     let left = a
         .report
@@ -262,7 +271,11 @@ fn compare(root: &Path, request: &Request) -> Result<Value> {
         .get(index)
         .context("Right scope missing")?;
     ensure!(
-        left.unit == right.unit && left.aggregation == right.aggregation && left.name == right.name,
+        left.unit == right.unit
+            && left.interval_unit == right.interval_unit
+            && left.clock == right.clock
+            && left.aggregation == right.aggregation
+            && left.name == right.name,
         "Metric or thread semantics differ"
     );
     let left_rows: BTreeMap<_, _> = left
@@ -303,5 +316,5 @@ fn compare(root: &Path, request: &Request) -> Result<Value> {
     )
 }
 pub fn catalogue() -> Value {
-    json!({"name":"performance_profile","description":"Collect and inspect performance evidence for human/AI workflows. browser-start uses V8 CPU sampling in an existing loopback Chrome tab; drive the UI separately, then stop and inspect locations. run launches a project-owned .hick-profile.json collector profile. capture-python reuses the explicit confined saved-Python provider. Import chrome-cpu, Speedscope or cprofile-json. Inspect bounded per-scope rows, source mappings, sample weights and measured intervals; select evidence inline in literate documents. Sampling counts are not calls; inclusive time overlaps. Compare retains before/after source identities and never infers speedups from missing samples.","inputSchema":{"type":"object","required":["action"],"properties":{"action":{"type":"string","enum":["list","get","locations","inspect","capture-python","import","browser-start","run","stop","compare"]},"path":{"type":"string"},"id":{"type":"string"},"other":{"type":"string"},"profile":{"type":"string"},"format":{"type":"string","enum":["chrome-cpu","speedscope","cprofile-json"]},"raw":{"type":"string"},"identity":{"type":"object"},"labels":{"type":"array","items":{"type":"string"}},"url":{"type":"string"},"selector":{"type":"string"},"seconds":{"type":"integer","minimum":1,"maximum":120},"program":{"type":"string"},"thread":{"type":"integer","minimum":0},"offset":{"type":"integer","minimum":0},"limit":{"type":"integer","minimum":1,"maximum":500}}}})
+    json!({"name":"performance_profile","description":"Collect and inspect performance evidence for human/AI workflows. browser-start uses V8 CPU sampling in an existing loopback Chrome tab; drive the UI separately, then stop and inspect locations. run launches a project-owned .hick-profile.json collector profile. capture-python reuses the explicit confined saved-Python provider. Import chrome-cpu, Speedscope or cprofile-json. Inspect bounded per-scope rows, source mappings, sample weights and measured intervals; select evidence inline in literate documents. Sampling counts are not calls; inclusive time overlaps. Compare retains before/after source identities and never infers speedups from missing samples.","inputSchema":{"type":"object","required":["action"],"properties":{"action":{"type":"string","enum":["list","get","locations","inspect","capture-python","import","browser-start","run","stop","compare"]},"path":{"type":"string"},"id":{"type":"string"},"other":{"type":"string"},"profile":{"type":"string"},"format":{"type":"string","enum":["chrome-cpu","speedscope","cprofile-json","firefox"]},"raw":{"type":"string"},"identity":{"type":"object"},"labels":{"type":"array","items":{"type":"string"}},"url":{"type":"string"},"selector":{"type":"string"},"seconds":{"type":"integer","minimum":1,"maximum":120},"program":{"type":"string"},"thread":{"type":"integer","minimum":0},"offset":{"type":"integer","minimum":0},"limit":{"type":"integer","minimum":1,"maximum":500}}}})
 }

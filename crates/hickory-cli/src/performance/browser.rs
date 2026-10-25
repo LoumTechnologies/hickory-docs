@@ -44,17 +44,17 @@ pub(super) fn stop(root: &Path, id: &str) -> bool {
 fn notification(v: &Value, scripts: &mut BTreeMap<String, Script>) {
     if v["method"] == "Debugger.scriptParsed" {
         let p = &v["params"];
-        if let (Some(id), Some(url)) = (p["scriptId"].as_str(), p["url"].as_str()) {
-            if scripts.len() < 20_000 {
-                scripts.insert(
-                    id.into(),
-                    Script {
-                        url: url.into(),
-                        map_url: p["sourceMapURL"].as_str().map(str::to_string),
-                        ..Default::default()
-                    },
-                );
-            }
+        if let (Some(id), Some(url)) = (p["scriptId"].as_str(), p["url"].as_str())
+            && scripts.len() < 20_000
+        {
+            scripts.insert(
+                id.into(),
+                Script {
+                    url: url.into(),
+                    map_url: p["sourceMapURL"].as_str().map(str::to_string),
+                    ..Default::default()
+                },
+            );
         }
     }
 }
@@ -179,15 +179,14 @@ pub(super) fn start(root: PathBuf, mut run: Record, mut connection: Connection) 
             let timeout=tokio::time::sleep(Duration::from_secs(900));tokio::pin!(timeout);
             loop {tokio::select!{_= &mut rx=>break,_=&mut timeout=>bail!("Browser profiling exceeded 15 minutes"),message=connection.socket.next()=>{let m=message.context("Browser profiler disconnected")??;if m.is_text(){notification(&serde_json::from_str::<Value>(m.to_text()?)?,&mut connection.scripts);}}}}
             let raw=connection.call("Profiler.stop",json!({})).await?;
+            run.report=Some(hick_profile::parse("chrome-cpu",&raw.to_string())?);
             let epoch=connection.call("Runtime.evaluate",json!({"expression":"performance.timeOrigin","returnByValue":true})).await?["result"]["value"].as_f64();
             ensure!(epoch==Some(connection.epoch),"Page reloaded during profile; start a new session");
             let ids:std::collections::BTreeSet<_>=raw["profile"]["nodes"].as_array().context("Missing CPU nodes")?.iter().filter_map(|n|n["callFrame"]["scriptId"].as_str().map(str::to_string)).collect();
             let mut scripts=BTreeMap::new();let mut total=0;
             for id in ids {
                 if let Some(mut script)=connection.scripts.get(&id).cloned() {
-                    if let Ok(source)=connection.call("Debugger.getScriptSource",json!({"scriptId":id})).await {
-                        if let Some(text)=source["scriptSource"].as_str(){total+=text.len();ensure!(total<=16*1024*1024,"Sampled script sources exceed 16 MiB");script.source=Some(text.into());}
-                    }
+                    if let Ok(source)=connection.call("Debugger.getScriptSource",json!({"scriptId":id})).await && let Some(text)=source["scriptSource"].as_str(){total+=text.len();ensure!(total<=16*1024*1024,"Sampled script sources exceed 16 MiB");script.source=Some(text.into());}
                     if let Some(map)=script.map_url.as_deref(){script.map=load_map(&connection.page,&script.url,map).await.ok();}
                     scripts.insert(id,script);
                 }

@@ -51,9 +51,9 @@ mod private_prediction_startup;
 pub(crate) mod private_predictions;
 pub use private_prediction_startup::Startup as PrivatePredictionStartup;
 pub use private_predictions::Binding as PrivatePredictionBinding;
+mod capabilities;
 mod engineer_tour;
 pub mod environments;
-mod capabilities;
 pub mod files_ops;
 pub mod find;
 pub mod formula;
@@ -70,8 +70,8 @@ pub mod merged;
 mod merged_write;
 mod native_projects;
 mod output_resolution;
-pub mod performance;
 pub mod outputs;
+pub mod performance;
 pub mod plain_file;
 mod private_practice;
 mod project_comparison;
@@ -777,7 +777,10 @@ pub(crate) fn router(state: LocalState) -> Router {
         .route("/environments/actions", post(environments::act))
         .route("/environments/manager", put(environments::choose))
         .route("/tests/run", post(test_run::run))
-        .route("/performance", post(performance::action).layer(axum::extract::DefaultBodyLimit::max(36 * 1024 * 1024)))
+        .route(
+            "/performance",
+            post(performance::action).layer(axum::extract::DefaultBodyLimit::max(36 * 1024 * 1024)),
+        )
         .route(
             "/tests/coverage",
             get(test_coverage::list)

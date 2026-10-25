@@ -84,6 +84,8 @@ pub(super) fn parse(v: &Value) -> Result<Vec<Thread>> {
         .into(),
         aggregation: "sampled stack weights; function locations are anchors, not line timings"
             .into(),
+        interval_unit: "seconds".into(),
+        clock: "V8 monotonic".into(),
         interval_start: start,
         interval_end: end,
         measured_weight: weight,

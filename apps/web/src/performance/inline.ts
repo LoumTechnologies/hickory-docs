@@ -24,10 +24,10 @@ class Hotspot extends WidgetType {
     details.append(summary);
     const scope = document.createElement("p"); scope.textContent = `Run ${this.reading.scope.run} · ${first.source_state} · ${first.aggregation} · measured weight ${format(Number(first.measured_weight))} ${first.unit}. Inclusive costs overlap; samples are not calls.`; details.append(scope);
     const table = document.createElement("table"); table.setAttribute("aria-label", "Inline performance hotspots");
-    const header = table.insertRow(); for (const title of ["Function", "Self", "Inclusive (overlap)", "Samples", "Total / primitive calls"]) { const th = document.createElement("th"); th.textContent = title; header.append(th); }
+    const header = table.insertRow(); for (const title of ["Function", "Self", "Inclusive (overlap)", "Stack observations", "Total / primitive calls"]) { const th = document.createElement("th"); th.textContent = title; header.append(th); }
     for (const annotation of this.reading.annotations) { const payload = annotation.payload, row = payload.row as ProfileRow, tr = table.insertRow(); for (const value of [row.frame.name, `${format(row.self_weight)} ${payload.unit}`, `${format(row.inclusive_weight)} ${payload.unit}`, row.samples ?? "unavailable", `${row.total_calls ?? "unavailable"} / ${row.primitive_calls ?? "unavailable"}`]) tr.insertCell().textContent = String(value); }
     details.append(table);
-    details.addEventListener("toggle", () => { this.disclose(details.open); view.dispatch({ effects: disclosure.of(null) }); });
+    details.addEventListener("toggle", () => { if (this.details !== details || !view.dom.isConnected) return; this.disclose(details.open); view.dispatch({ effects: disclosure.of(null) }); });
     return details;
   }
   destroy() { selectObservations(this.reading, false, false, this.owner); this.details = null; }

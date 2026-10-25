@@ -22,7 +22,7 @@ export function profileReading(run: PerformanceRun, thread: number, path: string
     if (!line || line > lines.length) return;
     const id = `profile:${run.id}:${thread}:L${line}`;
     if (!reading.locations.some(item => item.id === id)) reading.locations.push({ id, revision, line: line - 1, location: { source: reading.source.id, bytes: { start: offsets[line - 1], end: offsets[line - 1] + new TextEncoder().encode(lines[line - 1].replace(/\r$/, "")).length }, precision: "adapter_reported" } });
-    reading.annotations.push({ evidence: `${run.id}:profile:${thread}:${index}`, provider: run.identity.collector, payload_schema: "hick-performance-v1", location: id, scope: reading.scope, payload: { kind: "profile", row, unit: scope.unit, aggregation: scope.aggregation, interval: [scope.interval_start, scope.interval_end], measured_weight: scope.measured_weight, labels: run.labels, source_state: run.source_state, environment: run.environment, collector_version: run.identity.version } });
+    reading.annotations.push({ evidence: `${run.id}:profile:${thread}:${index}`, provider: run.identity.collector, payload_schema: "hick-performance-v1", location: id, scope: reading.scope, payload: { kind: "profile", row, unit: scope.unit, aggregation: scope.aggregation, interval: [scope.interval_start, scope.interval_end], interval_unit: scope.interval_unit ?? "unknown", clock: scope.clock ?? "unknown", measured_weight: scope.measured_weight, labels: run.labels, source_state: run.source_state, environment: run.environment, collector_version: run.identity.version } });
   });
   return reading;
 }

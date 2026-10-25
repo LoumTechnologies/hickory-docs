@@ -1,5 +1,6 @@
 //! Profiler evidence. Sampling weights are never call counts or per-line costs.
 mod chrome;
+mod firefox;
 mod speedscope;
 use anyhow::{Context, Result, bail, ensure};
 use serde::{Deserialize, Serialize};
@@ -31,6 +32,8 @@ pub struct Thread {
     pub name: String,
     pub unit: String,
     pub aggregation: String,
+    pub interval_unit: String,
+    pub clock: String,
     pub interval_start: f64,
     pub interval_end: f64,
     pub measured_weight: f64,
@@ -49,6 +52,7 @@ pub fn parse(format: &str, raw: &str) -> Result<Report> {
     let (threads,limitations)=match format {
         "chrome-cpu" => (chrome::parse(value.get("profile").unwrap_or(&value))?,vec!["CPU sampling weights; call counts unavailable; native/unmapped functions retained".into()]),
         "speedscope" => (speedscope::parse(&value)?,vec!["Per-thread/profile weights; inclusive costs overlap; call counts unavailable".into()]),
+        "firefox" => (firefox::parse(&value)?,vec!["Processed/symbolicated Firefox profiles; native addresses without source metadata stay unresolved".into()]),
         "cprofile-json" => (cprofile(&value)?,vec!["Deterministic function aggregates include instrumentation overhead; cumulative costs overlap".into()]),
         _ => bail!("Unsupported profile format: {format}"),
     };
@@ -151,6 +155,8 @@ fn cprofile(value: &Value) -> Result<Vec<Thread>> {
             .into(),
         unit: "seconds".into(),
         aggregation: "deterministic function aggregates".into(),
+        interval_unit: "seconds".into(),
+        clock: "provider-monotonic elapsed".into(),
         interval_start: 0.,
         interval_end: elapsed,
         measured_weight: rows.iter().map(|r| r.self_weight).sum(),

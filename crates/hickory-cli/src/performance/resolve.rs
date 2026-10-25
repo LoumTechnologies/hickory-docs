@@ -149,6 +149,12 @@ pub(super) fn python(
     record: &mut Record,
     run: &hick_observe::Run,
 ) -> Result<()> {
+    if let Some(captured) = run.sources.first() {
+        record
+            .identity
+            .source_hashes
+            .insert(relative(root, path), captured.revision.clone());
+    }
     let mut functions = BTreeMap::<(String, u32, String), Value>::new();
     let mut elapsed = 0f64;
     for event in &run.events {

@@ -86,3 +86,18 @@ fn malformed_or_unknown_profiles_never_become_zero_cost() {
         assert!(parse(format, raw).is_err());
     }
 }
+#[test]
+fn processed_firefox_preserves_symbolicated_rust_locations_and_sample_units() {
+    let raw=json!({"threads":[{"name":"main","tid":7,"stringArray":["crate::hot","src/main.rs"],"funcTable":{"name":[0],"fileName":[1],"lineNumber":[12],"columnNumber":[1]},"frameTable":{"func":[0]},"stackTable":{"frame":[0],"prefix":[null]},"samples":{"stack":[0,0],"time":[1,3],"weightType":"samples","weight":[1,2]}}]}).to_string();
+    let r = parse("firefox", &raw).unwrap();
+    let t = &r.threads[0];
+    assert_eq!(t.unit, "samples");
+    assert_eq!(t.measured_weight, 3.);
+    assert_eq!(t.rows[0].frame.file.as_deref(), Some("src/main.rs"));
+    assert_eq!(t.rows[0].frame.line, Some(12));
+    assert_eq!(t.rows[0].total_calls, None);
+}
+#[test]
+fn unconverted_firefox_profiles_are_unavailable_instead_of_zero() {
+    assert!(parse("firefox", r#"{"threads":[{"samples":{}}]}"#).is_err());
+}

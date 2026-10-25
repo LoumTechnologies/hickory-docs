@@ -82,6 +82,8 @@ pub(super) fn parse(v: &Value) -> Result<Vec<Thread>> {
             name: p["name"].as_str().unwrap_or("unnamed scope").into(),
             unit: unit.into(),
             aggregation: "per-profile stack weights; inclusive costs overlap".into(),
+            interval_unit: unit.into(),
+            clock: "provider-relative".into(),
             interval_start: start * multiplier,
             interval_end: end * multiplier,
             measured_weight: measured,

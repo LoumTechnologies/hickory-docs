@@ -160,7 +160,7 @@ mod tests {
     fn every_installable_language_has_a_recipe_to_run_it() {
         // Installing an indexer nothing knows how to invoke is a download
         // that does nothing.
-        for installer in super::INSTALLERS {
+        for installer in super::INSTALLERS.iter() {
             assert!(
                 super::recipe(installer.language).is_some(),
                 "{} can be installed and not run",

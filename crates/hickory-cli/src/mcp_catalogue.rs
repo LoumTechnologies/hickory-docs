@@ -330,7 +330,10 @@ pub(super) fn tool_catalogue() -> Value {
             }
         ]
     });
-    catalogue["tools"].as_array_mut().unwrap().push(crate::performance::catalogue());
+    catalogue["tools"]
+        .as_array_mut()
+        .unwrap()
+        .push(crate::performance::catalogue());
     catalogue["tools"]
         .as_array_mut()
         .unwrap()
