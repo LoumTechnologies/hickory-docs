@@ -1,3 +1,4 @@
+import { performanceInline } from "../performance/inline";
 import { coverageGutter } from "../coverage/gutter";
 import { inlineEvaluationOwner } from "../debug/inlineEval";
 import { useEditorEditing } from "../editor/useEditorEditing";
@@ -375,6 +376,7 @@ export function PlainFilePane({
           blameGutter(),
           lineNumbers(),
           coverageGutter(() => initial.path, () => fileRef.current?.content),
+          performanceInline(() => initial.path, () => fileRef.current?.content),
           wrapGutterMarkers(),
           // The breakpoint gutter, the paused line, the inline values — the
           // same layer a document's editor wears, told that every line here

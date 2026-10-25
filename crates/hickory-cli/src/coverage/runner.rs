@@ -26,7 +26,7 @@ pub(super) fn stop(root: &Path, id: &str) -> bool {
         .and_then(Option::take)
         .is_some_and(|s| s.send(()).is_ok())
 }
-pub(super) struct Output {
+pub(crate) struct Output {
     pub code: Option<i32>,
     pub text: String,
 }
@@ -51,7 +51,7 @@ async fn read(mut pipe: impl tokio::io::AsyncRead + Unpin) -> Result<String> {
     }
     Ok(text)
 }
-pub(super) async fn execute(
+pub(crate) async fn execute(
     argv: &[String],
     cwd: &Path,
     stop: Option<oneshot::Receiver<()>>,

@@ -1,3 +1,4 @@
+import { PerformanceTools } from "../performance/PerformanceTools";
 import { createPortal } from "react-dom";
 import { useCallback, useEffect, useId, useState } from "react";
 import { coverageCall } from "./client";
@@ -11,7 +12,7 @@ export function CoverageTools({ path }: { path?: string | null }) {
   const [open, setOpen] = useState(false);
   const id = `coverage:${useId()}`, revision = useUiRevision(() => [open, path]);
   const invoke = useUiCommands([{ key: id, command: { subject: id, parent: id, label: open ? "Close test and code coverage tools" : "Open test and code coverage tools", parameters: {}, prerequisites: [], read: () => ({ revision: revision(), enabled: true, value: { open, path: path ?? null } }), execute: async () => { setOpen(value => !value); return { status: "completed", value: { panel_open: !open } }; } } }]);
-  return <><button className="btn" onClick={() => { void invoke(id); }}>Tests &amp; coverage</button>{open && createPortal(<CoveragePanel initialPath={path ?? "."} close={() => setOpen(false)} />, document.body)}</>;
+  return <><PerformanceTools path={path} /><button className="btn" onClick={() => { void invoke(id); }}>Tests &amp; coverage</button>{open && createPortal(<CoveragePanel initialPath={path ?? "."} close={() => setOpen(false)} />, document.body)}</>;
 }
 export function CoveragePanel({ initialPath = ".", close }: { initialPath?: string; close: () => void }) {
   const [path, setPath] = useState(initialPath), [language, setLanguage] = useState("python");

@@ -34,6 +34,7 @@ export function coverageGutter(path: () => string | undefined, serializedSource?
     update(update: ViewUpdate) { if (update.docChanged) void this.refresh(); }
     async refresh() {
       const ticket = ++this.ticket, source = this.view.state.doc, run = selectedCoverage(), file = path();
+      await Promise.resolve();
       let value: { line: number; count: number; label: string }[] = [];
       if (run && file && !run.source_changed_during_run && run.identity.source_hashes[file]) {
         const candidate = serializedSource?.();
