@@ -2,6 +2,7 @@
 resolver = "3"
 members = [
     "crates/hick-coverage",
+    "crates/hick-profile",
     "crates/hick-case",
     "crates/hick-context-protocol",
     "crates/hick-context-store",
